@@ -99,6 +99,12 @@ impl ZkAssetState {
     /// [`Self::validate_tree_integrity`] at decode, recovery, or admitted audit
     /// boundaries. Previously validated history is append-only, so hot writes
     /// need only recheck its current authenticated tail.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for excessive checkpoint history, invalid frontier or
+    /// root metadata, inconsistent retained-root tails, or an invalid latest
+    /// checkpoint count or root.
     pub fn validate_tree_metadata(&self) -> Result<(), String> {
         if self.frontier_checkpoints.len()
             > crate::zk::confidential_v2::CONFIDENTIAL_TREE_CAPACITY_V2
@@ -164,6 +170,12 @@ impl ZkAssetState {
     /// This linear audit is intentionally reserved for decode, recovery, and
     /// explicitly admitted audit paths. Hot appends use
     /// [`Self::validate_tree_metadata`] and the persisted incremental frontier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata or commitment leaves are invalid, rebuilt
+    /// roots/frontier differ from persisted values, or checkpoint ordering,
+    /// counts, or roots do not match the commitment history.
     pub fn validate_tree_integrity(&self) -> Result<(), String> {
         self.validate_tree_metadata()?;
         let projection =
@@ -230,6 +242,11 @@ impl ZkAssetState {
     /// Append a 32-byte note commitment to the shielded ledger and update the root.
     /// Enforces a cap on the number of recent roots kept (`cap`, minimum 1).
     /// Returns the new Merkle root.
+    ///
+    /// # Errors
+    ///
+    /// Propagates malformed metadata/leaf, capacity, arithmetic, and allocation
+    /// failures from [`Self::push_commitments`], or rejects a missing resulting root.
     pub fn push_commitment(&mut self, c: [u8; 32], cap: NonZeroUsize) -> Result<[u8; 32], String> {
         self.push_commitments(&[c], cap)?
             .into_iter()
@@ -241,6 +258,11 @@ impl ZkAssetState {
     /// The complete batch is validated before either commitments or retained roots
     /// are changed, so a malformed leaf or capacity overflow leaves all persisted
     /// values unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for count overflow, exceeded tree capacity, invalid
+    /// metadata or commitment leaves, or failed commitment/root-history reservations.
     pub fn push_commitments(
         &mut self,
         commitments: &[[u8; 32]],
@@ -289,6 +311,10 @@ impl ZkAssetState {
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Record a frontier checkpoint for reorg recovery, enforcing interval and depth bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the current confidential tree metadata fails validation.
     pub fn record_frontier_checkpoint(
         &mut self,
         height: u64,

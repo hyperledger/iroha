@@ -35,7 +35,7 @@ fn same(actual: &BodyHistory, expected: &BodyHistory) {
 fn limits(allocation: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64)
 }
-fn retained_refusal(result: Result<BodyHistory>) {
+fn retained_refusal(result: &Result<BodyHistory>) {
     assert!(matches!(
         result,
         Err(crate::managed::Error::Bootstrap(
@@ -189,7 +189,7 @@ fn exact_epoch_parser_bounds_real_work_and_closes_custody_after_all_ordinary_res
             },
             || history.read_current(&fixture.owner),
         );
-        retained_refusal(result);
+        retained_refusal(&result);
         assert!(changed.borrow().is_some());
         assert_eq!(callbacks.replace(0), 2);
         drop(changed.borrow_mut().take());
@@ -230,7 +230,7 @@ fn exact_epoch_parser_bounds_real_work_and_closes_custody_after_all_ordinary_res
                     action()
                 }
             });
-            retained_refusal(result);
+            retained_refusal(&result);
             assert_eq!(
                 handles
                     .history_order
@@ -279,7 +279,7 @@ fn exact_epoch_parser_bounds_real_work_and_closes_custody_after_all_ordinary_res
             action()
         };
         if original {
-            retained_refusal(result);
+            retained_refusal(&result);
         } else {
             same(&result.unwrap(), &old);
         }
@@ -320,7 +320,7 @@ fn exact_epoch_parser_bounds_real_work_and_closes_custody_after_all_ordinary_res
         },
         || History::test_handle_work(|| history.read_current(&fixture.owner)),
     );
-    retained_refusal(result);
+    retained_refusal(&result);
     assert_eq!(
         handles
             .history_order
@@ -352,7 +352,7 @@ fn exact_epoch_parser_bounds_real_work_and_closes_custody_after_all_ordinary_res
             },
             || history.read_current(&fixture.owner),
         );
-        retained_refusal(result);
+        retained_refusal(&result);
         assert!(changed.borrow().is_some());
         drop(changed.borrow_mut().take());
         history.read_current(&fixture.owner).unwrap();

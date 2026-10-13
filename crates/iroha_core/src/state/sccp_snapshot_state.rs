@@ -39,6 +39,9 @@ pub enum SccpRestoreError {
     /// Generation graph admission refused; original allocation identity is retained.
     #[error("sccp_committee_generations: {0}")]
     Generation(#[from] GenerationRecordError),
+    /// Stored validator bytes retain the original native decode or allocation refusal.
+    #[error("SCCP validator set: {0}")]
+    LightClient(#[from] iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1),
     /// Open-anchor graph admission refused; original allocation identity is retained.
     #[error("sccp_anchor_open: {0}")]
     Anchors(#[from] AnchorRecordError),
@@ -249,9 +252,7 @@ use iroha_data_model::{
         generation::{SCCP_ANCHOR_CHUNK_SIZE_V1, SccpAnchorV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        light_client::{
-            SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcProfileActivationV1, SccpLightClientV1,
-        },
+        light_client::{SccpLcCheckpointV1, SccpLcProfileActivationV1, SccpLightClientV1},
         outbound::SccpOutboundMessageRecordV1,
         params::SccpParametersV1,
         registry::SccpRouteV1,
@@ -533,14 +534,14 @@ fn validate_cell<T: mv::Value>(
     Ok(())
 }
 
-fn valid_parameters(parameters: &Option<SccpParametersV1>) -> Result<(), String> {
-    parameters.as_ref().map_or(Ok(()), |parameters| {
+fn valid_parameters(parameters: Option<&SccpParametersV1>) -> Result<(), String> {
+    parameters.map_or(Ok(()), |parameters| {
         parameters.validate().map_err(|error| error.to_string())
     })
 }
 
-fn valid_reset_nonce(nonce: &Option<[u8; 32]>) -> Result<(), String> {
-    if nonce.is_some_and(|nonce| nonce == [0; 32]) {
+fn valid_reset_nonce(nonce: Option<&[u8; 32]>) -> Result<(), String> {
+    if nonce.is_some_and(|nonce| *nonce == [0; 32]) {
         return Err("the reset nonce must be nonzero".to_owned());
     }
     Ok(())
@@ -569,12 +570,12 @@ impl SnapshotSccpState {
         world: &mut World,
         budget: &AllocationBudget,
     ) -> Result<(), StateRestoreError> {
-        validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
-        validate_cell(
-            &self.sccp_reset_nonce,
-            "sccp_reset_nonce",
-            valid_reset_nonce,
-        )?;
+        validate_cell(&self.sccp_parameters, "sccp_parameters", |value| {
+            valid_parameters(value.as_ref())
+        })?;
+        validate_cell(&self.sccp_reset_nonce, "sccp_reset_nonce", |value| {
+            valid_reset_nonce(value.as_ref())
+        })?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
         validate_cell(&self.sccp_anchor_open, "sccp_anchor_open", |value| {
             valid_anchor_open(value)
@@ -613,7 +614,7 @@ impl SnapshotSccpState {
                 ) && evidence
                     .current()
                     .get(id)
-                    .is_none_or(|current| &**current != &**old)
+                    .is_none_or(|current| **current != **old)
                 {
                     return Err(invalid(
                         "consensus_evidence",
@@ -743,8 +744,14 @@ impl SnapshotSccpState {
             .into());
         }
         // Fund replacement scalar controls under the same original offence pool before publication.
-        let forgery_max_generation =
-            sccp_forgery_custody::initialize_max(max_current, max_previous, budget)?;
+        let forgery_max_generation = sccp_forgery_custody::initialize_max(
+            max_current,
+            match max_previous {
+                Some(value) => sccp_forgery_custody::MaxGenerationPredecessor::Value(value),
+                None => sccp_forgery_custody::MaxGenerationPredecessor::Unchanged,
+            },
+            budget,
+        )?;
         drop(snapshot);
         let anchor_chunks = self
             .sccp_anchor_chunks
@@ -848,10 +855,7 @@ impl SnapshotSccpState {
             .decode::<SccpNetworkV1, SccpLightClientV1>("sccp_light_clients", |_, _| true)?;
         let light_client_sets = self
             .sccp_light_client_sets
-            .decode::<(SccpNetworkV1, u64), SccpLcConsensusSetV1>(
-                "sccp_light_client_sets",
-                |_, _| true,
-            )?;
+            .decode_light_client_sets(budget)?;
         let light_client_checkpoints = self
             .sccp_light_client_checkpoints
             .decode::<(SccpNetworkV1, u64), SccpLcCheckpointV1>(

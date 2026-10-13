@@ -140,7 +140,7 @@ fn stale_accept_retries_after_an_invitation_race_rebases_the_cas_revision() {
     .execute(&owner, &mut transaction)
     .expect("racing invitation advances and rebases governance");
     let _ = take_musubi_events(&mut transaction);
-    let stale = AcceptMusubiPackageMaintainerV1 {
+    let outdated = AcceptMusubiPackageMaintainerV1 {
         package: package.clone(),
         invite_id: first_id,
         expected_governance_revision: 2,
@@ -148,7 +148,7 @@ fn stale_accept_retries_after_an_invitation_race_rebases_the_cas_revision() {
     .execute(&first_account, &mut transaction)
     .expect_err("the pre-race CAS revision must remain stale");
     assert!(
-        stale
+        outdated
             .to_string()
             .contains("stale Musubi package governance")
     );
@@ -775,11 +775,11 @@ fn invitation_revoke_is_owner_only_cas_and_replay_safe() {
         .execute(&stranger, &mut transaction)
         .expect_err("a non-owner cannot revoke an invitation");
     assert!(unauthorized.to_string().contains("not an owner"));
-    let stale = revoke(2)
+    let outdated = revoke(2)
         .execute(&owner, &mut transaction)
         .expect_err("a stale governance revision fails closed");
     assert!(
-        stale
+        outdated
             .to_string()
             .contains("stale Musubi package governance")
     );
@@ -958,9 +958,11 @@ fn identical_alias_replay_requires_current_package_owner_authorization() {
             history_revision: 1,
         },
     );
-    let mut closed_policy = MusubiRegistryPolicyV1::default();
-    closed_policy.revision = 2;
-    closed_policy.mode = MusubiRegistryAdmissionModeV1::Closed;
+    let mut closed_policy = MusubiRegistryPolicyV1 {
+        revision: 2,
+        mode: MusubiRegistryAdmissionModeV1::Closed,
+        ..Default::default()
+    };
     closed_policy.alias_pricing.revision = 2;
     closed_policy.alias_pricing.length_5_to_32_xor = 2;
     *transaction.world.musubi_registry_policy.get_mut() = closed_policy;
@@ -1142,9 +1144,11 @@ fn namespace_binding_sns_refusal_retains_original_owner_before_replay_and_retrie
         .world
         .musubi_namespace_bindings
         .insert(binding.namespace.clone(), binding.clone());
-    let mut closed_policy = MusubiRegistryPolicyV1::default();
-    closed_policy.revision = 2;
-    closed_policy.mode = MusubiRegistryAdmissionModeV1::Closed;
+    let closed_policy = MusubiRegistryPolicyV1 {
+        revision: 2,
+        mode: MusubiRegistryAdmissionModeV1::Closed,
+        ..Default::default()
+    };
     *transaction.world.musubi_registry_policy.get_mut() = closed_policy;
     let key = crate::sns::record_storage_key(&selector);
     let original = transaction
@@ -1241,9 +1245,11 @@ fn namespace_binding_replay_requires_current_owner_authorization() {
         .world
         .musubi_namespace_bindings
         .insert(binding.namespace.clone(), binding.clone());
-    let mut closed_policy = MusubiRegistryPolicyV1::default();
-    closed_policy.revision = 2;
-    closed_policy.mode = MusubiRegistryAdmissionModeV1::Closed;
+    let closed_policy = MusubiRegistryPolicyV1 {
+        revision: 2,
+        mode: MusubiRegistryAdmissionModeV1::Closed,
+        ..Default::default()
+    };
     *transaction.world.musubi_registry_policy.get_mut() = closed_policy;
     let unauthorized = RegisterMusubiNamespaceBindingV1::new(binding.clone(), 1)
         .execute(&stranger, &mut transaction)

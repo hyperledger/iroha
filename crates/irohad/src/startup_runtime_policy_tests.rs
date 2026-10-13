@@ -147,10 +147,10 @@ fn governed_nexus(directory: &std::path::Path) -> iroha_config::parameters::actu
         lane_config: iroha_config::parameters::actual::LaneConfig::from_catalog(&catalog),
         ..Default::default()
     };
-    nexus
-        .governance
-        .modules
-        .insert("parliament".to_owned(), Default::default());
+    nexus.governance.modules.insert(
+        "parliament".to_owned(),
+        iroha_config::parameters::actual::GovernanceModule::default(),
+    );
     nexus.registry.manifest_directory = Some(directory.to_path_buf());
     nexus
 }

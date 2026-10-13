@@ -26,6 +26,7 @@ pub mod committee_storage;
 pub mod controls;
 pub(crate) mod eligibility;
 pub mod escrow;
+pub(crate) mod fast_pause;
 pub mod fees;
 pub mod forgery;
 pub mod generation_record;
@@ -40,18 +41,19 @@ pub mod init;
 pub mod keepalive;
 pub mod leaves;
 pub(crate) mod liability;
+pub mod light_client_set;
 pub mod light_clients;
 pub(crate) mod original_read;
 pub mod outbound;
 pub mod params;
-mod pruning;
 pub mod parliament_iface;
 pub(crate) mod pause_lifecycle;
 pub mod pause_record;
+mod pruning;
 pub mod read;
 pub mod recipients;
-pub mod reconciliation_store;
 pub mod reconciliation;
+pub mod reconciliation_store;
 pub mod registry;
 pub mod self_claim;
 pub mod settle;
@@ -72,7 +74,8 @@ use iroha_data_model::{
         Instruction,
         error::InstructionExecutionError as Error,
         sccp::{
-            AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage, ProveSccpForgedMintV1,
+            AcceptSccpPausePanelSeatV1, AdvanceSccpLightClientV1, EndorseSccpFastPauseV1,
+            InitializeSccpV1, ProveSccpForgedMintV1, RecordSccpMessage,
             ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
             SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
         },
@@ -87,6 +90,8 @@ use iroha_data_model::{
 pub fn is_sccp_instruction(instruction: &dyn Instruction) -> bool {
     let any = instruction.as_any();
     any.is::<InitializeSccpV1>()
+        || any.is::<AcceptSccpPausePanelSeatV1>()
+        || any.is::<EndorseSccpFastPauseV1>()
         || any.is::<iroha_data_model::isi::chain::Keepalive>()
         || any.is::<RecordSccpMessage>()
         || any.is::<SubmitSccpInboundMessageV1>()
@@ -116,6 +121,8 @@ macro_rules! delegate_execute {
 delegate_execute! {
     iroha_data_model::isi::chain::Keepalive => keepalive::execute,
     InitializeSccpV1 => init::execute_initialize,
+    AcceptSccpPausePanelSeatV1 => fast_pause::execute_accept,
+    EndorseSccpFastPauseV1 => fast_pause::execute_endorse,
     RecordSccpMessage => outbound::execute_record,
     SubmitSccpInboundMessageV1 => inbound::execute_submit_inbound,
     SettleSccpV1 => settle::execute_settle,
@@ -135,7 +142,7 @@ mod tests {
 
     #[test]
     fn every_v1_instruction_is_recognized_and_nothing_else_is() {
-        assert_eq!(SampleInstructions::all().len(), 9);
+        assert_eq!(SampleInstructions::all().len(), 11);
         for instruction in SampleInstructions::all() {
             assert!(is_sccp_instruction(&*instruction), "{instruction:?}");
         }

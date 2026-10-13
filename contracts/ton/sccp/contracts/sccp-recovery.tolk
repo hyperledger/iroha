@@ -48,15 +48,20 @@ struct RecoveryBook {
 }
 
 fun RecoveryBook.empty(): RecoveryBook {
-    return { nextId: 1, count: 0, activatedBuckets: 0, operations: [] };
+    return {
+        nextId: 1,
+        count: 0,
+        activatedBuckets: 0,
+        operations: [],
+    };
 }
 
 /// Check the complete batch before proof verification or any state mutation.
 fun RecoveryBook.requireRoom(self, additional: int) {
-    assert ((additional > 0) & (self.count + additional <= SCCP_RECOVERY_CAPACITY))
-        throw SccpErrors.RecoveryFull;
-    assert (self.nextId + additional <= SCCP_MAX_U64)
-        throw SccpErrors.RecoveryExhausted;
+    assert (
+        (additional > 0) & (self.count + additional <= SCCP_RECOVERY_CAPACITY)
+    ) throw SccpErrors.RecoveryFull;
+    assert (self.nextId + additional <= SCCP_MAX_U64) throw SccpErrors.RecoveryExhausted;
 }
 
 fun RecoveryBook.admit(mutate self, operation: RecoveryOperation): int {
@@ -110,8 +115,9 @@ fun RecoveryReceipts.existing(self, operationId: int, stage: int, attempt: int):
 
 fun RecoveryReceipts.record(mutate self, operationId: int, stage: int, attempt: int, result: int) {
     assert (self.existing(operationId, stage, attempt) == null) throw SccpErrors.BadRecovery;
-    assert ((result == SCCP_RECEIPT_APPLIED) | (result == SCCP_RECEIPT_REJECTED))
-        throw SccpErrors.BadRecovery;
+    assert (
+        (result == SCCP_RECEIPT_APPLIED) | (result == SCCP_RECEIPT_REJECTED)
+    ) throw SccpErrors.BadRecovery;
     self.receipts.set(sccpReceiptKey(operationId, stage), { attempt, result });
     self.count += 1;
 }

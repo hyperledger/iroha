@@ -13,7 +13,7 @@ use iroha_data_model::proof::VerifyingKeyId;
 
 fn state() -> State {
     State::new_for_testing(
-        *world(),
+        world(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     )

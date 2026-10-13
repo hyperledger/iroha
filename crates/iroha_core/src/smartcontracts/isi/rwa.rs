@@ -1587,7 +1587,7 @@ pub mod query {
             _ => false,
         }
     }
-    fn predicate_value_matches_status(value: &Value, expected: &Option<Name>) -> bool {
+    fn predicate_value_matches_status(value: &Value, expected: Option<&Name>) -> bool {
         match (value, expected) {
             (Value::Null, None) => true,
             (Value::String(raw), Some(status)) => raw == &status.to_string(),
@@ -1604,7 +1604,7 @@ pub mod query {
                 return false;
             }
             if cond.field == "status" {
-                if predicate_value_matches_status(&cond.value, &rwa.status) {
+                if predicate_value_matches_status(&cond.value, rwa.status.as_ref()) {
                     continue;
                 }
                 return false;
@@ -1644,7 +1644,7 @@ pub mod query {
                 if cond
                     .values
                     .iter()
-                    .any(|value| predicate_value_matches_status(value, &rwa.status))
+                    .any(|value| predicate_value_matches_status(value, rwa.status.as_ref()))
                 {
                     continue;
                 }

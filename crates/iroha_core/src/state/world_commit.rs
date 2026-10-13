@@ -99,6 +99,7 @@ pub(in crate::state) struct PreparedWorldEffects {
 impl PreparedWorldEffects {
     /// Borrow every deferred record and its original vector capacity for admission.
     /// This view allocates nothing and cannot publish or change the prepared tail.
+    #[cfg(test)]
     pub(in crate::state) fn admission_pins(&self) -> &Vec<DaPinIntentWithLocation> {
         let Self { da_pins } = self;
         da_pins

@@ -26,6 +26,7 @@ impl StateTransaction<'_, '_> {
     /// Capture the actual output producer's signed source, including a sealed reveal.
     /// This is DATA only; the original admission and direct execution frame remain required.
     pub(super) fn bind_sccp_forgery_source(&mut self, input: &TransactionEntrypoint, index: u64) {
+        self.bind_sccp_pause_source(input, index);
         self.sccp_forgery_entrypoint_binding = None;
         self.current_direct_sccp_forgery = false;
         let signed = match input {
@@ -64,6 +65,7 @@ impl StateTransaction<'_, '_> {
         index: usize,
         direct: bool,
     ) {
+        self.arm_direct_sccp_pause(signed, authority, instruction, index, direct);
         self.current_direct_sccp_forgery = direct
             && index == 0
             && !self.execution_callback_active()
@@ -146,6 +148,7 @@ impl StateTransaction<'_, '_> {
 
     /// Remove signed-body authority before later callbacks or reuse of the transaction view.
     pub(crate) fn clear_sccp_forgery_source(&mut self) {
+        self.sccp_pause_source = None;
         self.sccp_forgery_entrypoint_binding = None;
         self.current_direct_sccp_forgery = false;
     }

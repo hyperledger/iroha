@@ -85,7 +85,7 @@ impl core::fmt::Debug for WorldStateAccumulator {
         out.debug_struct("WorldStateAccumulator")
             .field("entries", &self.entries)
             .field("root", &self.root())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

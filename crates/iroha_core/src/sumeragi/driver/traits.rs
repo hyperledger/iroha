@@ -276,20 +276,22 @@ impl PublicationDeferral {
     pub fn allocation_refusal(&self) -> Option<&iroha_allocation::AllocationRefusal> {
         match self {
             Self::Execution(original) => original.allocation_refusal(),
-            Self::StateStorage(crate::state::StateStorageAdmissionError::World(
-                mv::storage::AdmittedStorageError::Allocation(original),
-            ))
-            | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpForgery(
-                crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+            Self::StateStorage(
+                crate::state::StateStorageAdmissionError::World(
                     mv::storage::AdmittedStorageError::Allocation(original),
+                )
+                | crate::state::StateStorageAdmissionError::SccpForgery(
+                    crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                        mv::storage::AdmittedStorageError::Allocation(original),
+                    ),
+                )
+                | crate::state::StateStorageAdmissionError::NativeAmx(
+                    crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original),
+                )
+                | crate::state::StateStorageAdmissionError::SccpEvidence(
+                    crate::state::EvidencePreparationError::Admission(original),
                 ),
-            ))
-            | Self::StateStorage(crate::state::StateStorageAdmissionError::NativeAmx(
-                crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original),
-            ))
-            | Self::StateStorage(crate::state::StateStorageAdmissionError::SccpEvidence(
-                crate::state::EvidencePreparationError::Admission(original),
-            ))
+            )
             | Self::EvidencePreparation(crate::state::EvidencePreparationError::Admission(
                 original,
             ))
@@ -523,7 +525,7 @@ mod tests {
         let clock = SystemClock::default();
         let a = clock.now();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        assert!(clock.now() >= a + 1);
+        assert!(clock.now() > a);
     }
 
     #[test]

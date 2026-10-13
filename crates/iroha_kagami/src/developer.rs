@@ -126,7 +126,7 @@ pub struct ResetArgs {
 
 /// Run an owner-private local dataspace attached to one independently installed parent.
 #[derive(Debug, Subcommand)]
-pub(crate) enum DataspaceCommand {
+pub enum DataspaceCommand {
     /// Create, fund, register, and select four private validators without supplying configuration.
     Up(DataspaceUpArgs),
     /// Register a retained inactive AMX instance; explicitly run localnet down first.
@@ -141,7 +141,7 @@ pub(crate) enum DataspaceCommand {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct DataspaceUpArgs {
+pub struct DataspaceUpArgs {
     /// Canonical private dataspace alias to lease on the parent.
     alias: String,
     /// Exact independently installed parent profile, such as taira.
@@ -161,7 +161,7 @@ pub(crate) struct DataspaceUpArgs {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct DataspaceAmxRegistrationArgs {
+pub struct DataspaceAmxRegistrationArgs {
     /// Exact retained private managed context; no new child is prepared.
     name: String,
     /// Explicit parent administrative client configuration, with runtime-only signing custody.
@@ -184,7 +184,7 @@ pub(crate) struct DataspaceAmxRegistrationArgs {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct NetworksArgs {
+pub struct NetworksArgs {
     /// Emit the installed profile names as one JSON array.
     #[arg(long)]
     json: bool,
@@ -523,6 +523,10 @@ impl<T: Write> RunArgs<T> for DataspaceCommand {
                     }
                     None => (None, "pending"),
                 };
+                #[expect(
+                    clippy::redundant_closure_for_method_calls,
+                    reason = "the deployment API returns a wallet-owned status without exposing its concrete type"
+                )]
                 let receipt = norito::json!({
                     "context": (args.name), "outcome": outcome,
                     "transaction_status": (result.transaction_status.map(|status| status.as_str())),
@@ -567,7 +571,7 @@ impl<T: Write> RunArgs<T> for DataspaceCommand {
 
 /// An already-rendered canonical publication outcome; main preserves its exact exit status.
 #[derive(Debug)]
-pub(crate) struct PublicationExit(pub(crate) u8);
+pub struct PublicationExit(pub(crate) u8);
 impl std::fmt::Display for PublicationExit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("package publication did not complete")
@@ -1041,7 +1045,7 @@ fn managed_action(
 ) -> norito::json::Value {
     // The opened canonical store already binds --workspace and any relative --state input.
     // Never turn a non-UTF-8 native path into different executable arguments through lossiness.
-    let argv = root.to_str().map(|root| {
+    let command_line = root.to_str().map(|root| {
         let mut args = vec![
             "kagami".to_owned(),
             command.to_owned(),
@@ -1058,7 +1062,7 @@ fn managed_action(
     norito::json!({
         "action": action,
         "name": name,
-        "argv": argv,
+        "argv": command_line,
         "argv_unavailable": (root.to_str().is_none().then_some("state_path_not_utf8")),
     })
 }
@@ -1233,7 +1237,7 @@ mod tests {
         };
         assert_eq!(args.name, "private");
         assert_eq!(args.admin_config, Path::new("parent-admin.toml"));
-        assert_eq!(args.deadline_unix_ms, 1234567890000);
+        assert_eq!(args.deadline_unix_ms, 1_234_567_890_000);
         assert_eq!(args.timeout, 60);
         assert_eq!(args.max_fee, Quantity::from(1_u32));
         assert!(crate::Cli::try_parse_from(common).is_err());
@@ -1430,10 +1434,13 @@ mod tests {
             let recovery = value.get("recovery").unwrap().as_array().unwrap();
             assert_eq!(recovery.len(), 2);
             for (action, expected) in recovery.iter().zip(["status", "logs"]) {
-                let argv = action.get("argv").unwrap().as_array().unwrap();
-                let argv: Vec<_> = argv.iter().map(|arg| arg.as_str().unwrap()).collect();
-                assert_eq!(argv[2], expected);
-                let parsed = crate::Cli::try_parse_from(argv).unwrap();
+                let command_line = action.get("argv").unwrap().as_array().unwrap();
+                let command_line: Vec<_> = command_line
+                    .iter()
+                    .map(|arg| arg.as_str().unwrap())
+                    .collect();
+                assert_eq!(command_line[2], expected);
+                let parsed = crate::Cli::try_parse_from(command_line).unwrap();
                 let named = match parsed.command {
                     crate::Command::Localnet(LocalnetCommand::Status(named)) => named,
                     crate::Command::Localnet(LocalnetCommand::Logs(logs)) => logs.named,
@@ -1515,14 +1522,15 @@ mod tests {
         print_reset(&mut output, root, "acme-dev", true).unwrap();
         let value: norito::json::Value = norito::json::from_slice(&output).unwrap();
         assert_eq!(value.get("state").and_then(|v| v.as_str()), Some("reset"));
-        let argv = value
+        let command_line = value
             .get("next")
             .unwrap()
             .get("argv")
             .unwrap()
             .as_array()
             .unwrap();
-        let cli = crate::Cli::try_parse_from(argv.iter().map(|arg| arg.as_str().unwrap())).unwrap();
+        let cli = crate::Cli::try_parse_from(command_line.iter().map(|arg| arg.as_str().unwrap()))
+            .unwrap();
         let crate::Command::Localnet(LocalnetCommand::Up(args)) = cli.command else {
             panic!("reset must suggest an explicit startup");
         };
@@ -1699,12 +1707,13 @@ mod tests {
         for length in [48, 49, 63] {
             let alias = "a".repeat(length);
             for explicit in [None, Some("chosen-context")] {
-                let mut argv = vec!["kagami", "dataspace", "up", &alias, "--network", "taira"];
+                let mut command_line =
+                    vec!["kagami", "dataspace", "up", &alias, "--network", "taira"];
                 if let Some(name) = explicit {
-                    argv.extend(["--name", name]);
+                    command_line.extend(["--name", name]);
                 }
                 let crate::Command::Dataspace(DataspaceCommand::Up(args)) =
-                    crate::Cli::try_parse_from(argv).unwrap().command
+                    crate::Cli::try_parse_from(command_line).unwrap().command
                 else {
                     panic!("expected private dataspace startup");
                 };
@@ -1809,10 +1818,13 @@ mod tests {
             let recovery = value.get("recovery").unwrap().as_array().unwrap();
             assert_eq!(recovery.len(), 2);
             for (action, expected) in recovery.iter().zip(["dataspace", "localnet"]) {
-                let argv = action.get("argv").unwrap().as_array().unwrap();
-                let argv: Vec<_> = argv.iter().map(|arg| arg.as_str().unwrap()).collect();
-                assert_eq!(argv[1], expected);
-                let parsed = crate::Cli::try_parse_from(argv).unwrap();
+                let command_line = action.get("argv").unwrap().as_array().unwrap();
+                let command_line: Vec<_> = command_line
+                    .iter()
+                    .map(|arg| arg.as_str().unwrap())
+                    .collect();
+                assert_eq!(command_line[1], expected);
+                let parsed = crate::Cli::try_parse_from(command_line).unwrap();
                 let (name, store) = match parsed.command {
                     crate::Command::Dataspace(DataspaceCommand::Status(args)) => {
                         (args.name.unwrap(), args.store)

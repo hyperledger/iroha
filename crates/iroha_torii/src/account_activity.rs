@@ -11,7 +11,7 @@ use iroha_data_model::{
 use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
 /// Role of an account within an activity payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AccountActivityRole {
+pub enum AccountActivityRole {
     /// Account received value or a note.
     Incoming,
     /// Account sent value, burned value, or spent a note.
@@ -34,22 +34,20 @@ impl AccountActivityRole {
 }
 /// Account reference extracted from a committed instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AccountInstructionActivity {
+pub struct AccountInstructionActivity {
     /// Canonical account affected by the instruction.
     pub(crate) account: AccountId,
     /// Account role within this instruction.
     pub(crate) role: AccountActivityRole,
 }
 /// Return true when an instruction affects the given account.
-pub(crate) fn instruction_matches_account_id(instr: &InstructionBox, expected: &AccountId) -> bool {
+pub fn instruction_matches_account_id(instr: &InstructionBox, expected: &AccountId) -> bool {
     instruction_account_activities(instr)
         .iter()
         .any(|activity| &activity.account == expected)
 }
 /// Extract all account references from an instruction.
-pub(crate) fn instruction_account_activities(
-    instr: &InstructionBox,
-) -> Vec<AccountInstructionActivity> {
+pub fn instruction_account_activities(instr: &InstructionBox) -> Vec<AccountInstructionActivity> {
     let mut out = Vec::new();
     collect_instruction_account_activities(instr, &mut out);
     out

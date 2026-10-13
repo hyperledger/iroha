@@ -92,7 +92,7 @@ impl ManagedStreamTokenCustody {
             .map_err(|_| invalid("invalid original custody checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original custody checkpoint is not the selected Global root"))?;
         if original.selection.provider_id != self.authority.provider_id()? {
@@ -176,13 +176,13 @@ impl ManagedStreamTokenCustody {
                         // Keep plan acquisition at its original late semantic boundary.
                         // Foreign owners and active admission use the ordinary full producer.
                         match plan.and_then(|plan| plan.for_owner(self)) {
-                            Some(plan) => self.validate_renewal_original(
+                            Some(plan) => Self::validate_renewal_original(
                                 original,
                                 &control,
                                 sequence,
                                 || Ok(plan),
                             )?,
-                            None => self.validate_renewal_original(
+                            None => Self::validate_renewal_original(
                                 original,
                                 &control,
                                 sequence,

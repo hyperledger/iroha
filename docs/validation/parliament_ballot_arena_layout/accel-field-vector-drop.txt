@@ -1,0 +1,49 @@
+
+/tmp/parliament-resource-contract/resource-accel:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+0000000100012bf4 <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E>:
+100012bf4:     	stp	x22, x21, [sp, #-0x30]!
+100012bf8:     	stp	x20, x19, [sp, #0x10]
+100012bfc:     	stp	x29, x30, [sp, #0x20]
+100012c00:     	add	x29, sp, #0x20
+100012c04:     	mov	x20, x0
+100012c08:     	ldp	x19, x8, [x0, #0x8]
+100012c0c:     	cbz	x8, 0x100012c2c <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0x38>
+100012c10:     	lsl	x22, x8, #5
+100012c14:     	mov	x21, x19
+100012c18:     	mov	x0, x21
+100012c1c:     	bl	0x10001cb38 <__ZN65_$LT$iroha_zkp_vole..field..Gf256$u20$as$u20$zeroize..Zeroize$GT$7zeroize17h9248afe18a1b78ebE>
+100012c20:     	add	x21, x21, #0x20
+100012c24:     	subs	x22, x22, #0x20
+100012c28:     	b.ne	0x100012c18 <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0x24>
+100012c2c:     	str	xzr, [x20, #0x10]
+100012c30:     	ldr	x8, [x20]
+100012c34:     	cbz	x8, 0x100012c48 <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0x54>
+100012c38:     	lsl	x8, x8, #5
+100012c3c:     	strb	wzr, [x19], #0x1
+100012c40:     	subs	x8, x8, #0x1
+100012c44:     	b.ne	0x100012c3c <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0x48>
+100012c48:     	ldr	x8, [x20]
+100012c4c:     	cbz	x8, 0x100012c6c <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0x78>
+100012c50:     	ldr	x0, [x20, #0x8]
+100012c54:     	lsl	x1, x8, #5
+100012c58:     	mov	w2, #0x8                ; =8
+100012c5c:     	ldp	x29, x30, [sp, #0x20]
+100012c60:     	ldp	x20, x19, [sp, #0x10]
+100012c64:     	ldp	x22, x21, [sp], #0x30
+100012c68:     	b	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012c6c:     	ldp	x29, x30, [sp, #0x20]
+100012c70:     	ldp	x20, x19, [sp, #0x10]
+100012c74:     	ldp	x22, x21, [sp], #0x30
+100012c78:     	ret
+100012c7c:     	mov	x21, x0
+100012c80:     	ldr	x8, [x20]
+100012c84:     	cbz	x8, 0x100012c98 <__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E+0xa4>
+100012c88:     	lsl	x1, x8, #5
+100012c8c:     	mov	x0, x19
+100012c90:     	mov	w2, #0x8                ; =8
+100012c94:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012c98:     	mov	x0, x21
+100012c9c:     	bl	0x100059020 <dyld_stub_binder+0x100059020>

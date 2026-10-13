@@ -23,13 +23,13 @@ pub(super) fn signed_fee_registry_root_fixture_with_config(
     Vec<u8>,
     Hash,
 ) {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use crate::sumeragi::test_chain::CertifiedTestChain;
     use iroha_data_model::{
         isi::smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
         smart_contract::ContractArtifactId,
     };
     use iroha_model_base::topology::DataSpaceId;
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());
     let (code, manifest) = minimal_bound_contract_artifact();

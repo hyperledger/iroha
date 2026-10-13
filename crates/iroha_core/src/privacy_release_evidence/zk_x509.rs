@@ -334,6 +334,11 @@ fn private_resource_certificate_v1(
     })
 }
 /// Build and digest a structurally valid native capture before source pinning.
+///
+/// # Errors
+///
+/// Returns an error if the compiled profile is unavailable or the supplied observations and
+/// authenticated pins do not form a valid resource-certificate payload.
 pub fn build_privacy_release_zk_x509_resource_certificate_v1(
     environment: PrivacyReleaseZkX509ResourceEnvironmentV1,
     expectations_norito_sha256: [u8; 32],
@@ -677,6 +682,12 @@ fn zk_x509_network_draft_envelope_v1(
 ///
 /// The caller must pass an actual committed block timestamp and submit the
 /// returned action within the closed five-minute presentation window.
+///
+/// # Errors
+///
+/// Returns an error if the compiled profile or resource certificate is unavailable or invalid,
+/// context validation, proving, verification, or signing fails, the time budget is exceeded,
+/// or the verifier accepts the deliberately corrupted proof.
 pub fn build_privacy_release_zk_x509_network_actions_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     trusted_block_timestamp_ms: u64,
@@ -749,6 +760,11 @@ pub fn build_privacy_release_zk_x509_network_actions_v1(
 /// and `admission_reserve`. The supplied current CRL is used only to derive and validate the exact
 /// epoch, CRLNumber, and predecessor-digest transition. No pair-time or process-memory observation
 /// is produced.
+///
+/// # Errors
+///
+/// Returns an error if the compiled profile, resource certificate, context, or CRL successor is
+/// invalid, proving, verification, or signing fails, or the proof and admission time budget is exceeded.
 #[allow(clippy::too_many_arguments)]
 pub fn build_privacy_release_zk_x509_semantic_replay_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
@@ -1571,10 +1587,7 @@ mod release_kat_tests {
         let protocol_id = PrivacyProtocolIdV1::IrohaZkX509StarkP256V1;
         let proof_bytes = u32::try_from(encoded.len()).expect("KAT proof length fits u32");
         let proof_sha256 = sha256_v1(&encoded);
-        let proof_sha256_hex = proof_sha256
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let proof_sha256_hex = hex::encode(proof_sha256);
         eprintln!(
             "zk-x509-release-stage-kat bytes={proof_bytes} sha256={proof_sha256_hex} elapsed_ms={}",
             elapsed.as_millis()

@@ -203,13 +203,20 @@ fn world_with_three_ordered_musubi_archive_groups() -> (World, [ArchiveId; 3]) {
         let mut availability = template_availability;
         availability.archive_id = archive.archive_id;
         if index != 1 {
-            let provider = ProviderId::new([0x91 + index as u8; 32]);
-            let order_id = ReplicationOrderId::new([0xa1 + index as u8; 32]);
+            let provider =
+                ProviderId::new([0x91 + u8::try_from(index).expect("fixture value fits u8"); 32]);
+            let order_id = ReplicationOrderId::new(
+                [0xa1 + u8::try_from(index).expect("fixture value fits u8"); 32],
+            );
             let mut current = template_location.clone();
             current.archive_id = archive.archive_id;
-            current.location_id = MusubiArchiveLocationIdV1::new([0xb1 + index as u8; 32]);
+            current.location_id = MusubiArchiveLocationIdV1::new(
+                [0xb1 + u8::try_from(index).expect("fixture value fits u8"); 32],
+            );
             current.replication_order = order_id;
-            current.pin_manifest = ManifestDigest::new([0xc1 + index as u8; 32]);
+            current.pin_manifest = ManifestDigest::new(
+                [0xc1 + u8::try_from(index).expect("fixture value fits u8"); 32],
+            );
             current.providers = vec![provider];
             current.finalized_height = 3;
             current.revision = 2 + 5 * index as u64;
@@ -233,7 +240,9 @@ fn world_with_three_ordered_musubi_archive_groups() -> (World, [ArchiveId; 3]) {
                 )
                 .unwrap();
             let mut retired = current.clone();
-            retired.location_id = MusubiArchiveLocationIdV1::new([0xd1 + index as u8; 32]);
+            retired.location_id = MusubiArchiveLocationIdV1::new(
+                [0xd1 + u8::try_from(index).expect("fixture value fits u8"); 32],
+            );
             retired.revision = current.revision + 2;
             retired.state = MusubiArchiveLocationStateV1::Retired;
             archive.location_ids = vec![current.location_id];
@@ -597,8 +606,8 @@ fn musubi_live_revision_capacity_wakes_only_from_original_pool_then_retries() {
     };
     let mut future = release.clone().wait_for_release(&mut registration);
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(wakes.clone());
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(wakes.clone());
+    let mut context = Context::from_waker(&task_waker);
     assert_eq!(Pin::new(&mut future).poll(&mut context), Poll::Pending);
     let unrelated = iroha_allocation::AllocationBudget::new(bytes);
     drop(unrelated.try_reserve_bytes(bytes).unwrap());

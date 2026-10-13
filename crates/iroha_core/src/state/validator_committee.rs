@@ -917,7 +917,7 @@ pub(crate) fn verify_progress(
     for readiness in &transition.readiness {
         let context = transition.readiness_context(readiness.validator_index)?;
         verify_global_threshold_beacon_seat_readiness_v1(
-            &validated,
+            validated,
             &target,
             &context,
             &readiness.beacon,

@@ -27,7 +27,7 @@ use iroha_data_model::{
         error::{InstructionExecutionError, InvalidParameterError},
     },
     kaigi::{KaigiId, KaigiPrivacyMode, KaigiRecord, KaigiStatus, NewKaigi, kaigi_metadata_key},
-    prelude::{AssetId, FindDomainById, HasMetadata, Identifiable},
+    prelude::{AssetId, FindDomainById, HasMetadata},
     transaction::{FeePaymentIntent, SignedTransaction, error::TransactionRejectionReason},
 };
 use iroha_executor_data_model::permission::governance::CanManageVerifyingKeys;

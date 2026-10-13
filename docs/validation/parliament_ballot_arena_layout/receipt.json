@@ -1,0 +1,379 @@
+{
+  "all_allocator_sites_correspondence_proved": false,
+  "all_input_trace_correspondence_proved": false,
+  "binaries": {
+    "accel": {
+      "binary": "/tmp/parliament-resource-contract/resource-accel",
+      "sha256_after": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+      "sha256_before": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5",
+      "symbols": {
+        "bavc-return-drop": {
+          "file": "accel-bavc-return-drop.txt",
+          "sha256": "6a34ece5d4df0073a5bf40b1634944d0b3c1dd0fbb60a3a8f99b231ebcd3fffd",
+          "start": "0x10001d824",
+          "stop_exclusive": "0x10001d8a0",
+          "symbol": "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE",
+          "symbol_aliases": [
+            "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hda85822917a497efE"
+          ]
+        },
+        "field-vector-drop": {
+          "file": "accel-field-vector-drop.txt",
+          "sha256": "4a4754fd613fffd08841d669a225a81f0b4930e37dd9afc6299a5ef9c9b586eb",
+          "start": "0x100012bf4",
+          "stop_exclusive": "0x100012ca0",
+          "symbol": "__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E",
+          "symbol_aliases": [
+            "__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h27f419c90f844413E"
+          ]
+        },
+        "key-scratch": {
+          "file": "accel-key-scratch.txt",
+          "sha256": "f2255f3b36ea00560058a89feba4fd0d17ef14b1e60b8a5da21106201f82859d",
+          "start": "0x10000f3d0",
+          "stop_exclusive": "0x10000f68c",
+          "symbol": "__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E",
+          "symbol_aliases": [
+            "__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E"
+          ]
+        },
+        "key-vector-drop": {
+          "file": "accel-key-vector-drop.txt",
+          "sha256": "fb1b08ad46abfd2570cb2b6ab7c5a827ae2d4caa82bd0cfeb1fc3aa44d6090c4",
+          "start": "0x1000126b4",
+          "stop_exclusive": "0x100012774",
+          "symbol": "__ZN4core3ptr148drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..verifier..Key$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17hbc7b7f83000630abE",
+          "symbol_aliases": [
+            "__ZN4core3ptr148drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..verifier..Key$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17hbc7b7f83000630abE",
+            "__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h7ed6945657e5319aE"
+          ]
+        },
+        "tree": {
+          "file": "accel-tree.txt",
+          "sha256": "37eb070a55e6cec0c283c8533a51eeaa04706e9a2ae7f86c12fab1a4f194efe6",
+          "start": "0x10001ab24",
+          "stop_exclusive": "0x10001b04c",
+          "symbol": "__ZN14iroha_zkp_vole4vole6Layout3new17hbbd9ec22fcb3cd47E",
+          "symbol_aliases": [
+            "__ZN14iroha_zkp_vole4vole6Layout3new17hbbd9ec22fcb3cd47E"
+          ]
+        },
+        "vole-return-drop": {
+          "file": "accel-vole-return-drop.txt",
+          "sha256": "17104382fc98254798179802e4d7ac64fd0bbd0e766b8fdf58786fb1551de5c3",
+          "start": "0x100012a24",
+          "stop_exclusive": "0x100012ab0",
+          "symbol": "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E",
+          "symbol_aliases": [
+            "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E"
+          ]
+        }
+      }
+    },
+    "portable": {
+      "binary": "/tmp/parliament-resource-contract/resource-portable",
+      "sha256_after": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0",
+      "sha256_before": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0",
+      "symbols": {
+        "bavc-return-drop": {
+          "file": "portable-bavc-return-drop.txt",
+          "sha256": "519b3180490c58d7c9374cd63951fd9c5a338cacd9398811f9fe43fed76dadf9",
+          "start": "0x1000188b0",
+          "stop_exclusive": "0x10001892c",
+          "symbol": "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE",
+          "symbol_aliases": [
+            "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE"
+          ]
+        },
+        "field-vector-drop": {
+          "file": "portable-field-vector-drop.txt",
+          "sha256": "fed6dab862e6f1625bbe495d5730b57ec024752d9e32066e989f0e47a476f388",
+          "start": "0x10000e100",
+          "stop_exclusive": "0x10000e1ac",
+          "symbol": "__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h2015d408f9ef2a86E",
+          "symbol_aliases": [
+            "__ZN4core3ptr98drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$17h2015d408f9ef2a86E"
+          ]
+        },
+        "key-scratch": {
+          "file": "portable-key-scratch.txt",
+          "sha256": "4ffea331528d93a33b59a83efdc97681773815c88c66c74bdb91142eb8ecaba2",
+          "start": "0x10001141c",
+          "stop_exclusive": "0x1000116d8",
+          "symbol": "__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17h3f278e4a77ec80a1E",
+          "symbol_aliases": [
+            "__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17h3f278e4a77ec80a1E"
+          ]
+        },
+        "key-vector-drop": {
+          "file": "portable-key-vector-drop.txt",
+          "sha256": "56937d2e6fcb93a1635f22ddb9f1578323bfe0f9b95e7210706d93dedccbc16d",
+          "start": "0x10000dbc0",
+          "stop_exclusive": "0x10000dc80",
+          "symbol": "__ZN4core3ptr148drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..verifier..Key$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17hc3f9ef52c7e71884E",
+          "symbol_aliases": [
+            "__ZN4core3ptr148drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..verifier..Key$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17hc3f9ef52c7e71884E",
+            "__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h39e441f3b7827fbaE"
+          ]
+        },
+        "tree": {
+          "file": "portable-tree.txt",
+          "sha256": "1e7d74530cb55ee05361b10e07394c8887b73d0a5163192ab83adba9c6f070b6",
+          "start": "0x100020918",
+          "stop_exclusive": "0x100020e40",
+          "symbol": "__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E",
+          "symbol_aliases": [
+            "__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E"
+          ]
+        },
+        "vole-return-drop": {
+          "file": "portable-vole-return-drop.txt",
+          "sha256": "b497c6a46606f6315e857f8e8184738a439f41a714d24c699855b0939423c471",
+          "start": "0x10000df30",
+          "stop_exclusive": "0x10000dfbc",
+          "symbol": "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E",
+          "symbol_aliases": [
+            "__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E"
+          ]
+        }
+      }
+    }
+  },
+  "build_receipt": "docs/validation/parliament_ballot_resource_contract/build-receipt.json",
+  "build_receipt_sha256": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+  "build_source_manifest_sha256": "5c6258c0ca60b5bfaa05ce0c3f38d47ca62f0e1e6d1099912c2660122bc75bca",
+  "commands": [
+    {
+      "command": [
+        "xcrun",
+        "nm",
+        "-nm",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_sha256": "3ac32810dc0191151162dfdd5998db5818760a2f1d5af6343bf00acd28a8aa96"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10001ab24",
+        "--stop-address=0x10001b04c",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-tree.txt",
+      "stdout_sha256": "37eb070a55e6cec0c283c8533a51eeaa04706e9a2ae7f86c12fab1a4f194efe6"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10000f3d0",
+        "--stop-address=0x10000f68c",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-key-scratch.txt",
+      "stdout_sha256": "f2255f3b36ea00560058a89feba4fd0d17ef14b1e60b8a5da21106201f82859d"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x1000126b4",
+        "--stop-address=0x100012774",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-key-vector-drop.txt",
+      "stdout_sha256": "fb1b08ad46abfd2570cb2b6ab7c5a827ae2d4caa82bd0cfeb1fc3aa44d6090c4"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x100012bf4",
+        "--stop-address=0x100012ca0",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-field-vector-drop.txt",
+      "stdout_sha256": "4a4754fd613fffd08841d669a225a81f0b4930e37dd9afc6299a5ef9c9b586eb"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x100012a24",
+        "--stop-address=0x100012ab0",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-vole-return-drop.txt",
+      "stdout_sha256": "17104382fc98254798179802e4d7ac64fd0bbd0e766b8fdf58786fb1551de5c3"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10001d824",
+        "--stop-address=0x10001d8a0",
+        "/tmp/parliament-resource-contract/resource-accel"
+      ],
+      "exit": 0,
+      "stdout_file": "accel-bavc-return-drop.txt",
+      "stdout_sha256": "6a34ece5d4df0073a5bf40b1634944d0b3c1dd0fbb60a3a8f99b231ebcd3fffd"
+    },
+    {
+      "command": [
+        "xcrun",
+        "nm",
+        "-nm",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_sha256": "f8377f0fd77750d59333a88e580b3292bc3c89a61c964a25db6288e7b34af471"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x100020918",
+        "--stop-address=0x100020e40",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-tree.txt",
+      "stdout_sha256": "1e7d74530cb55ee05361b10e07394c8887b73d0a5163192ab83adba9c6f070b6"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10001141c",
+        "--stop-address=0x1000116d8",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-key-scratch.txt",
+      "stdout_sha256": "4ffea331528d93a33b59a83efdc97681773815c88c66c74bdb91142eb8ecaba2"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10000dbc0",
+        "--stop-address=0x10000dc80",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-key-vector-drop.txt",
+      "stdout_sha256": "56937d2e6fcb93a1635f22ddb9f1578323bfe0f9b95e7210706d93dedccbc16d"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10000e100",
+        "--stop-address=0x10000e1ac",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-field-vector-drop.txt",
+      "stdout_sha256": "fed6dab862e6f1625bbe495d5730b57ec024752d9e32066e989f0e47a476f388"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x10000df30",
+        "--stop-address=0x10000dfbc",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-vole-return-drop.txt",
+      "stdout_sha256": "b497c6a46606f6315e857f8e8184738a439f41a714d24c699855b0939423c471"
+    },
+    {
+      "command": [
+        "xcrun",
+        "llvm-objdump",
+        "--disassemble",
+        "--no-show-raw-insn",
+        "--start-address=0x1000188b0",
+        "--stop-address=0x10001892c",
+        "/tmp/parliament-resource-contract/resource-portable"
+      ],
+      "exit": 0,
+      "stdout_file": "portable-bavc-return-drop.txt",
+      "stdout_sha256": "519b3180490c58d7c9374cd63951fd9c5a338cacd9398811f9fe43fed76dadf9"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "disassembler": "Apple LLVM version 21.0.0\n  Optimized build.\n\n\n  Registered Targets:\n    aarch64    - AArch64 (little endian)\n    aarch64_32 - AArch64 (little endian ILP32)\n    aarch64_be - AArch64 (big endian)\n    arm        - ARM\n    arm64      - ARM64 (little endian)\n    arm64_32   - ARM64 (little endian ILP32)\n    armeb      - ARM (big endian)\n    thumb      - Thumb\n    thumbeb    - Thumb (big endian)\n    wasm32     - WebAssembly 32-bit\n    wasm64     - WebAssembly 64-bit\n    x86        - 32-bit X86: Pentium-Pro and above\n    x86-64     - 64-bit X86: EM64T and AMD64\n",
+  "interpretation": {
+    "Gf256": {
+      "alignment": 8,
+      "basis": "Vec<Gf256> drop iterates in32byte strides and deallocates capacity<<5 at alignment8; source instantiates four u64 limbs.",
+      "element_bytes": 32
+    },
+    "Key_Gf256": {
+      "alignment": 8,
+      "basis": "Scratch monomorph requests64000/8 twice and12800/8 twice; clone loops stride40. Vec<Key<Gf256>> drop has a same-address PlainValue alias, but nm retains the Key symbol; deallocation passes capacity*40 and alignment8.",
+      "element_bytes": 40
+    },
+    "Tree": {
+      "alignment": 8,
+      "basis": "Layout::new loads tau, computes (tau+2*tau)<<3, passes it as x0 and8 as x1 to __rust_alloc; construction advances24bytes per Tree.",
+      "element_bytes": 24
+    },
+    "return_drop_order": {
+      "bavc": "offsets,com,seeds,hidden; allocator argument alignments8,1,1,2 match the source fields in order",
+      "vole": "commitment,hidden,delta,q,q_masks; allocator argument alignments1,2,1,1,1 match source fields in order"
+    }
+  },
+  "limitations": [
+    "Only the two identified macOS ARM64 binaries; not a Rust ABI promise or another target/build.",
+    "This narrows the three layout premises. It does not certify every allocation event, function path, allocator request ordering, compiler transformation, stack bound, native/TLS allocation or concurrent execution.",
+    "Interpretation is source-assisted manual disassembly review, not an independently proved machine-code data-flow analysis.",
+    "No DWARF type record was available in these release binaries. Their allocator-call layouts and stride arithmetic provide the evidence instead."
+  ],
+  "native_allocator_coverage_proved": false,
+  "observed_at_utc": "2026-10-13T06:42:35.280961+00:00",
+  "profile_qualified": false,
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+  "scope": "Read-only emitted allocation-layout evidence from the exact frozen macOS ARM64 resource worker binaries; no rebuild, DWARF type reflection or runtime execution.",
+  "source_matches_frozen_build": true,
+  "source_sha256": {
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31"
+  },
+  "target": "aarch64-apple-darwin"
+}

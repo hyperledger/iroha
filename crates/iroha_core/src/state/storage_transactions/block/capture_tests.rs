@@ -30,9 +30,10 @@ impl Wake for Probe {
             Ordering::SeqCst,
         );
         self.calls.fetch_add(1, Ordering::SeqCst);
-        if self.panic_after_probe.swap(false, Ordering::SeqCst) {
-            panic!("injected membership wake panic after physical probes");
-        }
+        assert!(
+            !self.panic_after_probe.swap(false, Ordering::SeqCst),
+            "injected membership wake panic after physical probes"
+        )
     }
 }
 
@@ -106,7 +107,7 @@ fn height(value: usize) -> Value {
 fn seeded(tag: u8) -> Arc<TransactionsStorage> {
     let storage = Arc::new(TransactionsStorage::new());
     let mut original = storage.block();
-    original.insert_block(HashSet::from([key(tag)]), height(1));
+    original.insert_block(BTreeSet::from([key(tag)]), height(1));
     original.commit().unwrap();
     storage
 }
@@ -117,7 +118,7 @@ fn staged(storage: &TransactionsStorage, replace: bool, tag: u8) -> Transactions
         storage.block()
     };
     block.insert_block(
-        HashSet::from([key(tag)]),
+        BTreeSet::from([key(tag)]),
         height(if replace { 1 } else { 2 }),
     );
     block
@@ -242,7 +243,7 @@ fn membership_capture_real_refusal_keeps_original_writer_until_joint_release() {
         let first_payload = tip_weak_for_tests(first_block.current_block.as_ref().unwrap());
         let mut second_block = second.block();
         if wrong_height {
-            second_block.insert_block(HashSet::from([key(8)]), height(3));
+            second_block.insert_block(BTreeSet::from([key(8)]), height(3));
         }
         let mut pair = Pair {
             first: Some(first_block.capture_slot()),
@@ -352,7 +353,7 @@ fn membership_terminal_release_rejects_read_mutation_preparation_and_publication
     assert!(catch_unwind(AssertUnwindSafe(|| block.get(&key(6)))).is_err());
     assert!(
         catch_unwind(AssertUnwindSafe(
-            || block.insert_block(HashSet::from([key(6)]), height(2))
+            || block.insert_block(BTreeSet::from([key(6)]), height(2))
         ))
         .is_err()
     );
@@ -538,7 +539,7 @@ fn membership_attached_refusal_and_panic_keep_original_sibling_until_joint_drop(
         let second_tip = second.latest_block.load_full().unwrap();
         let mut second_block = second.block();
         if failure == 1 {
-            second_block.insert_block(HashSet::from([key(8)]), height(3));
+            second_block.insert_block(BTreeSet::from([key(8)]), height(3));
         }
         let first_probe = probe(&first, &second);
         let second_probe = probe(&first, &second);
@@ -614,7 +615,7 @@ fn membership_attached_execution_transfer_and_repeated_commit_preserve_identity(
     let original_identity = (*storage.write_lock.lock()).clone();
     let original_tip = storage.latest_block.load_full().unwrap();
     let mut block = TransactionsBlockField::new(storage.block());
-    block.insert_block(HashSet::from([key(2)]), height(1));
+    block.insert_block(BTreeSet::from([key(2)]), height(1));
     let original_staged = tip_ptr(block.current_block.as_ref().unwrap());
     let block = block.into_executing();
     assert_eq!(

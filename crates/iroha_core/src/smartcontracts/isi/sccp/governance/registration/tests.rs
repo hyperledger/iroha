@@ -73,7 +73,7 @@ fn pin_matches_all_four_retained_coordinates_and_initial_floor() {
     let mut block = state.block(header(4));
     let mut stx = block.transaction();
     let record = resolved(1, 1);
-    install(&mut stx, &[record.clone()]);
+    install(&mut stx, std::slice::from_ref(&record));
     let pin = sample_pin(&record);
     assert_eq!(
         &**retained_pin(&*stx.world, &pin, 16_000, 86_400_000, 3).unwrap(),
@@ -171,7 +171,7 @@ fn missing_current_future_tenure_and_noncanonical_keys_do_not_authenticate_a_pin
     let mut stx = block.transaction();
     let mut record = resolved(1, 1);
     let pin = sample_pin(&record);
-    install(&mut stx, &[record.clone()]);
+    install(&mut stx, std::slice::from_ref(&record));
     store::committee_current::set(&mut stx, 2);
     assert!(retained_pin(&*stx.world, &pin, 0, 0, 3).is_err());
     store::committee_current::set(&mut stx, 1);
@@ -254,11 +254,26 @@ fn native_forgery_publication_requires_a_strictly_newer_pin() {
     execute_forgery(&evidence, &mut stx).unwrap();
     assert_eq!(store::forgery_max_generation(&*stx.world), Some(1));
     assert_eq!(
-        crate::smartcontracts::isi::sccp::read::capabilities(&stx).forgery_max_generation,
+        crate::smartcontracts::isi::sccp::read::capabilities(
+            &stx,
+            &iroha_allocation::AllocationBudget::new(32_768),
+            crate::smartcontracts::isi::sccp::read::native::SccpNativeReadControl {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+                stop: &std::sync::atomic::AtomicBool::new(false),
+            },
+            std::iter::empty()
+        )
+        .unwrap()
+        .data()
+        .forgery_max_generation,
         Some(1)
     );
-    let error = validate_available(&stx, &action)
-        .expect_err("SCCP registration must exclude the retained forged generation");
+    let result = validate_available(&stx, &action);
+    assert!(
+        result.is_err(),
+        "SCCP registration must exclude the retained forged generation"
+    );
+    let error = result.unwrap_err();
     assert!(error.to_string().contains("retained forgery maximum"));
     assert!(forgery_floor(&*stx.world, 0).is_err());
     assert!(forgery_floor(&*stx.world, 2).is_ok());
@@ -410,9 +425,14 @@ fn evm_address_binds_original_identity_network_pin_revision_and_cap() {
                 }
                 _ => unreachable!(),
             }
+            let result = deployment(&changed, &retained, &changed_identity);
             assert!(
-                deployment(&changed, &retained, &changed_identity)
-                    .expect_err("SCCP EVM deployment must bind exact locked CREATE2 address")
+                result.is_err(),
+                "SCCP EVM deployment must bind exact locked CREATE2 address"
+            );
+            assert!(
+                result
+                    .unwrap_err()
                     .to_string()
                     .contains("exact locked CREATE2 deployment"),
                 "{network:?} variant {variant}"
@@ -473,7 +493,7 @@ fn validated_deployments_do_not_open_missing_launch_authority() {
     store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
     escrow::create_route_escrows(&mut stx).unwrap();
     let record = resolved(1, 1);
-    install(&mut stx, &[record.clone()]);
+    install(&mut stx, std::slice::from_ref(&record));
     let identity = original_identity(&stx).unwrap();
     for action in [
         ton_action(&record, &identity),

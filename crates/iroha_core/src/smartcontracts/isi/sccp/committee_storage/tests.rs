@@ -32,7 +32,7 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
         .unwrap();
     assert!(std::ptr::eq(
         table.view().get(&1).unwrap().deref(),
-        original.deref()
+        &raw const *original
     ));
     table
         .try_with_admitted_block(|block| {
@@ -47,7 +47,7 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
     let snapshot = table.snapshot();
     assert!(std::ptr::eq(
         snapshot.current().get(&1).unwrap().deref(),
-        ended.deref()
+        &raw const *ended
     ));
     assert!(std::ptr::eq(
         snapshot
@@ -57,7 +57,7 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
             .as_ref()
             .unwrap()
             .deref(),
-        original.deref()
+        &raw const *original
     ));
     drop(snapshot);
     let before = pool.reserved_bytes();
@@ -83,7 +83,7 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
     let snapshot = table.snapshot();
     assert!(std::ptr::eq(
         snapshot.current().get(&1).unwrap().deref(),
-        ended.deref()
+        &raw const *ended
     ));
     assert!(std::ptr::eq(
         snapshot
@@ -93,7 +93,7 @@ fn actual_table_shares_original_current_undo_and_abandons_refused_child() {
             .as_ref()
             .unwrap()
             .deref(),
-        original.deref()
+        &raw const *original
     ));
     drop(snapshot);
     drop(table);

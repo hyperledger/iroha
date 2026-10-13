@@ -43,12 +43,12 @@ const COMPILED_ROUTE_FEATURES: &[&str] = &[
 ];
 /// Return the Cargo features relevant to canonical route projection.
 #[must_use]
-pub(crate) const fn compiled_route_features() -> EnabledFeatures<'static> {
+pub const fn compiled_route_features() -> EnabledFeatures<'static> {
     EnabledFeatures::new(COMPILED_ROUTE_FEATURES)
 }
 /// Complete description of what one composed router mounted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MountedRouteManifest {
+pub struct MountedRouteManifest {
     explicit_routes: Vec<RouteDescriptor>,
     implicit_routes: Vec<ImplicitRouteDescriptor>,
 }
@@ -57,7 +57,7 @@ pub(crate) struct MountedRouteManifest {
 /// The route identifier and template come from the catalog. Framework misses
 /// use fixed bounded identifiers and never copy the raw request URI.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MatchedRouteMetadata {
+pub struct MatchedRouteMetadata {
     stable_route_id: &'static str,
     path_template: Arc<str>,
     surface: Option<ApiSurface>,
@@ -189,7 +189,7 @@ impl MatchedRouteMetadata {
 /// Immutable lookup used to attach catalog metadata after Axum has selected a
 /// route template.
 #[derive(Debug, Clone)]
-pub(crate) struct MountedRouteIndex {
+pub struct MountedRouteIndex {
     explicit: Arc<BTreeMap<(&'static str, &'static str), RouteDescriptor>>,
     by_path: Arc<BTreeMap<&'static str, RouteDescriptor>>,
     allow_by_path: Arc<BTreeMap<&'static str, HeaderValue>>,
@@ -335,7 +335,7 @@ impl MountedRouteManifest {
 }
 /// One router assembly failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RouterAssemblyError {
+pub enum RouterAssemblyError {
     /// The canonical descriptor set is itself invalid.
     InvalidCatalog(Vec<CatalogValidationError>),
     /// A group attempted to register a descriptor absent from the catalog.
@@ -384,22 +384,22 @@ pub(crate) enum RouterAssemblyError {
 ///
 /// Callers cannot construct this type from an arbitrary [`MethodRouter`], so a
 /// cataloged registration cannot smuggle additional HTTP methods into Axum.
-pub(crate) struct CatalogMethodRouter<S, A = ToriiDefaultAuthentication> {
+pub struct CatalogMethodRouter<S, A = ToriiDefaultAuthentication> {
     method: HttpMethod,
     authentication: A,
     inner: MethodRouter<S>,
 }
 /// Type state for a route governed only by listener-wide Torii authentication.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct ToriiDefaultAuthentication;
+pub struct ToriiDefaultAuthentication;
 /// Type state for a route with no route-specific credential.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct UnauthenticatedRoute;
+pub struct UnauthenticatedRoute;
 /// Sealed type state for a route whose special authentication has been fixed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SealedAuthentication(AuthenticationPolicy);
+pub struct SealedAuthentication(AuthenticationPolicy);
 /// Authentication type state accepted by catalog registration.
-pub(crate) trait MountedAuthentication {
+pub trait MountedAuthentication {
     /// Return the exact catalog policy installed by this state.
     fn policy(&self) -> AuthenticationPolicy;
 }
@@ -427,10 +427,7 @@ mod private {
 /// Special authentication states deliberately do not implement this trait, so
 /// no outer short-circuiting layer can be added after their guard or reviewed
 /// handler witness has been fixed.
-pub(crate) trait LayerableAuthentication:
-    MountedAuthentication + private::Layerable
-{
-}
+pub trait LayerableAuthentication: MountedAuthentication + private::Layerable {}
 impl private::Layerable for ToriiDefaultAuthentication {}
 impl private::Layerable for UnauthenticatedRoute {}
 impl LayerableAuthentication for ToriiDefaultAuthentication {}
@@ -442,7 +439,7 @@ impl LayerableAuthentication for UnauthenticatedRoute {}
 /// tests. A handler must authenticate before using protected request data or
 /// invoking a protected capability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HandlerAuthentication {
+pub enum HandlerAuthentication {
     /// An actual owner listener token and immutable private-root scope are verified before export.
     PrivateRootOwnerToken,
     /// Canonical account request authentication performed by the handler.
@@ -839,9 +836,7 @@ impl CatalogMethodRouter<SharedAppState, ToriiDefaultAuthentication> {
 macro_rules! catalog_method_constructor {
     ($name:ident, $method:ident, $constructor:ident) => {
         #[doc = concat!("Construct a sealed single-", stringify!($method), " router.")]
-        pub(crate) fn $name<H, T, S>(
-            handler: H,
-        ) -> CatalogMethodRouter<S, ToriiDefaultAuthentication>
+        pub fn $name<H, T, S>(handler: H) -> CatalogMethodRouter<S, ToriiDefaultAuthentication>
         where
             H: Handler<T, S>,
             T: 'static,
@@ -861,7 +856,7 @@ macro_rules! catalog_method_constructor {
 /// The completed builder therefore enforces the catalog's exact method set
 /// outside the mounted authentication and body layers. Any future HEAD
 /// operation must be declared and mounted explicitly.
-pub(crate) fn catalog_get<H, T, S>(handler: H) -> CatalogMethodRouter<S, ToriiDefaultAuthentication>
+pub fn catalog_get<H, T, S>(handler: H) -> CatalogMethodRouter<S, ToriiDefaultAuthentication>
 where
     H: Handler<T, S>,
     T: 'static,
@@ -912,7 +907,7 @@ async fn enforce_catalog_method(
         .into_response()
 }
 /// Catalog-aware wrapper around an Axum router.
-pub(crate) struct RouterBuilder<S = SharedAppState> {
+pub struct RouterBuilder<S = SharedAppState> {
     router: Router<S>,
     app_state: S,
     catalog: RouteCatalog<'static>,

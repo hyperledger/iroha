@@ -81,8 +81,7 @@ fn paired_build_funds_staging_and_final_copies_at_the_same_time() {
             &budget,
             [(&key, &value)],
         ),
-        Err(LeafError::Admission(_))
-            | Err(LeafError::OrderedRange(NoritoKeyRangeError::Admission(_)))
+        Err(LeafError::Admission(_) | LeafError::OrderedRange(NoritoKeyRangeError::Admission(_)))
     ));
     assert_eq!(budget.reserved_bytes(), 0);
     budget.set_limit_bytes(staged_bytes + final_bytes);

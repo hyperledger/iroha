@@ -10,11 +10,11 @@
 //! bounds, and so that its mutations (MS51, MS52, MS65, MS66) are killed by named simulator
 //! tests (§13.4).
 //!
-//! TODO: the block time is the builder's stamp `wall + lead`, not the canonical
-//! `max(parent + cadence, …)` of the real application, so a committed post-dated block does not
-//! raise the next block's time and the CT3 builder wait is never exercised here (the Core entry
-//! SC6 covers CT3). Model the canonical floor, its deterministic validity check and the
-//! honest builder's wait (`EMPTY`, then `PayloadReady` once its wall clock reaches the floor).
+//! Clock-enabled worlds retain the original parent cadence and queued creation-time floors.
+//! Honest builders answer `EMPTY` while that floor is ahead, retain their queued work and wake
+//! the same request when their wall clock catches up. The stamp models the builder's additional
+//! transaction-time floor; Byzantine leads may violate either deterministic floors or CT1/CT5.
+//! These toy application records do not change the sans-IO protocol or clock-disabled worlds.
 
 use super::*;
 use crate::sim::{
@@ -154,6 +154,136 @@ impl GuardState {
 }
 
 impl World {
+    fn queued_creation_floor(&self, inst: usize, payload: &[u8]) -> u64 {
+        decode_txs(payload)
+            .into_iter()
+            .filter_map(|(id, _)| {
+                self.txs[inst].get(&id).map(|(created, _, _)| {
+                    u64::try_from(crate::sim::driver::CLOCK_BASE)
+                        .unwrap()
+                        .saturating_add(*created)
+                        .saturating_add(1)
+                })
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Original local certified parent and transaction floors, without consulting a wall clock.
+    pub(super) fn builder_clock_floor(&self, r: usize, height: u64, payload: &[u8]) -> Option<u64> {
+        if self.clock_guard.is_none() || payload.is_empty() {
+            return Some(0);
+        }
+        let replica = &self.replicas[r];
+        let parent_time = if height <= 1 {
+            0
+        } else {
+            let index = usize::try_from(height.checked_sub(2)?).ok()?;
+            let (parent, _) = replica.store.get(index)?;
+            if parent.header().height.checked_add(1) != Some(height) {
+                return None;
+            }
+            block_time(parent.payload().as_slice())?
+        };
+        Some(
+            parent_time
+                .saturating_add(self.instances[replica.inst].params.block_time)
+                .max(self.queued_creation_floor(replica.inst, payload)),
+        )
+    }
+
+    pub(super) fn raise_block_time_floor(&self, payload: &mut [u8], floor: u64) {
+        if self.clock_guard.is_some()
+            && let Some(time) = block_time(payload)
+        {
+            payload[..TIME_RECORD].copy_from_slice(&encode_time(time.max(floor)));
+        }
+    }
+
+    /// Deterministic parent/creation validation also applies to certified apply and replay.
+    pub(in crate::sim) fn clock_payload_validity(
+        &self,
+        inst: usize,
+        block: &AvailableBody,
+    ) -> Option<ExecOutcome> {
+        self.clock_guard.as_ref()?;
+        let Some(time) = block_time(block.payload().as_slice()) else {
+            return Some(ExecOutcome::Invalid);
+        };
+        let parent_time = if block.header().height <= 1 {
+            0
+        } else {
+            let parent_height = block.header().height - 1;
+            let parent = self
+                .replicas
+                .iter()
+                .enumerate()
+                .filter(|(_, replica)| replica.inst == inst)
+                .find_map(|(r, _)| self.local_body(r, parent_height, &block.header().parent_hash));
+            let Some(parent_time) =
+                parent.and_then(|parent| block_time(parent.payload().as_slice()))
+            else {
+                return Some(ExecOutcome::Failed(
+                    "original clock parent unavailable".to_owned(),
+                ));
+            };
+            parent_time
+        };
+        let floor = parent_time
+            .saturating_add(self.instances[inst].params.block_time)
+            .max(self.queued_creation_floor(inst, block.payload().as_slice()));
+        (time < floor).then_some(ExecOutcome::Invalid)
+    }
+
+    pub(super) fn schedule_clock_payload_ready(
+        &mut self,
+        r: usize,
+        req: u64,
+        floor: u64,
+        earliest: Millis,
+    ) {
+        let m = self.replicas[r].machine;
+        let offset = self
+            .clock_guard
+            .as_ref()
+            .map_or(0, |guard| guard.wall_offsets[m]);
+        let local =
+            u64::try_from((i128::from(floor) - i128::from(offset)).clamp(0, i128::from(u64::MAX)))
+                .expect("clamped clock floor fits u64");
+        let when = self.machines[m]
+            .clock
+            .global_at(local)
+            .max(earliest)
+            .max(self.now.saturating_add(1));
+        self.schedule(
+            when,
+            Ev::ClockReady {
+                r,
+                epoch: self.machines[m].epoch,
+                req,
+                floor,
+            },
+        );
+    }
+
+    pub(super) fn clock_payload_ready(&mut self, r: usize, req: u64, floor: u64) {
+        if self.replicas[r].pending_ready != Some(req)
+            || self.replicas[r].clock_ready != Some((req, floor))
+        {
+            return;
+        }
+        let m = self.replicas[r].machine;
+        if self.wall_ms(m) < i64::try_from(floor).unwrap_or(i64::MAX) {
+            self.schedule_clock_payload_ready(r, req, floor, self.now.saturating_add(1));
+            return;
+        }
+        self.replicas[r].pending_ready = None;
+        self.replicas[r].clock_ready = None;
+        self.replicas[r].host.deliver(Event::PayloadReady { req });
+        self.poll_host(r, self.now);
+        self.refresh(r);
+    }
+
     /// O-TIME's lower bound is checked once per due-work block at its first genuine honest
     /// Prepare, not at a later certified re-proposal or commit, which may be arbitrarily late.
     pub(in crate::sim) fn check_first_due_prepare(
@@ -215,6 +345,13 @@ impl World {
         {
             *slot = offset;
             self.trace(m, format!("wall clock offset {offset} ms"));
+            for r in 0..self.replicas.len() {
+                if self.replicas[r].machine == m
+                    && let Some((req, floor)) = self.replicas[r].clock_ready
+                {
+                    self.schedule_clock_payload_ready(r, req, floor, self.now.saturating_add(1));
+                }
+            }
         }
     }
 

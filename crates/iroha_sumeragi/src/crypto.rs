@@ -108,7 +108,7 @@ impl<'a> PrepareSigningContext<'a> {
     pub fn result(&self) -> &Hash32 {
         &self.result
     }
-    /// Whether an authenticated held PrepareQC certifies this exact block and result.
+    /// Whether an authenticated held `PrepareQC` certifies this exact block and result.
     pub fn certified(&self) -> bool {
         self.certified
     }

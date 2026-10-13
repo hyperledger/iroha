@@ -126,13 +126,15 @@ fn run(
     )
 }
 
+type OriginalRecord = (
+    Arc<PrivateDirectory>,
+    String,
+    Option<zeroize::Zeroizing<Vec<u8>>>,
+);
+
 struct Evidence {
     directories: Vec<(Arc<PrivateDirectory>, Vec<std::ffi::OsString>)>,
-    records: Vec<(
-        Arc<PrivateDirectory>,
-        String,
-        Option<zeroize::Zeroizing<Vec<u8>>>,
-    )>,
+    records: Vec<OriginalRecord>,
 }
 impl Evidence {
     fn capture(history: &BodyHistory) -> Self {
@@ -145,7 +147,10 @@ impl Evidence {
         value.add(container, &[]);
         for name in container.entries(32).unwrap() {
             let name = name.to_str().expect("canonical body entry");
-            if name.ends_with(".nrt") {
+            if std::path::Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension == "nrt")
+            {
                 value.add(container, &[name]);
             }
         }
@@ -407,8 +412,7 @@ fn native_closure_phase_shares_only_prefix_work_and_preserves_actual_wallet_read
                     });
                 refused.push((
                     current
-                        .err()
-                        .expect("late active owner must use its physical recipe")
+                        .expect_err("late active owner must use its physical recipe")
                         .to_string(),
                     usage.total_allocated_bytes(),
                 ));

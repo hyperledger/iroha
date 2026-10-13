@@ -2458,7 +2458,7 @@ mod tests {
                 .unwrap() = installed;
         }
         for (kind, rows) in [("prepared", prepared_rows), ("installed", installed_rows)] {
-            records.insert(format!("config-retirement-{kind}.json"), norito::json!({"schema":(format!("taira.validator-config-retirement.{kind}.v1")),"operation":(operation.clone()),"source_commit":source,"network_id":(network.to_string()),"rows":rows}));
+            records.insert(format!("config-retirement-{kind}.json"), norito::json!({"schema":(format!("taira.validator-config-retirement.{kind}.v1")),"operation":operation,"source_commit":source,"network_id":(network.to_string()),"rows":rows}));
         }
     }
 

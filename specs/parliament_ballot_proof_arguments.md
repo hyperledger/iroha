@@ -4337,8 +4337,12 @@ verification work. The accounting behind it:
 - `2^16` non-counter Keccak permutations are reserved per honest invocation
   or heavy verification;
 - retry permutations contribute at most `4·M_ctr·T = 2^66`;
-- `2^12` primitive evaluations are reserved per public request for bounded
-  validation work outside the backend.
+- the public-request allowance is coupled:
+  `w_request <= 2^12 + ((2,750,672 + 2^16)/740) q_request`, with every
+  induced backend call, including `H_mu`, included in `q_request`. The
+  [B6 stage calculation](parliament_ballot_b6_request_accounting.md) checks
+  the candidate cold entry for both roles and all admitted roster sizes;
+  `2^12` alone is not a bound on complete preparation.
 
 With the declared nominal conditions `q_pub ≤ 2^64`,
 `q_direct,primitive ≤ 2^64` and `N_public requests ≤ 2^64`, the recorded pooled

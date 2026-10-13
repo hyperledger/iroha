@@ -3,7 +3,7 @@ use super::{Response, ToriiProxyMemoryReservation, hold_torii_proxy_memory_in_re
 
 /// Complete every source-owned admission step before transferring W to the final Body.
 /// The finalizer executes inline; this function creates no independent task or writer.
-pub(super) async fn complete<F, Fut>(
+pub async fn complete<F, Fut>(
     response: Response,
     memory: ToriiProxyMemoryReservation,
     finalize: F,

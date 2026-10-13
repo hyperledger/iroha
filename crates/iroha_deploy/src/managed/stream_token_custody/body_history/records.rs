@@ -224,7 +224,7 @@ impl UnsignedEnrollment {
             .map_err(|_| invalid("unsigned enrollment checkpoint invalid"))?
             .verify_global_scope(
                 owner.authority.config.network_id,
-                &owner.authority.config.chain.to_string(),
+                owner.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("unsigned enrollment checkpoint changed Global scope"))
     }

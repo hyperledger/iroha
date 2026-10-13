@@ -83,7 +83,7 @@ fn every_core_query_page_family_uses_canonical_id_order_and_next_offset() {
     host.set_query_state(&view);
     host.enable_core_query_page_metrics();
     let mut vm = IVM::new(2_000_000);
-    let mut account_ids = vec![authority, second_account];
+    let mut account_ids = [authority, second_account];
     account_ids.sort();
     let mut sorted_domain_ids = domain_ids.to_vec();
     sorted_domain_ids.sort();

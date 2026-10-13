@@ -98,7 +98,6 @@ impl Scope {
                     sequence: next,
                 },
             ) => provider == selected && sequence == next && (2..=64).contains(&sequence),
-            (Self::Bootstrap(_), Purpose::CustodyRenewal { .. }) => false,
             (Self::Bootstrap(_), Purpose::ReservePolicy | Purpose::Reputation) => true,
             (
                 Self::Bootstrap(providers),

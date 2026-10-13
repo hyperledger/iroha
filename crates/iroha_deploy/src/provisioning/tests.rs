@@ -55,7 +55,7 @@ impl Fixture {
             now + 600_000,
             now + 700_000,
             now + 800_000,
-            Default::default(),
+            iroha_model_base::metadata::Metadata::default(),
         );
         lease.ownership_generation = 7;
         let record = lease.encode();
@@ -283,10 +283,10 @@ impl Operations {
     }
     fn record_call(&self, operation: &'static str) {
         self.calls.borrow_mut().push(operation);
-        if let Some((selected, signal)) = self.cancel_after.borrow().as_ref() {
-            if *selected == operation {
-                signal.store(true, Ordering::Release);
-            }
+        if let Some((selected, signal)) = self.cancel_after.borrow().as_ref()
+            && *selected == operation
+        {
+            signal.store(true, Ordering::Release);
         }
     }
     fn request(&self) -> AliasSetupPlanRequestV1 {
@@ -376,15 +376,15 @@ impl ProvisioningOperations for Operations {
             options.max_total_fees[&self.binding.faucet.asset_definition_id],
             self.binding.faucet.max_operation_fee
         );
-        if !path_exists(journal)? {
-            let _held =
-                iroha_operation_journal::Journal::create_prepared(journal, request).unwrap();
-        } else {
+        if path_exists(journal)? {
             let held = iroha_operation_journal::Journal::open(journal).unwrap();
             assert_eq!(
                 &held.read_operation::<AliasSetupPlanRequestV1>().unwrap(),
                 request
             );
+        } else {
+            let _held =
+                iroha_operation_journal::Journal::create_prepared(journal, request).unwrap();
         }
         Ok(self.reserve_status.get())
     }
@@ -789,7 +789,7 @@ fn namespace_allowance_and_authenticated_lease_bind_exact_identity_and_rent() {
             1 => changed.owner = binding.faucet.issuer.clone(),
             2 => changed.expires_at_ms = now,
             _ => changed.name_hash = [0; 32],
-        };
+        }
         assert!(binding.lease_generation(&changed, now).is_err());
     }
     let mut record = store.record.clone();

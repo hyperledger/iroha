@@ -1204,20 +1204,17 @@ fn vega_release_descriptor_is_derived_from_the_canonical_mc_constants() {
     )));
     assert!(descriptor.contains(&format!("wire={wire}")));
     assert!(descriptor.contains(&format!(
-        "fixed-primary={} total application constraints",
-        VEGA_RELEASE_MC_TOTAL_APP_CONSTRAINTS_V1
+        "fixed-primary={VEGA_RELEASE_MC_TOTAL_APP_CONSTRAINTS_V1} total application constraints"
     )));
     assert!(descriptor.contains(&format!(
-        "fixed-secondary={} maximum circuit variables",
-        VEGA_RELEASE_MC_MAX_CIRCUIT_VARIABLES_V1
+        "fixed-secondary={VEGA_RELEASE_MC_MAX_CIRCUIT_VARIABLES_V1} maximum circuit variables"
     )));
     assert!(descriptor.contains(&format!(
         "fixed-public-inputs={}",
         super::vega::VEGA_RELEASE_PUBLIC_INPUT_COUNT_V1
     )));
     assert!(descriptor.contains(&format!(
-        "fixed-depth={} relaxed sumcheck rounds",
-        VEGA_RELEASE_MC_RELAXED_SUMCHECK_ROUNDS_V1
+        "fixed-depth={VEGA_RELEASE_MC_RELAXED_SUMCHECK_ROUNDS_V1} relaxed sumcheck rounds"
     )));
     assert_eq!(
         super::vega::VEGA_RELEASE_PUBLIC_INPUT_COUNT_V1,

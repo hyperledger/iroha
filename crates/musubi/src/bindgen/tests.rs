@@ -1,7 +1,7 @@
 //! Admission, nominal identity, language coverage and source-generation checks.
 use super::*;
 
-const SOURCE: &str = r#"
+const SOURCE: &str = r"
 誓約 BindingSample {
     enum Status { Ready = 1, Complete = 2 }
     error enum Failure { Invalid = 7 }
@@ -26,7 +26,7 @@ const SOURCE: &str = r#"
     view fn inspect(Payload input) authorize(anyone) -> Payload { input }
     言挙げ fn update(Payload input) authorize(anyone) -> Payload { input }
 }
-"#;
+";
 
 #[test]
 fn admitted_artifact_generates_deterministic_kind_specific_bindings() {

@@ -152,7 +152,7 @@ pub fn default_public_xor_asset_definition_id(
 ///
 /// # Errors
 ///
-/// Returns an error when a supplied literal is not canonical Base58, when a public Nexus NPoS
+/// Returns an error when a supplied literal is not canonical Base58, when a public Nexus `NPoS`
 /// manifest omits the id, or when the flag is used for a non-public/non-NPoS manifest.
 pub fn resolve_public_xor_asset_definition_id(
     profile: Option<GenesisProfile>,

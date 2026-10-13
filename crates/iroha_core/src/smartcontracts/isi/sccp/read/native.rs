@@ -60,8 +60,17 @@ use crate::{
 
 /// Maximum native generation transitions in one catch-up response (§6).
 pub const MAX_NATIVE_ROTATIONS: usize = 16;
+pub mod evidence;
+/// Borrowed, request-funded registry and governance metadata.
+pub mod governance_metadata;
+/// Request-funded light-client metadata.
+pub mod light_client_metadata;
+/// Borrowed, request-funded message metadata.
+pub mod message_metadata;
 mod reconciliation;
 pub use reconciliation::forgery_hold;
+mod fast_pause;
+pub use fast_pause::{RetainedFastPauseView, anchor_witness, fast_pause};
 const MAX_KEYS: usize = 31;
 const MAX_BLOCK_LEAVES: usize = 512;
 const MAX_PAYLOAD_BYTES: usize = 4096;
@@ -161,8 +170,8 @@ pub fn with_state_view<T>(
 /// verified certificate or an authority capability. Do not release the charge while
 /// retaining the DTO. The transport must separately admit its encoded response buffer.
 pub struct SccpNativeDataV1<T> {
-    data: T,
-    _charge: AllocationReservation,
+    pub(super) data: T,
+    pub(super) _charge: AllocationReservation,
 }
 
 impl<T> SccpNativeDataV1<T> {
@@ -192,7 +201,7 @@ struct SourceIdentity {
     timestamp_ms: u64,
 }
 
-fn deadline_check(control: SccpNativeReadControl<'_>) -> Result<()> {
+pub(super) fn deadline_check(control: SccpNativeReadControl<'_>) -> Result<()> {
     if control.stop.load(Ordering::Acquire) {
         return Err(SccpNativeReadError::Cancelled);
     }
@@ -681,10 +690,17 @@ pub fn message_proof(
         .map_err(|_| SccpNativeReadError::Invalid("stored transfer payload"))?;
     if !payload.is_outbound()
         || payload.target() != Some(record.network)
-        || payload.route_revision != record.revision
-        || payload.nonce != record.nonce
-        || payload.deadline_ms != record.deadline_ms
-        || payload.amount != record.amount
+        || (
+            payload.route_revision,
+            payload.nonce,
+            payload.deadline_ms,
+            payload.amount,
+        ) != (
+            record.revision,
+            record.nonce,
+            record.deadline_ms,
+            record.amount,
+        )
     {
         return Err(SccpNativeReadError::Invalid("record payload coordinates"));
     }
@@ -1001,9 +1017,11 @@ fn bounded_tree_path(leaves: &mut [[u8; 32]], index: u64) -> Result<([u8; 32], V
     Ok((leaves[0], path))
 }
 
-/// TODO: replace the per-request O(size) scan with the §6 authenticated O(log size) cache
-/// once its retained nodes have original pool ownership and typed deadline/admission errors.
-/// This bounded streaming implementation uses only 33 peak slots and at most 32 siblings.
+/// Embedded message/control proofs stream original history leaves in O(size) time,
+/// checking cancellation and the source deadline at each leaf. Scratch stays bounded
+/// to 33 peak slots and 32 siblings. The standalone §6 `/history` route separately
+/// uses its original-pool `SccpHistoryNodeCache` for the specified O(log size) path;
+/// this embedded producer does not duplicate or replace that cache owner.
 fn history_path(
     world: &(impl WorldReadOnly + ?Sized),
     index: u64,

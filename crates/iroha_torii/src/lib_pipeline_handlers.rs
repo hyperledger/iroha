@@ -139,7 +139,7 @@ async fn handler_post_transactions_batch(
                         )
                     } else {
                         let entrypoint_hash = prepared.transaction.entrypoint().hash();
-                        match tokio::time::timeout_at(
+                        tokio::time::timeout_at(
                             deadline,
                             submit_prepared_transaction_ingress(
                                 &app,
@@ -149,14 +149,16 @@ async fn handler_post_transactions_batch(
                             ),
                         )
                         .await
-                        {
-                            Ok(result) => result.unwrap_or_else(IntoResponse::into_response),
-                            Err(_) => transaction_dispatch_outcome_unknown_response(
-                                entrypoint_hash,
-                                Some(hash),
-                                "batch deadline elapsed after this entry was dispatched",
-                            ),
-                        }
+                        .map_or_else(
+                            |_| {
+                                transaction_dispatch_outcome_unknown_response(
+                                    entrypoint_hash,
+                                    Some(hash),
+                                    "batch deadline elapsed after this entry was dispatched",
+                                )
+                            },
+                            |result| result.unwrap_or_else(IntoResponse::into_response),
+                        )
                     }
                 }
                 #[cfg(not(feature = "connect"))]

@@ -1697,6 +1697,34 @@ def test_token_issuance_finalized_policy_worker_accepts_nonsemantic_growth() -> 
     grown = source.replace("let policy = account", "/* " + "\n" * 25_000 + " */\nlet policy = account", 1)
     assert len(grown) > len(source) + 25_000
     assert module._token_issuance_worker_policy_failures(grown) == []
+    reformatted = source.replace("let issuance_result =", "let\n    issuance_result =")
+    assert reformatted != source
+    assert module._token_issuance_worker_policy_failures(reformatted) == []
+
+
+def test_current_public_recovery_helpers_retain_audited_markers() -> None:
+    root = Path(__file__).resolve().parents[2]
+    module = load_guard_module()
+    relative = "crates/iroha_torii/src/panic_recovery.rs"
+    source = (root / relative).read_text(encoding="utf-8")
+    assert module._required_recovery_marker_failures(relative, source) == []
+    for marker in module.REQUIRED_SNIPPETS[relative]:
+        assert marker in source
+        mutated = source.replace(marker, "removed_audited_helper", 1)
+        assert module._required_recovery_marker_failures(relative, mutated) == [
+            f"{relative}: missing audited recovery marker {marker!r}"
+        ]
+
+
+def _rust_fragment_span(module, source: str, fragment: str) -> tuple[int, int]:
+    """Locate the first code-token sequence, independent of Rust formatting and comments."""
+    tokens = module._rust_tokens(source)
+    expected = [token.text for token in module._rust_tokens(fragment)]
+    assert expected
+    for index in range(len(tokens) - len(expected) + 1):
+        if [token.text for token in tokens[index:index + len(expected)]] == expected:
+            return tokens[index].start, tokens[index + len(expected) - 1].end
+    raise AssertionError(f"missing original Rust fragment: {fragment!r}")
 
 
 @pytest.mark.parametrize("old,new", [
@@ -1704,23 +1732,23 @@ def test_token_issuance_finalized_policy_worker_accepts_nonsemantic_growth() -> 
     ("let worker_issuer = Arc::clone(&issuer);", "let worker_issuer = issuer;"),
     ("let policy = account", "let policy = other_account"),
     (".transpose()?;", ".transpose().unwrap_or(None);"),
-    ("let issued = worker_issuer.issue_token(", "let issued = detached_issuer.issue_token("),
+    ("let issuance_result = worker_issuer.issue_token(", "let issuance_result = detached_issuer.issue_token("),
     ("policy.as_ref(),", "None,"),
     ("if let Some(account) = &account {", "if false { let account = &account;"),
     ("if Some(current_account_read_policy(", "if Some(stale_account_read_policy("),
     ("            )?) != policy", "            ).ok()) != policy"),
     ("            )?) != policy", "            )?) == policy"),
-    ("account-read policy changed during token issuance", "ignore changed policy"),
-    ("StatusCode::FORBIDDEN,\n                    \"account-read policy changed", "StatusCode::OK,\n                    \"account-read policy changed"),
-    ("        Ok(issued)\n    })", "        Ok(foreign_issued)\n    })"),
-    ("        Ok(issued) => issued,\n        Err(response) => return response,\n    };", "        Ok(issued) => issued,\n        Err(_response) => Ok(fallback_token()),\n    };"),
+    ('"account-read policy changed during token issuance"', '"ignore changed policy"'),
+    ('StatusCode::FORBIDDEN, "account-read policy changed during token issuance"', 'StatusCode::OK, "account-read policy changed during token issuance"'),
+    ("Ok(issuance_result) })", "Ok(foreign_issued) })"),
+    ("Ok(issuance_result) => issuance_result, Err(response) => return response, };", "Ok(issuance_result) => issuance_result, Err(_response) => Ok(fallback_token()), };"),
 ])
 def test_token_issuance_finalized_policy_worker_refuses_owner_and_policy_mutations(old: str, new: str) -> None:
     root = Path(__file__).resolve().parents[2]
     module = load_guard_module()
     source = (root / "crates/iroha_torii/src/sorafs/api/storage_token_issuance.rs").read_text(encoding="utf-8")
-    assert old in source
-    mutated = source.replace(old, new, 1)
+    start, end = _rust_fragment_span(module, source, old)
+    mutated = source[:start] + new + source[end:]
     assert mutated != source
     assert module._token_issuance_worker_policy_failures(mutated) == [
         "crates/iroha_torii/src/sorafs/api/storage_token_issuance.rs: token issuance lost its bounded owned pre/post policy worker"
@@ -1731,10 +1759,10 @@ def test_token_issuance_policy_reads_cannot_be_reordered_or_move_outside_worker(
     root = Path(__file__).resolve().parents[2]
     module = load_guard_module()
     source = (root / "crates/iroha_torii/src/sorafs/api/storage_token_issuance.rs").read_text(encoding="utf-8")
-    prefix = source.index("        let policy = account")
-    issue = source.index("        let issued = worker_issuer.issue_token(", prefix)
-    recheck = source.index("        // Issuance can await external custody.", issue)
-    result = source.index("        Ok(issued)", recheck)
+    prefix, _ = _rust_fragment_span(module, source, "let policy = account")
+    issue, _ = _rust_fragment_span(module, source, "let issuance_result = worker_issuer.issue_token(")
+    recheck, _ = _rust_fragment_span(module, source, "if let Some(account) = &account {")
+    result, _ = _rust_fragment_span(module, source, "Ok(issuance_result) })")
     policy = source[prefix:issue]
     issuance = source[issue:recheck]
     check = source[recheck:result]

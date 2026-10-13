@@ -211,7 +211,23 @@ fn expired_void_conformance(function: &str, canonical: &[u8], source_words: usiz
 pub fn fixture() -> Value {
     let g7 = Committee::new(7);
     let g8 = Committee::new(8);
-    let destination = eth_destination();
+    let mut destination = eth_destination();
+    let pin = SccpCommitteePinV1 {
+        generation: 7,
+        committee_root: g7.root(),
+        start_height: 1,
+        until_ms: T0 + 14 * DAY,
+    };
+    let deployment = ConstructorArgsV1 {
+        taira_network_id: TAIRA,
+        consensus_instance: INSTANCE,
+        network: destination.network,
+        route_revision: destination.route_revision,
+        max_wrapped_supply: 1_000_000_000_000_000_000,
+        pin,
+    };
+    // The fixture replays on the real CREATE2 deployment without relocating code or state.
+    destination.destination_word = word_address(&deployment.address());
     let control_fields = ControlLeafV1 {
         route_revision: 1,
         control_nonce: 1,
@@ -229,10 +245,18 @@ pub fn fixture() -> Value {
     )
     .unwrap();
     let payloads: Vec<_> = (0..4).map(eth_outbound).collect();
-    let block50 = PromoteOddTree::block(&[eth_transfer_leaf(0)]).unwrap();
-    let block100 =
-        PromoteOddTree::block(&[eth_transfer_leaf(1), eth_transfer_leaf(2), control_hash]).unwrap();
-    let block200 = PromoteOddTree::block(&[eth_transfer_leaf(3)]).unwrap();
+    let leaves: Vec<_> = payloads
+        .iter()
+        .map(|payload| {
+            transfer_leaf(
+                &payload.message_id(&TAIRA).unwrap(),
+                &destination.destination_word,
+            )
+        })
+        .collect();
+    let block50 = PromoteOddTree::block(&[leaves[0]]).unwrap();
+    let block100 = PromoteOddTree::block(&[leaves[1], leaves[2], control_hash]).unwrap();
+    let block200 = PromoteOddTree::block(&[leaves[3]]).unwrap();
     let history = [
         history_leaf(50, &block50.root(), 1),
         history_leaf(100, &block100.root(), 3),
@@ -275,20 +299,6 @@ pub fn fixture() -> Value {
     let (c100, sigma100) = g7.certificate(&x100);
     let (c150, sigma150) = g7.certificate(&x150);
     let (c200, sigma200) = g8.certificate(&x200);
-    let pin = SccpCommitteePinV1 {
-        generation: 7,
-        committee_root: g7.root(),
-        start_height: 1,
-        until_ms: T0 + 14 * DAY,
-    };
-    let deployment = ConstructorArgsV1 {
-        taira_network_id: TAIRA,
-        consensus_instance: INSTANCE,
-        network: destination.network,
-        route_revision: destination.route_revision,
-        max_wrapped_supply: 1_000_000_000_000_000_000,
-        pin,
-    };
     let initial = CommitteeStateV1::from_pin(
         pin.generation,
         pin.committee_root,

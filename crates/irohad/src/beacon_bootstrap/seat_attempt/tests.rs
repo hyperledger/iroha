@@ -113,20 +113,20 @@ pub(super) fn prepare_with_sources(
         },
         budget,
     )?;
-    SeatDkgAttempt::new(
+    SeatDkgAttempt::prepare(SeatDkgAttemptPreparation {
         authority,
-        &roster,
-        1,
-        keys[0].clone(),
-        public_read,
-        finality_read,
+        roster: &roster,
+        signer_index: 1,
+        signer: keys[0].clone(),
+        public_input: public_read,
+        finality_input: finality_read,
         clock,
-        handle,
-        revision,
-        root,
-        Instant::now() + Duration::from_secs(60),
+        provider_handle: handle,
+        provider_revision: revision,
+        attempt_root: root,
+        deadline: Instant::now() + Duration::from_secs(60),
         budget,
-    )
+    })
 }
 pub(super) fn through_publication_encoding(attempt: &mut SeatDkgAttempt) {
     for expected in [
@@ -268,6 +268,9 @@ fn pending_attempt_keeps_generated_private_owner_and_terminal_deadline_never_rer
     // neither resumption nor the error carrier may reset it or generate again.
     attempt.deadline = Instant::now();
     let failure = attempt.resume().unwrap_err();
+    assert!(matches!(failure.cause(), AttemptError::Deadline));
+    let retained_cause = std::ptr::from_ref(failure.cause());
+    assert_eq!(std::ptr::from_ref(failure.cause()), retained_cause);
     assert_eq!(std::ptr::from_ref(&*failure.owner), receiver);
     assert!(failure.owner.receiver.belongs_to(&budget));
     assert_eq!(failure.owner.phase, Phase::Terminal);
@@ -278,6 +281,9 @@ fn pending_attempt_keeps_generated_private_owner_and_terminal_deadline_never_rer
     );
     assert_eq!(budget.reserved_bytes(), retained);
     let second = failure.owner.resume().unwrap_err();
+    // The original elapsed deadline is checked before terminal-phase dispatch on every retry.
+    assert!(matches!(second.cause(), AttemptError::Deadline));
+    assert_eq!(std::ptr::from_ref(second.cause()), retained_cause);
     assert_eq!(std::ptr::from_ref(&*second.owner), receiver);
     assert!(second.owner.receiver.belongs_to(&budget));
     assert_eq!(second.owner.phase, Phase::Terminal);
@@ -317,7 +323,7 @@ fn original_dealer_retirement_waits_for_complete_durable_delivery_publication() 
             PreparedLocalGlobalThresholdBeaconDkgSeatV1::new(
                 session,
                 &roster,
-                (index + 1) as u16,
+                u16::try_from(index + 1).expect("fixture index fits u16"),
                 key,
                 &budget,
             )

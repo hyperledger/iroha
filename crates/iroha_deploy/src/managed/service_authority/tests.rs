@@ -107,11 +107,13 @@ fn assert_only_signer_may_differ(original: &Config, selected: &Config) {
         _ => panic!("HTTP authentication selection changed"),
     }
     assert!(
-        api_token.as_ref().map(|value| value.expose_secret())
+        api_token
+            .as_ref()
+            .map(iroha::secrecy::SecretString::expose_secret)
             == original
                 .api_token
                 .as_ref()
-                .map(|value| value.expose_secret())
+                .map(iroha::secrecy::SecretString::expose_secret)
     );
     let cache = &original.sorafs_alias_cache;
     assert_eq!(sorafs_alias_cache.positive_ttl(), cache.positive_ttl());

@@ -1436,10 +1436,7 @@ fn soracloud_release_openapi_matches_the_exact_closed_catalog_surface() {
                     let additional = schema.get("additionalProperties");
                     assert!(
                         location == format!("{COMPONENT_SCHEMA_REF_PREFIX}JsonValue")
-                            || matches!(
-                                additional,
-                                Some(Value::Object(_)) | Some(Value::Bool(false))
-                            ),
+                            || matches!(additional, Some(Value::Object(_) | Value::Bool(false))),
                         "map object {location} must type its values or be closed"
                     );
                 }
@@ -1483,10 +1480,8 @@ fn soracloud_release_openapi_matches_the_exact_closed_catalog_surface() {
             let item = item.as_object().expect("Soracloud path item");
             ["get", "post", "put", "patch", "delete"]
                 .into_iter()
-                .filter_map(move |method| {
-                    item.contains_key(method)
-                        .then(|| (path.clone(), method.to_owned()))
-                })
+                .filter(|&method| item.contains_key(method))
+                .map(|method| (path.clone(), method.to_owned()))
         })
         .collect::<BTreeSet<_>>();
     assert_eq!(actual.len(), 51, "canonical Soracloud OpenAPI inventory");

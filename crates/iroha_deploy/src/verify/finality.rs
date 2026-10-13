@@ -369,7 +369,7 @@ pub struct FinalityVerifier {
     checkpoint: Arc<SumeragiFinalityCheckpoint>,
     /// Successors an observation verified before its budget ran out, awaiting a fresh quorum.
     /// The next observation continues from here. The durable runtime owner may explicitly
-    /// retain them as a certificate-only checkpoint while still returning CatchingUp.
+    /// retain them as a certificate-only checkpoint while still returning `CatchingUp`.
     pending: Option<SumeragiFinalityCheckpoint>,
     /// Successful authentication of this exact immutable checkpoint's original tip only.
     /// Clones share the derived capability until one publishes a different checkpoint.
@@ -479,7 +479,7 @@ impl FinalityVerifier {
         self.checkpoint.as_ref()
     }
     /// Move only previously native-verified successors into the durable owner's certified prefix.
-    /// This supplies no fresh attestation quorum; the owner must retain the CatchingUp refusal.
+    /// This supplies no fresh attestation quorum; the owner must retain the `CatchingUp` refusal.
     pub(crate) fn promote_verified_progress(&mut self) -> bool {
         let Some(pending) = self.pending.take() else {
             return false;
@@ -740,7 +740,7 @@ impl FinalityVerifier {
     /// [`FinalityError::CatchingUp`] and keeps the successors it verified for the next
     /// observation, which continues from them. This method changes its checkpoint only on fresh
     /// quorum success; a durable owner may separately retain the verified prefix while returning
-    /// CatchingUp and requiring a new challenged observation for readiness.
+    /// `CatchingUp` and requiring a new challenged observation for readiness.
     ///
     /// # Errors
     /// Zero challenge, peer budget exhaustion, [`FinalityError::CatchingUp`], or insufficient
@@ -760,7 +760,11 @@ impl FinalityVerifier {
     ) -> Result<AttestationQuorum, FinalityError> {
         require_challenge(challenge)?;
         let network = self.checkpoint.network_id();
-        let mut prefix = Prefix::new(self.pending.as_ref().unwrap_or(self.checkpoint.as_ref()))?;
+        let mut prefix = Prefix::new(
+            self.pending
+                .as_ref()
+                .unwrap_or_else(|| self.checkpoint.as_ref()),
+        )?;
         let mut reads = BTreeMap::new();
         // Why a member's own proof could not extend the prefix: invalid or over budget.
         let mut unverified = BTreeMap::new();

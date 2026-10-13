@@ -133,63 +133,50 @@ pub enum ToriiRoutingPlanHintErrorKind {
     NativeAmxPlanDigestMismatch,
 }
 /// Error returned when a Torii routing-plan hint is not internally canonical.
+/// Only the fields relevant to the selected refusal are retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ToriiRoutingPlanHintError {
-    kind: ToriiRoutingPlanHintErrorKind,
-    leg_index: Option<usize>,
-    actual_role: Option<ToriiRouteLegRoleV1>,
-    participant_count: Option<usize>,
-    participant_limit: Option<usize>,
-    previous_route: Option<ToriiRouteHintV1>,
-    actual_route: Option<ToriiRouteHintV1>,
-    advertised_digest: Option<Hash>,
-    computed_digest: Option<Hash>,
+pub struct ToriiRoutingPlanHintError(RoutingPlanHintRefusal);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RoutingPlanHintRefusal {
+    CoordinatorRole(ToriiRouteLegRoleV1),
+    ParticipantRole {
+        index: usize,
+        actual: ToriiRouteLegRoleV1,
+    },
+    ParticipantLimit {
+        count: usize,
+        limit: usize,
+    },
+    DuplicateRoute {
+        index: usize,
+        route: ToriiRouteHintV1,
+    },
+    RouteOrder {
+        index: usize,
+        previous: ToriiRouteHintV1,
+        actual: ToriiRouteHintV1,
+    },
+    DigestMismatch {
+        advertised: Hash,
+        computed: Hash,
+    },
 }
 impl ToriiRoutingPlanHintError {
     /// Construct an error for a malformed coordinator leg role.
     #[must_use]
     pub const fn unexpected_coordinator_role(actual: ToriiRouteLegRoleV1) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::UnexpectedCoordinatorRole,
-            leg_index: None,
-            actual_role: Some(actual),
-            participant_count: None,
-            participant_limit: None,
-            previous_route: None,
-            actual_route: None,
-            advertised_digest: None,
-            computed_digest: None,
-        }
+        Self(RoutingPlanHintRefusal::CoordinatorRole(actual))
     }
     /// Construct an error for a malformed participant leg role.
     #[must_use]
     pub const fn unexpected_participant_role(index: usize, actual: ToriiRouteLegRoleV1) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole,
-            leg_index: Some(index),
-            actual_role: Some(actual),
-            participant_count: None,
-            participant_limit: None,
-            previous_route: None,
-            actual_route: None,
-            advertised_digest: None,
-            computed_digest: None,
-        }
+        Self(RoutingPlanHintRefusal::ParticipantRole { index, actual })
     }
     /// Construct an error for a Native AMX participant vector above the protocol limit.
     #[must_use]
     pub const fn native_amx_participant_limit_exceeded(count: usize, limit: usize) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::NativeAmxParticipantLimitExceeded,
-            leg_index: None,
-            actual_role: None,
-            participant_count: Some(count),
-            participant_limit: Some(limit),
-            previous_route: None,
-            actual_route: None,
-            advertised_digest: None,
-            computed_digest: None,
-        }
+        Self(RoutingPlanHintRefusal::ParticipantLimit { count, limit })
     }
     /// Construct an error for a repeated Native AMX participant route.
     #[must_use]
@@ -197,17 +184,7 @@ impl ToriiRoutingPlanHintError {
         index: usize,
         route: ToriiRouteHintV1,
     ) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute,
-            leg_index: Some(index),
-            actual_role: None,
-            participant_count: None,
-            participant_limit: None,
-            previous_route: Some(route),
-            actual_route: Some(route),
-            advertised_digest: None,
-            computed_digest: None,
-        }
+        Self(RoutingPlanHintRefusal::DuplicateRoute { index, route })
     }
     /// Construct an error for noncanonical Native AMX participant ordering.
     #[must_use]
@@ -216,139 +193,152 @@ impl ToriiRoutingPlanHintError {
         previous: ToriiRouteHintV1,
         actual: ToriiRouteHintV1,
     ) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder,
-            leg_index: Some(index),
-            actual_role: None,
-            participant_count: None,
-            participant_limit: None,
-            previous_route: Some(previous),
-            actual_route: Some(actual),
-            advertised_digest: None,
-            computed_digest: None,
-        }
+        Self(RoutingPlanHintRefusal::RouteOrder {
+            index,
+            previous,
+            actual,
+        })
     }
     /// Construct an error for a Native AMX digest that does not match the route legs.
     #[must_use]
     pub const fn native_amx_plan_digest_mismatch(advertised: Hash, computed: Hash) -> Self {
-        Self {
-            kind: ToriiRoutingPlanHintErrorKind::NativeAmxPlanDigestMismatch,
-            leg_index: None,
-            actual_role: None,
-            participant_count: None,
-            participant_limit: None,
-            previous_route: None,
-            actual_route: None,
-            advertised_digest: Some(advertised),
-            computed_digest: Some(computed),
-        }
+        Self(RoutingPlanHintRefusal::DigestMismatch {
+            advertised,
+            computed,
+        })
     }
     /// Return the failure kind.
     #[must_use]
     pub const fn kind(&self) -> ToriiRoutingPlanHintErrorKind {
-        self.kind
+        match self.0 {
+            RoutingPlanHintRefusal::CoordinatorRole(_) => {
+                ToriiRoutingPlanHintErrorKind::UnexpectedCoordinatorRole
+            }
+            RoutingPlanHintRefusal::ParticipantRole { .. } => {
+                ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole
+            }
+            RoutingPlanHintRefusal::ParticipantLimit { .. } => {
+                ToriiRoutingPlanHintErrorKind::NativeAmxParticipantLimitExceeded
+            }
+            RoutingPlanHintRefusal::DuplicateRoute { .. } => {
+                ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute
+            }
+            RoutingPlanHintRefusal::RouteOrder { .. } => {
+                ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder
+            }
+            RoutingPlanHintRefusal::DigestMismatch { .. } => {
+                ToriiRoutingPlanHintErrorKind::NativeAmxPlanDigestMismatch
+            }
+        }
     }
     /// Return the malformed leg role, when this error is role-related.
     #[must_use]
     pub const fn actual_role(&self) -> Option<ToriiRouteLegRoleV1> {
-        self.actual_role
+        match self.0 {
+            RoutingPlanHintRefusal::CoordinatorRole(actual)
+            | RoutingPlanHintRefusal::ParticipantRole { actual, .. } => Some(actual),
+            _ => None,
+        }
     }
     /// Return the malformed participant index, when this error identifies one route leg.
     #[must_use]
     pub const fn leg_index(&self) -> Option<usize> {
-        self.leg_index
+        match self.0 {
+            RoutingPlanHintRefusal::ParticipantRole { index, .. }
+            | RoutingPlanHintRefusal::DuplicateRoute { index, .. }
+            | RoutingPlanHintRefusal::RouteOrder { index, .. } => Some(index),
+            _ => None,
+        }
     }
     /// Return the advertised participant count, when this error is count-related.
     #[must_use]
     pub const fn participant_count(&self) -> Option<usize> {
-        self.participant_count
+        match self.0 {
+            RoutingPlanHintRefusal::ParticipantLimit { count, .. } => Some(count),
+            _ => None,
+        }
     }
     /// Return the maximum participant count, when this error is count-related.
     #[must_use]
     pub const fn participant_limit(&self) -> Option<usize> {
-        self.participant_limit
+        match self.0 {
+            RoutingPlanHintRefusal::ParticipantLimit { limit, .. } => Some(limit),
+            _ => None,
+        }
     }
     /// Return the preceding participant route, when this error is order-related.
     #[must_use]
     pub const fn previous_route(&self) -> Option<ToriiRouteHintV1> {
-        self.previous_route
+        match self.0 {
+            RoutingPlanHintRefusal::DuplicateRoute { route, .. } => Some(route),
+            RoutingPlanHintRefusal::RouteOrder { previous, .. } => Some(previous),
+            _ => None,
+        }
     }
     /// Return the malformed participant route, when this error is route-related.
     #[must_use]
     pub const fn actual_route(&self) -> Option<ToriiRouteHintV1> {
-        self.actual_route
+        match self.0 {
+            RoutingPlanHintRefusal::DuplicateRoute { route, .. } => Some(route),
+            RoutingPlanHintRefusal::RouteOrder { actual, .. } => Some(actual),
+            _ => None,
+        }
     }
     /// Return the advertised Native AMX plan digest, when this error is digest-related.
     #[must_use]
     pub const fn advertised_digest(&self) -> Option<Hash> {
-        self.advertised_digest
+        match self.0 {
+            RoutingPlanHintRefusal::DigestMismatch { advertised, .. } => Some(advertised),
+            _ => None,
+        }
     }
     /// Return the recomputed Native AMX plan digest, when this error is digest-related.
     #[must_use]
     pub const fn computed_digest(&self) -> Option<Hash> {
-        self.computed_digest
+        match self.0 {
+            RoutingPlanHintRefusal::DigestMismatch { computed, .. } => Some(computed),
+            _ => None,
+        }
     }
 }
 impl fmt::Display for ToriiRoutingPlanHintError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            ToriiRoutingPlanHintErrorKind::UnexpectedCoordinatorRole => match self.actual_role {
-                Some(actual) => write!(f, "unexpected coordinator role {actual:?}"),
-                None => f.write_str("unexpected coordinator role"),
-            },
-            ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole => {
-                match (self.leg_index, self.actual_role) {
-                    (Some(index), Some(actual)) => {
-                        write!(f, "unexpected participant role {actual:?} at index {index}")
-                    }
-                    _ => f.write_str("unexpected participant role"),
-                }
+        match self.0 {
+            RoutingPlanHintRefusal::CoordinatorRole(actual) => {
+                write!(f, "unexpected coordinator role {actual:?}")
             }
-            ToriiRoutingPlanHintErrorKind::NativeAmxParticipantLimitExceeded => {
-                match (self.participant_count, self.participant_limit) {
-                    (Some(count), Some(limit)) => write!(
-                        f,
-                        "native AMX participant count {count} exceeds protocol limit {limit}"
-                    ),
-                    _ => f.write_str("native AMX participant count exceeds protocol limit"),
-                }
+            RoutingPlanHintRefusal::ParticipantRole { index, actual } => {
+                write!(f, "unexpected participant role {actual:?} at index {index}")
             }
-            ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute => {
-                match (self.leg_index, self.actual_route) {
-                    (Some(index), Some(route)) => write!(
-                        f,
-                        "duplicate native AMX participant route at index {index}: dataspace {}, lane {}",
-                        route.dataspace_id.as_u64(),
-                        route.lane_id.as_u32()
-                    ),
-                    _ => f.write_str("duplicate native AMX participant route"),
-                }
-            }
-            ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder => {
-                match (self.leg_index, self.previous_route, self.actual_route) {
-                    (Some(index), Some(previous), Some(actual)) => write!(
-                        f,
-                        "native AMX participant routes are out of canonical (dataspace, lane) order \
-                         at index {index}: previous ({}, {}), actual ({}, {})",
-                        previous.dataspace_id.as_u64(),
-                        previous.lane_id.as_u32(),
-                        actual.dataspace_id.as_u64(),
-                        actual.lane_id.as_u32()
-                    ),
-                    _ => f.write_str(
-                        "native AMX participant routes are out of canonical (dataspace, lane) order",
-                    ),
-                }
-            }
-            ToriiRoutingPlanHintErrorKind::NativeAmxPlanDigestMismatch => {
-                match (self.advertised_digest, self.computed_digest) {
-                    (Some(advertised), Some(computed)) => write!(
-                        f,
-                        "native AMX plan digest mismatch: advertised {advertised}, computed {computed}"
-                    ),
-                    _ => f.write_str("native AMX plan digest mismatch"),
-                }
-            }
+            RoutingPlanHintRefusal::ParticipantLimit { count, limit } => write!(
+                f,
+                "native AMX participant count {count} exceeds protocol limit {limit}"
+            ),
+            RoutingPlanHintRefusal::DuplicateRoute { index, route } => write!(
+                f,
+                "duplicate native AMX participant route at index {index}: dataspace {}, lane {}",
+                route.dataspace_id.as_u64(),
+                route.lane_id.as_u32()
+            ),
+            RoutingPlanHintRefusal::RouteOrder {
+                index,
+                previous,
+                actual,
+            } => write!(
+                f,
+                "native AMX participant routes are out of canonical (dataspace, lane) order at index {index}: previous ({}, {}), actual ({}, {})",
+                previous.dataspace_id.as_u64(),
+                previous.lane_id.as_u32(),
+                actual.dataspace_id.as_u64(),
+                actual.lane_id.as_u32()
+            ),
+            RoutingPlanHintRefusal::DigestMismatch {
+                advertised,
+                computed,
+            } => write!(
+                f,
+                "native AMX plan digest mismatch: advertised {advertised}, computed {computed}"
+            ),
         }
     }
 }
@@ -945,6 +935,108 @@ mod tests {
                 )
             })
             .collect()
+    }
+    #[test]
+    fn routing_plan_refusals_retain_only_their_variant_details() {
+        const { assert!(std::mem::size_of::<ToriiRoutingPlanHintError>() <= 128) };
+        let route = ToriiRouteHintV1 {
+            lane_id: LaneId::new(2),
+            dataspace_id: DataSpaceId::new(3),
+        };
+        let later_route = ToriiRouteHintV1 {
+            lane_id: LaneId::new(4),
+            dataspace_id: DataSpaceId::new(5),
+        };
+        let advertised = Hash::new(b"advertised");
+        let computed = Hash::new(b"computed");
+        let refusals = [
+            ToriiRoutingPlanHintError::unexpected_coordinator_role(
+                ToriiRouteLegRoleV1::Participant,
+            ),
+            ToriiRoutingPlanHintError::unexpected_participant_role(
+                7,
+                ToriiRouteLegRoleV1::Coordinator,
+            ),
+            ToriiRoutingPlanHintError::native_amx_participant_limit_exceeded(256, 255),
+            ToriiRoutingPlanHintError::native_amx_duplicate_participant_route(7, route),
+            ToriiRoutingPlanHintError::native_amx_participants_out_of_order(7, later_route, route),
+            ToriiRoutingPlanHintError::native_amx_plan_digest_mismatch(advertised, computed),
+        ];
+        let expected_kinds = [
+            ToriiRoutingPlanHintErrorKind::UnexpectedCoordinatorRole,
+            ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole,
+            ToriiRoutingPlanHintErrorKind::NativeAmxParticipantLimitExceeded,
+            ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute,
+            ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder,
+            ToriiRoutingPlanHintErrorKind::NativeAmxPlanDigestMismatch,
+        ];
+        for (refusal, expected_kind) in refusals.into_iter().zip(expected_kinds) {
+            assert_eq!(refusal.kind(), expected_kind);
+            let expected_role = match refusal.kind() {
+                ToriiRoutingPlanHintErrorKind::UnexpectedCoordinatorRole => {
+                    Some(ToriiRouteLegRoleV1::Participant)
+                }
+                ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole => {
+                    Some(ToriiRouteLegRoleV1::Coordinator)
+                }
+                _ => None,
+            };
+            assert_eq!(refusal.actual_role(), expected_role);
+            let indexed = matches!(
+                refusal.kind(),
+                ToriiRoutingPlanHintErrorKind::UnexpectedParticipantRole
+                    | ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute
+                    | ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder
+            );
+            assert_eq!(refusal.leg_index(), indexed.then_some(7));
+            let limited =
+                refusal.kind() == ToriiRoutingPlanHintErrorKind::NativeAmxParticipantLimitExceeded;
+            assert_eq!(refusal.participant_count(), limited.then_some(256));
+            assert_eq!(refusal.participant_limit(), limited.then_some(255));
+            let expected_previous = match refusal.kind() {
+                ToriiRoutingPlanHintErrorKind::NativeAmxDuplicateParticipantRoute => Some(route),
+                ToriiRoutingPlanHintErrorKind::NativeAmxParticipantsOutOfOrder => Some(later_route),
+                _ => None,
+            };
+            assert_eq!(refusal.previous_route(), expected_previous);
+            assert_eq!(refusal.actual_route(), expected_previous.map(|_| route));
+            let digest_mismatch =
+                refusal.kind() == ToriiRoutingPlanHintErrorKind::NativeAmxPlanDigestMismatch;
+            assert_eq!(
+                refusal.advertised_digest(),
+                digest_mismatch.then_some(advertised)
+            );
+            assert_eq!(
+                refusal.computed_digest(),
+                digest_mismatch.then_some(computed)
+            );
+        }
+        assert_eq!(
+            refusals[0].to_string(),
+            "unexpected coordinator role Participant"
+        );
+        assert_eq!(
+            refusals[1].to_string(),
+            "unexpected participant role Coordinator at index 7"
+        );
+        assert_eq!(
+            refusals[2].to_string(),
+            "native AMX participant count 256 exceeds protocol limit 255"
+        );
+        assert_eq!(
+            refusals[3].to_string(),
+            "duplicate native AMX participant route at index 7: dataspace 3, lane 2"
+        );
+        assert_eq!(
+            refusals[4].to_string(),
+            "native AMX participant routes are out of canonical (dataspace, lane) order at index 7: previous (5, 4), actual (3, 2)"
+        );
+        assert_eq!(
+            refusals[5].to_string(),
+            format!(
+                "native AMX plan digest mismatch: advertised {advertised}, computed {computed}"
+            )
+        );
     }
     #[test]
     fn torii_routing_plan_hint_roundtrips_single_and_native_amx_plans() {

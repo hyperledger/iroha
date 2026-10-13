@@ -368,10 +368,10 @@ mod tests {
         let root = std::env::temp_dir()
             .canonicalize()
             .expect("canonical node fixture parent");
-        let _storage = TempDir::new_in(root).expect("private node fixture storage");
+        let storage = TempDir::new_in(root).expect("private node fixture storage");
         let node = NodeHandle::new(
             StorageConfig::builder()
-                .data_dir(_storage.path().join("storage"))
+                .data_dir(storage.path().join("storage"))
                 .build(),
         );
         assert_eq!(

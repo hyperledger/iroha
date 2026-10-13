@@ -273,7 +273,7 @@ impl LaneStoreAuthorities for NativeLaneStoreAuthorities {
         let expected = incarnation_instance(
             &*self.crypto,
             &network,
-            &self.state.chain_id_ref().to_string(),
+            self.state.chain_id_ref().as_ref(),
             lane,
             incarnation,
         );

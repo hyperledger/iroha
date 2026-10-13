@@ -41,8 +41,8 @@ pub fn global_threshold_beacon_seat_readiness_challenge_v1(
 ) -> Result<(Hash, u16), GlobalThresholdBeaconSeatReadinessErrorV1> {
     use GlobalThresholdBeaconSeatReadinessErrorV1::InvalidBinding;
     context.validate().map_err(|_| InvalidBinding)?;
-    if context.network_id != generation.network_id
-        || context.authority_generation != generation.generation
+    if (context.network_id, context.authority_generation)
+        != (generation.network_id, generation.generation)
         || context.authority_id != generation.generation_id().map_err(|_| InvalidBinding)?
         || session.record().network_id != context.network_id
         || context.beacon.session_id != session.record().session_id

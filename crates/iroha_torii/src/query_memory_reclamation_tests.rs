@@ -153,6 +153,10 @@ impl<'pool> ObservedQuery<'pool> {
         Self { pool }
     }
 
+    #[expect(
+        clippy::unused_self,
+        reason = "the borrowed guard keeps allocation observation alive while construction completes"
+    )]
     fn constructed(&self) {
         OBSERVATION.with(|cell| {
             let mut observation = cell.get().unwrap();
@@ -178,6 +182,10 @@ impl Drop for ObservedQuery<'_> {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn construct(
     pool: &ByteWeightedMemoryPool,
     permit: tokio::sync::OwnedSemaphorePermit,
@@ -189,7 +197,7 @@ fn construct(
     )
 }
 
-fn assert_physically_reclaimed(observation: Observation) {
+fn assert_physically_reclaimed(observation: &Observation) {
     assert!(observation.length > 0);
     assert!(!observation.bad_order);
     assert!(
@@ -212,7 +220,7 @@ fn query_memory_reclamation_frees_all_original_controls_before_pool_credit() {
     drop(owner);
     assert_eq!(pool.available_bytes(), 0);
     drop(last);
-    assert_physically_reclaimed(observation.finish());
+    assert_physically_reclaimed(&observation.finish());
     assert_eq!(pool.available_bytes(), WORKING as u64);
 }
 
@@ -233,7 +241,7 @@ fn query_memory_reclamation_cancellation_releases_only_the_last_native_owner() {
     drop(cancelled);
     assert_eq!(pool.available_bytes(), 0);
     drop(retained);
-    assert_physically_reclaimed(observation.finish());
+    assert_physically_reclaimed(&observation.finish());
     assert_eq!(pool.available_bytes(), WORKING as u64);
 }
 
@@ -257,7 +265,7 @@ fn query_memory_reclamation_native_control_refusal_reclaims_partial_constructor_
     observation.constructed();
     let observation = observation.finish();
     assert_eq!(observation.refused, 1);
-    assert_physically_reclaimed(observation);
+    assert_physically_reclaimed(&observation);
     assert_eq!(
         response.status(),
         axum::http::StatusCode::SERVICE_UNAVAILABLE

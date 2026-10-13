@@ -808,9 +808,11 @@ fn catalog_projection_decision_is_fail_closed_and_feature_aware() {
 }
 #[test]
 fn every_openapi_derived_tool_has_an_enabled_exact_catalog_projection() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let mut derived_count = 0_usize;
     for tool in tools.iter().filter(|tool| tool.name.starts_with("torii.")) {
@@ -892,9 +894,11 @@ fn musubi_v1_mcp_bodies_are_self_contained_closed_schemas() {
             }
         }
     }
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let openapi = openapi::generate_spec();
     let paths = openapi
@@ -1093,9 +1097,11 @@ fn musubi_v1_fixture_routes_match_catalog_openapi_and_mcp() {
         .get("paths")
         .and_then(Value::as_object)
         .expect("OpenAPI paths");
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let catalog = RouteCatalog::new(route_catalog::CATALOGED_ROUTES);
     let enabled_features = EnabledFeatures::new(&["app_api"]);
@@ -1228,9 +1234,11 @@ fn musubi_v1_fixture_routes_match_catalog_openapi_and_mcp() {
 }
 #[test]
 fn retired_kagemusha_routes_are_absent_from_operator_mcp_tools() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     assert!(tools.iter().all(|tool| {
         tool.route_backing()
@@ -1347,7 +1355,11 @@ fn tool_registry_validation_rejects_duplicates_aliases_and_implicit_routes() {
         apply_catalog_auth_schemas_to_tools(&mut tools, GROUPS);
         let operator_route_with_write_effect = tools.pop().expect("operator tool");
         assert!(
-            validate_tool_registry(&[operator_route_with_write_effect.clone()], GROUPS).is_ok(),
+            validate_tool_registry(
+                std::slice::from_ref(&operator_route_with_write_effect),
+                GROUPS
+            )
+            .is_ok(),
             "a route's operator admission must not overwrite its semantic effect: {name}"
         );
         let (_, method, path_template) = operator_route_with_write_effect
@@ -1430,9 +1442,11 @@ fn audited_faucet_handshake_allowlist_requires_exact_name_method_and_path() {
 }
 #[test]
 fn tool_registry_keeps_signed_ledger_original_carriers_outside_mcp() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     for route in [
         route_catalog::core::RESOURCE_NAMES_STATE,
@@ -1451,7 +1465,7 @@ fn tool_registry_keeps_signed_ledger_original_carriers_outside_mcp() {
         assert!(
             !tools.iter().any(|tool| tool.route_backing().is_some_and(
                 |(_, tool_method, path_template)| {
-                    tool_method == &method && path_template == route.path()
+                    tool_method == method && path_template == route.path()
                 }
             )),
             "no MCP tool may back a signed ledger original carrier: {} {}",
@@ -1462,9 +1476,11 @@ fn tool_registry_keeps_signed_ledger_original_carriers_outside_mcp() {
 }
 #[test]
 fn tool_registry_exposes_health_and_generic_transaction_submission() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     assert!(tools.iter().any(|tool| tool.name == "iroha.health"));
     assert!(
@@ -1477,7 +1493,7 @@ fn tool_registry_exposes_health_and_generic_transaction_submission() {
             && tool
                 .route_backing()
                 .is_some_and(|(_, method, path_template)| {
-                    method == &Method::POST
+                    method == Method::POST
                         && path_template
                             == iroha_torii_shared::route_catalog::pipeline::TRANSACTION.path()
                 })

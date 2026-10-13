@@ -101,6 +101,9 @@ fn public_xor_profile_for_manifest(
     public_xor_profile_for_chain_id(manifest.chain_id().as_str())
 }
 /// Resolve and verify the committed canonical XOR definition against the exact configuration.
+///
+/// # Errors
+/// Returns an error when the committed stake asset is missing, ambiguous, retired, or inconsistent with the configured asset and public XOR binding.
 pub fn configured_npos_bootstrap_stake_asset_id(
     manifest: &RawGenesisTransaction,
     config: Option<&actual::Root>,
@@ -163,6 +166,9 @@ pub fn configured_npos_bootstrap_stake_asset_id(
     Ok(stake_asset_id)
 }
 /// Reject a peer configuration with another manifest chain or address discriminant.
+///
+/// # Errors
+/// Returns an error when the chain identity or address discriminant differs from the manifest.
 pub fn ensure_peer_config_matches_manifest(
     config: &actual::Root,
     manifest: &RawGenesisTransaction,
@@ -184,6 +190,9 @@ pub fn ensure_peer_config_matches_manifest(
     Ok(())
 }
 /// Build the canonical signed genesis proposal with explicit proof and confidentiality policies.
+///
+/// # Errors
+/// Returns any validation, encoding, or signing error from canonical genesis construction.
 pub fn build_signed_genesis(
     genesis: RawGenesisTransaction,
     genesis_key_pair: &KeyPair,
@@ -211,6 +220,9 @@ pub fn build_signed_genesis(
 /// Callers which publish both the manifest and signed block must persist the
 /// returned manifest so prepared-bundle admission can compare every
 /// instruction, including the derived consensus commitment.
+///
+/// # Errors
+/// Returns an error if staging, context binding, canonical signing, or final commitment verification fails.
 pub fn bind_and_sign_staged_sumeragi_context(
     genesis: RawGenesisTransaction,
     genesis_key_pair: &KeyPair,
@@ -231,6 +243,9 @@ pub fn bind_and_sign_staged_sumeragi_context(
 }
 /// [`bind_and_sign_staged_sumeragi_context`], also returning the exact Nexus/AMX context
 /// preimage whose hash the final signed genesis commits.
+///
+/// # Errors
+/// Returns an error if staging, context binding, canonical signing, or final commitment verification fails.
 pub fn bind_and_sign_staged_sumeragi_context_with_preimage(
     genesis: RawGenesisTransaction,
     genesis_key_pair: &KeyPair,
@@ -351,6 +366,9 @@ fn staged_sumeragi_context_hashes(
 /// Prepared-bundle admission uses this path so every runtime config must
 /// reproduce the exact Nexus/AMX and execution-policy commitments signed into
 /// genesis without requiring or reloading the retired genesis private key.
+///
+/// # Errors
+/// Returns an error if the signed genesis cannot be authenticated or restaged with the supplied configuration.
 pub fn staged_signed_sumeragi_context_hashes(
     genesis: &RawGenesisTransaction,
     signed: &SignedBlock,
@@ -388,6 +406,9 @@ impl StagedNativeGenesis {
 }
 
 /// Authenticate and execute the exact signed bundle with its independently retained config.
+///
+/// # Errors
+/// Returns an error for a mismatched configuration, unauthenticated signed bundle, or failed native genesis execution.
 pub fn staged_signed_native_genesis(
     genesis: &RawGenesisTransaction,
     signed_wire: &[u8],
@@ -397,8 +418,11 @@ pub fn staged_signed_native_genesis(
         .map(|(authority, ())| authority)
 }
 
-/// Project owned values from the same actual staged StateBlock as the native lane receipt.
+/// Project owned values from the same actual staged `StateBlock` as the native lane receipt.
 /// The caller cannot provide a replacement epoch, context, policy or poststate.
+///
+/// # Errors
+/// Returns an error for failed bundle authentication, native genesis execution, lane-state validation, or the caller projection.
 pub fn staged_signed_native_genesis_with_projection<T: Send>(
     genesis: &RawGenesisTransaction,
     signed_wire: &[u8],
@@ -623,6 +647,9 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
 }
 /// Build the original fresh-node State once, before any genesis instruction executes.
 /// Both normal staging and the genuine native execution fixture use this configuration owner.
+///
+/// # Errors
+/// Returns an error for an invalid genesis authority, refused storage allocation, invalid bootstrap configuration, or failed `State` initialization.
 pub fn configured_initial_genesis_state(
     genesis: &RawGenesisTransaction,
     config: Option<&actual::Root>,
@@ -699,6 +726,9 @@ pub fn staged_genesis_chain_discriminant(
     ChainDiscriminantGuard::enter(genesis.chain_discriminant())
 }
 /// Materialize and validate active lane governance coverage for genesis staging.
+///
+/// # Errors
+/// Returns an error when the registry does not cover every active configured lane.
 pub fn staged_lane_manifest_registry(
     genesis: &RawGenesisTransaction,
     nexus: &actual::Nexus,
@@ -721,6 +751,9 @@ fn staged_genesis_pipeline(mut pipeline: actual::Pipeline) -> actual::Pipeline {
     pipeline
 }
 /// Render a built-in account for the exact staged chain discriminant.
+///
+/// # Errors
+/// Returns an error if the built-in literal cannot be decoded or encoded with the target discriminant.
 pub fn staged_default_account_literal(
     literal: &str,
     target_discriminant: u16,
@@ -736,11 +769,19 @@ pub fn staged_default_account_literal(
         .map_err(|error| eyre!("re-encode built-in {label} for staged genesis: {error}"))
 }
 /// Resolve generic node defaults against the manifest canonical public asset binding.
+///
+/// # Errors
+/// Returns an error for an invalid committed stake asset or a built-in account that cannot be re-encoded for the manifest.
 pub fn staged_default_nexus(
     genesis: &RawGenesisTransaction,
 ) -> Result<actual::Nexus, color_eyre::eyre::Error> {
     let discriminant = genesis.chain_discriminant();
     let mut nexus = actual::Nexus::default();
+    if super::sccp::is_enabled(genesis) {
+        nexus.staking.unbonding_delay =
+            std::time::Duration::from_millis(super::sccp::UNBONDING_DELAY_MS);
+        nexus.staking.max_slash_bps = super::sccp::MAX_SLASH_BPS;
+    }
     if public_xor_profile_for_manifest(genesis).is_some() {
         // The public bootstrap and the State that executes it must select the same
         // signed XOR binding and immutable NPoS asset identity.
@@ -780,6 +821,9 @@ pub fn staged_default_nexus(
     Ok(nexus)
 }
 /// Resolve generic pipeline defaults for deterministic single-worker genesis staging.
+///
+/// # Errors
+/// Returns an error if the built-in gas account cannot be re-encoded for the manifest discriminant.
 pub fn staged_default_pipeline(
     genesis: &RawGenesisTransaction,
 ) -> Result<actual::Pipeline, color_eyre::eyre::Error> {

@@ -15,7 +15,7 @@ enum HistoryState {
 /// A failed acquisition is terminal and cannot silently refill from another source.
 /// TODO: fund HTTP/DTO graphs and retained metadata/decoder scratch independently.
 /// The existing native source limits do not establish complete pool custody.
-pub(super) struct RetainedHistory {
+pub struct RetainedHistory {
     chain_id: ChainId,
     network_id: NetworkId,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
@@ -100,14 +100,16 @@ impl RetainedHistory {
                 self.root_scope,
             )?,
             HistoryState::Ready(journal) => extend_finality_chain_from_proofs(
-                &self.chain_id,
-                self.network_id,
-                self.signed_genesis_hash,
+                &FinalityChainOrigin {
+                    chain_id: &self.chain_id,
+                    network_id: self.network_id,
+                    signed_genesis_hash: self.signed_genesis_hash,
+                    root_scope: self.root_scope,
+                },
                 journal,
                 end,
                 deadline,
                 fetch,
-                self.root_scope,
             )?,
             HistoryState::Failed => unreachable!("terminal state refused above"),
         };

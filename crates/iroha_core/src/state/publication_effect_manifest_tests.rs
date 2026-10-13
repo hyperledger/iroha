@@ -30,7 +30,9 @@ fn signed_lifecycle_manifest_writer_refusal_retains_preflight_and_original_retry
     );
     let proposal = chain.proposal(None, vec![transaction]);
     let expected_hash = proposal.hash();
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let identity = |state: &StateBlock<'_>| {
         state.pending_autoscale_lifecycle.as_ref().map(|pending| {
             (
@@ -178,7 +180,9 @@ fn original_append_manifest_refusal_keeps_typed_wait_and_retries_the_same_frame(
     let generation = state.state_view_generation();
     let proposal = chain.proposal(None, Vec::new());
     let expected_hash = proposal.hash();
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     pending.prepare(Signers::Quorum).unwrap();
     let result = pending.result();
     let mut registration =
@@ -290,7 +294,9 @@ fn original_append_driver_retains_manifest_release_without_timer_or_foreign_wake
     let generation = state.state_view_generation();
     let proposal = chain.proposal(None, Vec::new());
     let expected_hash = proposal.hash();
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     pending.prepare(Signers::Quorum).unwrap();
     let result = pending.result();
     let commit = pending.prepared_commit_for_test();

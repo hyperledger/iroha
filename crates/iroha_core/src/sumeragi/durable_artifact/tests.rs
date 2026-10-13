@@ -90,7 +90,7 @@ fn every_failure_retains_the_original_charged_backing_through_retry() {
         let budget = AllocationBudget::new(COMPARE_BYTES + 37);
         let mut owner = ChargedBuffer::new(COMPARE_BYTES + 37, &budget).unwrap();
         for index in 0..COMPARE_BYTES + 37 {
-            owner.push_reserved((index % 251) as u8);
+            owner.push_reserved(u8::try_from(index % 251).expect("fixture value fits u8"));
         }
         let pointer = owner.as_slice().as_ptr();
         let faults = FailOnce {

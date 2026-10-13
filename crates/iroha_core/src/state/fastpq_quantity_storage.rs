@@ -16,7 +16,7 @@ use mv::{
 use iroha_data_model::{
     account::AccountId,
     asset::{
-        AssetDefinition, AssetDefinitionId, AssetId, AssetValue, Mintable,
+        AssetDefinition, AssetDefinitionId, AssetId, AssetValue,
         definition::AssetConfidentialPolicy,
     },
     isi::error::MintabilityError,
@@ -55,11 +55,6 @@ impl AssetDefinitionMetadataMut<'_> {
     /// Refuses when the original definition no longer permits minting.
     pub(crate) fn consume_mintability(&mut self) -> Result<bool, MintabilityError> {
         self.definition.consume_mintability()
-    }
-
-    /// Set the already authorized mintability policy without granting a supply write.
-    pub(crate) fn set_mintable(&mut self, mintable: Mintable) {
-        self.definition.set_mintable(mintable);
     }
 
     /// Apply the already authorized owner change without changing any balance identity.
@@ -266,7 +261,10 @@ impl<K: Key, V: Value> StorageReadOnly<K, V> for QuantityStorageTransaction<'_, 
 mod tests {
     use super::super::fastpq_quantity_write_plan::{ExpectedQuantityWrite, QuantityWritePlanError};
     use super::*;
-    use iroha_data_model::{Registrable, asset::AssetBalancePolicy};
+    use iroha_data_model::{
+        Registrable,
+        asset::{AssetBalancePolicy, Mintable},
+    };
     use iroha_model_base::domain::DomainId;
     use iroha_primitives::{json::Json, numeric::Quantity};
     use iroha_test_samples::{ALICE_ID, BOB_ID};
@@ -436,7 +434,8 @@ mod tests {
 
     #[test]
     fn metadata_lease_preserves_quantity_and_exact_identity_through_every_allowed_method() {
-        let (id, original) = definition();
+        let (id, mut original) = definition();
+        original.set_mintable(Mintable::Once);
         let spec = original.spec();
         let mut storage = Storage::<AssetDefinitionId, AssetDefinition>::default();
         storage.insert(id.clone(), original);
@@ -447,7 +446,6 @@ mod tests {
             metadata
                 .metadata_mut()
                 .insert("key".parse().unwrap(), Json::new("value"));
-            metadata.set_mintable(Mintable::Once);
             assert!(metadata.consume_mintability().unwrap());
             assert!(metadata.consume_mintability().is_err());
             metadata.set_owned_by(BOB_ID.clone());

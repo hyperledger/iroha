@@ -119,7 +119,7 @@ fn independent_four_phase_singletons_reference_and_dense_work_match_literal_equa
         Err(GroupedOwnershipError::WorkLimit)
     );
     assert_eq!(check_work(&dense, 84494), Ok(()));
-    assert_eq!(16 * ACCOUNT_REKEY_WORK_PER_ROW, 305248);
+    assert_eq!(16 * ACCOUNT_REKEY_WORK_PER_ROW, 305_248);
 }
 #[test]
 fn complete_mask_lookup_member_and_absent_preimage_tails_keep_exact_work() {
@@ -331,7 +331,7 @@ fn every_changed_original_precedes_semantic_or_local_work_refusal() {
                 2 => world.account_aliases.block().commit(),
                 3 => world.account_rekey_records_by_account.block().commit(),
                 _ => unreachable!(),
-            };
+            }
             let result = match validation {
                 0 => Ok(()),
                 1 => Err(GroupedOwnershipError::WorkLimit),

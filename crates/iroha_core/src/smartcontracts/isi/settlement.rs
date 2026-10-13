@@ -432,8 +432,8 @@ fn validate_fx_oracle_evidence(
         .get(&policy.oracle_feed_id)
         .ok_or_else(|| invalid_fx_parameter("FX corridor oracle feed is not registered"))?;
     let evidence = &instruction.oracle_evidence;
-    if evidence.feed_id != policy.oracle_feed_id
-        || evidence.feed_config_version != feed.feed_config_version
+    if (&evidence.feed_id, evidence.feed_config_version)
+        != (&policy.oracle_feed_id, feed.feed_config_version)
     {
         return Err(invalid_fx_parameter(
             "FX settlement oracle evidence does not match the active corridor feed version",
@@ -3613,7 +3613,8 @@ mod tests {
     }
     #[test]
     fn dvp_holding_limit_rolls_back_first_leg_for_atomic_plans() {
-        for atomicity in [SettlementAtomicity::AllOrNothing] {
+        {
+            let atomicity = SettlementAtomicity::AllOrNothing;
             let (state, delivery_def_id, payment_def_id) = settlement_state();
             let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
             let mut block = state.block(header);

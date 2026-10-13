@@ -71,7 +71,7 @@ pub(in crate::managed) enum Stage {
     Other,
     /// Original retained initial enrollment.
     RetainedInitial,
-    /// Original GeneratedRenewalTurn::begin.
+    /// Original `GeneratedRenewalTurn::begin`.
     Begin,
 }
 
@@ -91,7 +91,7 @@ pub(in crate::managed) enum BeginPhase {
 pub(in crate::managed) enum InventoryPhase {
     /// Original deadline before opening the sequence.
     Guard,
-    /// Original fresh BodyHistory open.
+    /// Original fresh `BodyHistory` open.
     Open,
     /// Original initial prerequisite and renewal context.
     Context,
@@ -395,10 +395,11 @@ fn observe(action: impl FnOnce(&mut State)) {
 /// No owner, result or clock is retained; inactive/busy/previously observed calls do no rendering.
 pub(in crate::managed) fn retained_error(error: &crate::managed::Error) {
     observe(|state| {
+        use crate::managed::Error;
         if state.first_raw_error.is_some() {
             return;
         }
-        use crate::managed::Error;
+
         let (class, io) = match error {
             Error::Io(error) => ("Io", Some((error.kind(), error.raw_os_error()))),
             Error::Invalid(_) => ("Invalid", None),
@@ -524,14 +525,16 @@ impl Drop for Observer {
     }
 }
 
+type EnclosingStage = (
+    Stage,
+    Snapshot,
+    Option<BeginPhase>,
+    Option<(u64, InventoryPhase)>,
+);
+
 /// Scalar helper span; no input, result, descriptor, decoder or clock is retained.
 pub(in crate::managed) struct StageGuard {
-    previous: Option<(
-        Stage,
-        Snapshot,
-        Option<BeginPhase>,
-        Option<(u64, InventoryPhase)>,
-    )>,
+    previous: Option<EnclosingStage>,
 }
 impl StageGuard {
     /// Mark existing helper entry and retain only its enclosing scalar labels.
@@ -619,7 +622,7 @@ pub(in crate::managed) fn import_attempt(
         );
     });
 }
-/// Called only AFTER original real-clock predicate has selected NativeDeadline.
+/// Called only AFTER original real-clock predicate has selected `NativeDeadline`.
 pub(in crate::managed) fn deadline_refused() {
     observe(|state| {
         if state.refuse() {

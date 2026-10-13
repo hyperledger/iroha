@@ -1,0 +1,107 @@
+{
+  "schema": "parliament-native-probe-final-checks-v1",
+  "started_unix": 1791877292.838318,
+  "source_before": {
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/runtime_identity.rs": "b367ba1714bbe00fa816d69e7c9a76ea7ac9a7e03cb907d25b476a122554c0a3",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/observer.rs": "53a74e057e53b0c6ce82ad7a5366ebba4a9e87ea81bc629184a29bf727118c11",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/routed_control.rs": "e888e159b3dbc83cfeb81c0c00201d5159e3f8fc78f7dc3ad6b2a1f56f6726f7",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/driver.rs": "480fe28dad8244fc3ec5ea24fbd51620112a6163883f2bcead287ecda2898125",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_unit.c": "f1e54f425e926a54cfe79a962b343a57175034fae97adbdb7494bd32115d519e",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_interpose.c": "fe0328c359b1dcb3db57ee2cac0843c648be644732a80e897d7399372dd5307e",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_controls.c": "7736916f9a284340448fff3df890e94678b0d8de69e5503c8740b2f00e68e99d",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_api.h": "229be37094bb175c64888b8aac2a23b7d9ffad0f15f6a4deac8a04bef3f2ad38",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/run_controls.py": "5113b34c6e38d3f9480c298d07bb03b08763920a9ee5ea6a47a1994d8bdb4c1d",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/test_controls.py": "a8adbb35f51757ad4de1a0601df9f0173932df7bd3106f27d0c3f979c9bbf496",
+    "scripts/check_parliament_ballot_native_probe.py": "cc8b7e80444fb7c5c5706d2d049348f3759f838829bd9553e87c1bf15c437182",
+    "scripts/prepare_parliament_ballot_native_probe.py": "2d72006e474e606b3e91d8f26c7e6920a378ff3af2a4bdb4972a4bb123c392fc",
+    "scripts/parliament_ballot_indirect_targets.py": "b6f6086f5abd9a3f6b4e099b4a911a264aa168792c230b3981437649e0fa2149",
+    "scripts/tests/parliament_ballot_native_probe_prepare_test.py": "6500a7455faefcb7c0b93e3f09de0f7f6031dad444717b92830a3d8dc6a5d943",
+    "scripts/tests/parliament_ballot_native_probe_test.py": "77cb21f83d0a77051a7b8d2ef718638b12ad57f378dac18bb8f58be0ada1589a",
+    "scripts/tests/parliament_ballot_indirect_targets_test.py": "18e3bb949ed6bda94233f062cc9f352d8d9dfd39d0902d1e45dfbbdeea0efa01"
+  },
+  "commands": [
+    {
+      "command": [
+        "python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "scripts/tests/parliament_ballot_native_probe_prepare_test.py",
+        "scripts/tests/parliament_ballot_native_probe_test.py",
+        "scripts/tests/parliament_ballot_indirect_targets_test.py",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/test_controls.py"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_native_probe/check-focused-python.txt",
+      "log_sha256": "55aa20a9f0490e8738c68882b525eb2ab7b316999b0de77cb1a426071e121951"
+    },
+    {
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "--config",
+        "skip_children=true",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/driver.rs",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/observer.rs",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/routed_control.rs",
+        "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/native_probe/runtime_identity.rs"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_native_probe/check-probe-rustfmt.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 1,
+      "log": "docs/validation/parliament_ballot_native_probe/check-workspace-format.txt",
+      "log_sha256": "9b6233610e943346143d660d604f23a8c001e5d6eece6228f472e7f52edab141"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/check_no_legacy_codec.sh"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_native_probe/check-codec.txt",
+      "log_sha256": "379b917f97fed5e8d99dd739ced15cb1d38e3cb7d1fe36e7655a12abe1ee8969"
+    },
+    {
+      "command": [
+        "python3.11",
+        "scripts/formal/check_sora_parliament_source_contract.py"
+      ],
+      "exit": 1,
+      "log": "docs/validation/parliament_ballot_native_probe/check-source-contract.txt",
+      "log_sha256": "215294a754c15e8cecacff883cd4a969425d7818713f0275b6616eadcc5d2857"
+    }
+  ],
+  "profile_qualified": false,
+  "complete_workspace_certificate": false,
+  "source_after": {
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/runtime_identity.rs": "b367ba1714bbe00fa816d69e7c9a76ea7ac9a7e03cb907d25b476a122554c0a3",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/observer.rs": "53a74e057e53b0c6ce82ad7a5366ebba4a9e87ea81bc629184a29bf727118c11",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/routed_control.rs": "e888e159b3dbc83cfeb81c0c00201d5159e3f8fc78f7dc3ad6b2a1f56f6726f7",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/driver.rs": "480fe28dad8244fc3ec5ea24fbd51620112a6163883f2bcead287ecda2898125",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_unit.c": "f1e54f425e926a54cfe79a962b343a57175034fae97adbdb7494bd32115d519e",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_interpose.c": "fe0328c359b1dcb3db57ee2cac0843c648be644732a80e897d7399372dd5307e",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_controls.c": "7736916f9a284340448fff3df890e94678b0d8de69e5503c8740b2f00e68e99d",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_api.h": "229be37094bb175c64888b8aac2a23b7d9ffad0f15f6a4deac8a04bef3f2ad38",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/run_controls.py": "5113b34c6e38d3f9480c298d07bb03b08763920a9ee5ea6a47a1994d8bdb4c1d",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/test_controls.py": "a8adbb35f51757ad4de1a0601df9f0173932df7bd3106f27d0c3f979c9bbf496",
+    "scripts/check_parliament_ballot_native_probe.py": "cc8b7e80444fb7c5c5706d2d049348f3759f838829bd9553e87c1bf15c437182",
+    "scripts/prepare_parliament_ballot_native_probe.py": "2d72006e474e606b3e91d8f26c7e6920a378ff3af2a4bdb4972a4bb123c392fc",
+    "scripts/parliament_ballot_indirect_targets.py": "b6f6086f5abd9a3f6b4e099b4a911a264aa168792c230b3981437649e0fa2149",
+    "scripts/tests/parliament_ballot_native_probe_prepare_test.py": "6500a7455faefcb7c0b93e3f09de0f7f6031dad444717b92830a3d8dc6a5d943",
+    "scripts/tests/parliament_ballot_native_probe_test.py": "77cb21f83d0a77051a7b8d2ef718638b12ad57f378dac18bb8f58be0ada1589a",
+    "scripts/tests/parliament_ballot_indirect_targets_test.py": "18e3bb949ed6bda94233f062cc9f352d8d9dfd39d0902d1e45dfbbdeea0efa01"
+  },
+  "source_stable": true,
+  "finished_unix": 1791877365.636589
+}

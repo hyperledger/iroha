@@ -100,8 +100,10 @@ fn transaction_cap_is_exact_at_admission_and_block_validation() {
         limit + 1
     );
     // SDK preflight over committed parameters whose block payload leaves room for the cap.
-    let mut parameters = iroha_data_model::parameter::Parameters::default();
-    parameters.transaction = limits;
+    let parameters = iroha_data_model::parameter::Parameters {
+        transaction: limits,
+        ..Default::default()
+    };
     assert_eq!(
         parameters.max_includable_transaction_bytes(
             iroha_data_model::parameter::system::TransactionInclusionRoute::Global

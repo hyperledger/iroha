@@ -24,10 +24,36 @@ fn point() -> SccpLcPointV1 {
     }
 }
 
+fn pause_certificate_id() -> super::super::fast_pause::SccpFastPauseCertificateId {
+    use super::super::fast_pause::{
+        SccpFastPauseCertificateId, SccpFastPauseCertificateV1, SccpPanelRoleV1,
+    };
+    let network_id = crate::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+        crate::block::BlockHeader,
+    >::from_untyped_unchecked(
+        iroha_crypto::Hash::new([7; 32])
+    ));
+    SccpFastPauseCertificateId::derive_v1(&SccpFastPauseCertificateV1 {
+        network_id,
+        network: ETH,
+        panel_id: [1; 32],
+        panel_role: SccpPanelRoleV1::Primary,
+        panel_seq: 1,
+        head: 0,
+        endorsement_root: [2; 32],
+        endorsement_count: 4,
+        quorum: 4,
+        incident_root: [3; 32],
+        effect_preimage_hash: SccpFastPauseCertificateV1::effect_hash(network_id, ETH, 0),
+        certified_at_height: 11,
+        certified_at_ms: 2_000,
+    })
+}
+
 /// Codec index of every first-release variant, in declaration order.
-const CODEC_INDICES: [u32; 34] = [
+const CODEC_INDICES: [u32; 42] = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-    26, 27, 28, 29, 30, 31, 32, 33,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -366,6 +392,77 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "inbound_stranded",
         ),
+        (
+            SccpEvent::PausePanelSeated(SccpPausePanelSeatedV1 {
+                panel_seq: 1,
+                pulse_id: [1; 32],
+                primary_id: [2; 32],
+                backup_id: [3; 32],
+                seated_height: 4,
+                seated_at_ms: 5,
+                accept_until_ms: 6,
+                term_ends_at_ms: 7,
+                drawn_count: 18,
+            }),
+            "pause_panel_seated",
+        ),
+        (
+            SccpEvent::PausePanelUnavailable(SccpPausePanelUnavailableV1 {
+                pulse_id: [1; 32],
+                reason: SccpPausePanelUnavailableReasonV1::InsufficientCandidates,
+            }),
+            "pause_panel_unavailable",
+        ),
+        (
+            SccpEvent::PausePanelSeatAccepted(SccpPausePanelSeatAcceptedV1 {
+                panel_seq: 1,
+                member: account(1),
+            }),
+            "pause_panel_seat_accepted",
+        ),
+        (
+            SccpEvent::FastPauseEndorsed(SccpFastPauseEndorsedV1 {
+                network: ETH,
+                panel_id: [2; 32],
+                endorser: account(1),
+                incident_digest: [3; 32],
+                count: 4,
+            }),
+            "fast_pause_endorsed",
+        ),
+        (
+            SccpEvent::FastPauseNoResult(SccpFastPauseNoResultV1 {
+                network: ETH,
+                panel_id: [2; 32],
+                reason: SccpFastPauseNoResultReasonV1::HeadChanged,
+            }),
+            "fast_pause_no_result",
+        ),
+        (
+            SccpEvent::FastPauseEnacted(SccpFastPauseEnactedV1 {
+                network: ETH,
+                certificate_id: pause_certificate_id(),
+                until_ms: 9_000,
+                renewal: true,
+            }),
+            "fast_pause_enacted",
+        ),
+        (
+            SccpEvent::FastPauseRetained(SccpFastPauseRetainedV1 {
+                network: ETH,
+                part: SccpFastPausePartV1::Taira,
+                reason: SccpFastPauseRetainedReasonV1::BallotOpenedBeforeOrAtEnactment,
+            }),
+            "fast_pause_retained",
+        ),
+        (
+            SccpEvent::FastPauseCleared(SccpFastPauseClearedV1 {
+                network: ETH,
+                part: SccpFastPausePartV1::Destination { revision: 1 },
+                reason: SccpFastPauseClearedReasonV1::Lifted,
+            }),
+            "fast_pause_cleared",
+        ),
     ]
 }
 
@@ -409,7 +506,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in [34_u32, u32::MAX] {
+    for index in [42_u32, u32::MAX] {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -717,4 +814,38 @@ fn fast_pause_lapsed_payload_keeps_original_identity_in_closed_schema() {
         );
     }
     assert_rejects_unknown_field(&event, &[]);
+}
+
+#[test]
+fn fast_pause_recheck_reasons_and_parts_are_closed_and_roundtrip() {
+    use norito::codec::DecodeAll as _;
+    for reason in [
+        SccpFastPauseNoResultReasonV1::Expired,
+        SccpFastPauseNoResultReasonV1::PanelChanged,
+        SccpFastPauseNoResultReasonV1::InsufficientEligibleEndorsements,
+        SccpFastPauseNoResultReasonV1::HeadChanged,
+        SccpFastPauseNoResultReasonV1::Suspended,
+        SccpFastPauseNoResultReasonV1::RenewalWindowClosed,
+        SccpFastPauseNoResultReasonV1::NoLiveRevision,
+        SccpFastPauseNoResultReasonV1::ControlCapacity,
+        SccpFastPauseNoResultReasonV1::CounterExhausted,
+    ] {
+        roundtrip(&reason);
+        assert_rejects_unknown_field(&reason, &[]);
+    }
+    for reason in [
+        SccpPausePanelUnavailableReasonV1::InsufficientCandidates,
+        SccpPausePanelUnavailableReasonV1::SnapshotTooLarge,
+    ] {
+        roundtrip(&reason);
+    }
+    for part in [
+        SccpFastPausePartV1::Taira,
+        SccpFastPausePartV1::Destination { revision: u32::MAX },
+    ] {
+        roundtrip(&part);
+    }
+    assert!(SccpFastPauseNoResultReasonV1::decode_all(&mut 9_u32.encode().as_slice()).is_err());
+    assert!(SccpPausePanelUnavailableReasonV1::decode_all(&mut 2_u32.encode().as_slice()).is_err());
+    assert!(SccpFastPausePartV1::decode_all(&mut 2_u32.encode().as_slice()).is_err());
 }

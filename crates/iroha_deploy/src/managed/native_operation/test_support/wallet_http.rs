@@ -144,10 +144,10 @@ pub(in crate::managed) fn wallet_request(socket: &mut TcpStream) -> io::Result<W
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
         bytes.extend_from_slice(&chunk[..read]);
-        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-            if end + 4 <= MAX_HEADER {
-                break end + 4;
-            }
+        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n")
+            && end + 4 <= MAX_HEADER
+        {
+            break end + 4;
         }
         if bytes.len() >= MAX_HEADER {
             return Err(io::Error::other("wallet HTTP header exceeds bound"));

@@ -189,7 +189,6 @@ fn actual_alias_transfer_primary_change_insert_delete_noop_and_absent_history() 
                 .publication_identity()
         ]
     );
-    drop(original);
     drop(snapshot);
     drop(block);
     // Deletion leaves its real prior alias/account/bucket available for validation.
@@ -457,7 +456,7 @@ fn every_alias_foreign_target_mode_partial_and_released_source_refuses() {
             1 => block.world.account_aliases.release_writers(),
             2 => block.world.account_aliases_by_account.release_writers(),
             _ => unreachable!(),
-        };
+        }
         assert!(capture(&block, limits(), 0).unwrap().is_none());
     }
 }

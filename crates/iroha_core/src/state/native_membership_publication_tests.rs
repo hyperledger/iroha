@@ -58,7 +58,7 @@ state_test! { sync apply_without_execution_indexes_sealed_commitment_entrypoint_
     assert_eq!(proposal.network_entrypoint_count(), 1);
     assert_eq!(proposal.network_entrypoint_at(0).unwrap().hash(), entrypoint_hash);
     assert!(!chain.state().has_committed_entrypoint(entrypoint_hash));
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(proposal, Signers::Quorum, iroha_sumeragi::types::ControlWitness::default());
     assert_eq!(committed.block().network_entrypoint_count(), 1);
     assert_eq!(committed.block().network_entrypoint_at(0).unwrap().hash(), entrypoint_hash);
     assert!(committed.block().network_output_at(0).unwrap().1.result.is_ok());

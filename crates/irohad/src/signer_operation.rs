@@ -287,7 +287,7 @@ pub trait SignerOperationStateSourceV1: Send + Sync {
     /// Independently authenticate the exact durable completed operation and fresh custody state.
     ///
     /// Each phase requires a fresh independently authenticated observation of this exact operation.
-    /// AfterCommit evidence cannot satisfy the later BeforeRelease boundary.
+    /// `AfterCommit` evidence cannot satisfy the later `BeforeRelease` boundary.
     ///
     /// The stored completion must prove that the original exclusive reservation was committed
     /// before its expiry. Completed-response recovery may happen after that expiry; it never

@@ -201,7 +201,12 @@ mod tests {
         let key = KeyPair::random();
         let peer = PeerId::new(key.public_key().clone());
         let host = NodeKeeper {
-            host: Arc::new(NodeHost { state, queue, key }),
+            host: Arc::new(NodeHost {
+                state,
+                queue,
+                key,
+                l5_cursors: parking_lot::Mutex::default(),
+            }),
             peer,
             stagger: Duration::from_millis(15_000),
         };

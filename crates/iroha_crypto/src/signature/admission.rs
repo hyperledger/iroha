@@ -99,6 +99,25 @@ pub fn verify_signature_borrowed(
     verify(proof, public_key, message).map_err(SignatureVerificationError)
 }
 
+/// Verify fixed Ed25519 wire fields with the existing strict uncached relation.
+///
+/// Neither input gains an owned key/signature envelope. Parsing, verification,
+/// and rejection use fixed stack storage and do not consult or populate caches.
+/// No heap allocation is required from the caller's original execution pool.
+///
+/// # Errors
+/// Returns the original unformatted canonical key or signature rejection.
+pub fn verify_ed25519_signature_borrowed(
+    public_key: &[u8; 32],
+    signature: &[u8; 64],
+    message: &[u8],
+) -> Result<(), SignatureVerificationError> {
+    let key = ed25519::Ed25519Sha512::parse_public_key_uncached_for_decode(public_key)
+        .map_err(|error| SignatureVerificationError(Failure::Ed25519(error)))?;
+    ed25519::Ed25519Sha512::verify_uncached(message, signature, &key)
+        .map_err(|_| SignatureVerificationError(Failure::Signature))
+}
+
 /// Verify a borrowed BLS-normal proof of possession without retained caches.
 ///
 /// The exact original `PoP` domain and typed key/proof parser order are retained.

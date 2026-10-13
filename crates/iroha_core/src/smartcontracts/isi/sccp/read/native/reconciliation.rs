@@ -236,20 +236,30 @@ mod tests {
         };
         let budget = AllocationBudget::new(64 << 10);
         let chain = super::super::tests::active_chain();
-        let result =
-            forgery_hold(&chain.state().view(), Default::default(), &budget, control).unwrap();
+        let result = forgery_hold(
+            &chain.state().view(),
+            SccpForgeryHoldQuery::default(),
+            &budget,
+            control,
+        )
+        .unwrap();
         assert!(result.data().revisions.is_empty());
         drop(result);
         assert_eq!(budget.reserved_bytes(), 0);
         let state = crate::smartcontracts::isi::sccp::test_support::blank_state();
         assert!(matches!(
-            forgery_hold(&state.view(), Default::default(), &budget, control),
+            forgery_hold(
+                &state.view(),
+                SccpForgeryHoldQuery::default(),
+                &budget,
+                control
+            ),
             Err(SccpNativeReadError::Unavailable(_))
         ));
         assert!(matches!(
             forgery_hold(
                 &chain.state().view(),
-                Default::default(),
+                SccpForgeryHoldQuery::default(),
                 &budget,
                 SccpNativeReadControl {
                     deadline: Instant::now(),

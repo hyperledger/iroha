@@ -60,7 +60,7 @@ fn fetch_hosted_http_text_accepts_paths_without_a_leading_slash() -> Result<()> 
 }
 #[test]
 fn execute_ordered_mailbox_retries_when_local_bundle_cache_is_missing() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let artifact_bytes = simple_soracloud_contract_artifact(&["apply_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
@@ -103,7 +103,7 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
             vm_error_kind(&error),
             SoracloudRuntimeExecutionErrorKind::Unavailable,
         );
-        let result = ordered_mailbox_vm_failure(request.clone(), &error)
+        let result = ordered_mailbox_vm_failure(&request, &error)
             .expect_err("local deferral must not produce a durable mailbox result");
         assert_eq!(result.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
     }
@@ -112,7 +112,7 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
         vm_error_kind(&VMError::OutOfGas),
         SoracloudRuntimeExecutionErrorKind::Internal,
     );
-    let deterministic = ordered_mailbox_vm_failure(request, &VMError::OutOfGas)
+    let deterministic = ordered_mailbox_vm_failure(&request, &VMError::OutOfGas)
         .expect("guest gas exhaustion is a deterministic runtime result");
     assert_eq!(
         deterministic
@@ -164,7 +164,7 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
         );
         assert_eq!(error.fault_kind(), None);
         assert_eq!(error.metered_gas(), None);
-        let failure = ordered_mailbox_vm_failure(request.clone(), &error)
+        let failure = ordered_mailbox_vm_failure(&request, &error)
             .expect_err("original local decoder refusal must not create a durable mailbox result");
         assert_eq!(
             failure.kind,
@@ -199,7 +199,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
         sample_mailbox_message(&bundle, "update", b"nested-call".to_vec()),
     );
     let permission = deterministic_mailbox_failure_result(
-        request.clone(),
+        &request.clone(),
         "permission_denied",
         SoraServiceHealthStatusV1::Degraded,
     );
@@ -209,7 +209,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
         (VMError::CallDepthExceeded, "call_depth_exceeded"),
     ] {
         let expected = deterministic_mailbox_failure_result(
-            request.clone(),
+            &request.clone(),
             label,
             SoraServiceHealthStatusV1::Degraded,
         );
@@ -228,7 +228,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
                 SoracloudRuntimeExecutionErrorKind::Internal,
             );
             assert!(error.execution_deferral().is_none());
-            let actual = ordered_mailbox_vm_failure(request.clone(), &error)
+            let actual = ordered_mailbox_vm_failure(&request, &error)
                 .expect("nested-call refusal is a deterministic runtime result");
             assert_eq!(actual, expected);
             assert_eq!(
@@ -252,7 +252,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
 }
 #[test]
 fn warmed_ordered_mailbox_invalidates_a_changed_bundle_file() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let artifact_bytes = simple_soracloud_contract_artifact(&["apply_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
@@ -289,19 +289,19 @@ fn warmed_ordered_mailbox_invalidates_a_changed_bundle_file() -> Result<()> {
             .health_status,
         SoraServiceHealthStatusV1::Degraded
     );
-    let stats = handle.ivm_runtime_cache_stats();
-    assert_eq!(stats.artifact_reads, 2);
-    assert_eq!(stats.artifact_hashes, 2);
-    assert_eq!(stats.contract_preparations, 1);
-    assert_eq!(stats.runtime_allocations, 1);
-    assert_eq!(stats.invalidations, 1);
-    assert_eq!(stats.prepared_entries, 0);
-    assert_eq!(stats.idle_runtimes, 0);
+    let cache_stats = handle.ivm_runtime_cache_stats();
+    assert_eq!(cache_stats.artifact_reads, 2);
+    assert_eq!(cache_stats.artifact_hashes, 2);
+    assert_eq!(cache_stats.contract_preparations, 1);
+    assert_eq!(cache_stats.runtime_allocations, 1);
+    assert_eq!(cache_stats.invalidations, 1);
+    assert_eq!(cache_stats.prepared_entries, 0);
+    assert_eq!(cache_stats.idle_runtimes, 0);
     Ok(())
 }
 #[test]
 fn execute_local_read_fails_closed_when_runtime_snapshot_is_behind() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = b"ivm bundle bytes".to_vec();
     bundle.container.bundle_hash = Hash::new(&bundle_bytes);

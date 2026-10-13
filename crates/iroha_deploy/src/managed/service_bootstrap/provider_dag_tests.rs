@@ -523,7 +523,7 @@ fn provider_frontiers_bind_exact_original_slots_and_fresh_absence() {
         ProviderPurpose::InitialGatewaySetup,
     )
     .unwrap();
-    let lock_identity = iroha_fs::FileIdentity::of(&child._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&child.lock).unwrap();
     let retained = child.directory.retain().unwrap();
     drop(child);
     parent
@@ -544,7 +544,7 @@ fn provider_frontiers_bind_exact_original_slots_and_fresh_absence() {
     .unwrap()
     .unwrap();
     assert_eq!(
-        iroha_fs::FileIdentity::of(&reopened._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&reopened.lock).unwrap(),
         lock_identity
     );
     reopened.directory.revalidate().unwrap();

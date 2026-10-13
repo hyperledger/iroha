@@ -171,7 +171,7 @@ fn generated_policies_bind_exact_roles_native_policies_and_purpose_separated_com
                 .iter()
                 .map(|p| p.gateway.qualification.gateway_id)
                 .collect();
-            ids.sort();
+            ids.sort_unstable();
             ids
         }
     );
@@ -284,6 +284,8 @@ fn generated_policy_intervals_are_finite_original_and_capped_by_admitted_retenti
     assert_eq!(reopened.directory.entries(8).unwrap(), ["operation.lock"]);
 }
 
+type PolicyMutation = (&'static str, fn(&mut GeneratedServicePolicies));
+
 #[test]
 fn generated_policy_validation_refuses_every_original_policy_family_substitution() {
     let _resources = crate::managed::native_test_guard();
@@ -291,7 +293,7 @@ fn generated_policy_validation_refuses_every_original_policy_family_substitution
     let authority =
         ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceBootstrap).unwrap();
     let original = selected(&authority);
-    let mutations: &[(&str, fn(&mut GeneratedServicePolicies))] = &[
+    let mutations: &[PolicyMutation] = &[
         ("custody handle", |p| {
             p.providers[0]
                 .custody

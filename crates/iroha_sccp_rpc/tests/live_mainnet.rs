@@ -69,7 +69,11 @@ fn bootstrap_then_advance(
         now(),
     )
     .expect("the live bootstrap verifies");
-    let mut replay = LightClientReplayV1::installed(network, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        network,
+        &initial,
+    );
     let installed = replay.light_client().expect("installed");
     println!(
         "{}: bootstrap {} bytes, set {}, head {:?}",
@@ -121,6 +125,7 @@ fn receipt_with_log(client: &EvmClient, number: u64) -> [u8; 32] {
 fn ethereum_bootstrap_and_advance_verify() {
     let execution = EvmClient::new(transport(endpoints::ETHEREUM_EXECUTION));
     let builder = EthereumBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
         BeaconClient::new(transport(endpoints::ETHEREUM_BEACON)),
         execution,
     );
@@ -163,7 +168,10 @@ fn ethereum_bootstrap_and_advance_verify() {
 #[test]
 #[ignore = "reads public BNB Smart Chain mainnet endpoints"]
 fn bsc_bootstrap_and_advance_verify() {
-    let builder = BscBuilder::new(EvmClient::new(transport(endpoints::BSC)));
+    let builder = BscBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
+        EvmClient::new(transport(endpoints::BSC)),
+    );
     let bootstrap = builder.bootstrap().expect("bootstrap");
     let replay = bootstrap_then_advance(
         SccpNetworkV1::BscMainnet,
@@ -205,11 +213,14 @@ fn bsc_bootstrap_and_advance_verify() {
 #[test]
 #[ignore = "reads public TON mainnet liteservers"]
 fn ton_bootstrap_and_advance_verify() {
-    let builder = TonBuilder::new(LiteClient::new(
-        LiteServerSet::compiled_defaults(),
-        LiteClientConfig::default(),
-        FailoverPolicy::default(),
-    ));
+    let builder = TonBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ton,
+        LiteClient::new(
+            LiteServerSet::compiled_defaults(),
+            LiteClientConfig::default(),
+            FailoverPolicy::default(),
+        ),
+    );
     let newest = builder.newest_key_block().expect("newest key block");
     let _ = bootstrap_then_advance(
         SccpNetworkV1::TonMainnet,

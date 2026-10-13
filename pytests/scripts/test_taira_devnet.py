@@ -380,6 +380,11 @@ class TairaDevnetParliamentSeatingTests(unittest.TestCase):
         self.assertEqual(sign[:3], [str(kagami), "genesis", "sign"])
         self.assertEqual(sign[sign.index("--config") + 1], str(self.target / "peer0.toml"))
         self.assertEqual(
+            sign[sign.index("--sccp-reset-history") + 1],
+            str(self.target.parent / "sccp-reset-history"),
+        )
+        self.assertIn("--fresh-sccp-reset-nonce", sign)
+        self.assertEqual(
             sign[sign.index("--bound-manifest-out") + 1], str(self.target / "genesis.json")
         )
         self.assertEqual(

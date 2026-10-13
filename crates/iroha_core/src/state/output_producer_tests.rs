@@ -576,8 +576,8 @@ fn capacity_refusal_keeps_original_release_after_rollback_seal_and_native_bounda
     };
     let mut release = release.clone().wait_for_release(&mut registration);
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
     drop(occupied);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);

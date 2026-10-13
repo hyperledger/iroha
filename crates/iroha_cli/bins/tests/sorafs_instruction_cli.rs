@@ -1,4 +1,4 @@
-//! Executable coverage for canonical offline SoraFS instruction preparation.
+//! Executable coverage for canonical offline `SoraFS` instruction preparation.
 use assert_cmd::cargo::cargo_bin_cmd;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STD};
 use iroha_data_model::{isi::sorafs::RegisterCapacityDeclaration, prelude::InstructionBox};
@@ -33,7 +33,7 @@ fn tx_stdin_builder_wraps_capacity_declaration_summaries() {
         "capacity-declaration".to_owned(),
         format!("--summary={}", summary_path.display()),
     ]);
-    let instruction = decode_single_instruction(payload);
+    let instruction = decode_single_instruction(&payload);
     let declaration = instruction
         .as_any()
         .downcast_ref::<RegisterCapacityDeclaration>()
@@ -87,7 +87,7 @@ fn tx_stdin_builder_wraps_replication_order_summaries() {
         "replication-order".to_owned(),
         format!("--summary={}", summary_path.display()),
     ]);
-    let instruction = decode_single_instruction(payload);
+    let instruction = decode_single_instruction(&payload);
     let order = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::sorafs::IssueReplicationOrder>()
@@ -113,7 +113,7 @@ fn tx_stdin_builder_binds_replication_order_to_musubi_archive() {
         format!("--summary={}", summary_path.display()),
         format!("--musubi-archive-id-hex={}", "a5".repeat(32)),
     ]);
-    let instruction = decode_single_instruction(payload);
+    let instruction = decode_single_instruction(&payload);
     let order = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::sorafs::IssueReplicationOrder>()
@@ -196,7 +196,7 @@ fn tx_stdin_builder_emits_completion_instruction() {
         "--finalized-height=19".to_owned(),
         format!("--finalized-block-hash-hex={}", "66".repeat(32)),
     ]);
-    let instruction = decode_single_instruction(payload);
+    let instruction = decode_single_instruction(&payload);
     let completion = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::sorafs::CompleteReplicationOrder>()
@@ -213,7 +213,7 @@ fn tx_stdin_builder_emits_expiration_instruction() {
             .to_owned(),
         "--expiration-epoch=778".to_owned(),
     ]);
-    let instruction = decode_single_instruction(payload);
+    let instruction = decode_single_instruction(&payload);
     let expiration = instruction
         .as_any()
         .downcast_ref::<iroha_data_model::isi::sorafs::ExpireReplicationOrder>()
@@ -324,7 +324,7 @@ fn run_builder_failure(args: impl IntoIterator<Item = String>) -> String {
     );
     String::from_utf8(assertion.get_output().stderr.clone()).expect("stderr should be utf8")
 }
-fn decode_single_instruction(payload: Value) -> InstructionBox {
+fn decode_single_instruction(payload: &Value) -> InstructionBox {
     let entries = payload.as_array().expect("tx stdin array");
     assert_eq!(entries.len(), 1);
     let encoded = entries[0].as_str().expect("base64 instruction");

@@ -16,7 +16,7 @@ fn body(n: u8, h: u64) -> ServeRequest {
     ServeRequest::Payload(Box::new(PayloadWork::Serve {
         to: key(n),
         height: h,
-        block_hash: Hash32([h as u8; 32]),
+        block_hash: Hash32([u8::try_from(h).expect("fixture value fits u8"); 32]),
     }))
 }
 #[test]

@@ -93,7 +93,7 @@ impl Wake for ReplayRetirementProbe {
         let hash_poisoned = hashes.is_poisoned();
         let (membership_logical_free, membership_physical_free, membership_poisoned) =
             self.state.transactions.replay_writer_probe_for_tests();
-        let generation_even = self.state.state_view_generation() % 2 == 0;
+        let generation_even = self.state.state_view_generation().is_multiple_of(2);
         if !(fences_free
             && cells_free
             && hash_free

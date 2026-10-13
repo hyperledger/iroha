@@ -1,3 +1,7 @@
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_bounded_proof_query(
     dto: crate::routing::ProofFindByIdQueryDto,
     envelope: QueryFanoutMemoryEnvelope,
@@ -11,7 +15,7 @@ fn decode_bounded_proof_query(
             "proof signed-query envelope exceeds its admitted request limit",
         ));
     }
-    if dto.signed_query_b64.len() % 4 != 0 {
+    if !dto.signed_query_b64.len().is_multiple_of(4) {
         return Err(torii_proxy_error_response(
             StatusCode::BAD_REQUEST,
             "invalid_query_payload",

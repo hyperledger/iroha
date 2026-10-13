@@ -71,8 +71,6 @@ pub struct SccpKeeper {
     pub keepalive_stagger: Duration,
     /// Whether the keeper watches the registered destinations; it uses the endpoints of
     /// [`SccpLightClientKeeper`].
-    // TODO: WP-S6: the keeper does not read `watch` yet; the watch duty lands with forgery
-    // evidence.
     pub watch: bool,
 }
 

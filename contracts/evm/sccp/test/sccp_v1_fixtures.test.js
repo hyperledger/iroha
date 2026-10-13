@@ -1864,7 +1864,8 @@ for (const hardfork of HARDFORKS) {
         assert.equal(ethers.keccak256(deployed.init), CALLDATA.deployment.init_code_hash);
         assert.equal(await chain.rpc("eth_getCode", [deployed.address, "latest"]), h.expectedRuntime(h.immutableWords(deployment)));
         ledger.ran("ethereum/calldata.deployment", "P4");
-        const destination = await h.relocate(deployed.destination, r.addressOfWord(scenario.destination.destination_word));
+        assert.equal(deployed.address, r.addressOfWord(scenario.destination.destination_word));
+        const destination = deployed.destination;
         const calls = new Map(CALLDATA.calls.map((row) => [row.label, row]));
         const sender = ethers.getAddress(`0x${"55".repeat(20)}`);
         const at = T0 + 300n;
@@ -1964,6 +1965,50 @@ for (const hardfork of HARDFORKS) {
             ledger.ran("ethereum/calldata.views", row.label);
           });
         }
+      } finally {
+        await chain.close();
+      }
+    });
+
+    it("runs the chain-1 corridor continuously at the actual CREATE2 destination", async () => {
+      const { scenario, deployment, recipient } = rustGoldenScenario();
+      const chain = await h.Chain.open(ETHEREUM, { hardfork, allowBlocksWithSameTimestamp: true });
+      try {
+        assert.equal(BigInt(await chain.rpc("eth_chainId", [])), 1n);
+        const { destination, address } = await h.deploy(chain, deployment, { at: T0 });
+        assert.equal(address, ethers.getAddress(CALLDATA.deployment.address));
+        assert.equal(address, r.addressOfWord(scenario.destination.destination_word));
+        const calls = new Map(CALLDATA.calls.map((row) => [row.label, row.calldata]));
+        const at = T0 + 300n;
+        const raw = (label, options = {}) => destination.raw(calls.get(label), { at, ...options });
+        const sender = ethers.getAddress(`0x${"55".repeat(20)}`);
+        await raw("finalize_direct");
+        await raw("checkpoint_rotation");
+        await raw("finalize_historical");
+        assert.equal((await destination.view("committeeState"))[4], 8n);
+        assert.equal(await destination.view("balanceOf", [recipient]), 2_000_000_003n);
+        assert.equal(await destination.view("totalSupply"), 2_000_000_003n);
+        assertRevert(await destination.attempt(calls.get("finalize_historical"), { at }), "AlreadyConsumed", "a duplicate genuine historical mint");
+        for (const account of [recipient, sender]) {
+          await chain.rpc("hardhat_setBalance", [account, ethers.toQuantity(10n ** 20n)]);
+          await chain.rpc("hardhat_impersonateAccount", [account]);
+        }
+        await destination.tx("transfer", [sender, 2_000_000_003n], { from: recipient, at });
+        const burn = await raw("transfer_to_taira", { from: sender });
+        const expected = CALLDATA.logs.find((entry) => entry.label === "transfer_to_taira");
+        assert(destination.logs(burn).some((entry) => entry.data === expected.data
+          && JSON.stringify(entry.topics) === JSON.stringify(expected.topics)));
+        await raw("apply_control_checkpoint");
+        assert.equal(await destination.view("mintingPaused"), true);
+        // Destination pause preserves both the user's return path and expiry recovery.
+        await destination.tx("transferToTaira", [rustGoldenScenario().account(9), 1n, 1n], { from: sender, at });
+        assert.equal(await destination.view("transferNonces", [sender]), 2n);
+        await raw("void_frozen", { at: T0 + 15n * 86_400n });
+        for (const nonce of [1, 2, 4, 5, 6]) assert.equal(await destination.view("isConsumed", [nonce]), true);
+        assert.equal(await destination.view("balanceOf", [sender]), 500_000_002n);
+        assert.equal(await destination.view("totalSupply"), 500_000_002n);
+        assert.equal(await destination.view("opCount"), 6n);
+        assert.equal(await chain.rpc("eth_getCode", [address, "latest"]), h.expectedRuntime(h.immutableWords(deployment)));
       } finally {
         await chain.close();
       }

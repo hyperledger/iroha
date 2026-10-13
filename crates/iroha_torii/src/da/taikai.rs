@@ -597,7 +597,7 @@ pub(crate) mod taikai_ingest {
     }
     /// Recover every interrupted alias-lineage transaction before an anchor
     /// worker can observe a receipt-backed envelope.
-    pub(crate) fn recover_pending_lineages(
+    pub fn recover_pending_lineages(
         spool_dir: &Path,
         receipt_log: &DaReceiptLog,
     ) -> Result<(), (StatusCode, String)> {
@@ -2354,7 +2354,7 @@ pub(crate) mod taikai_ingest {
         encoded
     }
     /// Validate and start the configured Taikai anchor worker.
-    pub(crate) async fn spawn_anchor_worker(
+    pub async fn spawn_anchor_worker(
         manifest_store_dir: PathBuf,
         anchor_cfg: DaTaikaiAnchor,
         shutdown: ShutdownSignal,
@@ -3462,13 +3462,14 @@ pub(crate) mod taikai_ingest {
         label: &str,
         maximum: usize,
     ) -> Result<Vec<u8>, String> {
-        match read_optional_regular_file(path, label, maximum).await? {
-            Some(bytes) => Ok(bytes),
-            None => Err(format!(
-                "failed to read {label} `{}`: entity not found",
-                path.display()
-            )),
-        }
+        read_optional_regular_file(path, label, maximum)
+            .await?
+            .ok_or_else(|| {
+                format!(
+                    "failed to read {label} `{}`: entity not found",
+                    path.display()
+                )
+            })
     }
     async fn read_optional_regular_file(
         path: &Path,
@@ -3607,8 +3608,7 @@ pub(crate) mod taikai_ingest {
                 shutdown.clone(),
             )
             .await
-            .err()
-            .expect("zero interval must fail startup");
+            .expect_err("zero interval must fail startup");
             assert!(zero_interval.contains("greater than zero"));
 
             fs::write(
@@ -3622,8 +3622,7 @@ pub(crate) mod taikai_ingest {
                 shutdown,
             )
             .await
-            .err()
-            .expect("unsafe spool path must fail startup");
+            .expect_err("unsafe spool path must fail startup");
             assert!(invalid_store.contains("Taikai spool directory"));
 
             let directory = tempfile::tempdir().expect("valid worker tempdir");
@@ -3917,7 +3916,7 @@ use iroha_data_model::taikai::TAIKAI_ANCHOR_RECEIPT_SCHEMA_V1;
 use iroha_data_model::taikai::TAIKAI_ANCHOR_RECEIPT_VERSION_V1;
 #[cfg(test)]
 use iroha_data_model::taikai::TaikaiAnchorReceiptBodyV1;
-pub(crate) use taikai_ingest::spawn_anchor_worker;
+pub use taikai_ingest::spawn_anchor_worker;
 /// Extract the Taikai stream label from metadata for telemetry tagging.
 pub(crate) fn stream_label_from_metadata(metadata: &ExtraMetadata) -> Option<String> {
     metadata
@@ -3977,8 +3976,7 @@ pub(crate) struct TaikaiSsmOutcome {
 /// Validate a Taikai signing manifest payload against ingest artifacts.
 pub(crate) fn validate_taikai_ssm(
     ssm_bytes: &[u8],
-    manifest_hash: &BlobDigest,
-    car_digest: &BlobDigest,
+    (manifest_hash, car_digest): (&BlobDigest, &BlobDigest),
     envelope_bytes: &[u8],
     expected_sequence: u64,
     alias_policy: &AliasCachePolicy,

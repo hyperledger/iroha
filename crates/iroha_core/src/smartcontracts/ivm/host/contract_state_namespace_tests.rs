@@ -148,12 +148,10 @@ fn reserve_namespace_retained_host_artifacts_refuse_before_any_effect() {
             ]);
             let artifacts = HostExecutionArtifacts {
                 queued: vec![QueuedEffect {
-            payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(SetKeyValue::account(
-                        authority.clone(),
-                        metadata.clone(),
-                        Json::new(true),
-                    )
-                    .into()),
+                    payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                        SetKeyValue::account(authority.clone(), metadata.clone(), Json::new(true))
+                            .into(),
+                    ),
                     authority: authority.clone(),
                     contract_runtime_context: None,
                     entrypoint_authorization: None,
@@ -565,7 +563,7 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
     .expect("canonical state value");
     let syscall = encoding::wide::encode_sys(
         instruction::wide::system::SCALL,
-        ivm_sys::SYSCALL_STATE_GET as u8,
+        u8::try_from(ivm_sys::SYSCALL_STATE_GET).expect("fixture value fits u8"),
     );
     let program = build_authenticated_test_contract_program_with_states(
         &syscall.to_le_bytes(),

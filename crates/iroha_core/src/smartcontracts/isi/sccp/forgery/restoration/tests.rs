@@ -107,7 +107,7 @@ fn signed_submit_pending_and_applied_roundtrip_through_actual_state_restore() {
     validate_persisted_records(chain.state()).unwrap();
     let restored_chain = restore_recorded(&chain);
     let restored = restored_chain.state();
-    assert_eq!(claim(&restored, id), claim(chain.state(), id));
+    assert_eq!(claim(restored, id), claim(chain.state(), id));
     assert_eq!(
         restored.view().native_execution_tip(),
         chain.state().view().native_execution_tip()
@@ -123,7 +123,7 @@ fn signed_submit_pending_and_applied_roundtrip_through_actual_state_restore() {
     validate_persisted_records(chain.state()).unwrap();
     let restored_chain = restore_recorded(&chain);
     let restored = restored_chain.state();
-    assert_eq!(claim(&restored, id), claim(chain.state(), id));
+    assert_eq!(claim(restored, id), claim(chain.state(), id));
     let undo = restored.world.consensus_evidence.snapshot();
     assert_eq!(
         undo.revert_map()
@@ -172,7 +172,7 @@ fn original_carrier_time_rule_g6_and_peer_substitutions_are_not_snapshot_authori
                 block.insert(id, owner);
                 block.commit();
                 assert!(
-                    validate_persisted_records(&state).is_err(),
+                    validate_persisted_records(state).is_err(),
                     "history mutation {mutation}"
                 );
             }
@@ -225,7 +225,7 @@ fn complete_original_offence_set_detects_total_record_omission_extra_id_and_wron
                     })
                     .unwrap();
             }
-            3 | 4 | 5 => {
+            3..=5 => {
                 let maximum = match mutation {
                     3 => None,
                     4 => Some(0),
@@ -240,7 +240,7 @@ fn complete_original_offence_set_detects_total_record_omission_extra_id_and_wron
                 );
             }
             6 => {
-                let owner = funded(&state, &claim(&state, id));
+                let owner = funded(state, &claim(state, id));
                 let mut block = state.world.consensus_evidence.block();
                 block.insert(Hash::new(b"foreign restored record key"), owner);
                 block.commit();
@@ -266,7 +266,7 @@ fn complete_original_offence_set_detects_total_record_omission_extra_id_and_wron
             }
         }
         assert!(
-            validate_persisted_records(&state).is_err(),
+            validate_persisted_records(state).is_err(),
             "complete-set mutation {mutation}"
         );
     }
@@ -294,10 +294,10 @@ fn pending_cannot_replace_actual_applied_mark_or_claim_early_application() {
     let (mut chain, id) = recorded();
     let restored_chain = restore_recorded(&chain);
     let state = restored_chain.state();
-    let mut early = claim(&state, id);
+    let mut early = claim(state, id);
     early.penalty_status = EvidencePenaltyStatus::Applied { height: 3 };
-    replace(&state, id, &early);
-    assert!(validate_persisted_records(&state).is_err());
+    replace(state, id, &early);
+    assert!(validate_persisted_records(state).is_err());
     drop(restored_chain);
     chain.commit(Vec::new());
     chain.commit(Vec::new());
@@ -673,8 +673,12 @@ fn absent_original_tip_refuses_undo_only_offences_and_maximum() {
         assert!(state.view().native_execution_tip().is_none());
         if maximum_only {
             state.world.sccp_forgery_max_generation =
-                crate::state::sccp_forgery_custody::initialize_max(None, Some(Some(1)), &budget)
-                    .unwrap();
+                crate::state::sccp_forgery_custody::initialize_max(
+                    None,
+                    crate::state::sccp_forgery_custody::MaxGenerationPredecessor::Value(Some(1)),
+                    &budget,
+                )
+                .unwrap();
         } else {
             // Copy the exact key through the destination's original owner, then create a
             // current-empty/predecessor-present claim. The decoded claim is not authority.

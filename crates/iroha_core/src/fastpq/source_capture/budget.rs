@@ -6,10 +6,13 @@
 //! Execution-entry scope is supplied separately because non-transfer entries count.
 //! This seam does not reserve runtime quotas or authenticate that entry scope.
 
+use super::FastpqSourceStatementBuildLimits;
+#[cfg(test)]
 use super::{
-    BTreeMap, FastpqSourceStatementBuildLimits, Hash, TransferTranscript,
-    measure_fastpq_source_transcript_inputs, source_statement_public_limits,
+    BTreeMap, Hash, TransferTranscript, measure_fastpq_source_transcript_inputs,
+    source_statement_public_limits,
 };
+#[cfg(test)]
 use crate::fastpq::quantity_statement::quantity_statement_frame_len_from_finalized_transcripts;
 
 /// Exact measured complete-bundle dimensions, independent of owned execution-entry scope.
@@ -35,6 +38,7 @@ impl FastpqSourceTranscriptUsage {
     ///
     /// # Errors
     /// Rejects arithmetic overflow without mutating either usage value.
+    #[cfg(test)]
     fn checked_add_disjoint_entries(self, other: Self) -> Result<Self, String> {
         let add = |left: usize, right: usize| {
             left.checked_add(right)
@@ -116,6 +120,7 @@ impl FastpqSourceTranscriptUsage {
 /// # Errors
 /// Rejects malformed or non-finalized transcripts, public preparation failures, arithmetic
 /// overflow, or any of the six explicit construction caps. Inputs are never mutated.
+#[cfg(test)]
 pub(crate) fn measure_fastpq_source_statement_usage(
     executed_entry_count: u32,
     transcripts: &BTreeMap<Hash, Vec<TransferTranscript>>,

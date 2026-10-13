@@ -164,6 +164,7 @@ fn require_bound(
     policy: &KagemushaEligibilityPolicyV1,
     request: &KagemushaEligibilityRequestV1,
 ) -> Result<()> {
+    use EnrollmentJournalPhaseV1 as Phase;
     request.validate(policy).map_err(|_| Invalid)?;
     let selection = attempt.selection();
     if dispatch.stable_selection().map_err(|_| Invalid)? != selection.stable_selection
@@ -180,7 +181,6 @@ fn require_bound(
     if policy.authority.scope_digest() != dispatch.fi_digest {
         return Err(Conflict);
     }
-    use EnrollmentJournalPhaseV1 as Phase;
     let phase_allowed = match request.purpose {
         KagemushaEligibilityPurposeV1::PreKeyPermit => {
             attempt.phase() != Phase::Rejected && request.expires_at_ms <= selection.expires_at_ms

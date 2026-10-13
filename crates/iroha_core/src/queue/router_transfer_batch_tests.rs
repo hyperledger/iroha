@@ -299,7 +299,6 @@ fn transfer_batch_policy_matchers_select_the_same_profile_as_original_single_tra
                     description: None,
                 },
             }],
-            ..default_routing_policy()
         };
         let router = ConfigLaneRouter::new(policy.clone(), catalog.clone(), lanes.clone());
         install_router_nexus(&mut state, &router);

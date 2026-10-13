@@ -137,6 +137,19 @@ particular, a list of cryptographic counts must not be presented as total
 `B_work` or used to set an admission stamp difficulty without those terms and
 an explicit charge model.
 
+The separate [front-end charge worksheet](../scripts/parliament_ballot_frontend_accounting.py)
+and [receipt](../docs/validation/parliament_ballot_b6/frontend_accounting.json)
+add named logical bytes and checks for test-record parsing, bounded field/list
+copies, frame writes, profile CRT serialization and explicit public-buffer
+initialization. They use the same 81-file source pin. The 12 focused tests use
+independent frame bytes, fixture CRT digests and decoder traces, including
+oversized fields and a declared-size mismatch after list allocation. A per-`S`
+bound applies to actual list length, never the untrusted declared size; arbitrary
+vote inputs use the 1,000-entry bound. These categories are not equal-cost
+machine instructions, and hash input bytes must not be counted again as sponge
+permutations. Backend/provider byte and scalar work, relocation and compiler
+effects remain outside this additional subset.
+
 ## Remaining certificate terms
 
 Complete production framing, authenticated shared-context mapping, admission
@@ -146,3 +159,20 @@ allocator overhead, failure behavior and concurrency scope. Constant-time and
 secret erasure need independent implementation review; verifier inputs are
 public, and resource ceilings do not establish prover leakage properties.
 This model changes no Rust protocol implementation or activation gate.
+
+A later unrelated root-lock edit now trips the source pin in the live checkout.
+The [provenance and frozen lock](../docs/validation/parliament_ballot_b6/post-qualification-lock-change.json)
+preserve the reviewed source. The [isolated reconstruction](../docs/validation/parliament_ballot_b6/frozen-accounting-recheck.json)
+reproduces all three accounting reports byte for byte and passes 38 tests plus
+six subtests; it does not qualify the changed current tree. The live lock and
+reviewed pin were not rewritten to make that check pass.
+
+The later [resource proposal](parliament_ballot_resource_contract.md) now fixes
+a standalone whole-call/actual-byte reservation, cold-input entry point and
+caller/concurrency/failure scope, and implements an arena plus supplied native
+stack. Its [separate campaign](../docs/validation/parliament_ballot_resource_contract/README.md)
+passes 120 calls; it does not rewrite this model's source pin or historical
+bounds. Full runtime/System/TLS coverage and all-valid-input sufficiency remain
+open. Qualified physical cost is still needed to derive `B_work`, stamp costs
+and admission capacity; unequal operation categories are not simply summed.
+The 64 MiB requirement is unchanged.

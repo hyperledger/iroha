@@ -45,7 +45,7 @@ fn limits() -> LeafLimits {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn nft(label: &str) -> NftId {
@@ -588,7 +588,7 @@ fn canonical_storages(world: &World) -> [String; 7] {
     ]
 }
 fn restored_world(world: &World) -> World {
-    let mut recovered = World::default();
+    let mut recovered = World::new();
     recovered.nfts = restored(&world.nfts);
     recovered.nfts_by_owner = restored(&world.nfts_by_owner);
     recovered.nfts_by_domain = restored(&world.nfts_by_domain);

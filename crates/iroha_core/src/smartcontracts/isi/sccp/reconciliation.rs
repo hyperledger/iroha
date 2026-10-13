@@ -48,9 +48,9 @@ pub fn open(
 ) -> Result<(), Error> {
     let key = (network, revision);
     let world = &*state.world;
-    if !store::routes::get(world, &network)
+    if store::routes::get(world, &network)
         .and_then(|route| route.revisions.get(&revision))
-        .is_some_and(|record| record.quarantine.is_some())
+        .is_none_or(|record| record.quarantine.is_none())
     {
         return Err(refuse("revision is not quarantined"));
     }

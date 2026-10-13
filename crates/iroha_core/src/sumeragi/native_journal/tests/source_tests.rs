@@ -77,7 +77,7 @@ fn prepared_native_journal_decodes_without_late_allocations_and_advances_real_na
         let charged = frame
             .charged_source()
             .expect("actual original prepared source");
-        assert!(std::ptr::eq(charged.original_source(), &source));
+        assert!(std::ptr::eq(charged.original_source(), &raw const source));
         assert!(charged.belongs_to(&pool));
         assert_eq!(charged.wire().as_ptr(), frame.wire().as_ptr());
         assert_eq!(charged.span().get(source.as_slice()).unwrap(), frame.wire());

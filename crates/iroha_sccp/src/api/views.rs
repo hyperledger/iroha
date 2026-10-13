@@ -42,9 +42,6 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 // ---------------------------------------------------------------------------------------------
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
-///
-/// TODO: Torii work package (TT-A1): add `provable` once the request-funded native proof
-/// producer can serve a certificate covering the record height (§6).
 #[derive(
     Debug,
     Clone,
@@ -65,6 +62,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 pub struct SccpRecordedStateV1 {
     /// Destination-time mint deadline.
     pub deadline_ms: u64,
+    /// The original committed native tip covers this record height; verify the proof independently.
+    pub provable: bool,
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
@@ -318,6 +317,8 @@ pub struct SccpControlViewV1 {
     pub control_nonce: u64,
     /// The stored combined pause state, certificate cause and committed leaf location.
     pub record: SccpControlRecordV1,
+    /// The original committed native tip covers this control height.
+    pub provable: bool,
 }
 
 /// `GET /v1/sccp/controls/{network}/{revision}?after_nonce&limit`: controls ascending (§4.14.6).
@@ -596,6 +597,14 @@ pub struct SccpGovernanceProposalDetailV1 {
     /// The newest Parliament attempt, if any.
     #[norito(required)]
     pub latest_attempt: Option<GovernanceAttemptV1>,
+    /// Every retained attempt with its frozen head and terminal outcome, in retry order.
+    pub attempts: Vec<super::SccpGovernanceAttemptViewV1>,
+    /// Current parameters when the proposal contains `SetParameters`; proposed values
+    /// remain in the ordered action body for an exact before/after comparison.
+    #[norito(required)]
+    pub parameters_before: Option<iroha_data_model::sccp::params::SccpParametersV1>,
+    /// Activation intents compared with current committed state, in action order.
+    pub activation_diff: Vec<super::SccpGovernanceActivationDiffV1>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -818,11 +827,16 @@ mod tests {
 
     fn states() -> Vec<SccpOutboundStateV1> {
         vec![
-            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 { deadline_ms: 99 }),
+            SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                deadline_ms: 99,
+                provable: true,
+            }),
             SccpOutboundStateV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 30,
-                refund_pending: Some(iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred),
+                refund_pending: Some(
+                    iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred,
+                ),
             }),
             SccpOutboundStateV1::Refunded(SccpStatusHeightV1 { height: 31 }),
             SccpOutboundStateV1::Stranded(SccpStatusHeightV1 { height: 32 }),
@@ -968,9 +982,13 @@ mod tests {
 
     #[test]
     fn views_roundtrip_in_every_codec() {
-        let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
+        let recorded = SccpRecordedStateV1 {
+            deadline_ms: 99,
+            provable: true,
+        };
         roundtrip(&recorded);
         assert_closed(&recorded, "deadline_ms");
+        assert_closed(&recorded, "provable");
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));
@@ -996,6 +1014,7 @@ mod tests {
             revision: 1,
             next_control_nonce: 3,
             controls: vec![SccpControlViewV1 {
+                provable: true,
                 control_nonce: 2,
                 record: SccpControlRecordV1 {
                     track: 1,
@@ -1071,6 +1090,7 @@ mod tests {
         );
         // A control names no attestation state.
         let control = SccpControlViewV1 {
+            provable: true,
             control_nonce: 2,
             record: SccpControlRecordV1 {
                 track: 1,

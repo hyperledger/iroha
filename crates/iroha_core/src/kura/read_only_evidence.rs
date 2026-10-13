@@ -129,7 +129,7 @@ impl std::fmt::Debug for CanonicalKuraEvidenceComplete {
             .field("committed_height", &self.committed_height)
             .field("carrier_count", &self.carrier_count)
             .field("output_bytes", &self.output_bytes)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl CanonicalKuraEvidenceComplete {
@@ -137,6 +137,11 @@ impl CanonicalKuraEvidenceComplete {
     ///
     /// This grants no write handle or finality authority. A publication owner must
     /// retain this capability through its final durability check.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if retained source identities or contents changed,
+    /// source revalidation fails, or the platform lacks the required descriptor APIs.
     pub fn recheck_sources(&self) -> CanonicalKuraEvidenceResult<()> {
         #[cfg(all(unix, not(any(target_os = "redox", target_os = "espidf"))))]
         {
@@ -152,6 +157,12 @@ impl CanonicalKuraEvidenceComplete {
     /// `ancestry` must come from the publication owner's held directory chain,
     /// ordered from root to immediate parent. Only bounded dev/inode identities
     /// cross this boundary; no raw descriptor or arbitrary callback escapes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if ancestry is empty or exceeds 64 entries, overlaps a
+    /// read source namespace, fails source revalidation, or the platform lacks
+    /// the required descriptor APIs.
     pub fn ensure_publication_ancestry(
         &self,
         ancestry: &[(u64, u64)],
@@ -494,7 +505,7 @@ impl CanonicalKuraEvidenceReader {
             .map_err(|_| CanonicalKuraEvidenceError::Invalid("index offset conversion"))?;
         let bytes = self
             .index_bytes
-            .get(offset..offset + BlockIndex::SIZE as usize)
+            .get(offset..offset + core::mem::size_of::<[u64; 2]>())
             .ok_or(CanonicalKuraEvidenceError::Invalid("index slice boundary"))?;
         evidence_require(bytes.len() == 16, "block index layout")?;
         Ok(BlockIndex {
@@ -520,7 +531,7 @@ impl CanonicalKuraEvidenceReader {
             .map_err(|_| CanonicalKuraEvidenceError::Invalid("hash offset conversion"))?;
         let bytes = self
             .hash_bytes
-            .get(offset..offset + SIZE_OF_BLOCK_HASH as usize)
+            .get(offset..offset + Hash::LENGTH)
             .ok_or(CanonicalKuraEvidenceError::Invalid("hash slice boundary"))?;
         let bytes: [u8; Hash::LENGTH] = bytes
             .try_into()
@@ -547,7 +558,7 @@ mod canonical_evidence_read_only_fs {
     struct Identity {
         dev: u64,
         ino: u64,
-        mode: u32,
+        mode: rustix::fs::RawMode,
         uid: u32,
         gid: u32,
         links: u64,
@@ -558,16 +569,16 @@ mod canonical_evidence_read_only_fs {
     impl Identity {
         fn new(value: Stat) -> Result<Self> {
             Ok(Self {
-                dev: value.st_dev as u64,
-                ino: value.st_ino as u64,
-                mode: value.st_mode as u32,
+                dev: crate::kura::unix_device_identity(value.st_dev),
+                ino: value.st_ino,
+                mode: value.st_mode,
                 uid: value.st_uid,
                 gid: value.st_gid,
                 links: value.st_nlink as u64,
                 size: u64::try_from(value.st_size)
                     .map_err(|_| Error::Invalid("negative file size"))?,
-                modified: (value.st_mtime as i64, value.st_mtime_nsec as i64),
-                changed: (value.st_ctime as i64, value.st_ctime_nsec as i64),
+                modified: (value.st_mtime, value.st_mtime_nsec),
+                changed: (value.st_ctime, value.st_ctime_nsec),
             })
         }
         fn same_owner(self, other: Self) -> bool {
@@ -575,11 +586,10 @@ mod canonical_evidence_read_only_fs {
                 == (other.dev, other.ino, other.mode, other.uid, other.gid)
         }
         fn directory(self) -> bool {
-            FileType::from_raw_mode(self.mode as rustix::fs::RawMode) == FileType::Directory
+            FileType::from_raw_mode(self.mode) == FileType::Directory
         }
         fn regular(self) -> bool {
-            FileType::from_raw_mode(self.mode as rustix::fs::RawMode) == FileType::RegularFile
-                && self.links == 1
+            FileType::from_raw_mode(self.mode) == FileType::RegularFile && self.links == 1
         }
     }
     fn held(file: &File) -> Result<Identity> {

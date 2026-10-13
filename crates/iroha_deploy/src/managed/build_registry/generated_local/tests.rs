@@ -23,7 +23,7 @@ fn generated_registry_preparation_is_lazy_and_retains_lock_through_materialized_
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared) = fixture(LocalnetServiceProfile::StreamTokenAuthorities);
     let mut peers = UnavailablePeers::start(&prepared);
-    assert!(prepare(prepared.clone(), Instant::now()).is_err());
+    assert!(prepare(&prepared, Instant::now()).is_err());
     assert!(
         !prepared
             .context
@@ -37,7 +37,7 @@ fn generated_registry_preparation_is_lazy_and_retains_lock_through_materialized_
     let deadline = Instant::now() + Duration::from_secs(30);
     let ((config, transport), parses) =
         crate::localnet::service_authorities::count_profile_validations(|| {
-            prepare(prepared.clone(), deadline).unwrap().unwrap()
+            prepare(&prepared, deadline).unwrap().unwrap()
         });
     assert_eq!(parses, 1);
     assert_eq!(config.chain, original.chain);
@@ -152,11 +152,11 @@ fn standard_generation_has_no_implicit_local_registry_and_expired_prepare_makes_
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared) = fixture(LocalnetServiceProfile::Standard);
     assert!(
-        prepare(prepared.clone(), Instant::now() + Duration::from_secs(30))
+        prepare(&prepared, Instant::now() + Duration::from_secs(30))
             .unwrap()
             .is_none()
     );
-    assert!(prepare(prepared.clone(), Instant::now()).is_err());
+    assert!(prepare(&prepared, Instant::now()).is_err());
     assert!(
         !prepared
             .context

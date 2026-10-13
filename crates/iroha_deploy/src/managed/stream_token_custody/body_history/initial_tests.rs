@@ -40,7 +40,7 @@ fn expired_initial_body_uses_fresh_parent_authorization_and_preserves_original_n
         .authorize_test_startup(&original.options)
         .unwrap()
         .unwrap();
-    finish_initial_replacement(original, authorization);
+    finish_initial_replacement(original, &authorization);
 }
 
 // This fixture moves the exact original owners and observations between phases. It retains
@@ -311,7 +311,7 @@ fn prepare_expired_initial(temporary: &tempfile::TempDir) -> ExpiredInitial {
 #[inline(never)]
 fn finish_initial_replacement(
     original: ExpiredInitial,
-    authorization: GeneratedBootstrapAuthorization,
+    authorization: &GeneratedBootstrapAuthorization,
 ) {
     let ExpiredInitial {
         prepared,
@@ -399,13 +399,15 @@ fn finish_initial_replacement(
     let account = child.bind_account(owner.wallet().unwrap()).unwrap();
     let historical = native.bootstrap_custody(&owner.authority, &policy, &checkpoint);
     attempts::generated(
-        operation,
-        Purpose::CustodyEnroll(provider),
-        original.digest().unwrap(),
-        scope,
-        &child,
-        options.deadline,
-        Some(interval.expires_at_unix_ms),
+        crate::managed::native_operation::attempts::GeneratedSelection {
+            operation,
+            purpose: Purpose::CustodyEnroll(provider),
+            semantic: original.digest().unwrap(),
+            scope,
+            authorization: &child,
+            deadline: options.deadline,
+            body_expiry: Some(interval.expires_at_unix_ms),
+        },
         |attempt| {
             original
                 .request(attempt.terms(), attempt.observation()?, options.deadline)?
@@ -496,8 +498,10 @@ fn finish_initial_replacement(
         .verify_enrollment_at(
             &retained,
             &policy,
-            finalized.height,
-            *finalized.block_hash.as_ref(),
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: finalized.height,
+                block_hash: *finalized.block_hash.as_ref(),
+            },
             &current,
             now_ms().unwrap(),
             options.deadline,

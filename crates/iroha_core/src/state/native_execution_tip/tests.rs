@@ -366,8 +366,7 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
         chain.kura(),
         &pool,
     )
-    .err()
-    .expect("the actual original native source must refuse its full pool");
+    .expect_err("the actual original native source must refuse its full pool");
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain the original source's typed local refusal: {original:?}");
     };
@@ -397,12 +396,12 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
     let reads = chain.kura().canonical_query_reads_for_test();
     let pending = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     drop(blocker);
-    let ready = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
+    let poll_outcome = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     // Retire contention before any assertion, including the causal before-fix assertion.
     assert_eq!(occupied, pool.limit_bytes());
     assert_eq!(reads, (0, 0), "refused backing never reads a native body");
     assert!(pending.is_pending());
-    assert!(ready.is_ready());
+    assert!(poll_outcome.is_ready());
     let error = refused
         .err()
         .expect("full original pool must refuse restore");
@@ -540,8 +539,7 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             .walk(2, 3)
             .next()
             .unwrap()
-            .err()
-            .expect("next actual prefix decode must refuse")
+            .expect_err("next actual prefix decode must refuse")
     });
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain a typed original prefix refusal: {original:?}");

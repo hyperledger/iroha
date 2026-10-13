@@ -164,11 +164,11 @@ pub fn list_proofs(
 ) -> Result<Vec<ProofListItem>, ProofQueryError> {
     budget.check_deadline()?;
     let start = params.offset.unwrap_or(0) as usize;
-    let cap = params.limit.unwrap_or(1000).max(1).min(1000) as usize;
+    let cap = params.limit.unwrap_or(1000).clamp(1, 1000) as usize;
     let window = start
         .checked_add(cap)
         .filter(|window| *window <= budget.max_window)
-        .ok_or(ProofQueryError::WindowTooLarge {
+        .ok_or_else(|| ProofQueryError::WindowTooLarge {
             requested: start.saturating_add(cap),
             maximum: budget.max_window,
         })?;

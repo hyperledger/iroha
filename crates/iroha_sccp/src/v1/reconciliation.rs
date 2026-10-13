@@ -30,17 +30,26 @@ pub fn payout(
 
 /// Multiply two u128 values into their exact four-limb little-endian product.
 fn multiply(a: u128, b: u128) -> [u64; 4] {
-    let a = [a as u64, (a >> 64) as u64];
-    let b = [b as u64, (b >> 64) as u64];
+    let low_limb = |value: u128| {
+        u64::try_from(value & u128::from(u64::MAX)).expect("masked lower limb fits u64")
+    };
+    let a = [
+        low_limb(a),
+        u64::try_from(a >> 64).expect("upper limb fits u64"),
+    ];
+    let b = [
+        low_limb(b),
+        u64::try_from(b >> 64).expect("upper limb fits u64"),
+    ];
     let mut limbs = [0u64; 4];
     for (i, a) in a.into_iter().enumerate() {
         let mut carry = 0u128;
         for (j, b) in b.into_iter().enumerate() {
             let product = u128::from(a) * u128::from(b) + u128::from(limbs[i + j]) + carry;
-            limbs[i + j] = product as u64;
+            limbs[i + j] = low_limb(product);
             carry = product >> 64;
         }
-        limbs[i + 2] = carry as u64;
+        limbs[i + 2] = u64::try_from(carry).expect("product carry fits one limb");
     }
     limbs
 }

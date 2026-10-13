@@ -137,6 +137,11 @@ fn sns_error(error: crate::sns::SnsError) -> AliasSetupError {
     AliasSetupError::new(code, text)
 }
 /// Build the canonical SNS selector for a resolved target without consulting a static catalog.
+///
+/// # Errors
+///
+/// Returns an error if the target name cannot form a valid SNS selector or
+/// its account alias is not canonical.
 pub fn selector_for_resolved_alias_target(
     target: &AliasTargetV1,
 ) -> Result<NameSelectorV1, AliasSetupError> {
@@ -617,15 +622,16 @@ pub fn classify_alias_auto_renew(
     if let Some(config) = operation.config.as_ref() {
         validate_alias_auto_renew_config(world, &operation.target, config)?;
     }
-    let exact_clean_state = current
-        .as_ref()
-        .map_or(operation.config.is_none(), |current| {
+    let exact_clean_state = current.as_ref().map_or_else(
+        || operation.config.is_none(),
+        |current| {
             current.owner == record.owner
                 && current.config == operation.config
                 && current.failure_count == 0
                 && current.next_retry_at_ms.is_none()
                 && current.suspended_reason.is_none()
-        });
+        },
+    );
     if exact_clean_state {
         return Ok(AliasLifecyclePlanDispositionV1::NoOp);
     }
@@ -1232,10 +1238,7 @@ mod tests {
     fn world_with_accounts(accounts: &[AccountId]) -> World {
         World::with(
             [],
-            accounts
-                .iter()
-                .cloned()
-                .map(|id| Account::new(id.clone()).build(&id)),
+            accounts.iter().map(|id| Account::new(id.clone()).build(id)),
             [],
         )
     }

@@ -84,7 +84,7 @@ impl State {
     ) -> Result<TelemetryStatusTarget, TelemetryStatusSourceError> {
         for _ in 0..super::DIAGNOSTIC_STABLE_STATE_GENERATION_ATTEMPTS {
             let before = self.state_view_generation();
-            if before % 2 != 0 {
+            if !before.is_multiple_of(2) {
                 continue;
             }
             let journal = self
@@ -126,7 +126,7 @@ impl State {
             .min(target.height);
         for _ in 0..super::DIAGNOSTIC_STABLE_STATE_GENERATION_ATTEMPTS {
             let before = self.state_view_generation();
-            if before % 2 != 0 {
+            if !before.is_multiple_of(2) {
                 continue;
             }
             let journal = self

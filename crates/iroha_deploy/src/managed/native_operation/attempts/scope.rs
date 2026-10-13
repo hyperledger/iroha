@@ -1,7 +1,7 @@
 //! Sealed local body-chain evidence; only the custody owner supplies its original namespace proof.
 use super::*;
 use crate::managed::stream_token_custody::body_history::SnapshotReadPass;
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 mod sealed {
     pub trait EnrollmentScopeEvidence {}
@@ -102,7 +102,7 @@ struct BodyScopeState {
     operation_identity: iroha_fs::FileIdentity,
 }
 pub(in crate::managed) struct BodyDispatchScope {
-    state: Arc<BodyScopeState>,
+    state: Rc<BodyScopeState>,
 }
 impl BodyDispatchScope {
     pub(in crate::managed) fn verify(
@@ -140,7 +140,7 @@ impl BodyDispatchScope {
             }
         }
         let value = Self {
-            state: Arc::new(BodyScopeState {
+            state: Rc::new(BodyScopeState {
                 evidence,
                 predecessor,
                 root_identity,
@@ -152,7 +152,7 @@ impl BodyDispatchScope {
     }
     fn duplicate(&self) -> Self {
         Self {
-            state: Arc::clone(&self.state),
+            state: Rc::clone(&self.state),
         }
     }
     fn revalidate_with_pass(&self, pass: Option<&EnrollmentReadPass<'_>>) -> Result<()> {
@@ -202,17 +202,16 @@ impl BodyDispatchScope {
             return Err(invalid("enrollment predecessor closure changed"));
         }
         value.evidence.fees().validate()?;
-        if let Some(prior) = &value.predecessor {
-            if prior.purpose() != binding.purpose
+        if let Some(prior) = &value.predecessor
+            && (prior.purpose() != binding.purpose
                 || prior.outer_intent() != binding.outer_intent
                 || prior.root_identity() != value.root_identity
                 || prior.fees() != value.evidence.fees()
-                || prior.cumulative_reserved_count() > MAX_ATTEMPTS
-            {
-                return Err(invalid(
-                    "enrollment predecessor closure changed its original scope",
-                ));
-            }
+                || prior.cumulative_reserved_count() > MAX_ATTEMPTS)
+        {
+            return Err(invalid(
+                "enrollment predecessor closure changed its original scope",
+            ));
         }
         Ok(())
     }
@@ -239,7 +238,7 @@ impl HistoryScope {
     // A separately reconstructed equal scope is deliberately not interchangeable here.
     pub(super) fn same_original_owner(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Enrollment(a), Self::Enrollment(b)) => Arc::ptr_eq(&a.state, &b.state),
+            (Self::Enrollment(a), Self::Enrollment(b)) => Rc::ptr_eq(&a.state, &b.state),
             _ => false,
         }
     }
@@ -354,12 +353,12 @@ impl HistoryScope {
         }
     }
     pub(super) fn require_fees(&self, fees: &super::super::Fees) -> Result<()> {
-        if let Self::Enrollment(value) = self {
-            if value.state.evidence.fees() != fees {
-                return Err(invalid(
-                    "dispatch changed original enrollment fee authorization",
-                ));
-            }
+        if let Self::Enrollment(value) = self
+            && value.state.evidence.fees() != fees
+        {
+            return Err(invalid(
+                "dispatch changed original enrollment fee authorization",
+            ));
         }
         Ok(())
     }

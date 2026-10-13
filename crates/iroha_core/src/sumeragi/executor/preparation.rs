@@ -155,14 +155,14 @@ pub(super) fn witness_failure(
 /// never authorizes reuse. An impossible pool demand has no release source and may
 /// require local policy changes. Malformed custody and poisoned owners require recovery.
 pub(super) fn validation_failure(error: &BlockValidationError) -> Option<PublicationError> {
-    if let BlockValidationError::GovernanceDueUnavailable(original) = error {
-        return Some(PublicationError::Retryable(original.to_string()));
-    }
     use crate::state::{
         BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
         StateStorageAdmissionError, StateViewError,
     };
     use mv::storage::AdmittedStorageError;
+    if let BlockValidationError::GovernanceDueUnavailable(original) = error {
+        return Some(PublicationError::Retryable(original.to_string()));
+    }
     let source = match error {
         BlockValidationError::NativeHistory(original) => {
             return Some(super::parent_native_source_error(original.clone()));

@@ -19,7 +19,7 @@ fn fixture(
     let mut block = state.block(header());
     cache_canonical_test_transaction_set(&mut block, &[]);
     for key_index in 0..key_count {
-        let hash = Hash::new([key_index as u8, 91]);
+        let hash = Hash::new([u8::try_from(key_index).expect("fixture value fits u8"), 91]);
         // This component fixture owns a bounded invocation before staging
         // occurrences; it does not claim authenticated carrier publication.
         let mut tx = block.transaction_for_fastpq_testing(hash);

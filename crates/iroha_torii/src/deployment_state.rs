@@ -166,7 +166,7 @@ fn live_previous_contract_address(
     }
     Ok(Some(raw_previous))
 }
-pub(crate) fn read_contract_deployment_state(
+pub fn read_contract_deployment_state(
     app: &SharedAppState,
     request: &ContractDeploymentStateRequestDto,
     expected_route: Option<RoutingDecision>,
@@ -208,7 +208,7 @@ pub(crate) fn read_contract_deployment_state(
         chain_discriminant: chain_discriminant().to_string(),
     })
 }
-pub(crate) fn execute_contract_deployment_state_local_read(
+pub fn execute_contract_deployment_state_local_read(
     app: &SharedAppState,
     request: &ContractDeploymentStateRequestDto,
     expected_route: Option<RoutingDecision>,
@@ -231,7 +231,7 @@ fn canonical_decimal_u64(value: &str, field: &str) -> Result<u64, String> {
     }
     Ok(parsed)
 }
-pub(crate) fn sanitize_routed_contract_deployment_state(
+pub fn sanitize_routed_contract_deployment_state(
     route: RoutingDecision,
     request_body: &[u8],
     response_body: &[u8],
@@ -310,7 +310,7 @@ pub(crate) fn sanitize_routed_contract_deployment_state(
     norito::json::to_vec(&response)
         .map_err(|error| format!("failed to encode sanitized deployment-state response: {error}"))
 }
-pub(crate) async fn handler_contract_deployment_state(
+pub async fn handler_contract_deployment_state(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,

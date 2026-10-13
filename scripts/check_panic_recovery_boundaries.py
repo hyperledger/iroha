@@ -81,9 +81,9 @@ REQUIRED_SNIPPETS = {
         "raw_join_failure_remains_an_unsuppressed_invariant",
     ),
     "crates/iroha_torii/src/panic_recovery.rs": (
-        "pub(crate) fn spawn_blocking_recoverable",
-        "pub(crate) fn spawn_joined_recoverable",
-        "pub(crate) async fn join_recoverable",
+        "pub fn spawn_blocking_recoverable",
+        "pub fn spawn_joined_recoverable",
+        "pub async fn join_recoverable",
         "ordinary_invariant_panics_remain_unsuppressed",
     ),
     "crates/iroha_torii/src/da/taikai.rs": (
@@ -101,7 +101,7 @@ REQUIRED_SNIPPETS = {
     "crates/iroha_torii/src/sorafs/api/storage_token_issuance.rs": (
         "let worker_issuer = Arc::clone(&issuer);",
         'sorafs_heavy_blocking_task(&state, "SoraFS token issuance", move ||',
-        "let issued = worker_issuer.issue_token(",
+        "let issuance_result = worker_issuer.issue_token(",
         "account-read policy changed during token issuance",
     ),
     "crates/iroha_torii/src/sorafs/api/stream_token_enforcement.rs": (
@@ -1583,7 +1583,7 @@ def _token_issuance_worker_policy_failures(source: str) -> list[str]:
     owner = """
         let worker_issuer = Arc::clone(&issuer);
         let worker_state = state.state.clone();
-        let issued = match sorafs_heavy_blocking_task(
+        let issuance_result = match sorafs_heavy_blocking_task(
             &state, "SoraFS token issuance", move || {
     """
     workers = occurrences(owner, values)
@@ -1596,9 +1596,9 @@ def _token_issuance_worker_policy_failures(source: str) -> list[str]:
     body, closing = worker
     expected_body = """
         let policy = account.as_ref().map(|account| {
-            current_account_read_policy(&worker_state, account, ProviderId::new(provider_id))
+            current_account_read_policy(&worker_state, account, ProviderId::new(provider_id),)
         }).transpose()?;
-        let issued = worker_issuer.issue_token(
+        let issuance_result = worker_issuer.issue_token(
             quota_subject, manifest_cid, provider_id, profile_handle, overrides, policy.as_ref(),
         );
         if let Some(account) = &account {
@@ -1611,12 +1611,12 @@ def _token_issuance_worker_policy_failures(source: str) -> list[str]:
                 ));
             }
         }
-        Ok(issued)
+        Ok(issuance_result)
     """
     expected = [token.text for token in _rust_tokens(expected_body)]
     joined = [token.text for token in _rust_tokens("""
         }).await {
-            Ok(issued) => issued,
+            Ok(issuance_result) => issuance_result,
             Err(response) => return response,
         };
     """)]

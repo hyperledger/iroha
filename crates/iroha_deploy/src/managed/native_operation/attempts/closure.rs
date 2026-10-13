@@ -42,12 +42,16 @@ pub(in crate::managed) struct PendingUnsignedClosure {
     history: History,
 }
 // A consuming read returns the same owner when the exact closure is still pending.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "A pending consuming read returns the original history owner without a new allocation in bounded admission"
+)]
 pub(in crate::managed) enum UnsignedClosureVerification {
     Pending(History),
     Closed(VerifiedUnsignedClosure),
 }
 pub(in crate::managed) struct VerifiedUnsignedClosure {
-    history: std::sync::Arc<History>,
+    history: std::rc::Rc<History>,
     digest: [u8; 32],
     successor: [u8; 32],
     cumulative_reserved: usize,
@@ -87,7 +91,7 @@ impl VerifiedUnsignedClosure {
         self.history.require_current_with_pass(pass)?;
         self.require_receipt()
     }
-    pub(super) fn shared_history(&self) -> &std::sync::Arc<History> {
+    pub(super) fn shared_history(&self) -> &std::rc::Rc<History> {
         &self.history
     }
     pub(in crate::managed) fn retained_history(&self) -> &History {
@@ -184,12 +188,12 @@ impl History {
         {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
-        if let Some(closed) = &self.closed {
-            if closed.plan != digest(plan)? || closed.tail != plan.tail {
-                return Err(invalid(
-                    "unsigned closure changed its reserved closing plan",
-                ));
-            }
+        if let Some(closed) = &self.closed
+            && (closed.plan != digest(plan)? || closed.tail != plan.tail)
+        {
+            return Err(invalid(
+                "unsigned closure changed its reserved closing plan",
+            ));
         }
         Ok(())
     }
@@ -209,12 +213,11 @@ impl History {
         successor: &dyn SemanticSuccessor,
         pass: Option<&'pass EnrollmentReadPass<'snapshot>>,
     ) -> Result<Option<parser_pass::CurrentReadAdmission<'history, 'pass, 'snapshot>>> {
-        let current = match pass {
-            Some(pass) => pass.current_read(self)?,
-            None => {
-                self.require_current()?;
-                None
-            }
+        let current = if let Some(pass) = pass {
+            pass.current_read(self)?
+        } else {
+            self.require_current()?;
+            None
         };
         self.check_successor_binding(successor, pass)?;
         Ok(current)
@@ -447,7 +450,7 @@ impl History {
             .ok_or_else(|| invalid("verified unsigned closure lost its closed record"))?;
         let evidence = self.scope.enrollment()?;
         let value = VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(Self::read_retained_with_pass(
+            history: std::rc::Rc::new(Self::read_retained_with_pass(
                 &self.operation,
                 self.purpose,
                 self.semantic,
@@ -477,10 +480,12 @@ impl History {
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<UnsignedClosureVerification> {
         if norito::core::decode_limits_active() {
-            return match self.verify_unsigned_closure_with_pass(successor, inspect, pass)? {
-                Some(value) => Ok(UnsignedClosureVerification::Closed(value)),
-                None => Ok(UnsignedClosureVerification::Pending(self)),
-            };
+            return self
+                .verify_unsigned_closure_with_pass(successor, inspect, pass)?
+                .map_or_else(
+                    || Ok(UnsignedClosureVerification::Pending(self)),
+                    |value| Ok(UnsignedClosureVerification::Closed(value)),
+                );
         }
         let Some(fields) = self.inspect_owned_closure(successor, &mut inspect, pass)? else {
             return Ok(UnsignedClosureVerification::Pending(self));
@@ -630,7 +635,7 @@ impl ClosureFields {
             history.into_retained_records()
         };
         VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(history),
+            history: std::rc::Rc::new(history),
             digest: self.digest,
             successor: self.successor,
             cumulative_reserved: self.cumulative_reserved,
@@ -685,7 +690,7 @@ impl PendingUnsignedClosure {
         authorization.check(self.history.purpose, deadline)?;
         self.history.require_fees(authorization.fees())?;
         authorization.claim_body_replacement(successor.target(), deadline)?;
-        let mut history = match inspect.into_closure(self.history, successor)? {
+        let mut history = match inspect.verify_into_closure(self.history, successor)? {
             UnsignedClosureVerification::Closed(value) => return Ok(value),
             UnsignedClosureVerification::Pending(history) => history,
         };

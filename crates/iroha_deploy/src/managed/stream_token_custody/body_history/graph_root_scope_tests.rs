@@ -288,12 +288,6 @@ fn graph_root_scope_closes_persistent_changes_and_keeps_fresh_inventory_errors()
     }
     // A physical same-name replacement is refused, even if the body also returns an error.
     for ordinary in [false, true] {
-        let original = history.root.path().to_owned();
-        let moved = original.with_extension("1082-moved");
-        struct RestoreRoot {
-            original: std::path::PathBuf,
-            moved: std::path::PathBuf,
-        }
         impl Drop for RestoreRoot {
             fn drop(&mut self) {
                 if self.moved.exists() {
@@ -304,6 +298,13 @@ fn graph_root_scope_closes_persistent_changes_and_keeps_fresh_inventory_errors()
                 }
             }
         }
+        struct RestoreRoot {
+            original: std::path::PathBuf,
+            moved: std::path::PathBuf,
+        }
+        let original = history.root.path().to_owned();
+        let moved = original.with_extension("1082-moved");
+
         let restore = RestoreRoot {
             original: original.clone(),
             moved: moved.clone(),

@@ -183,9 +183,11 @@ mod policy_tests {
         let world = world.view();
         let parameters = SccpParametersV1::taira_default();
         let exact = parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms;
-        let mut staking = NexusStaking::default();
-        staking.unbonding_delay = Duration::from_millis(exact);
-        staking.max_slash_bps = 1;
+        let mut staking = NexusStaking {
+            unbonding_delay: Duration::from_millis(exact),
+            max_slash_bps: 1,
+            ..Default::default()
+        };
         validate_staking_policy(&world, &parameters, &staking).unwrap();
         staking.unbonding_delay = Duration::from_millis(exact - 1);
         assert_eq!(

@@ -67,9 +67,14 @@ fn original_native_history_authenticates_every_certificate_intersection_signer()
     let evidence = Evidence::from_native(&conflict(&chain, 2)).unwrap();
     let view = chain.state().view();
     let generation = chain.state().state_view_generation();
-    let mut read =
-        admission::AdmissionRead::capture(chain.state(), &view, generation, 3, &[evidence.clone()])
-            .unwrap();
+    let mut read = admission::AdmissionRead::capture(
+        chain.state(),
+        &view,
+        generation,
+        3,
+        std::slice::from_ref(&evidence),
+    )
+    .unwrap();
     read.complete().unwrap();
     let admissions = read.finish().unwrap();
     let attribution = admissions.as_slice()[0].attribution();
@@ -90,8 +95,14 @@ fn original_native_history_authenticates_every_certificate_intersection_signer()
         );
     }
     assert!(
-        admission::AdmissionRead::capture(chain.state(), &view, generation, 2, &[evidence.clone()])
-            .is_err()
+        admission::AdmissionRead::capture(
+            chain.state(),
+            &view,
+            generation,
+            2,
+            std::slice::from_ref(&evidence)
+        )
+        .is_err()
     );
     assert!(
         admission::AdmissionRead::capture(
@@ -156,10 +167,15 @@ fn captured_admission_uses_the_original_parent_even_after_successor_admission() 
     let generation = state.state_view_generation();
     let parent = state.view();
     assert_eq!(parent.height(), 2);
-    let mut captured =
-        admission::AdmissionRead::capture(&state, &parent, generation, 3, &[evidence.clone()])
-            .unwrap();
-    assert!(captured.matches(generation, 3, &[evidence.clone()]));
+    let mut captured = admission::AdmissionRead::capture(
+        &state,
+        &parent,
+        generation,
+        3,
+        std::slice::from_ref(&evidence),
+    )
+    .unwrap();
+    assert!(captured.matches(generation, 3, std::slice::from_ref(&evidence)));
     chain.commit(Vec::new());
     assert!(
         state

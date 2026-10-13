@@ -128,6 +128,10 @@ impl PrepareClock {
         retained.next = (index + 1) % OBSERVATIONS;
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the exact signed source tuple and independently authenticated certification state"
+    )]
     fn authorize(
         &self,
         instance: Hash32,

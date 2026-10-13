@@ -80,8 +80,8 @@ the review's decision **[R]** (that does not cover the production Norito
 mappings, the production envelopes or authenticated integration), conditions
 2 and 3 are not met, condition 4 has standalone implementation and component
 evidence, condition 5 is not met (complete envelope, allocation and
-qualification-baseline evidence remains open), condition 6
-is in progress and condition 7 holds. Schemas and Core integration (steps 3
+qualification-baseline evidence remains open), condition 6's obligations
+are enumerated and condition 7 holds. Schemas and Core integration (steps 3
 and 4) therefore stay blocked, and the permitted work is standalone
 implementation, measurement and proof work only (section 11.1).
 `parliament_binding_ballot_available()` stays false until the owner records
@@ -722,9 +722,10 @@ values on both rows: from the word arrays in the generated table sources
 from tables produced by a separate Python port of the FAEST v3.0.2 reference
 table generator. Those arithmetic checks did not use a build. The final
 compiled profile and vector tests also check these digests through the
-backend's `encode_words` **[C]**. Direct comparison with upstream's generated
-table headers, separately from the Python port and official component
-vectors, remains unrecorded.
+backend's `encode_words` **[C]**. The later
+[direct upstream comparison](../crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/upstream_crt_comparison.txt)
+checks every table word in all eight profiles against unmodified pinned C++,
+separately from the Python port and official component vectors **[C]**.
 
 No text of the review gives a value of `D`; it directs that `D`, both role
 namespaces and the descriptor-dependent authorization values be recomputed
@@ -2869,9 +2870,12 @@ inventory per unit of work:
 - retry permutations: at most `4·M·T = 2^66`.
 
 For a fully explicit nominal normalisation it takes `q_pub ≤ 2^64`, direct
-primitive evaluations `≤ 2^64`, public requests `≤ 2^64`, and a reserve of
-`2^12` primitive evaluations per public request for validation outside the
-backend. The recorded pooled subtotal of AES blocks and Keccak permutations is
+primitive evaluations `≤ 2^64` and public requests `≤ 2^64`. The
+[checked candidate request allowance](parliament_ballot_b6_request_accounting.md)
+is `w_request <= 2^12 + ((2,750,672 + 2^16)/740) q_request`, counting
+`H_mu` among induced backend calls. Its `2^12` term is an intercept, not a
+standalone preparation ceiling. The recorded pooled subtotal of logical AES
+input blocks and Keccak permutations is
 
 ```text
 W_known = 2^64 + ((2,750,672 + 2^16) / 740)·2^64 + 2^12·2^64
@@ -3465,7 +3469,7 @@ Thresholds **[R]**. The hard limits of section 2 apply unchanged at
 | --- | --- |
 | Proof envelope ≤ 256 KiB | The fast-row proof objects are 233,012 B (`pi_vote`, 88.9% of the limit) and 160,148 B plus the 64-byte `auth` (`pi_reg`, 61.1%), before public fields, stamp and framing **[D]**. The vote proof leaves 29,132 B, or 28,665 B after the 467 bytes of fixed cryptographic fields **[D]**. Size-compatible with the cap; complete-envelope compliance is unqualified because the envelope schema is not written |
 | Verification ≤ 250 ms on the minimum validator baseline | Cannot be judged. The final standalone verifier is implemented and measured on a development machine (section 9.9), but no run on the named baseline of section 11.4 exists. The illustrations of section 9.5 are scaled estimates **[E]** |
-| Verifier workspace ≤ 64 MiB | Not qualified. B5 incremental heap observations and B6 requested live Rust-heap observations exist; B6 includes retained inputs. Stack, allocator overhead and foreign heaps remain outside the Rust counter, and sampled process memory is a separate measure. The review's design argument reserves a 64 MiB arena **[R]**, but no complete allocation certificate exists for decoder metadata, alignment, provider scratch space and the public-input schema |
+| Verifier workspace ≤ 64 MiB | Not qualified. The later [standalone resource contract](parliament_ballot_resource_contract.md) implements bounded copy-in, a reclaiming arena, metadata and a supplied native stack; 120 source-bound calls pass within its 41.09375 MiB mapping on the Mac. Complete runtime/System/TLS coverage, all-valid-input sufficiency, target qualification and the production input schema remain open. Earlier requested-heap and sampled-process measures are separate historical evidence |
 | Phone proving p95 ≤ 10 s | Cannot be judged without runs on the baseline phones |
 | Phone prover memory ≤ 256 MiB | Supplementary iPhone 17 Pro Max and Samsung SM-S942B observations exist in the B6 record, with requested Rust heap and sampled process memory reported separately. The named baseline phones, battery/sustained-thermal conditions and complete memory qualification remain open |
 
@@ -3640,9 +3644,9 @@ rule changed **[R]**.
 | 1 | **Holds for the frozen standalone construction**, by the review's decision **[R]**; it is a design decision, not a selection. It covers everything listed at the head of section 6, for the row `(256, 33, 8, 229, 7)`. The values of `D` printed in section 6.1 are computed in this record and independently recomputed **[D]**; that check covers transcription and arithmetic only. The freeze does not cover the production Norito mappings, the production envelopes or authenticated integration, which remain later obligations and are not written; the standalone verifier does not validate node-level canonicality |
 | 2 | **Not met.** Gates 1 to 5, 7 and 8 have written conditional arguments, all awaiting independent review; gate 6 is not met (section 7.1). The standard below requires the numerical substitution into the contract, and the only substitution that exists is hypothetical: the generator, credential and frame terms have no justified values (section 8.5). This record does not claim that any written argument meets the standard |
 | 3 | **Not met.** The consolidated ledger exists as a written ledger with unknown primitive terms; its nominal table is a hypothetical substitution and satisfies nothing. No attack-cost assessment exists. The recorded thresholds do not exist; what is known is that the written bounds containing `Z` cannot certify 2^-64. Compliance with either part of the contract is unestablished (sections 8.5 and 8.8) |
-| 4 | Standalone implementation and component/adversarial checks complete **[C]**: both final relations use the extended backend; official reference-mode signatures and independent project-generated ballot vectors agree (sections 11.2–11.3). This is component evidence, not independent cryptographic or implementation qualification; bounded-parser fuzzing and cross-architecture checks remain open |
-| 5 | Not met. Raw proof sizes and local final-construction measurements at all three roster sizes exist (sections 9.7–9.9), but no complete envelope accounting, deterministic allocation certificate, cold/late-invalid verification or qualification-baseline record exists |
-| 6 | In progress. Sections 10.2, 11.4 and 12 enumerate the known obligations **[E]** |
+| 4 | Standalone implementation and meaningful component/adversarial checks exist **[C]**: both final relations use the extended backend; official reference-mode signatures and independent project-generated ballot vectors agree (sections 11.2–11.3). B6 adds bounded parser fuzzing and supplementary ARM-platform parity. Further local checks are tracked in the requirement audit; physical x86/ARM qualification and independent cryptographic/implementation review remain open |
+| 5 | Not met. Raw proof sizes, three-roster measurements, cold-input/late-invalid observations and a conditional standalone requested-allocation model exist (sections 9.7–9.9 and the B6 record). The later standalone whole-call/byte reservation and arena/native-stack proposal is implemented; complete envelope accounting, calibrated work and full allocation certificates, qualified cold-process/cache methodology and baseline records remain absent |
+| 6 | Enumerated. Sections 10.2, 11.4 and 12 and the [B6 requirement audit](parliament_ballot_b6_requirement_audit.md) identify local, owner/external and postselection obligations **[E]**; enumeration does not discharge them |
 | 7 | Holds **[C]** |
 
 **Conditions 2 and 3 are not met, so production schemas and Core integration do not
@@ -3748,9 +3752,10 @@ State of the modules **[C]**:
   official `crt_vole_commit_tvs` vectors and to regenerate each embedded
   table set and compare it with the embedded statics word for word, with the
   generated source on disk and with pinned SHAKE256 digests of the prototype
-  tables (its module documentation) **[C]**. Whether the tables have been
-  byte-compared with upstream's generated table headers is not recorded here.
-  The official tables are the pinned ones (section 6.6).
+  tables (its module documentation) **[C]**. B6 also records a
+  [direct comparison](../crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/upstream_crt_comparison.txt)
+  of every word in all eight table profiles with unmodified pinned upstream
+  C++ **[C]**. The official tables are the pinned ones (section 6.6).
 - **Two modes, one backend.** Reference mode stays exactly as it is, so that
   the official vectors keep testing it. Ballot mode runs beside it; a
   ballot verifier uses ballot mode only, fixed by its compiled descriptor
@@ -3818,8 +3823,14 @@ the [validation record](../docs/validation/parliament_ballot_standalone.md):
 The scoped validation reproduced every official component vector and all
 twelve official signatures byte for byte in both portable and accelerated
 builds **[C]**. That evidence concerns reference mode.
-Bidirectional cross-verification with a pinned official
-implementation remains to be added **[R]**.
+The separate [bidirectional cross-verification record](../crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification.md)
+covers all twelve sets against pinned upstream C **[C]**. The original run
+completed its functional cases but rejected publication after concurrent lock
+drift; retained negative logs and lost raw C return values are distinguished.
+A separate recovery regenerated the C proofs, retained the Rust proofs and
+passed 84 positive verification calls against the frozen executables. This is
+reference-mode interoperability evidence, not a current-tree qualification or
+validation of the ballot extensions.
 
 **Nothing official covers the extensions.** The salt, the salted `H5`, the
 counter range, the 128-byte `H0` output, the 144-byte leaf expansion and the
@@ -3858,24 +3869,46 @@ establishes no quantum simulation or security theorem.
    openings, wrong role, descriptor, context or list, a retired descriptor,
    an altered authorization value, nullifier, salt or leaf checksum, a
    counter above `0x000fffff` (rejected before reconstruction), and
-   late-failing proofs. Focused rejection tests exist **[C]**; bounded parser
-   fuzzing and a complete malformed-input resource certificate remain open.
+   late-failing proofs. Focused rejection tests, deterministic campaigns and
+   bounded ASan parser fuzzing exist **[C]**, with retained source/corpus
+   identities in [B6](../docs/validation/parliament_ballot_b6.md).
+   These do not provide exhaustive coverage or a complete malformed-input
+   resource certificate. [Constructive nonminimal-counter tests](../docs/validation/parliament_ballot_b6/nonminimal-counter-results.md)
+   pass for both rows and roles in both feature modes (votes use `S=3`);
+   they test acceptance of a later valid opening, not verifier work counts.
+   [Malformed-encoding observations](../docs/validation/parliament_ballot_b6/malformed-results.md)
+   cover 164 selected classes per mode, 31 repetitions each, with expected
+   decode/codec refusal and input/outcome/diagnostic parity. These are
+   warm-process observations, not exhaustive coverage or worst-case bounds;
+   remaining work is tracked in the
+   [requirement audit](parliament_ballot_b6_requirement_audit.md).
 3. **Establish deterministic and randomness behaviour.** Scalar, x86 and ARM
    byte and acceptance parity; entropy failure; fresh tapes; forced retry and
    exhaustion tests with the typed result; counter-independent verifier
-   work; erasure on every exit. Portable/accelerated parity and typed
-   exhaustion tests exist on the development machine **[C]**; x86/ARM
-   cross-machine parity and independent side-channel/erasure review remain.
+   work; erasure on every exit. Portable/accelerated parity, typed exhaustion
+   tests and supplementary Mac/iPhone/Samsung ARM-platform agreement exist
+   **[C]**. The [standalone lifecycle contract](parliament_ballot_prover_lifecycle.md)
+   adds finish-and-discard cancellation with a synchronized publication boundary
+   and selected-buffer cleanup observations; eight release tests pass per mode.
+   It does not interrupt the synchronous prover. Physical x86/ARM parity,
+   named-phone cancellation latency/memory and independent side-channel/full
+   erasure review remain open.
 4. **Produce resource tables and measurements.** Complete allocations and
    work counts; cold and warm verification; late-invalid cases; proving
    distributions and retry histograms; peak memory. The source revision, the
-   compiler, the hardware and the measurement method are pinned. The local
-   final-construction record satisfies only decoded-statement timing and
-   incremental requested-heap measurement **[C]**, not the full obligation.
+   compiler, the hardware and the measurement method are pinned. B5 supplies
+   decoded-statement timing and incremental requested heap; B6 additionally
+   records fresh-input decode/verification, warm and late-invalid runs,
+   actual proving/retry distributions and requested live Rust heap including
+   inputs **[C]**. Separate phone process samples are observations, not peak
+   bounds. Complete work/allocation certificates, cold-process/cache tests,
+   named-phone cancellation and the baseline qualification remain open.
 5. **Close envelope accounting.** Naked proof lengths are not complete
-   envelope lengths. Exact dossier-level framing and accounting is supplied
-   without prematurely implementing the production schemas and integration
-   that the boundary of section 11.1 still blocks.
+   envelope lengths. Exact dossier-level framing and accounting remain
+   required. The owner and independent reviewer must resolve the recorded
+   preselection-accounting/postselection-schema dependency without silently
+   waiving either condition or beginning the integration that section 11.1
+   still blocks.
 
 Passing the implementation checks does not substitute for the complete
 foundational arguments and the complete ledger that selection requires

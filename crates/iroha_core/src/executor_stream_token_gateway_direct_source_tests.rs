@@ -357,7 +357,7 @@ mod gateway_direct_source {
                 } else {
                     Executable::Instructions(vec![instruction].into())
                 };
-                let source = signed(&state, executable);
+                let source = signed(state, executable);
                 let mut block =
                     state.block(BlockHeader::new(nonzero!(2_u64), None, None, 1_000, 0));
                 let mut tx =

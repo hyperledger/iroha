@@ -5,7 +5,6 @@
 //! routes execute typed queries against one immutable finalized view and expose the resulting
 //! cursor with every page or singular record.
 
-#![cfg(feature = "app_api")]
 use crate::{
     JsonBody, SharedAppState,
     routing::MaybeTelemetry,
@@ -117,6 +116,10 @@ struct ReserveEventQueryV1 {
     limit: Option<u32>,
 }
 impl ReserveAnchorQueryV1 {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn parse(raw: Option<&str>) -> Result<Self, Response> {
         let mut query = Self::default();
         walk_query(raw, |key, value| match key {
@@ -143,6 +146,10 @@ impl ReserveAnchorQueryV1 {
     }
 }
 impl ReservePageQueryV1 {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn parse(raw: Option<&str>, after_parameter: &str) -> Result<Self, Response> {
         let mut query = Self::default();
         walk_query(raw, |key, value| match key {
@@ -189,6 +196,10 @@ impl ReservePageQueryV1 {
     }
 }
 impl ReserveEventQueryV1 {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn parse(raw: Option<&str>) -> Result<Self, Response> {
         let mut query = Self::default();
         walk_query(raw, |key, value| match key {
@@ -265,7 +276,7 @@ impl ReserveEventQueryV1 {
             .clamp(1, RESERVE_QUERY_MAX_ITEMS_V1)
     }
 }
-pub(crate) async fn handle_post_sorafs_reserve_top_up(
+pub async fn handle_post_sorafs_reserve_top_up(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
@@ -284,7 +295,7 @@ pub(crate) async fn handle_post_sorafs_reserve_top_up(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_withdrawal(
+pub async fn handle_post_sorafs_reserve_withdrawal(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
@@ -303,7 +314,7 @@ pub(crate) async fn handle_post_sorafs_reserve_withdrawal(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_movement_decision(
+pub async fn handle_post_sorafs_reserve_movement_decision(
     State(state): State<SharedAppState>,
     Path(movement_id_hex): Path<String>,
     headers: HeaderMap,
@@ -327,7 +338,7 @@ pub(crate) async fn handle_post_sorafs_reserve_movement_decision(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_credit_draw(
+pub async fn handle_post_sorafs_reserve_credit_draw(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
@@ -346,7 +357,7 @@ pub(crate) async fn handle_post_sorafs_reserve_credit_draw(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_credit_repay(
+pub async fn handle_post_sorafs_reserve_credit_repay(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
@@ -365,7 +376,7 @@ pub(crate) async fn handle_post_sorafs_reserve_credit_repay(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_appeal(
+pub async fn handle_post_sorafs_reserve_appeal(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
@@ -384,7 +395,7 @@ pub(crate) async fn handle_post_sorafs_reserve_appeal(
     })
     .await
 }
-pub(crate) async fn handle_post_sorafs_reserve_appeal_decision(
+pub async fn handle_post_sorafs_reserve_appeal_decision(
     State(state): State<SharedAppState>,
     Path(appeal_id_hex): Path<String>,
     headers: HeaderMap,
@@ -421,11 +432,22 @@ async fn submit_reserve_signed_transaction(
     if let Err(response) = validate_reserve_signed_transaction(&state, &transaction, route) {
         return response;
     }
-    match crate::submit_signed_transaction_for_ingress(state, headers, accept, transaction).await {
+    match Box::pin(crate::submit_signed_transaction_for_ingress(
+        state,
+        headers,
+        accept,
+        transaction,
+    ))
+    .await
+    {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_reserve_signed_transaction(
     state: &SharedAppState,
     transaction: &SignedTransaction,
@@ -551,6 +573,10 @@ fn validate_reserve_signed_transaction(
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_reserve_signed_envelope_and_route(
     expected_network: &iroha_data_model::NetworkId,
     transaction: &SignedTransaction,
@@ -631,6 +657,10 @@ fn validate_reserve_signed_envelope_and_route(
         Err(route_mismatch(route))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn one_instruction<T: 'static>(transaction: &SignedTransaction) -> Result<&T, Response> {
     let Executable::Instructions(instructions) = transaction.instructions() else {
         return Err(json_error(
@@ -648,6 +678,10 @@ fn one_instruction<T: 'static>(transaction: &SignedTransaction) -> Result<&T, Re
             )
         })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_current_provider_binding(
     expected_revision: u64,
     policy_digest: [u8; 32],
@@ -665,12 +699,20 @@ fn require_current_provider_binding(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_provider_authority(
     authority: &AccountId,
     account: &ReserveProviderAccountV1,
 ) -> Result<(), Response> {
     require_subject(authority, &account.terms.provider_account, "provider")
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_subject(
     actual: &AccountId,
     expected: &AccountId,
@@ -704,7 +746,7 @@ fn route_mismatch(route: ReserveCommandRouteV1) -> Response {
         format!("SoraFS reserve route requires exactly one `{expected}` native instruction"),
     )
 }
-pub(crate) async fn handle_get_sorafs_reserve_policy(
+pub async fn handle_get_sorafs_reserve_policy(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -737,7 +779,7 @@ pub(crate) async fn handle_get_sorafs_reserve_policy(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_providers(
+pub async fn handle_get_sorafs_reserve_providers(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -775,7 +817,7 @@ pub(crate) async fn handle_get_sorafs_reserve_providers(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_provider(
+pub async fn handle_get_sorafs_reserve_provider(
     State(state): State<SharedAppState>,
     Path(provider_id_hex): Path<String>,
     headers: HeaderMap,
@@ -822,7 +864,7 @@ pub(crate) async fn handle_get_sorafs_reserve_provider(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_movements(
+pub async fn handle_get_sorafs_reserve_movements(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -860,7 +902,7 @@ pub(crate) async fn handle_get_sorafs_reserve_movements(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_movement(
+pub async fn handle_get_sorafs_reserve_movement(
     State(state): State<SharedAppState>,
     Path(movement_id_hex): Path<String>,
     headers: HeaderMap,
@@ -904,7 +946,7 @@ pub(crate) async fn handle_get_sorafs_reserve_movement(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_appeals(
+pub async fn handle_get_sorafs_reserve_appeals(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -942,7 +984,7 @@ pub(crate) async fn handle_get_sorafs_reserve_appeals(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_appeal(
+pub async fn handle_get_sorafs_reserve_appeal(
     State(state): State<SharedAppState>,
     Path(appeal_id_hex): Path<String>,
     headers: HeaderMap,
@@ -986,7 +1028,7 @@ pub(crate) async fn handle_get_sorafs_reserve_appeal(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_events(
+pub async fn handle_get_sorafs_reserve_events(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -1024,7 +1066,7 @@ pub(crate) async fn handle_get_sorafs_reserve_events(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_events_stream(
+pub async fn handle_get_sorafs_reserve_events_stream(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -1071,7 +1113,7 @@ pub(crate) async fn handle_get_sorafs_reserve_events_stream(
     })
     .await
 }
-pub(crate) async fn handle_get_sorafs_reserve_events_ws(
+pub async fn handle_get_sorafs_reserve_events_ws(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -1232,7 +1274,11 @@ fn reserve_event_frame_stream(
                 match query_reserve_events(&poll.state, &poll.caller, None, poll.after, poll.limit)
                 {
                     Ok(page) => {
-                        if let Some(after) = page.events.last().map(|event| event.cursor()) {
+                        if let Some(after) = page
+                            .events
+                            .last()
+                            .map(iroha_data_model::sorafs::reserve::ReserveFinalizedEventV1::cursor)
+                        {
                             poll.after = Some(after);
                         }
                         poll.pending.extend(page.events);
@@ -1300,7 +1346,7 @@ where
             }
             () = tokio::time::sleep(RESERVE_EVENT_POLL_INTERVAL_V1) => {
                 let page = query_reserve_events(&state, &caller, None, after, limit)?;
-                if let Some(next) = page.events.last().map(|event| event.cursor()) {
+                if let Some(next) = page.events.last().map(iroha_data_model::sorafs::reserve::ReserveFinalizedEventV1::cursor) {
                     after = Some(next);
                 }
                 for event in page.events {
@@ -1325,7 +1371,6 @@ fn reserve_sse_event(event: &ReserveFinalizedEventV1) -> SseEvent {
 }
 fn reserve_event_json(event: &ReserveFinalizedEventV1) -> Result<String, String> {
     json::to_json(event)
-        .map(|json| json.to_string())
         .map_err(|error| format!("failed to encode finalized SoraFS reserve event: {error}"))
 }
 fn reserve_event_resume_cursor(
@@ -1337,6 +1382,10 @@ fn reserve_event_resume_cursor(
         .map(ReserveFinalizedEventV1::cursor)
         .or(initial_after)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn authenticate_reserve_read(
     state: &SharedAppState,
     headers: &HeaderMap,
@@ -1344,7 +1393,7 @@ fn authenticate_reserve_read(
     uri: &Uri,
 ) -> Result<AccountId, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -1355,9 +1404,11 @@ fn authenticate_reserve_read(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        &[],
+        crate::app_auth::CanonicalRequestParts {
+            method,
+            uri,
+            body: &[],
+        },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -1383,6 +1434,10 @@ fn authenticate_reserve_read(
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_reserve_operator(
     caller: &AccountId,
     policy: &ReserveAuthorityPolicyRecordV1,
@@ -1400,6 +1455,10 @@ fn is_reserve_operator(caller: &AccountId, policy: &ReserveAuthorityPolicyRecord
     caller.subject_id() == policy.policy.operations_authority.subject_id()
         || caller.subject_id() == policy.policy.decision_authority.subject_id()
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_provider_or_operator_for_id(
     view: &impl StateReadOnly,
     caller: &AccountId,
@@ -1421,6 +1480,10 @@ fn require_provider_or_operator_for_id(
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_expected_cursor(
     view: &impl StateReadOnly,
     expected: Option<ReserveFinalizedCursorV1>,
@@ -1512,6 +1575,10 @@ fn reserve_query_public_message(error: &QueryExecutionFail) -> String {
         _ => "authoritative finalized SoraFS reserve state is unavailable".to_owned(),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn walk_query(
     raw: Option<&str>,
     mut visit: impl FnMut(&str, &str) -> Result<(), String>,
@@ -1595,6 +1662,10 @@ fn parse_unique_hex(
     *target = Some(value);
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_finalized_cursor_pair(
     height: Option<u64>,
     block_hash: Option<[u8; 32]>,

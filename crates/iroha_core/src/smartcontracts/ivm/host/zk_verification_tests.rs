@@ -539,8 +539,10 @@ fn zk_verify_batch_accepts_stark_registry_bound_envelope() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let backend = "stark/fri/poseidon-x7-goldilocks-6x64-v1";
     // This checks generic proof dispatch through a host syscall, not an IVM
@@ -611,8 +613,10 @@ fn zk_verify_batch_returns_statuses_with_registry_binding() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let env_ok = registered_stark_batch_fixture(&mut host, "transfer");
     assert!(
@@ -642,8 +646,10 @@ fn zk_verify_batch_reports_backend_verifier_failure_after_prechecks() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let env_ok = registered_stark_batch_fixture(&mut host, "transfer");
     let mut env_bad = env_ok.clone();

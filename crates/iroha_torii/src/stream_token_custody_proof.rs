@@ -63,7 +63,7 @@ fn capacity() -> Error {
     ))
 }
 
-pub(crate) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path((provider, height)): axum::extract::Path<(String, String)>,
     headers: HeaderMap,

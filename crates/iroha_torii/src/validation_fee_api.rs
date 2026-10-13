@@ -60,7 +60,7 @@ fn inconsistent(message: impl Into<String>) -> Error {
     }
     Error::AppServiceUnavailable {
         code: "validation_fee_state_inconsistent",
-        message: message.into(),
+        message,
     }
 }
 fn catch_up_required() -> Error {
@@ -82,7 +82,7 @@ fn quote_unavailable(message: impl Into<String>) -> Error {
     }
     Error::AppConflict {
         code: "retail_fee_quote_unavailable",
-        message: message.into(),
+        message,
     }
 }
 fn not_found(message: impl Into<String>) -> Error {
@@ -296,13 +296,11 @@ fn current_validation_fee_registry(
         .map_err(|error| inconsistent(format!("protected registry is invalid: {error}")))?;
     Ok(Some(registry))
 }
-fn retained_registry_authorization<'a>(
-    registry: Option<&'a ValidationFeePolicyRegistryV1>,
+fn retained_registry_authorization(
+    registry: Option<&ValidationFeePolicyRegistryV1>,
     proposal_id: [u8; 32],
-) -> Result<
-    Option<&'a iroha_data_model::validation_fee::ValidationFeeParliamentAuthorizationV1>,
-    Error,
-> {
+) -> Result<Option<&iroha_data_model::validation_fee::ValidationFeeParliamentAuthorizationV1>, Error>
+{
     let Some(registry) = registry else {
         return Ok(None);
     };
@@ -344,7 +342,7 @@ fn bounded_validation_fee_proposal_keys<'a>(
     (keys, has_more)
 }
 /// Return one bounded page of typed validation-fee Parliament proposals.
-pub(crate) async fn handler_proposals(
+pub async fn handler_proposals(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -414,7 +412,7 @@ pub(crate) async fn handler_proposals(
     }))
 }
 /// Return one typed validation-fee Parliament proposal.
-pub(crate) async fn handler_proposal_detail(
+pub async fn handler_proposal_detail(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -508,7 +506,7 @@ fn framed_instruction_draft(
     })
 }
 /// Build one exact native validation-fee proposal instruction for local signing.
-pub(crate) async fn handler_proposal_draft(
+pub async fn handler_proposal_draft(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -538,84 +536,7 @@ pub(crate) async fn handler_proposal_draft(
         tx_instructions: vec![instruction],
     }))
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-    #[test]
-    fn validation_fee_projection_rejects_unrelated_current_proposal() {
-        use iroha_data_model::governance::types::{
-            GlobalDataTriggerPermissionGovernanceActionV1,
-            GlobalDataTriggerPermissionGovernanceProposalV1,
-        };
 
-        let proposal = ProposalKind::GlobalDataTriggerPermissionGovernance(
-            GlobalDataTriggerPermissionGovernanceProposalV1 {
-                authority: iroha_test_samples::ALICE_ID.clone(),
-                action: GlobalDataTriggerPermissionGovernanceActionV1::Grant,
-            },
-        );
-        assert!(matches!(
-            retained_proposal_operator(&proposal),
-            Err(Error::AppServiceUnavailable {
-                code: "validation_fee_state_inconsistent",
-                ..
-            })
-        ));
-    }
-    #[test]
-    fn catch_up_responses_are_temporary_service_unavailability() {
-        for error in [
-            inconsistent(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
-            quote_unavailable(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
-        ] {
-            assert!(matches!(
-                error,
-                Error::AppServiceUnavailable {
-                    code: "ledger_catch_up_required",
-                    ..
-                }
-            ));
-        }
-    }
-    #[test]
-    fn proposal_page_traversal_reads_only_limit_plus_one_index_rows() {
-        let rows = (0_u64..10_000)
-            .map(|created_height| {
-                let mut proposal_id = [0_u8; 32];
-                proposal_id[..8].copy_from_slice(&created_height.to_be_bytes());
-                ((created_height, proposal_id), ())
-            })
-            .collect::<Vec<_>>();
-        let visited = Cell::new(0_usize);
-        let indexed = rows
-            .iter()
-            .inspect(|_| visited.set(visited.get().saturating_add(1)))
-            .map(|(key, value)| (key, value));
-        let (keys, has_more) = bounded_validation_fee_proposal_keys(indexed, 3);
-        assert_eq!(visited.get(), 4, "one lookahead row is the exact bound");
-        assert_eq!(keys.len(), 3);
-        assert!(has_more);
-        assert_eq!(keys[0].0, 0);
-        assert_eq!(keys[2].0, 2);
-    }
-    #[test]
-    fn proposal_list_cannot_reintroduce_a_full_governance_scan() {
-        let source = include_str!("validation_fee_api.rs");
-        let start = source
-            .find("fn bounded_validation_fee_proposal_keys")
-            .expect("bounded proposal-key projection");
-        let tail = &source[start..];
-        let end = tail
-            .find("/// Return one typed validation-fee Parliament proposal.")
-            .expect("proposal-list handler terminator");
-        let implementation = &tail[..end];
-        assert!(implementation.contains("validation_fee_proposal_index()"));
-        assert!(implementation.contains("bounded_validation_fee_proposal_keys(indexed, limit)"));
-        assert!(!implementation.contains("governance_proposals().iter()"));
-        assert!(!implementation.contains(".sort"));
-    }
-}
 fn registry_at_height(
     current: Option<ValidationFeePolicyRegistryV1>,
     height: u64,
@@ -628,7 +549,7 @@ fn registry_at_height(
         .map_err(|error| inconsistent(format!("protected historical registry is invalid: {error}")))
 }
 /// Return one bounded finality page for the current validation-fee registry.
-pub(crate) async fn handler_current_policy_proof(
+pub async fn handler_current_policy_proof(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -774,7 +695,7 @@ fn authorize_retail_account(
     Err(Error::AppForbidden{code:"retail_fee_account_mismatch",message:"authenticated account must be the wallet, its direct multisig signatory, or its registered primary-alias domain issuer".into()})
 }
 /// Evaluate actual finalized wallet counters and bind the complete ordered payment intent.
-pub(crate) async fn handler_retail_quote(
+pub async fn handler_retail_quote(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -806,7 +727,7 @@ pub(crate) async fn handler_retail_quote(
     ))
 }
 /// Return logically settled maintenance and allowance status for an authenticated wallet.
-pub(crate) async fn handler_retail_status(
+pub async fn handler_retail_status(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -871,7 +792,7 @@ pub(crate) async fn handler_retail_status(
 }
 
 /// Query immutable native receipts without reconstructing fees from treasury deposits.
-pub(crate) async fn handler_retail_receipts(
+pub async fn handler_retail_receipts(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -922,11 +843,13 @@ pub(crate) async fn handler_retail_receipts(
         .ok_or_else(|| {
             inconsistent("native fee receipt has no immutable finalized membership proof")
         })?;
-        if !proof_by_height.contains_key(&receipt.recorded_at_height) {
+        if let std::collections::btree_map::Entry::Vacant(e) =
+            proof_by_height.entry(receipt.recorded_at_height)
+        {
             let finality =
                 iroha_core::sumeragi::finality::build_proof(&state, receipt.recorded_at_height)
                     .map_err(|e| inconsistent(format!("receipt finality unavailable: {e}")))?;
-            proof_by_height.insert(receipt.recorded_at_height, finality);
+            e.insert(finality);
         }
         let root = proof_by_height[&receipt.recorded_at_height]
             .decode_checked(
@@ -976,7 +899,7 @@ pub(crate) async fn handler_retail_receipts(
 }
 
 /// Read one current cumulative wallet head against exactly matching finalized evidence.
-pub(crate) async fn handler_retail_statement_head(
+pub async fn handler_retail_statement_head(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -1059,7 +982,7 @@ pub(crate) async fn handler_retail_statement_head(
     Ok(JsonBody(response))
 }
 /// Return bounded immutable account history without requiring intervening block proofs.
-pub(crate) async fn handler_retail_statement(
+pub async fn handler_retail_statement(
     State(app): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -1109,4 +1032,83 @@ pub(crate) async fn handler_retail_statement(
         return Err(Error::AppConflict { code: "retail_fee_statement_too_large", message: "private receipt page exceeds 1 MiB; request a smaller page using the same verified frontier".into() });
     }
     Ok(JsonBody(response))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    #[test]
+    fn validation_fee_projection_rejects_unrelated_current_proposal() {
+        use iroha_data_model::governance::types::{
+            GlobalDataTriggerPermissionGovernanceActionV1,
+            GlobalDataTriggerPermissionGovernanceProposalV1,
+        };
+
+        let proposal = ProposalKind::GlobalDataTriggerPermissionGovernance(
+            GlobalDataTriggerPermissionGovernanceProposalV1 {
+                authority: iroha_test_samples::ALICE_ID.clone(),
+                action: GlobalDataTriggerPermissionGovernanceActionV1::Grant,
+            },
+        );
+        assert!(matches!(
+            retained_proposal_operator(&proposal),
+            Err(Error::AppServiceUnavailable {
+                code: "validation_fee_state_inconsistent",
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn catch_up_responses_are_temporary_service_unavailability() {
+        for error in [
+            inconsistent(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
+            quote_unavailable(iroha_data_model::validation_fee::RETAIL_FEE_CATCH_UP_REQUIRED),
+        ] {
+            assert!(matches!(
+                error,
+                Error::AppServiceUnavailable {
+                    code: "ledger_catch_up_required",
+                    ..
+                }
+            ));
+        }
+    }
+    #[test]
+    fn proposal_page_traversal_reads_only_limit_plus_one_index_rows() {
+        let rows = (0_u64..10_000)
+            .map(|created_height| {
+                let mut proposal_id = [0_u8; 32];
+                proposal_id[..8].copy_from_slice(&created_height.to_be_bytes());
+                ((created_height, proposal_id), ())
+            })
+            .collect::<Vec<_>>();
+        let visited = Cell::new(0_usize);
+        let indexed = rows
+            .iter()
+            .inspect(|_| visited.set(visited.get().saturating_add(1)))
+            .map(|(key, value)| (key, value));
+        let (keys, has_more) = bounded_validation_fee_proposal_keys(indexed, 3);
+        assert_eq!(visited.get(), 4, "one lookahead row is the exact bound");
+        assert_eq!(keys.len(), 3);
+        assert!(has_more);
+        assert_eq!(keys[0].0, 0);
+        assert_eq!(keys[2].0, 2);
+    }
+    #[test]
+    fn proposal_list_cannot_reintroduce_a_full_governance_scan() {
+        let source = include_str!("validation_fee_api.rs");
+        let start = source
+            .find("fn bounded_validation_fee_proposal_keys")
+            .expect("bounded proposal-key projection");
+        let tail = &source[start..];
+        let end = tail
+            .find("/// Return one typed validation-fee Parliament proposal.")
+            .expect("proposal-list handler terminator");
+        let implementation = &tail[..end];
+        assert!(implementation.contains("validation_fee_proposal_index()"));
+        assert!(implementation.contains("bounded_validation_fee_proposal_keys(indexed, limit)"));
+        assert!(!implementation.contains("governance_proposals().iter()"));
+        assert!(!implementation.contains(".sort"));
+    }
 }

@@ -220,7 +220,7 @@ fn a_network_without_sccp_is_unchanged() {
     assert_eq!(*store::committee_current::get(world), 0);
     let committed_time_ms = view
         .native_execution_tip()
-        .map(|tip| tip.creation_time_ms());
+        .map(iroha_core::state::NativeExecutionTip::creation_time_ms);
     assert_eq!(
         committed_time_ms, None,
         "the blank chain has no committed time"

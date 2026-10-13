@@ -1,0 +1,42 @@
+from pathlib import Path
+import hashlib,json,subprocess,time,shutil
+root=Path('/Users/mtakemiya/dev/iroha');out=root/'docs/validation/parliament_ballot_native_probe';work=Path('/tmp/parliament-native-probe/worker-src-4');target=Path('/tmp/parliament-native-probe/target-2')
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+metadata=json.loads((out/'dependency-metadata.json').read_text());paths=set()
+for package in metadata['packages']:
+ base=Path(package['manifest_path']).parent
+ paths.add(base/'Cargo.toml')
+ if (base/'src').exists():paths.update((base/'src').rglob('*.rs'))
+ if (base/'build.rs').exists():paths.add(base/'build.rs')
+ if (base/'.cargo-checksum.json').exists():paths.add(base/'.cargo-checksum.json')
+paths.update(work.glob('*.rs'));paths.update([work/'Cargo.toml',work/'Cargo.lock',work/'preparation.json',root/'Cargo.toml',root/'Cargo.lock',root/'rust-toolchain.toml'])
+paths.update((root/'crates/iroha_parliament_ballot_proof/examples/native_probe').glob('*.rs'))
+paths.add(root/'crates/iroha_parliament_ballot_proof/examples/native_probe/np_api.h')
+paths.update((root/'crates/iroha_parliament_ballot_proof/examples/resource_contract').glob('*.rs'))
+paths.add(root/'scripts/prepare_parliament_ballot_native_probe.py')
+source={str(p):sha(p) for p in sorted(paths)}
+(out/'build-source.json').write_text(json.dumps(source,indent=2)+'\n')
+for p in [root/'Cargo.lock',root/'Cargo.toml',root/'crates/norito/src/lib.rs']:
+ (out/(p.name+'.build.template')).write_bytes(p.read_bytes())
+interposer=Path('/private/tmp/parliament-native-controls-20261013-final/libnp.dylib')
+receipt={'schema':'parliament-native-probe-build-v1','source_stable':True,'source_files':source,'generated_dir':str(work),'dependency_metadata_path':str(out/'dependency-metadata.json'),'dependency_metadata_sha256':sha(out/'dependency-metadata.json'),'source_scope':'all resolved package src Rust/manifests/build scripts, available registry checksum manifests, diagnostic original and derived sources and root metadata; conservative source scope, not a complete compiler/native/header/runtime dependency proof','interposer':{'path':str(interposer),'sha256':sha(interposer)},'commands':[],'binaries':{},'complete_workspace_certificate':False,'profile_qualified':False}
+for mode,features in [('portable',[]),('accel',['--features','accel'])]:
+ for kind in ['test','clippy','build']:
+  cmd=['cargo',kind,'--release','--locked','--manifest-path',str(work/'Cargo.toml'),'--target-dir',str(target)]+features
+  if kind=='test':cmd+=['--','--nocapture']
+  if kind=='clippy':cmd+=['--all-targets','--','-D','warnings']
+  log=out/f'{mode}-{kind}.txt';start=time.monotonic()
+  with log.open('w') as f:
+   child=subprocess.Popen(cmd,stdout=f,stderr=subprocess.STDOUT)
+   try:code=child.wait(timeout=1200)
+   except subprocess.TimeoutExpired:code=None
+  changed={p:sha(Path(p)) for p,h in source.items() if sha(Path(p))!=h}
+  row={'command':cmd,'exit':code,'source_changes':changed,'log':str(log),'log_sha256':sha(log),'elapsed_seconds':time.monotonic()-start}
+  receipt['commands'].append(row);receipt['source_stable']=not changed
+  (out/'build-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+  print(json.dumps(row),flush=True)
+  if code is None:print(json.dumps({'still_running_pid':child.pid}));raise SystemExit(1)
+  if code or changed:print(log.read_text()[-5000:]);raise SystemExit(1)
+ binary=Path('/tmp/parliament-native-probe')/('worker-'+mode);shutil.copy2(target/'release/parliament-native-probe',binary)
+ receipt['binaries'][mode]={'path':str(binary),'sha256':sha(binary)}
+ (out/'build-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')

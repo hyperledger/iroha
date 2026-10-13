@@ -98,7 +98,7 @@ get fun `test ten thousand rotations preserve the exact account layout and DAG s
 
     val (cells0, bits0) = accountStorageUsed(env.minter.address);
     val (sharedCells0, sharedBits0) = codeDataSharing(env);
-    expect(minterStorage(env).retries.isEmpty()).toBeTrue();
+    expect(minterStorage(env).recovery.load().operations.isEmpty()).toBeTrue();
 
     var current = 0;
     var generation = env.generation;
@@ -207,7 +207,10 @@ get fun `test ten thousand rotations preserve the exact account layout and DAG s
     expect(keyChanges).toEqual(RUN_ROTATIONS - RUN_ROTATIONS / 4);
     // nothing but the committee and the checkpoints moved
     val st = minterStorage(env);
-    expect(st.retries.isEmpty()).toBeTrue();
+    expect(st.recovery.load().operations.isEmpty()).toBeTrue();
+    expect(st.recovery.load().count).toEqual(0);
+    expect(st.recovery.load().nextId).toEqual(1);
+    expect(st.recovery.load().activatedBuckets).toEqual(0);
     val state = env.minter.getSccpState();
     expect(state.generation).toEqual(env.generation + RUN_ROTATIONS);
     expect(state.equivocated).toBeFalse();

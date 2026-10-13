@@ -4,10 +4,12 @@ fn private_pool_route_fixture_instruction(dataspace: u64) -> InstructionBox {
         version: AtomicPrivateSettlementV1::VERSION,
         route: PrivateSettlementRouteV1 {
             dataspace_id: DataSpaceId::new(dataspace),
-            lane_id: LaneId::new(dataspace as u32),
+            lane_id: LaneId::new(u32::try_from(dataspace).expect("fixture value fits u32")),
             lane_incarnation: Hash::new(dataspace.to_le_bytes()),
         },
-        pool_id: iroha_data_model::privacy::PrivacyPoolIdV1::new([dataspace as u8; 32]),
+        pool_id: iroha_data_model::privacy::PrivacyPoolIdV1::new(
+            [u8::try_from(dataspace).expect("fixture value fits u8"); 32],
+        ),
         asset_binding_commitment: Hash::new(b"private-pool-route-asset"),
         audit_policy_digest: Hash::new(b"private-pool-route-policy"),
         audit_key_epoch: 1,
@@ -39,7 +41,6 @@ fn private_pool_route_fixture_router() -> ConfigLaneRouter {
         ),
     )
 }
-
 
 #[test]
 fn private_pool_batch_executable_has_the_same_global_coordinator() {

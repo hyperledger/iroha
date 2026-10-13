@@ -583,6 +583,13 @@ fn open_secure_parent_directory(parent: &SecureParent) -> Result<File, SecureFil
     Ok(directory)
 }
 
+#[cfg_attr(
+    not(windows),
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "Windows path operations require fallible parent revalidation; descriptor-relative platforms share the same interface"
+    )
+)]
 fn revalidate_secure_parent_for_path_operations(
     parent: &SecureParent,
 ) -> Result<(), SecureFileError> {
@@ -639,8 +646,8 @@ fn verify_secure_named_file(
         .map_err(std::io::Error::from)?;
     validate_secure_file_metadata(path, metadata)?;
     if rustix::fs::FileType::from_raw_mode(named.st_mode) != rustix::fs::FileType::RegularFile
-        || named.st_dev as u64 != metadata.dev()
-        || named.st_ino as u64 != metadata.ino()
+        || crate::utils::stat_device_identity(&named) != metadata.dev()
+        || named.st_ino != metadata.ino()
         || named.st_nlink as u64 != 1
         || u64::try_from(named.st_size).ok() != Some(metadata.len())
     {
@@ -1517,7 +1524,6 @@ const MIN_DRAND_RESPONSE_BYTES: usize = 128;
 #[norito_schema(name = "iroha_torii::sorafs::por::DrandHighWaterStateV1")]
 #[cfg(feature = "app_api")]
 #[derive(Debug, Clone, NoritoSerialize, NoritoDeserialize)]
-
 struct DrandHighWaterStateV1 {
     version: u8,
     round: u64,
@@ -1766,6 +1772,12 @@ pub struct DrandHttpRandomnessProvider {
 #[cfg(feature = "app_api")]
 impl DrandHttpRandomnessProvider {
     /// Construct a provider after validating trust roots, endpoints, DNS, and persisted state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid trust roots, timing or quorum bounds, unsafe
+    /// or duplicate endpoints, DNS or HTTP-client setup failures, or failure to
+    /// lock, load, or verify the persisted randomness state.
     pub fn from_config(
         config: &iroha_config::parameters::actual::SorafsPorDrand,
         epoch_interval_secs: u64,

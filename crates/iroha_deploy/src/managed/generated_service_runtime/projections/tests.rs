@@ -270,7 +270,7 @@ fn original_gateway_projections_refuse_changed_image_and_lock_then_restore() {
         .write_atomic("peer3.toml", &original, PublishMode::Replace)
         .unwrap();
     let directory_id = owner.authority.directory.identity().unwrap();
-    let lock_id = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let lock_id = iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap();
     let lock = owner.authority.directory.path().join("operation.lock");
     let displaced = owner.authority.directory.path().join("displaced.lock");
     #[cfg(unix)]
@@ -298,7 +298,7 @@ fn original_gateway_projections_refuse_changed_image_and_lock_then_restore() {
     same(&borrowed(&owner).unwrap(), &expected);
     assert_eq!(owner.authority.directory.identity().unwrap(), directory_id);
     assert_eq!(
-        iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
         lock_id
     );
     no_http(&peers);
@@ -346,19 +346,19 @@ fn original_gateway_projections_keep_active_and_owned_full_admission() {
     let prepared = prepared.clone();
     drop(owner);
     let construction = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let (owned, captures) = count_profile_validations(|| {
+    let (generated_runtime, captures) = count_profile_validations(|| {
         construction.with(|| GeneratedServiceRuntime::open(&prepared))
     });
-    let owned = owned.unwrap();
+    let generated_runtime = generated_runtime.unwrap();
     assert_eq!(captures, 1);
     assert!(
-        owned
+        generated_runtime
             .authority
             .original_intent_if_shared()
             .unwrap()
             .is_none()
     );
-    let (actual, captures) = count_profile_validations(|| borrowed(&owned));
+    let (actual, captures) = count_profile_validations(|| borrowed(&generated_runtime));
     same(&actual.unwrap(), &warm);
     assert_eq!(captures, 7);
     no_http(&peers);
@@ -519,7 +519,7 @@ fn original_bootstrap_reopen_refuses_missing_original_or_purpose_then_restores()
         .directory
         .path()
         .join("displaced-bootstrap-renderer.lock");
-    let lock_id = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let lock_id = iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap();
     #[cfg(unix)]
     {
         std::fs::rename(&lock, &displaced_lock).unwrap();
@@ -543,7 +543,7 @@ fn original_bootstrap_reopen_refuses_missing_original_or_purpose_then_restores()
         assert!(std::fs::rename(&lock, &displaced_lock).is_err());
     }
     assert_eq!(
-        iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
         lock_id
     );
     assert_eq!(
@@ -601,18 +601,18 @@ fn original_bootstrap_reopen_keeps_active_and_owned_full_admission() {
     }
     drop(owner);
     let construction = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let owned = construction
+    let generated_runtime = construction
         .with(|| GeneratedServiceRuntime::open(&prepared))
         .unwrap();
     assert!(
-        owned
+        generated_runtime
             .authority
             .original_intent_if_shared()
             .unwrap()
             .is_none()
     );
     let (borrowed, captures) =
-        count_profile_validations(|| owned.open_original_bootstrap(&prepared));
+        count_profile_validations(|| generated_runtime.open_original_bootstrap(&prepared));
     assert_eq!(bootstrap_policies(&borrowed.unwrap()), expected);
     assert_eq!(captures, 1);
     no_http(&peers);
@@ -658,7 +658,7 @@ fn gateway_pair_keeps_callback_error_and_replaced_lock_boundaries() {
     }
     let lock = owner.authority.directory.path().join("operation.lock");
     let saved = owner.authority.directory.path().join("saved-pair.lock");
-    let original_id = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let original_id = iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap();
     for full in [true, false] {
         let run = || {
             owner.validate_gateway_compliance_pair(prepared, provider, || {
@@ -697,7 +697,7 @@ fn gateway_pair_keeps_callback_error_and_replaced_lock_boundaries() {
         #[cfg(windows)]
         result.unwrap();
         assert_eq!(
-            iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
             original_id
         );
         owner
@@ -776,11 +776,11 @@ fn gateway_pair_preserves_active_decode_and_owned_producers() {
     let prepared = owner.authority.prepared.clone();
     drop(owner);
     let construction = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let owned = construction
+    let generated_runtime = construction
         .with(|| GeneratedServiceRuntime::open(&prepared))
         .unwrap();
     assert!(
-        owned
+        generated_runtime
             .authority
             .original_intent_if_shared()
             .unwrap()
@@ -790,7 +790,7 @@ fn gateway_pair_preserves_active_decode_and_owned_producers() {
         let calls = Cell::new(0);
         let (result, captures) = count_profile_validations(|| {
             let run = || {
-                owned.validate_gateway_compliance_pair(&prepared, provider, || {
+                generated_runtime.validate_gateway_compliance_pair(&prepared, provider, || {
                     calls.set(calls.get() + 1);
                     Ok(())
                 })

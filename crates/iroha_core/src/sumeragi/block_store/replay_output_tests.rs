@@ -42,7 +42,7 @@ fn install(block: &mut SignedBlock, outputs: Vec<ExecutionOutputV1>) {
     let transcripts = if block.has_results() {
         block.fastpq_transcripts().clone()
     } else {
-        Default::default()
+        std::collections::BTreeMap::default()
     };
     let envelopes = block.axt_envelopes().unwrap_or_default().to_vec();
     let policy = block.axt_policy_snapshot().cloned().unwrap_or_default();

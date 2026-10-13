@@ -195,10 +195,10 @@ pub fn run_worker(
     > = None;
     let mut attachment_attempted = false;
     loop {
-        if status.phase == ManagedPhase::Starting {
-            if let Err(failure) = budget.check() {
-                return fail_worker(&directory, &mut status, &mut processes, &cancelled, failure);
-            }
+        if status.phase == ManagedPhase::Starting
+            && let Err(failure) = budget.check()
+        {
+            return fail_worker(&directory, &mut status, &mut processes, &cancelled, failure);
         }
         if service_expiry
             .as_ref()
@@ -225,69 +225,63 @@ pub fn run_worker(
                 ));
             }
         };
-        if let Some(mut connection) = connection {
-            if let Ok(request) = connection.receive()
-                && same_token(&request.token, &worker.token)
-            {
-                match request.action.as_str() {
-                    "status" => {
-                        let _ = connection.reply(&status);
-                    }
-                    "attachment_start" => {
-                        if status.phase == ManagedPhase::Ready
-                            && processes
-                                .attachment()
-                                .is_none_or(remote::AttachmentWorker::is_finished)
-                        {
-                            let _ = processes.start_attachment(store, name, &prepared);
-                            attachment_attempted = true;
-                        }
-                        let _ = connection.reply(&status);
-                    }
-                    "attachment_status" => {
-                        let observation = processes
-                            .attachment()
-                            .map(remote::AttachmentWorker::status)
-                            .or_else(|| {
-                                remote::inactive_status(store, name, &prepared)
-                                    .ok()
-                                    .flatten()
-                            });
-                        if let Some(attachment) = observation {
-                            let _ = connection.reply(&ManagedDataspaceStatus {
-                                local: status.clone(),
-                                attachment,
-                            });
-                        }
-                    }
-                    "down" => {
-                        stop_worker(
-                            &directory,
-                            &mut status,
-                            &mut processes,
-                            &cancelled,
-                            progress.unconfirmed(),
-                        )?;
-                        let _ = connection.reply(&status);
-                        return Ok(());
-                    }
-                    "startup_expired" => {
-                        // The foreground budget starts before this worker is spawned. Its
-                        // authenticated expiry must retain the last safe phase rather than
-                        // converting an unproved attempt into an ordinary user-requested stop.
-                        let failure = progress.deadline();
-                        let result = fail_worker(
-                            &directory,
-                            &mut status,
-                            &mut processes,
-                            &cancelled,
-                            failure,
-                        );
-                        let _ = connection.reply(&status);
-                        return result;
-                    }
-                    _ => {}
+        if let Some(mut connection) = connection
+            && let Ok(request) = connection.receive()
+            && same_token(&request.token, &worker.token)
+        {
+            match request.action.as_str() {
+                "status" => {
+                    let _ = connection.reply(&status);
                 }
+                "attachment_start" => {
+                    if status.phase == ManagedPhase::Ready
+                        && processes
+                            .attachment()
+                            .is_none_or(remote::AttachmentWorker::is_finished)
+                    {
+                        let _ = processes.start_attachment(store, name, &prepared);
+                        attachment_attempted = true;
+                    }
+                    let _ = connection.reply(&status);
+                }
+                "attachment_status" => {
+                    let observation = processes
+                        .attachment()
+                        .map(remote::AttachmentWorker::status)
+                        .or_else(|| {
+                            remote::inactive_status(store, name, &prepared)
+                                .ok()
+                                .flatten()
+                        });
+                    if let Some(attachment) = observation {
+                        let _ = connection.reply(&ManagedDataspaceStatus {
+                            local: status.clone(),
+                            attachment,
+                        });
+                    }
+                }
+                "down" => {
+                    stop_worker(
+                        &directory,
+                        &mut status,
+                        &mut processes,
+                        &cancelled,
+                        progress.unconfirmed(),
+                    )?;
+                    let _ = connection.reply(&status);
+                    return Ok(());
+                }
+                "startup_expired" => {
+                    // The foreground budget starts before this worker is spawned. Its
+                    // authenticated expiry must retain the last safe phase rather than
+                    // converting an unproved attempt into an ordinary user-requested stop.
+                    let failure = progress.deadline();
+                    let result =
+                        fail_worker(&directory, &mut status, &mut processes, &cancelled, failure);
+                    let _ = connection.reply(&status);
+                    return result;
+                }
+                _ => {}
             }
         }
         check_owned_validator_exit(
@@ -369,7 +363,7 @@ pub fn run_worker(
                     }
                 }
                 Some(Ok(activation::Outcome::Complete(expiry))) => {
-                    service_expiry = expiry;
+                    service_expiry = expiry.map(|observation| *observation);
                     if service_expiry
                         .as_ref()
                         .is_some_and(|expiry| !expiry.current().unwrap_or(false))
@@ -485,9 +479,7 @@ pub fn run_worker(
         if status.phase == ManagedPhase::Ready && refresh.is_none() {
             let turn = service_expiry
                 .as_ref()
-                .map(|observation| {
-                    observation.renewal(Arc::clone(&cancelled), Arc::clone(&progress))
-                })
+                .map(|observation| observation.renewal(&cancelled, &progress))
                 .transpose();
             match turn {
                 Ok(Some(Some(turn))) => {
@@ -932,18 +924,18 @@ mod tests {
     #[test]
     fn startup_budget_charges_foreground_and_worker_verification_before_readiness() {
         let original = Duration::from_secs(100);
-        let foreground_started = Instant::now() - Duration::from_secs(90);
+        let foreground_started = Instant::now().checked_sub(Duration::from_secs(90)).unwrap();
         let transferred = startup_remaining(foreground_started, original).unwrap();
         assert!(transferred <= Duration::from_secs(10));
-        let worker_started = Instant::now() - Duration::from_secs(7);
+        let worker_started = Instant::now().checked_sub(Duration::from_secs(7)).unwrap();
         let readiness = startup_remaining(worker_started, transferred).unwrap();
         assert!(readiness <= Duration::from_secs(3));
         assert!(matches!(
-            startup_remaining(Instant::now() - Duration::from_secs(101), original),
+            startup_remaining(Instant::now().checked_sub(Duration::from_secs(101)).unwrap(), original),
             Err(Error::Timeout(value)) if value == original
         ));
         assert!(matches!(
-            startup_remaining(Instant::now() - Duration::from_secs(11), transferred),
+            startup_remaining(Instant::now().checked_sub(Duration::from_secs(11)).unwrap(), transferred),
             Err(Error::Timeout(value)) if value == transferred
         ));
     }
@@ -992,7 +984,7 @@ mod tests {
         let failure = observe_readiness(
             &receiver,
             &progress,
-            Instant::now() - Duration::from_secs(2),
+            Instant::now().checked_sub(Duration::from_secs(2)).unwrap(),
             Duration::from_secs(1),
         )
         .unwrap()
@@ -1144,10 +1136,10 @@ mod tests {
                 // Even an assertion failure restores this test's mutex before PeerProcesses
                 // drops, so its original owned child is still eligible for ordinary cleanup.
                 let _restore_poison = RestorePoison(Arc::clone(&poisoned));
-                let poisoner = Arc::clone(&poisoned);
+                let lock_holder = Arc::clone(&poisoned);
                 assert!(
                     thread::spawn(move || {
-                        let _held = poisoner.lock().unwrap();
+                        let _held = lock_holder.lock().unwrap();
                         panic!("controlled owned-child lock poison");
                     })
                     .join()
@@ -1357,10 +1349,10 @@ mod tests {
                     // This test's poison must clear before its actual process owner unwinds.
                     let _restore_poison = RestorePoison(Arc::clone(&original_live));
                     if poison_cleanup {
-                        let poisoner = Arc::clone(&original_live);
+                        let lock_holder = Arc::clone(&original_live);
                         assert!(
                             thread::spawn(move || {
-                                let _held = poisoner.lock().unwrap();
+                                let _held = lock_holder.lock().unwrap();
                                 panic!("controlled owned-child lock poison after genuine exit");
                             })
                             .join()
@@ -1565,7 +1557,7 @@ mod tests {
         let late = observe_readiness(
             &receiver,
             &progress,
-            Instant::now() - Duration::from_secs(2),
+            Instant::now().checked_sub(Duration::from_secs(2)).unwrap(),
             Duration::from_secs(1),
         );
         assert!(matches!(late, Some(Err(failure)) if failure == progress.deadline()));
@@ -1652,7 +1644,9 @@ mod tests {
         progress.enter(progress::Phase::CustodyRenewal);
         let (sender, receiver) = mpsc::sync_channel(1);
         sender.send(Ok(())).unwrap();
-        let original_start = Instant::now() - Duration::from_secs(86_400);
+        let original_start = Instant::now()
+            .checked_sub(Duration::from_secs(86_400))
+            .unwrap();
         assert!(original_start.elapsed() > Duration::from_secs(600));
         let renewal_start = Instant::now();
         assert!(matches!(
@@ -1669,7 +1663,7 @@ mod tests {
             observe_readiness(
                 &receiver,
                 &progress,
-                renewal_start - Duration::from_secs(121),
+                renewal_start.checked_sub(Duration::from_secs(121)).unwrap(),
                 Duration::from_secs(120)
             ),
             Some(Err(progress.deadline()))

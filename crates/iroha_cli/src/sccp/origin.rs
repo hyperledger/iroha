@@ -11,7 +11,8 @@ use iroha::{
         id::NetworkId,
         sccp::{
             deployment::SccpCommitteePinV1,
-            generation::SccpCommitteeGenerationV1,
+            generation::{SccpAnchorV1, SccpCommitteeGenerationV1},
+            native::SccpAnchorWitnessV1,
             params::{SCCP_PIN_MARGIN_MS_V1, SccpParametersV1},
             registry::SccpRouteV1,
         },
@@ -169,6 +170,44 @@ pub(super) struct AuthenticatedOrigin {
 }
 
 impl AuthenticatedOrigin {
+    /// The original native cut chosen by the caller, never a discovery response's tip.
+    pub fn height(&self) -> u64 {
+        self.world.height()
+    }
+
+    /// Verify a retained generation candidate without imposing a deployment pin horizon.
+    pub fn verify_generation(
+        &self,
+        requested: u64,
+        view: SccpGenerationV1,
+    ) -> Result<SccpCommitteeGenerationV1> {
+        let record = native_record(view);
+        ensure!(
+            record.generation == requested && record.is_well_formed(),
+            "committee candidate has invalid generation or shape"
+        );
+        self.world
+            .verify_table_value("world.sccp_committee_generations", &requested, &record)?;
+        ensure!(
+            committee_root(&record.keys) == Some(record.committee_root),
+            "authenticated committee keys have a different root"
+        );
+        Ok(record)
+    }
+
+    /// Bind a completed anchor path to the exact original retained chunk root.
+    pub fn verify_anchor_witness(&self, height: u64, witness: &SccpAnchorWitnessV1) -> Result<()> {
+        use iroha_sccp::v1::evidence::{anchor_chunk_position, anchor_leaf, anchor_path_root};
+        let (chunk, position) =
+            anchor_chunk_position(height).ok_or_else(|| eyre!("anchor height must be positive"))?;
+        let leaf = anchor_leaf(height, &witness.core_hash, &witness.result);
+        let root = anchor_path_root(&leaf, position, &witness.path)
+            .ok_or_else(|| eyre!("anchor path has an invalid position"))?;
+        self.world
+            .verify_table_value("world.sccp_anchor_chunks", &chunk, &root)?;
+        Ok(())
+    }
+
     pub fn verify_route(&self, network: SccpNetworkV1, route: &SccpRouteV1) -> Result<()> {
         ensure!(
             route.network == network,
@@ -179,6 +218,19 @@ impl AuthenticatedOrigin {
         Ok(())
     }
 
+    pub fn verify_pin_generation(
+        &self,
+        view: SccpGenerationV1,
+        pin: &SccpCommitteePinV1,
+    ) -> Result<Vec<[u8; 48]>> {
+        let record = authenticate_record(&self.world, pin.generation, view, pin.until_ms)?;
+        ensure!(
+            record.committee_root == pin.committee_root && record.start_height == pin.start_height,
+            "deployment pin differs from its authenticated generation"
+        );
+        Ok(record.keys)
+    }
+
     pub fn verify_capabilities(&self, capabilities: &SccpCapabilitiesV1) -> Result<()> {
         ensure!(
             capabilities.network_id == self.network
@@ -186,6 +238,26 @@ impl AuthenticatedOrigin {
             "SCCP discovery differs from the selected original native root"
         );
         Ok(())
+    }
+
+    /// Read parameters only when their exact cell belongs to the selected original cut.
+    pub fn parameters(&self, capabilities: &SccpCapabilitiesV1) -> Result<SccpParametersV1> {
+        self.verify_capabilities(capabilities)?;
+        self.world
+            .verify_cell_value("world.sccp_parameters", &capabilities.parameters)?;
+        capabilities
+            .parameters
+            .ok_or_else(|| eyre!("SCCP parameters are absent"))
+    }
+
+    /// Read the permanent forgery floor only from its exact original committed cell.
+    pub fn forgery_max(&self, capabilities: &SccpCapabilitiesV1) -> Result<Option<u64>> {
+        self.verify_capabilities(capabilities)?;
+        self.world.verify_cell_value(
+            "world.sccp_forgery_max_generation",
+            &capabilities.forgery_max_generation,
+        )?;
+        Ok(capabilities.forgery_max_generation)
     }
 
     pub fn current_generation(&self, capabilities: &SccpCapabilitiesV1) -> Result<u64> {
@@ -205,6 +277,16 @@ pub(super) fn authenticate_origin<C: RunContext>(
     client: &Client,
     args: &OriginArgs,
 ) -> Result<AuthenticatedOrigin> {
+    authenticate_origin_with_anchor(context, client, args, None).map(|(origin, _)| origin)
+}
+
+/// Retain at most one original certified anchor while performing the same contiguous walk.
+pub(super) fn authenticate_origin_with_anchor<C: RunContext>(
+    context: &C,
+    client: &Client,
+    args: &OriginArgs,
+    anchor_height: Option<u64>,
+) -> Result<(AuthenticatedOrigin, Option<SccpAnchorV1>)> {
     ensure!(
         args.at_height >= 2,
         "native authority needs a certified successor"
@@ -245,23 +327,34 @@ pub(super) fn authenticate_origin<C: RunContext>(
     );
     // The caller selects the height. The endpoint cannot extend this work by advertising a new tip.
     let mut tip = None;
+    let mut anchor = None;
     for height in 1..=args.at_height {
         let proof = client.client().get_sumeragi_finality_proof(
             NonZeroU64::new(height).expect("positive range"),
             verifier.root_scope(),
         )?;
-        tip = Some(verifier.verify(&proof)?);
+        let verified = verifier.verify(&proof)?;
+        if anchor_height == Some(height) {
+            anchor = Some(SccpAnchorV1 {
+                core_hash: verified.core_hash().0,
+                result: verified.result().0,
+            });
+        }
+        tip = Some(verified);
     }
     let tip = tip.ok_or_else(|| eyre!("no certified successor"))?;
     tip.verify_global_scope(network, verifier.chain_id())?;
     let snapshot_wire = bounded_read(&args.world_snapshot, MAX_WORLD_STATE_SNAPSHOT_BYTES_V1)?;
     let (world, element_count) = authenticated_world(&snapshot_wire, args.world_schema_hash, &tip)?;
-    Ok(AuthenticatedOrigin {
-        network: *network.as_bytes(),
-        instance: verifier.instance().0,
-        world,
-        element_count,
-    })
+    Ok((
+        AuthenticatedOrigin {
+            network: *network.as_bytes(),
+            instance: verifier.instance().0,
+            world,
+            element_count,
+        },
+        anchor,
+    ))
 }
 
 pub(super) fn authenticate<C: RunContext>(
@@ -419,6 +512,81 @@ mod tests {
         let tip = native.verifier().verify_retained_decision(&proof).unwrap();
         (snapshot, tip)
     }
+
+    #[test]
+    fn evidence_generation_preserves_original_unslashable_members_and_rejects_substitution() {
+        let mut row = record();
+        row.members[0] = None;
+        let (snapshot, tip) = certified(&row);
+        let original = AuthenticatedOrigin {
+            network: [1; 32],
+            instance: [2; 32],
+            world: snapshot.authenticate(&tip).unwrap(),
+            element_count: 2,
+        };
+        assert_eq!(original.height(), tip.height());
+        assert!(original.verify_generation(1, row.clone()).unwrap().members[0].is_none());
+        assert!(original.verify_generation(2, row.clone()).is_err());
+        let mut changed = row.clone();
+        changed.end = Some(iroha::data_model::sccp::generation::SccpGenerationEndV1 {
+            end_height: 2,
+            end_timestamp_ms: 1001,
+            next_committee_root: row.committee_root,
+            successor_validity_ms: row.validity_ms,
+        });
+        assert!(original.verify_generation(1, changed).is_err());
+        let mut changed = row;
+        changed.keys[0][0] ^= 1;
+        assert!(original.verify_generation(1, changed).is_err());
+    }
+
+    #[test]
+    fn evidence_anchor_requires_the_original_completed_chunk_preimage() {
+        use iroha_sccp::v1::evidence::{anchor_leaf, anchor_path_root};
+        let witness = SccpAnchorWitnessV1 {
+            core_hash: [3; 32],
+            result: [4; 32],
+            path: [[5; 32]; 12],
+        };
+        let root = anchor_path_root(
+            &anchor_leaf(1, &witness.core_hash, &witness.result),
+            0,
+            &witness.path,
+        )
+        .unwrap();
+        let snapshot = WorldStateSnapshotV1 {
+            schema_hash: Hash::new(b"original anchor schema"),
+            entries: vec![WorldStateSnapshotEntryV1 {
+                field_id: "world.sccp_anchor_chunks".into(),
+                kind: WorldStateElementKindV1::Table,
+                key_hash: Some(world_state_value_hash_v1(&0_u64).unwrap()),
+                value_hash: world_state_value_hash_v1(&root).unwrap(),
+            }],
+        };
+        let mut native = NativeFinalityFixture::new();
+        let block = native.block_with_submitted_work(native.next_header());
+        let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
+        let tip = native.verifier().verify_retained_decision(&proof).unwrap();
+        let original = AuthenticatedOrigin {
+            network: [1; 32],
+            instance: [2; 32],
+            world: snapshot.authenticate(&tip).unwrap(),
+            element_count: 1,
+        };
+        original.verify_anchor_witness(1, &witness).unwrap();
+        assert!(original.verify_anchor_witness(0, &witness).is_err());
+        assert!(original.verify_anchor_witness(2, &witness).is_err());
+        assert!(original.verify_anchor_witness(4097, &witness).is_err());
+        for field in 0..3 {
+            let mut changed = witness;
+            match field {
+                0 => changed.core_hash[0] ^= 1,
+                1 => changed.result[0] ^= 1,
+                _ => changed.path[0][0] ^= 1,
+            }
+            assert!(original.verify_anchor_witness(1, &changed).is_err());
+        }
+    }
     #[test]
     fn catch_up_generation_requires_original_identity_and_committed_cell() {
         use iroha_sccp::api::{SccpCurrentGenerationV1, SccpFinalityConstantsV1, SccpReadLimitsV1};
@@ -440,6 +608,7 @@ mod tests {
                 start_height: 1,
                 deadline_ms: 1100,
             }),
+            coalition_slashable_floor: None,
             liability_clock: 1000,
             forgery_max_generation: None,
             pause_panel_ids: None,
@@ -467,6 +636,53 @@ mod tests {
                 original.current_generation(&changed).is_err(),
                 "case {case}"
             );
+        }
+
+        let mut view = capabilities;
+        view.parameters = Some(SccpParametersV1::taira_default());
+        view.forgery_max_generation = Some(7);
+        let (mut snapshot, _) = certified(&row);
+        for (field, value_hash) in [
+            (
+                "world.sccp_forgery_max_generation",
+                world_state_value_hash_v1(&view.forgery_max_generation).unwrap(),
+            ),
+            (
+                "world.sccp_parameters",
+                world_state_value_hash_v1(&view.parameters).unwrap(),
+            ),
+        ] {
+            snapshot.entries.push(WorldStateSnapshotEntryV1 {
+                field_id: field.into(),
+                kind: WorldStateElementKindV1::Cell,
+                key_hash: None,
+                value_hash,
+            });
+        }
+        let mut native = NativeFinalityFixture::new();
+        let block = native.block_with_submitted_work(native.next_header());
+        let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
+        let tip = native.verifier().verify_retained_decision(&proof).unwrap();
+        let exact = AuthenticatedOrigin {
+            network: original.network,
+            instance: original.instance,
+            world: snapshot.authenticate(&tip).unwrap(),
+            element_count: snapshot.entries.len(),
+        };
+        assert_eq!(
+            exact.parameters(&view).unwrap(),
+            SccpParametersV1::taira_default()
+        );
+        assert_eq!(exact.forgery_max(&view).unwrap(), Some(7));
+        let mut substituted = view.clone();
+        substituted.parameters.as_mut().unwrap().enabled = false;
+        assert!(exact.parameters(&substituted).is_err());
+        substituted.parameters = None;
+        assert!(exact.parameters(&substituted).is_err());
+        for floor in [None, Some(6), Some(8)] {
+            substituted = view.clone();
+            substituted.forgery_max_generation = floor;
+            assert!(exact.forgery_max(&substituted).is_err());
         }
     }
 
@@ -571,6 +787,40 @@ mod tests {
         assert!(selected_interval(Some(1), u64::MAX, 100).is_err());
     }
     #[test]
+    fn registered_deployment_pin_requires_exact_authenticated_generation() {
+        let row = record();
+        let (snapshot, tip) = certified(&row);
+        let wire = norito::encode_canonical(&snapshot).unwrap();
+        let (world, element_count) =
+            authenticated_world(&wire, snapshot.schema_hash, &tip).unwrap();
+        let original = AuthenticatedOrigin {
+            network: [1; 32],
+            instance: [2; 32],
+            world,
+            element_count,
+        };
+        let pin = SccpCommitteePinV1 {
+            generation: row.generation,
+            committee_root: row.committee_root,
+            start_height: row.start_height,
+            until_ms: row.deadline_ms,
+        };
+        assert_eq!(
+            original.verify_pin_generation(row.clone(), &pin).unwrap(),
+            row.keys
+        );
+        let mut wrong = pin;
+        wrong.start_height += 1;
+        assert!(original.verify_pin_generation(row.clone(), &wrong).is_err());
+        wrong = pin;
+        wrong.committee_root[0] ^= 1;
+        assert!(original.verify_pin_generation(row.clone(), &wrong).is_err());
+        wrong = pin;
+        wrong.until_ms += 1;
+        assert!(original.verify_pin_generation(row, &wrong).is_err());
+    }
+
+    #[test]
     fn deployment_pin_authenticates_exact_native_world_record_and_selected_schema() {
         let row = record();
         let (snapshot, tip) = certified(&row);
@@ -655,5 +905,167 @@ mod tests {
         assert_eq!(bounded_read(&path, 4).unwrap(), [1, 2, 3, 4]);
         std::fs::write(&path, [1, 2, 3, 4, 5]).unwrap();
         assert!(bounded_read(&path, 4).is_err());
+    }
+}
+
+#[path = "origin_record.rs"]
+mod record;
+
+impl AuthenticatedOrigin {
+    /// Resolve profiles only after proving their newest selection against this complete cut.
+    /// An omitted higher activation, unknown catalog version, substituted activation, or
+    /// discovery from another committed height refuses local claim verification.
+    pub fn light_client_profiles(
+        &self,
+        client: &Client,
+    ) -> Result<iroha_sccp::light_client::profile::SccpChainProfilesV1> {
+        let capabilities = client.sccp().capabilities()?;
+        self.verify_capabilities(&capabilities)?;
+        authenticate_light_client_profiles(
+            &self.world,
+            capabilities.committed_height,
+            &capabilities.light_client_profiles,
+            capabilities.profiles_policy_hash,
+        )
+    }
+}
+
+fn authenticate_light_client_profiles(
+    world: &VerifiedWorldStateSnapshotV1,
+    committed_height: u64,
+    selected_profiles: &[iroha_sccp::api::SccpLcProfileStatusV1],
+    policy_hash: [u8; 32],
+) -> Result<iroha_sccp::light_client::profile::SccpChainProfilesV1> {
+    use iroha::data_model::sccp::light_client::SccpLcProfileActivationV1;
+    use iroha_sccp::light_client::profile::GENESIS_PROFILE_VERSION;
+    ensure!(
+        committed_height == world.height(),
+        "profile discovery is not at the selected original cut"
+    );
+    let profiles = super::light_client::resolve_profiles(selected_profiles, policy_hash)?;
+    let height = world
+        .height()
+        .checked_add(1)
+        .ok_or_else(|| eyre!("next profile height overflows"))?;
+    let mut domain = Vec::new();
+    for selected in selected_profiles {
+        if selected.version == GENESIS_PROFILE_VERSION {
+            ensure!(
+                selected.activation_height.is_none() && selected.proposal_id.is_none(),
+                "genesis profile carries an invented activation"
+            );
+        } else {
+            let activation = SccpLcProfileActivationV1 {
+                profile_hash: selected.profile_hash,
+                activation_height: selected
+                    .activation_height
+                    .ok_or_else(|| eyre!("profile activation height is absent"))?,
+                proposal_id: selected
+                    .proposal_id
+                    .ok_or_else(|| eyre!("profile activation proposal is absent"))?,
+            };
+            ensure!(
+                activation.activation_height <= height,
+                "profile is not active at the original next height"
+            );
+            world.verify_table_value(
+                "world.sccp_light_client_profiles",
+                &(selected.network, selected.version),
+                &activation,
+            )?;
+        }
+        // resolve_profiles bounded this version by the finite locally compiled catalog.
+        domain.extend(
+            ((GENESIS_PROFILE_VERSION + 1)..=selected.version)
+                .map(|version| (selected.network, version)),
+        );
+    }
+    world.verify_table_keys_within("world.sccp_light_client_profiles", &domain)?;
+    Ok(profiles)
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+    use iroha::data_model::sumeragi_finality::{
+        WorldStateElementKindV1, WorldStateSnapshotEntryV1, test_fixtures::NativeFinalityFixture,
+        world_state_value_hash_v1,
+    };
+    use iroha_sccp::light_client::profile::{
+        GENESIS_PROFILES, SCCP_LC_PROFILE_NETWORKS_V1, SccpLcProfileCatalogV1,
+    };
+
+    #[test]
+    fn profile_selection_requires_the_complete_original_cut_and_rejects_hidden_activation() {
+        let catalog = SccpLcProfileCatalogV1::compiled();
+        let active = catalog.genesis();
+        let rows: Vec<_> = SCCP_LC_PROFILE_NETWORKS_V1
+            .into_iter()
+            .map(|network| {
+                let profile = active.get(network).unwrap();
+                iroha_sccp::api::SccpLcProfileStatusV1 {
+                    network,
+                    version: profile.version,
+                    profile_hash: profile.profile_hash,
+                    activation_height: None,
+                    proposal_id: None,
+                    supported_until_ms: None,
+                }
+            })
+            .collect();
+        let authenticate = |entries| {
+            let snapshot = WorldStateSnapshotV1 {
+                schema_hash: Hash::new(b"profile domain fixture"),
+                entries,
+            };
+            let mut native = NativeFinalityFixture::new();
+            let block = native.block_with_submitted_work(native.next_header());
+            let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
+            let tip = native.verifier().verify_retained_decision(&proof).unwrap();
+            snapshot.authenticate(&tip).unwrap()
+        };
+        let world = authenticate(vec![]);
+        assert_eq!(
+            authenticate_light_client_profiles(&world, world.height(), &rows, active.policy_hash())
+                .unwrap(),
+            GENESIS_PROFILES
+        );
+        assert!(
+            authenticate_light_client_profiles(
+                &world,
+                world.height() + 1,
+                &rows,
+                active.policy_hash()
+            )
+            .is_err()
+        );
+        let mut invented = rows.clone();
+        invented[0].activation_height = Some(world.height());
+        assert!(
+            authenticate_light_client_profiles(
+                &world,
+                world.height(),
+                &invented,
+                active.policy_hash()
+            )
+            .is_err()
+        );
+        let hidden = authenticate(vec![WorldStateSnapshotEntryV1 {
+            field_id: "world.sccp_light_client_profiles".into(),
+            kind: WorldStateElementKindV1::Table,
+            key_hash: Some(
+                world_state_value_hash_v1(&(SccpNetworkV1::EthereumMainnet, 2_u32)).unwrap(),
+            ),
+            value_hash: Hash::new(b"hidden newer activation"),
+        }]);
+        assert!(
+            authenticate_light_client_profiles(
+                &hidden,
+                hidden.height(),
+                &rows,
+                active.policy_hash()
+            )
+            .is_err()
+        );
     }
 }

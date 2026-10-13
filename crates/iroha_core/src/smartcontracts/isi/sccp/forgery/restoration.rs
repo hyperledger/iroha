@@ -277,7 +277,7 @@ impl SccpRestore {
             }
             let offence_range = delta::field_range(source.delta(), b"sccp_forgery_offences")?;
             let archived_lc = delta::select(source.delta(), b"sccp_liability_clock", None)?
-                .flatten()
+                .and_then(delta::SelectedValue::value)
                 .map(delta::fixed::<u64>)
                 .transpose()?;
             self.progress.offence_range = offence_range;
@@ -547,7 +547,7 @@ impl SccpRestore {
                 b"sccp_forgery_offences",
                 Some(&|bytes| delta::matches(&key, bytes)),
             )?
-            .flatten()
+            .and_then(delta::SelectedValue::value)
             .ok_or_else(|| invalid("Submit has no exact original offence delta"))?;
             if delta::fixed::<[u8; 32]>(inserted)? != id {
                 return Err(invalid("original offence id differs"));

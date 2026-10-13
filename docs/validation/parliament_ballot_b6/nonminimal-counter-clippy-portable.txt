@@ -1,0 +1,9 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-ballot
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo clippy -p iroha_parliament_ballot_proof --release --test nonminimal_counter -- -D warnings
+    Checking iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 0.43s

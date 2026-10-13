@@ -6,9 +6,11 @@ use super::{
     specs::{CollectionSpec, FieldType},
 };
 use iroha_primitives::numeric::{Numeric, RoundingMode};
+#[cfg(test)]
+use iroha_torii_shared::list_query::Page;
 use iroha_torii_shared::list_query::{
     AggregateFn, AggregateMetric, AggregateSpec, CURSOR_MAX_BYTES, FieldPath, FilterExpr,
-    ListQuery, Order, Page, is_decimal_text,
+    ListQuery, Order, is_decimal_text,
 };
 use norito::json::{Map, Value};
 use std::{
@@ -18,7 +20,7 @@ use std::{
 
 /// Execution bounds for one collection read.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Limits {
+pub struct Limits {
     /// Page size when the request has no `limit`.
     pub(crate) default_limit: u32,
     /// Largest accepted `limit`.
@@ -53,7 +55,7 @@ impl Limits {
 
 /// One page of rows, before or after projection.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RowPage {
+pub struct RowPage {
     /// Rows in the requested order.
     pub(crate) items: Vec<Map>,
     /// Keyset position after the last row, when more rows follow.
@@ -64,6 +66,7 @@ pub(crate) struct RowPage {
 
 impl RowPage {
     /// The public page envelope.
+    #[cfg(test)]
     pub(crate) fn into_page(self) -> Page<Value> {
         Page {
             items: self.items.into_iter().map(Value::Object).collect(),
@@ -561,17 +564,19 @@ impl SortValue {
             FieldType::Bool => value
                 .as_bool()
                 .map_or_else(|| Self::other(value, bytes), |v| Ok(Self::Bool(v))),
-            FieldType::Json => {
-                if let Some(flag) = value.as_bool() {
-                    Ok(Self::Bool(flag))
-                } else if let Some(number) = numeric(value) {
-                    Ok(Self::Number(number))
-                } else if let Some(text) = value.as_str() {
-                    text_key(text)
-                } else {
-                    Self::other(value, bytes)
-                }
-            }
+            FieldType::Json => value.as_bool().map_or_else(
+                || {
+                    numeric(value).map_or_else(
+                        || {
+                            value
+                                .as_str()
+                                .map_or_else(|| Self::other(value, bytes), text_key)
+                        },
+                        |number| Ok(Self::Number(number)),
+                    )
+                },
+                |flag| Ok(Self::Bool(flag)),
+            ),
         }
     }
 
@@ -675,7 +680,7 @@ struct AggregatePlan {
 }
 
 /// A validated query bound to one collection.
-pub(crate) struct Prepared<'q> {
+pub struct Prepared<'q> {
     spec: &'static CollectionSpec,
     query: &'q ListQuery,
     filter: Option<Compiled>,
@@ -695,7 +700,7 @@ pub(crate) struct Prepared<'q> {
 /// Where an identity-ordered page starts: strictly after `after` in
 /// canonical identifier order (strictly before it when `descending`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct OrderedScan<'a> {
+pub struct OrderedScan<'a> {
     /// The previous page's last examined `id`.
     pub(crate) after: Option<&'a str>,
     /// Whether rows are read in descending identifier order.
@@ -703,7 +708,7 @@ pub(crate) struct OrderedScan<'a> {
 }
 
 /// Block coordinates `(block_height, block_index)` of a positioned row.
-pub(crate) type Position = (u64, u64);
+pub type Position = (u64, u64);
 
 /// Row fields holding a positioned row's coordinates.
 const POSITION_FIELDS: [&str; 2] = ["block_height", "block_index"];
@@ -714,7 +719,7 @@ const POSITION_FIELDS: [&str; 2] = ["block_height", "block_index"];
 ///
 /// # Errors
 /// Returns the first rejected control.
-pub(crate) fn prepare<'q>(
+pub fn prepare<'q>(
     spec: &'static CollectionSpec,
     scope: &str,
     query: &'q ListQuery,
@@ -1124,10 +1129,9 @@ fn effective_sort(
     aggregate: Option<&AggregatePlan>,
     bytes: BytePolicy,
 ) -> Result<Vec<SortField>, CollectionError> {
-    let schema = match aggregate {
-        Some(plan) => Schema::Aggregate(&plan.outputs),
-        None => Schema::Collection(spec),
-    };
+    let schema = aggregate.map_or(Schema::Collection(spec), |plan| {
+        Schema::Aggregate(&plan.outputs)
+    });
     memory::ensure(
         sort_plan_bytes(spec, query)?,
         bytes.scratch_bytes,
@@ -2557,7 +2561,7 @@ mod tests {
         assert_eq!(page.total, Some(2));
         assert_eq!(page.next_cursor, None);
         assert_eq!(page.items[0]["metadata"]["tier"].as_u64(), Some(2));
-        assert!(page.items[0].get("owned_by").is_none());
+        assert!(!page.items[0].contains_key("owned_by"));
     }
 
     #[test]

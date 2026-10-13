@@ -94,10 +94,10 @@ impl Geometry for (u64, AssetDefinitionId) {
         24
     }
 }
-fn logical<'a, K: mv::Key, V: mv::Value>(
-    rows: &'a impl RawStorageImages<K, V>,
+fn logical<K: mv::Key, V: mv::Value>(
+    rows: &impl RawStorageImages<K, V>,
     image: GroupImage,
-) -> Vec<(&'a K, &'a V)> {
+) -> Vec<(&K, &V)> {
     match image {
         GroupImage::Current => rows.current_entries().collect(),
         GroupImage::Predecessor => rows

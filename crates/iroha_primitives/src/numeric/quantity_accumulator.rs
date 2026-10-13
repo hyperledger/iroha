@@ -56,6 +56,53 @@ impl QuantityAccumulator {
         self.add_aligned(rhs, scale)
     }
 
+    /// Compare canonical aggregates without materializing either magnitude.
+    #[must_use]
+    pub fn cmp_value(&self, other: &Self) -> core::cmp::Ordering {
+        let scale = self.scale.max(other.scale);
+        // A 511-bit canonical mantissa aligned through at most 28 decimal places
+        // fits the same ten stack limbs used by the canonical sum relation.
+        let left = Self::align_limbs(self.limbs, self.scale, scale)
+            .expect("canonical decimal alignment fits stack limbs");
+        let right = Self::align_limbs(other.limbs, other.scale, scale)
+            .expect("canonical decimal alignment fits stack limbs");
+        left.iter().rev().cmp(right.iter().rev())
+    }
+
+    /// Multiply by basis points, rounding toward zero at this aggregate's scale.
+    ///
+    /// Arithmetic stays inline and preserves the original aggregate on refusal.
+    /// # Errors
+    /// Refuses a ratio above 10,000 basis points or a noncanonical result.
+    pub fn try_scale_basis_points(
+        &mut self,
+        basis_points: u16,
+    ) -> Result<(), NumericOperationError> {
+        if basis_points > 10_000 {
+            return Err(NumericOperationError::NonCanonical);
+        }
+        let mut product = self.limbs;
+        let mut carry = 0_u128;
+        for limb in &mut product {
+            let value = u128::from(*limb) * u128::from(basis_points) + carry;
+            *limb = u64::try_from(value & u128::from(u64::MAX)).expect("masked product limb");
+            carry = value >> 64;
+        }
+        if carry != 0 {
+            return Err(NumericOperationError::MantissaOverflow);
+        }
+        let mut remainder = 0_u128;
+        for limb in product.iter_mut().rev() {
+            let value = (remainder << 64) | u128::from(*limb);
+            *limb = u64::try_from(value / 10_000).expect("basis-point quotient limb");
+            remainder = value % 10_000;
+        }
+        let mut result = Self::zero();
+        result.add_aligned(product, self.scale)?;
+        *self = result;
+        Ok(())
+    }
+
     fn align_limbs(
         mut limbs: [u64; QUANTITY_SUM_RELATION_LIMBS],
         from: u32,
@@ -143,6 +190,43 @@ impl QuantityAccumulator {
 mod tests {
     use super::*;
     use std::str::FromStr as _;
+
+    #[test]
+    fn inline_comparison_and_basis_points_match_canonical_mixed_scale_arithmetic() {
+        let values = [
+            "0",
+            "1",
+            "1.0000000000000000000000000001",
+            "99.01",
+            "100000000000000000000000000000000000000000000000000001",
+        ];
+        for left in values {
+            let left = Quantity::from_str(left).unwrap();
+            let mut sum = QuantityAccumulator::zero();
+            sum.try_add(&left).unwrap();
+            for right in values {
+                let right = Quantity::from_str(right).unwrap();
+                let mut rhs = QuantityAccumulator::zero();
+                rhs.try_add(&right).unwrap();
+                assert_eq!(sum.cmp_value(&rhs), left.cmp(&right));
+            }
+            for bps in [0, 1, 1_234, 9_999, 10_000] {
+                let mut actual = sum;
+                actual.try_scale_basis_points(bps).unwrap();
+                let expected = left
+                    .try_mul_div_decimal_round(
+                        &Numeric::from(u64::from(bps)),
+                        &Numeric::from(10_000_u64),
+                        left.scale(),
+                        super::super::RoundingMode::TowardZero,
+                    )
+                    .unwrap();
+                assert_eq!(actual.try_into_quantity().unwrap(), expected);
+            }
+            assert!(sum.try_scale_basis_points(10_001).is_err());
+            assert_eq!(sum.try_into_quantity().unwrap(), left);
+        }
+    }
 
     #[test]
     fn bounded_sum_matches_canonical_arithmetic_at_every_scale_and_carry() {

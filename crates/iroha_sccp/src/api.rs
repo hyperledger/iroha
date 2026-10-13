@@ -18,16 +18,21 @@
 //! message status, pages, light-client state, governance and history paths. Stored registry
 //! and light-client records use their data-model types directly.
 //!
-//! TODO(ws35): add the governance targets beyond proposal listing and detail (diffs,
-//! readiness).
+//! Governance diagnostics preserve unavailable Parliament eligibility and due-work sources.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 use norito::codec::{Decode, Encode};
 
+mod evidence;
+pub use evidence::*;
+mod governance;
+pub use governance::*;
 mod generation;
 pub use generation::*;
 mod reconciliation;
 pub use reconciliation::*;
+mod fast_pause;
+pub use fast_pause::*;
 pub mod views;
 pub use views::*;
 
@@ -558,9 +563,6 @@ pub struct SccpPausePanelIdsV1 {
 
 /// `GET /v1/sccp/capabilities`: the Taira identity, parameters and light-client profiles a
 /// wallet reads before any flow (§6, §7.1).
-///
-/// TODO: Torii work package (TT-A1): add the coalition slashable floor once its
-/// authoritative stake calculation is available.
 #[derive(
     Debug,
     Clone,
@@ -587,6 +589,13 @@ pub struct SccpCapabilitiesV1 {
     /// Current committed generation and deadline, absent before initialization.
     #[norito(required)]
     pub current_generation: Option<SccpCurrentGenerationV1>,
+    /// Sum of the `f + 1` smallest actual per-member maximum penalties in the
+    /// current generation. Each penalty rounds toward zero at its exposure's
+    /// canonical scale; an already-recorded generation/member offence contributes
+    /// zero additional seizure. Absent only before SCCP initialization; unavailable or
+    /// inconsistent original member custody makes the whole request unavailable.
+    #[norito(required)]
+    pub coalition_slashable_floor: Option<iroha_crypto::numeric::Quantity>,
     /// Current committed liability clock.
     pub liability_clock: u64,
     /// Highest generation with recorded native forgery evidence, absent before any offence.

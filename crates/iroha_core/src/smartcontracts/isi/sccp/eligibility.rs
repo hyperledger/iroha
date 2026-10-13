@@ -17,6 +17,8 @@ pub(crate) trait EligibilityRead {
     fn heartbeat_facts(&self) -> Option<(u64, u32)>;
     /// Earliest original reconciliation deadline; the ordered index is derived from records.
     fn reconciliation_due_at_ms(&self) -> Option<u64>;
+    /// A retained original panel round reached quorum and requires a next-pass recheck.
+    fn fast_pause_due(&self) -> bool;
     /// SCCP's original parameters, including exemption caps and enabled status.
     fn parameters(&self) -> Option<&SccpParametersV1>;
     /// Original route, without copying its revision graph.
@@ -28,10 +30,10 @@ pub(crate) trait EligibilityRead {
     /// Original fixed reconciliation rate and cumulative settled face.
     fn reconciliation(
         &self,
-        key: &(SccpNetworkV1, u32),
+        key: (SccpNetworkV1, u32),
     ) -> Option<&iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1>;
     /// Original pending refund reservation of the revision.
-    fn pending_refunds(&self, key: &(SccpNetworkV1, u32)) -> u128;
+    fn pending_refunds(&self, key: (SccpNetworkV1, u32)) -> u128;
     /// Original retained pause; no DTO clone or replacement credit is introduced.
     fn pause(&self, network: SccpNetworkV1) -> Option<&RetainedSccpFastPause>;
 }
@@ -45,6 +47,9 @@ impl<W: WorldReadOnly + ?Sized> Clone for Current<'_, W> {
     }
 }
 impl<W: WorldReadOnly + ?Sized> EligibilityRead for Current<'_, W> {
+    fn fast_pause_due(&self) -> bool {
+        store::fast_pause_rounds::iter(self.0).any(|(_, round)| round.certify_due)
+    }
     fn reconciliation_due_at_ms(&self) -> Option<u64> {
         self.0
             .sccp_reconciliation_due()
@@ -74,12 +79,12 @@ impl<W: WorldReadOnly + ?Sized> EligibilityRead for Current<'_, W> {
     }
     fn reconciliation(
         &self,
-        key: &(SccpNetworkV1, u32),
+        key: (SccpNetworkV1, u32),
     ) -> Option<&iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1> {
-        reconciliation_store::get(self.0, key)
+        reconciliation_store::get(self.0, &key)
     }
-    fn pending_refunds(&self, key: &(SccpNetworkV1, u32)) -> u128 {
-        reconciliation_store::pending_refunds(self.0, key)
+    fn pending_refunds(&self, key: (SccpNetworkV1, u32)) -> u128 {
+        reconciliation_store::pending_refunds(self.0, &key)
     }
     fn pause(&self, network: SccpNetworkV1) -> Option<&RetainedSccpFastPause> {
         store::fast_pauses::get(self.0, &network)
@@ -97,6 +102,19 @@ pub(crate) struct TransactionParent<'a, 'block, 'world>(
 macro_rules! parent_read {
     ($owner:ty) => {
         impl EligibilityRead for $owner {
+            fn fast_pause_due(&self) -> bool {
+                if cfg!(all(test, sumeragi_core_mutation = "HC302")) {
+                    return self
+                        .0
+                        .sccp_fast_pause_rounds
+                        .iter()
+                        .any(|(_, round)| round.certify_due);
+                }
+                self.0
+                    .sccp_fast_pause_rounds
+                    .iter_before_block()
+                    .any(|(_, round)| round.certify_due)
+            }
             fn reconciliation_due_at_ms(&self) -> Option<u64> {
                 self.0
                     .sccp_reconciliation_due
@@ -138,14 +156,14 @@ macro_rules! parent_read {
             }
             fn reconciliation(
                 &self,
-                key: &(SccpNetworkV1, u32),
+                key: (SccpNetworkV1, u32),
             ) -> Option<&iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1> {
-                self.0.sccp_reconciliations.get_before_block(key)
+                self.0.sccp_reconciliations.get_before_block(&key)
             }
-            fn pending_refunds(&self, key: &(SccpNetworkV1, u32)) -> u128 {
+            fn pending_refunds(&self, key: (SccpNetworkV1, u32)) -> u128 {
                 self.0
                     .sccp_pending_refund_amount
-                    .get_before_block(key)
+                    .get_before_block(&key)
                     .copied()
                     .unwrap_or(0)
             }
@@ -181,7 +199,7 @@ pub(crate) fn inbound_may_progress(
         && revision.is_some_and(|r| {
             r.activation.settles()
                 && if let Some(accounting) = source
-                    .reconciliation(&(record.network, record.revision))
+                    .reconciliation((record.network, record.revision))
                     .filter(|record| record.rho.is_some())
                 {
                     let rate = accounting.rho.expect("filtered reconciled rate");
@@ -191,7 +209,7 @@ pub(crate) fn inbound_may_progress(
                         accounting.settled_face,
                         amount,
                         r.liability.saturating_sub(
-                            source.pending_refunds(&(record.network, record.revision)),
+                            source.pending_refunds((record.network, record.revision)),
                         ),
                     )
                     .is_some_and(|payout| payout > 0)

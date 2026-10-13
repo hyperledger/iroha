@@ -1,0 +1,13 @@
+{
+  "observed_at_utc": "2026-10-13T04:42:04.291640+00:00",
+  "path": "crates/norito/src/lib.rs",
+  "frozen_sha256": "e7540b2a30b5d5a7e8ff15d7b354ef5ba0d0bc891289276e6b40ddaacc2fd5dd",
+  "current_sha256": "1efe753752950653255885860f31aac872eb9f6a6a59bf001deaa3eac988046d",
+  "frozen_bytes": 445762,
+  "current_bytes": 446703,
+  "patch": "post-qualification-norito-change.patch",
+  "patch_sha256": "231164b664f8f18380f3c518679a4a553f0318ef3083aafb28c3ca0bac37436a",
+  "recovery": "The hash-verified earlier source is retained in qualification-norito-lib.rs.template; the forward patch documents this observed later edit. No live source was modified.",
+  "scope": "Subsequent concurrent source edit after completed measurements/accounting tests; no old result is retargeted to the later tree. This is source provenance, not validation of the new code.",
+  "frozen_source_template": "qualification-norito-lib.rs.template"
+}

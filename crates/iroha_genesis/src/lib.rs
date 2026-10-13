@@ -1772,7 +1772,6 @@ impl RawGenesisTransaction {
     /// This deliberately refuses to rewrite a transaction that also carries parameters, IVM
     /// triggers, or topology. Callers can therefore perform a narrow transaction-boundary migration
     /// without silently moving any other genesis semantics.
-    #[cfg(test)]
     pub fn replace_instruction_only_transaction(
         &mut self,
         index: usize,
@@ -1836,6 +1835,30 @@ impl RawGenesisTransaction {
         self.transactions.splice(index..=index, replacements);
         Ok(())
     }
+    /// Move one complete instruction-only draft batch after all other genesis work.
+    ///
+    /// This is used for initialization that captures registrations appended during
+    /// signing preparation. Every instruction and every other batch keeps its order.
+    /// # Errors
+    /// Refuses an absent batch or one containing parameters, triggers, or topology.
+    pub fn move_instruction_only_transaction_to_end(&mut self, index: usize) -> Result<()> {
+        let original = self
+            .transactions
+            .get(index)
+            .ok_or_else(|| eyre!("raw genesis transaction {index} is absent"))?;
+        if original.parameters.is_some()
+            || !original.ivm_triggers.is_empty()
+            || !original.topology.is_empty()
+        {
+            return Err(eyre!(
+                "only an instruction-only genesis transaction may move"
+            ));
+        }
+        let batch = self.transactions.remove(index);
+        self.transactions.push(batch);
+        Ok(())
+    }
+
     /// Partition one explicitly selected instruction-only draft batch at authored boundaries.
     ///
     /// Every nonzero length describes one contiguous output batch. Their sum must
@@ -2964,6 +2987,54 @@ impl TryFrom<GenesisIvmAction> for Action {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn moving_initializer_preserves_other_batches_and_refuses_structured_fields() -> Result<()> {
+        let mut manifest =
+            GenesisBuilder::new_without_executor(ChainId::from("move-initializer"), ".")
+                .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+                .append_parameter(Parameter::Sumeragi(
+                    iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
+                        std::num::NonZeroU64::new(3600).unwrap(),
+                    ),
+                ))
+                .next_transaction()
+                .append_instruction(Log::new(
+                    iroha_data_model::level::Level::INFO,
+                    "initializer".into(),
+                ))
+                .next_transaction()
+                .append_instruction(Log::new(
+                    iroha_data_model::level::Level::INFO,
+                    "bootstrap".into(),
+                ))
+                .build_raw()?;
+        let original = manifest.transactions.clone();
+        assert!(
+            manifest
+                .move_instruction_only_transaction_to_end(0)
+                .is_err()
+        );
+        assert!(
+            manifest
+                .move_instruction_only_transaction_to_end(99)
+                .is_err()
+        );
+        assert_eq!(manifest.transactions.encode(), original.encode());
+        manifest.move_instruction_only_transaction_to_end(1)?;
+        assert_eq!(
+            manifest.transactions.encode(),
+            vec![
+                original[0].clone(),
+                original[2].clone(),
+                original[1].clone()
+            ]
+            .encode()
+        );
+        manifest.move_instruction_only_transaction_to_end(2)?;
+        assert_eq!(manifest.transactions[2].encode(), original[1].encode());
+        Ok(())
+    }
+
     #[test]
     fn instruction_transaction_append_preserves_every_original_manifest_field() -> Result<()> {
         init_instruction_registry();

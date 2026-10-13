@@ -493,7 +493,7 @@ get fun `test a rotation whose successor is already expired is applied and freez
     // voids drain it
     val voided = sendVoidFrozen(env, 0, 3, env.minter.voidFrozenRequiredValue(0));
     expect(voided).toHaveSuccessfulTx<SccpVoidFrozen>({ to: env.minter.address });
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(isConsumedAt(env, 2)).toBeTrue();
 }
 
@@ -649,7 +649,7 @@ get fun `test a future-dated certificate never extends trust`() {
     );
     expect(env.minter.getSccpState().untilMs).toEqual(PIN_UNTIL_MS);
     val voided = sendVoidFrozen(env, 7, 1, env.minter.voidFrozenRequiredValue(7));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test a future-dated handoff grants its validity from the minter's clock and no replay extends it`() {
@@ -760,7 +760,7 @@ get fun `test forged heights above the genuine end are accepted and the genuine 
 
     // the latch opens the frozen void and closes the checkpoint entry
     val voided = sendVoidFrozen(env, 0, 2, env.minter.voidFrozenRequiredValue(0));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val another = emptyX(env.networkId, env.generation, root, TEST_START_HEIGHT + 700);
     val refused = checkpointBy(env, env.committee, another, null);
     expectOutcome(refused, SccpErrors.Equivocated);
@@ -1176,8 +1176,8 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
         1,
         alice,
     );
-    calls.push(sendFinalize(env, env.deployer, d, grams("5")));
-    calls.push(sendVoidExpired(env, env.deployer, 1, d, grams("5")));
+    calls.push(sendFinalize(env, env.deployer, d, REPLAY_VALUE));
+    calls.push(sendVoidExpired(env, env.deployer, 1, d, REPLAY_VALUE));
     calls.push(
         sendApplyControl(
             env,
@@ -1189,8 +1189,8 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
             ),
         ),
     );
-    calls.push(sendFinalizeCheckpoint(env, env.deployer, probe.d, grams("5")));
-    calls.push(sendVoidExpiredCheckpoint(env, env.deployer, 0, probe.d, grams("5")));
+    calls.push(sendFinalizeCheckpoint(env, env.deployer, probe.d, REPLAY_VALUE));
+    calls.push(sendVoidExpiredCheckpoint(env, env.deployer, 0, probe.d, REPLAY_VALUE));
     calls.push(sendApplyControlCheckpoint(env, probe.c));
     var i = 0;
     repeat (calls.size()) {
@@ -1212,7 +1212,7 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
         certOf(foreignSignature(), 7, defaultQc(d.x.height), d.x),
         null,
         d.proof,
-        grams("5"),
+        REPLAY_VALUE,
     );
     expectOutcome(inline, SccpErrors.BadSignature);
     expectEvents(inline, []);
@@ -1243,9 +1243,9 @@ get fun `test the minter is Live at untilMs and answers CommitteeNotAccepted one
 
     // the frozen void opens; a second void of the same nonces is rejected by the bucket
     val voided = sendVoidFrozen(env, 0, 2, env.minter.voidFrozenRequiredValue(0));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val again = sendVoidFrozen(env, 1, 1, env.minter.voidFrozenRequiredValue(1));
-    expect(again).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(again).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test a latched minter answers Equivocated at every Live check`() {

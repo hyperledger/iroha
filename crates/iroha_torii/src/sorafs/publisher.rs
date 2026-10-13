@@ -26,7 +26,7 @@ fn publication_now() -> Result<u64, StatusCode> {
 }
 
 /// Stage one authenticated metadata reservation or one chunk; never admit or complete a pin.
-pub(crate) async fn stage_source(
+pub async fn stage_source(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,
@@ -151,7 +151,7 @@ fn canonical_response<T: norito::NoritoSerialize + norito::NoritoSchema>(
 }
 
 /// Return informational exact native rows; the client must challenge them through the assertion.
-pub(crate) async fn prepare_publication(
+pub async fn prepare_publication(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,
@@ -213,7 +213,7 @@ pub(crate) async fn prepare_publication(
 }
 
 /// Serve exact successful assertion carriers without bypassing full-ledger read permissions.
-pub(crate) async fn publication_proof(
+pub async fn publication_proof(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,

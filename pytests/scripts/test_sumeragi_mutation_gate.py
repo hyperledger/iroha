@@ -310,13 +310,17 @@ def test_registered_core_rules_have_real_hooks_and_named_core_regressions():
     text = "\n".join(path.read_text() for path in source.rglob("*.rs"))
     functions = set(re.findall(r"\bfn\s+(\w+)\s*\(", text))
     functions.update(re.findall(r"\bstate_test!\s*\{\s*(?:sync|result|large_stack|consensus_stack)\s+(\w+)\b", text))
+    world = (source / "smartcontracts/isi/world.rs").read_text()
+    assert re.search(r"macro_rules! world_test\s*\{\s*\(\$name:ident \$body:block\)\s*=>\s*\{\s*#\[test\]\s*fn \$name\(\) \$body", world)
+    assert 'include!("world_sccp_governance_tests.rs");' in world
+    functions.update(re.findall(r"\bworld_test!\s*\(\s*(\w+)\s*\{", text))
     ids = [mutation.id for mutation in gate.CORE_MUTATIONS]
     assert len(ids) == len(set(ids))
     for mutation in gate.CORE_MUTATIONS:
         assert gate.has_switch(mutation.id, core=True)
         assert not gate.has_switch(mutation.id)
         assert mutation.tests and not mutation.scenarios
-        assert all(name.rsplit("::", 1)[-1] in functions for name in mutation.tests)
+        assert all(name.rsplit("::", 1)[-1] in functions for name in mutation.tests), mutation.id
 
 
 def test_mutation_ids_select_one_rule_across_all_implementation_owners():
@@ -4373,7 +4377,7 @@ def test_torii_cache_mutation_has_exact_owner_hook_and_both_native_adapters():
     assert "cached Applied must retain its original canonical membership" in controls
     assert "prepared submission cache must retain its original canonical membership" in controls
     assert "canonical_outcome_test_fixture(false)" in controls
-    assert "membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap())" in controls
+    assert "membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap())" in controls
     build = (source / "build.rs").read_text()
     declared = re.search(r'const IDS: &\[&str\] = &\[(.*?)\];', build, re.S)
     assert declared is not None
@@ -6449,9 +6453,10 @@ def test_native_cursor_output_retention_has_original_owner_and_causal_control():
         "if original.native_height == target", "drop(completed)",
         "checkpoint: Option<SumeragiFinalityCheckpoint>", "carrier: Option<Carrier>",
         "admit_verification_slot(budget).map_err(ProofError::from)?",
-        "coherent_height(view)? != current", "verified.block().hash() != *hash",
-        "receipt.result() != verified.result()", "receipt.id().0.as_ref() != verified.context_id().as_ref()",
-        "read_frame(durable.clone(), *height, verified.root_scope())",
+        "coherent_height(view)? != current", "authenticated.block().hash() != *hash",
+        "receipt.result() != authenticated.result()", "receipt.id().0.as_ref() != authenticated.context_id().as_ref()",
+        "read_frame(durable.clone(), *height, authenticated.root_scope())",
+        "receipt.block_hash() != authenticated.block().hash()", "receipt.core_hash() != authenticated.core_hash()",
     ):
         assert re.sub(r"\s+", "", obligation) in compact
     production = source.split("#[cfg(test)]\nmod tests", 1)[0]

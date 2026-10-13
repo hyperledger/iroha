@@ -138,8 +138,10 @@ impl WorkflowClock for Clock {
     }
     fn sleep(&self, duration: Duration) -> WorkflowFuture<'_, ()> {
         Box::pin(async move {
-            self.0
-                .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+            self.0.fetch_add(
+                u64::try_from(duration.as_millis()).expect("fixture duration fits u64"),
+                Ordering::Relaxed,
+            );
         })
     }
 }
@@ -229,7 +231,7 @@ async fn replacement_case(rejections: &[bool]) {
             payload: Mutex::new(Some(
                 norito::encode_canonical(account.transactions[index].payload()).unwrap(),
             )),
-            ordinal: index as u8 + 1,
+            ordinal: u8::try_from(index).expect("fixture index fits u8") + 1,
         };
         let result = handle.run(&driver, &options).await;
         if *rejected {

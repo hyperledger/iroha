@@ -135,16 +135,17 @@ impl DataspaceChain {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         let pipeline = iroha_config::parameters::actual::Pipeline::default();
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.tech_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
-        gas.accepted_assets = vec![fee_asset.canonical_address()];
-        gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-            asset: fee_asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
-            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: SAMPLE_GENESIS_ACCOUNT_ID.to_string(),
+            accepted_assets: vec![fee_asset.canonical_address()],
+            units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+                asset: fee_asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
+                liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+                volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+            }],
+        };
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = scope;
         let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
@@ -330,7 +331,7 @@ impl DataspaceChain {
             .expect("start independent private root with its original stores and authority");
             assert_eq!(
                 node.instance,
-                root_instance(&self.chain.genesis, &self.chain.chain_id.to_string()).unwrap()
+                root_instance(&self.chain.genesis, self.chain.chain_id.as_ref()).unwrap()
             );
             assert!(node.handle().startup_recovery().is_ready());
             assert_eq!(

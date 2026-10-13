@@ -270,8 +270,7 @@ fn terminal_transport_outcomes_fail_without_fabricated_admission() {
             &Terminal(closed),
             &mut worker,
         )
-        .err()
-        .expect("terminal send error");
+        .expect_err("terminal send error");
         assert_eq!(
             error.kind(),
             if closed {
@@ -810,9 +809,14 @@ fn retained_core_cache_releases_codewords_before_small_pool_authoring() {
             0,
             "Core retirement must release original codeword and body owners before next authoring"
         );
-        let mut payload =
-            iroha_sumeragi::availability::PayloadBytes::from_untrusted(vec![view as u8; 2049])
-                .unwrap();
+        let mut payload = iroha_sumeragi::availability::PayloadBytes::from_untrusted(vec![
+                u8::try_from(view)
+                    .expect(
+                        "fixture value fits u8"
+                    );
+                2049
+            ])
+        .unwrap();
         payload.admit(&budget).unwrap();
         let mut header = f.body.header().clone();
         header.origin_view = view;

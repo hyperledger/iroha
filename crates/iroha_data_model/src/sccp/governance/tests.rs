@@ -1010,7 +1010,7 @@ fn proposal_json_is_closed_and_amounts_are_decimal_strings() {
 #[test]
 fn unknown_action_and_subject_tags_are_rejected() {
     // 13 was the bridge-key fault clearing; it stays unassigned.
-    for unsupported_tag in [13_u32, 18, 19, u32::MAX] {
+    for unsupported_tag in [13_u32, 19, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -1022,7 +1022,7 @@ fn unknown_action_and_subject_tags_are_rejected() {
         );
     }
     // 4 was the bridge-key fault subject; it stays unassigned.
-    for unsupported_tag in [4_u32, 6, u32::MAX] {
+    for unsupported_tag in [4_u32, 8, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -1245,4 +1245,57 @@ fn register_route_native_pin_checks_each_exact_json_u64_boundary() {
             }
         }
     }
+}
+
+#[test]
+fn fast_pause_suspension_subjects_duration_bound_and_json_precision() {
+    let maximum = 3 * super::super::params::SCCP_MAX_FAST_PAUSE_MS_V1;
+    for duration in [0, maximum] {
+        let action =
+            SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+                network: ETH,
+                duration_ms: duration,
+            });
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &["payload"]);
+        assert_eq!(
+            action.subject(),
+            SccpGovernanceSubjectV1::FastPauseControl(ETH)
+        );
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(validate(vec![action.clone()]), Ok(()));
+        assert!(action.encode().starts_with(&18_u32.encode()));
+    }
+    let action = |duration_ms| {
+        SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+            network: ETH,
+            duration_ms,
+        })
+    };
+    assert_eq!(
+        validate(vec![action(maximum + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    assert!(action(JSON_MAX).first_json_u64_violation().is_none());
+    assert!(action(JSON_MAX + 1).first_json_u64_violation().is_some());
+    assert_eq!(
+        validate(vec![action(JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    for (subject, index) in [
+        (SccpGovernanceSubjectV1::FastHold(ETH), 6_u32),
+        (SccpGovernanceSubjectV1::FastPauseControl(ETH), 7),
+    ] {
+        roundtrip(&subject);
+        assert!(subject.encode().starts_with(&index.encode()));
+    }
+    let mut wrong_network = action(0);
+    let SccpGovernanceActionV1::SetFastPauseSuspended(ref mut payload) = wrong_network else {
+        unreachable!()
+    };
+    payload.network = TAIRA;
+    assert_eq!(
+        validate(vec![wrong_network]),
+        Err(SccpGovernanceStaticError::TairaNetwork { action: 0 })
+    );
 }

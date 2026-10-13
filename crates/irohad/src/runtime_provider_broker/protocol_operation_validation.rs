@@ -1013,7 +1013,7 @@ fn verify_evidence_viewer_ed25519_signature(
 }
 
 fn beacon_session_error(
-    error: iroha_core::beacon::GlobalThresholdBeaconSessionError,
+    error: &iroha_core::beacon::GlobalThresholdBeaconSessionError,
 ) -> BrokerError {
     use iroha_allocation::{
         ChargedBufferError, ChargedBufferFromChargeError, PrepaidBufferError, PrepaidSharedError,
@@ -1024,8 +1024,9 @@ fn beacon_session_error(
         Error::Invalid(_) => BrokerError::Rejected,
         Error::Admission(_)
         | Error::DecodeResource(_)
-        | Error::Buffer(PrepaidBufferError::Allocation(ChargedBufferError::Admission(_)))
-        | Error::Buffer(PrepaidBufferError::Allocation(ChargedBufferError::Allocator { .. }))
+        | Error::Buffer(PrepaidBufferError::Allocation(
+            ChargedBufferError::Admission(_) | ChargedBufferError::Allocator { .. },
+        ))
         | Error::Shared(PrepaidSharedError::Allocator { .. })
         | Error::PublicKey(PublicKeyAllocationError::Allocation(
             ChargedBufferFromChargeError::Allocator { .. },

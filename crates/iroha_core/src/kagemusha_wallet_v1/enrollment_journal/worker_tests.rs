@@ -111,7 +111,10 @@ impl Fixture {
             "refusal_code": (if outcome == "refused" { Value::from(7_u16) } else { Value::Null }),
         });
         let bytes = norito::json::to_vec(&json).unwrap();
-        let mut framed = (bytes.len() as u32).to_le_bytes().to_vec();
+        let mut framed = u32::try_from(bytes.len())
+            .expect("fixture value fits u32")
+            .to_le_bytes()
+            .to_vec();
         framed.extend(bytes);
         framed
     }
@@ -127,6 +130,10 @@ impl Fixture {
             Ok(OutcomeV1::Evidence(_))
         ));
     }
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "credential construction consumes the original signed body"
+    )]
     fn signed_result(&self, body: KagemushaWalletCredentialBodyV1) -> Vec<u8> {
         let signature: Signature = self.signer.sign(&body.signing_message());
         let credential = KagemushaWalletCredentialV1::sign(
@@ -506,7 +513,10 @@ fn an_exposed_worker_refusal_is_verified_against_its_retained_original_and_excha
         let mut value: Value = norito::json::from_slice(&frame[4..]).unwrap();
         change(&mut value);
         let bytes = norito::json::to_vec(&value).unwrap();
-        let mut framed = (bytes.len() as u32).to_le_bytes().to_vec();
+        let mut framed = u32::try_from(bytes.len())
+            .expect("fixture value fits u32")
+            .to_le_bytes()
+            .to_vec();
         framed.extend(bytes);
         framed
     };

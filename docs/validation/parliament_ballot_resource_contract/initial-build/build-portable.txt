@@ -1,0 +1,12 @@
+COMMAND scripts/cargo_fast.sh --target-slot parliament-workspace --incremental -- build --release --locked -p iroha_parliament_ballot_proof --example resource_contract
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-workspace
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo build --release --locked -p iroha_parliament_ballot_proof --example resource_contract
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 1.19s
+
+EXIT 0

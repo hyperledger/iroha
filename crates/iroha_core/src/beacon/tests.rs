@@ -556,7 +556,7 @@ fn pulse_partial_signatures(
     pulse: &FinalizedGlobalThresholdBeaconPulseV1,
     rng_seed: [u8; 32],
 ) -> Vec<GlobalThresholdBeaconPartialSignatureV1> {
-    let payload = global_threshold_beacon_pulse_payload_v1(&pulse);
+    let payload = global_threshold_beacon_pulse_payload_v1(pulse);
     let mut proof_rng = StdRng::from_seed(rng_seed);
     let mut partials = Vec::new();
 
@@ -1509,7 +1509,7 @@ fn parliament_seed_reverifies_valid_and_rejects_tampered_persisted_pulse() {
         verified_persisted_global_threshold_beacon_governance_seed_v1(
             &valid_world.view(),
             &pulse.network_id,
-            pulse,
+            &pulse,
             pulse.height,
         ),
         Ok(global_threshold_beacon_governance_seed_v1(
@@ -1525,7 +1525,7 @@ fn parliament_seed_reverifies_valid_and_rejects_tampered_persisted_pulse() {
         verified_persisted_global_threshold_beacon_governance_seed_v1(
             &tampered_world.view(),
             &pulse.network_id,
-            tampered,
+            &tampered,
             pulse.height,
         )
         .is_err(),
@@ -2001,8 +2001,8 @@ fn threshold_beacon_canonical_decoders_reject_trailing_wire_data() {
             &super::fixtures::fixture_budget()
         )
         .map_err(invalid_session),
-        Err(GlobalThresholdBeaconError::InvalidEncoding)
-            | Err(GlobalThresholdBeaconError::NonCanonicalEncoding)
+        Err(GlobalThresholdBeaconError::InvalidEncoding
+            | GlobalThresholdBeaconError::NonCanonicalEncoding)
     ));
 
     let (pulse, _cursor, anchor) = pulse_fixture(&session);
@@ -2015,8 +2015,8 @@ fn threshold_beacon_canonical_decoders_reject_trailing_wire_data() {
             anchor,
             &pulse.context,
         ),
-        Err(GlobalThresholdBeaconError::InvalidEncoding)
-            | Err(GlobalThresholdBeaconError::NonCanonicalEncoding)
+        Err(GlobalThresholdBeaconError::InvalidEncoding
+            | GlobalThresholdBeaconError::NonCanonicalEncoding)
     ));
 }
 

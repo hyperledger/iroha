@@ -117,7 +117,7 @@ fn provision(
         .unwrap(),
     )
 }
-pub(crate) fn service_fixture() -> (
+pub fn service_fixture() -> (
     tempfile::TempDir,
     Arc<SoftwareSignerServiceV1>,
     MusubiProviderBundleVerificationPayloadV1,

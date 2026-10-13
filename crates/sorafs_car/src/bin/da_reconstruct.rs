@@ -778,13 +778,15 @@ mod tests {
         }
         payload
     }
+    type IndexedChunkPayloads = Vec<(u32, Vec<u8>)>;
+
     fn build_fixture_manifest(
         payload: &[u8],
         chunk_store: &ChunkStore,
         chunk_size: u32,
         data_shards: u16,
         parity_shards: u16,
-    ) -> (DaManifestV1, Vec<u32>, Vec<(u32, Vec<u8>)>) {
+    ) -> (DaManifestV1, Vec<u32>, IndexedChunkPayloads) {
         let stored = chunk_store.chunks();
         let data_shards_usize = usize::from(data_shards);
         let parity_shards_usize = usize::from(parity_shards);
@@ -926,7 +928,7 @@ mod tests {
             output_path: "payload.bin".to_owned(),
         }
     }
-    fn sample_manifest() -> (DaManifestV1, Vec<u8>, Vec<(u32, Vec<u8>)>) {
+    fn sample_manifest() -> (DaManifestV1, Vec<u8>, IndexedChunkPayloads) {
         let payload = b"chunked payload example bytes for reconstruction harness".to_vec();
         let plan = CarBuildPlan::single_file(&payload).expect("plan");
         let mut chunk_store = ChunkStore::with_profile(ChunkProfile::DEFAULT);

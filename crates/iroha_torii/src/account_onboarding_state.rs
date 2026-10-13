@@ -52,7 +52,7 @@ fn resolved_alias_for_view(
 }
 
 /// Read every consensus-derived field from one generation-consistent state snapshot.
-pub(crate) fn read_account_onboarding_current_state(
+pub fn read_account_onboarding_current_state(
     app: &SharedAppState,
     request: &AccountOnboardingCurrentStateRequestV1,
     expected_route: Option<RoutingDecision>,
@@ -109,7 +109,7 @@ pub(crate) fn read_account_onboarding_current_state(
     Ok(response)
 }
 
-pub(crate) fn execute_account_onboarding_current_state_local_read(
+pub fn execute_account_onboarding_current_state_local_read(
     app: &SharedAppState,
     request: &AccountOnboardingCurrentStateRequestV1,
     expected_route: Option<RoutingDecision>,
@@ -121,7 +121,7 @@ pub(crate) fn execute_account_onboarding_current_state_local_read(
     )?)
 }
 
-pub(crate) fn sanitize_routed_account_onboarding_current_state(
+pub fn sanitize_routed_account_onboarding_current_state(
     app: &SharedAppState,
     _route: RoutingDecision,
     request_body: &[u8],
@@ -139,7 +139,7 @@ pub(crate) fn sanitize_routed_account_onboarding_current_state(
         .map_err(|error| format!("failed to encode onboarding current-state response: {error}"))
 }
 
-pub(crate) async fn handler_account_onboarding_current_state(
+pub async fn handler_account_onboarding_current_state(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,

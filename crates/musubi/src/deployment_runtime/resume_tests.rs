@@ -96,8 +96,8 @@ fn plan_for_source(
             UploadSmartContractCodeChunk {
                 artifact_id,
                 total_size: artifact.len() as u64,
-                chunk_index: index as u32,
-                chunk_count: count as u32,
+                chunk_index: u32::try_from(index).unwrap(),
+                chunk_count: u32::try_from(count).unwrap(),
                 chunk: chunk.to_vec(),
             }
             .into(),
@@ -107,7 +107,7 @@ fn plan_for_source(
                 FinalizeSmartContractCodeUpload {
                     artifact_id,
                     total_size: artifact.len() as u64,
-                    chunk_count: count as u32,
+                    chunk_count: u32::try_from(count).unwrap(),
                 }
                 .into(),
             );
@@ -229,12 +229,12 @@ fn complete(plan: &Plan) -> Result<DeploymentReceipt> {
         .collect();
     for (index, ((name, tx), evidence)) in plan.transactions.iter().zip(&stages).enumerate() {
         directory.write_atomic(
-            &format!("attempt-{index:04}.json"),
+            format!("attempt-{index:04}.json"),
             &norito::json::to_vec(&norito::json!({"name": name, "hash": (tx.hash().to_string())}))?,
             PublishMode::CreateNew,
         )?;
         directory.write_atomic(
-            &format!("applied-{index:04}.json"),
+            format!("applied-{index:04}.json"),
             &norito::json::to_vec(evidence)?,
             PublishMode::CreateNew,
         )?;
@@ -290,10 +290,12 @@ fn read_request(stream: &mut TcpStream) -> Result<(String, Vec<u8>)> {
     Ok((headers.lines().next().unwrap().to_owned(), body))
 }
 
+type HttpRequest = (String, Vec<u8>);
+
 struct Http {
     origin: String,
     stop: Arc<AtomicBool>,
-    requests: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    requests: Arc<Mutex<Vec<HttpRequest>>>,
     handle: Option<thread::JoinHandle<Result<()>>>,
 }
 impl Http {
@@ -979,7 +981,7 @@ fn held_slot_lock_refuses_windows_rename() -> Result<()> {
 }
 
 /// Exercise the package command's production fresh consumer with a real native saved plan.
-pub(crate) fn assert_package_fresh_retry_preserves_original(
+pub fn assert_package_fresh_retry_preserves_original(
     run: impl Fn(
         &DeploymentService,
         &DeploymentSlot,

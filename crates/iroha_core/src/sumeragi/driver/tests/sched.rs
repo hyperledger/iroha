@@ -35,7 +35,7 @@ fn config() -> HeightConfig {
 }
 
 fn result_of(parent_result: &Hash32, block: &AvailableBody) -> Hash32 {
-    match reference_exec(parent_result, &block.payload().as_slice()) {
+    match reference_exec(parent_result, block.payload().as_slice()) {
         ExecOutcome::Valid(r) => r,
         other => panic!("{other:?}"),
     }
@@ -1288,7 +1288,7 @@ fn all_validator_control_waits_for_applied_parent_and_shares_do_not_starve_work(
 fn application_control_ingress_has_a_hard_protocol_cap() {
     let mut sched = ExecSched::new(0, Backoff::default(), super::test_registrations());
     sched.retain_control_context(Some((partial_context(1), 0)));
-    for index in 0..iroha_sumeragi::types::MAX_COMMITTEE_SIZE + 1 {
+    for index in 0..=iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
         let mut bytes = vec![0xAB; 32];
         bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
         sched.receive_control(PublicKey::new(bytes).unwrap(), partial(1));

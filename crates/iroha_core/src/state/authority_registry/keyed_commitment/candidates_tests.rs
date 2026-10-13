@@ -281,8 +281,12 @@ fn candidates_are_four_distinct_constructions_over_named_profiles() {
     .into_iter()
     .collect();
     assert_eq!(profiles.len(), 5);
-    assert!(!Blake2bProfile::ALGEBRAIC && !Blake3Profile::ALGEBRAIC);
-    assert!(Poseidon2Profile::ALGEBRAIC && RescuePrimeProfile::ALGEBRAIC);
+    const {
+        assert!(!Blake2bProfile::ALGEBRAIC && !Blake3Profile::ALGEBRAIC);
+    }
+    const {
+        assert!(Poseidon2Profile::ALGEBRAIC && RescuePrimeProfile::ALGEBRAIC);
+    }
     // Raw byte digests are not marker-bearing `iroha_crypto::Hash` values.
     assert_eq!(Blake2bProfile::NAME, "blake2b-256-raw");
     let digest = Blake3Raw::digest(&[b"abc"]);

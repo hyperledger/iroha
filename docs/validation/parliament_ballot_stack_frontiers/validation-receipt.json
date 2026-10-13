@@ -1,0 +1,31 @@
+{
+  "command": [
+    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_stack_frontiers_test.py"
+  ],
+  "complete_workspace_certificate": false,
+  "format": "parliament-stack-frontier-validation-v1",
+  "no_rebuild_or_worker_execution": true,
+  "observed_at_utc": "2026-10-13T08:10:27.344098+00:00",
+  "profile_qualified": false,
+  "read_only_review": {
+    "machine_code_or_unsafe_qualification": false,
+    "remaining_concrete_findings": [],
+    "scope": "Conditional longest-path/SCC arithmetic; explicit failure frontiers and unknown callees; preserved continuations; frozen-provider graph comparison"
+  },
+  "report_sha256": "90c2bd1dbdd3ba4839fa8705922a3ff1ea4854ec0578eec2a7787e6ffecbe30f",
+  "returncode": 0,
+  "source_after": {
+    "scripts/parliament_ballot_stack_frontiers.py": "053fd3a50071408faba23b12d5f9144fc8d0d4fa87ba7ad126ee3e7838ca1a5d",
+    "scripts/tests/parliament_ballot_stack_frontiers_test.py": "7c290e70e9d9c5afad733b79cde35c96602a8e5a1ed1dab46c5c8f5850aa5b89"
+  },
+  "source_before": {
+    "scripts/parliament_ballot_stack_frontiers.py": "053fd3a50071408faba23b12d5f9144fc8d0d4fa87ba7ad126ee3e7838ca1a5d",
+    "scripts/tests/parliament_ballot_stack_frontiers_test.py": "7c290e70e9d9c5afad733b79cde35c96602a8e5a1ed1dab46c5c8f5850aa5b89"
+  },
+  "source_unchanged": true,
+  "test_output_sha256": "4cfcd66179ed487df4129ec54d6a4740d94fe60875b0ec11d0bc2f339f5866b4"
+}

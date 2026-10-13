@@ -398,12 +398,13 @@ async fn alias_lookup_by_account_returns_empty_fanout_result_when_offline_route_
     let collected = collect_torii_alias_lookup_json_payloads(
         &app,
         &allowed,
-        denied,
-        "unresolved alias routes require permission",
+        (denied, "unresolved alias routes require permission"),
         visibility.caller(),
         &request,
-        app.query_fanout_working_set_bytes,
-        app.torii_proxy_max_response_bytes,
+        (
+            app.query_fanout_working_set_bytes,
+            app.torii_proxy_max_response_bytes,
+        ),
         |route| {
             let app = &app;
             let body = &body;
@@ -1236,7 +1237,7 @@ async fn identifier_receipt_dto_preserves_typed_bindings_without_execution_claim
         payload,
         phone_retail_canonicality: None,
     };
-    let dto = identifier_receipt_response(&receipt, program.backend.as_str()).unwrap();
+    let dto = identifier_receipt_response(&receipt);
     assert_eq!(dto.payload.policy_id, policy.id.to_string());
     assert_eq!(dto.payload.opaque_id, receipt.payload.opaque_id.to_string());
     assert_eq!(
@@ -1276,7 +1277,7 @@ async fn identifier_receipt_dto_preserves_typed_bindings_without_execution_claim
 #[tokio::test]
 async fn identifier_owner_nonce_is_exact_lowerhex_nonzero_and_bounded() {
     for nonce in [
-        "".to_owned(),
+        String::new(),
         "a".repeat(63),
         "a".repeat(65),
         "A".repeat(64),
@@ -2372,7 +2373,6 @@ async fn resolve_tx_history_allowed_asset_definition_id_accepts_base58_literal_w
     let app_state = Arc::get_mut(&mut app).expect("unique app state");
     app_state.tx_history_access_policy = Arc::new(TxHistoryAccessPolicy {
         allowed_asset_definition_id: Some(expected.to_string()),
-        ..TxHistoryAccessPolicy::default()
     });
     assert_eq!(
         resolve_tx_history_allowed_asset_definition_id(app.as_ref())
@@ -2391,7 +2391,6 @@ async fn resolve_tx_history_allowed_asset_definition_id_keeps_alias_selectors_st
     let app_state = Arc::get_mut(&mut app).expect("unique app state");
     app_state.tx_history_access_policy = Arc::new(TxHistoryAccessPolicy {
         allowed_asset_definition_id: Some("cbdc#missing".to_owned()),
-        ..TxHistoryAccessPolicy::default()
     });
     let error = resolve_tx_history_allowed_asset_definition_id(app.as_ref())
         .expect_err("unknown alias selector must remain strict");

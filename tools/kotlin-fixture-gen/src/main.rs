@@ -181,11 +181,11 @@ fn emit_transfer_asset() {
     // Line 1: wire payload hex
     println!("{}", hex::encode(encoded));
     // Line 2: asset ID string (<base58-def>#<i105-account>)
-    println!("{}#{}", asset_def_id, account_id);
+    println!("{asset_def_id}#{account_id}");
     // Line 3: amount
     println!("100");
     // Line 4: destination account I105
-    println!("{}", account_id);
+    println!("{account_id}");
 }
 fn emit_transfer_asset_scoped() {
     let _chain_discriminant = ChainDiscriminantGuard::enter(TAIRA_CHAIN_DISCRIMINANT);
@@ -204,9 +204,9 @@ fn emit_transfer_asset_scoped() {
     let transfer_box: TransferBox = transfer.into();
     let encoded = norito::to_bytes(&transfer_box).expect("encode scoped TransferBox");
     println!("{}", hex::encode(encoded));
-    println!("{}#{}#dataspace:42", asset_def_id, account_id);
+    println!("{asset_def_id}#{account_id}#dataspace:42");
     println!("100");
-    println!("{}", account_id);
+    println!("{account_id}");
 }
 fn emit_claim_identifier() {
     let account_id = parity_account_id();
@@ -274,7 +274,7 @@ fn emit_claim_identifier() {
     // Line 1: full wire payload hex
     println!("{}", hex::encode(encoded));
     // Line 2: account I105
-    println!("{}", account_id);
+    println!("{account_id}");
     // Line 3: signature bytes hex
     println!("{}", hex::encode(signature_bytes));
     // Line 4: canonical hash hex used by receipt fields

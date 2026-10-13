@@ -56,14 +56,14 @@ fn limits() -> NativeFinalityLimits {
 fn validate_anchor(journal: &NativeFinalityJournal, network: NetworkId) {
     let genesis = journal.blocks[0].decode_block(limits()).unwrap();
     assert_eq!(genesis.hash(), network.into_genesis_hash());
-    let instance = crate::sumeragi::node::root_instance(&genesis, &chain_id().to_string()).unwrap();
+    let instance = crate::sumeragi::node::root_instance(&genesis, chain_id().as_ref()).unwrap();
     assert_ne!(instance, Hash32::ZERO);
 }
 fn outputs(block: &mut SignedBlock) {
     let values = (0..block.external_transactions().count())
         .map(|index| {
             ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
-                input_index: index as u32,
+                input_index: u32::try_from(index).expect("fixture value fits u32"),
                 result: TransactionResult::new(Ok(Vec::new())),
                 completions: Vec::new(),
             })
@@ -73,10 +73,10 @@ fn outputs(block: &mut SignedBlock) {
         .set_execution_outputs(
             values,
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .unwrap();
@@ -219,10 +219,12 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             )
         })
         .collect::<Vec<_>>();
-    let mut policy = SumeragiNposParameters::default();
-    policy.epoch_length_blocks = NonZeroU64::new(10).unwrap();
-    policy.evidence_horizon_blocks = 10;
-    policy.slashing_delay_blocks = 10;
+    let policy = SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(10).unwrap(),
+        evidence_horizon_blocks: 10,
+        slashing_delay_blocks: 10,
+        ..Default::default()
+    };
     let mut genesis = crate::sumeragi::test_chain::signed_genesis_fixture(
         &chain_id(),
         &KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519),
@@ -234,7 +236,7 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
     )
     .unwrap();
     let network = NetworkId::from_genesis_hash(genesis.hash());
-    let instance = crate::sumeragi::node::root_instance(&genesis, &chain_id().to_string()).unwrap();
+    let instance = crate::sumeragi::node::root_instance(&genesis, chain_id().as_ref()).unwrap();
     let mut current = crate::sumeragi::epoch::authenticated_genesis(&genesis)
         .map(|genesis| genesis.into_parts().0)
         .unwrap();
@@ -404,7 +406,8 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             availability_digest: Hash32::ZERO,
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: crate::sumeragi::epoch_beacon::control::encode(pulse).unwrap(),
+            control_witness: crate::sumeragi::epoch_beacon::control::encode(pulse.as_ref())
+                .unwrap(),
         };
         let config = ScheduledConfig {
             height,
@@ -519,7 +522,7 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .take(3)
         .enumerate()
         .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
-            signer_index: index as u16,
+            signer_index: u16::try_from(index).expect("fixture value fits u16"),
             signature: Signature::new(key.private_key(), &preimage),
         })
         .collect();
@@ -613,9 +616,11 @@ fn committee_boundary_requires_exact_native_quorum() {
         iroha_sumeragi::crypto::Verifier::new(&crypto, &header.instance, &epoch.id, &committee);
     assert_eq!(verifier.verify_qc(&qc), Ok(()));
     let resign = |qc: &mut iroha_sumeragi::message::Qc, count: usize| {
-        qc.signers =
-            iroha_sumeragi::types::Bitmap::from_indices(4, (0..count).map(|index| index as u32))
-                .unwrap();
+        qc.signers = iroha_sumeragi::types::Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let signatures = keys
             .iter()
             .take(count)

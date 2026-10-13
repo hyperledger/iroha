@@ -241,7 +241,7 @@ fn reject_unbound_derived_sources(fields: &'static [Field]) -> Result<(), Compos
                 ) {
                     error = Some(CompositionError::UnboundDerivedSource {
                         field: field.id,
-                        table_source: *source,
+                        table_source: source,
                     });
                     break;
                 }

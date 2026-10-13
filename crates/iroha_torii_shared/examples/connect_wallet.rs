@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("Open does not match the canonical invite identity");
     }
     let x = X25519Sha256::new();
-    let (wallet_pk, wallet_sk) = x.try_keypair(KeyGenOption::Random)?;
+    let (wallet_pk, wallet_secret_key) = x.try_keypair(KeyGenOption::Random)?;
     let wallet_pk_bytes: [u8; 32] = *wallet_pk.as_bytes();
     let relay_auth = sdk::relay_auth_hash(&sid, &relay_token);
     let approval_preimage = sdk::build_approve_preimage(
@@ -143,8 +143,9 @@ async fn main() -> anyhow::Result<()> {
     };
     ws.send(Message::Binary(Bytes::from(approval.encode())))
         .await?;
-    let (k_app, k_wallet) = sdk::x25519_derive_keys(&wallet_sk.to_bytes(), &app_pk_bytes, &sid)
-        .expect("x25519 derive keys");
+    let (k_app, k_wallet) =
+        sdk::x25519_derive_keys(&wallet_secret_key.to_bytes(), &app_pk_bytes, &sid)
+            .expect("x25519 derive keys");
     // Read one frame (expect SignRequestTx/Raw)
     let msg = ws.next().await.context("ws recv")??;
     let Message::Binary(bin) = msg else {

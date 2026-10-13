@@ -1,0 +1,674 @@
+[
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Ivole_mult_tables.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -MD -MQ vole_mult_tables.p/tables_vole_mult_tables.cpp.o -MF vole_mult_tables.p/tables_vole_mult_tables.cpp.o.d -o vole_mult_tables.p/tables_vole_mult_tables.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tables/vole_mult_tables.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tables/vole_mult_tables.cpp",
+    "output": "vole_mult_tables.p/tables_vole_mult_tables.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/aes.c.o -MF libfaest_no_random.a.p/aes.c.o.d -o libfaest_no_random.a.p/aes.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/aes.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/aes.c",
+    "output": "libfaest_no_random.a.p/aes.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/bavc.c.o -MF libfaest_no_random.a.p/bavc.c.o.d -o libfaest_no_random.a.p/bavc.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/bavc.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/bavc.c",
+    "output": "libfaest_no_random.a.p/bavc.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/compat.c.o -MF libfaest_no_random.a.p/compat.c.o.d -o libfaest_no_random.a.p/compat.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/compat.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/compat.c",
+    "output": "libfaest_no_random.a.p/compat.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/faest_impl.c.o -MF libfaest_no_random.a.p/faest_impl.c.o.d -o libfaest_no_random.a.p/faest_impl.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_impl.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_impl.c",
+    "output": "libfaest_no_random.a.p/faest_impl.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/fields.c.o -MF libfaest_no_random.a.p/fields.c.o.d -o libfaest_no_random.a.p/fields.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/fields.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/fields.c",
+    "output": "libfaest_no_random.a.p/fields.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/instances.c.o -MF libfaest_no_random.a.p/instances.c.o.d -o libfaest_no_random.a.p/instances.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/instances.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/instances.c",
+    "output": "libfaest_no_random.a.p/instances.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/owf.c.o -MF libfaest_no_random.a.p/owf.c.o.d -o libfaest_no_random.a.p/owf.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/owf.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/owf.c",
+    "output": "libfaest_no_random.a.p/owf.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/random_oracle.c.o -MF libfaest_no_random.a.p/random_oracle.c.o.d -o libfaest_no_random.a.p/random_oracle.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/random_oracle.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/random_oracle.c",
+    "output": "libfaest_no_random.a.p/random_oracle.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/universal_hashing.c.o -MF libfaest_no_random.a.p/universal_hashing.c.o.d -o libfaest_no_random.a.p/universal_hashing.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/universal_hashing.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/universal_hashing.c",
+    "output": "libfaest_no_random.a.p/universal_hashing.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/utils.c.o -MF libfaest_no_random.a.p/utils.c.o.d -o libfaest_no_random.a.p/utils.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/utils.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/utils.c",
+    "output": "libfaest_no_random.a.p/utils.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/vole.c.o -MF libfaest_no_random.a.p/vole.c.o.d -o libfaest_no_random.a.p/vole.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/vole.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/vole.c",
+    "output": "libfaest_no_random.a.p/vole.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_aes_128.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_aes_128.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_aes_128.c.o -c faest_aes_128.c",
+    "file": "faest_aes_128.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_aes_128.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_aes_192.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_aes_192.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_aes_192.c.o -c faest_aes_192.c",
+    "file": "faest_aes_192.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_aes_192.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_aes_256.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_aes_256.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_aes_256.c.o -c faest_aes_256.c",
+    "file": "faest_aes_256.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_aes_256.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/cpu.c.o -MF libfaest_no_random.a.p/cpu.c.o.d -o libfaest_no_random.a.p/cpu.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/cpu.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/cpu.c",
+    "output": "libfaest_no_random.a.p/cpu.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/sha3_KeccakHash.c.o -MF libfaest_no_random.a.p/sha3_KeccakHash.c.o.d -o libfaest_no_random.a.p/sha3_KeccakHash.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakHash.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakHash.c",
+    "output": "libfaest_no_random.a.p/sha3_KeccakHash.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/sha3_KeccakSponge.c.o -MF libfaest_no_random.a.p/sha3_KeccakSponge.c.o.d -o libfaest_no_random.a.p/sha3_KeccakSponge.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakSponge.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakSponge.c",
+    "output": "libfaest_no_random.a.p/sha3_KeccakSponge.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/sha3_opt64_KeccakP-1600-opt64.c.o -MF libfaest_no_random.a.p/sha3_opt64_KeccakP-1600-opt64.c.o.d -o libfaest_no_random.a.p/sha3_opt64_KeccakP-1600-opt64.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64/KeccakP-1600-opt64.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64/KeccakP-1600-opt64.c",
+    "output": "libfaest_no_random.a.p/sha3_opt64_KeccakP-1600-opt64.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_128s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_128s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_128s.c.o -c faest_128s.c",
+    "file": "faest_128s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_128s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_128f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_128f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_128f.c.o -c faest_128f.c",
+    "file": "faest_128f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_128f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_128s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_128s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_128s.c.o -c faest_em_128s.c",
+    "file": "faest_em_128s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_128s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_128f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_128f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_128f.c.o -c faest_em_128f.c",
+    "file": "faest_em_128f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_128f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_192s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_192s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_192s.c.o -c faest_192s.c",
+    "file": "faest_192s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_192s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_192f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_192f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_192f.c.o -c faest_192f.c",
+    "file": "faest_192f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_192f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_192s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_192s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_192s.c.o -c faest_em_192s.c",
+    "file": "faest_em_192s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_192s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_192f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_192f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_192f.c.o -c faest_em_192f.c",
+    "file": "faest_em_192f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_192f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_256s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_256s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_256s.c.o -c faest_256s.c",
+    "file": "faest_256s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_256s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_256f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_256f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_256f.c.o -c faest_256f.c",
+    "file": "faest_256f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_256f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_256s.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_256s.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_256s.c.o -c faest_em_256s.c",
+    "file": "faest_em_256s.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_256s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest_no_random.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest_no_random.a.p/meson-generated_.._faest_em_256f.c.o -MF libfaest_no_random.a.p/meson-generated_.._faest_em_256f.c.o.d -o libfaest_no_random.a.p/meson-generated_.._faest_em_256f.c.o -c faest_em_256f.c",
+    "file": "faest_em_256f.c",
+    "output": "libfaest_no_random.a.p/meson-generated_.._faest_em_256f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.a.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -DFAEST_STATIC -DFAEST_EXPORT= -DFAEST_TESTS -MD -MQ libfaest.a.p/randomness.c.o -MF libfaest.a.p/randomness.c.o.d -o libfaest.a.p/randomness.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/randomness.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/randomness.c",
+    "output": "libfaest.a.p/randomness.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/aes.c.o -MF libfaest.2.dylib.p/aes.c.o.d -o libfaest.2.dylib.p/aes.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/aes.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/aes.c",
+    "output": "libfaest.2.dylib.p/aes.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/bavc.c.o -MF libfaest.2.dylib.p/bavc.c.o.d -o libfaest.2.dylib.p/bavc.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/bavc.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/bavc.c",
+    "output": "libfaest.2.dylib.p/bavc.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/compat.c.o -MF libfaest.2.dylib.p/compat.c.o.d -o libfaest.2.dylib.p/compat.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/compat.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/compat.c",
+    "output": "libfaest.2.dylib.p/compat.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/faest_impl.c.o -MF libfaest.2.dylib.p/faest_impl.c.o.d -o libfaest.2.dylib.p/faest_impl.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_impl.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_impl.c",
+    "output": "libfaest.2.dylib.p/faest_impl.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/fields.c.o -MF libfaest.2.dylib.p/fields.c.o.d -o libfaest.2.dylib.p/fields.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/fields.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/fields.c",
+    "output": "libfaest.2.dylib.p/fields.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/instances.c.o -MF libfaest.2.dylib.p/instances.c.o.d -o libfaest.2.dylib.p/instances.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/instances.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/instances.c",
+    "output": "libfaest.2.dylib.p/instances.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/owf.c.o -MF libfaest.2.dylib.p/owf.c.o.d -o libfaest.2.dylib.p/owf.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/owf.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/owf.c",
+    "output": "libfaest.2.dylib.p/owf.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/random_oracle.c.o -MF libfaest.2.dylib.p/random_oracle.c.o.d -o libfaest.2.dylib.p/random_oracle.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/random_oracle.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/random_oracle.c",
+    "output": "libfaest.2.dylib.p/random_oracle.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/universal_hashing.c.o -MF libfaest.2.dylib.p/universal_hashing.c.o.d -o libfaest.2.dylib.p/universal_hashing.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/universal_hashing.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/universal_hashing.c",
+    "output": "libfaest.2.dylib.p/universal_hashing.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/utils.c.o -MF libfaest.2.dylib.p/utils.c.o.d -o libfaest.2.dylib.p/utils.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/utils.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/utils.c",
+    "output": "libfaest.2.dylib.p/utils.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/vole.c.o -MF libfaest.2.dylib.p/vole.c.o.d -o libfaest.2.dylib.p/vole.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/vole.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/vole.c",
+    "output": "libfaest.2.dylib.p/vole.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_aes_128.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_aes_128.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_aes_128.c.o -c faest_aes_128.c",
+    "file": "faest_aes_128.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_aes_128.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_aes_192.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_aes_192.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_aes_192.c.o -c faest_aes_192.c",
+    "file": "faest_aes_192.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_aes_192.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_aes_256.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_aes_256.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_aes_256.c.o -c faest_aes_256.c",
+    "file": "faest_aes_256.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_aes_256.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/cpu.c.o -MF libfaest.2.dylib.p/cpu.c.o.d -o libfaest.2.dylib.p/cpu.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/cpu.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/cpu.c",
+    "output": "libfaest.2.dylib.p/cpu.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/sha3_KeccakHash.c.o -MF libfaest.2.dylib.p/sha3_KeccakHash.c.o.d -o libfaest.2.dylib.p/sha3_KeccakHash.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakHash.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakHash.c",
+    "output": "libfaest.2.dylib.p/sha3_KeccakHash.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/sha3_KeccakSponge.c.o -MF libfaest.2.dylib.p/sha3_KeccakSponge.c.o.d -o libfaest.2.dylib.p/sha3_KeccakSponge.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakSponge.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/KeccakSponge.c",
+    "output": "libfaest.2.dylib.p/sha3_KeccakSponge.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/sha3_opt64_KeccakP-1600-opt64.c.o -MF libfaest.2.dylib.p/sha3_opt64_KeccakP-1600-opt64.c.o.d -o libfaest.2.dylib.p/sha3_opt64_KeccakP-1600-opt64.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64/KeccakP-1600-opt64.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64/KeccakP-1600-opt64.c",
+    "output": "libfaest.2.dylib.p/sha3_opt64_KeccakP-1600-opt64.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_128s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_128s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_128s.c.o -c faest_128s.c",
+    "file": "faest_128s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_128s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_128f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_128f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_128f.c.o -c faest_128f.c",
+    "file": "faest_128f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_128f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_128s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_128s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_128s.c.o -c faest_em_128s.c",
+    "file": "faest_em_128s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_128s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_128f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_128f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_128f.c.o -c faest_em_128f.c",
+    "file": "faest_em_128f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_128f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_192s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_192s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_192s.c.o -c faest_192s.c",
+    "file": "faest_192s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_192s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_192f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_192f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_192f.c.o -c faest_192f.c",
+    "file": "faest_192f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_192f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_192s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_192s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_192s.c.o -c faest_em_192s.c",
+    "file": "faest_em_192s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_192s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_192f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_192f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_192f.c.o -c faest_em_192f.c",
+    "file": "faest_em_192f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_192f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_256s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_256s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_256s.c.o -c faest_256s.c",
+    "file": "faest_256s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_256s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_256f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_256f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_256f.c.o -c faest_256f.c",
+    "file": "faest_256f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_256f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_256s.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_256s.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_256s.c.o -c faest_em_256s.c",
+    "file": "faest_em_256s.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_256s.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/meson-generated_.._faest_em_256f.c.o -MF libfaest.2.dylib.p/meson-generated_.._faest_em_256f.c.o.d -o libfaest.2.dylib.p/meson-generated_.._faest_em_256f.c.o -c faest_em_256f.c",
+    "file": "faest_em_256f.c",
+    "output": "libfaest.2.dylib.p/meson-generated_.._faest_em_256f.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ilibfaest.2.dylib.p -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fvisibility=hidden -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types '-DFAEST_EXPORT=__attribute__((visibility(\"default\")))' -MD -MQ libfaest.2.dylib.p/randomness.c.o -MF libfaest.2.dylib.p/randomness.c.o.d -o libfaest.2.dylib.p/randomness.c.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/randomness.c",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/randomness.c",
+    "output": "libfaest.2.dylib.p/randomness.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_128s/libfaest_128s.a.p -Ifaest_128s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_128s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_128s/libfaest_128s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_128s/libfaest_128s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_128s/libfaest_128s.a.p/meson-generated_.._crypto_sign.c.o -c faest_128s/crypto_sign.c",
+    "file": "faest_128s/crypto_sign.c",
+    "output": "faest_128s/libfaest_128s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_128s/faest_128s_api_test.p -Ifaest_128s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_128s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_128s/faest_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_128s/faest_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_128s/faest_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_128s/faest_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_128f/libfaest_128f.a.p -Ifaest_128f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_128f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_128f/libfaest_128f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_128f/libfaest_128f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_128f/libfaest_128f.a.p/meson-generated_.._crypto_sign.c.o -c faest_128f/crypto_sign.c",
+    "file": "faest_128f/crypto_sign.c",
+    "output": "faest_128f/libfaest_128f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_128f/faest_128f_api_test.p -Ifaest_128f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_128f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_128f/faest_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_128f/faest_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_128f/faest_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_128f/faest_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_128s/libfaest_em_128s.a.p -Ifaest_em_128s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_128s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_128s/libfaest_em_128s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_128s/libfaest_em_128s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_128s/libfaest_em_128s.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_128s/crypto_sign.c",
+    "file": "faest_em_128s/crypto_sign.c",
+    "output": "faest_em_128s/libfaest_em_128s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_128s/faest_em_128s_api_test.p -Ifaest_em_128s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_128s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_128s/faest_em_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_128s/faest_em_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_128s/faest_em_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_128s/faest_em_128s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_128f/libfaest_em_128f.a.p -Ifaest_em_128f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_128f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_128f/libfaest_em_128f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_128f/libfaest_em_128f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_128f/libfaest_em_128f.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_128f/crypto_sign.c",
+    "file": "faest_em_128f/crypto_sign.c",
+    "output": "faest_em_128f/libfaest_em_128f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_128f/faest_em_128f_api_test.p -Ifaest_em_128f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_128f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_128f/faest_em_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_128f/faest_em_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_128f/faest_em_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_128f/faest_em_128f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_192s/libfaest_192s.a.p -Ifaest_192s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_192s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_192s/libfaest_192s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_192s/libfaest_192s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_192s/libfaest_192s.a.p/meson-generated_.._crypto_sign.c.o -c faest_192s/crypto_sign.c",
+    "file": "faest_192s/crypto_sign.c",
+    "output": "faest_192s/libfaest_192s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_192s/faest_192s_api_test.p -Ifaest_192s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_192s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_192s/faest_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_192s/faest_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_192s/faest_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_192s/faest_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_192f/libfaest_192f.a.p -Ifaest_192f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_192f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_192f/libfaest_192f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_192f/libfaest_192f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_192f/libfaest_192f.a.p/meson-generated_.._crypto_sign.c.o -c faest_192f/crypto_sign.c",
+    "file": "faest_192f/crypto_sign.c",
+    "output": "faest_192f/libfaest_192f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_192f/faest_192f_api_test.p -Ifaest_192f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_192f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_192f/faest_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_192f/faest_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_192f/faest_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_192f/faest_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_192s/libfaest_em_192s.a.p -Ifaest_em_192s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_192s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_192s/libfaest_em_192s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_192s/libfaest_em_192s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_192s/libfaest_em_192s.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_192s/crypto_sign.c",
+    "file": "faest_em_192s/crypto_sign.c",
+    "output": "faest_em_192s/libfaest_em_192s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_192s/faest_em_192s_api_test.p -Ifaest_em_192s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_192s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_192s/faest_em_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_192s/faest_em_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_192s/faest_em_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_192s/faest_em_192s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_192f/libfaest_em_192f.a.p -Ifaest_em_192f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_192f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_192f/libfaest_em_192f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_192f/libfaest_em_192f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_192f/libfaest_em_192f.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_192f/crypto_sign.c",
+    "file": "faest_em_192f/crypto_sign.c",
+    "output": "faest_em_192f/libfaest_em_192f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_192f/faest_em_192f_api_test.p -Ifaest_em_192f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_192f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_192f/faest_em_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_192f/faest_em_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_192f/faest_em_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_192f/faest_em_192f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_256s/libfaest_256s.a.p -Ifaest_256s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_256s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_256s/libfaest_256s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_256s/libfaest_256s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_256s/libfaest_256s.a.p/meson-generated_.._crypto_sign.c.o -c faest_256s/crypto_sign.c",
+    "file": "faest_256s/crypto_sign.c",
+    "output": "faest_256s/libfaest_256s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_256s/faest_256s_api_test.p -Ifaest_256s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_256s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_256s/faest_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_256s/faest_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_256s/faest_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_256s/faest_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_256f/libfaest_256f.a.p -Ifaest_256f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_256f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_256f/libfaest_256f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_256f/libfaest_256f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_256f/libfaest_256f.a.p/meson-generated_.._crypto_sign.c.o -c faest_256f/crypto_sign.c",
+    "file": "faest_256f/crypto_sign.c",
+    "output": "faest_256f/libfaest_256f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_256f/faest_256f_api_test.p -Ifaest_256f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_256f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_256f/faest_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_256f/faest_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_256f/faest_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_256f/faest_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_256s/libfaest_em_256s.a.p -Ifaest_em_256s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_256s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_256s/libfaest_em_256s.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_256s/libfaest_em_256s.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_256s/libfaest_em_256s.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_256s/crypto_sign.c",
+    "file": "faest_em_256s/crypto_sign.c",
+    "output": "faest_em_256s/libfaest_em_256s.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_256s/faest_em_256s_api_test.p -Ifaest_em_256s -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_256s -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_256s/faest_em_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_256s/faest_em_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_256s/faest_em_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_256s/faest_em_256s_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_256f/libfaest_em_256f.a.p -Ifaest_em_256f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_256f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -flto -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_256f/libfaest_em_256f.a.p/meson-generated_.._crypto_sign.c.o -MF faest_em_256f/libfaest_em_256f.a.p/meson-generated_.._crypto_sign.c.o.d -o faest_em_256f/libfaest_em_256f.a.p/meson-generated_.._crypto_sign.c.o -c faest_em_256f/crypto_sign.c",
+    "file": "faest_em_256f/crypto_sign.c",
+    "output": "faest_em_256f/libfaest_em_256f.a.p/meson-generated_.._crypto_sign.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "cc -Ifaest_em_256f/faest_em_256f_api_test.p -Ifaest_em_256f -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/faest_em_256f -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c11 -O3 -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Werror=implicit-function-declaration -Werror=vla -Werror=incompatible-pointer-types -MD -MQ faest_em_256f/faest_em_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -MF faest_em_256f/faest_em_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o.d -o faest_em_256f/faest_em_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o -c /private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "file": "/private/tmp/parliament-faest-cross/faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/api_test.c",
+    "output": "faest_em_256f/faest_em_256f_api_test.p/_private_tmp_parliament-faest-cross_faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e_tests_api_test.c.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/aes.cpp.o -MF tests/test_extended_tests.p/aes.cpp.o.d -o tests/test_extended_tests.p/aes.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/aes.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/aes.cpp",
+    "output": "tests/test_extended_tests.p/aes.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/bavc.cpp.o -MF tests/test_extended_tests.p/bavc.cpp.o.d -o tests/test_extended_tests.p/bavc.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/bavc.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/bavc.cpp",
+    "output": "tests/test_extended_tests.p/bavc.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/extended_tests.cpp.o -MF tests/test_extended_tests.p/extended_tests.cpp.o.d -o tests/test_extended_tests.p/extended_tests.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/extended_tests.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/extended_tests.cpp",
+    "output": "tests/test_extended_tests.p/extended_tests.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/fields.cpp.o -MF tests/test_extended_tests.p/fields.cpp.o.d -o tests/test_extended_tests.p/fields.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/fields.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/fields.cpp",
+    "output": "tests/test_extended_tests.p/fields.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/hash_shake.cpp.o -MF tests/test_extended_tests.p/hash_shake.cpp.o.d -o tests/test_extended_tests.p/hash_shake.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/hash_shake.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/hash_shake.cpp",
+    "output": "tests/test_extended_tests.p/hash_shake.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/instances.cpp.o -MF tests/test_extended_tests.p/instances.cpp.o.d -o tests/test_extended_tests.p/instances.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/instances.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/instances.cpp",
+    "output": "tests/test_extended_tests.p/instances.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/owf.cpp.o -MF tests/test_extended_tests.p/owf.cpp.o.d -o tests/test_extended_tests.p/owf.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/owf.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/owf.cpp",
+    "output": "tests/test_extended_tests.p/owf.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/prg.cpp.o -MF tests/test_extended_tests.p/prg.cpp.o.d -o tests/test_extended_tests.p/prg.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/prg.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/prg.cpp",
+    "output": "tests/test_extended_tests.p/prg.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/test_utils.cpp.o -MF tests/test_extended_tests.p/test_utils.cpp.o.d -o tests/test_extended_tests.p/test_utils.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/test_utils.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/test_utils.cpp",
+    "output": "tests/test_extended_tests.p/test_utils.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/universal_hashing.cpp.o -MF tests/test_extended_tests.p/universal_hashing.cpp.o.d -o tests/test_extended_tests.p/universal_hashing.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/universal_hashing.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/universal_hashing.cpp",
+    "output": "tests/test_extended_tests.p/universal_hashing.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/utils.cpp.o -MF tests/test_extended_tests.p/utils.cpp.o.d -o tests/test_extended_tests.p/utils.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/utils.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/utils.cpp",
+    "output": "tests/test_extended_tests.p/utils.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/vole.cpp.o -MF tests/test_extended_tests.p/vole.cpp.o.d -o tests/test_extended_tests.p/vole.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/vole.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests/vole.cpp",
+    "output": "tests/test_extended_tests.p/vole.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_128s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_128s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_128s_basic.cpp.o -c tests/faest_128s_basic.cpp",
+    "file": "tests/faest_128s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_128s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_128f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_128f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_128f_basic.cpp.o -c tests/faest_128f_basic.cpp",
+    "file": "tests/faest_128f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_128f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_128s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_128s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_128s_basic.cpp.o -c tests/faest_em_128s_basic.cpp",
+    "file": "tests/faest_em_128s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_128s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_128f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_128f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_128f_basic.cpp.o -c tests/faest_em_128f_basic.cpp",
+    "file": "tests/faest_em_128f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_128f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_192s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_192s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_192s_basic.cpp.o -c tests/faest_192s_basic.cpp",
+    "file": "tests/faest_192s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_192s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_192f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_192f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_192f_basic.cpp.o -c tests/faest_192f_basic.cpp",
+    "file": "tests/faest_192f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_192f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_192s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_192s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_192s_basic.cpp.o -c tests/faest_em_192s_basic.cpp",
+    "file": "tests/faest_em_192s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_192s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_192f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_192f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_192f_basic.cpp.o -c tests/faest_em_192f_basic.cpp",
+    "file": "tests/faest_em_192f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_192f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_256s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_256s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_256s_basic.cpp.o -c tests/faest_256s_basic.cpp",
+    "file": "tests/faest_256s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_256s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_256f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_256f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_256f_basic.cpp.o -c tests/faest_256f_basic.cpp",
+    "file": "tests/faest_256f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_256f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_256s_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_256s_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_256s_basic.cpp.o -c tests/faest_em_256s_basic.cpp",
+    "file": "tests/faest_em_256s_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_256s_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itests/test_extended_tests.p -Itests -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tests -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_TEST_DYN_LINK=1 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -Wshadow -Wno-psabi -DBOOST_TEST_DYN_LINK -DFAEST_TESTS -MD -MQ tests/test_extended_tests.p/meson-generated_.._faest_em_256f_basic.cpp.o -MF tests/test_extended_tests.p/meson-generated_.._faest_em_256f_basic.cpp.o.d -o tests/test_extended_tests.p/meson-generated_.._faest_em_256f_basic.cpp.o -c tests/faest_em_256f_basic.cpp",
+    "file": "tests/faest_em_256f_basic.cpp",
+    "output": "tests/test_extended_tests.p/meson-generated_.._faest_em_256f_basic.cpp.o"
+  },
+  {
+    "directory": "/private/tmp/parliament-faest-cross/build",
+    "command": "c++ -Itools/generate_field_constants.p -Itools -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tools -I. -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3 -I../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/sha3/opt64 -I/opt/homebrew/include -fdiagnostics-color=always -DNDEBUG -Wall -Winvalid-pch -Wextra -Wpedantic -std=c++17 -O3 -DBOOST_ALL_NO_LIB -DFAEST_EXPORT= -D_GNU_SOURCE -DHAVE_CONFIG_H -DKeccakP1660_plain64_fullUnrolling -DFAEST_TESTS -Wshadow -Wno-psabi -MD -MQ tools/generate_field_constants.p/generate_field_constants.cpp.o -MF tools/generate_field_constants.p/generate_field_constants.cpp.o.d -o tools/generate_field_constants.p/generate_field_constants.cpp.o -c ../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tools/generate_field_constants.cpp",
+    "file": "../faest-ref-4fb6b71143b37764546b7c7729440d9cd8898a5e/tools/generate_field_constants.cpp",
+    "output": "tools/generate_field_constants.p/generate_field_constants.cpp.o"
+  }
+]

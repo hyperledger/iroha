@@ -1660,6 +1660,11 @@ pub trait SetReadOnly {
     /// Mapping from code hash to bytecode entry.
     fn contracts(&self) -> &impl StorageReadOnly<HashOf<IvmBytecode>, IvmBytecodeEntry>;
     /// Verify every contract's lookup identity and its derived live action count.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if contract lookup identities or live action reference
+    /// counts disagree with the current trigger rows.
     fn validate_world_contract_rows(&self) -> core::result::Result<(), String> {
         contract_relation::validate_current(self)
     }
@@ -1777,6 +1782,11 @@ pub trait SetReadOnly {
     }
     /// Resolve one trigger without cloning its variable-size action before the
     /// active singular-query corridor has admitted it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a query execution error if owning the stored trigger exceeds the
+    /// active singular-query limits or its canonical materialization fails.
     fn trigger_by_id_bounded(
         &self,
         id: &TriggerId,
@@ -3787,11 +3797,8 @@ mod tests {
                 length_ms: u64::MAX,
             },
         };
-        let matches = set
-            .view()
-            .match_time_event(event, 2, u64::MAX, 3)
-            .collect::<Vec<_>>();
-        assert_eq!(matches.len(), 3);
+        let matches = set.view().match_time_event(event, 2, u64::MAX, 3).count();
+        assert_eq!(matches, 3);
     }
     #[test]
     fn match_time_event_skips_disabled_triggers() {

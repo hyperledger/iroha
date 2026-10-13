@@ -647,7 +647,7 @@ fn cli_development_preserves_exact_selected_image_and_shared_provenance() {
                 .public_key()
                 .clone(),
             11,
-            "https://fixture.invalid/checkpoint.nrt".into(),
+            "https://fixture.invalid/checkpoint.nrt",
         )
         .unwrap(),
     ])
@@ -864,7 +864,11 @@ fn real_alias_mutation_during_private_copy_refuses_the_original_and_restored_cap
     let mut retry = RetainedBuildInput::open(path).unwrap();
     let before = retry.snapshot().unwrap();
     let output = temporary.path().join("retry-copy");
-    let (file, _, copied_hash, _) = copy_program(&mut retry, before, &hash, &output).unwrap();
+    let CopiedProgram {
+        file,
+        hash: copied_hash,
+        ..
+    } = copy_program(&mut retry, before, &hash, &output).unwrap();
     assert_eq!(copied_hash, hash);
     assert_eq!(fs::read(&output).unwrap(), bytes);
     file.revalidate().unwrap();

@@ -375,7 +375,7 @@ fn configure_reward_fixture(
     register_peer_for_account(stx, &validator);
     RegisterPublicLaneValidator {
         monetary_plan: fixture_registration_plan(
-            &stx,
+            stx,
             lane_id,
             &validator,
             (initial_stake.clone()).clone(),
@@ -475,7 +475,7 @@ fn complete_staking_committee(stx: &mut StateTransaction<'_, '_>, lane_id: LaneI
         .expect("fund committee stake");
         RegisterPublicLaneValidator {
             monetary_plan: fixture_registration_plan(
-                &stx,
+                stx,
                 lane_id,
                 &validator,
                 Quantity::from(1_000_u64),

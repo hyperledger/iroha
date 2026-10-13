@@ -1,11 +1,6 @@
-// Bucket activation and asynchronous failure handling (specs/sccp.md §5.3.4
-// "Finalize" steps 2–7 and "Retry"): only the minter activates a bucket, once
-// per index, so a bucket deployed by anyone else (early, or again after a
-// deletion for rent) never accepts flags; a failed `sccp_consumed` or
-// `sccp_already_consumed` releases the pending supply through
-// `sccp_consume_reverted`; a bounced `sccp_unconsume` or activation is
-// recorded in `retries` and re-run by `sccp_retry`, also for a mint that was
-// in flight when the minter latched.
+// Bucket activation, replay flags and durable asynchronous recovery. A lost
+// Prepared ACK retains the effect and receipt until Confirm/Drop completes;
+// only an authenticated original Dispatch bounce proves the effect failed.
 
 import "@stdlib/exotic-cells"
 import "@acton/io"
@@ -20,6 +15,7 @@ import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
 import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -57,14 +53,56 @@ fun sendDeployBuckets(env: Env, count: int, value: coins): SendResultList {
         .sendSccpDeployBuckets(env.deployer, 2, env.deployer, count, { value, bounce: true });
 }
 
+/// Inject one exact current-stage command from a chosen sender.
+fun bucketDispatch(
+    env: Env,
+    index: int,
+    sender: address,
+    operationId: int,
+    stage: int,
+    nonce: int,
+    count: int,
+): SendResultList {
+    return bucketOf(env, index).sendSccpRecoveryDispatch(
+        sender,
+        operationId,
+        stage,
+        1,
+        nonce,
+        count,
+        0,
+        0,
+        env.deployer,
+        { value: sccpBucketFloor() + grams("1"), bounce: true },
+    );
+}
+
+/// Fund canonical StateInit through the explicit top-up entry point.
+fun deployCanonicalBucket(env: Env, index: int, sender: address, value: coins): SendResultList {
+    val bucket = canonicalBucket(env, index);
+    return net.send(
+        sender,
+        createMessage({
+            bounce: BounceMode.NoBounce,
+            value,
+            dest: { workchain: BASECHAIN, stateInit: bucket.stateInit! },
+            body: TopUpTons { queryId: 0 },
+        }),
+    );
+}
+
+/// Observe a retained operation without assuming that its id equals its nonce.
+fun bucketOperation(env: Env, operationId: int): RecoveryOperation {
+    return minterStorage(env).recovery.load().operations.mustGet(operationId).load();
+}
+
 /// Seconds of the default pin: `cur.untilMs` is 14 days after `T0`.
 const PIN_VALIDITY_S = 1209600
 
-get fun `test consume tails must be exact ordinary cells before forwarding or minting`() {
+get fun `test unsolicited consume tails cannot reach recovery forwarding or minting`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 100, alice);
-    val bucket = bucketOf(env, 0);
     val canonical = ConsumeTail {
         kind: SCCP_CONSUME_KIND_MINT,
         recipient: alice,
@@ -81,60 +119,32 @@ get fun `test consume tails must be exact ordinary cells before forwarding or mi
     val before = minterStorage(env).toCell().hash();
     var i = 0;
     repeat (malformed.size()) {
-        val tail = malformed.get(i) as Cell<ConsumeTail>;
-        val sent = net.send(
-            env.minter.address,
-            createMessage({
-                bounce: BounceMode.NoBounce,
-                dest: bucket.address,
-                value: grams("1"),
-                body: SccpConsume {
-                    queryId: 0,
-                    nonce: 1,
-                    amount: 10,
-                    tail,
-                },
-            }),
-        );
-        expect(
-            sent,
-        ).toHaveFailedTx<SccpConsume>({ to: bucket.address, exitCode: SccpErrors.BadSnake as int });
-        expect(sent.findTransaction<SccpConsumed>({ to: env.minter.address }) == null).toBeTrue();
+        // Current recovery dispatch/ACK contains no untrusted tail at all.
+        // Retired tail-bearing opcodes are not accepted, even with valid sender.
+        val opcodes: array<int> = [0x53434331, 0x53434332, 0x53434336];
+        var j = 0;
+        repeat (opcodes.size()) {
+            val dest = j == 0 ? env.minter.getBucketAddress(0) : env.minter.address;
+            val sender = j == 0 ? env.minter.address : env.minter.getBucketAddress(0);
+            val sent = net.send(
+                sender,
+                createMessage({
+                    bounce: BounceMode.NoBounce,
+                    dest,
+                    value: grams("1"),
+                    body: beginCell()
+                        .storeUint(opcodes.get(j), 32)
+                        .storeRef(malformed.get(i))
+                        .endCell(),
+                }),
+            );
+            expect(sent).toHaveTx({ to: dest, success: false });
+            expect(
+                sent.findTransaction<SccpRecoveryAck>({ to: env.minter.address }) == null,
+            ).toBeTrue();
+            j += 1;
+        }
         expect(isConsumedAt(env, 1)).toBeFalse();
-        val consumed = net.send(
-            bucket.address,
-            createMessage({
-                bounce: BounceMode.NoBounce,
-                dest: env.minter.address,
-                value: grams("1"),
-                body: SccpConsumed {
-                    queryId: 0,
-                    nonce: 1,
-                    amount: 10,
-                    tail,
-                },
-            }),
-        );
-        expect(consumed).toHaveFailedTx<SccpConsumed>({ to: env
-                .minter
-                .address, exitCode: SccpErrors.BadSnake as int });
-        val already = net.send(
-            bucket.address,
-            createMessage({
-                bounce: BounceMode.NoBounce,
-                dest: env.minter.address,
-                value: grams("1"),
-                body: SccpAlreadyConsumed {
-                    queryId: 0,
-                    nonce: 1,
-                    amount: 10,
-                    tail,
-                },
-            }),
-        );
-        expect(already).toHaveFailedTx<SccpAlreadyConsumed>({ to: env
-                .minter
-                .address, exitCode: SccpErrors.BadSnake as int });
         expect(minterStorage(env).toCell().hash()).toEqual(before);
         expect(jettonBalanceOf(env, alice)).toEqual(100);
         i += 1;
@@ -147,72 +157,52 @@ get fun `test a bucket deployed early by a stranger stays inactive until the min
     val stranger = testing.treasury("stranger").address;
     val bucket = canonicalBucket(env, 0);
     expect(bucket.address).toEqual(env.minter.getBucketAddress(0));
-    expect(bucket.deploy(stranger, { value: grams("0.5") })).toHaveSuccessfulDeploy({
-        to: bucket.address,
-    });
+    expect(
+        deployCanonicalBucket(env, 0, stranger, grams("0.5")),
+    ).toHaveSuccessfulDeploy({ to: bucket.address });
     expect(bucket.isActivated()).toBeFalse();
-    // only the minter activates, and an inactive bucket refuses every flag change
     expect(
-        bucket.sendSccpActivateBucket(stranger, 0, 0, { value: grams("0.5"), bounce: true }),
-    ).toHaveFailedTx<SccpActivateBucket>({
-        to: bucket.address,
-        exitCode: SccpErrors.NotMinter as int,
-    });
-    val tail: ConsumeTail = {
-        kind: SCCP_CONSUME_KIND_MINT,
-        recipient: alice,
-        response: alice,
-        messageId: 1,
-    };
-    expect(
-        bucket.sendSccpConsume(
-            env.minter.address,
+        bucketDispatch(
+            env,
+            0,
+            stranger,
+            100,
+            SCCP_RECOVERY_ACTIVATE,
             0,
             0,
-            1,
-            tail,
-            { value: grams("1"), bounce: true },
         ),
-    ).toHaveFailedTx<SccpConsume>({
-        to: bucket.address,
-        exitCode: SccpErrors.BucketNotActive as int,
-    });
-    expect(
-        bucket.sendSccpConsumeRange(
-            env.minter.address,
-            0,
-            0,
-            3,
-            { value: grams("1"), bounce: true },
-        ),
-    ).toHaveFailedTx<SccpConsumeRange>({
-        to: bucket.address,
-        exitCode: SccpErrors.BucketNotActive as int,
-    });
-    expect(
-        bucket.sendSccpUnconsume(env.minter.address, 0, { value: grams("1"), bounce: true }),
-    ).toHaveFailedTx<SccpUnconsume>({
-        to: bucket.address,
-        exitCode: SccpErrors.BucketNotActive as int,
-    });
-    // the minter's first consume activates it and goes through
+    ).toHaveFailedTx<SccpRecoveryDispatch>({ to: bucket.address, exitCode: SccpErrors.NotMinter as int });
+    val stages: array<int> = [SCCP_RECOVERY_CONSUME, SCCP_RECOVERY_RANGE, SCCP_RECOVERY_UNCONSUME];
+    var i = 0;
+    repeat (stages.size()) {
+        expect(
+            bucketDispatch(
+                env,
+                0,
+                env.minter.address,
+                100 + i,
+                stages.get(i),
+                0,
+                3,
+            ),
+        ).toHaveFailedTx<SccpRecoveryDispatch>({ to: bucket.address, exitCode: SccpErrors.BucketNotActive as int });
+        i += 1;
+    }
     val res = finalizeOk(env, 0, 10, alice);
-    expect(res).toHaveSuccessfulTx<SccpActivateBucket>({ to: bucket.address });
+    expect(recoveryStageCount(res, SCCP_RECOVERY_ACTIVATE)).toEqual(1);
     expect(bucket.isActivated()).toBeTrue();
     expect(isConsumedAt(env, 0)).toBeTrue();
-    // an activation for another index is refused
     expect(
-        bucket.sendSccpActivateBucket(
-            env.minter.address,
+        bucketDispatch(
+            env,
             0,
+            env.minter.address,
+            110,
+            SCCP_RECOVERY_ACTIVATE,
             1,
-            { value: grams("0.5"), bounce: true },
+            0,
         ),
-    ).toHaveFailedTx<SccpActivateBucket>({
-        to: bucket.address,
-        exitCode: SccpErrors.BadRange as int,
-    });
-    // the minter activated the index once and counts it
+    ).toHaveFailedTx<SccpRecoveryDispatch>({ to: bucket.address, exitCode: SccpErrors.BadRange as int });
     expect(env.minter.getSccpState().deployedBuckets).toEqual(1);
 }
 
@@ -221,12 +211,12 @@ get fun `test a bucket deployed early by a stranger is activated by sccp_deploy_
     val stranger = testing.treasury("stranger").address;
     // strangers deploy buckets 0 and 2 ahead of the minter
     expect(
-        canonicalBucket(env, 0).deploy(stranger, { value: grams("0.5") }),
+        deployCanonicalBucket(env, 0, stranger, grams("0.5")),
     ).toHaveSuccessfulDeploy({
         to: env.minter.getBucketAddress(0),
     });
     expect(
-        canonicalBucket(env, 2).deploy(stranger, { value: grams("0.5") }),
+        deployCanonicalBucket(env, 2, stranger, grams("0.5")),
     ).toHaveSuccessfulDeploy({
         to: env.minter.getBucketAddress(2),
     });
@@ -288,72 +278,60 @@ get fun `test sccp_deploy_buckets takes 1 to 16 buckets on ton mainnet`() {
 
 get fun `test a bucket holds the flags of its own 512 nonces`() {
     val env = setupEnv();
-    val alice = testing.treasury("alice").address;
     expect(
         sendDeployBuckets(env, 2, env.minter.deployBucketsRequiredValue(2)),
     ).toHaveAllSuccessfulTxs();
-    val tail: ConsumeTail = {
-        kind: SCCP_CONSUME_KIND_VOID,
-        recipient: null,
-        response: alice,
-        messageId: 1,
-    };
-    // the first and last nonce of each half of bucket 1 (minter forged as sender)
     val bucket = bucketOf(env, 1);
     val nonces: array<int> = [512, 767, 768, 1023];
     var i = 0;
     repeat (nonces.size()) {
         val nonce = nonces.get(i);
         expect(bucket.isConsumed(nonce)).toBeFalse();
-        val res = bucket.sendSccpConsume(
-            env.minter.address,
-            0,
-            nonce,
-            0,
-            tail,
-            { value: grams("1"), bounce: true },
-        );
-        expect(res).toHaveSuccessfulTx<SccpConsume>({ to: bucket.address });
+        expect(
+            bucketDispatch(
+                env,
+                1,
+                env.minter.address,
+                100 + i,
+                SCCP_RECOVERY_CONSUME,
+                nonce,
+                1,
+            ),
+        ).toHaveSuccessfulTx<SccpRecoveryDispatch>({ to: bucket.address });
         expect(bucket.isConsumed(nonce)).toBeTrue();
         i += 1;
     }
-    // flag `i` is bit `i` of `hi ‖ lo`
     val (hi, lo) = bucket.getBits();
     expect(lo).toEqual(1 | (1 << 255));
     expect(hi).toEqual(1 | (1 << 255));
     expect(bucket.isConsumed(513)).toBeFalse();
-    // nonces 511 and 1024 belong to the neighbours
     val outside: array<int> = [511, 1024];
     i = 0;
     repeat (outside.size()) {
-        val res = bucket.sendSccpConsume(
-            env.minter.address,
-            0,
-            outside.get(i),
-            0,
-            tail,
-            { value: grams("1"), bounce: true },
-        );
-        expect(res).toHaveFailedTx<SccpConsume>({
-            to: bucket.address,
-            exitCode: SccpErrors.BadNonce as int,
-        });
-        expect(
-            bucket.sendSccpUnconsume(
-                env.minter.address,
-                outside.get(i),
-                { value: grams("1"), bounce: true },
-            ),
-        ).toHaveFailedTx<SccpUnconsume>({
-            to: bucket.address,
-            exitCode: SccpErrors.BadNonce as int,
-        });
+        val stages: array<int> = [SCCP_RECOVERY_CONSUME, SCCP_RECOVERY_UNCONSUME];
+        var j = 0;
+        repeat (stages.size()) {
+            expect(
+                bucketDispatch(
+                    env,
+                    1,
+                    env.minter.address,
+                    200 + i * 2 + j,
+                    stages.get(j),
+                    outside.get(i),
+                    1,
+                ),
+            ).toHaveFailedTx<SccpRecoveryDispatch>({
+                to: bucket.address,
+                exitCode: SccpErrors.BadNonce as int,
+            });
+            j += 1;
+        }
         i += 1;
     }
     val (hi2, lo2) = bucket.getBits();
     expect(hi2).toEqual(hi);
     expect(lo2).toEqual(lo);
-    // bucket 0 saw nothing
     val (hi0, lo0) = bucketOf(env, 0).getBits();
     expect(hi0 | lo0).toEqual(0);
 }
@@ -369,7 +347,7 @@ get fun `test a deleted bucket recreated by a third party never accepts flags ag
     // the bucket is deleted for unpaid rent, and a third party deploys its
     // canonical StateInit again, with clear flags
     testing.setShardAccount(bucket, null);
-    expect(canonicalBucket(env, 0).deploy(stranger, { value: grams("1") })).toHaveSuccessfulDeploy({
+    expect(deployCanonicalBucket(env, 0, stranger, grams("1"))).toHaveSuccessfulDeploy({
         to: bucket,
     });
     expect(canonicalBucket(env, 0).isActivated()).toBeFalse();
@@ -377,16 +355,16 @@ get fun `test a deleted bucket recreated by a third party never accepts flags ag
     // a fresh nonce of the bucket cannot be finalized: the consume bounces
     val fresh = deliverDefault(env, 1, 10, alice);
     val fin = sendFinalize(env, env.deployer, fresh, finalizeValue(env, 1));
-    expect(fin).toHaveFailedTx<SccpConsume>({
+    expect(fin).toHaveFailedTx<SccpRecoveryDispatch>({
         to: bucket,
         exitCode: SccpErrors.BucketNotActive as int,
     });
-    expect(fin).toNotHaveTx<SccpActivateBucket>({});
-    expect(fin).toNotHaveTx<InternalTransferStep>({});
+    expect(recoveryStageCount(fin, SCCP_RECOVERY_ACTIVATE)).toEqual(0);
+    expect(recoveryStageCount(fin, SCCP_RECOVERY_MINT)).toEqual(0);
     // the minted nonce cannot be voided after its deadline either
     testing.setNow(T0 + 86400 + 1);
     val void = sendVoidExpired(env, env.deployer, 0, minted, env.minter.voidRequiredValue(0));
-    expect(void).toHaveFailedTx<SccpConsume>({
+    expect(void).toHaveFailedTx<SccpRecoveryDispatch>({
         to: bucket,
         exitCode: SccpErrors.BucketNotActive as int,
     });
@@ -396,7 +374,7 @@ get fun `test a deleted bucket recreated by a third party never accepts flags ag
     // nor through a frozen void once the generation expired
     testing.setNow(T0 + PIN_VALIDITY_S + 1);
     val frozen = sendVoidFrozen(env, 0, 512, env.minter.voidFrozenRequiredValue(0));
-    expect(frozen).toHaveFailedTx<SccpConsumeRange>({
+    expect(frozen).toHaveFailedTx<SccpRecoveryDispatch>({
         to: bucket,
         exitCode: SccpErrors.BucketNotActive as int,
     });
@@ -411,7 +389,7 @@ get fun `test a deleted bucket recreated by a third party never accepts flags ag
     expect(jettonBalanceOf(env, alice)).toEqual(10);
 }
 
-get fun `test a forced failure of sccp_consumed bounces and releases the pending supply`() {
+get fun `test a failed prepared acknowledgement retains pending supply until confirmation`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 700, alice);
@@ -419,34 +397,34 @@ get fun `test a forced failure of sccp_consumed bounces and releases the pending
         env.deployer,
         finalizeMessage(env, d, finalizeValue(env, 0)),
     );
-    // finalize, activation and consume: the flag is set and 700 is pending
-    cursor.executeN(3);
+    val consume = recoverUntilDispatch(cursor, SCCP_RECOVERY_CONSUME);
+    cursor.close();
+    val ack = consume.outMessages.at<SccpRecoveryAck>(0).loadBody();
     expect(isConsumedAt(env, 0)).toBeTrue();
     expect(env.minter.getSccpState().pendingSupply).toEqual(700);
-    // forwarding per cell rises before `sccp_consumed` runs: the minter can no
-    // longer pay the multi-cell mint, so its action phase (event and mint) fails
-    val previous = raiseCellForwardPrice(10000);
-    val rest = cursor.executeAllRemaining();
-    cursor.close();
-    expect(testing.setConfig(previous)).toBeTrue();
-    expect(rest).toHaveTx<SccpConsumed>({ to: env.minter.address, success: false });
-    expect(rest).toHaveTx<SccpConsumed>({ to: env.minter.getBucketAddress(0), bounced: true });
-    expect(rest).toHaveSuccessfulTx<SccpConsumeReverted>({ to: env.minter.address });
-    expect(
-        rest.findExternalOutMessage<SccpFinalizedEvent>({ from: env.minter.address }) == null,
-    ).toBeTrue();
-    expect(rest).toNotHaveTx<InternalTransferStep>({});
-    // nothing is consumed or pending, and the message finalizes again
-    expect(isConsumedAt(env, 0)).toBeFalse();
-    val state = env.minter.getSccpState();
-    expect(state.pendingSupply).toEqual(0);
-    expect(state.totalSupply).toEqual(0);
-    expect(state.opCount).toEqual(0);
-    finalizeOk(env, 0, 700, alice);
+    // The destination's effect already happened; a failed Prepared delivery
+    // cannot authorize supply release, receipt erasure or another consume.
+    val bounced = testing.processSingleTraceStep(
+        env.minter.address,
+        bouncedMessage(ack, env.minter.getBucketAddress(0), grams("0.01")),
+    );
+    expect(bounced.outMessages.size()).toEqual(0);
+    expect(isConsumedAt(env, 0)).toBeTrue();
+    expect(env.minter.getSccpState().pendingSupply).toEqual(700);
+    expect(env.minter.getSccpState().totalSupply).toEqual(0);
+    expect(env.minter.getSccpState().opCount).toEqual(0);
+    val retry = sendRetry(env, ack.operationId, env.minter.retryRequiredValue());
+    expect(retry).toHaveAllSuccessfulTxs();
+    expect(recoveryStageCount(retry, SCCP_RECOVERY_CONSUME)).toEqual(0);
+    expect(recoveryStageCount(retry, SCCP_RECOVERY_MINT)).toEqual(1);
+    expect(env.minter.getSccpState().pendingSupply).toEqual(0);
     expect(env.minter.getSccpState().totalSupply).toEqual(700);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
+    expect(jettonBalanceOf(env, alice)).toEqual(700);
 }
 
-get fun `test a bounced sccp_already_consumed releases the pending supply`() {
+get fun `test a lost rejected consume acknowledgement preserves the old mint and releases only after drop`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 5, 1000, alice);
@@ -455,36 +433,38 @@ get fun `test a bounced sccp_already_consumed releases the pending supply`() {
         env.deployer,
         finalizeMessage(env, d, finalizeValue(env, 5)),
     );
-    val steps = cursor.executeN(2);
+    val consume = recoverUntilDispatch(cursor, SCCP_RECOVERY_CONSUME);
     cursor.close();
+    val ack = consume.outMessages.at<SccpRecoveryAck>(0).loadBody();
+    expect(ack.result).toEqual(SCCP_RECEIPT_REJECTED);
     expect(env.minter.getSccpState().pendingSupply).toEqual(1000);
-    val reply = steps.at(1).outMessages.at<SccpAlreadyConsumed>(0).loadBody();
-    expect(reply.nonce).toEqual(5);
-    // the minter fails to handle the reply; the bounce makes the bucket report
-    val bounced = testing.processSingleTraceStep(
+    testing.processSingleTraceStep(
         env.minter.address,
-        bouncedMessage(reply, env.minter.getBucketAddress(0), grams("0.01")),
+        bouncedMessage(ack, env.minter.getBucketAddress(0), grams("0.01")),
     );
-    // the flag of the earlier mint stays
     expect(isConsumedAt(env, 5)).toBeTrue();
-    val report = bounced.outMessages.at<SccpConsumeReverted>(0).loadBody();
-    expect(report.nonce).toEqual(5);
-    expect(report.amount).toEqual(1000);
-    val delivered = net.send(env.minter.getBucketAddress(0), forwardOut(bounced, 0));
-    expect(delivered).toHaveSuccessfulTx<SccpConsumeReverted>({ to: env.minter.address });
+    expect(env.minter.getSccpState().pendingSupply).toEqual(1000);
+    val delivered = sendRetry(env, ack.operationId, env.minter.retryRequiredValue());
+    expect(delivered).toHaveAllSuccessfulTxs();
+    expect(recoveryStageCount(delivered, SCCP_RECOVERY_MINT)).toEqual(0);
     reportGas(
-        "step minter consume reverted",
-        delivered.getUsedGas<SccpConsumeReverted>({ to: env.minter.address }),
-        SCCP_GAS_MINTER_CONSUME_REVERTED,
+        "minter rejected consume recovery",
+        recoveryGas(
+            delivered,
+            env.minter.address,
+            SCCP_RECOVERY_CONSUME,
+            true,
+        ),
+        SCCP_GAS_RECOVERY,
     );
-    val state = env.minter.getSccpState();
-    expect(state.pendingSupply).toEqual(0);
-    expect(state.totalSupply).toEqual(1000);
-    expect(state.opCount).toEqual(1);
+    expect(env.minter.getSccpState().pendingSupply).toEqual(0);
+    expect(env.minter.getSccpState().totalSupply).toEqual(1000);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
     expect(jettonBalanceOf(env, alice)).toEqual(1000);
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
 }
 
-get fun `test a bounced sccp_consumed of a void clears the flag and releases nothing`() {
+get fun `test a bounced void acknowledgement retains the flag and reserves no supply`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 40, alice);
@@ -515,87 +495,70 @@ get fun `test a bounced sccp_consumed of a void clears the flag and releases not
             },
         }),
     );
-    // the minter step and the consume at the bucket
-    val steps = cursor.executeN(2);
+    val consume = recoverUntilDispatch(cursor, SCCP_RECOVERY_CONSUME);
     cursor.close();
-    expect(isConsumedAt(env, 1)).toBeTrue();
-    // a void reserves no supply and carries amount 0
+    val ack = consume.outMessages.at<SccpRecoveryAck>(0).loadBody();
+    val operation = bucketOperation(env, ack.operationId);
+    expect(operation.nonce).toEqual(1);
+    expect(operation.amount).toEqual(0);
+    expect(operation.tail.load().kind).toEqual(SCCP_CONSUME_KIND_VOID);
     expect(env.minter.getSccpState().pendingSupply).toEqual(0);
-    val reply = steps.at(1).outMessages.at<SccpConsumed>(0).loadBody();
-    expect(reply.nonce).toEqual(1);
-    expect(reply.amount).toEqual(0);
-    expect(reply.tail.load().kind).toEqual(SCCP_CONSUME_KIND_VOID);
-    val bounced = testing.processSingleTraceStep(
+    testing.processSingleTraceStep(
         env.minter.address,
-        bouncedMessage(reply, env.minter.getBucketAddress(0), grams("0.01")),
+        bouncedMessage(ack, env.minter.getBucketAddress(0), grams("0.01")),
     );
-    expect(isConsumedAt(env, 1)).toBeFalse();
+    expect(isConsumedAt(env, 1)).toBeTrue();
     expect(isConsumedAt(env, 0)).toBeTrue();
-    val report = bounced.outMessages.at<SccpConsumeReverted>(0).loadBody();
-    expect(report.nonce).toEqual(1);
-    expect(report.amount).toEqual(0);
-    val delivered = net.send(env.minter.getBucketAddress(0), forwardOut(bounced, 0));
-    expect(delivered).toHaveSuccessfulTx<SccpConsumeReverted>({ to: env.minter.address });
-    val state = env.minter.getSccpState();
-    expect(state.pendingSupply).toEqual(0);
-    expect(state.totalSupply).toEqual(40);
-    expect(state.opCount).toEqual(1);
-    // the message is voidable again
+    expect(env.minter.getSccpState().totalSupply).toEqual(40);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
+    val recovered = sendRetry(env, ack.operationId, env.minter.retryRequiredValue());
+    expect(recovered).toHaveAllSuccessfulTxs();
+    expect(recovered).toEmitExternalMessage<SccpVoidedEvent>();
+    expect(recoveryStageCount(recovered, SCCP_RECOVERY_CONSUME)).toEqual(0);
+    expect(env.minter.getSccpState().opCount).toEqual(2);
     val again = sendVoidExpired(env, env.deployer, 1, expired, env.minter.voidRequiredValue(1));
     expect(again).toHaveAllSuccessfulTxs();
-    expect(again).toEmitExternalMessage<SccpVoidedEvent>();
-    expect(isConsumedAt(env, 1)).toBeTrue();
+    expect(
+        again.findExternalOutMessage<SccpVoidedEvent>({ from: env.minter.address }) == null,
+    ).toBeTrue();
+    expect(env.minter.getSccpState().pendingSupply).toEqual(0);
     expect(env.minter.getSccpState().opCount).toEqual(2);
 }
 
-get fun `test consume reports are accepted only from the canonical bucket`() {
+get fun `test consume acknowledgements are accepted only from the canonical bucket`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
-    val stranger = testing.treasury("stranger").address;
-    // 300 is pending: the reply of a mint is in flight
     val d = deliverDefault(env, 0, 300, alice);
-    testing.processSingleTraceStep(env.deployer, finalizeMessage(env, d, finalizeValue(env, 0)));
+    val cursor = testing.createTraceIterationCursor(
+        env.deployer,
+        finalizeMessage(env, d, finalizeValue(env, 0)),
+    );
+    val consume = recoverUntilDispatch(cursor, SCCP_RECOVERY_CONSUME);
+    cursor.close();
+    val ack = consume.outMessages.at<SccpRecoveryAck>(0).loadBody();
+    val before = minterStorage(env).toCell().hash();
+    val strangers: array<address> = [
+        testing.treasury("stranger").address,
+        env.minter.getBucketAddress(1),
+    ];
+    var i = 0;
+    repeat (strangers.size()) {
+        val res = sendToMinter(env, strangers.get(i), ack, grams("1"));
+        expect(res).toHaveFailedTx<SccpRecoveryAck>({ to: env
+                .minter
+                .address, exitCode: SccpErrors.BadRecovery as int });
+        expect(minterStorage(env).toCell().hash()).toEqual(before);
+        i += 1;
+    }
     expect(env.minter.getSccpState().pendingSupply).toEqual(300);
-    val res = env
-        .minter
-        .sendSccpConsumeReverted(stranger, 0, 0, 300, { value: grams("1"), bounce: true });
-    expect(res).toHaveFailedTx<SccpConsumeReverted>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotBucket as int,
-    });
-    // the bucket of another index is not the bucket of the nonce
-    expect(
-        sendDeployBuckets(env, 2, env.minter.deployBucketsRequiredValue(2)),
-    ).toHaveAllSuccessfulTxs();
-    val other = env
-        .minter
-        .sendSccpConsumeReverted(
-            env.minter.getBucketAddress(1),
-            0,
-            0,
-            300,
-            { value: grams("1"), bounce: true },
-        );
-    expect(other).toHaveFailedTx<SccpConsumeReverted>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotBucket as int,
-    });
-    expect(env.minter.getSccpState().pendingSupply).toEqual(300);
-    // the report of the canonical bucket releases the pending amount
-    val own = env
-        .minter
-        .sendSccpConsumeReverted(
-            env.minter.getBucketAddress(0),
-            0,
-            0,
-            300,
-            { value: grams("1"), bounce: true },
-        );
-    expect(own).toHaveSuccessfulTx<SccpConsumeReverted>({ to: env.minter.address });
+    val own = net.send(env.minter.getBucketAddress(0), forwardOut(consume, 0));
+    expect(own).toHaveAllSuccessfulTxs();
     expect(env.minter.getSccpState().pendingSupply).toEqual(0);
+    expect(env.minter.getSccpState().totalSupply).toEqual(300);
+    expect(jettonBalanceOf(env, alice)).toEqual(300);
 }
 
-get fun `test a bounced unconsume is recorded and re-run by sccp_retry`() {
+get fun `test a bounced unconsume retains its operation across repeated funded retries`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 500, alice);
@@ -603,145 +566,122 @@ get fun `test a bounced unconsume is recorded and re-run by sccp_retry`() {
         env.deployer,
         finalizeMessage(env, d, finalizeValue(env, 0)),
     );
-    // finalize, bucket activation, consume and sccp_consumed at the minter
-    val steps = cursor.executeN(4);
+    val (step, index) = recoverBeforeDispatch(cursor, SCCP_RECOVERY_MINT);
     cursor.close();
-    // out message 0 is the sccp_finalized external event
-    val transfer = steps.at(3).outMessages.at<InternalTransferStep>(1).loadBody();
+    val transfer = step.outMessages.at<SccpRecoveryDispatch>(index).loadBody();
+    val operationId = transfer.operationId;
     val bucket = env.minter.getBucketAddress(0);
-    // the bucket is frozen for rent when the wallet bounces the mint
     val saved = testing.getShardAccount(bucket)!;
     testing.setShardAccount(bucket, null);
     val bounce = net.send(
         walletOf(env, alice).address,
         bouncedMessage(transfer, env.minter.address, grams("0.05")),
     );
-    // the mint bounced, and the unconsume that followed bounced too
-    expect(bounce).toHaveTx<SccpUnconsume>({ to: bucket, success: false });
-    reportGas(
-        "step minter bounced unconsume",
-        bounce.getUsedGas<SccpUnconsume>({ to: env.minter.address, bounced: true }),
-        SCCP_GAS_MINTER_BOUNCE,
-    );
     expect(env.minter.getSccpState().totalSupply).toEqual(0);
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_UNCONSUME);
-    // nothing else is recorded, and a retry needs a record and its value
-    expect(env.minter.getSccpRetry(1)).toEqual(0);
-    expect(sendRetry(env, 1, env.minter.retryRequiredValue())).toHaveFailedTx<SccpRetry>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NothingToRetry as int,
-    });
-    expect(sendRetry(env, 0, sccpRetryRequiredValue() - 1)).toHaveFailedTx<SccpRetry>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NotEnoughValue as int,
-    });
-    // and the mainnet chain id, before anything is looked up
+    expect(bucketOperation(env, operationId).stage).toEqual(SCCP_RECOVERY_UNCONSUME);
+    expect(bucketOperation(env, operationId).phase).toEqual(SCCP_RECOVERY_FAILED);
+    expect(
+        sendRetry(env, operationId + 100, env.minter.retryRequiredValue()),
+    ).toHaveFailedTx<SccpRetry>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.NothingToRetry as int });
+    expect(
+        sendRetry(env, operationId, sccpRetryRequiredValue() - 1),
+    ).toHaveFailedTx<SccpRetry>({ to: env
+            .minter
+            .address, exitCode: SccpErrors.NotEnoughValue as int });
     setGlobalId(-3);
-    expectOutcome(sendRetry(env, 0, env.minter.retryRequiredValue()), SccpErrors.WrongChain);
-    expectOutcome(sendRetry(env, 1, env.minter.retryRequiredValue()), SccpErrors.WrongChain);
+    expectOutcome(
+        sendRetry(env, operationId, env.minter.retryRequiredValue()),
+        SccpErrors.WrongChain,
+    );
+    expectOutcome(
+        sendRetry(env, operationId + 100, env.minter.retryRequiredValue()),
+        SccpErrors.WrongChain,
+    );
     setGlobalId(SCCP_TON_GLOBAL_ID);
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_UNCONSUME);
-
-    // While the bucket is still frozen a retry bounces again, and the record
-    // returns: each record runs at most once at a time and is never lost.
-    val early = sendRetry(env, 0, env.minter.retryRequiredValue());
+    val early = sendRetry(env, operationId, env.minter.retryRequiredValue());
     expect(early).toHaveSuccessfulTx<SccpRetry>({ to: env.minter.address });
-    expect(early).toHaveTx<SccpUnconsume>({ to: bucket, success: false });
-    expect(early).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_UNCONSUME);
-
-    // someone unfreezes the bucket with its exact state; the retry clears the flag
+    expect(early).toHaveTx<SccpRecoveryDispatch>({ to: bucket, success: false });
+    expect(bucketOperation(env, operationId).phase).toEqual(SCCP_RECOVERY_FAILED);
+    expect(bucketOperation(env, operationId).attempt).toEqual(1);
     testing.setShardAccount(bucket, saved);
     expect(isConsumedAt(env, 0)).toBeTrue();
-    val retry = sendRetry(env, 0, env.minter.retryRequiredValue());
+    val retry = sendRetry(env, operationId, env.minter.retryRequiredValue());
     expect(retry).toHaveAllSuccessfulTxs();
-    expect(retry).toHaveSuccessfulTx<SccpUnconsume>({ to: bucket });
+    expect(recoveryStageCount(retry, SCCP_RECOVERY_UNCONSUME)).toEqual(1);
     reportGas(
-        "step minter retry unconsume",
+        "minter retry unconsume",
         retry.getUsedGas<SccpRetry>({ to: env.minter.address }),
         SCCP_GAS_MINTER_RETRY,
     );
     expect(isConsumedAt(env, 0)).toBeFalse();
-    expect(env.minter.getSccpRetry(0)).toEqual(0);
-    expect(minterStorage(env).retries.isEmpty()).toBeTrue();
-    // a record runs once
-    expect(sendRetry(env, 0, env.minter.retryRequiredValue())).toHaveFailedTx<SccpRetry>({
-        to: env.minter.address,
-        exitCode: SccpErrors.NothingToRetry as int,
-    });
-    // no nonce stays consumed without a mint: the message finalizes again
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
+    expectOutcome(
+        sendRetry(env, operationId, env.minter.retryRequiredValue()),
+        SccpErrors.NothingToRetry,
+    );
     finalizeOk(env, 0, 500, alice);
-    val state = env.minter.getSccpState();
-    expect(state.totalSupply).toEqual(500);
-    // the first mint counted, was undone by its bounce, and the second counted
-    expect(state.opCount).toEqual(2);
+    expect(env.minter.getSccpState().totalSupply).toEqual(500);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
 }
 
-get fun `test a mint in flight across a latch whose unconsume bounces is recovered by sccp_retry`() {
+get fun `test a mint in flight across a latch recovers a bounced unconsume without a live generation`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 300, alice);
-    val first = testing.processSingleTraceStep(
+    val cursor = testing.createTraceIterationCursor(
         env.deployer,
         finalizeMessage(env, d, finalizeValue(env, 0)),
     );
-    // certificate and checkpoint events, the activation of bucket 0 and the consume
-    expect(first.outMessages.size()).toEqual(4);
-    // the bucket is activated and sets the flag; its reply is in flight
-    net.send(env.minter.address, forwardOut(first, 2));
-    val consume = testing.processSingleTraceStep(env.minter.address, forwardOut(first, 3));
+    val consume = recoverUntilDispatch(cursor, SCCP_RECOVERY_CONSUME);
+    cursor.close();
+    val ack = consume.outMessages.at<SccpRecoveryAck>(0).loadBody();
     expect(isConsumedAt(env, 0)).toBeTrue();
     expect(env.minter.getSccpState().pendingSupply).toEqual(300);
-    // the latch fires: the generation certifies a height below its start (V2)
     val below = emptyX(env.networkId, env.generation, env.committee.root(), TEST_START_HEIGHT - 1);
     expectOutcome(checkpointBy(env, env.committee, below, null), 0);
     expect(env.minter.getSccpState().equivocated).toBeTrue();
-    // and the bucket is frozen for rent before the reply is handled
+    // Finish receipt deletion, stopping before the newly authorized unconsume.
+    val finish = testing.createTraceIterationCursor(
+        env.minter.getBucketAddress(0),
+        forwardOut(consume, 0),
+    );
+    val (step, index) = recoverBeforeDispatch(finish, SCCP_RECOVERY_UNCONSUME);
+    finish.close();
+    val unconsume = step.outMessages.at<SccpRecoveryDispatch>(index).loadBody();
     val bucket = env.minter.getBucketAddress(0);
     val saved = testing.getShardAccount(bucket)!;
     testing.setShardAccount(bucket, null);
-
-    // The reply mints nothing and throws nothing: the pending supply is
-    // released, and the unconsume, which bounces, is recorded.
-    val res = net.send(bucket, forwardOut(consume, 0));
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
-    expect(res).toHaveTx<SccpUnconsume>({ to: bucket, success: false });
-    expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
-    expect(res).toNotHaveTx<InternalTransferStep>({});
-    expectEvents(res, []);
-    var state = env.minter.getSccpState();
-    expect(state.pendingSupply).toEqual(0);
-    expect(state.totalSupply).toEqual(0);
-    expect(state.opCount).toEqual(0);
+    val bounced = net.send(env.minter.address, forwardOut(step, index));
+    expect(bounced).toHaveTx<SccpRecoveryDispatch>({ to: bucket, success: false });
+    expect(bucketOperation(env, ack.operationId).phase).toEqual(SCCP_RECOVERY_FAILED);
+    expect(env.minter.getSccpState().pendingSupply).toEqual(0);
+    expect(env.minter.getSccpState().totalSupply).toEqual(0);
+    expect(env.minter.getSccpState().opCount).toEqual(0);
     expect(jettonBalanceOf(env, alice)).toEqual(0);
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_UNCONSUME);
-
-    // the bucket comes back with the flag still set, so the nonce is not voidable yet
     testing.setShardAccount(bucket, saved);
     expect(isConsumedAt(env, 0)).toBeTrue();
     val refused = sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0));
-    expect(refused).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(refused).toHaveAllSuccessfulTxs();
     expectEvents(refused, []);
-    // `sccp_retry` needs no Live generation: it clears the flag on the latched minter
-    val retry = sendRetry(env, 0, env.minter.retryRequiredValue());
+    val retry = sendRetry(env, unconsume.operationId, env.minter.retryRequiredValue());
     expect(retry).toHaveAllSuccessfulTxs();
     expect(isConsumedAt(env, 0)).toBeFalse();
-    expect(env.minter.getSccpRetry(0)).toEqual(0);
-    // the nonce is voidable through the frozen void, and only so
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
     expectOutcome(
         sendFinalize(env, env.deployer, d, finalizeValue(env, 0)),
         SccpErrors.Equivocated,
     );
     val voided = sendVoidFrozen(env, 0, 1, env.minter.voidFrozenRequiredValue(0));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveAllSuccessfulTxs();
     expect(voided).toEmitExternalMessage<SccpVoidedEvent>();
     expect(isConsumedAt(env, 0)).toBeTrue();
-    state = env.minter.getSccpState();
-    expect(state.opCount).toEqual(1);
-    expect(state.totalSupply).toEqual(0);
+    expect(env.minter.getSccpState().opCount).toEqual(1);
+    expect(env.minter.getSccpState().totalSupply).toEqual(0);
 }
 
-get fun `test a bounced activation is recorded and re-run by sccp_retry`() {
+get fun `test a bounced activation retains the admitted index and is retried once`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val step = testing.processSingleTraceStep(
@@ -758,62 +698,50 @@ get fun `test a bounced activation is recorded and re-run by sccp_retry`() {
         }),
     );
     expect(env.minter.getSccpState().deployedBuckets).toEqual(1);
-    val activation = step.outMessages.at<SccpActivateBucket>(0).loadBody();
-    expect(activation.index).toEqual(0);
-    // the activation bounces (it is never delivered): the bucket stays undeployed
+    val activation = step.outMessages.at<SccpRecoveryDispatch>(0).loadBody();
+    expect(activation.nonce).toEqual(0);
+    expect(activation.stage).toEqual(SCCP_RECOVERY_ACTIVATE);
+    val stranger = testing.treasury("stranger").address;
+    testing.processSingleTraceStep(
+        stranger,
+        bouncedMessage(activation, env.minter.address, grams("0.1")),
+    );
+    expect(bucketOperation(env, activation.operationId).phase).toEqual(SCCP_RECOVERY_WAIT);
     testing.processSingleTraceStep(
         env.minter.getBucketAddress(0),
         bouncedMessage(activation, env.minter.address, grams("0.1")),
     );
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_ACTIVATE);
+    expect(bucketOperation(env, activation.operationId).phase).toEqual(SCCP_RECOVERY_FAILED);
     expect(testing.isDeployed(env.minter.getBucketAddress(0))).toBeFalse();
-    // a bounce from anyone but the bucket records nothing
-    val stranger = testing.treasury("stranger").address;
-    testing.processSingleTraceStep(
-        stranger,
-        bouncedMessage(
-            SccpActivateBucket {
-                queryId: 2,
-                index: 1,
-            },
-            env.minter.address,
-            grams("0.1"),
-        ),
-    );
-    expect(env.minter.getSccpRetry(512)).toEqual(0);
-    // meanwhile a finalize into the bucket bounces and releases its pending supply
     val d = deliverDefault(env, 3, 40, alice);
     val early = sendFinalize(env, env.deployer, d, finalizeValue(env, 3));
-    expect(early).toHaveBouncedTx<SccpConsume>({ to: env.minter.address });
+    expectOutcome(early, SccpErrors.BucketNotActive);
     expect(env.minter.getSccpState().pendingSupply).toEqual(0);
-    // the minter counts the index as deployed and does not activate it twice
-    expect(early).toNotHaveTx<SccpActivateBucket>({});
-    // the retry activates the bucket, and the finalize goes through
-    val retry = sendRetry(env, 0, env.minter.retryRequiredValue());
+    expect(recoveryStageCount(early, SCCP_RECOVERY_ACTIVATE)).toEqual(0);
+    val retry = sendRetry(env, activation.operationId, env.minter.retryRequiredValue());
     expect(retry).toHaveAllSuccessfulTxs();
-    expect(retry).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env
+    expect(retry).toHaveSuccessfulDeploy<SccpRecoveryDispatch>({ to: env
             .minter
             .getBucketAddress(0) });
     reportGas(
-        "step minter retry activation",
+        "minter retry activation",
         retry.getUsedGas<SccpRetry>({ to: env.minter.address }),
         SCCP_GAS_MINTER_RETRY,
     );
-    expect(env.minter.getSccpRetry(0)).toEqual(0);
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
     expect(bucketOf(env, 0).isActivated()).toBeTrue();
     expect(
         testing.getAccountBalance(env.minter.getBucketAddress(0)) >= sccpBucketFloor(),
     ).toBeTrue();
-    // the record ran once
     expectOutcome(
-        sendRetry(env, 0, env.minter.retryRequiredValue()),
+        sendRetry(env, activation.operationId, env.minter.retryRequiredValue()),
         SccpErrors.NothingToRetry,
     );
     finalizeOk(env, 3, 40, alice);
     expect(env.minter.getSccpState().deployedBuckets).toEqual(1);
 }
 
-get fun `test a mint bounce handler records the unconsume when the balance cannot pay it`() {
+get fun `test a mint bounce retains prepaid recovery even when balance cannot fund an outgoing message`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 500, alice);
@@ -821,32 +749,25 @@ get fun `test a mint bounce handler records the unconsume when the balance canno
         env.deployer,
         finalizeMessage(env, d, finalizeValue(env, 0)),
     );
-    val steps = cursor.executeN(4);
+    val (step, index) = recoverBeforeDispatch(cursor, SCCP_RECOVERY_MINT);
     cursor.close();
-    val transfer = steps.at(3).outMessages.at<InternalTransferStep>(1).loadBody();
-    // an (impossible in practice) empty minter cannot pay the unconsume
+    val transfer = step.outMessages.at<SccpRecoveryDispatch>(index).loadBody();
     setAccountBalance(env.minter.address, 0);
     val bounced = testing.processSingleTraceStep(
         walletOf(env, alice).address,
         bouncedMessage(transfer, env.minter.address, sccpGasFee(SCCP_GAS_MINTER_BOUNCE)),
     );
-    // nothing is sent: the handler cannot bounce, so it records instead
     expect(bounced.outMessages.size()).toEqual(0);
-    reportGas(
-        "step minter bounced internal_transfer recorded",
-        bounced.gasUsed,
-        SCCP_GAS_MINTER_BOUNCE,
-    );
+    reportGas("minter failed mint retained", bounced.gasUsed, SCCP_GAS_MINTER_BOUNCE);
     expect(env.minter.getSccpState().totalSupply).toEqual(0);
-    expect(env.minter.getSccpRetry(0)).toEqual(SCCP_RETRY_UNCONSUME);
+    expect(bucketOperation(env, transfer.operationId).stage).toEqual(SCCP_RECOVERY_UNCONSUME);
+    expect(bucketOperation(env, transfer.operationId).phase).toEqual(SCCP_RECOVERY_FAILED);
     expect(isConsumedAt(env, 0)).toBeTrue();
-    // anyone pays the retry, which clears the flag; the caller also tops the
-    // empty minter up to its floor
     val quote = env.minter.retryRequiredValue();
     expect(quote > sccpMinterFloor()).toBeTrue();
-    expect(sendRetry(env, 0, quote)).toHaveAllSuccessfulTxs();
+    expect(sendRetry(env, transfer.operationId, quote)).toHaveAllSuccessfulTxs();
     expect(isConsumedAt(env, 0)).toBeFalse();
-    expect(env.minter.getSccpRetry(0)).toEqual(0);
+    expect(minterStorage(env).recovery.load().count).toEqual(0);
     expect(testing.getAccountBalance(env.minter.address)).toEqual(sccpMinterFloor());
     finalizeOk(env, 0, 500, alice);
     expect(env.minter.getSccpState().totalSupply).toEqual(500);

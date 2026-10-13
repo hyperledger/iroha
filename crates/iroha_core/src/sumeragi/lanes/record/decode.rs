@@ -152,7 +152,13 @@ fn parse(raw: &[u8]) -> Result<Layout, norito::Error> {
             }
             // Lanes never persist the separately authenticated result-only global genesis form.
             let availability = byte_range(bytes, table_field, 1, MAX_AVAILABILITY_FRAME_BYTES)?;
-            let payload = byte_range(bytes, payload_field, 1, MAX_DA_PAYLOAD_SIZE_BYTES as usize)?;
+            let payload = byte_range(
+                bytes,
+                payload_field,
+                1,
+                usize::try_from(MAX_DA_PAYLOAD_SIZE_BYTES)
+                    .map_err(|_| norito::Error::LengthMismatch)?,
+            )?;
             let qc = qc::parse(&bytes[qc_field])?;
             Ok((header, availability, payload, qc))
         })?;

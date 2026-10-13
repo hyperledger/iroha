@@ -126,7 +126,7 @@ impl Fixture {
             lane: LaneId::new(2),
             dataspace: DataSpaceId::new(0),
             incarnation: [0x73; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee: keys
                 .iter()
                 .map(|key| SumeragiLaneMember {
@@ -251,7 +251,11 @@ impl Fixture {
         fixture
     }
     fn resign(&mut self, count: usize) {
-        self.qc.signers = Bitmap::from_indices(4, (0..count).map(|index| index as u32)).unwrap();
+        self.qc.signers = Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let preimage = self.qc.preimage();
         let signatures = self.keys[..count]
             .iter()

@@ -273,6 +273,10 @@ impl FileLaneBlockStore {
                 .ok_or_else(|| invalid("lane artifact disappeared during enumeration"))?;
             directory.require_same_regular_file(name, &original)?;
             drop(original);
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "lane artifacts have canonical lowercase names; uppercase lookalikes must be rejected"
+            )]
             match name.strip_suffix(&format!(".{FRAME_SUFFIX}")) {
                 Some(number) => {
                     let height = number

@@ -16,6 +16,7 @@ import "@acton/emulation/config"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
+import "@acton/tlb/maybe"
 import "@acton/types/big_array"
 import "@acton/types/message"
 import "@acton/types/transaction"
@@ -24,8 +25,10 @@ import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-crypto"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -653,7 +656,7 @@ fun canonicalStorage(
         config: config.toCell(),
         committee: committee.toCell(),
         checkpoints: beginCell().storeUint(0, 2).endCell(),
-        retries: [],
+        recovery: RecoveryBook.empty().toCell(),
     };
 }
 
@@ -737,7 +740,7 @@ fun installPinned(storage: MinterStorage, deployer: address, value: coins): Sccp
 /// Deployed and initialized pinned minter with a committee of the first `n`
 /// test keys.
 fun setupEnvWith(n: int, maxSupply: int): Env {
-    return setupEnvFunded(n, maxSupply, grams("10"));
+    return setupEnvFunded(n, maxSupply, sccpMinterFloor() + grams("10"));
 }
 
 /// [setupEnvWith] deployed with `value` (below `MINTER_FLOOR` when small).
@@ -875,6 +878,7 @@ fun raiseBitForwardPrice(factor: int): BlockchainConfigMap {
 /// The canonical (not activated, flags clear) bucket `index` of `env.minter`.
 fun canonicalBucket(env: Env, index: int): SccpConsumedBucket {
     return SccpConsumedBucket.fromStorage({
+        recovery: RecoveryReceipts.empty().toCell(),
         minterAddress: env.minter.address,
         index,
         activated: false,
@@ -883,9 +887,62 @@ fun canonicalBucket(env: Env, index: int): SccpConsumedBucket {
     });
 }
 
-/// Sends `sccp_retry` for `nonce` with `value`.
-fun sendRetry(env: Env, nonce: int, value: coins): SendResultList {
-    return env.minter.sendSccpRetry(env.deployer, 12, env.deployer, nonce, { value, bounce: true });
+/// Maximum retained graph with distinct leaves, row cells and full-size tails.
+/// Sparse operation ids are reachable after earlier operations have completed.
+fun maximumRecoveryBook(): RecoveryBook {
+    var book = RecoveryBook.empty();
+    book.nextId = SCCP_MAX_U64;
+    book.count = SCCP_RECOVERY_CAPACITY;
+    book.activatedBuckets = 1 << 55;
+    var i = 0;
+    repeat (SCCP_RECOVERY_CAPACITY) {
+        val id = (i << 55) | (i * 511 + 1);
+        val maximum = (1 << 255) - 1;
+        val tail = ConsumeTail {
+            kind: SCCP_CONSUME_KIND_MINT,
+            recipient: address.fromWorkchainAndHash(0, maximum - i),
+            response: address.fromWorkchainAndHash(0, maximum - 512 - i),
+            messageId: maximum - 1024 - i,
+        }.toCell();
+        val operation = RecoveryOperation {
+            stage: SCCP_RECOVERY_CONSUME,
+            phase: SCCP_RECOVERY_WAIT,
+            attempt: SCCP_MAX_U64 - i,
+            nonce: SCCP_MAX_U64 - i,
+            amount: SCCP_TON_AMOUNT_LIMIT - 1,
+            count: 512,
+            nextId: 0,
+            queryId: SCCP_MAX_U64 - i,
+            result: 0,
+            tail,
+        };
+        book.operations.set(id, operation.toCell());
+        i += 1;
+    }
+    return book;
+}
+
+/// Maximum compact destination receipt dictionary without hash deduplication.
+fun maximumRecoveryReceipts(stage: int): RecoveryReceipts {
+    var book = RecoveryReceipts.empty();
+    var i = 0;
+    repeat (SCCP_RECOVERY_CAPACITY) {
+        book.record(
+            (i << 55) | (i * 511 + 1),
+            stage,
+            SCCP_MAX_U64 - i,
+            SCCP_RECEIPT_APPLIED,
+        );
+        i += 1;
+    }
+    return book;
+}
+
+/// Sends `sccp_retry` for an immutable operation id with `value`.
+fun sendRetry(env: Env, operationId: int, value: coins): SendResultList {
+    return env
+        .minter
+        .sendSccpRetry(env.deployer, 12, env.deployer, operationId, { value, bounce: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1577,7 +1634,7 @@ fun finalizeOk(env: Env, nonce: int, amount: int, recipient: address): SendResul
     val d = deliverDefault(env, nonce, amount, recipient);
     val res = sendFinalize(env, env.deployer, d, finalizeValue(env, nonce));
     expect(res).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
-    expect(res).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(res).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(jettonBalanceOf(env, recipient)).toEqual(before + amount);
     return res;
 }
@@ -1684,6 +1741,16 @@ fun eventRotated(generation: int, root: int, untilMs: int, start: int): cell {
 /// Body of `sccp_latched`.
 fun eventLatched(reason: int, generation: int, height: int, a: int, b: int): cell {
     return SccpLatchedEvent { reason, generation, height, a, b }.toCell();
+}
+
+/// Body of the authenticated completion event `sccp_finalized`.
+fun replayEventFinalized(messageId: int, nonce: int): cell {
+    return SccpFinalizedEvent { messageId, nonce }.toCell();
+}
+
+/// Body of `sccp_voided` with the exact consumed range.
+fun replayEventVoided(messageId: int, firstNonce: int, count: int): cell {
+    return SccpVoidedEvent { messageId, firstNonce, count }.toCell();
 }
 
 /// Body of `sccp_control_applied`.
@@ -1876,6 +1943,16 @@ fun replayExpectState(
     expect(committee.untilMs).toEqual(untilMs);
 }
 
+/// Expects the retained supply and every independently predicted consumed nonce.
+fun replayExpectValueState(env: Env, totalSupply: int, consumed: array<int>) {
+    expect(env.minter.getJettonData().totalSupply).toEqual(totalSupply);
+    var index = 0;
+    while (index < consumed.size()) {
+        expect(isConsumedAt(env, consumed.get(index))).toBeTrue();
+        index += 1;
+    }
+}
+
 /// Expects the stored committee keys to be exactly `keys`.
 fun replayExpectKeys(env: Env, keys: array<slice>) {
     val committee = env.minter.getSccpCommittee();
@@ -1912,4 +1989,160 @@ fun replayExpectPin(env: Env, generation: int, root: int, start: int, untilMs: i
     expect(state.initialRoot).toEqual(root);
     expect(state.initialStart).toEqual(start);
     expect(state.initialUntilMs).toEqual(untilMs);
+}
+
+/// Process the chain up to the requested original delivery, leaving its ACK
+/// pending. No fixed transaction index is assumed by recovery regressions.
+fun recoverUntilDispatch(cursor: TxCursor, stage: int): SendResult {
+    var result = cursor.executeN(1).at(0);
+    repeat (150) {
+        val incoming = result.tx.load().messages.load().inMsg.unwrapOr(null);
+        if (incoming != null) {
+            val message = TlbMessageRelaxedGeneric.fromCell(incoming!);
+            val opcode = message.loadOpcode();
+            if ((opcode != null) && (opcode == 0x53435241)) {
+                val body = TlbMessageRelaxed<SccpRecoveryDispatch>.fromCell(incoming!).loadBody();
+                if (body.stage == stage) {
+                    return result;
+                }
+            }
+        }
+        expect(cursor.isDone()).toBeFalse();
+        result = cursor.executeN(1).at(0);
+    }
+    expect(false).toBeTrue();
+    return result;
+}
+
+fun recoveryFinalizeMessage(env: Env, delivery: Delivery): OutMessage {
+    return createMessage({
+        bounce: BounceMode.Only256BitsOfBody,
+        value: finalizeValue(env, 0),
+        dest: env.minter.address,
+        body: SccpFinalize {
+            queryId: 1,
+            response: env.deployer,
+            cert: delivery.cert as Cell<TairaCert>,
+            message: delivery.proof as Cell<MessageProof>,
+        },
+    });
+}
+
+/// Stop before the requested effect; its outgoing message remains undelivered.
+fun recoverBeforeDispatch(cursor: TxCursor, stage: int): (SendResult, int) {
+    var result = cursor.executeN(1).at(0);
+    repeat (150) {
+        var i = 0;
+        repeat (result.outMessages.size()) {
+            val raw = result.outMessages.atCell(i);
+            if (raw.beginParse().preloadUint(1) == 0) {
+                val generic = TlbMessageRelaxedGeneric.fromCell(raw);
+                val opcode = generic.loadOpcode();
+                if ((opcode != null) && (opcode == 0x53435241)) {
+                    val message = result.outMessages.at<SccpRecoveryDispatch>(i);
+                    if (message.loadBody().stage == stage) {
+                        return (result, i);
+                    }
+                }
+            }
+            i += 1;
+        }
+        expect(cursor.isDone()).toBeFalse();
+        result = cursor.executeN(1).at(0);
+    }
+    expect(false).toBeTrue();
+    return (result, 0);
+}
+
+/// Count exact dispatched stages, independent of intermediate ACK hops.
+fun recoveryStageCount(results: SendResultList, stage: int): int {
+    var count = 0;
+    var i = 0;
+    repeat (results.size()) {
+        val incoming = results.at(i).tx.load().messages.load().inMsg.unwrapOr(null);
+        if (incoming != null) {
+            val generic = TlbMessageRelaxedGeneric.fromCell(incoming!);
+            val opcode = generic.loadOpcode();
+            if ((opcode != null) && (opcode == 0x53435241) && !generic.info.bounced) {
+                val msg = TlbMessageRelaxed<SccpRecoveryDispatch>.fromCell(incoming!).loadBody();
+                if (msg.stage == stage) {
+                    count += 1;
+                }
+            }
+        }
+        i += 1;
+    }
+    return count;
+}
+
+/// Maximum gas of one authenticated recovery stage and direction in a trace.
+/// ACK mode includes Prepared and Dropped so the more expensive transition wins.
+fun recoveryGas(results: SendResultList, to: address, stage: int, ack: bool): int {
+    var maximum = -1;
+    var i = 0;
+    repeat (results.size()) {
+        val result = results.at(i);
+        val incoming = result.tx.load().messages.load().inMsg.unwrapOr(null);
+        if (incoming != null) {
+            val generic = TlbMessageRelaxedGeneric.fromCell(incoming!);
+            val opcode = generic.loadOpcode();
+            val info = generic.info;
+            if ((info.dest == to) && !info.bounced && (opcode != null)) {
+                if (ack && (opcode == 0x53435244)) {
+                    val body = TlbMessageRelaxed<SccpRecoveryAck>.fromCell(incoming!).loadBody();
+                    if (body.stage == stage) {
+                        maximum = max(maximum, result.gasUsed);
+                    }
+                }
+                if (!ack && (opcode == 0x53435241)) {
+                    val body = TlbMessageRelaxed<SccpRecoveryDispatch>
+                        .fromCell(incoming!)
+                        .loadBody();
+                    if (body.stage == stage) {
+                        maximum = max(maximum, result.gasUsed);
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    expect(maximum >= 0).toBeTrue();
+    return maximum;
+}
+
+/// Reachable monotonic id geometry whose next insert follows 59 old forks.
+/// Rows below the counter model retained operations; new ids are all larger.
+fun deepAdmissionBook(count: int): RecoveryBook {
+    var book = RecoveryBook.empty();
+    book.nextId = SCCP_MAX_U64 - 31;
+    val tail = ConsumeTail {
+        kind: SCCP_CONSUME_KIND_VOID,
+        recipient: null,
+        response: testing.treasury("deployer").address,
+        messageId: 0,
+    }.toCell();
+    var i = 0;
+    repeat (count) {
+        val id = i < 59 ? book.nextId ^ (1 << (i + 5)) : i - 58;
+        book
+            .operations
+            .set(
+                id,
+                RecoveryOperation {
+                    stage: SCCP_RECOVERY_UNCONSUME,
+                    phase: SCCP_RECOVERY_FAILED,
+                    attempt: 1,
+                    nonce: i,
+                    amount: 0,
+                    count: 1,
+                    nextId: 0,
+                    queryId: i,
+                    result: 0,
+                    tail,
+                }.toCell(),
+            );
+        i += 1;
+    }
+    book.count = count as uint10;
+    return book;
 }

@@ -28,10 +28,10 @@ use std::{
 use url::Url;
 
 use self::private_settlement_online_auditor::{
-    PrivateSettlementAuditorBusinessPolicyV1, coordinate_private_settlement_online_auditor_v1,
-    load_private_settlement_audit_policy_v1, load_private_settlement_auditor_business_policy_v1,
-    load_private_settlement_auditor_secret_v1, load_private_settlement_committee_authority_v1,
-    load_private_settlement_pool_governance_v1,
+    PrivateSettlementAuditorBusinessPolicyV1, PrivateSettlementOnlineAuditorOperationV1,
+    coordinate_private_settlement_online_auditor_v1, load_private_settlement_audit_policy_v1,
+    load_private_settlement_auditor_business_policy_v1, load_private_settlement_auditor_secret_v1,
+    load_private_settlement_committee_authority_v1, load_private_settlement_pool_governance_v1,
 };
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
@@ -511,10 +511,12 @@ fn private_settlement<C: RunContext>(
             let response = coordinate_private_settlement_online_auditor_v1(
                 &client,
                 &args.committee_endpoints,
-                &committee_authority,
-                payload_digest,
-                &audit_policy,
-                &pool_governance,
+                &PrivateSettlementOnlineAuditorOperationV1 {
+                    expected_authority: &committee_authority,
+                    payload_digest,
+                    audit_policy: &audit_policy,
+                    pool_governance: &pool_governance,
+                },
                 &credentials,
                 &request_signer,
                 &evaluator,

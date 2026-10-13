@@ -51,7 +51,7 @@ pub fn summarize_profile(
 ) -> ProfileSummary {
     assert!(!samples.is_empty());
     samples.sort_unstable();
-    let total: f64 = samples.iter().map(|sample| sample.as_secs_f64()).sum();
+    let total: f64 = samples.iter().map(std::time::Duration::as_secs_f64).sum();
     let sample_count = samples.len() as f64;
     let wall_secs = wall_time.as_secs_f64();
     ProfileSummary {

@@ -58,9 +58,7 @@ fn scoped_fence_coalesces_original_releases_after_all_siblings_on_return_and_unw
             let _sibling = locks[1].lock();
             let _original = outer.lock();
             assert!(locks[0].inner.try_lock().is_none());
-            if unwind {
-                panic!("later aggregate preparation failed");
-            }
+            assert!(!unwind, "later aggregate preparation failed")
         }));
         assert_eq!(result.is_err(), unwind);
         assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
@@ -109,9 +107,7 @@ fn scoped_guard_preserves_mutations_and_defers_release_on_return_and_unwind() {
             assert_eq!(&*guard, &[1]);
             guard.push(2);
             wait = original.try_lock_or_wait().err();
-            if unwind {
-                panic!("unwind through original typed deferred guard");
-            }
+            assert!(!unwind, "unwind through original typed deferred guard")
         }));
         assert_eq!(result.is_err(), unwind);
         assert_eq!(&*original.inner.try_lock().unwrap(), &[1, 2]);

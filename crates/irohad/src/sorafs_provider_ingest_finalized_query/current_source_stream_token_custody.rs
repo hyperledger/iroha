@@ -1,4 +1,4 @@
-//! Read-only native StreamToken custody control at a source assignment's committed head.
+//! Read-only native `StreamToken` custody control at a source assignment's committed head.
 //!
 //! This pairs two genuine State/Kura inputs. It does not attest a signed custody statement,
 //! publish council admission or advert revocation, pin HTTPS transport, or issue a grant.
@@ -22,7 +22,7 @@ use sorafs_node::{
     provider_ingest_runtime::ProviderIngestSourceRequestV1,
 };
 
-/// Current native StreamToken control paired with one exact source assignment.
+/// Current native `StreamToken` control paired with one exact source assignment.
 ///
 /// This is public, payload-free, read-only evidence. Even an enrolled and unrevoked control
 /// is not a verified signed custody statement or an HTTPS/StreamToken grant authorization.
@@ -35,7 +35,6 @@ pub struct ProviderIngestCurrentSourceStreamTokenCustodyV1 {
 
 impl ProviderIngestCurrentSourceStreamTokenCustodyV1 {
     /// Exact current source assignment observed with the native control.
-    #[must_use]
     pub const fn assignment(&self) -> &ProviderIngestCurrentSourceAssignmentV1 {
         &self.assignment
     }
@@ -89,7 +88,7 @@ pub(super) fn join_current_source_stream_token_custody(
 }
 
 impl ArchivedProviderIngestFinalizedLedgerV1 {
-    /// Read current native StreamToken control for a finalized source assignment.
+    /// Read current native `StreamToken` control for a finalized source assignment.
     ///
     /// The expected public binding is independently configured, then checked against the
     /// consensus-owned native record. Both reads must observe the same qualified archive head;

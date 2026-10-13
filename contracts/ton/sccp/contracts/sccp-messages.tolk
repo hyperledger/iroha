@@ -175,46 +175,7 @@ struct (0x53434431) SccpDeployBuckets {
     count: uint8
 }
 
-/// Bucket reply: the nonce was unset and is now consumed (bounceable).
-struct (0x53434332) SccpConsumed {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-/// Bucket reply: the nonce was already consumed (bounceable).
-struct (0x53434336) SccpAlreadyConsumed {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-/// Bucket reply: the whole range is now consumed (bounceable).
-struct (0x53434334) SccpRangeConsumed {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-/// Bucket reply: some nonce of the range was already consumed.
-struct (0x53434337) SccpRangeRejected {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-/// Bucket report: the minter bounced `sccp_consumed` or
-/// `sccp_already_consumed` for `nonce`, so its pending `amount` is released
-/// (bounceable; the bucket ignores its bounce).
-struct (0x53434339) SccpConsumeReverted {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-}
-
-/// Re-runs the recorded asynchronous step keyed by `nonce` (§5.3.4).
+/// Recovers one reserved asynchronous operation by immutable id (§5.3.4).
 struct (0x53435931) SccpRetry {
     queryId: uint64
     response: address
@@ -223,35 +184,43 @@ struct (0x53435931) SccpRetry {
 
 /// One reserved original operation. Its first 168 bits bind every bounce to
 /// an immutable operation, stage and attempt before any optional data is read.
-struct (0x53435231) SccpRecoveryDispatch {
+struct (0x53435241) SccpRecoveryDispatch {
     operationId: uint64
     stage: uint8
     attempt: uint64
     nonce: uint64
     count: uint16
     amount: uint96
+    queryId: uint64
+    response: address
 }
 
 /// Queries an existing receipt; never repeats the original effect.
-struct (0x53435232) SccpRecoveryConfirm {
+struct (0x53435242) SccpRecoveryConfirm {
     operationId: uint64
     stage: uint8
     attempt: uint64
+    queryId: uint64
+    response: address
 }
 
 /// Deletes exactly one completed stage's receipt, including on retry.
-struct (0x53435233) SccpRecoveryDrop {
+struct (0x53435243) SccpRecoveryDrop {
     operationId: uint64
     stage: uint8
     attempt: uint64
+    queryId: uint64
+    response: address
 }
 
 /// Authenticated result: missing, applied, rejected, or deletion confirmed.
-struct (0x53435234) SccpRecoveryAck {
+struct (0x53435244) SccpRecoveryAck {
     operationId: uint64
     stage: uint8
     attempt: uint64
     result: uint8
+    queryId: uint64
+    response: address
 }
 
 /// TEP-74 burn notification extended with the SCCP recipient (§5.3.3).
@@ -280,35 +249,6 @@ struct (0xd1735400) ResponseWalletAddress {
     queryId: uint64
     jettonWalletAddress: address?
     ownerAddress: Cell<address>?
-}
-
-// ---------------------------------------------------------------------------
-// Messages to a consumption bucket (sender MUST be the minter).
-
-/// Sent with the canonical `StateInit`; the only way a bucket becomes
-/// active (§5.3.4 step 2).
-struct (0x53434338) SccpActivateBucket {
-    queryId: uint64
-    index: uint64
-}
-
-/// The first 256 body bits are `op ‖ query_id ‖ nonce ‖ amount`, so a bounce
-/// returns the nonce and amount to the minter.
-struct (0x53434331) SccpConsume {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-struct (0x53434333) SccpConsumeRange {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-struct (0x53434335) SccpUnconsume {
-    nonce: uint64
 }
 
 // ---------------------------------------------------------------------------

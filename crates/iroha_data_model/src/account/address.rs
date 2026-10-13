@@ -90,6 +90,25 @@ pub struct AccountAddress {
     controller: ControllerPayload,
 }
 impl AccountAddress {
+    /// Compare canonical address bytes with an existing account without constructing a
+    /// second address, public-key graph, or output byte buffer. Every byte, including the
+    /// exact end of the canonical representation, must match.
+    #[must_use]
+    pub fn matches_account_id_bytes(account: &AccountId, bytes: &[u8]) -> bool {
+        let mut offset = 0usize;
+        account
+            .emit_canonical_bytes(|chunk| {
+                let end = offset.checked_add(chunk.len()).ok_or(())?;
+                if bytes.get(offset..end) != Some(chunk) {
+                    return Err(());
+                }
+                offset = end;
+                Ok(())
+            })
+            .is_ok()
+            && offset == bytes.len()
+    }
+
     /// Construct from an [`AccountId`] assuming a single-key controller.
     ///
     /// Construct the canonical byte representation of the address payload.
@@ -2406,6 +2425,44 @@ mod tests {
             calls, 1,
             "no controller/member may be visited after sink failure"
         );
+    }
+
+    #[test]
+    fn canonical_account_comparison_borrows_single_and_multisig_without_accepting_extra_bytes() {
+        let single = AccountId::new(ed25519_pk());
+        let multi = AccountId::new_multisig(
+            MultisigPolicy::new(
+                2,
+                vec![
+                    MultisigMember::new(ed25519_pk_with(1), 1).unwrap(),
+                    MultisigMember::new(ed25519_pk_with(2), 1).unwrap(),
+                ],
+            )
+            .unwrap(),
+        );
+        for account in [single, multi] {
+            let bytes = AccountAddress::from_account_id(&account)
+                .unwrap()
+                .canonical_bytes()
+                .unwrap();
+            assert!(AccountAddress::matches_account_id_bytes(&account, &bytes));
+            assert!(!AccountAddress::matches_account_id_bytes(
+                &account,
+                &bytes[..bytes.len() - 1]
+            ));
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(!AccountAddress::matches_account_id_bytes(
+                &account, &trailing
+            ));
+            for index in 0..bytes.len() {
+                let mut altered = bytes.clone();
+                altered[index] ^= 1;
+                assert!(!AccountAddress::matches_account_id_bytes(
+                    &account, &altered
+                ));
+            }
+        }
     }
 
     #[test]

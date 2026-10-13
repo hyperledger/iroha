@@ -357,12 +357,11 @@ where
         backups.push(snapshot_output(output)?);
     }
 
-    let mut published = 0_usize;
     for index in 0..staged.len() {
         let result =
             before_publish(index, &mut staged[index]).and_then(|()| staged[index].publish());
         if let Err(err) = result {
-            let rollback_error = rollback_outputs(&staged, &mut backups, published);
+            let rollback_error = rollback_outputs(&staged, &mut backups, index);
             let mut message = format!(
                 "failed to publish output transaction at {} `{}`: {err}",
                 staged[index].label,
@@ -373,7 +372,6 @@ where
             }
             return Err(io::Error::new(err.kind(), message));
         }
-        published += 1;
     }
     Ok(())
 }

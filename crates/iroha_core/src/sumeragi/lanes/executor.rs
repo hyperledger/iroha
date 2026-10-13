@@ -66,6 +66,11 @@ pub trait LaneTransactions: Send + Sync {
     /// Queued transactions routed to the lane at global height `height`, oldest first, at most
     /// `max_bytes` of encoded transactions, skipping `skip`. Future-only work returns
     /// [`LaneSelectionError::ClockAhead`] so the driver retries without unrelated traffic.
+    ///
+    /// # Errors
+    ///
+    /// Returns a selection error when candidate routing or source access cannot
+    /// complete, including future-only work that requires the clock to advance.
     fn candidates(
         &self,
         height: u64,
@@ -598,10 +603,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             return Some(ExecOutcome::Valid(executed.result));
         }
         let parent = self.parent_state(block)?;
-        match self.run(block, block_hash, parent, certified) {
-            Ok(outcome) => Some(outcome),
-            Err(_) => None,
-        }
+        self.run(block, block_hash, parent, certified).ok()
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
@@ -999,7 +1001,7 @@ mod tests {
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         authored(lane, header, payload)
     }
@@ -1084,8 +1086,9 @@ mod tests {
             });
             let transaction = tx_at(24, created_ms);
             let effective = Duration::from_millis(5_000.max(created_ms + 1));
-            let (clock, time) =
-                iroha_primitives::time::TimeSource::new_mock(effective - Duration::from_millis(1));
+            let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+                effective.checked_sub(Duration::from_millis(1)).unwrap(),
+            );
             let queue = Arc::new(Queue(Mutex::new(vec![transaction.clone()])));
             let mut lane = executor_with_clock(&global, Some(queue.clone()), time);
             assert!(

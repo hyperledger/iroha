@@ -631,7 +631,11 @@ fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes()
         // worker, advancing the authentic successor schedule for reveal height 3.
         drop(committing);
         drop(committing_recording);
-        let committed = chain.commit_proposal(source.clone(), Signers::Quorum, Default::default());
+        let committed = chain.commit_proposal(
+            source.clone(),
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        );
         assert_eq!(committed.height(), 2);
         assert_eq!(chain.height(), 2);
         let native_rows = committed

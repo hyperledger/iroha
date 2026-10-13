@@ -308,7 +308,7 @@ fn historical_receipt_is_separate_even_when_height_matches_or_parent_is_unavaila
 #[test]
 fn receipt_binding_rejects_foreign_identity_before_parent_observation() {
     let _guard = super::super::native_test_guard();
-    let (_temporary, _store, target) = global_fixture();
+    let (_temporary, store, target) = global_fixture();
     let alterations: [fn(&mut DeploymentReceipt); 4] = [
         |receipt: &mut DeploymentReceipt| {
             receipt.network_id =
@@ -334,5 +334,5 @@ fn receipt_binding_rejects_foreign_identity_before_parent_observation() {
         b"different-selection",
     )))
     .to_string();
-    assert!(_store.capture_deployment(&selected).is_err());
+    assert!(store.capture_deployment(&selected).is_err());
 }

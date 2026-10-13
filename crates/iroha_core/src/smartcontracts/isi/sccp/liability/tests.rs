@@ -184,7 +184,8 @@ fn current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes()
     // The executing overlay's early-clearance value does not replace the original parent.
     assert_eq!(
         check(&parent, &current, &v, None).unwrap(),
-        Some(ReleaseBlocker::LiabilityActive)
+        Some(ReleaseBlocker::LiabilityActive),
+        "SC20 must retain liability until original destination clearance or the progress cap"
     );
     parent.sccp_committee_generations.insert(7, g);
     assert_eq!(check(&parent, &current, &v, None).unwrap(), None);
@@ -201,7 +202,8 @@ fn pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it(
     let retained = pool.reserved_bytes();
     assert_eq!(
         check(&parent, &current, &v, Some(0)).unwrap(),
-        Some(ReleaseBlocker::PenaltyPending)
+        Some(ReleaseBlocker::PenaltyPending),
+        "SC15 must retain an unbond while its exact recorded SCCP penalty is pending"
     );
     assert_eq!(
         pool.reserved_bytes(),

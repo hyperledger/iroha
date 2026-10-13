@@ -184,7 +184,7 @@ ivm_abi = { workspace = true }
 fastpq_prover = { path = "../fastpq_prover" }
 fastpq_isi = { path = "../fastpq_isi" }
 mv = { workspace = true }
-concread = { workspace = true, features = ["ebr", "maps", "foldhash"] }
+concread = { workspace = true, features = ["ebr", "maps"] }
 iroha_schema = { workspace = true }
 sorafs_manifest = { path = "../sorafs_manifest", features = ["pqc"] }
 settlement_router = { path = "../settlement_router" }
@@ -253,7 +253,7 @@ iroha_sumeragi = { workspace = true, features = ["sim"] }
 [[bench]]
 name = "validation"
 harness = false
-required-features = ["bench"]
+required-features = ["bench", "iroha-core-tests"]
 
 [[bench]]
 name = "kura"

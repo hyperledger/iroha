@@ -105,8 +105,8 @@ impl Fixture {
             b.directory.identity().unwrap()
         );
         assert_ne!(
-            FileIdentity::of(&a._lock).unwrap(),
-            FileIdentity::of(&b._lock).unwrap()
+            FileIdentity::of(&a.lock).unwrap(),
+            FileIdentity::of(&b.lock).unwrap()
         );
         for child in [&a, &b] {
             assert!(child.checkpoint_cache.entry.try_lock().unwrap().is_empty());
@@ -238,7 +238,7 @@ fn graph_scope_shares_cold_imports_without_sharing_source_lock_or_transaction_ve
 
     let lock = a.directory.path().join("operation.lock");
     let saved_lock = a.directory.path().join("saved-operation.lock");
-    let lock_identity = FileIdentity::of(&a._lock).unwrap();
+    let lock_identity = FileIdentity::of(&a.lock).unwrap();
     #[cfg(unix)]
     {
         std::fs::rename(&lock, &saved_lock).unwrap();
@@ -249,7 +249,7 @@ fn graph_scope_shares_cold_imports_without_sharing_source_lock_or_transaction_ve
     #[cfg(windows)]
     assert!(std::fs::rename(&lock, &saved_lock).is_err());
     a.validate_profile().unwrap();
-    assert_eq!(FileIdentity::of(&a._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&a.lock).unwrap(), lock_identity);
     assert_eq!(
         a.directory
             .read("carrier.nrt", MAX_CHECKPOINT_BYTES)
@@ -358,6 +358,10 @@ fn graph_scope_keeps_exact_keys_observation_isolation_and_cold_return_lifetime()
 
 #[test]
 fn graph_scope_preserves_effective_fifo_limits_and_active_owned_fallback() {
+    fn profile_limits(allocation: usize) -> norito::DecodeLimits {
+        let finite = 64 * 1024 * 1024;
+        norito::DecodeLimits::new(finite, finite, finite, allocation, 64)
+    }
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::new();
     let scope = CheckpointImportScope::for_original(&fixture.parent).unwrap();
@@ -458,10 +462,7 @@ fn graph_scope_preserves_effective_fifo_limits_and_active_owned_fallback() {
     }
 
     // Passing a scope cannot bypass full constructor admission or attach it to an active child.
-    fn profile_limits(allocation: usize) -> norito::DecodeLimits {
-        let finite = 64 * 1024 * 1024;
-        norito::DecodeLimits::new(finite, finite, finite, allocation, 64)
-    }
+
     let ordinary = DecodeBudgetContext::new(profile_limits(64 * 1024 * 1024));
     let (expected_child, parses) =
         crate::localnet::service_authorities::count_profile_validations(|| {
@@ -647,13 +648,14 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
         std::mem::size_of::<usize>(),
         "the standalone owner retains one optional pointer, not an inline epoch pair"
     );
-    let mut cold = EpochValidationScope::new();
-    let cold_charge = epoch_charge(&mut cold, &context);
+    let cold_charge = {
+        let mut cold = EpochValidationScope::new();
+        epoch_charge(&mut cold, &context)
+    };
     assert!(
         cold_charge > 0,
         "the finite native context roundtrip must admit owned allocations"
     );
-    drop(cold);
     assert_eq!(a.decode_checkpoint(&first_bytes).unwrap(), first);
     assert_eq!(attempts(&a), 1);
     assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
@@ -668,13 +670,13 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
 
     // Existing caller-local scopes are not a second populated pair under the graph owner.
     scope.cache.entry.try_lock().unwrap().clear();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    assert_eq!(imports.decode(&first_bytes).unwrap(), first);
-    drop(imports);
-    assert_eq!(attempts(&a), 3);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        assert_eq!(imports.decode(&first_bytes).unwrap(), first);
+        assert_eq!(attempts(&a), 3);
+        assert_eq!(epoch_charge(&mut local, &context), cold_charge);
+    }
     assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
     let mut changed = context.clone();
     changed.leader_seed[0] ^= 1;
@@ -745,10 +747,11 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         .unwrap();
     let charge = usize::try_from(baseline.consumed_allocated_bytes()).unwrap();
     assert!(charge > 1 && charge < 64 * 1024 * 1024);
-    let mut cold = EpochValidationScope::new();
-    let cold_charge = epoch_charge(&mut cold, &context);
+    let cold_charge = {
+        let mut cold = EpochValidationScope::new();
+        epoch_charge(&mut cold, &context)
+    };
     assert!(cold_charge > 0);
-    drop(cold);
     for cap in [0, 1, charge] {
         a.decode_checkpoint(&bytes).unwrap();
         assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
@@ -760,7 +763,6 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         let mut imports = CheckpointImports::new(&b, Some(&mut local));
         let before = attempts(&a);
         let actual = active.with(|| imports.decode(&bytes));
-        drop(imports);
         assert_eq!(attempts(&a), before + 1);
         assert_eq!(
             active.consumed_allocated_bytes(),
@@ -778,7 +780,6 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         // Both positive miss probes insert only after observing the original active return.
         assert_eq!(graph_epoch_charge(&scope.cache, &context), cold_charge);
         assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-        drop(local);
     }
 
     // Hold the real epoch gate while forcing a cold checkpoint miss on this same thread.
@@ -787,14 +788,14 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
     scope.cache.entry.try_lock().unwrap().clear();
     let shared = scope.cache.epoch_validation.as_ref().unwrap();
     let mut held = shared.try_lock().unwrap();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    let before = attempts(&a);
-    assert_eq!(imports.decode(&bytes).unwrap(), original);
-    drop(imports);
-    assert_eq!(attempts(&a), before + 1);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        let before = attempts(&a);
+        assert_eq!(imports.decode(&bytes).unwrap(), original);
+        assert_eq!(attempts(&a), before + 1);
+        assert_eq!(epoch_charge(&mut local, &context), cold_charge);
+    }
     assert_eq!(epoch_charge(&mut held, &context), 0);
     let mut malformed = bytes.clone();
     malformed.push(0);
@@ -811,15 +812,15 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         .is_err()
     );
     scope.cache.entry.try_lock().unwrap().clear();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    let before = attempts(&a);
-    assert_eq!(imports.decode(&bytes).unwrap(), original);
-    assert!(imports.decode(&malformed).is_err());
-    drop(imports);
-    assert!(attempts(&a) > before);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        let before = attempts(&a);
+        assert_eq!(imports.decode(&bytes).unwrap(), original);
+        assert!(imports.decode(&malformed).is_err());
+        assert!(attempts(&a) > before);
+        assert_eq!(epoch_charge(&mut local, &context), cold_charge);
+    }
     assert_eq!(graph_epoch_charge(&scope.cache, &context), cold_charge);
     assert!(matches!(shared.try_lock(), Err(TryLockError::Poisoned(_))));
     assert_eq!(a.decode_checkpoint(&bytes).unwrap(), original);

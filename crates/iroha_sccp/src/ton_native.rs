@@ -13,12 +13,12 @@
 //! terminated shard ids only after decoding their exact wire representation.
 
 use super::H256;
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    vec,
-    vec::Vec,
-};
+use alloc::vec::Vec;
+#[cfg(test)]
+use alloc::{collections::BTreeSet, vec};
 use core::fmt;
+pub mod watch;
+use crate::native_memory::{Buffer, Memory};
 /// TON mainnet global identifier.
 const TON_MAINNET_GLOBAL_ID: i32 = -239;
 /// TON masterchain workchain.
@@ -337,14 +337,17 @@ fn valid_block_id(block: TonBlockIdExtV1) -> bool {
     block.seqno != 0 && nonzero(&block.root_hash) && nonzero(&block.file_hash)
 }
 
+#[cfg(test)]
 fn push_i32_le(out: &mut Vec<u8>, value: i32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(test)]
 fn push_u32_le(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(test)]
 fn push_u64_le(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
@@ -357,7 +360,7 @@ std::thread_local! {
 fn parse_ton_validator_public_key(public_key: &H256) -> Option<()> {
     #[cfg(test)]
     TON_ROSTER_KEY_PARSE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-    iroha_crypto::ed25519_parse_public_key(public_key).ok()?;
+    iroha_crypto::ed25519_public_key_is_valid(public_key).then_some(())?;
     Some(())
 }
 
@@ -368,10 +371,11 @@ pub fn ton_validator_node_id_short_v1(public_key: &H256) -> Option<H256> {
 }
 
 fn ton_validator_node_id_short_from_validated(public_key: &H256) -> H256 {
-    let mut boxed = Vec::with_capacity(36);
-    push_u32_le(&mut boxed, TON_PUB_ED25519_TL_CONSTRUCTOR);
-    boxed.extend_from_slice(public_key);
-    Sha256::digest(&boxed).into()
+    Sha256::new()
+        .chain_update(TON_PUB_ED25519_TL_CONSTRUCTOR.to_le_bytes())
+        .chain_update(public_key)
+        .finalize()
+        .into()
 }
 
 /// Reproduce TON's native CRC32C validator-list hash exactly.
@@ -387,95 +391,140 @@ fn ton_validator_list_hash_short_from_validated(
     catchain_seqno: u32,
     validators: &[TonValidatorV1],
 ) -> Option<u32> {
-    let mut bytes = Vec::with_capacity(12usize.checked_add(validators.len().checked_mul(72)?)?);
-    push_i32_le(&mut bytes, -1_877_581_587);
-    push_u32_le(&mut bytes, catchain_seqno);
-    push_u32_le(&mut bytes, u32::try_from(validators.len()).ok()?);
-    for validator in validators {
-        bytes.extend_from_slice(&validator.public_key);
-        push_u64_le(&mut bytes, validator.weight);
-        bytes.extend_from_slice(&validator.adnl_address);
+    let mut crc = !0_u32;
+    for chunk in [
+        (-1_877_581_587_i32).to_le_bytes(),
+        catchain_seqno.to_le_bytes(),
+        u32::try_from(validators.len()).ok()?.to_le_bytes(),
+    ] {
+        crc = ton_crc32c_update(crc, &chunk);
     }
-    Some(ton_crc32c(&bytes))
+    for validator in validators {
+        crc = ton_crc32c_update(crc, &validator.public_key);
+        crc = ton_crc32c_update(crc, &validator.weight.to_le_bytes());
+        crc = ton_crc32c_update(crc, &validator.adnl_address);
+    }
+    Some(!crc)
 }
 
 fn validate_validator_roster(validators: &[TonValidatorV1]) -> Option<u64> {
+    validate_validator_roster_with(validators, &Memory::detached())
+}
+
+fn validate_validator_roster_with(
+    validators: &[TonValidatorV1],
+    memory: &Memory<'_>,
+) -> Option<u64> {
     if validators.is_empty() || validators.len() > TON_MAX_VALIDATORS {
         return None;
     }
-    let mut keys = BTreeSet::new();
-    let mut node_ids = BTreeSet::new();
-    let mut adnl = BTreeSet::new();
+    let mut identities = memory.buffer(validators.len())?;
     let mut total = 0_u64;
     for validator in validators {
-        if validator.weight == 0 || !keys.insert(validator.public_key) {
-            return None;
-        }
-        // `validator#53` has no ADNL field and the reference implementation
-        // hashes an all-zero address for it. Nonzero ADNL identities, when
-        // present, must still be unique.
-        if nonzero(&validator.adnl_address) && !adnl.insert(validator.adnl_address) {
+        if validator.weight == 0 {
             return None;
         }
         parse_ton_validator_public_key(&validator.public_key)?;
-        let node_id = ton_validator_node_id_short_from_validated(&validator.public_key);
-        if !node_ids.insert(node_id) {
-            return None;
-        }
+        identities.push((
+            validator.public_key,
+            ton_validator_node_id_short_from_validated(&validator.public_key),
+            validator.adnl_address,
+        ))?;
         total = total.checked_add(validator.weight)?;
+    }
+    identities.sort_unstable_by_key(|row| row.0);
+    if identities.windows(2).any(|p| p[0].0 == p[1].0) {
+        return None;
+    }
+    identities.sort_unstable_by_key(|row| row.1);
+    if identities.windows(2).any(|p| p[0].1 == p[1].1) {
+        return None;
+    }
+    identities.sort_unstable_by_key(|row| row.2);
+    if identities
+        .windows(2)
+        .any(|p| nonzero(&p[0].2) && p[0].2 == p[1].2)
+    {
+        return None;
     }
     (total != 0 && total <= TON_MAX_TOTAL_VALIDATOR_WEIGHT).then_some(total)
 }
 
-fn validate_active_validator_set(set: &TonValidatorSetV1) -> Option<u64> {
-    let total = validate_validator_roster(&set.validators)?;
-    (ton_validator_list_hash_short_from_validated(set.catchain_seqno, &set.validators)?
-        == set.validator_list_hash_short)
-        .then_some(total)
+/// Borrowed canonical validator configuration, shared by wire and physical owners.
+#[derive(Clone, Copy)]
+pub struct TonValidatorConfigRef<'a> {
+    pub(super) valid_since: u32,
+    pub(super) valid_until: u32,
+    pub(super) main_validator_count: u16,
+    pub(super) shuffle_masterchain_validators: bool,
+    pub(super) validators: &'a [TonValidatorV1],
+}
+impl<'a> From<&'a TonValidatorConfigV1> for TonValidatorConfigRef<'a> {
+    fn from(value: &'a TonValidatorConfigV1) -> Self {
+        Self {
+            valid_since: value.valid_since,
+            valid_until: value.valid_until,
+            main_validator_count: value.main_validator_count,
+            shuffle_masterchain_validators: value.shuffle_masterchain_validators,
+            validators: &value.validators,
+        }
+    }
+}
+/// Configuration whose actual roster backing retains original allocation custody.
+pub struct TonValidatorConfigOwner {
+    pub(super) valid_since: u32,
+    pub(super) valid_until: u32,
+    pub(super) main_validator_count: u16,
+    pub(super) shuffle_masterchain_validators: bool,
+    pub(super) validators: Buffer<TonValidatorV1>,
+}
+impl TonValidatorConfigOwner {
+    pub fn as_ref(&self) -> TonValidatorConfigRef<'_> {
+        TonValidatorConfigRef {
+            valid_since: self.valid_since,
+            valid_until: self.valid_until,
+            main_validator_count: self.main_validator_count,
+            shuffle_masterchain_validators: self.shuffle_masterchain_validators,
+            validators: &self.validators,
+        }
+    }
+    #[cfg(test)]
+    fn into_detached(self) -> Option<TonValidatorConfigV1> {
+        Some(TonValidatorConfigV1 {
+            valid_since: self.valid_since,
+            valid_until: self.valid_until,
+            main_validator_count: self.main_validator_count,
+            shuffle_masterchain_validators: self.shuffle_masterchain_validators,
+            validators: self.validators.into_detached()?,
+        })
+    }
 }
 
-fn validate_validator_config(config: &TonValidatorConfigV1) -> Option<()> {
+fn validate_validator_config_with(
+    config: TonValidatorConfigRef<'_>,
+    memory: &Memory<'_>,
+) -> Option<()> {
     if config.valid_since >= config.valid_until
         || config.main_validator_count == 0
         || usize::from(config.main_validator_count) > config.validators.len()
     {
         return None;
     }
-    validate_validator_roster(&config.validators)?;
+    validate_validator_roster_with(config.validators, memory)?;
     Some(())
 }
 
 /// Serialize the boxed TL block identifier from its root and file hashes.
 pub fn ton_block_id_tl_bytes(block: TonBlockIdExtV1) -> Vec<u8> {
-    let mut out = Vec::with_capacity(68);
-    push_u32_le(&mut out, TON_BLOCK_ID_TL_CONSTRUCTOR);
-    out.extend_from_slice(&block.root_hash);
-    out.extend_from_slice(&block.file_hash);
-    out
+    ton_block_id_transcript(block).to_vec()
 }
 
-fn push_tl_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Option<()> {
-    let len = bytes.len();
-    if len < 254 {
-        out.push(u8::try_from(len).ok()?);
-        out.extend_from_slice(bytes);
-        while !out.len().is_multiple_of(4) {
-            out.push(0);
-        }
-        return Some(());
-    }
-    if len > 0x00ff_ffff {
-        return None;
-    }
-    out.push(254);
-    out.push(u8::try_from(len & 0xff).ok()?);
-    out.push(u8::try_from((len >> 8) & 0xff).ok()?);
-    out.push(u8::try_from((len >> 16) & 0xff).ok()?);
-    out.extend_from_slice(bytes);
-    while !out.len().is_multiple_of(4) {
-        out.push(0);
-    }
-    Some(())
+fn ton_block_id_transcript(block: TonBlockIdExtV1) -> [u8; 68] {
+    let mut out = [0_u8; 68];
+    out[..4].copy_from_slice(&TON_BLOCK_ID_TL_CONSTRUCTOR.to_le_bytes());
+    out[4..36].copy_from_slice(&block.root_hash);
+    out[36..].copy_from_slice(&block.file_hash);
+    out
 }
 
 struct TlCursor<'a> {
@@ -561,10 +610,23 @@ fn parse_simplex_candidate_data(bytes: &[u8]) -> Option<TonBlockIdExtV1> {
     cursor.exhausted().then_some(block)
 }
 
+#[cfg(test)]
 fn simplex_finality_transcript(
     block: TonBlockIdExtV1,
     signatures: &TonSimplexBlockSignaturesV1,
 ) -> Option<Vec<u8>> {
+    Some(simplex_finality_transcript_fixed(block, signatures)?.to_vec())
+}
+
+// Match TON's native BlockSignatureSetSimplex signing relation: the signature authenticates
+// the carried session id and candidate block, while the opened header binds the validator
+// subset. TODO(WP13): optional stronger session-origin validation would additionally need
+// the epoch's config-29 options hash and vertical seqno; it is not a separate v1 acceptance
+// requirement and those fields are not present in the current retained epoch.
+fn simplex_finality_transcript_fixed(
+    block: TonBlockIdExtV1,
+    signatures: &TonSimplexBlockSignaturesV1,
+) -> Option<[u8; 84]> {
     if signatures.slot > i32::MAX.cast_unsigned()
         || signatures.candidate_data.is_empty()
         || signatures.candidate_data.len() > 4 * 1024
@@ -574,20 +636,15 @@ fn simplex_finality_transcript(
         return None;
     }
     let candidate_hash: H256 = Sha256::digest(&signatures.candidate_data).into();
-    let mut candidate_id = Vec::with_capacity(40);
-    push_u32_le(&mut candidate_id, TON_CONSENSUS_CANDIDATE_ID_TL_CONSTRUCTOR);
-    push_u32_le(&mut candidate_id, signatures.slot);
-    candidate_id.extend_from_slice(&candidate_hash);
-    let mut finalize_vote = Vec::with_capacity(44);
-    push_u32_le(
-        &mut finalize_vote,
-        TON_CONSENSUS_SIMPLEX_FINALIZE_TL_CONSTRUCTOR,
-    );
-    finalize_vote.extend_from_slice(&candidate_id);
-    let mut transcript = Vec::with_capacity(84);
-    push_u32_le(&mut transcript, TON_CONSENSUS_DATA_TO_SIGN_TL_CONSTRUCTOR);
-    transcript.extend_from_slice(&signatures.session_id);
-    push_tl_bytes(&mut transcript, &finalize_vote)?;
+    let mut transcript = [0_u8; 84];
+    transcript[..4].copy_from_slice(&TON_CONSENSUS_DATA_TO_SIGN_TL_CONSTRUCTOR.to_le_bytes());
+    transcript[4..36].copy_from_slice(&signatures.session_id);
+    transcript[36] = 44;
+    transcript[37..41]
+        .copy_from_slice(&TON_CONSENSUS_SIMPLEX_FINALIZE_TL_CONSTRUCTOR.to_le_bytes());
+    transcript[41..45].copy_from_slice(&TON_CONSENSUS_CANDIDATE_ID_TL_CONSTRUCTOR.to_le_bytes());
+    transcript[45..49].copy_from_slice(&signatures.slot.to_le_bytes());
+    transcript[49..81].copy_from_slice(&candidate_hash);
     Some(transcript)
 }
 
@@ -601,77 +658,102 @@ fn ton_block_signatures_are_canonically_ordered(signatures: &TonBlockSignaturesV
         .all(|pair| pair[0].node_id_short < pair[1].node_id_short)
 }
 
+#[cfg(test)]
 fn verify_block_signatures(
     block: TonBlockIdExtV1,
     active: &TonValidatorSetV1,
     signatures: &TonBlockSignaturesV1,
 ) -> Result<(), TonNativeSourceError> {
-    let total_weight =
-        validate_active_validator_set(active).ok_or(TonNativeSourceError::InvalidValidatorSet)?;
-    let (catchain_seqno, validator_hash, entries, transcript) = match signatures {
-        TonBlockSignaturesV1::Ordinary(proof) => (
-            proof.catchain_seqno,
-            proof.validator_list_hash_short,
-            proof.signatures.as_slice(),
-            ton_block_id_tl_bytes(block),
-        ),
-        TonBlockSignaturesV1::Simplex(proof) => (
-            proof.catchain_seqno,
-            proof.validator_list_hash_short,
-            proof.signatures.as_slice(),
-            simplex_finality_transcript(block, proof)
-                .ok_or(TonNativeSourceError::InvalidSimplexTranscript)?,
-        ),
+    verify_block_signatures_with(
+        block,
+        active.catchain_seqno,
+        active.validator_list_hash_short,
+        &active.validators,
+        signatures,
+        &Memory::detached(),
+    )
+}
+
+fn verify_block_signatures_with(
+    block: TonBlockIdExtV1,
+    catchain: u32,
+    list_hash: u32,
+    validators: &[TonValidatorV1],
+    signatures: &TonBlockSignaturesV1,
+    memory: &Memory<'_>,
+) -> Result<(), TonNativeSourceError> {
+    let invalid = TonNativeSourceError::InvalidSignatures;
+    let total_weight = validate_validator_roster_with(validators, memory)
+        .ok_or(TonNativeSourceError::InvalidValidatorSet)?;
+    if ton_validator_list_hash_short_from_validated(catchain, validators) != Some(list_hash) {
+        return Err(TonNativeSourceError::InvalidValidatorSet);
+    }
+    let mut transcript = [0_u8; 84];
+    let (catchain_seqno, validator_hash, entries, used) = match signatures {
+        TonBlockSignaturesV1::Ordinary(proof) => {
+            transcript[..68].copy_from_slice(&ton_block_id_transcript(block));
+            (
+                proof.catchain_seqno,
+                proof.validator_list_hash_short,
+                proof.signatures.as_slice(),
+                68,
+            )
+        }
+        TonBlockSignaturesV1::Simplex(proof) => {
+            transcript = simplex_finality_transcript_fixed(block, proof)
+                .ok_or(TonNativeSourceError::InvalidSimplexTranscript)?;
+            (
+                proof.catchain_seqno,
+                proof.validator_list_hash_short,
+                proof.signatures.as_slice(),
+                84,
+            )
+        }
     };
-    if catchain_seqno != active.catchain_seqno
-        || validator_hash != active.validator_list_hash_short
+    if catchain_seqno != catchain
+        || validator_hash != list_hash
         || entries.is_empty()
         || entries.len() > TON_MAX_SIGNATURES
         || !ton_block_signatures_are_canonically_ordered(signatures)
     {
-        return Err(TonNativeSourceError::InvalidSignatures);
+        return Err(invalid);
     }
-    let by_node = active
-        .validators
-        .iter()
-        .map(|validator| {
-            (
+    let mut by_node = memory.buffer(validators.len()).ok_or(invalid)?;
+    for (index, validator) in validators.iter().enumerate() {
+        by_node
+            .push((
                 ton_validator_node_id_short_from_validated(&validator.public_key),
-                validator,
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let mut seen = BTreeSet::new();
+                index,
+            ))
+            .ok_or(invalid)?;
+    }
+    by_node.sort_unstable_by_key(|row| row.0);
     let mut signed_weight = 0_u64;
-    let mut raw_signatures = Vec::<&[u8]>::with_capacity(entries.len());
-    let mut raw_keys = Vec::<&[u8]>::with_capacity(entries.len());
-    let mut messages = Vec::<&[u8]>::with_capacity(entries.len());
     for signature in entries {
-        if signature.signature.len() != 64 || !seen.insert(signature.node_id_short) {
-            return Err(TonNativeSourceError::InvalidSignatures);
-        }
-        let validator = by_node
-            .get(&signature.node_id_short)
-            .copied()
-            .ok_or(TonNativeSourceError::InvalidSignatures)?;
-        signed_weight = signed_weight
-            .checked_add(validator.weight)
-            .ok_or(TonNativeSourceError::InvalidSignatures)?;
-        raw_signatures.push(signature.signature.as_slice());
-        raw_keys.push(validator.public_key.as_slice());
-        messages.push(transcript.as_slice());
+        let index = by_node
+            .binary_search_by_key(&signature.node_id_short, |row| row.0)
+            .map_err(|_| invalid)?;
+        let validator = &validators[by_node[index].1];
+        signed_weight = signed_weight.checked_add(validator.weight).ok_or(invalid)?;
+        let bytes = <&[u8; 64]>::try_from(signature.signature.as_slice()).map_err(|_| invalid)?;
+        iroha_crypto::verify_ed25519_signature_borrowed(
+            &validator.public_key,
+            bytes,
+            &transcript[..used],
+        )
+        .map_err(|_| invalid)?;
     }
     if u128::from(signed_weight) * 3 <= u128::from(total_weight) * 2 {
-        return Err(TonNativeSourceError::InvalidSignatures);
+        return Err(invalid);
     }
-    // Signer keys are decoded only by the batch verifier, which
-    // `ed25519_signature_checks` charges; roster parsing above only hashes.
-    iroha_crypto::ed25519_verify_batch_deterministic(&messages, &raw_signatures, &raw_keys)
-        .map_err(|_| TonNativeSourceError::InvalidSignatures)
+    Ok(())
 }
 
 fn ton_crc32c(bytes: &[u8]) -> u32 {
-    let mut crc = 0xffff_ffff_u32;
+    !ton_crc32c_update(!0_u32, bytes)
+}
+
+fn ton_crc32c_update(mut crc: u32, bytes: &[u8]) -> u32 {
     for byte in bytes {
         crc ^= u32::from(*byte);
         for _ in 0..8 {
@@ -679,32 +761,26 @@ fn ton_crc32c(bytes: &[u8]) -> u32 {
             crc = (crc >> 1) ^ (0x82f6_3b78 & mask);
         }
     }
-    !crc
+    crc
 }
 
 /// One raw `BoC` cell: descriptors, data bytes and child indices.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Clone))]
 pub struct TonBocCell {
-    pub(crate) descriptor: u8,
-    pub(crate) data_descriptor: u8,
-    pub(crate) data: Vec<u8>,
-    pub(crate) refs: Vec<usize>,
-    pub(crate) exotic: bool,
+    pub(super) descriptor: u8,
+    pub(super) data_descriptor: u8,
+    pub(super) data: Buffer<u8>,
+    pub(super) refs: Buffer<usize>,
+    pub(super) exotic: bool,
 }
 
 /// A parsed `BoC`: root indices and cells.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Clone))]
 pub struct TonBoc {
-    pub(crate) roots: Vec<usize>,
-    pub(crate) cells: Vec<TonBocCell>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct TonCellStructuralKey {
-    descriptor: u8,
-    data_descriptor: u8,
-    data: Vec<u8>,
-    child_classes: Vec<usize>,
+    pub(super) roots: Buffer<usize>,
+    pub(super) cells: Buffer<TonBocCell>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -718,16 +794,16 @@ enum TonCellType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TonPrunedBranch {
     mask: u8,
-    hashes: Vec<H256>,
-    depths: Vec<u16>,
+    hashes: [H256; 3],
+    depths: [u16; 3],
 }
 
 /// Level mask, hashes and depths of a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TonComputedCell {
-    pub(crate) mask: u8,
-    pub(crate) hashes: [H256; 4],
-    pub(crate) depths: [u16; 4],
+    pub(super) mask: u8,
+    pub(super) hashes: [H256; 4],
+    pub(super) depths: [u16; 4],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -923,8 +999,8 @@ fn ton_parse_pruned_branch(cell: &TonBocCell) -> Option<TonPrunedBranch> {
         }
         return Some(TonPrunedBranch {
             mask: 1,
-            hashes: vec![cell.data.get(1..33)?.try_into().ok()?],
-            depths: vec![depth],
+            hashes: [cell.data.get(1..33)?.try_into().ok()?, [0; 32], [0; 32]],
+            depths: [depth, 0, 0],
         });
     }
     let raw_mask = *cell.data.get(1)?;
@@ -940,19 +1016,18 @@ fn ton_parse_pruned_branch(cell: &TonBocCell) -> Option<TonPrunedBranch> {
     if cell.data.len() != 2_usize.checked_add(count.checked_mul(34)?)? {
         return None;
     }
-    let mut hashes = Vec::with_capacity(count);
-    for index in 0..count {
+    let mut hashes = [[0_u8; 32]; 3];
+    for (index, hash) in hashes.iter_mut().enumerate().take(count) {
         let start = 2_usize.checked_add(index.checked_mul(32)?)?;
-        hashes.push(
-            cell.data
-                .get(start..start.checked_add(32)?)?
-                .try_into()
-                .ok()?,
-        );
+        *hash = cell
+            .data
+            .get(start..start.checked_add(32)?)?
+            .try_into()
+            .ok()?;
     }
     let depths_start = 2_usize.checked_add(count.checked_mul(32)?)?;
-    let mut depths = Vec::with_capacity(count);
-    for index in 0..count {
+    let mut depths = [0_u16; 3];
+    for (index, output) in depths.iter_mut().enumerate().take(count) {
         let start = depths_start.checked_add(index.checked_mul(2)?)?;
         let depth = u16::from_be_bytes(
             cell.data
@@ -963,7 +1038,7 @@ fn ton_parse_pruned_branch(cell: &TonBocCell) -> Option<TonPrunedBranch> {
         if depth > TON_MAX_CELL_DEPTH {
             return None;
         }
-        depths.push(depth);
+        *output = depth;
     }
     Some(TonPrunedBranch {
         mask,
@@ -975,6 +1050,10 @@ fn ton_parse_pruned_branch(cell: &TonBocCell) -> Option<TonPrunedBranch> {
 /// Parse a bounded `BoC` header and cell table, or `None` when it is malformed.
 /// Parse a bounded TON bag of cells, rejecting malformed headers, cells and references.
 pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
+    parse_ton_boc_with(bytes, &Memory::detached())
+}
+
+fn parse_ton_boc_with(bytes: &[u8], memory: &Memory<'_>) -> Option<TonBoc> {
     if bytes.len() < 6 || bytes.len() > TON_MAX_BOC_BYTES || bytes.get(..4)? != TON_BOC_MAGIC {
         return None;
     }
@@ -1022,9 +1101,9 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
     if cells_count > total_cells_size / 2 || expected_bytes != bytes.len() {
         return None;
     }
-    let roots = vec![root];
+    let roots = memory.copy(&[root])?;
     let index_offsets = if has_index {
-        let mut offsets = Vec::with_capacity(cells_count);
+        let mut offsets = memory.buffer(cells_count)?;
         let mut previous = 0_usize;
         for index in 0..cells_count {
             let entry = ton_read_sized_uint(bytes, &mut cursor, offset_bytes)?;
@@ -1037,7 +1116,7 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
                 return None;
             }
             previous = offset;
-            offsets.push(offset);
+            offsets.push(offset)?;
         }
         Some(offsets)
     } else {
@@ -1057,7 +1136,7 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
     }
     let cell_data = bytes.get(cell_data_start..cell_data_end)?;
     let mut cell_cursor = 0_usize;
-    let mut cells = Vec::with_capacity(cells_count);
+    let mut cells = memory.buffer(cells_count)?;
     for cell_index in 0..cells_count {
         let descriptor = *cell_data.get(cell_cursor)?;
         cell_cursor += 1;
@@ -1078,16 +1157,16 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
             cell_cursor = cell_cursor.checked_add(levels.checked_mul(32 + 2)?)?;
         }
         let data_end = cell_cursor.checked_add(data_bytes)?;
-        let data = cell_data.get(cell_cursor..data_end)?.to_vec();
+        let data = memory.copy(cell_data.get(cell_cursor..data_end)?)?;
         ton_cell_serialized_bit_len(data_descriptor, &data)?;
         cell_cursor = data_end;
-        let mut refs = Vec::with_capacity(refs_count);
+        let mut refs = memory.buffer(refs_count)?;
         for _ in 0..refs_count {
             let reference = ton_read_sized_uint(cell_data, &mut cell_cursor, size_bytes)?;
             if reference >= cells_count || reference <= cell_index {
                 return None;
             }
-            refs.push(reference);
+            refs.push(reference)?;
         }
         if index_offsets
             .as_ref()
@@ -1101,7 +1180,7 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
             data,
             refs,
             exotic,
-        });
+        })?;
     }
     (cell_cursor == cell_data.len()).then_some(TonBoc { roots, cells })
 }
@@ -1112,25 +1191,37 @@ fn ton_minimum_sized_uint_bytes(value: usize) -> usize {
     significant_bits.div_ceil(8).max(1)
 }
 
-fn ton_write_sized_uint(out: &mut Vec<u8>, value: usize, size: usize) -> Option<()> {
+fn ton_write_buffer_uint(out: &mut Buffer<u8>, value: usize, size: usize) -> Option<()> {
     if !(1..=8).contains(&size) || ton_minimum_sized_uint_bytes(value) > size {
         return None;
     }
     let encoded = u64::try_from(value).ok()?.to_be_bytes();
-    out.extend_from_slice(encoded.get(8_usize.checked_sub(size)?..)?);
-    Some(())
+    out.extend_from_slice(encoded.get(8_usize.checked_sub(size)?..)?)
 }
 
 fn ton_canonical_cell_order(boc: &TonBoc, root: usize) -> Option<Vec<usize>> {
+    ton_canonical_cell_order_with(boc, root, &Memory::detached())?.into_detached()
+}
+
+fn ton_canonical_cell_order_with(
+    boc: &TonBoc,
+    root: usize,
+    memory: &Memory<'_>,
+) -> Option<Buffer<usize>> {
     // 0 unseen, 1 in this DFS ancestry, 2 fully emitted. A borrowed heap work stack
     // preserves the original reverse-child DFS without recursion on hostile depth.
-    let mut state = vec![0_u8; boc.cells.len()];
-    let mut postorder = Vec::with_capacity(boc.cells.len());
-    let mut work = vec![(root, false)];
+    let mut state = memory.filled(boc.cells.len(), 0_u8)?;
+    let mut postorder = memory.buffer(boc.cells.len())?;
+    let capacity = boc
+        .cells
+        .iter()
+        .try_fold(1_usize, |n, cell| n.checked_add(1 + cell.refs.len()))?;
+    let mut work = memory.buffer(capacity)?;
+    work.push((root, false))?;
     while let Some((index, finish)) = work.pop() {
         if finish {
             *state.get_mut(index)? = 2;
-            postorder.push(index);
+            postorder.push(index)?;
             continue;
         }
         match *state.get(index)? {
@@ -1139,10 +1230,10 @@ fn ton_canonical_cell_order(boc: &TonBoc, root: usize) -> Option<Vec<usize>> {
             _ => {}
         }
         *state.get_mut(index)? = 1;
-        work.push((index, true));
+        work.push((index, true))?;
         // Stack LIFO visits children in reverse, exactly as the original DFS.
         for reference in &boc.cells.get(index)?.refs {
-            work.push((*reference, false));
+            work.push((*reference, false))?;
         }
     }
     if state.iter().any(|state| *state != 2) {
@@ -1152,29 +1243,78 @@ fn ton_canonical_cell_order(boc: &TonBoc, root: usize) -> Option<Vec<usize>> {
     (postorder.first() == Some(&root)).then_some(postorder)
 }
 
-fn ton_reject_duplicate_subgraphs(boc: &TonBoc, order: &[usize]) -> Option<()> {
-    let mut class_by_cell = vec![0_usize; boc.cells.len()];
-    let mut classes = BTreeMap::<TonCellStructuralKey, usize>::new();
+// Exact structural classes, ordered one graph height at a time. All children
+// have final classes before a parent key is compared. In-place sorts retain no
+// hidden tree nodes, key clones or allocator scratch.
+fn ton_reject_duplicate_subgraphs(
+    boc: &TonBoc,
+    order: &[usize],
+    memory: &Memory<'_>,
+) -> Option<()> {
+    #[derive(Clone, Copy)]
+    struct Row {
+        cell: usize,
+        height: usize,
+        children: [usize; 4],
+    }
+    let mut heights = memory.filled(boc.cells.len(), 0_usize)?;
+    let mut classes = memory.filled(boc.cells.len(), 0_usize)?;
+    let mut rows = memory.buffer(order.len())?;
     for index in order.iter().copied().rev() {
         let cell = boc.cells.get(index)?;
-        let key = TonCellStructuralKey {
-            descriptor: cell.descriptor,
-            data_descriptor: cell.data_descriptor,
-            data: cell.data.clone(),
-            child_classes: cell
-                .refs
-                .iter()
-                .map(|reference| class_by_cell.get(*reference).copied())
-                .collect::<Option<Vec<_>>>()?,
+        let mut height = 0;
+        for child in &cell.refs {
+            height = height.max(heights.get(*child)?.checked_add(1)?);
+        }
+        *heights.get_mut(index)? = height;
+        rows.push(Row {
+            cell: index,
+            height,
+            children: [0; 4],
+        })?;
+    }
+    rows.sort_unstable_by_key(|row| row.height);
+    let mut start = 0;
+    while start < rows.len() {
+        let mut end = start + 1;
+        while end < rows.len() && rows[end].height == rows[start].height {
+            end += 1;
+        }
+        for row in &mut rows[start..end] {
+            if boc.cells.get(row.cell)?.refs.len() > TON_MAX_REFS {
+                return None;
+            }
+            for (slot, child) in boc.cells.get(row.cell)?.refs.iter().enumerate() {
+                row.children[slot] = *classes.get(*child)?;
+            }
+        }
+        let compare = |a: &Row, b: &Row| {
+            let a_cell = &boc.cells[a.cell];
+            let b_cell = &boc.cells[b.cell];
+            (
+                a_cell.descriptor,
+                a_cell.data_descriptor,
+                a_cell.data.as_slice(),
+                a.children,
+            )
+                .cmp(&(
+                    b_cell.descriptor,
+                    b_cell.data_descriptor,
+                    b_cell.data.as_slice(),
+                    b.children,
+                ))
         };
-        let class = classes.len().checked_add(1)?;
-        if classes.insert(key, class).is_some() {
-            // Canonical BoCs share one cell for one structural subtree. Two
-            // byte-identical subgraphs would otherwise give the same TON root
-            // while changing the observation proof bytes and CAS digest.
+        rows[start..end].sort_unstable_by(compare);
+        if rows[start..end]
+            .windows(2)
+            .any(|pair| compare(&pair[0], &pair[1]).is_eq())
+        {
             return None;
         }
-        *class_by_cell.get_mut(index)? = class;
+        for (offset, row) in rows[start..end].iter().enumerate() {
+            classes[row.cell] = start + offset + 1;
+        }
+        start = end;
     }
     Some(())
 }
@@ -1192,8 +1332,16 @@ pub fn encode_canonical_ton_boc(boc: &TonBoc, root: usize) -> Option<Vec<u8>> {
 // Private to this module: callers have validated the same graph's hashes and
 // obtained this complete topological order from ton_canonical_cell_order.
 fn encode_ton_boc_in_order(boc: &TonBoc, order: &[usize]) -> Option<Vec<u8>> {
-    ton_reject_duplicate_subgraphs(boc, order)?;
-    let mut canonical_index = vec![usize::MAX; boc.cells.len()];
+    encode_ton_boc_in_order_with(boc, order, &Memory::detached())?.into_detached()
+}
+
+fn encode_ton_boc_in_order_with(
+    boc: &TonBoc,
+    order: &[usize],
+    memory: &Memory<'_>,
+) -> Option<Buffer<u8>> {
+    ton_reject_duplicate_subgraphs(boc, order, memory)?;
+    let mut canonical_index = memory.filled(boc.cells.len(), usize::MAX)?;
     for (index, old_index) in order.iter().copied().enumerate() {
         *canonical_index.get_mut(old_index)? = index;
     }
@@ -1201,7 +1349,13 @@ fn encode_ton_boc_in_order(boc: &TonBoc, order: &[usize]) -> Option<Vec<u8>> {
     if size_bytes > 4 {
         return None;
     }
-    let mut cell_data = Vec::new();
+    let size = order.iter().try_fold(0_usize, |n, index| {
+        let cell = boc.cells.get(*index)?;
+        n.checked_add(2)?
+            .checked_add(cell.data.len())?
+            .checked_add(cell.refs.len().checked_mul(size_bytes)?)
+    })?;
+    let mut cell_data = memory.buffer(size)?;
     for old_index in order {
         let cell = boc.cells.get(*old_index)?;
         if usize::from(cell.descriptor & 0x07) != cell.refs.len()
@@ -1216,43 +1370,51 @@ fn encode_ton_boc_in_order(boc: &TonBoc, order: &[usize]) -> Option<Vec<u8>> {
             // with the explicit final-V1 pruned-branch encoding.
             return None;
         }
-        cell_data.push(cell.descriptor);
-        cell_data.push(cell.data_descriptor);
-        cell_data.extend_from_slice(&cell.data);
+        cell_data.push(cell.descriptor)?;
+        cell_data.push(cell.data_descriptor)?;
+        cell_data.extend_from_slice(&cell.data)?;
         for reference in &cell.refs {
             let mapped = *canonical_index.get(*reference)?;
             if mapped == usize::MAX || mapped <= *canonical_index.get(*old_index)? {
                 return None;
             }
             let encoded = u64::try_from(mapped).ok()?.to_be_bytes();
-            cell_data.extend_from_slice(encoded.get(8_usize.checked_sub(size_bytes)?..)?);
+            cell_data.extend_from_slice(encoded.get(8_usize.checked_sub(size_bytes)?..)?)?;
         }
     }
     let offset_bytes = ton_minimum_sized_uint_bytes(cell_data.len());
     if offset_bytes > 8 {
         return None;
     }
-    let mut out = Vec::with_capacity(
+    let mut out = memory.buffer(
         6_usize
             .checked_add(size_bytes.checked_mul(3)?)?
             .checked_add(offset_bytes)?
             .checked_add(size_bytes)?
             .checked_add(cell_data.len())?,
-    );
-    out.extend_from_slice(&TON_BOC_MAGIC);
-    out.push(u8::try_from(size_bytes).ok()?); // no index, CRC, cache bits, or flags
-    out.push(u8::try_from(offset_bytes).ok()?);
-    ton_write_sized_uint(&mut out, order.len(), size_bytes)?;
-    ton_write_sized_uint(&mut out, 1, size_bytes)?;
-    ton_write_sized_uint(&mut out, 0, size_bytes)?;
-    ton_write_sized_uint(&mut out, cell_data.len(), offset_bytes)?;
-    ton_write_sized_uint(&mut out, 0, size_bytes)?; // canonical root is cell zero
-    out.extend_from_slice(&cell_data);
+    )?;
+    out.extend_from_slice(&TON_BOC_MAGIC)?;
+    out.push(u8::try_from(size_bytes).ok()?)?; // no index, CRC, cache bits, or flags
+    out.push(u8::try_from(offset_bytes).ok()?)?;
+    ton_write_buffer_uint(&mut out, order.len(), size_bytes)?;
+    ton_write_buffer_uint(&mut out, 1, size_bytes)?;
+    ton_write_buffer_uint(&mut out, 0, size_bytes)?;
+    ton_write_buffer_uint(&mut out, cell_data.len(), offset_bytes)?;
+    ton_write_buffer_uint(&mut out, 0, size_bytes)?; // canonical root is cell zero
+    out.extend_from_slice(&cell_data)?;
     Some(out)
 }
 
 fn parse_canonical_single_root_boc(bytes: &[u8]) -> Option<(TonBoc, Vec<TonComputedCell>, usize)> {
-    let boc = parse_ton_boc(bytes)?;
+    let (boc, computed, root) = parse_canonical_single_root_boc_with(bytes, &Memory::detached())?;
+    Some((boc, computed.into_detached()?, root))
+}
+
+fn parse_canonical_single_root_boc_with(
+    bytes: &[u8],
+    memory: &Memory<'_>,
+) -> Option<(TonBoc, Buffer<TonComputedCell>, usize)> {
+    let boc = parse_ton_boc_with(bytes, memory)?;
     let root = *boc.roots.first()?;
     if boc.roots.len() != 1 || root != 0 {
         return None;
@@ -1277,9 +1439,9 @@ fn parse_canonical_single_root_boc(bytes: &[u8]) -> Option<(TonBoc, Vec<TonCompu
     // Validate descriptors, exotic payloads, and the 1,024-cell depth bound
     // iteratively before canonicalization, retaining the authenticated hashes for the
     // caller. Canonical ordering also uses an iterative walk for every public entry point.
-    let computed = ton_boc_cell_hashes(&boc)?;
-    let order = ton_canonical_cell_order(&boc, root)?;
-    if encode_ton_boc_in_order(&boc, &order)?.as_slice() != bytes {
+    let computed = ton_boc_cell_hashes_in_order_with(&boc, (0..boc.cells.len()).rev(), memory)?;
+    let order = ton_canonical_cell_order_with(&boc, root, memory)?;
+    if encode_ton_boc_in_order_with(&boc, &order, memory)?.as_slice() != bytes {
         return None;
     }
     Some((boc, computed, root))
@@ -1358,12 +1520,20 @@ fn ton_boc_cell_hashes_in_order(
     boc: &TonBoc,
     children_first: impl Iterator<Item = usize>,
 ) -> Option<Vec<TonComputedCell>> {
+    ton_boc_cell_hashes_in_order_with(boc, children_first, &Memory::detached())?.into_detached()
+}
+
+fn ton_boc_cell_hashes_in_order_with(
+    boc: &TonBoc,
+    children_first: impl Iterator<Item = usize>,
+    memory: &Memory<'_>,
+) -> Option<Buffer<TonComputedCell>> {
     let empty = TonComputedCell {
         mask: 0,
         hashes: [[0_u8; 32]; 4],
         depths: [0_u16; 4],
     };
-    let mut computed = vec![empty; boc.cells.len()];
+    let mut computed = memory.filled(boc.cells.len(), empty)?;
     for index in children_first {
         let cell = boc.cells.get(index)?;
         let cell_type = ton_cell_type(cell)?;
@@ -1427,8 +1597,9 @@ fn ton_boc_cell_hashes_in_order(
             total_hash_count
         };
         let hash_offset = total_hash_count.checked_sub(hash_count)?;
-        let mut hashes = Vec::<H256>::with_capacity(hash_count);
-        let mut depths = Vec::<u16>::with_capacity(hash_count);
+        let mut hashes = [[0_u8; 32]; 4];
+        let mut depths = [0_u16; 4];
+        let mut produced = 0_usize;
         let level = ton_level_mask_level(mask);
         let mut hash_index = 0_usize;
         for level_index in 0..=level {
@@ -1445,15 +1616,17 @@ fn ton_boc_cell_hashes_in_order(
                 }
                 &cell.data
             } else {
-                hashes.get(hash_index.checked_sub(hash_offset)?.checked_sub(1)?)?
+                hashes[..produced].get(hash_index.checked_sub(hash_offset)?.checked_sub(1)?)?
             };
             let mut current_depth = 0_u16;
-            for reference in &cell.refs {
-                let (_, child_depth) = ton_boc_child_for_hash_level(
+            let mut children = [(0_u16, [0_u8; 32]); TON_MAX_REFS];
+            for (index, reference) in cell.refs.iter().enumerate() {
+                let (child_hash, child_depth) = ton_boc_child_for_hash_level(
                     cell_type,
                     computed.get(*reference)?,
                     level_index,
                 )?;
+                *children.get_mut(index)? = (child_depth, child_hash);
                 current_depth = current_depth.max(child_depth);
             }
             if !cell.refs.is_empty() {
@@ -1469,35 +1642,16 @@ fn ton_boc_cell_hashes_in_order(
                     0x08
                 }
                 | ton_level_mask_apply(mask, level_index).checked_shl(5)?;
-            let mut repr = Vec::with_capacity(
-                2_usize
-                    .checked_add(current_data.len())?
-                    .checked_add(cell.refs.len().checked_mul(34)?)?,
+            *hashes.get_mut(produced)? = crate::ton_cell_hash::representation_hash(
+                [descriptor, cell.data_descriptor],
+                current_data,
+                &children[..cell.refs.len()],
             );
-            repr.push(descriptor);
-            repr.push(cell.data_descriptor);
-            repr.extend_from_slice(current_data);
-            for reference in &cell.refs {
-                let (_, child_depth) = ton_boc_child_for_hash_level(
-                    cell_type,
-                    computed.get(*reference)?,
-                    level_index,
-                )?;
-                repr.extend_from_slice(&child_depth.to_be_bytes());
-            }
-            for reference in &cell.refs {
-                let (child_hash, _) = ton_boc_child_for_hash_level(
-                    cell_type,
-                    computed.get(*reference)?,
-                    level_index,
-                )?;
-                repr.extend_from_slice(&child_hash);
-            }
-            hashes.push(Sha256::digest(&repr).into());
-            depths.push(current_depth);
+            *depths.get_mut(produced)? = current_depth;
+            produced += 1;
             hash_index += 1;
         }
-        if hashes.len() != hash_count || depths.len() != hash_count {
+        if produced != hash_count {
             return None;
         }
         let mut resolved_hashes = [[0_u8; 32]; 4];
@@ -1642,10 +1796,16 @@ fn ton_read_hashmap_label(
     Some(length)
 }
 
-fn ton_read_hashmap_label_bits(reader: &mut TonBitReader<'_>, maximum: usize) -> Option<Vec<bool>> {
+fn ton_read_hashmap_label_bits(
+    reader: &mut TonBitReader<'_>,
+    maximum: usize,
+) -> Option<([bool; 16], usize)> {
+    if maximum > 16 {
+        return None;
+    }
     let long_or_same = reader.read_bit()?;
     let length;
-    let mut bits = Vec::new();
+    let mut bits = [false; 16];
     if !long_or_same {
         let mut unary = 0_usize;
         while reader.read_bit()? {
@@ -1655,16 +1815,16 @@ fn ton_read_hashmap_label_bits(reader: &mut TonBitReader<'_>, maximum: usize) ->
             }
         }
         length = unary;
-        for _ in 0..length {
-            bits.push(reader.read_bit()?);
+        for bit in &mut bits[..length] {
+            *bit = reader.read_bit()?;
         }
     } else if !reader.read_bit()? {
         length = reader.read_usize(ton_hashmap_uint_len_bits(maximum))?;
         if length > maximum {
             return None;
         }
-        for _ in 0..length {
-            bits.push(reader.read_bit()?);
+        for bit in &mut bits[..length] {
+            *bit = reader.read_bit()?;
         }
     } else {
         let value = reader.read_bit()?;
@@ -1672,9 +1832,9 @@ fn ton_read_hashmap_label_bits(reader: &mut TonBitReader<'_>, maximum: usize) ->
         if length > maximum {
             return None;
         }
-        bits.resize(length, value);
+        bits[..length].fill(value);
     }
-    Some(bits)
+    Some((bits, length))
 }
 
 fn ton_hashmap_ref_value(boc: &TonBoc, root: usize, key: &[u8], key_bit_len: u16) -> Option<usize> {
@@ -2135,17 +2295,16 @@ fn ton_collect_validator_edge(
     boc: &TonBoc,
     reader: &mut TonBitReader<'_>,
     remaining: usize,
-    prefix: &mut Vec<bool>,
-    output: &mut Vec<(u16, TonValidatorV1)>,
+    prefix: &mut Buffer<bool>,
+    output: &mut Buffer<(u16, TonValidatorV1)>,
     budget: &mut usize,
 ) -> Option<()> {
     if *budget == 0 || output.len() >= TON_MAX_VALIDATORS {
         return None;
     }
     *budget -= 1;
-    let label = ton_read_hashmap_label_bits(reader, remaining)?;
-    let label_len = label.len();
-    prefix.extend(label);
+    let (label, label_len) = ton_read_hashmap_label_bits(reader, remaining)?;
+    prefix.extend_from_slice(&label[..label_len])?;
     let remaining = remaining.checked_sub(label_len)?;
     if remaining == 0 {
         let key = bits_to_u16(prefix)?;
@@ -2153,7 +2312,7 @@ fn ton_collect_validator_edge(
         if !reader.exhausted() {
             return None;
         }
-        output.push((key, validator));
+        output.push((key, validator))?;
         prefix.truncate(prefix.len().checked_sub(label_len)?);
         return Some(());
     }
@@ -2167,7 +2326,7 @@ fn ton_collect_validator_edge(
         let cell = boc.cells.get(child)?;
         (ton_cell_type(cell)? == TonCellType::Ordinary).then_some(())?;
         let mut child_reader = TonBitReader::new(cell)?;
-        prefix.push(bit);
+        prefix.push(bit)?;
         ton_collect_validator_edge(
             boc,
             &mut child_reader,
@@ -2182,7 +2341,11 @@ fn ton_collect_validator_edge(
     Some(())
 }
 
-fn ton_parse_validator_config(boc: &TonBoc, cell_index: usize) -> Option<TonValidatorConfigV1> {
+fn ton_parse_validator_config_with(
+    boc: &TonBoc,
+    cell_index: usize,
+    memory: &Memory<'_>,
+) -> Option<TonValidatorConfigOwner> {
     let cell_index = ton_virtual_root_index(boc, cell_index)?;
     let cell = boc.cells.get(cell_index)?;
     (ton_cell_type(cell)? == TonCellType::Ordinary).then_some(())?;
@@ -2211,8 +2374,8 @@ fn ton_parse_validator_config(boc: &TonBoc, cell_index: usize) -> Option<TonVali
     } else {
         None
     };
-    let mut validators = Vec::with_capacity(usize::from(total));
-    let mut prefix = Vec::with_capacity(16);
+    let mut validators = memory.buffer(usize::from(total))?;
+    let mut prefix = memory.buffer(16)?;
     let mut budget = boc.cells.len().checked_add(1)?;
     if constructor == TON_VALIDATORS_EXT_CONSTRUCTOR {
         if !reader.read_bit()? || reader.remaining_bits()? != 0 || reader.remaining_refs()? != 1 {
@@ -2239,7 +2402,7 @@ fn ton_parse_validator_config(boc: &TonBoc, cell_index: usize) -> Option<TonVali
             &mut budget,
         )?;
     }
-    validators.sort_by_key(|(key, _)| *key);
+    validators.sort_unstable_by_key(|(key, _)| *key);
     if validators.len() != usize::from(total)
         || validators
             .iter()
@@ -2248,15 +2411,16 @@ fn ton_parse_validator_config(boc: &TonBoc, cell_index: usize) -> Option<TonVali
     {
         return None;
     }
-    let validators = validators
-        .into_iter()
-        .map(|(_, validator)| validator)
-        .collect::<Vec<_>>();
-    let total_weight = validate_validator_roster(&validators)?;
+    let mut roster = memory.buffer(validators.len())?;
+    for (_, validator) in &validators {
+        roster.push(*validator)?;
+    }
+    let validators = roster;
+    let total_weight = validate_validator_roster_with(&validators, memory)?;
     if declared_total_weight.is_some_and(|declared| declared != total_weight) {
         return None;
     }
-    Some(TonValidatorConfigV1 {
+    Some(TonValidatorConfigOwner {
         valid_since,
         valid_until,
         main_validator_count,
@@ -2289,7 +2453,16 @@ fn ton_parse_catchain_shuffle(boc: &TonBoc, cell_index: usize) -> Option<bool> {
     reader.exhausted().then_some(shuffle)
 }
 
+#[cfg(test)]
 fn ton_config_from_dictionary(boc: &TonBoc, root: usize) -> Option<TonValidatorConfigV1> {
+    ton_config_from_dictionary_with(boc, root, &Memory::detached())?.into_detached()
+}
+
+fn ton_config_from_dictionary_with(
+    boc: &TonBoc,
+    root: usize,
+    memory: &Memory<'_>,
+) -> Option<TonValidatorConfigOwner> {
     let validators_cell = ton_hashmap_ref_value(
         boc,
         root,
@@ -2302,7 +2475,7 @@ fn ton_config_from_dictionary(boc: &TonBoc, root: usize) -> Option<TonValidatorC
         &TON_CONFIG_CATCHAIN.to_be_bytes(),
         TON_CONFIG_KEY_BITS,
     )?;
-    let mut config = ton_parse_validator_config(boc, validators_cell)?;
+    let mut config = ton_parse_validator_config_with(boc, validators_cell, memory)?;
     config.shuffle_masterchain_validators = ton_parse_catchain_shuffle(boc, catchain_cell)?;
     Some(config)
 }
@@ -2364,14 +2537,36 @@ impl TonValidatorPrng {
     }
 }
 
+#[cfg(test)]
 fn ton_select_masterchain_validator_set(
     config: &TonValidatorConfigV1,
     catchain_seqno: u32,
 ) -> Option<TonValidatorSetV1> {
-    validate_validator_config(config)?;
+    let validators = ton_select_masterchain_validator_set_with(
+        config.into(),
+        catchain_seqno,
+        &Memory::detached(),
+    )?;
+    Some(TonValidatorSetV1 {
+        catchain_seqno,
+        validator_list_hash_short: ton_validator_list_hash_short_from_validated(
+            catchain_seqno,
+            &validators,
+        )?,
+        validators: validators.into_detached()?,
+    })
+}
+
+fn ton_select_masterchain_validator_set_with(
+    config: TonValidatorConfigRef<'_>,
+    catchain_seqno: u32,
+    memory: &Memory<'_>,
+) -> Option<Buffer<TonValidatorV1>> {
+    validate_validator_config_with(config, memory)?;
     let count = usize::from(config.main_validator_count).min(config.validators.len());
-    let validators = if config.shuffle_masterchain_validators {
-        let mut indices = vec![0_usize; count];
+    let mut validators = memory.buffer(count)?;
+    if config.shuffle_masterchain_validators {
+        let mut indices = memory.filled(count, 0_usize)?;
         let mut prng = TonValidatorPrng::masterchain(catchain_seqno);
         for index in 0..count {
             let selected =
@@ -2379,20 +2574,13 @@ fn ton_select_masterchain_validator_set(
             indices[index] = indices[selected];
             indices[selected] = index;
         }
-        indices
-            .into_iter()
-            .map(|index| config.validators.get(index).copied())
-            .collect::<Option<Vec<_>>>()?
+        for index in &indices {
+            validators.push(*config.validators.get(*index)?)?;
+        }
     } else {
-        config.validators.get(..count)?.to_vec()
-    };
-    let validator_list_hash_short =
-        ton_validator_list_hash_short_from_validated(catchain_seqno, &validators)?;
-    Some(TonValidatorSetV1 {
-        catchain_seqno,
-        validator_list_hash_short,
-        validators,
-    })
+        validators.extend_from_slice(config.validators.get(..count)?)?;
+    }
+    Some(validators)
 }
 
 fn ton_shard_parent(shard: u64) -> Option<u64> {
@@ -2831,20 +3019,20 @@ const TON_MAX_SNAKE_BYTES: usize = 4 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TonMcHeaderV1 {
     /// Block id (the signed identity).
-    pub(crate) block_id: TonBlockIdExtV1,
+    pub(super) block_id: TonBlockIdExtV1,
     /// Generation time (seconds).
-    pub(crate) gen_utime: u32,
+    pub(super) gen_utime: u32,
     /// Whether the block is a key block.
-    pub(crate) key_block: bool,
+    pub(super) key_block: bool,
     /// Key block whose config names this block's validators.
-    pub(crate) prev_key_block_seqno: u32,
+    pub(super) prev_key_block_seqno: u32,
     /// Catchain session of the signing validator subset.
-    pub(crate) catchain_seqno: u32,
+    pub(super) catchain_seqno: u32,
     /// `validator_list_hash_short` of the signing subset.
-    pub(crate) validator_list_hash_short: u32,
+    pub(super) validator_list_hash_short: u32,
     /// Post-state hash (`state_update` new hash), when the header proof opens `state_update`;
     /// key-block hops, bootstraps and back-links need it.
-    pub(crate) new_state_hash: Option<H256>,
+    pub(super) new_state_hash: Option<H256>,
 }
 
 impl TonMcHeaderV1 {
@@ -2874,30 +3062,31 @@ pub fn ton_masterchain_generation_time_seconds(
 }
 
 /// Validator epoch read from a key block's state.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TonEpochConfigV1 {
     /// Config 34 (with the config-28 shuffle flag).
-    pub(crate) validators: TonValidatorConfigV1,
+    pub(super) validators: TonValidatorConfigV1,
     /// Config 15 `stake_held_for` (seconds).
-    pub(crate) stake_held_for: u32,
+    pub(super) stake_held_for: u32,
 }
 
 /// An opened shard block header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TonShardHeaderV1 {
     /// Block id.
-    pub(crate) block_id: TonBlockIdExtV1,
+    pub(super) block_id: TonBlockIdExtV1,
     /// Predecessor (after a split: in the parent shard).
-    pub(crate) previous: Option<TonBlockIdExtV1>,
+    pub(super) previous: Option<TonBlockIdExtV1>,
     /// Both predecessors after a merge.
-    pub(crate) merged_previous: Option<(TonBlockIdExtV1, TonBlockIdExtV1)>,
+    pub(super) merged_previous: Option<(TonBlockIdExtV1, TonBlockIdExtV1)>,
     /// Generation time (seconds).
-    pub(crate) gen_utime: u32,
+    pub(super) gen_utime: u32,
 }
 
 /// An SCCP external-out message of the minter.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TonSccpEventV1 {
+pub enum TonSccpEventV1<P = Vec<u8>> {
     /// `SccpFinalizedEvent`, whose amount is bound by the original payload preimage.
     Finalized {
         /// Finalized message identity.
@@ -2916,7 +3105,7 @@ pub enum TonSccpEventV1 {
         /// Burned amount.
         amount: u128,
         /// Canonical payload bytes.
-        payload: Vec<u8>,
+        payload: P,
     },
     /// `sccp_voided` (`message_id = 0` for frozen voids).
     Voided {
@@ -2929,15 +3118,56 @@ pub enum TonSccpEventV1 {
     },
 }
 
+impl TonSccpEventV1<Buffer<u8>> {
+    fn into_detached(self) -> Option<TonSccpEventV1> {
+        Some(match self {
+            Self::Finalized { message_id, nonce } => {
+                TonSccpEventV1::Finalized { message_id, nonce }
+            }
+            Self::TransferToTaira {
+                message_id,
+                nonce,
+                sender,
+                amount,
+                payload,
+            } => TonSccpEventV1::TransferToTaira {
+                message_id,
+                nonce,
+                sender,
+                amount,
+                payload: payload.into_detached()?,
+            },
+            Self::Voided {
+                message_id,
+                first_nonce,
+                count,
+            } => TonSccpEventV1::Voided {
+                message_id,
+                first_nonce,
+                count,
+            },
+        })
+    }
+}
+
+#[cfg(test)]
 fn ton_open_canonical(
     bytes: &[u8],
     root_hash: &H256,
-) -> Result<(TonBoc, Vec<TonComputedCell>, usize), TonNativeSourceError> {
+) -> Result<(TonBoc, Buffer<TonComputedCell>, usize), TonNativeSourceError> {
+    ton_open_canonical_with(bytes, root_hash, &Memory::detached())
+}
+
+fn ton_open_canonical_with(
+    bytes: &[u8],
+    root_hash: &H256,
+    memory: &Memory<'_>,
+) -> Result<(TonBoc, Buffer<TonComputedCell>, usize), TonNativeSourceError> {
     if bytes.is_empty() || bytes.len() > TON_MAX_BOC_BYTES {
         return Err(TonNativeSourceError::ResourceLimit);
     }
-    let (boc, computed, root) =
-        parse_canonical_single_root_boc(bytes).ok_or(TonNativeSourceError::InvalidBoc)?;
+    let (boc, computed, root) = parse_canonical_single_root_boc_with(bytes, memory)
+        .ok_or(TonNativeSourceError::InvalidBoc)?;
     if ton_proven_root_hash(&boc, &computed, root) != Some(*root_hash) {
         return Err(TonNativeSourceError::InvalidBoc);
     }
@@ -2952,13 +3182,22 @@ pub fn ton_open_masterchain_block(
     header_proof: &[u8],
     account: Option<H256>,
 ) -> Result<(TonMcHeaderV1, Option<TonBlockIdExtV1>), TonNativeSourceError> {
+    ton_open_masterchain_block_with(block_id, header_proof, account, &Memory::detached())
+}
+
+pub fn ton_open_masterchain_block_with(
+    block_id: TonBlockIdExtV1,
+    header_proof: &[u8],
+    account: Option<H256>,
+    memory: &Memory<'_>,
+) -> Result<(TonMcHeaderV1, Option<TonBlockIdExtV1>), TonNativeSourceError> {
     if block_id.workchain != TON_MASTERCHAIN_WORKCHAIN
         || block_id.shard != TON_MASTERCHAIN_SHARD
         || !valid_block_id(block_id)
     {
         return Err(TonNativeSourceError::BrokenMasterchainLink);
     }
-    let (boc, computed, root) = ton_open_canonical(header_proof, &block_id.root_hash)?;
+    let (boc, computed, root) = ton_open_canonical_with(header_proof, &block_id.root_hash, memory)?;
     let block = ton_parse_block(&boc, &computed, root).ok_or(TonNativeSourceError::InvalidBoc)?;
     if block.global_id != TON_MAINNET_GLOBAL_ID {
         return Err(TonNativeSourceError::WrongNetwork);
@@ -3007,17 +3246,36 @@ pub fn ton_open_masterchain_block(
 
 /// Verify `signatures` over `header` by the masterchain subset of `epoch` for the header's
 /// catchain session (more than two thirds of the subset weight).
+#[cfg(test)]
 pub fn ton_verify_masterchain_signatures(
     header: &TonMcHeaderV1,
     epoch: &TonValidatorConfigV1,
     signatures: &TonBlockSignaturesV1,
 ) -> Result<(), TonNativeSourceError> {
-    let subset = ton_select_masterchain_validator_set(epoch, header.catchain_seqno)
+    ton_verify_masterchain_signatures_with(header, epoch.into(), signatures, &Memory::detached())
+}
+
+pub fn ton_verify_masterchain_signatures_with(
+    header: &TonMcHeaderV1,
+    epoch: TonValidatorConfigRef<'_>,
+    signatures: &TonBlockSignaturesV1,
+    memory: &Memory<'_>,
+) -> Result<(), TonNativeSourceError> {
+    let subset = ton_select_masterchain_validator_set_with(epoch, header.catchain_seqno, memory)
         .ok_or(TonNativeSourceError::InvalidValidatorSet)?;
-    if subset.validator_list_hash_short != header.validator_list_hash_short {
+    let hash = ton_validator_list_hash_short_from_validated(header.catchain_seqno, &subset)
+        .ok_or(TonNativeSourceError::InvalidValidatorSet)?;
+    if hash != header.validator_list_hash_short {
         return Err(TonNativeSourceError::InvalidValidatorSet);
     }
-    verify_block_signatures(header.block_id, &subset, signatures)
+    verify_block_signatures_with(
+        header.block_id,
+        header.catchain_seqno,
+        hash,
+        &subset,
+        signatures,
+        memory,
+    )
 }
 
 /// Walk `ShardStateUnsplit` of the masterchain to its `McStateExtra` cell.
@@ -3049,12 +3307,33 @@ fn ton_mc_state_extra(boc: &TonBoc, root: usize) -> Option<usize> {
 
 /// Open the validator epoch (configs 34, 28 and 15) from a masterchain state proof rooted at
 /// `state_hash`.
+#[cfg(test)]
 pub fn ton_open_state_config(
     state_hash: &H256,
     config_proof: &[u8],
 ) -> Result<TonEpochConfigV1, TonNativeSourceError> {
+    let result = ton_open_state_config_with(state_hash, config_proof, &Memory::detached())?;
+    Ok(TonEpochConfigV1 {
+        validators: result
+            .validators
+            .into_detached()
+            .ok_or(TonNativeSourceError::InvalidValidatorTransition)?,
+        stake_held_for: result.stake_held_for,
+    })
+}
+
+pub struct TonEpochConfigOwner {
+    pub(super) validators: TonValidatorConfigOwner,
+    pub(super) stake_held_for: u32,
+}
+
+pub fn ton_open_state_config_with(
+    state_hash: &H256,
+    config_proof: &[u8],
+    memory: &Memory<'_>,
+) -> Result<TonEpochConfigOwner, TonNativeSourceError> {
     let invalid = TonNativeSourceError::InvalidValidatorTransition;
-    let (boc, _computed, root) = ton_open_canonical(config_proof, state_hash)?;
+    let (boc, _computed, root) = ton_open_canonical_with(config_proof, state_hash, memory)?;
     let extra = ton_mc_state_extra(&boc, root).ok_or(invalid)?;
     let cell = boc.cells.get(extra).ok_or(invalid)?;
     let mut reader = TonBitReader::new(cell).ok_or(invalid)?;
@@ -3068,7 +3347,7 @@ pub fn ton_open_state_config(
     }
     reader.read_h256().ok_or(invalid)?; // config address
     let dictionary = reader.read_ref().ok_or(invalid)?;
-    let validators = ton_config_from_dictionary(&boc, dictionary).ok_or(invalid)?;
+    let validators = ton_config_from_dictionary_with(&boc, dictionary, memory).ok_or(invalid)?;
     let timings = ton_hashmap_ref_value(
         &boc,
         dictionary,
@@ -3083,7 +3362,7 @@ pub fn ton_open_state_config(
     if !timings.exhausted() {
         return Err(invalid);
     }
-    Ok(TonEpochConfigV1 {
+    Ok(TonEpochConfigOwner {
         validators,
         stake_held_for,
     })
@@ -3091,16 +3370,17 @@ pub fn ton_open_state_config(
 
 /// Look up masterchain block `seqno` in `OldMcBlocksInfo` of a masterchain state proof rooted
 /// at `state_hash` (the back-link from a fresh block to an older one).
-pub fn ton_open_previous_masterchain_block(
+pub fn ton_open_previous_masterchain_block_with(
     state_hash: &H256,
     state_proof: &[u8],
     seqno: u32,
+    memory: &Memory<'_>,
 ) -> Result<TonBlockIdExtV1, TonNativeSourceError> {
     fn skip_key_max_lt(reader: &mut TonBitReader<'_>) -> Option<()> {
         reader.skip_bits(65)
     }
     let broken = TonNativeSourceError::BrokenMasterchainLink;
-    let (boc, _computed, root) = ton_open_canonical(state_proof, state_hash)?;
+    let (boc, _computed, root) = ton_open_canonical_with(state_proof, state_hash, memory)?;
     let extra = ton_mc_state_extra(&boc, root).ok_or(broken)?;
     let mut reader = TonBitReader::new(boc.cells.get(extra).ok_or(broken)?).ok_or(broken)?;
     reader.skip_bits(16).ok_or(broken)?;
@@ -3139,14 +3419,23 @@ pub fn ton_open_previous_masterchain_block(
 }
 
 /// Open a basechain shard block header proof rooted at `block_id.root_hash`.
+#[cfg(test)]
 pub fn ton_open_shard_block(
     block_id: TonBlockIdExtV1,
     header_proof: &[u8],
 ) -> Result<TonShardHeaderV1, TonNativeSourceError> {
+    ton_open_shard_block_with(block_id, header_proof, &Memory::detached())
+}
+
+pub fn ton_open_shard_block_with(
+    block_id: TonBlockIdExtV1,
+    header_proof: &[u8],
+    memory: &Memory<'_>,
+) -> Result<TonShardHeaderV1, TonNativeSourceError> {
     if block_id.workchain != TON_BASECHAIN_WORKCHAIN || !valid_block_id(block_id) {
         return Err(TonNativeSourceError::ShardNotFinalized);
     }
-    let (boc, computed, root) = ton_open_canonical(header_proof, &block_id.root_hash)?;
+    let (boc, computed, root) = ton_open_canonical_with(header_proof, &block_id.root_hash, memory)?;
     let block = ton_parse_block(&boc, &computed, root).ok_or(TonNativeSourceError::InvalidBoc)?;
     let info = block.info;
     if block.global_id != TON_MAINNET_GLOBAL_ID
@@ -3169,33 +3458,75 @@ pub fn ton_open_shard_block(
 // 1..=1024-byte recipient. Proof envelopes may virtualize ordinary chunks; library
 // references never resolve here. Raw burn-cell admission lives in v1::ton_cell and
 // v1::destination::check_ton_burn_payload, before wallet/minter state changes.
+#[cfg(test)]
 fn ton_read_snake_bytes(boc: &TonBoc, index: usize) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut next = Some(index);
-    while let Some(index) = next {
+    ton_read_snake_bytes_with(boc, index, &Memory::detached())?.into_detached()
+}
+fn ton_read_snake_bytes_with(
+    boc: &TonBoc,
+    index: usize,
+    memory: &Memory<'_>,
+) -> Option<Buffer<u8>> {
+    // Walk once to establish the exact byte capacity before acquiring any output backing.
+    fn chunk(boc: &TonBoc, index: usize) -> Option<(TonBitReader<'_>, usize, Option<usize>)> {
         let index = ton_virtual_root_index(boc, index)?;
-        let cell = boc.cells.get(index)?;
-        let mut reader = TonBitReader::new(cell)?;
+        let reader = TonBitReader::new(boc.cells.get(index)?)?;
         let bits = reader.remaining_bits()?;
         if bits == 0 || bits % 8 != 0 || bits / 8 > TON_SNAKE_CHUNK_BYTES {
             return None;
         }
-        for _ in 0..bits / 8 {
-            out.push(u8::try_from(reader.read_u64(8)?).ok()?);
-        }
-        next = match reader.remaining_refs()? {
+        let mut refs = reader.clone();
+        let next = match refs.remaining_refs()? {
             0 => None,
-            1 if bits / 8 == TON_SNAKE_CHUNK_BYTES => Some(reader.read_ref()?),
+            1 if bits / 8 == TON_SNAKE_CHUNK_BYTES => Some(refs.read_ref()?),
             _ => return None,
         };
-        if out.len() > TON_MAX_SNAKE_BYTES {
+        Some((reader, bits / 8, next))
+    }
+    let mut size = 0_usize;
+    let mut next = Some(index);
+    let mut visited = 0_usize;
+    while let Some(index) = next {
+        visited += 1;
+        if visited > boc.cells.len() {
             return None;
         }
+        let (_, bytes, child) = chunk(boc, index)?;
+        size = size.checked_add(bytes)?;
+        if size > TON_MAX_SNAKE_BYTES {
+            return None;
+        }
+        next = child;
     }
-    Some(out)
+    let mut output = memory.buffer(size)?;
+    let mut next = Some(index);
+    while let Some(index) = next {
+        let (mut reader, bytes, child) = chunk(boc, index)?;
+        for _ in 0..bytes {
+            output.push(u8::try_from(reader.read_u64(8)?).ok()?)?;
+        }
+        next = child;
+    }
+    Some(output)
 }
 
 fn ton_parse_sccp_ext_out(boc: &TonBoc, message: usize, minter: &H256) -> Option<TonSccpEventV1> {
+    ton_parse_sccp_ext_out_with(boc, message, minter, &Memory::detached())?.into_detached()
+}
+fn ton_parse_sccp_ext_out_with(
+    boc: &TonBoc,
+    message: usize,
+    minter: &H256,
+    memory: &Memory<'_>,
+) -> Option<TonSccpEventV1<Buffer<u8>>> {
+    ton_parse_sccp_event_body_with(boc, ton_sccp_ext_out_body(boc, message, minter)?, memory)
+}
+
+fn ton_sccp_ext_out_body<'a>(
+    boc: &'a TonBoc,
+    message: usize,
+    minter: &H256,
+) -> Option<TonBitReader<'a>> {
     let index = ton_virtual_root_index(boc, message)?;
     let mut reader = TonBitReader::new(boc.cells.get(index)?)?;
     if reader.read_u64(2)? != 0b11 {
@@ -3224,10 +3555,18 @@ fn ton_parse_sccp_ext_out(boc: &TonBoc, message: usize, minter: &H256) -> Option
     } else {
         reader
     };
-    ton_parse_sccp_event_body(boc, body)
+    Some(body)
 }
 
-fn ton_parse_sccp_event_body(boc: &TonBoc, mut body: TonBitReader<'_>) -> Option<TonSccpEventV1> {
+#[cfg(test)]
+fn ton_parse_sccp_event_body(boc: &TonBoc, body: TonBitReader<'_>) -> Option<TonSccpEventV1> {
+    ton_parse_sccp_event_body_with(boc, body, &Memory::detached())?.into_detached()
+}
+fn ton_parse_sccp_event_body_with(
+    boc: &TonBoc,
+    mut body: TonBitReader<'_>,
+    memory: &Memory<'_>,
+) -> Option<TonSccpEventV1<Buffer<u8>>> {
     let op = u32::try_from(body.read_u64(32)?).ok()?;
     let message_id = body.read_h256()?;
     let event = match op {
@@ -3239,7 +3578,7 @@ fn ton_parse_sccp_event_body(boc: &TonBoc, mut body: TonBitReader<'_>) -> Option
             let nonce = body.read_u64(64)?;
             let sender = ton_read_canonical_std_address(&mut body)?;
             let amount = ton_read_canonical_coins(&mut body)?;
-            let payload = ton_read_snake_bytes(boc, body.read_ref()?)?;
+            let payload = ton_read_snake_bytes_with(boc, body.read_ref()?, memory)?;
             TonSccpEventV1::TransferToTaira {
                 message_id,
                 nonce,
@@ -3315,6 +3654,7 @@ fn ton_transaction_ref_in_block(
 /// Open the SCCP event of `minter` in the event block: the transaction at `transaction_lt`
 /// (whose cell the block proof may prune; `transaction_boc` supplies it), which must have
 /// succeeded, and its external-out message `message_index`.
+#[cfg(test)]
 pub fn ton_open_sccp_event(
     block_id: TonBlockIdExtV1,
     block_proof: &[u8],
@@ -3323,8 +3663,30 @@ pub fn ton_open_sccp_event(
     transaction_lt: u64,
     message_index: u16,
 ) -> Result<TonSccpEventV1, TonNativeSourceError> {
+    ton_open_sccp_event_with(
+        block_id,
+        block_proof,
+        transaction_boc,
+        minter,
+        transaction_lt,
+        message_index,
+        &Memory::detached(),
+    )?
+    .into_detached()
+    .ok_or(TonNativeSourceError::InvalidOutboundMessage)
+}
+
+pub fn ton_open_sccp_event_with(
+    block_id: TonBlockIdExtV1,
+    block_proof: &[u8],
+    transaction_boc: &[u8],
+    minter: H256,
+    transaction_lt: u64,
+    message_index: u16,
+    memory: &Memory<'_>,
+) -> Result<TonSccpEventV1<Buffer<u8>>, TonNativeSourceError> {
     let invalid = TonNativeSourceError::InvalidTransaction;
-    let (boc, computed, root) = ton_open_canonical(block_proof, &block_id.root_hash)?;
+    let (boc, computed, root) = ton_open_canonical_with(block_proof, &block_id.root_hash, memory)?;
     let block = ton_parse_block(&boc, &computed, root).ok_or(TonNativeSourceError::InvalidBoc)?;
     if block.info.seqno != block_id.seqno || block.info.shard != block_id.shard {
         return Err(TonNativeSourceError::ShardNotFinalized);
@@ -3334,7 +3696,8 @@ pub fn ton_open_sccp_event(
     let reference = ton_transaction_ref_in_block(&boc, account_blocks, minter, transaction_lt)
         .ok_or(invalid)?;
     let transaction_hash = ton_original_tree_hash(&computed, reference).ok_or(invalid)?;
-    let (tx_boc, _tx_computed, tx_root) = ton_open_canonical(transaction_boc, &transaction_hash)?;
+    let (tx_boc, _tx_computed, tx_root) =
+        ton_open_canonical_with(transaction_boc, &transaction_hash, memory)?;
     let transaction =
         ton_parse_transaction(&tx_boc, tx_root, minter, transaction_lt).ok_or(invalid)?;
     if ton_transaction_succeeded(&tx_boc, transaction) != Some(true) {
@@ -3342,9 +3705,13 @@ pub fn ton_open_sccp_event(
     }
     let message = ton_transaction_out_message(&tx_boc, transaction, message_index)
         .ok_or(TonNativeSourceError::InvalidOutboundMessage)?;
-    ton_parse_sccp_ext_out(&tx_boc, message, &minter)
+    ton_parse_sccp_ext_out_with(&tx_boc, message, &minter, memory)
         .ok_or(TonNativeSourceError::InvalidOutboundMessage)
 }
+
+#[cfg(test)]
+#[path = "ton_native/admitted_tests.rs"]
+mod admitted_tests;
 
 #[cfg(test)]
 #[path = "test_fixtures/ton_mainnet_capture_tests.rs"]
@@ -3415,8 +3782,8 @@ mod tests {
         TonBocCell {
             descriptor: u8::try_from(refs.len()).expect("fixture ref count"),
             data_descriptor: u8::try_from(data.len() * 2).expect("fixture cell byte count"),
-            data,
-            refs,
+            data: data.into(),
+            refs: refs.into(),
             exotic: false,
         }
     }
@@ -3435,8 +3802,8 @@ mod tests {
         TonBocCell {
             descriptor: 0x08 | (mask << 5),
             data_descriptor: u8::try_from(data.len() * 2).expect("fixture cell byte count"),
-            data,
-            refs: Vec::new(),
+            data: data.into(),
+            refs: (Vec::new()).into(),
             exotic: true,
         }
     }
@@ -3448,8 +3815,8 @@ mod tests {
         TonBocCell {
             descriptor: 0x09 | (ton_level_mask_value(child_mask >> 1) << 5),
             data_descriptor: u8::try_from(data.len() * 2).expect("fixture cell byte count"),
-            data,
-            refs: vec![reference],
+            data: data.into(),
+            refs: (vec![reference]).into(),
             exotic: true,
         }
     }
@@ -3500,8 +3867,8 @@ mod tests {
             TonBocCell {
                 descriptor: u8::try_from(refs.len()).expect("fixture ref count"),
                 data_descriptor: u8::try_from(data_descriptor).expect("fixture data descriptor"),
-                data,
-                refs,
+                data: data.into(),
+                refs: refs.into(),
                 exotic: false,
             }
         }
@@ -3574,8 +3941,8 @@ mod tests {
         let old_state = ordinary_cell(vec![0xa1], Vec::new());
         let new_state = ordinary_cell(vec![0xa2], Vec::new());
         let state_cells = TonBoc {
-            roots: vec![0],
-            cells: vec![old_state.clone(), new_state.clone()],
+            roots: (vec![0]).into(),
+            cells: (vec![old_state.clone(), new_state.clone()]).into(),
         };
         let state_hashes = ton_boc_cell_hashes(&state_cells).expect("state hashes");
         let old_state_hash = state_hashes[0].hashes[0];
@@ -3627,8 +3994,8 @@ mod tests {
             descriptor: 0x0a,
             data_descriptor: u8::try_from(update_data.len() * 2)
                 .expect("fixture update descriptor"),
-            data: update_data,
-            refs: vec![3, 4],
+            data: (update_data).into(),
+            refs: (vec![3, 4]).into(),
             exotic: true,
         };
 
@@ -3647,8 +4014,8 @@ mod tests {
         }
 
         let boc = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 root.cell(vec![1, 8, 2, 5]),
                 info.cell(vec![6]),
                 state_update,
@@ -3658,7 +4025,8 @@ mod tests {
                 previous_ref.cell(Vec::new()),
                 custom.cell(vec![8]),
                 ordinary_cell(Vec::new(), Vec::new()),
-            ],
+            ])
+            .into(),
         };
         // Finality admission requires one shared cell per structural subtree
         // and canonical topological ordering, including ignored empty cells.
@@ -3711,19 +4079,20 @@ mod tests {
         custom.bit(false); // empty ShardFees
         custom.uint(0, 10); // two empty CurrencyCollections
         let boc = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 TonBocCell {
                     descriptor: 4,
                     data_descriptor: 137,
-                    data: extra,
-                    refs: vec![1, 1, 1, 2],
+                    data: (extra).into(),
+                    refs: (vec![1, 1, 1, 2]).into(),
                     exotic: false,
                 },
                 ordinary_cell(Vec::new(), Vec::new()),
                 custom.cell(vec![3]),
                 ordinary_cell(Vec::new(), Vec::new()),
-            ],
+            ])
+            .into(),
         };
         let parsed = ton_parse_masterchain_extra(&boc, 0).expect("native BlockExtra");
         assert!(parsed.shard_hashes_root.is_none());
@@ -3731,7 +4100,7 @@ mod tests {
         for omit in [false, true] {
             let mut malformed = boc.clone();
             if omit {
-                malformed.cells[0].data.drain(..4);
+                malformed.cells[0].data = malformed.cells[0].data[4..].to_vec().into();
                 malformed.cells[0].data_descriptor -= 8;
             } else {
                 malformed.cells[0].data[0] ^= 1;
@@ -3773,7 +4142,9 @@ mod tests {
         for omit in [false, true] {
             let mut malformed = boc.clone();
             if omit {
-                malformed.cells[1].data.remove(software_offset);
+                let mut shortened = malformed.cells[1].data.to_vec();
+                shortened.remove(software_offset);
+                malformed.cells[1].data = shortened.into();
                 malformed.cells[1].data_descriptor -= 2;
             } else {
                 malformed.cells[1].data[software_offset] ^= 1;
@@ -3802,12 +4173,13 @@ mod tests {
             file_hash: [!hash; 32],
         };
         let boc = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(Vec::new(), vec![1, 2]),
                 ext_block_ref(9, 0x11),
                 ext_block_ref(8, 0x22),
-            ],
+            ])
+            .into(),
         };
         assert_eq!(
             ton_parse_prev_ref(&boc, 1, 0, LEFT, false, false),
@@ -3906,8 +4278,8 @@ mod tests {
     #[test]
     fn config_28_shuffle_flag_permutes_the_masterchain_subset_per_session() {
         let catchain = |data: Vec<u8>| TonBoc {
-            roots: vec![0],
-            cells: vec![ordinary_cell(data, Vec::new())],
+            roots: (vec![0]).into(),
+            cells: (vec![ordinary_cell(data, Vec::new())]).into(),
         };
         let lifetimes = |values: [u32; 4]| {
             values
@@ -4138,25 +4510,27 @@ mod tests {
         proof_data.extend_from_slice(&expected);
         proof_data.extend_from_slice(&0_u16.to_be_bytes());
         let merkle_proof = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 TonBocCell {
                     descriptor: 0x09,
                     data_descriptor: 70,
-                    data: proof_data,
-                    refs: vec![1],
+                    data: (proof_data).into(),
+                    refs: (vec![1]).into(),
                     exotic: true,
                 },
                 ordinary_cell(Vec::new(), Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert_eq!(ton_boc_single_root_hash_v1(&merkle_proof), Some(expected));
         let unused_cell = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(Vec::new(), Vec::new()),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert_eq!(ton_boc_single_root_hash_v1(&unused_cell), Some(expected));
         assert_eq!(ton_boc_single_root_hash_v1(EMPTY_WITH_CRC), Some(expected));
@@ -4200,11 +4574,12 @@ mod tests {
         );
 
         let mut unreachable = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(Vec::new(), Vec::new()),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert!(parse_ton_boc(&unreachable).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&unreachable), None);
@@ -4218,38 +4593,41 @@ mod tests {
     #[test]
     fn canonical_boc_gate_rejects_duplicate_and_alternate_dags() {
         let duplicate = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(vec![0x10], vec![1, 2]),
                 ordinary_cell(vec![0x20], Vec::new()),
                 ordinary_cell(vec![0x20], Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert!(parse_ton_boc(&duplicate).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&duplicate), None);
 
         let alternate = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 // Logical reference order is A then B, but the cell table puts
                 // B before A. Both parents share the same canonical child.
                 ordinary_cell(vec![0x10], vec![2, 1]),
                 ordinary_cell(vec![0xb0], vec![3]),
                 ordinary_cell(vec![0xa0], vec![3]),
                 ordinary_cell(vec![0xc0], Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert!(parse_ton_boc(&alternate).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&alternate), None);
 
         let canonical_graph = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(vec![0x10], vec![1, 2]),
                 ordinary_cell(vec![0xa0], vec![3]),
                 ordinary_cell(vec![0xb0], vec![3]),
                 ordinary_cell(vec![0xc0], Vec::new()),
-            ],
+            ])
+            .into(),
         };
         let canonical = serialize_test_boc(&canonical_graph);
         assert_eq!(
@@ -4262,8 +4640,8 @@ mod tests {
     #[test]
     fn canonical_boc_gate_enforces_raw_level_masks_tuple_counts_and_max_depth() {
         let sparse = TonBoc {
-            roots: vec![0],
-            cells: vec![pruned_branch_cell(0x02, &[[0x41; 32]], &[7])],
+            roots: (vec![0]).into(),
+            cells: (vec![pruned_branch_cell(0x02, &[[0x41; 32]], &[7])]).into(),
         };
         assert!(
             ton_boc_cell_hashes(&sparse).is_some(),
@@ -4276,30 +4654,31 @@ mod tests {
         malformed.descriptor = 0x08 | (0x02 << 5);
         malformed.data[1] = 0x02;
         let extra_tuple = TonBoc {
-            roots: vec![0],
-            cells: vec![malformed],
+            roots: (vec![0]).into(),
+            cells: (vec![malformed]).into(),
         };
         assert!(ton_boc_cell_hashes(&extra_tuple).is_none());
 
         let mut high_bit_alias = pruned_branch_cell(0x01, &[[0x51; 32]], &[9]);
         high_bit_alias.data[1] |= 0x08;
         let high_bit_alias = TonBoc {
-            roots: vec![0],
-            cells: vec![high_bit_alias],
+            roots: (vec![0]).into(),
+            cells: (vec![high_bit_alias]).into(),
         };
         assert!(ton_boc_cell_hashes(&high_bit_alias).is_none());
 
         let excessive_pruned_depth = TonBoc {
-            roots: vec![0],
-            cells: vec![pruned_branch_cell(
+            roots: (vec![0]).into(),
+            cells: (vec![pruned_branch_cell(
                 0x01,
                 &[[0x61; 32]],
                 &[TON_MAX_CELL_DEPTH + 1],
-            )],
+            )])
+            .into(),
         };
         assert!(ton_boc_cell_hashes(&excessive_pruned_depth).is_none());
 
-        let cells = (0..=usize::from(TON_MAX_CELL_DEPTH))
+        let cells: Vec<_> = (0..=usize::from(TON_MAX_CELL_DEPTH))
             .map(|index| {
                 ordinary_cell(
                     Vec::new(),
@@ -4311,14 +4690,14 @@ mod tests {
             })
             .collect();
         let boundary = TonBoc {
-            roots: vec![0],
-            cells,
+            roots: (vec![0]).into(),
+            cells: cells.into(),
         };
         assert!(ton_boc_cell_hashes(&boundary).is_some());
 
         let excessive = TonBoc {
-            roots: vec![0],
-            cells: (0..=usize::from(TON_MAX_CELL_DEPTH) + 1)
+            roots: (vec![0]).into(),
+            cells: ((0..=usize::from(TON_MAX_CELL_DEPTH) + 1)
                 .map(|index| {
                     ordinary_cell(
                         Vec::new(),
@@ -4328,7 +4707,8 @@ mod tests {
                             .collect(),
                     )
                 })
-                .collect(),
+                .collect::<Vec<_>>())
+            .into(),
         };
         assert!(ton_boc_cell_hashes(&excessive).is_none());
     }
@@ -4342,14 +4722,15 @@ mod tests {
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&zero_bit_alias), None);
 
         let byte_aligned_tail_alias = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![TonBocCell {
+            roots: (vec![0]).into(),
+            cells: (vec![TonBocCell {
                 descriptor: 0,
                 data_descriptor: 3,
-                data: vec![0x42, 0x80],
-                refs: Vec::new(),
+                data: (vec![0x42, 0x80]).into(),
+                refs: (Vec::new()).into(),
                 exotic: false,
-            }],
+            }])
+            .into(),
         });
         assert!(parse_ton_boc(&byte_aligned_tail_alias).is_some());
         assert_eq!(
@@ -4363,29 +4744,30 @@ mod tests {
         legacy_data.extend_from_slice(&[0x51; 32]);
         legacy_data.extend_from_slice(&1_u16.to_be_bytes());
         let legacy = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 root,
                 TonBocCell {
                     descriptor: 0x08 | (1 << 5),
                     data_descriptor: 70,
-                    data: legacy_data,
-                    refs: Vec::new(),
+                    data: (legacy_data).into(),
+                    refs: (Vec::new()).into(),
                     exotic: true,
                 },
-            ],
+            ])
+            .into(),
         });
         assert!(parse_single_root_boc(&legacy).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&legacy), None);
 
         let leaf = TonBoc {
-            roots: vec![0],
-            cells: vec![ordinary_cell(vec![0x42], Vec::new())],
+            roots: (vec![0]).into(),
+            cells: (vec![ordinary_cell(vec![0x42], Vec::new())]).into(),
         };
         let leaf_hashes = ton_boc_cell_hashes(&leaf).expect("leaf hashes");
         let inner = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 merkle_proof_cell(
                     1,
                     leaf_hashes[0].mask,
@@ -4393,12 +4775,13 @@ mod tests {
                     leaf_hashes[0].depths[0],
                 ),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         };
         let inner_hashes = ton_boc_cell_hashes(&inner).expect("inner hashes");
         let nested = serialize_test_boc(&TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 merkle_proof_cell(
                     1,
                     inner_hashes[0].mask,
@@ -4412,7 +4795,8 @@ mod tests {
                     leaf_hashes[0].depths[0],
                 ),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         });
         assert!(parse_single_root_boc(&nested).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&nested), None);
@@ -4425,8 +4809,8 @@ mod tests {
         bytes.extend_from_slice(&12_u64.to_be_bytes());
         let parse = |data, refs| {
             let boc = TonBoc {
-                roots: vec![0],
-                cells: vec![ordinary_cell(data, refs)],
+                roots: (vec![0]).into(),
+                cells: (vec![ordinary_cell(data, refs)]).into(),
             };
             ton_parse_sccp_event_body(&boc, TonBitReader::new(&boc.cells[0]).unwrap())
         };
@@ -4469,8 +4853,8 @@ mod tests {
             ordinary_cell(vec![0x42; 127], vec![1, 1]),
         ] {
             let boc = TonBoc {
-                roots: vec![0],
-                cells: vec![head, ordinary_cell(vec![0x42], Vec::new())],
+                roots: (vec![0]).into(),
+                cells: (vec![head, ordinary_cell(vec![0x42], Vec::new())]).into(),
             };
             assert_eq!(ton_read_snake_bytes(&boc, 0), None);
         }
@@ -4479,8 +4863,8 @@ mod tests {
         library.descriptor = 8;
         library.exotic = true;
         let boc = TonBoc {
-            roots: vec![0],
-            cells: vec![ordinary_cell(vec![0x42; 127], vec![1]), library],
+            roots: (vec![0]).into(),
+            cells: (vec![ordinary_cell(vec![0x42; 127], vec![1]), library]).into(),
         };
         assert_eq!(ton_read_snake_bytes(&boc, 0), None);
         assert_eq!(ton_read_snake_bytes(&boc, 1), None);
@@ -4489,13 +4873,13 @@ mod tests {
         // Keep virtualizing proofs while refusing library-cell substitution.
         let leaf = ordinary_cell(vec![0x42], Vec::new());
         let cells = TonBoc {
-            roots: vec![0],
-            cells: vec![leaf.clone()],
+            roots: (vec![0]).into(),
+            cells: (vec![leaf.clone()]).into(),
         };
         let computed = ton_boc_cell_hashes(&cells).unwrap();
         let proven = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 merkle_proof_cell(
                     1,
                     computed[0].mask,
@@ -4503,7 +4887,8 @@ mod tests {
                     computed[0].depths[0],
                 ),
                 leaf,
-            ],
+            ])
+            .into(),
         };
         assert_eq!(ton_read_snake_bytes(&proven, 0), Some(vec![0x42]));
     }
@@ -4573,11 +4958,12 @@ mod tests {
     #[test]
     fn boc_hash_zero_preserves_original_tree_identity_across_pruned_levels() {
         let complete = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 ordinary_cell(vec![0x41], vec![1]),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         };
         let complete_hashes = ton_boc_cell_hashes(&complete).expect("complete tree hashes");
         let expected_root = complete_hashes[0].hashes[0];
@@ -4591,11 +4977,12 @@ mod tests {
             let stored_hashes = [child_hash; 3];
             let stored_depths = [child_depth; 3];
             let pruned = TonBoc {
-                roots: vec![0],
-                cells: vec![
+                roots: (vec![0]).into(),
+                cells: (vec![
                     root,
                     pruned_branch_cell(mask, &stored_hashes[..count], &stored_depths[..count]),
-                ],
+                ])
+                .into(),
             };
             let computed = ton_boc_cell_hashes(&pruned).expect("pruned proof hashes");
             assert_eq!(computed[0].hashes[0], expected_root);
@@ -4613,13 +5000,13 @@ mod tests {
     #[test]
     fn virtual_root_resolution_unwraps_nested_merkle_proofs() {
         let leaf = TonBoc {
-            roots: vec![0],
-            cells: vec![ordinary_cell(vec![0x42], Vec::new())],
+            roots: (vec![0]).into(),
+            cells: (vec![ordinary_cell(vec![0x42], Vec::new())]).into(),
         };
         let leaf_hashes = ton_boc_cell_hashes(&leaf).expect("leaf hashes");
         let inner = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 merkle_proof_cell(
                     1,
                     leaf_hashes[0].mask,
@@ -4627,12 +5014,13 @@ mod tests {
                     leaf_hashes[0].depths[0],
                 ),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         };
         let inner_hashes = ton_boc_cell_hashes(&inner).expect("inner proof hashes");
         let nested = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 merkle_proof_cell(
                     1,
                     inner_hashes[0].mask,
@@ -4646,7 +5034,8 @@ mod tests {
                     leaf_hashes[0].depths[0],
                 ),
                 ordinary_cell(vec![0x42], Vec::new()),
-            ],
+            ])
+            .into(),
         };
         assert!(ton_boc_cell_hashes(&nested).is_some());
         assert_eq!(ton_virtual_root_index(&nested, 0), Some(2));
@@ -4657,8 +5046,8 @@ mod tests {
 
         let terminal = pruned_branch_cell(7, &[[0x71; 32], [0x72; 32], [0x73; 32]], &[5, 6, 7]);
         let terminal_boc = TonBoc {
-            roots: vec![0],
-            cells: vec![terminal.clone()],
+            roots: (vec![0]).into(),
+            cells: (vec![terminal.clone()]).into(),
         };
         let terminal_hashes = ton_boc_cell_hashes(&terminal_boc).expect("terminal proof hashes");
         let inner_cell = merkle_proof_cell(
@@ -4668,8 +5057,8 @@ mod tests {
             terminal_hashes[0].depths[0],
         );
         let inner_boc = TonBoc {
-            roots: vec![0],
-            cells: vec![inner_cell.clone(), terminal.clone()],
+            roots: (vec![0]).into(),
+            cells: (vec![inner_cell.clone(), terminal.clone()]).into(),
         };
         let inner_hashes = ton_boc_cell_hashes(&inner_boc).expect("level-three proof hashes");
         let middle_cell = merkle_proof_cell(
@@ -4679,10 +5068,10 @@ mod tests {
             inner_hashes[0].depths[0],
         );
         let mut shifted_inner = inner_cell.clone();
-        shifted_inner.refs = vec![2];
+        shifted_inner.refs = vec![2].into();
         let middle_boc = TonBoc {
-            roots: vec![0],
-            cells: vec![middle_cell.clone(), shifted_inner.clone(), terminal.clone()],
+            roots: (vec![0]).into(),
+            cells: (vec![middle_cell.clone(), shifted_inner.clone(), terminal.clone()]).into(),
         };
         let middle_hashes = ton_boc_cell_hashes(&middle_boc).expect("level-two proof hashes");
         let outer_cell = merkle_proof_cell(
@@ -4692,11 +5081,11 @@ mod tests {
             middle_hashes[0].depths[0],
         );
         let mut shifted_middle = middle_cell;
-        shifted_middle.refs = vec![2];
-        shifted_inner.refs = vec![3];
+        shifted_middle.refs = vec![2].into();
+        shifted_inner.refs = vec![3].into();
         let nested_pruned = TonBoc {
-            roots: vec![0],
-            cells: vec![outer_cell, shifted_middle, shifted_inner, terminal],
+            roots: (vec![0]).into(),
+            cells: (vec![outer_cell, shifted_middle, shifted_inner, terminal]).into(),
         };
         let nested_hashes =
             ton_boc_cell_hashes(&nested_pruned).expect("nested pruned proof hashes");
@@ -4727,8 +5116,8 @@ mod tests {
         hash_update_data.extend_from_slice(&old_account_hash);
         hash_update_data.extend_from_slice(&new_account_hash);
         let hash_update = TonBoc {
-            roots: vec![0],
-            cells: vec![ordinary_cell(hash_update_data.clone(), Vec::new())],
+            roots: (vec![0]).into(),
+            cells: (vec![ordinary_cell(hash_update_data.clone(), Vec::new())]).into(),
         };
         let update_hashes = ton_boc_cell_hashes(&hash_update).expect("HashUpdate hashes");
         let mut description = ordinary_cell(Vec::new(), vec![5]);
@@ -4736,8 +5125,8 @@ mod tests {
         let mut transaction = transaction.cell(vec![1, 2, 4]);
         transaction.descriptor |= 7 << 5;
         let boc = TonBoc {
-            roots: vec![0],
-            cells: vec![
+            roots: (vec![0]).into(),
+            cells: (vec![
                 transaction,
                 ordinary_cell(Vec::new(), Vec::new()),
                 merkle_proof_cell(
@@ -4749,7 +5138,8 @@ mod tests {
                 ordinary_cell(hash_update_data, Vec::new()),
                 description,
                 pruned_branch_cell(7, &[[0x81; 32], [0x82; 32], [0x83; 32]], &[1, 2, 3]),
-            ],
+            ])
+            .into(),
         };
         assert!(ton_boc_cell_hashes(&boc).is_some());
         let parsed =
@@ -4834,21 +5224,23 @@ mod encoder_tests {
     }
     fn graph(refs: &[&[usize]]) -> TonBoc {
         TonBoc {
-            roots: vec![0],
-            cells: refs
+            roots: (vec![0]).into(),
+            cells: (refs
                 .iter()
                 .enumerate()
                 .map(|(index, refs)| TonBocCell {
                     descriptor: u8::try_from(refs.len())
                         .expect("fixture cell reference count fits u8"),
                     data_descriptor: 2,
-                    data: vec![
+                    data: (vec![
                         u8::try_from(index).expect("fixture cell index fits its one-byte marker"),
-                    ],
-                    refs: refs.to_vec(),
+                    ])
+                    .into(),
+                    refs: (refs.to_vec()).into(),
                     exotic: false,
                 })
-                .collect(),
+                .collect::<Vec<_>>())
+            .into(),
         }
     }
     #[test]
@@ -4886,7 +5278,7 @@ mod encoder_tests {
                 *reference = 3 - *reference;
             }
         }
-        reordered.roots = vec![3];
+        reordered.roots = vec![3].into();
         assert_eq!(
             ton_canonical_cell_order(&reordered, 3),
             Some(vec![3, 1, 2, 0])

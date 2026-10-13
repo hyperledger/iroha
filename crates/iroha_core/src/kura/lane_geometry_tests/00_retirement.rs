@@ -809,7 +809,10 @@ fn store_structural_geometry_chain(kura: &Kura, height: u64) -> (HashOf<BlockHea
     let current = u64::try_from(kura.exact_durable_blocks_count().unwrap()).unwrap();
     for retained in 1..=current {
         assert_eq!(
-            kura.get_durable_block_hash(NonZeroUsize::new(retained as usize).unwrap()),
+            kura.get_durable_block_hash(
+                NonZeroUsize::new(usize::try_from(retained).expect("fixture value fits usize"))
+                    .unwrap()
+            ),
             Some(chain.committed(retained).block_hash()),
             "retain original fixture prefix"
         );

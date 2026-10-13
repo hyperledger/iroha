@@ -438,6 +438,13 @@ impl StateExecutor {
     /// Move the one already-published original witness to complete-effect work.
     /// The caller must retain actual native execution authority; this performs no
     /// proof dispatch and accepts no advertised roots or replacement witness.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect finalized-source proof dispatch only after durable artifact admission; move the exact native-certified original witness once"
+        )
+    )]
     pub(crate) fn take_finalized_fastpq_source(
         &self,
         native: super::certified_chain::AuthenticatedExecutionBlock,
@@ -1615,7 +1622,7 @@ impl<'s> Worker<'s> {
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: super::certified_chain::ParentServicePreparation::default(),
             });
         }
         let attempt = self
@@ -1693,7 +1700,7 @@ impl<'s> Worker<'s> {
             .as_ref()
             .and_then(|attempt| attempt.decoded.as_ref())
             .expect("original completed proposal remains before validation");
-        if !proposal_matches_header(iroha_block.header(), block) {
+        if !proposal_matches_header(&iroha_block.header(), block) {
             return invalid_attempt(
                 height,
                 &"the payload's height or view differs from the header",
@@ -2231,6 +2238,18 @@ impl<'s> Worker<'s> {
             self.recovery = Some(reason.clone());
             PublicationError::RecoveryRequired(reason)
         })?;
+        // SC1 faults ordinary voting after the original genesis has been installed.
+        #[cfg(all(test, sumeragi_core_mutation = "HC308"))]
+        let result = if original.height > 1 {
+            use iroha_data_model::sumeragi_finality::certified_result::{X_LEN, body_digest};
+            use sha2::{Digest as _, Sha256};
+            let mut omitted = Sha256::new();
+            omitted.update(super::commitment::RESULT_TAG);
+            omitted.update(body_digest(&preimage.as_slice()[X_LEN..]));
+            Hash32(omitted.finalize().into())
+        } else {
+            result
+        };
         // Context proof and encoding can cross the lag boundary. Refuse locally before
         // returning Valid, retaining the original overlay and result for a certified retry.
         if !cfg!(all(test, sumeragi_core_mutation = "HC291")) {
@@ -3229,7 +3248,7 @@ impl<'s> Worker<'s> {
             if let Some(original) =
                 self.reusable_completed_payload(scope, &parent, &current_view)?
             {
-                return Ok(original);
+                return Ok(Some(original));
             }
         } else {
             // Newly available mandatory lane work withdraws Queue-only reuse authority.
@@ -3276,9 +3295,12 @@ impl<'s> Worker<'s> {
             return Ok(None);
         }
         if height > 2 {
-            let (_, preparation) = self
-                .assembly_parent_service
-                .get_or_insert_with(|| (parent_scope, Default::default()));
+            let (_, preparation) = self.assembly_parent_service.get_or_insert_with(|| {
+                (
+                    parent_scope,
+                    super::certified_chain::ParentServicePreparation::default(),
+                )
+            });
             preparation
                 .retain_assembly_parent(parent.clone())
                 .map_err(|error| {
@@ -3374,8 +3396,8 @@ impl<'s> Worker<'s> {
             match block.resultless_proposal_wire_len() {
                 Ok(length) if length <= max_bytes => {
                     let source = GlobalPayloadSource {
-                        pending_inputs,
                         block,
+                        pending_inputs,
                     };
                     self.payload_build = Some(GlobalPayloadBuild {
                         scope,
@@ -3602,7 +3624,7 @@ impl<'s> Worker<'s> {
 }
 
 /// The iroha header of a decoded payload must match the certified core header.
-fn proposal_matches_header(header: IrohaHeader, block: &AvailableBody) -> bool {
+fn proposal_matches_header(header: &IrohaHeader, block: &AvailableBody) -> bool {
     header.height().get() == block.header().height
         && header.view_change_index() == block.header().origin_view
 }
@@ -3685,8 +3707,7 @@ mod tests {
             let budget = worker.state.ivm_execution_budget();
             let empty = iroha_allocation::ChargedBuffer::new(0, &budget).unwrap();
             let (empty_owner, error) = PayloadBytes::from_charged(empty, &budget)
-                .err()
-                .expect("empty payload never obtains available custody");
+                .expect_err("empty payload never obtains available custody");
             assert!(matches!(error, ByteAdmissionError::Length { length: 0 }));
             assert_eq!(worker.state.view().height(), state_height);
             assert!(worker.live.is_none());

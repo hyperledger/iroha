@@ -212,12 +212,23 @@ Below `2^77` it leaves only
 primitive work. This proves the subtotal's arithmetic, not equation (97)'s
 strict inequality for the complete cost.
 
+The later [request-stage reconciliation](parliament_ballot_b6_request_accounting.md)
+checks the candidate's normal-return request contribution against the actual
+cold entry. Its 4,096 term is an intercept in
+`w_request <= 4,096 + ((2,750,672 + 65,536)/740) q_request`, not a pointwise
+preparation ceiling: candidate vote preparation alone reaches 7,548 Keccak
+permutations at `S=1,000`. Counting `H_mu` among induced backend queries makes
+the coupled inequality hold at every reviewed rejection/completion stage.
+This preserves the recorded nominal request subtotal while resolving that
+component's allocation; it does not establish the honest-simulator allowances,
+complete reduction resources or physical AES/provider and gate costs.
+
 | Resource category | What is currently available |
 | --- | --- |
 | Backend oracle inventory | `q_pub + 1447 T + M_ctr T + 1024`; separate role/domain and verification charges remain essential |
 | Known AES work | 2,764,797 blocks per full vote commitment; 2,750,672 per heavy verification; commitment plus reconstruction charged |
 | Nominal request/direct-primitive caps | Each `2^64`; declared assumptions, not consequences of the backend query ceiling or enforced deployment caps |
-| Nominal extra validation/non-counter Keccak | Reserved `2^12` per request and `2^16` per heavy verification/honest invocation; applicability remains to be justified |
+| Nominal extra validation/non-counter Keccak | The candidate completed-request contribution uses the checked coupled `2^12` intercept plus per-backend-query coefficient, not a standalone `2^12` ceiling. The honest-invocation `2^16` allowance and remaining reduction work still need justification |
 | Counter hashing | At most `M_ctr T` programmed attempts, four Keccak permutations each |
 | Bounded simulator sampling | At most another `M_ctr T` admissibility trials on exhaustion; total at most `2^65` 256-bit draws and checks, `2^73` random bits for those draws |
 | Final comparison | Unquantified; cannot be silently set to zero or assumed to fit the remaining headroom |

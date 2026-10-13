@@ -1,4 +1,4 @@
-//! Retained-generation DATA exercises bounded pruning, exact pending joins and rollback.
+//! Retained-generation DATA exercises deletion quotas, exact pending joins and rollback.
 
 use super::*;
 use crate::{
@@ -76,6 +76,7 @@ fn pending_claim(world: &mut World, generation: &SccpCommitteeGenerationV1) -> H
         .unwrap()
         .fields();
     fields.committee_root = generation.committee_root;
+    fields.generation = generation.generation;
     forgery.evidence.header = *SccpFinalityHeaderV1::from_fields(&fields)
         .unwrap()
         .as_bytes();
@@ -132,8 +133,9 @@ fn pruning_keeps_pending_exact_generation_until_penalty_is_applied() {
             "pruning must retain a generation with an exact Pending SCCP penalty"
         );
         assert!(store::anchor_chunks::contains(&*tx.world, &0));
-        tx.apply();
-        block.commit().unwrap();
+        // No retirement was authorized. Drop this unpublished component overlay;
+        // committing a State block requires an actual inserted signed block.
+        assert_eq!(store::committee_generations::len(&*tx.world), 2);
     }
     let mut record = state
         .world
@@ -158,6 +160,64 @@ fn pruning_keeps_pending_exact_generation_until_penalty_is_applied() {
         tx.world.sccp_forgery_offences.len(),
         1,
         "offence deduplication is permanent"
+    );
+}
+
+#[test]
+fn pruning_preserves_inclusive_liability_pending_gaps_and_ascending_eight_limit() {
+    let mut records = (1..=12)
+        .map(|id| {
+            let mut record = if id == 12 {
+                sample_generation_at(id, id)
+            } else {
+                ended(id, id)
+            };
+            record.members[0] = Some(SccpGenerationMemberV1 {
+                lane_id: LaneId::SINGLE,
+                validator: authority(u8::try_from(id).expect("fixture value fits u8")),
+                activation_height: 1,
+            });
+            record
+        })
+        .collect::<Vec<_>>();
+    // All ended generations can clear together when one destination finally
+    // reports progress. Non-genesis generations still begin after height one.
+    let cleared = records[11].start_lc + records[11].validity_ms;
+    for record in &mut records[..11] {
+        record.dest_cleared_lc = Some(cleared);
+    }
+    let boundary = cleared + records[0].grace_ms;
+    assert!(
+        records
+            .iter()
+            .all(SccpCommitteeGenerationV1::is_well_formed)
+    );
+    let mut state = seeded(&records, 12, boundary, 0);
+    pending_claim(&mut state.world, &records[1]);
+    pending_claim(&mut state.world, &records[3]);
+    let mut block = state.block(header(13));
+    let mut tx = block.transaction();
+    prune(&mut tx).unwrap();
+    assert_eq!(
+        store::committee_generations::len(&*tx.world),
+        12,
+        "the inclusive liability boundary preserves every original generation"
+    );
+    store::liability_clock::set(&mut tx, boundary + 1);
+    tx.require_storage_admission().unwrap();
+    prune(&mut tx).unwrap();
+    let retained = store::committee_generations::iter(&*tx.world)
+        .map(|(id, _)| *id)
+        .collect::<Vec<_>>();
+    assert_eq!(retained, vec![2, 4, 11, 12]);
+    records.retain(|record| !retained.contains(&record.generation));
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.generation)
+            .collect::<Vec<_>>(),
+        vec![1, 3, 5, 6, 7, 8, 9, 10],
+        "exactly eight eligible records retire in ascending order across pending gaps"
     );
 }
 
@@ -262,6 +322,10 @@ fn pruning_original_map_refusal_rolls_back_and_retries() {
     }
     assert!(store::committee_generations::contains(&block.world, &1));
     assert!(store::anchor_chunks::contains(&block.world, &0));
+    // Original storage refusal is sticky for the whole failed block, not just its child.
+    // Retry must acquire a new block overlay from the unchanged original State.
+    drop(block);
+    let mut block = state.block(header(30));
     let mut tx = block.transaction();
     prune(&mut tx).unwrap();
     assert!(!store::committee_generations::contains(&*tx.world, &1));

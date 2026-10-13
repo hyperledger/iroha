@@ -258,7 +258,7 @@ fn queued_genuine_then_future(
 fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease() {
     on_selection_stack("sccp-select-stale", || {
         let _retirement_pin = crossbeam_epoch::pin();
-        let (chain, queue, stale, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
+        let (chain, queue, outdated, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
         let state = chain.state();
         let view = state.view();
         assert_eq!(
@@ -266,10 +266,10 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             1
         );
         let budget = valid.encoded_len();
-        assert!(stale.encoded_len() <= budget, "first row fits by itself");
+        assert!(outdated.encoded_len() <= budget, "first row fits by itself");
         let original_bytes = valid.entrypoint_bytes();
         let resident = queue.retained_bytes();
-        let hashes = [stale.hash_as_entrypoint(), valid.hash_as_entrypoint()];
+        let hashes = [outdated.hash_as_entrypoint(), valid.hash_as_entrypoint()];
         let snapshot = queue
             .bounded_pending_snapshot(&view, MAX_QUEUE_SCAN)
             .unwrap();
@@ -281,7 +281,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             hashes
         );
         assert!(std::sync::Arc::ptr_eq(
-            &stale.entrypoint_bytes(),
+            &outdated.entrypoint_bytes(),
             &snapshot[0].entrypoint_bytes()
         ));
         assert!(std::sync::Arc::ptr_eq(
@@ -366,7 +366,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
 fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_original_pool() {
     on_selection_stack("sccp-select-resource", || {
         let _retirement_pin = crossbeam_epoch::pin();
-        let (chain, queue, stale, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
+        let (chain, queue, outdated, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
         let view = chain.state().view();
         let parent = view.latest_block().unwrap().unwrap();
         let pool = view.execution_budget();
@@ -398,7 +398,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
         assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
         assert_eq!(queue.retained_bytes(), resident);
         assert_eq!((queue.active_len(), queue.queued_len()), (2, 2));
-        assert!(queue.contains_entrypoint_hash(stale.hash_as_entrypoint()));
+        assert!(queue.contains_entrypoint_hash(outdated.hash_as_entrypoint()));
         assert!(queue.contains_entrypoint_hash(valid.hash_as_entrypoint()));
         drop(occupied);
         let selected = select(
@@ -465,14 +465,14 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
         let state = std::sync::Arc::clone(chain.state());
         let lagging = state.view();
         chain.commit_at(3_000, Vec::new());
-        let stale = carrier(&chain, original(&chain), 3_100);
-        let hash = stale.hash_as_entrypoint();
+        let outdated = carrier(&chain, original(&chain), 3_100);
+        let hash = outdated.hash_as_entrypoint();
         let (_, clock) = TimeSource::new_mock(Duration::from_millis(3_101));
         let queue = std::sync::Arc::new(Queue::test(
             iroha_config::parameters::actual::Queue::default(),
             &clock,
         ));
-        queue.push(stale, lagging).unwrap();
+        queue.push(outdated, lagging).unwrap();
         let view = state.view();
         let selected = select(
             &view,

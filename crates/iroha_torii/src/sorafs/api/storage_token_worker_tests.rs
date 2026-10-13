@@ -118,7 +118,7 @@ async fn storage_token_issuance_worker_keeps_single_thread_executor_responsive()
     let request = context.token_request(TokenOverrides::default());
     let issuance = tokio::spawn(async move {
         handle_post_sorafs_storage_token_authenticated(
-            test_stream_token_operator(),
+            Some(test_stream_token_operator()),
             State(app),
             headers,
             JsonOnly(request),
@@ -179,7 +179,7 @@ async fn storage_token_issuance_cancellation_retains_general_and_heavy_permits()
     let request = context.token_request(TokenOverrides::default());
     let issuance = tokio::spawn(async move {
         handle_post_sorafs_storage_token_authenticated(
-            test_stream_token_operator(),
+            Some(test_stream_token_operator()),
             State(app),
             headers,
             JsonOnly(request),
@@ -198,7 +198,7 @@ async fn storage_token_issuance_cancellation_retains_general_and_heavy_permits()
         .observer_calls
         .load(std::sync::atomic::Ordering::SeqCst);
     let rejected = handle_post_sorafs_storage_token_authenticated(
-        test_stream_token_operator(),
+        Some(test_stream_token_operator()),
         State(Arc::clone(&context.app)),
         storage_token_worker_headers(&context),
         JsonOnly(context.token_request(TokenOverrides::default())),
@@ -233,7 +233,7 @@ async fn storage_token_issuance_cancellation_retains_general_and_heavy_permits()
         0
     );
     let next = handle_post_sorafs_storage_token_authenticated(
-        test_stream_token_operator(),
+        Some(test_stream_token_operator()),
         State(Arc::clone(&context.app)),
         storage_token_worker_headers(&context),
         JsonOnly(context.token_request(TokenOverrides::default())),
@@ -267,7 +267,7 @@ async fn storage_token_issuance_admission_rejects_before_custody_or_provider_wor
         ))
         .into_response();
         let response = handle_post_sorafs_storage_token_authenticated(
-            test_stream_token_operator(),
+            Some(test_stream_token_operator()),
             State(Arc::clone(&context.app)),
             storage_token_worker_headers(&context),
             JsonOnly(context.token_request(TokenOverrides::default())),
@@ -295,7 +295,7 @@ async fn storage_token_issuance_admission_rejects_before_custody_or_provider_wor
         drop(permit);
         assert_storage_token_worker_permits(&context.app, 1);
         let response = handle_post_sorafs_storage_token_authenticated(
-            test_stream_token_operator(),
+            Some(test_stream_token_operator()),
             State(Arc::clone(&context.app)),
             storage_token_worker_headers(&context),
             JsonOnly(context.token_request(TokenOverrides::default())),
@@ -315,7 +315,7 @@ async fn storage_token_issuance_admission_rejects_before_custody_or_provider_wor
 async fn storage_token_issuance_worker_preserves_unavailable_response_and_releases_permits() {
     let (context, fixture) = storage_token_worker_context(TestSignerMode::Unavailable);
     let response = handle_post_sorafs_storage_token_authenticated(
-        test_stream_token_operator(),
+        Some(test_stream_token_operator()),
         State(Arc::clone(&context.app)),
         storage_token_worker_headers(&context),
         JsonOnly(context.token_request(TokenOverrides::default())),

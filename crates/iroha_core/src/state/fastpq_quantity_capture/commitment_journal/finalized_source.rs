@@ -243,7 +243,7 @@ impl FinalizedQuantitySource {
             || self.supply_observation != block.world.asset_definitions.write_observation()
             || journal.invalid
             || journal.sealed.as_ref().is_none_or(|retained| {
-                !std::ptr::eq(self, &**retained)
+                !std::ptr::eq(self, &raw const **retained)
                     || !retained.belongs_to(pool)
                     || !retained.belongs_to(&self.pool)
             })

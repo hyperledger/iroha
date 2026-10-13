@@ -69,6 +69,13 @@ pub(super) struct QuantityWritePlan<K, Q> {
 
 /// A single consumed occurrence, usable only by the original storage mutation function.
 pub(super) struct QuantityWritePermit<'plan, K, Q> {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "The permit borrows its exact ordered expected write until the original mutation completes; test inspection reads this custody field"
+        )
+    )]
     expected: &'plan ExpectedQuantityWrite<K, Q>,
     consumed: &'plan mut usize,
     failed: &'plan mut bool,
@@ -229,7 +236,7 @@ impl<K, Q> std::fmt::Debug for QuantityWritePlan<K, Q> {
             .field("ports", &self.writes.as_slice().len())
             .field("consumed", &self.consumed)
             .field("failed", &self.failed)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

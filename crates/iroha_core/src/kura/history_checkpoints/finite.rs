@@ -242,7 +242,8 @@ mod tests {
     use iroha_sumeragi::types::Hash32;
 
     fn checkpoint(seed: u64) -> HistoryCheckpoint {
-        let bytes = [seed as u8; 32];
+        // The thousand-height eviction fixture deliberately cycles byte identities.
+        let bytes = [seed.to_le_bytes()[0]; 32];
         HistoryCheckpoint {
             iroha_hash: HashOf::from_untyped_unchecked(Hash::prehashed(bytes)),
             core_hash: Hash32(bytes),

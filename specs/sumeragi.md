@@ -826,8 +826,9 @@ slow resource stopped every honest node at once. Here:
 **Status.** These are application-level executor rules of the node driver (`iroha_core`), not
 rules of the sans-IO core; the core's only part is the `certified` flag of `Action::Execute`
 (§4.2, §12.1), which `iroha_sumeragi` emits. The rules are the target of `specs/sccp.md`
-revision 5. Core forwards that flag and implements CT1 for full State roots and routing lanes; the CT5
-stale-work guard remains open. The simulator models the full guards (§13.1).
+revision 5. Core forwards that flag and implements CT1 for full State roots and routing lanes. Native CT5
+checks original due work at execution, completion and Prepare signing. The simulator models
+the guards and original parent/creation-floor pacing (§13.1).
 `specs/sccp.md` §4.3 and `specs/parliament_private_ballot_design.md` §3.4 rely on them.
 
 Canonical block time is `max(parent + cadence, lane time_floor_ms, max tx.creation_time + 1)`
@@ -917,16 +918,19 @@ the boundary recovers, without changing its canonical bytes or any validity resu
 (SC5 and the CT1 portion of SC17). Global CT3 input and canonical publication pacing have
 HC259/HC260 controls, including original retained output and certified lane floors (SC6).
 Routing-lane CT1 and effective builder pacing have HC268/HC269 controls; future-only lane
-retry is HC264. CT5 remains open (SC12 and the remaining SC17 scope in §13.4). The machine's
+retry is HC264. Native CT5 due-work refusal and its certified exemption have HC281/HC282
+controls (SC12/SC17); HC291 checks completion resampling and HC294 checks the original
+Prepare-signing observation. Their current-candidate strict mutation qualification is tracked
+with the SCCP controls in §13.4. The machine's
 emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
 and CT5 in its toy application (§13.1): per-machine wall clocks with skew, block times stamped
 by the builders at their wall clock (so honest blocks satisfy CT3), honest executors that answer
-`Failed` for uncertified executions and skip both rules for certified ones. Its block time is
-the builder's stamp, not the canonical `max(parent + cadence, …)`, so a committed post-dated
-block does not raise the next block's time and CT3's wait is not exercised (`TODO:` model the
-canonical floor and the builder wait in the simulator; SC6 covers CT3 in the Core). Its tests
-are:
+`Failed` for uncertified executions and skip both rules for certified ones. Clock-enabled builders also retain the certified parent's cadence and original queued creation
+floors. They answer `EMPTY` while the floor is ahead, retain the original work, and deliver
+one request-bound `PayloadReady` after the wall clock catches up. Deterministic validation
+checks those floors during execution and replay; Core SC6 additionally covers native lane
+floors and funded publication. The simulator's tests are:
 
 - `clock_guard_liveness_with_f_plus_one_slow_clocks` (n = 4 and 7): `f` Byzantine members
   withhold every vote and propose far-future blocks, `f + 1` honest clocks run at real time and
@@ -946,6 +950,10 @@ are:
   progress, and O-TIME checks freshness at the first genuine honest Prepare of each due-work
   block. It kills MS65, which deletes simulated CT5; delayed certified re-proposals and commits
   retain the original first-Prepare evidence without a new freshness requirement.
+- `clock_guard_committed_parent_wait_retains_work_until_clock_recovery`: an actual committed
+  parent and separately the original queued creation time survive a clock regression; no
+  payload is published until its floor is reached, duplicate wakeups do not consume a current
+  request, and the original work commits after natural catch-up or clock correction (MS68).
 - `clock_guard_accepts_exact_drift_allowance`: a slow honest voter accepts a block stamped by
   an honest leader exactly `max_clock_drift_ms` ahead. It kills MS66, which removes the allowance.
 - F39 (§13.3) is the randomized scenario of MS51, MS52, MS65 and MS66.
@@ -953,7 +961,9 @@ are:
 A simulator test cannot kill a Core mutation. The full-State CT1 portion of SC17 has the
 Core controls above; `certified_execution_skips_clock_guards` additionally exercises a genuine
 certificate and cold replay. Routing-lane controls retain the corresponding original admission
-and encoding; CT5 stale-work integration remains open.
+and encoding. Native CT5 controls exercise original-parent due work, completion, certified
+retry and the final Prepare-signing boundary; simulator evidence does not substitute for their
+named Core mutation kills.
 
 ---
 
@@ -3359,9 +3369,12 @@ consensus metadata counts alone are not evidence of those costs or of live settl
 - Optional application clock guard of the toy application (§4.5; F39 and the named clock-guard
   tests). Each machine has a wall clock: its local clock plus a wall offset that a script may
   step without moving the core's monotonic `now`. Builders stamp each non-empty payload with a
-  leading block-time record `wall + lead`, where honest builders use `lead = 0` (CT3) and
-  Byzantine builders may post-date or back-date; the stamp has no parent floor (§4.5
-  "Verification"). A transaction flag marks due work. Honest
+  leading block-time record. Honest builders wait until their wall reaches the original
+  committed-parent cadence and queued-transaction creation floors, retaining the original
+  queue and request across clock backsteps and stale wakeups (CT3); Byzantine builders may
+  post-date or back-date with `wall + lead`. Execution rejects stamps below the exact
+  parent or original creation floors without consulting a local clock, including on
+  certified replay (§4.5 "Verification"). A transaction flag marks due work. Honest
   executors answer `Failed(ClockAhead)` (CT1) and `Failed(StaleDueWork)` (CT5) only for
   `Execute { certified: false }`, never `Invalid`, and record the rule they skip for a certified
   execution. Byzantine executors run no guard, and apply never consults a clock (CT2). Without
@@ -4088,43 +4101,108 @@ The consensus signing-suite integration additionally owns this Core mutation:
 The Core rules above are replay and committee-retention prerequisites. They do not qualify production lane
 offence admission, original-stake monetary dispatch or the complete H3 allocation graph.
 
-**SCCP and certified-time application rules** (`specs/sccp.md` §4.3–§4.10, §11.6; Core gate
-`--core`; target, not yet implemented). The CT rules are §4.5 of this document; the rest are SCCP
-rules whose code lives in `iroha_core`. These entries run with real crypto, so none may change a
-signing preimage layout (§1 item 6); the gate checks that no HC mutation edits
-`crates/iroha_sumeragi/src/preimage.rs` (`TODO:` WP-C5).
-`SC1`–`SC25` below are SCCP planning labels, except SC4, which is
-implemented by the Core SC4 mutation above. Assign
-unique `HC` IDs when each case gains its source hook and named test; the active
-`HC` registry above belongs to the implemented owners.
+**SCCP and certified-time application rules** (`specs/sccp.md` §4.3–§4.10,
+§11.6; Core gate `--core`). SC1–SC25 retain their original rule labels;
+the exact source controls below use the active HC IDs, except the dedicated
+SC4 signing-suite control. Every fault has a registered hook and named test.
+These entries use real crypto and cannot change a consensus signing-preimage
+layout (§1 item 6). Source coverage is distinct from qualification: the current
+baseline and each declared causal failure must pass with `--strict`; compiler
+errors and resource failures never count as mutation kills. Cross-owner
+Parliament eligibility, due scheduling and casting-open authority remain
+external inputs, not synthetic fixture success.
 
-| Id | Core site — change | Named deterministic test (setup → expected) | Oracle |
+| Rule and active controls | Core fault | Named deterministic tests | Oracle |
 |---|---|---|---|
-| SC1 | Core writes the result body without the finality header into the result preimage | `outer_result_binds_finality_header` | `R` binds `F` and `D_body` (§4.1.1) |
-| SC2 | The header's `committee_root` is taken from `C_{h+1}` at a boundary | `boundary_header_signed_by_outgoing` | A boundary header names the outgoing committee |
-| SC3 | `ROTATION` is not set at a key change | `boundary_header_names_successor` | A key change names the successor root and validity |
-| SC4 (implemented) | `KeyPairSigner` signs through the generic (w3f) API | `production_consensus_suite_refuses_generic_and_nonallowlisted_signatures` | Consensus signatures match the dedicated `DST_SIG` suite and generic/unscoped signatures are refused (§1 item 6) |
-| SC5 (full State: HC257) | CT1 disabled | `prepare_withheld_while_block_time_ahead` | Full State execution defers beyond the committed allowance; routing-lane effective time and pinned allowance are covered by HC268 (§4.5) |
-| SC6 | CT3 builder pacing disabled | `leader_waits_for_wall_clock` | The leader never proposes a block timed ahead of its clock |
-| SC7 | The keepalive due predicate ignores the heartbeat time | `keepalive_requires_heartbeat_due` | A keepalive before the heartbeat is refused |
-| SC8 | The keepalive due predicate ignores governance work | `idle_chain_enacts_due_fast_pause` | An idle chain produces the block a due enactment needs (fails before the keepalive exists) |
-| SC9 | Keepalive quota K1 disabled | `second_keepalive_invalidates_block` | A block with two keepalives is `Invalid` |
-| SC10 | Missing SCCP inputs return `Invalid` | `sccp_missing_inputs_keep_block_valid` | Missing inputs give an inactive header, never `Invalid` |
-| SC11 | The heartbeat trigger `BEAT` disabled | `idle_chain_heartbeat_renews_generation` | An idle chain creates a heartbeat generation |
-| SC12 | CT5 disabled | `stale_due_work_prepare_withheld` | No Prepare vote on a stale uncertified due-work block |
-| SC13 | Forgery rule E4 ignores `D_body` | `forged_result_body_at_genuine_block_is_evidence` | A genuine header with a forged body digest is evidence |
-| SC14 | Forgery rule E0 ignores `liable(g)` | `expired_forgery_evidence_rejected` | Evidence outside the liability window is refused |
-| SC15 | An unbond is finalized while its stake is liable or a forgery record is pending | `liable_unbond_held_until_generation_liability_ends`, `pending_forgery_penalty_holds_unbond` | Stake stays in custody while slashable |
-| SC16 | Keepalive rule K2 disabled | `non_due_keepalive_invalidates_block` | A block whose keepalive applies no due work is `Invalid` |
-| SC17 (CT1: HC258) | The executor ignores `Execute.certified` | `certified_execution_flag_reaches_the_application_without_inference`, `certified_execution_skips_clock_guards` | Full State execution defers with `certified = false` and returns the identical `Valid(R)` with `certified = true`; authenticated cold replay is exempt. Routing-lane certified execution and recovery are covered by HC268 controls; CT5 stale-work coverage remains open. The simulator counterpart is `f33_hidden_prepareqc_due_work_block_commits_after_lag` (MS51) |
-| SC18 | Forgery rule E3 compares against Iroha's `state.block_hashes` | `genuine_certificate_is_not_evidence` | A genuine certificate is never evidence |
-| SC19 | The liability clock follows block time without the step cap | `halt_then_time_jump_keeps_generation_liable` | A halt followed by a time jump consumes no liability window |
-| SC20 | The destination-progress gate L5 is ignored | `backdated_destination_keeps_generation_liable` | A generation stays liable until destinations progress past its deadline |
-| SC21 | The SCCP penalty uses the certificate height as the offence height, or resolves offenders by peer key | `forgery_far_above_tenure_slashes_members` | Offenders are the recorded registrations at the generation start |
-| SC22 | The SCCP due predicate ignores the degraded run | `persistent_degradation_stops_keepalives_after_one_retry` | A persistent defect produces at most two keepalive blocks |
-| SC23 | The resync rule G7 disabled | `missed_boundary_resyncs_generation` | A missed key change is repaired by a resync generation |
-| SC24 | Pruning ignores pending forgery records | `pending_record_keeps_generation_retained` | A generation named by a pending record is retained |
-| SC25 | The forgery hold ignores the revision's `forgery_floor` | `old_generation_evidence_holds_no_attested_revision` | Evidence for a passed generation holds no revision |
+| SC1 (HC308) | Ordinary result hashing omits the original finality header | `published_execution_result_binds_the_original_header_and_body_digest` | Raw SHA-256 binds original X and the original tagged body digest |
+| SC2 (HC226, HC325) | The header's `committee_root` is taken from `C_{h+1}` at a boundary | `native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor`, `key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | A boundary header names the outgoing committee |
+| SC3 (HC309) | `ROTATION` is not set at a key change | `key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | A key change names the successor root and validity |
+| SC4 (implemented) | `KeyPairSigner` signs through the generic (w3f) API | `consensus_signature_matches_dst_sig_fixture`, `production_consensus_suite_refuses_generic_and_nonallowlisted_signatures` | Consensus signatures match the dedicated `DST_SIG` suite and generic/unscoped signatures are refused (§1 item 6) |
+| SC5 (HC257) | CT1 disabled | `prepare_withheld_while_block_time_ahead` | Full State execution defers beyond the committed allowance; routing-lane effective time and pinned allowance are covered by HC268 (§4.5) |
+| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled | `proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time`, `lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance`, `proposer_clock_retains_final_input_and_canonical_output_until_due`, `proposer_clock_retains_certified_lane_floor_and_completed_original`, `future_only_lane_work_retries_without_an_empty_answer_or_new_traffic` | The leader never proposes a block timed ahead of its clock |
+| SC7 (HC312) | The keepalive due predicate ignores the heartbeat time | `heartbeat_due_rejects_early_progress_and_includes_the_exact_deadline` | A keepalive before the heartbeat is refused |
+| SC8 (HC313) | The keepalive due predicate ignores governance work | `governance_due_keeps_the_original_fast_pause_leg_when_heartbeat_is_disabled` | The original parent fast-pause conclusion remains due even with heartbeat disabled; the Parliament producer remains external |
+| SC9 (HC277) | Keepalive quota K1 disabled | `keepalive_k1_counts_carriers_independently_of_outcomes` | A block with two keepalives is `Invalid` |
+| SC10 (HC310) | Missing SCCP inputs return `Invalid` | `degraded_block_without_leaves_keeps_history_and_records_failure` | Missing inputs give an inactive header, never `Invalid` |
+| SC11 (HC311) | The heartbeat trigger `BEAT` disabled | `native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor` | An idle chain creates a heartbeat generation |
+| SC12 (HC281, HC291, HC294) | CT5 disabled | `keepalive_ct5_stale_due_work_is_a_local_refusal`, `sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry`, `sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate` | No Prepare vote on a stale uncertified due-work block |
+| SC13 (HC315) | Forgery rule E4 ignores `D_body` | `signed_body_digest_only_forgery_is_e4_against_original_anchor` | A genuine header with a forged body digest is evidence |
+| SC14 (HC316) | Forgery rule E0 ignores `liable(g)` | `generation_lookup_and_inclusive_liability_use_captured_values_only` | Evidence outside the liability window is refused |
+| SC15 (HC320, HC321) | An unbond is finalized while its stake is liable or a forgery record is pending | `sccp_liable_unbond_keeps_exact_pending_request_and_both_balances`, `pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it` | Stake stays in custody while slashable |
+| SC16 (HC314) | Keepalive rule K2 disabled | `keepalive_admission_requires_established_due_work_before_assigning_exemption` | Unavailable or absent due work grants no Keepalive exemption |
+| SC17 (HC258, HC282) | The executor ignores `Execute.certified` | `certified_execution_flag_reaches_the_application_without_inference`, `keepalive_ct5_certified_execution_ignores_the_local_wall_clock` | Actual certified execution preserves the deterministic result while skipping CT1 and CT5 local wall-clock refusal |
+| SC18 (HC317) | Forgery rule E3 compares against Iroha's `state.block_hashes` | `genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash` | A genuine certificate is never evidence |
+| SC19 (HC229) | The liability clock follows block time without the step cap | `begin_block_clamps_halt_time_using_original_native_parent` | A halt followed by a time jump consumes no liability window |
+| SC20 (HC322) | The destination-progress gate L5 is ignored | `current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes` | A generation stays liable until destinations progress past its deadline |
+| SC21 (HC318, HC319) | The SCCP penalty uses the certificate height as the offence height, or resolves offenders by peer key | `sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or_peer_map`, `sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody` | Offenders are the recorded registrations at the generation start |
+| SC22 (HC278) | The SCCP due predicate ignores the degraded run | `keepalive_k2_uses_parent_heartbeat_and_degraded_run` | A persistent defect produces at most two keepalive blocks |
+| SC23 (HC227, HC324) | The resync rule G7 disabled | `resync_uses_real_native_parent_time_then_boundary_rotates_again` | A missed committee change creates a resync generation using the actual native parent time |
+| SC24 (HC292, HC293) | Pruning ignores pending forgery records | `pruning_keeps_pending_exact_generation_until_penalty_is_applied`, `pruning_anchor_boundary_uses_minimum_retained_start_and_is_strict` | A generation named by a pending record is retained |
+| SC25 (HC323) | The forgery hold ignores the revision's `forgery_floor` | `forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel` | Evidence for a passed generation holds no revision |
+
+The continuation implements these additional SCCP source hooks and exact causal
+controls. Registry membership is distinct from a passing mutation report; current
+candidate results are recorded by `scripts/sumeragi_mutation_gate.py`.
+
+| Id | Changed rule | Named deterministic control | Oracle |
+|---|---|---|---|
+| MS67 | A durable Prepare reservation grants a certified clock exemption | `machine::tests::signing::det_prepare_context_restart_reservation_alone_is_uncertified` | Only original certified protocol state may grant the exemption after restart |
+| MS68 | An honest clock-enabled builder publishes before its canonical time floor | `sim::world::clock_guard::tests::clock_guard_committed_parent_wait_retains_work_until_clock_recovery` | Original work remains queued until both the committed parent cadence and transaction creation floors are admissible |
+| HC276 | EVM registration omits the locked CREATE2 address binding | `evm_address_binds_original_identity_network_pin_revision_and_cap` | The destination binds the original identity, network, pin, revision and cap |
+| HC277 | A block accepts a second Keepalive carrier | `keepalive_k1_counts_carriers_independently_of_outcomes` | K1 counts every carrier independently of its execution outcome |
+| HC278 | Heartbeat continues after two degraded parent heights | `keepalive_k2_uses_parent_heartbeat_and_degraded_run` | K2 reads the original parent and stops repeated degradation |
+| HC279 | Keepalive ignores standalone Ed25519 and empty fee intent | `keepalive_k3_k5_require_standalone_ed25519_due_time_and_empty_fee` | K3 and K5 require the exact signed shape and due time |
+| HC280 | The builder retains a Keepalive older than half the agreed lag | `keepalive_k4_refreshes_after_half_lag_and_preserves_boundary` | K4 preserves the equality boundary and replaces older carriers |
+| HC281 | CT5 accepts stale uncertified due work | `keepalive_ct5_stale_due_work_is_a_local_refusal` | Staleness defers the local attempt without declaring the block invalid |
+| HC282 | CT5 applies local wall-clock refusal to certified execution | `keepalive_ct5_certified_execution_ignores_the_local_wall_clock` | Genuine certified execution retains its exemption |
+| HC283 | Native registration omits the retained forgery generation floor | `native_forgery_publication_requires_a_strictly_newer_pin` | A new pin must be strictly newer than every retained forged generation |
+| HC284 | Proposer permission bypasses the Parliament ballot gate | `sccp_route_governance_proposal_requires_permission_or_bond` | Permission cannot create interim ballot authority |
+| HC285 | Deployment attestation lowers the retained forgery floor | `native_offence_release_and_later_attestation_never_lower_the_floor` | Attestation and offence release preserve the monotone floor |
+| HC286 | Replays replace a quarantine's original permanent cause | `quarantine_retains_its_original_cause_across_replays_and_progress` | Quarantine retains its first cause across later progress |
+| HC287 | Forged-mint evidence omits authenticated payload binding | `forged_mint_requires_exact_registered_event_and_payload_binding` | Another payload's id cannot increase forged supply |
+| HC288 | A quarantined revision retires before reconciliation completes | `quarantined_retirement_requires_the_single_completed_reconciliation_window` | Retirement waits for the single completed reconciliation window |
+| HC289 | Reconciliation claims spend backing reserved for refunds | `reconciliation_reserves_refunds_and_later_claims_exhaust_only_priced_backing` | Priced claims preserve pending refund backing |
+| HC290 | A refused reconciled credit advances settled face | `reconciliation_pending_credit_retry_recomputes_rounding_without_spending_face` | Refusal spends no face and retry recomputes rounding against current backing |
+| HC291 | Completed execution skips CT5 resampling | `sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry` | The original completed owner waits again if due work becomes stale |
+| HC294 | Prepare signing skips its original clock resample | `sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate` | Delivery of Valid does not exempt a later uncertified Prepare signature |
+| HC292 | Generation pruning drops a pending penalty's generation | `pruning_keeps_pending_exact_generation_until_penalty_is_applied` | Exact pending attribution retains its original generation |
+| HC293 | Anchor pruning erases the retained boundary | `pruning_anchor_boundary_uses_minimum_retained_start_and_is_strict` | Only chunks strictly below the minimum retained start may be pruned |
+| HC295 | Reserve seats replace originals early | `sccp_pause_seats_replace_only_unaccepted_in_primary_then_backup_order_at_deadline` | No replacement before the exact acceptance deadline; eligible reserves remain disjoint |
+| HC296 | Revoked endorsements count toward quorum | `sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt` | Current eligible seat holders alone satisfy quorum |
+| HC297 | An expired endorsement window certifies | `sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt` | Equality at the closing time is expired even after a halt |
+| HC298 | Lift ignores original casting-open position | `sccp_pause_lift_compares_original_height_position_and_removes_only_the_matching_part` | Resume can clear only a strictly earlier pause and its matching part |
+| HC299 | Suspension clears an active pause | `sccp_pause_suspension_never_clears_active_parts_and_zero_removes_only_suspension` | Suspension changes only the suspension deadline |
+| HC300 | A consumed direct instruction is rearmed | `pause_direct_source_binds_each_signed_slot_and_cannot_be_rearmed_or_substituted` | Each exact signed slot is consumed once; callbacks and substitution grant no authority |
+| HC301 | Fast-pause controls ignore occupied block leaves | `sccp_pause_controls_preflight_capacity_nonce_and_every_live_part_before_effects` | Every live destination part fits before the first hold, nonce or leaf write |
+| HC302 | Keepalive reads the new overlay's pause work | `keepalive_pause_conclusion_stays_due_through_expiry_and_reads_original_parent` | Admission retains the original parent's due-work observation |
+| HC303 | G0 requires the later committee boundary instead of the pulse carrier | `sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height` | A genuine verified pulse is available at its original pre-boundary carrying height |
+| HC304 | Genesis accepts a budget that only recertifies pauses | `sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment` | At least six conclusions and one enactment fit in the committed budget |
+
+| HC305 | Genesis accepts an unbound committee signer | `sccp_genesis_requires_every_original_signer_to_have_one_staking_binding` | Missing original global stake refuses before parameters, generation or events |
+| HC306 | Bundled admission skips a signed advance's state expectation | `signed_bundle_uses_original_overlay_and_checks_each_advance_cas` | Every advance binds its original overlay state before effects |
+| HC307 | Local allocation refusal becomes protocol rejection | `exhausted_bundle_admission_preserves_original_deferral_and_retry` | The original deferred attempt remains retryable after custody is released |
+| HC308 | SC1 SCCP result: omit the original fixed header from ordinary voting | `sumeragi::executor::publication_tests::published_execution_result_binds_the_original_header_and_body_digest` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC309 | SC3 SCCP key change: omit native boundary rotation | `smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC310 | SC10 SCCP unavailable inputs: invalidate ordinary execution instead of degrading | `smartcontracts::isi::sccp::hook::tests::degraded_block_without_leaves_keeps_history_and_records_failure` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC311 | SC11 SCCP unchanged committee: disable due heartbeat rotation | `smartcontracts::isi::sccp::hook::tests::native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC312 | SC7 SCCP heartbeat: ignore the original due timestamp | `smartcontracts::isi::sccp::keepalive::tests::heartbeat_due_rejects_early_progress_and_includes_the_exact_deadline` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC313 | SC8 SCCP due work: omit the original fast-pause conclusion leg | `smartcontracts::isi::sccp::keepalive::tests::governance_due_keeps_the_original_fast_pause_leg_when_heartbeat_is_disabled` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC314 | SC16 SCCP Keepalive: admit a carrier without established due work | `smartcontracts::isi::sccp::keepalive::tests::keepalive_admission_requires_established_due_work_before_assigning_exemption` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC315 | SC13 SCCP forgery: ignore the signed result-body digest | `smartcontracts::isi::sccp::forgery::tests::signed_body_digest_only_forgery_is_e4_against_original_anchor` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC316 | SC14 SCCP forgery: accept evidence outside original generation liability | `smartcontracts::isi::sccp::forgery::tests::generation_lookup_and_inclusive_liability_use_captured_values_only` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC317 | SC18 SCCP forgery: replace original core anchor with outer Iroha block hash | `smartcontracts::isi::sccp::forgery::tests::genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash` | A genuine native certificate remains not evidence under the original core anchor |
+| HC318 | SC21 SCCP penalty: use attacker-selected certificate height for liability | `sumeragi::penalties::tests::sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or_peer_map` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC319 | SC21 SCCP penalty: replace captured registration with current peer-key mapping | `sumeragi::penalties::tests::sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC320 | SC15 SCCP unbond: omit the original generation liability barrier | `smartcontracts::isi::staking::tests::sccp_liable_unbond_keeps_exact_pending_request_and_both_balances` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC321 | SC15 SCCP unbond: omit the exact pending offence barrier | `smartcontracts::isi::sccp::liability::tests::pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC322 | SC20 SCCP liability: omit original destination-progress clearance | `smartcontracts::isi::sccp::liability::tests::current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC323 | SC25 SCCP holds: ignore the retained maximum forgery generation | `smartcontracts::isi::sccp::hold::forgery_tests::forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC324 | SC23 SCCP generation: disable missed-boundary resynchronization | `smartcontracts::isi::sccp::generations::tests::resync_uses_real_native_parent_time_then_boundary_rotates_again` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC325 | SC2 SCCP rotation: substitute the successor for the outgoing committee root | `smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | Exact original-source assertion; current strict baseline and named causal kill required |
+
+These consumer and source-binding controls do not qualify missing Parliament
+eligibility, draw, shared-pass or Policy Jury opening producers. No component
+fixture supplies production authority for those external interfaces.
 
 Also required: golden vectors for every preimage (including `echo_preimage`, §3.3), `block_hash`, `att_digest`, `committee_digest`,
 the permutation, `D_h`, slot substitution (order and leaders for `|D| ∈ {0, 1, f}`, with demoted

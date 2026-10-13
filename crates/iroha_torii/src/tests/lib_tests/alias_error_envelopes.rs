@@ -217,19 +217,17 @@ async fn alias_account_absence_requires_complete_scoped_fanout() {
     let working_set = routed_read_working_set_for_phase(body_bytes);
     // Each route is a completed exact absence, so the aggregate retains the selector.
     let result = collect_torii_alias_lookup_json_payloads(
-        &app,
-        &routes,
-        0,
-        "denied alias lookup",
-        None,
-        &request,
-        working_set,
-        body_bytes,
-        |_| {
+&app,
+&routes,
+(0, "denied alias lookup"),
+None,
+&request,
+(working_set, body_bytes),
+|_| {
             let response = account_aliases_by_account_not_found_response(&request);
             async move { response }
         },
-    )
+)
     .await
     .expect_err("all routes absent");
     assert_eq!(result.status(), StatusCode::NOT_FOUND);
@@ -244,15 +242,13 @@ async fn alias_account_absence_requires_complete_scoped_fanout() {
     );
     for mode in 0..4 {
         let result = collect_torii_alias_lookup_json_payloads(
-            &app,
-            &routes,
-            0,
-            "denied alias lookup",
-            None,
-            &request,
-            working_set,
-            body_bytes,
-            |route| {
+&app,
+&routes,
+(0, "denied alias lookup"),
+None,
+&request,
+(working_set, body_bytes),
+|route| {
                 let response = if route == routes[0].route {
                     account_aliases_by_account_not_found_response(&request)
                 } else {
@@ -276,7 +272,7 @@ async fn alias_account_absence_requires_complete_scoped_fanout() {
                 };
                 async move { response }
             },
-        )
+)
         .await
         .expect_err("incomplete or invalid absence must fail");
         assert_eq!(
@@ -289,30 +285,26 @@ async fn alias_account_absence_requires_complete_scoped_fanout() {
         );
     }
     let result = collect_torii_alias_lookup_json_payloads(
-        &app,
-        &[],
-        0,
-        "denied alias lookup",
-        None,
-        &request,
-        working_set,
-        body_bytes,
-        |_| async { unreachable!("no routes") },
-    )
+&app,
+&[],
+(0, "denied alias lookup"),
+None,
+&request,
+(working_set, body_bytes),
+|_| async { unreachable!("no routes") },
+)
     .await
     .expect_err("no route cannot establish absence");
     assert_eq!(result.status(), StatusCode::SERVICE_UNAVAILABLE);
     // A known positive keeps the existing merge policy even if another route is unavailable.
     let result = collect_torii_alias_lookup_json_payloads(
-        &app,
-        &routes,
-        0,
-        "denied alias lookup",
-        None,
-        &request,
-        working_set,
-        body_bytes,
-        |route| {
+&app,
+&routes,
+(0, "denied alias lookup"),
+None,
+&request,
+(working_set, body_bytes),
+|route| {
             let response = if route == routes[0].route {
                 alias_lookup_by_account_ok(&account.to_string(), vec![], "on_chain").unwrap()
             } else {
@@ -324,7 +316,7 @@ async fn alias_account_absence_requires_complete_scoped_fanout() {
             };
             async move { response }
         },
-    )
+)
     .await
     .expect("known positive survives");
     assert_eq!(result.payloads.len(), 1);

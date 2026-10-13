@@ -53,15 +53,15 @@ fn native_funded_authority_borrows_original_epoch_and_one_exact_configuration_gr
         .collect();
     let authority =
         state_certificate::executed_successor_authority(&parent, &current, &source_budget).unwrap();
-    assert!(std::ptr::eq(authority.material, &slot.epoch));
+    assert!(std::ptr::eq(authority.material, &raw const slot.epoch));
     assert!(authority.belongs_to(&source_budget));
     assert_eq!(source_budget.reserved_bytes(), baseline + demand(slot));
     let projected = authority.projection();
     assert!(std::ptr::eq(
         projected.committee,
-        &authority.config().committee
+        &raw const authority.config().committee
     ));
-    assert!(std::ptr::eq(projected.material, &slot.epoch));
+    assert!(std::ptr::eq(projected.material, &raw const slot.epoch));
     assert_eq!(authority.config(), &slot.height_config().unwrap());
     for ((source, copied), original_pointer) in slot
         .epoch
@@ -251,7 +251,7 @@ fn native_funded_authority_preserves_structural_rejection_before_capacity_and_ex
     let authority = FundedExecutionAuthority::admit(original, 3, &budget).unwrap();
     assert!(std::ptr::eq(
         authority.projection().material,
-        &original.epoch
+        &raw const original.epoch
     ));
     drop(authority);
     assert_eq!(budget.reserved_bytes(), baseline);

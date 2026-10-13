@@ -310,7 +310,7 @@ mod tests {
         let ports = crate::managed::LocalnetPorts::reserve().unwrap();
         let prepared = crate::localnet::prepare_private_root("amx-bootstrap", &root, &ports, &spec)
             .expect("generate the complete original private fee, SNS and validator policy");
-        let original = RawGenesisTransaction::from_path(&root.join("genesis.json")).unwrap();
+        let original = RawGenesisTransaction::from_path(root.join("genesis.json")).unwrap();
         let client = prepared.context.load_client_config().unwrap();
         let key = &client.key_pair;
         let config_path = &prepared.peers[0].config_path;

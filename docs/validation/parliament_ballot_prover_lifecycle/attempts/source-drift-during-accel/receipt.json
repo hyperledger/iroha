@@ -1,0 +1,208 @@
+{
+  "binaries": {
+    "example-portable": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/examples/prover_lifecycle",
+      "retained_path": "/tmp/parliament-prover-lifecycle/example-portable",
+      "sha256": "d848f5e8873c72de0ba61ec1ebf80c76622522ef0815d4dc3f00cadfe3c7932c"
+    },
+    "test-portable": {
+      "built_path": "target/cargo-fast/parliament-lifecycle/release/deps/prover_lifecycle-43300262da341a55",
+      "retained_path": "/tmp/parliament-prover-lifecycle/test-portable",
+      "sha256": "220131848dcb7017b08200c21a1cb46cafd63ac60e061d19b47d0a30836cd088"
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--test",
+        "prover_lifecycle",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "elapsed_seconds": 36.25523658306338,
+      "exit": 0,
+      "label": "test-portable",
+      "log": "test-portable.txt",
+      "log_sha256": "d1a754f0c5acb77d583a7df52c25bd151ff14578f3245807c401c470bedab2e3"
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "clippy",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--test",
+        "prover_lifecycle",
+        "--example",
+        "prover_lifecycle",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 0.7192902499809861,
+      "exit": 0,
+      "label": "clippy-portable",
+      "log": "clippy-portable.txt",
+      "log_sha256": "7f017b22c813338458a67668e8dd7f2f4b9249a06caa8a197ed82e1537da966f"
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "prover_lifecycle"
+      ],
+      "elapsed_seconds": 1.186495624948293,
+      "exit": 0,
+      "label": "build-portable",
+      "log": "build-portable.txt",
+      "log_sha256": "d58212f2c2effe2ef2d904ffc91107b254d00316a5bbb889f8adc479b7ab2689"
+    },
+    {
+      "command": [
+        "/tmp/parliament-prover-lifecycle/example-portable",
+        "candidate",
+        "registration",
+        "publish"
+      ],
+      "elapsed_seconds": 0.676151999970898,
+      "exit": 0,
+      "label": "example-portable-publish",
+      "log": "example-portable-publish.txt",
+      "log_sha256": "a99bf136ab008d3e13786520aa3eec1f7e72a946e014df14ea3ee5b145ba2b5f"
+    },
+    {
+      "command": [
+        "/tmp/parliament-prover-lifecycle/example-portable",
+        "candidate",
+        "registration",
+        "cancel"
+      ],
+      "elapsed_seconds": 0.43708304106257856,
+      "exit": 0,
+      "label": "example-portable-cancel",
+      "log": "example-portable-cancel.txt",
+      "log_sha256": "bb5282d2bbe51918155394edb7a6d6ac344c4f9cf17a0e620c230deff1a77622"
+    },
+    {
+      "command": [
+        "/tmp/parliament-prover-lifecycle/example-portable",
+        "candidate",
+        "registration",
+        "cancel-after-wait"
+      ],
+      "elapsed_seconds": 0.4704681660514325,
+      "exit": 0,
+      "label": "example-portable-cancel-after-wait",
+      "log": "example-portable-cancel-after-wait.txt",
+      "log_sha256": "50871593b665e1de286c222b2dff203d945808ac2a457a991dfcc29f93e1a029"
+    },
+    {
+      "command": [
+        "/tmp/parliament-prover-lifecycle/example-portable",
+        "candidate",
+        "registration",
+        "drop"
+      ],
+      "elapsed_seconds": 0.42442595888860524,
+      "exit": 0,
+      "label": "example-portable-drop",
+      "log": "example-portable-drop.txt",
+      "log_sha256": "add0ec82de8c631cdf4e271b4eece02bdd2090527a43d899a950513d65061c8f"
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-lifecycle",
+        "--incremental",
+        "--",
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--test",
+        "prover_lifecycle",
+        "--features",
+        "accel",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "elapsed_seconds": 23.06437470810488,
+      "exit": 0,
+      "label": "test-accel",
+      "log": "test-accel.txt",
+      "log_sha256": "81f8139beb7a97f620815bd9f773e5c9ad04edb68200b0cf3d2d8f78e4589e64"
+    }
+  ],
+  "environment": {
+    "CARGO_BUILD_TARGET": null,
+    "CARGO_ENCODED_RUSTFLAGS": null,
+    "IROHA_GIT_COMMIT_HASH": null,
+    "RUSTC_WRAPPER": null,
+    "RUSTFLAGS": null,
+    "VERGEN_GIT_SHA": null
+  },
+  "failure": "Source or metadata drift: {'crates/norito/src/lib.rs': {'expected': '9f3631b0526be4315a48cd38416e18c7c8455353cbe2484b6ccb488eda4ded41', 'actual': 'b7d640fdc4463bdcc4ce14acfcc4dc72b1239c48d06a7a6fa24f5d99bbee765e'}}",
+  "finished_utc": "2026-10-13T06:01:45.028775+00:00",
+  "head": "5f89bf021f94d80a42b1daa991f6e8ca32d9e067",
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "limitations": [
+    "Public deterministic fixture inputs; no production entropy or live credentials.",
+    "Registration and S=3 vote, both rows and modes; no phone or roster-size cancellation qualification.",
+    "Selected secret48/tape112/witness4480or6688/proof initialized ranges only; no backend/provider/compiler/register/stack/caller-copy erasure certificate.",
+    "No panic, abort, process kill, detached work, or forced cancellation cleanup claim.",
+    "8MiB requested thread stack is not a measured cap. Native TLS and allocator costs are not bounded by this experiment.",
+    "Cargo test harness uses its normal panic strategy; no unwind result is treated as erasure evidence."
+  ],
+  "machine": "arm64",
+  "passed": false,
+  "prior_resource_source_count": 231,
+  "prior_resource_source_drift": {
+    "crates/norito/src/lib.rs": {
+      "actual": "9f3631b0526be4315a48cd38416e18c7c8455353cbe2484b6ccb488eda4ded41",
+      "expected": "1efe753752950653255885860f31aac872eb9f6a6a59bf001deaa3eac988046d"
+    }
+  },
+  "prior_resource_source_manifest_sha256": "5c6258c0ca60b5bfaa05ce0c3f38d47ca62f0e1e6d1099912c2660122bc75bca",
+  "profile_qualified": false,
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+  "scope": "Standalone finish-and-discard lifecycle; selected live-buffer pre-deallocation observations only. Normal-metadata controlled build linkage, not hermetic attestation.",
+  "source_changes": {
+    "crates/norito/src/lib.rs": {
+      "actual": "b7d640fdc4463bdcc4ce14acfcc4dc72b1239c48d06a7a6fa24f5d99bbee765e",
+      "expected": "9f3631b0526be4315a48cd38416e18c7c8455353cbe2484b6ccb488eda4ded41"
+    }
+  },
+  "source_count": 242,
+  "source_manifest_sha256": "9a981c42da2309804092e306cf7db8820fa1968ed7db84c8db42496e8f2fb80a",
+  "started_utc": "2026-10-13T06:00:41.252732+00:00",
+  "whole_secret_erasure_qualified": false
+}

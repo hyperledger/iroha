@@ -24,6 +24,10 @@ use iroha_data_model::{
 
 /// Acquire State first and bind the original recorder before component effects.
 /// These synthetic output callbacks do not acquire production Network authority.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
 pub(super) fn recorded_component_block(
     state: &State,
     header: BlockHeader,
@@ -85,7 +89,12 @@ fn fixture(
         ALICE_ID.clone(),
         FeePaymentIntent::authority(vec![], None),
     );
-    builder.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+    builder.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(std::time::Duration::from_millis(1))
+            .unwrap(),
+    );
     let signed = builder
         .with_instructions(network)
         .sign(ALICE_KEYPAIR.private_key());
@@ -959,7 +968,12 @@ mod retry_and_periodic {
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .unwrap(),
+        );
         let signed = transaction
             .with_instructions(plain_network())
             .sign(ALICE_KEYPAIR.private_key());

@@ -52,7 +52,7 @@ pub(crate) struct SccpG2aPrefix {
 
 impl SccpG2aPrefix {
     /// Consume one cost-one position only in the same original block and remaining budget.
-    pub(super) fn take_reconciliation_position(
+    pub(super) fn take_rank_three_position(
         &mut self,
         state: &crate::state::StateBlock<'_>,
     ) -> Result<Option<u32>, super::keepalive::DueWorkUnavailable> {
@@ -61,14 +61,14 @@ impl SccpG2aPrefix {
         {
             return Err(super::keepalive::DueWorkUnavailable);
         }
-        if self.remaining == 0 {
+        if self.remaining == 0 && self.next_position != 0 {
             return Ok(None);
         }
         let position = self.next_position;
         self.next_position = position
             .checked_add(1)
             .ok_or(super::keepalive::DueWorkUnavailable)?;
-        self.remaining -= 1;
+        self.remaining = self.remaining.saturating_sub(1);
         Ok(Some(position))
     }
 }
@@ -90,6 +90,164 @@ pub(crate) fn with_sccp_g2a_prefix<E: std::fmt::Debug>(
             super::keepalive::DueWorkUnavailable,
         ),
     )
+}
+
+/// The original pass after G2b/G2c and all Parliament enactments. Its budget is
+/// inherited from the same owner; SCCP cannot create a replacement cursor.
+pub(crate) struct SccpG3Prefix {
+    source: mv::BlockPublicationIdentity,
+    header: iroha_data_model::block::BlockHeader,
+    remaining: u32,
+    next_position: u32,
+}
+impl SccpG3Prefix {
+    pub(super) fn take_enactment_position(
+        &mut self,
+        state: &crate::state::StateBlock<'_>,
+    ) -> Result<Option<u32>, super::keepalive::DueWorkUnavailable> {
+        if self.source != state.world.sccp_reconciliations.publication_identity()
+            || self.header != state._curr_block
+        {
+            return Err(super::keepalive::DueWorkUnavailable);
+        }
+        if self.remaining < 4 && self.next_position != 0 {
+            return Ok(None);
+        }
+        let position = self.next_position;
+        self.next_position = position
+            .checked_add(1)
+            .ok_or(super::keepalive::DueWorkUnavailable)?;
+        self.remaining = self.remaining.saturating_sub(4);
+        Ok(Some(position))
+    }
+}
+/// TODO: the Parliament owner must carry the original remaining budget through all
+/// intervening phases and issue this continuation after its last due enactment.
+pub(crate) fn with_sccp_g3_prefix<E: std::fmt::Debug>(
+    _: &mut crate::state::StateBlock<'_>,
+    _: impl FnOnce(
+        &mut crate::state::StateBlock<'_>,
+        &mut SccpG3Prefix,
+    ) -> Result<(), crate::state::StateBlockStartError<E>>,
+) -> Result<(), crate::state::StateBlockStartError<E>> {
+    Err(
+        crate::state::StateBlockStartError::GovernanceDueUnavailable(
+            super::keepalive::DueWorkUnavailable,
+        ),
+    )
+}
+
+/// Borrowed original parent draw. The external owner enforces the 8 MiB / 65,536
+/// citizen ceiling and samples without replacement; fields cannot be asserted by callers.
+pub(super) struct PauseDraw<'a, 'world> {
+    source: &'a crate::state::WorldBlock<'world>,
+    pulse_id: [u8; 32],
+    sequence: u64,
+    seed: [u8; 32],
+    pub(super) members: [Option<&'a iroha_data_model::account::AccountId>; 27],
+    pub(super) count: usize,
+    pub(super) unavailable:
+        Option<iroha_data_model::sccp::events::SccpPausePanelUnavailableReasonV1>,
+}
+impl<'world> PauseDraw<'_, 'world> {
+    pub(super) fn matches(
+        &self,
+        world: &crate::state::WorldBlock<'world>,
+        pulse: [u8; 32],
+        sequence: u64,
+        seed: [u8; 32],
+    ) -> bool {
+        core::ptr::eq(self.source, world)
+            && self.pulse_id == pulse
+            && self.sequence == sequence
+            && self.seed == seed
+    }
+}
+/// TODO: supply the Parliament-owned canonical parent citizen snapshot and existing draw.
+/// Unavailable dependency is a governance-local wait, not an empty candidate population.
+pub(super) fn pause_draw<'a, 'world>(
+    _: &'a crate::state::WorldBlock<'world>,
+    _: [u8; 32],
+    _: u64,
+    _: [u8; 32],
+    _: usize,
+) -> Result<PauseDraw<'a, 'world>, super::keepalive::DueWorkUnavailable> {
+    Err(super::keepalive::DueWorkUnavailable)
+}
+
+/// Eligibility for exactly one borrowed World, panel graph and observation time.
+/// Only the external Parliament owner may issue it; no DATA constructor exists.
+pub(super) struct PauseEligibility<'a, W: crate::state::WorldReadOnly + ?Sized> {
+    world: &'a W,
+    panel: &'a super::pause_record::PausePanelBody,
+    time: u64,
+    members: u32,
+}
+impl<W: crate::state::WorldReadOnly + ?Sized> PauseEligibility<'_, W> {
+    pub(super) fn for_original(
+        &self,
+        world: &W,
+        panel: &super::pause_record::PausePanelBody,
+        time: u64,
+    ) -> Result<u32, super::Error> {
+        if !core::ptr::eq(self.world, world)
+            || !core::ptr::eq(self.panel, panel)
+            || time != self.time
+        {
+            return Err(super::Error::InvariantViolation(
+                "SCCP eligibility observation changed source".into(),
+            ));
+        }
+        Ok(self.members)
+    }
+}
+/// Read citizenship, bond, slash, suspension and active-account eligibility at the exact
+/// observation. TODO: connect the Parliament-owned eligible-citizen producer once landed.
+pub(super) fn pause_eligibility<'a, W: crate::state::WorldReadOnly + ?Sized>(
+    _: &'a W,
+    _: &'a super::pause_record::PausePanelBody,
+    _: u64,
+) -> Result<PauseEligibility<'a, W>, super::Error> {
+    Err(super::Error::InvariantViolation(
+        "SCCP Parliament citizen eligibility is unavailable".into(),
+    ))
+}
+
+/// Approving Policy Jury opening, bound to the original effect transaction and certificate.
+pub(super) struct PolicyJuryOpening<'a, 'block, 'state> {
+    source: &'a crate::state::StateTransaction<'block, 'state>,
+    header: iroha_data_model::block::BlockHeader,
+    certificate: [u8; 32],
+    effect: [u8; 32],
+    anchor: iroha_data_model::governance::GovernanceAnchorV1,
+}
+impl<'block, 'state> PolicyJuryOpening<'_, 'block, 'state> {
+    pub(super) fn for_original(
+        &self,
+        state: &crate::state::StateTransaction<'block, 'state>,
+        cause: super::controls::ControlCauseV1,
+    ) -> Result<iroha_data_model::governance::GovernanceAnchorV1, super::Error> {
+        if !core::ptr::eq(self.source, state)
+            || self.header != state._curr_block
+            || self.certificate != cause.certificate_id
+            || self.effect != cause.effect_hash
+        {
+            return Err(super::Error::InvariantViolation(
+                "SCCP Policy Jury opening changed source".into(),
+            ));
+        }
+        Ok(self.anchor)
+    }
+}
+/// TODO: Parliament must supply the actual Policy Jury casting-open anchor of this
+/// certificate. Its timestamp, metadata or a caller-supplied anchor cannot substitute it.
+pub(super) fn policy_jury_casting_open<'a, 'block, 'state>(
+    _: &'a crate::state::StateTransaction<'block, 'state>,
+    _: super::controls::ControlCauseV1,
+) -> Result<PolicyJuryOpening<'a, 'block, 'state>, super::Error> {
+    Err(super::Error::InvariantViolation(
+        "SCCP Policy Jury casting-open source is unavailable".into(),
+    ))
 }
 
 #[cfg(test)]
@@ -123,6 +281,29 @@ mod tests {
         let mut block = state.block(header(2));
         let result = with_sccp_g2a_prefix::<()>(&mut block, |_, _| {
             panic!("an absent Parliament prefix must not issue reconciliation budget")
+        });
+        assert!(matches!(
+            result,
+            Err(crate::state::StateBlockStartError::GovernanceDueUnavailable(_))
+        ));
+    }
+
+    #[test]
+    fn unavailable_pause_authorities_never_supply_an_empty_draw_or_a_fresh_pass() {
+        use crate::smartcontracts::isi::sccp::test_support::{
+            blank_state, header, sample_pause_panel,
+        };
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        assert!(pause_draw(&block.world, [1; 32], 1, [2; 32], 9).is_err());
+        let panel = super::super::pause_record::RetainedSccpPausePanel::admit(
+            &sample_pause_panel(1),
+            &state.ivm_execution_budget(),
+        )
+        .unwrap();
+        assert!(pause_eligibility(&block.world, &panel, 8000).is_err());
+        let result = with_sccp_g3_prefix::<()>(&mut block, |_, _| {
+            panic!("absent original Parliament continuation cannot enact a fast pause")
         });
         assert!(matches!(
             result,

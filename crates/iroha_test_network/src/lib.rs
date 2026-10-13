@@ -3241,6 +3241,7 @@ set {NETWORK_PERMIT_WAIT_TIMEOUT_ENV}=0 to disable timeout or provide an isolate
 #[derive(Clone)]
 struct PreparedPeerGenesis {
     bytes: Arc<[u8]>,
+    #[cfg(test)]
     network_id: NetworkId,
 }
 impl PreparedPeerGenesis {
@@ -3264,9 +3265,11 @@ impl PreparedPeerGenesis {
     ) -> Result<Self> {
         spawn_blocking(move || {
             init_instruction_registry();
+            #[cfg(test)]
             let network_id = NetworkId::from_genesis_hash(block.0.hash());
             encode(&block).map(|bytes| Self {
                 bytes: bytes.into(),
+                #[cfg(test)]
                 network_id,
             })
         })
@@ -15015,7 +15018,7 @@ mod tests {
         let _ = NetworkBuilder::new().with_genesis_post_bootstrap_isi(vec![
             SetParameter::new(Parameter::Sumeragi(
                 iroha_data_model::parameter::SumeragiParameter::EpochLengthBlocks(
-                    NonZeroU64::new(3_600).unwrap(),
+                    NonZero::new(3_600_u64).unwrap(),
                 ),
             ))
             .into(),

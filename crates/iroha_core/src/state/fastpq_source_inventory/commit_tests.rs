@@ -96,7 +96,9 @@ fn intact_finalized_inventory_commits_after_all_cached_outputs_are_taken() {
         let tx = chain.sign(&ALICE_KEYPAIR, body, created);
         let proposal = chain.proposal(None, vec![tx]);
         let expected_hash = proposal.hash();
-        let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+        let mut pending = chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+            .unwrap();
         pending
             .inspect(move |original| {
                 assert!(

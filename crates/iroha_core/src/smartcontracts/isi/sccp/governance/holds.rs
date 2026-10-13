@@ -68,7 +68,7 @@ pub(super) fn attest(
 
 pub(super) fn quarantine(
     stx: &mut StateTransaction<'_, '_>,
-    action: &SccpRouteRevisionActionV1,
+    action: SccpRouteRevisionActionV1,
     cause: ControlCauseV1,
 ) -> Result<(), Error> {
     let mut route = store::routes::get(&*stx.world, &action.network)

@@ -2,7 +2,7 @@
 use super::{Error, Iso20022BridgeRuntime};
 use axum::http::HeaderMap;
 use std::collections::HashMap;
-pub(super) fn from_request<'a>(
+pub fn from_request<'a>(
     runtime: &'a Iso20022BridgeRuntime,
     headers: &HeaderMap,
     query: &HashMap<String, String>,
@@ -21,12 +21,9 @@ pub(super) fn from_request<'a>(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     runtime.resolve_profile(selected).ok_or_else(|| {
-        Error::Query(iroha_data_model::ValidationFail::NotPermitted(
-            format!(
-                "unknown ISO 20022 profile `{}`",
-                selected.unwrap_or("<default>")
-            )
-            .into(),
-        ))
+        Error::Query(iroha_data_model::ValidationFail::NotPermitted(format!(
+            "unknown ISO 20022 profile `{}`",
+            selected.unwrap_or("<default>")
+        )))
     })
 }

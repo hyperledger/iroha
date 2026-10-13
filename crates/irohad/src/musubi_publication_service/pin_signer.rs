@@ -185,7 +185,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             &governance.sorafs_pin_policy,
             now_ms,
         )?;
-        self.prepare_manifest(source, &archive.commitment, manifest, now_ms, remaining)
+        self.prepare_manifest(source, &archive.commitment, &manifest, now_ms, remaining)
     }
 
     pub(super) fn prepare_retained_pin(
@@ -219,13 +219,15 @@ impl MusubiPublicationPinTransactionSignerV1 {
         let (_, payload) = self.prepare_manifest(
             source,
             &archive.commitment,
-            manifest,
+            &manifest,
             now_ms,
             request.authorization.deadline_unix_ms - now_ms,
         )?;
-        request
-            .authorization
-            .reserve_payload(&Default::default(), &payload.fee_payment, false)?;
+        request.authorization.reserve_payload(
+            &super::native_pin::ReservedFeesV1::default(),
+            &payload.fee_payment,
+            false,
+        )?;
         Ok(payload)
     }
 
@@ -233,13 +235,13 @@ impl MusubiPublicationPinTransactionSignerV1 {
         &self,
         source: &MusubiPublicationFinalizedArchiveRegistrationQueryV1,
         archive: &MusubiArchiveCommitmentV1,
-        manifest: ManifestV1,
+        manifest: &ManifestV1,
         now_ms: u64,
         remaining: u64,
     ) -> Result<(ManifestDigest, TransactionPayload), MusubiPublicationPinSigningErrorV1> {
         use MusubiPublicationPinSigningErrorV1 as Error;
         let governance = self.state.governance_snapshot();
-        super::pin_registration::validate_pin_manifest(&manifest, archive).map_err(|error| {
+        super::pin_registration::validate_pin_manifest(manifest, archive).map_err(|error| {
             match error {
                 super::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(original) => {
                     Error::Deferred(original)
@@ -248,12 +250,15 @@ impl MusubiPublicationPinTransactionSignerV1 {
             }
         })?;
         sorafs_manifest::validate_manifest(
-            &manifest,
+            manifest,
             &manifest_pin_policy_constraints_from_config(&governance.sorafs_pin_policy),
         )
         .map_err(|_| Error::Policy)?;
-        let digest = ManifestDigest::from_manifest(&manifest).map_err(pin_codec_refusal)?;
-        let payload = manifest.encode().map_err(pin_codec_refusal)?;
+        let digest =
+            ManifestDigest::from_manifest(manifest).map_err(|error| pin_codec_refusal(&error))?;
+        let payload = manifest
+            .encode()
+            .map_err(|error| pin_codec_refusal(&error))?;
         let fixed_clock = TimeSource::new_fixed(Duration::from_millis(now_ms));
         let mut draft = TransactionBuilder::new_with_time_source(
             self.network_id,
@@ -312,7 +317,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             view.world(),
             &governance.sorafs_pin_fee_asset_id,
             &self.authority,
-            &manifest,
+            manifest,
             &quote,
             observation_time_ms / 1_000,
         )?;
@@ -335,8 +340,9 @@ impl MusubiPublicationPinTransactionSignerV1 {
         use super::native_pin::slot::{SlotKind, decode_frame};
         request.validate()?;
         request.authorization.ensure_live(now_ms)?;
+        let network_matches = request.network == self.network_id;
         eyre::ensure!(
-            request.network == self.network_id
+            network_matches
                 && request.authority == self.authority
                 && !matches!(request.kind, SlotKind::Pin),
             "native control signer binding differs"
@@ -417,7 +423,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             .with_fee_payment_intent(quote.recommended_intent)
             .into_payload()?;
         request.authorization.reserve_payload(
-            &Default::default(),
+            &super::native_pin::ReservedFeesV1::default(),
             &payload.fee_payment,
             matches!(request.kind, SlotKind::Check(_)),
         )?;
@@ -442,14 +448,13 @@ impl MusubiPublicationPinTransactionSignerV1 {
             slot.request().network == self.network_id && slot.request().authority == self.authority,
             "native signer original identity differs"
         );
-        let archive = match slot.request().kind {
-            SlotKind::Pin => Some(self.finalized_reader.read_current_archive(
+        let archive = if slot.request().kind == SlotKind::Pin {
+            Some(self.finalized_reader.read_current_archive(
                 source.ok_or_else(|| eyre::eyre!("native pin source original is missing"))?,
-            )?),
-            _ => {
-                eyre::ensure!(source.is_none(), "control slot cannot select an archive");
-                None
-            }
+            )?)
+        } else {
+            eyre::ensure!(source.is_none(), "control slot cannot select an archive");
+            None
         };
         if let Some(archive) = &archive {
             let payload = slot
@@ -606,7 +611,7 @@ fn build_exact_pin_manifest(
     Ok(manifest)
 }
 
-fn pin_codec_refusal(error: norito::Error) -> MusubiPublicationPinSigningErrorV1 {
+fn pin_codec_refusal(error: &norito::Error) -> MusubiPublicationPinSigningErrorV1 {
     match super::pin_registration::codec_refusal(error) {
         super::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(original) => {
             MusubiPublicationPinSigningErrorV1::Deferred(original)

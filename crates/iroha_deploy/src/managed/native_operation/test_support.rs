@@ -13,13 +13,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-pub(crate) struct Request {
+pub struct Request {
     pub(crate) peer: usize,
     pub(crate) method: String,
     pub(crate) path: String,
 }
 
-pub(crate) struct UnavailablePeers {
+pub struct UnavailablePeers {
     stop: Arc<AtomicBool>,
     pub(crate) requests: Arc<Mutex<Vec<Request>>>,
     workers: Vec<JoinHandle<io::Result<()>>>,
@@ -27,19 +27,17 @@ pub(crate) struct UnavailablePeers {
 
 impl UnavailablePeers {
     pub(crate) fn start(prepared: &PreparedLocalnet) -> Self {
-        let listeners: Vec<_> = prepared
-            .peers
-            .iter()
-            .map(|peer| {
-                let url: url::Url = peer.torii_url.parse().unwrap();
-                assert_eq!(url.host_str(), Some("127.0.0.1"));
-                assert_eq!(url.scheme(), "http");
-                let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, url.port().unwrap()))
-                    .expect("bind exactly the generated peer endpoint");
-                listener.set_nonblocking(true).unwrap();
-                listener
-            })
-            .collect();
+        // Bind every endpoint before starting workers so a refused bind cannot strand a thread.
+        let mut listeners = Vec::with_capacity(prepared.peers.len());
+        for peer in &prepared.peers {
+            let url: url::Url = peer.torii_url.parse().unwrap();
+            assert_eq!(url.host_str(), Some("127.0.0.1"));
+            assert_eq!(url.scheme(), "http");
+            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, url.port().unwrap()))
+                .expect("bind exactly the generated peer endpoint");
+            listener.set_nonblocking(true).unwrap();
+            listeners.push(listener);
+        }
         let capabilities = norito::json::to_vec(&norito::json!({
             "data_model_version": (iroha_data_model::DATA_MODEL_VERSION),
             "signed_transaction_schema_hash_hex":
@@ -182,7 +180,7 @@ mod musubi_namespace_tests;
 
 #[path = "test_support/amx_registration_native_tests.rs"]
 mod amx_registration_native_tests;
-pub(crate) use amx_registration_native_tests::with_signed_amx_preparation;
+pub use amx_registration_native_tests::with_signed_amx_preparation;
 
 /// Exercise the shared post-carrier decision against an actual native fixture's authenticated
 /// frontier and its owner's real bounded SDK proof reader. No paid wallet or source is replaced.

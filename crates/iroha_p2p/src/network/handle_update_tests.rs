@@ -163,9 +163,9 @@ mod handle_update_tests {
             )
         };
         let self_id = peer(1);
-        let targets = (2..5).map(peer).collect::<HashSet<_>>();
+        let targets = (2..5).map(peer).collect::<BTreeSet<_>>();
         let capacity = std::num::NonZeroUsize::new(1).expect("one actor slot");
-        for selected_targets in [HashSet::new(), targets] {
+        for selected_targets in [BTreeSet::new(), targets] {
             let (handle, mut fixture) =
                 NetworkBaseHandle::<RoutedActorDummy, ChaCha20Poly1305>::actor_admission_for_tests(
                     self_id.clone(),

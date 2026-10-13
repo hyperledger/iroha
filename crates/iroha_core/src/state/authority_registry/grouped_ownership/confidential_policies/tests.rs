@@ -41,8 +41,8 @@ fn definition(number: usize, height: Option<u64>) -> AssetDefinition {
     definition
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     for number in 0..3 {
         world
             .asset_definitions
@@ -334,7 +334,7 @@ fn physical_masked_rows_and_tombstones_consume_work_before_filtering() {
 
 #[test]
 fn dense_valid_heights_defer_locally_then_retry_with_more_work() {
-    let mut world = Box::new(World::default());
+    let mut world = World::default();
     for number in 0..128 {
         world
             .asset_definitions

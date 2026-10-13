@@ -230,13 +230,15 @@ impl ManagedInitialReservePolicy {
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            Purpose::ReservePolicy,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose: Purpose::ReservePolicy,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_initial_reserve_policy_preparation_in_parent(
@@ -427,7 +429,7 @@ impl ManagedInitialReservePolicy {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = observe_current
@@ -504,7 +506,7 @@ impl ManagedInitialReservePolicy {
         verify_custody()?;
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => Self::verify_wallet(&account, &directory, &original, deadline)?,
+            None => Self::verify_wallet(&account, directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -533,7 +535,7 @@ impl ManagedInitialReservePolicy {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -611,7 +613,7 @@ impl ManagedInitialReservePolicy {
             .map_err(|_| invalid("invalid original reserve checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())

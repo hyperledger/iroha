@@ -2588,9 +2588,9 @@ mod identity_preparation_tests {
 #[cfg(test)]
 mod commit_slot_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 mod retained_mutex_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "reader_release_tests.rs"]
 mod reader_release_tests;

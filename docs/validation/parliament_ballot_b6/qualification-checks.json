@@ -2,28 +2,157 @@
   "checks": [
     {
       "actual_exit": 1,
-      "argument": "--require-complete",
+      "arguments": [
+        "--require-complete"
+      ],
       "expected_exit": 1,
       "qualification": false,
       "script": "scripts/check_parliament_ballot_resource_accounting.py"
     },
     {
       "actual_exit": 2,
-      "argument": "--require-qualified",
+      "arguments": [
+        "--json",
+        "--require-qualified"
+      ],
       "expected_exit": 2,
       "qualification": false,
       "script": "scripts/check_parliament_ballot_security_ledger.py"
     }
   ],
+  "focused_accounting": {
+    "command": [
+      "python3.11",
+      "-m",
+      "pytest",
+      "scripts/tests/check_parliament_ballot_resource_accounting_test.py",
+      "scripts/tests/parliament_ballot_security_ledger_test.py",
+      "-q"
+    ],
+    "exit": 0,
+    "passed": 26,
+    "reported_duration_seconds": 0.71,
+    "subtests_passed": 6
+  },
   "observed_source_sha256": {
     "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "27b496e295e8558bc47404ba94814addf65e8db9abc7415b6b539fece4a150ef",
     "crates/iroha_core/src/state.rs": "d65e87807dcea330fbb7f8335187df98558a0b49181c4b89432ccb3e941d3ee5",
     "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3"
+  },
+  "production_gate": {
+    "binding_ballot_available": false,
+    "qualified_attempt_latency_ms": null
   },
   "python_regression": {
     "failed": 92,
     "failure": "concurrent SCCP reconciliation hook disagrees with exact source-contract sequence",
     "passed": 1115,
     "subtests_passed": 6
+  },
+  "scoped_rustfmt": {
+    "command": [
+      "cargo",
+      "+1.93.1",
+      "fmt",
+      "-p",
+      "iroha_parliament_ballot_proof",
+      "-p",
+      "iroha_zkp_vole",
+      "--",
+      "--check"
+    ],
+    "exit": 0
+  },
+  "source_contract_recheck": {
+    "actual_exit": 1,
+    "counterfactual_diagnostic": "source-contract-post-accounting-diagnosis.txt",
+    "observed_error": "crates/iroha_core/src/state.rs: start phases must use the original block and height in order",
+    "source_identity_unchanged": true
+  },
+  "updated_at_utc": "2026-10-13T03:28:36.015473+00:00",
+  "requirement_audit_recheck": {
+    "updated_at_utc": "2026-10-13T03:59:44.074865+00:00",
+    "qualification_refusals": [
+      {
+        "command": [
+          "python3.11",
+          "scripts/check_parliament_ballot_resource_accounting.py",
+          "--require-complete"
+        ],
+        "expected_exit": 1,
+        "actual_exit": 1,
+        "qualification_field": "profile_qualified",
+        "qualification": false,
+        "output_sha256": "c781fd8c9e8c39d0849f58f080276b04c21d43f82d9fe416fa3178aea83f1d5e"
+      },
+      {
+        "command": [
+          "python3.11",
+          "scripts/check_parliament_ballot_security_ledger.py",
+          "--json",
+          "--require-qualified"
+        ],
+        "expected_exit": 2,
+        "actual_exit": 2,
+        "qualification_field": "qualified",
+        "qualification": false,
+        "output_sha256": "fa65a8efc34a3b534ffe53aa709e9c0637899484ce30f2d9b947d30eb92ca26e"
+      },
+      {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_frontend_accounting.py",
+          "--require-complete"
+        ],
+        "expected_exit": 1,
+        "actual_exit": 1,
+        "qualification_field": "profile_qualified",
+        "qualification": false,
+        "output_sha256": "81fd56ec690f65d7bbb4e147e864b8cd9b84a436790dbf4a3ab2759a926d854b"
+      }
+    ],
+    "focused_accounting": {
+      "command": "python3.11 -m pytest scripts/tests/check_parliament_ballot_resource_accounting_test.py scripts/tests/parliament_ballot_security_ledger_test.py scripts/tests/parliament_ballot_frontend_accounting_test.py -q",
+      "transcript": "accounting-requirement-audit-tests.txt",
+      "exit": 0,
+      "passed": 38,
+      "subtests_passed": 6
+    },
+    "source_contract": "source-contract-requirement-audit.json",
+    "historical_check_scope": "Earlier top-level source hashes, source-contract diagnosis and Python regression totals are retained for their earlier snapshot; use new linked receipt for the current tree."
+  },
+  "post_lock_drift_recheck": {
+    "checked_at_utc": "2026-10-13T04:40:13.926964+00:00",
+    "live_Cargo_lock_sha256": "6d8e3d424264d8c934fc1683111659e246d71960cc4b247efa512502235b435c",
+    "source_guard_refusals": [
+      {
+        "command": [
+          "python3.11",
+          "scripts/check_parliament_ballot_resource_accounting.py",
+          "--require-complete"
+        ],
+        "actual_exit": 1,
+        "report_emitted": false,
+        "refusal_reason": "ValueError: standalone resource model source changed; review formulas before updating the pin"
+      },
+      {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_frontend_accounting.py",
+          "--require-complete"
+        ],
+        "actual_exit": 1,
+        "report_emitted": false,
+        "refusal_reason": "ValueError: front-end sources changed; review charges before updating the pin"
+      }
+    ],
+    "frozen_accounting_recheck": "frozen-accounting-recheck.json",
+    "scope": "The live source guards refuse changed input; this is not a newly emitted incomplete qualification report. The isolated recorded-source reconstruction reproduces the existing reports byte-for-byte and passes 38 tests plus six subtests. Later Norito source drift is retained separately and does not change the frozen test outcome.",
+    "source_contract": "source-contract-requirement-audit.json",
+    "production_gate": {
+      "binding_ballot_available": false,
+      "qualified_attempt_latency_ms": null
+    },
+    "later_norito_drift": "post-qualification-norito-change.json"
   }
 }

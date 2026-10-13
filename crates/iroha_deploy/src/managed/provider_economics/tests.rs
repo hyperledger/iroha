@@ -122,7 +122,7 @@ fn exact_admitted_stake_debt_and_slash_bound_target_without_borrowing_or_epoch_r
         Quantity::zero(),
         1,
         1,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     credit.slashed = Quantity::from(2_u32);
     let amounts = calculate(
@@ -214,7 +214,7 @@ fn quantity_overflow_invalid_schedule_time_and_provider_refuse_before_derivation
         Quantity::zero(),
         2,
         2,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     assert!(
         calculate(

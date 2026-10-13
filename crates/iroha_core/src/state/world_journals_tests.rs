@@ -26,6 +26,12 @@ use std::{
 
 // Publish an untouched replacement through each field's ordinary writer.
 macro_rules! commit_untouched_fixture_field {
+    ($world:ident, sccp_light_client_sets) => {
+        $world
+            .sccp_light_client_sets
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original validator fixture publication")
+    };
     ($world:ident, sccp_reconciliations) => {
         commit_untouched_fixture_field!(@admitted $world, sccp_reconciliations)
     };

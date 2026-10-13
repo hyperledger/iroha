@@ -804,9 +804,8 @@ pub mod query {
                 world
                     .repo_agreements()
                     .iter()
-                    .filter_map(move |(_, agreement)| {
-                        filter.applies(agreement).then(|| agreement.clone())
-                    }),
+                    .filter(move |&(_, agreement)| filter.applies(agreement))
+                    .map(|(_, agreement)| agreement.clone()),
             );
             Ok(iter)
         }

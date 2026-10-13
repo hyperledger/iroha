@@ -7,7 +7,7 @@
 #[path = "./common.rs"]
 mod common;
 use common::*;
-use iroha_core::{state::StateReadOnly as _, sumeragi::test_chain::CertifiedTestChain};
+use iroha_core::sumeragi::test_chain::CertifiedTestChain;
 use iroha_data_model::isi::InstructionBox;
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
 use std::sync::{Arc, OnceLock};

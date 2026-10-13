@@ -835,13 +835,18 @@ mod tests {
                 view.block_hashes(),
                 height,
                 NativeExecutionReadLimits {
-                    admitted_target_wire_bytes: frames[(height - 1) as usize].len() as u64,
+                    admitted_target_wire_bytes: frames
+                        [usize::try_from(height - 1).expect("fixture value fits usize")]
+                    .len() as u64,
                     ..limits
                 },
                 &chain.state().ivm_execution_budget(),
             )
             .unwrap();
-            assert_eq!(read.wire.as_slice(), frames[(height - 1) as usize]);
+            assert_eq!(
+                read.wire.as_slice(),
+                frames[usize::try_from(height - 1).expect("fixture value fits usize")]
+            );
             assert_eq!(read.authority.committed().height(), height);
             assert_eq!(read.source_blocks, 2);
             assert_eq!(read.source_wire_bytes, total);

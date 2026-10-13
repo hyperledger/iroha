@@ -97,7 +97,7 @@ fn full_artifact_bound_includes_the_fixed_header() {
     while artifact.len() + halt.len() <= maximum {
         artifact.extend_from_slice(&halt);
     }
-    assert!(artifact.len() > MAX_CONTRACT_IMAGE_BYTES as usize);
+    assert!(artifact.len() > usize::try_from(MAX_CONTRACT_IMAGE_BYTES).unwrap());
     assert!(maximum - artifact.len() < halt.len());
     let expected = norito::json::to_json_pretty(
         &verify_contract_artifact(&artifact)

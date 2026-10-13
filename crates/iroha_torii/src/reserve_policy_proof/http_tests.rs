@@ -170,16 +170,16 @@ impl Fixture {
         )
         .unwrap();
         let view = self.chain.state().view();
-        let mut verified = None;
+        let mut authenticated = None;
         // The finite fixture has only H1–H3. Production acquisition uses the native tip continuation.
         for height in 1..=self.chain.height() {
-            verified = Some(
+            authenticated = Some(
                 verifier
                     .verify(&iroha_core::sumeragi::finality::build_proof(&view, height).unwrap())
                     .unwrap(),
             );
         }
-        verified.unwrap()
+        authenticated.unwrap()
     }
 
     fn request(&self, path: &str, signer: Option<(&AccountId, &KeyPair)>) -> Request<Body> {

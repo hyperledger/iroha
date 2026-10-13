@@ -21,8 +21,7 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
     pub(super) fn current(&mut self, dispatch: &PreKeyDispatchV1) -> Result<CurrentSelection> {
         dispatch.validate().map_err(|_| Invalid)?;
         let config = self.runtime.current_configuration()?;
-        if config.scope != self.scope
-            || config.journal_dir != self.journal_path
+        if (&config.scope, &config.journal_dir) != (&self.scope, &self.journal_path)
             || config.revision == 0
         {
             return Err(Selection);
@@ -39,10 +38,17 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
                     .enrollment
                     .for_asset(&dispatch.asset)
                     .is_ok_and(|p| p == dispatch.policy)
-                && provider.certificate == dispatch.enrollment_certificate
-                && provider.manifest_digest == dispatch.manifest_digest
-                && provider.release_digest == dispatch.release_digest
-                && provider.service_origin_digest == dispatch.service_origin_digest
+                && (
+                    &provider.certificate,
+                    &provider.manifest_digest,
+                    &provider.release_digest,
+                    &provider.service_origin_digest,
+                ) == (
+                    &dispatch.enrollment_certificate,
+                    &dispatch.manifest_digest,
+                    &dispatch.release_digest,
+                    &dispatch.service_origin_digest,
+                )
         });
         let provider = candidates.next().ok_or(Selection)?.clone();
         if candidates.next().is_some() {

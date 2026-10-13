@@ -294,9 +294,13 @@ fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
         })
         .collect::<Vec<_>>();
     committee.sort();
-    let mut lane_params = SumeragiParameters::default();
-    lane_params.max_block_bytes =
-        std::num::NonZeroU32::new(LANE_FIXTURE_LANE + LANE_BATCH_FRAMING_RESERVE_BYTES).unwrap();
+    let lane_params = SumeragiParameters {
+        max_block_bytes: std::num::NonZeroU32::new(
+            LANE_FIXTURE_LANE + LANE_BATCH_FRAMING_RESERVE_BYTES,
+        )
+        .unwrap(),
+        ..Default::default()
+    };
     let policy = SumeragiLanePolicy {
         da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
         anchor_freshness: 4,

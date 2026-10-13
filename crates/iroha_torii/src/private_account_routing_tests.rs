@@ -74,7 +74,6 @@ async fn private_unlabeled_account_routes_to_exact_signed_root_without_universal
             .world()
             .account_scope_entry(&owner)
             .unwrap()
-            .unwrap()
             .iter()
             .any(|(id, _)| *id == DataSpaceId::UNIVERSAL),
         "fixture must retain the domainless account's logical scope that exposed the bug"

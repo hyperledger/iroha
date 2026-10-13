@@ -461,7 +461,7 @@ fn validate_registration_transaction(
     found
 }
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
     use iroha_core::{
         state::{State, World},
@@ -514,7 +514,7 @@ pub(crate) mod tests {
         publisher_key: KeyPair,
         archive: MusubiArchiveRecordV1,
     }
-    pub(crate) struct ReaderFixture {
+    pub struct ReaderFixture {
         pub(crate) reader: MusubiPublicationFinalizedArchiveRegistrationReaderV1,
         pub(crate) state: Arc<State>,
         pub(crate) query: MusubiPublicationFinalizedArchiveRegistrationQueryV1,
@@ -705,7 +705,7 @@ pub(crate) mod tests {
             if block.has_results() {
                 block.fastpq_transcripts().clone()
             } else {
-                Default::default()
+                std::collections::BTreeMap::default()
             },
             block.axt_envelopes().unwrap_or_default().to_vec(),
             block.axt_policy_snapshot().cloned().unwrap_or_default(),
@@ -816,7 +816,7 @@ pub(crate) mod tests {
         );
         world
     }
-    pub(crate) fn reader_fixture() -> ReaderFixture {
+    pub fn reader_fixture() -> ReaderFixture {
         reader_fixture_with_finality(true)
     }
     fn start_reader_chain() -> CertifiedTestChain {
@@ -831,17 +831,17 @@ pub(crate) mod tests {
     }
     fn reader_fixture_with_finality_using(
         store_finality: bool,
-        seed: Option<(MusubiArchiveCommitmentV1, MusubiSemanticReleaseDigestV1)>,
+        seed: Option<&(MusubiArchiveCommitmentV1, MusubiSemanticReleaseDigestV1)>,
     ) -> ReaderFixture {
         let mut chain = start_reader_chain();
-        let material = seed.as_ref().map_or_else(
+        let material = seed.map_or_else(
             || registration_material_at(chain.network_id(), 2),
             |(commitment, semantic)| {
                 registration_material_at_with_commitment(
                     chain.network_id(),
                     2,
                     commitment.clone(),
-                    semantic.clone(),
+                    *semantic,
                 )
             },
         );
@@ -1402,6 +1402,13 @@ pub(crate) mod tests {
     }
     #[test]
     fn registration_without_verified_native_finality_is_invalid() {
+        use iroha_core::query::musubi_pin_outbox::{
+            MusubiPinOutboxCheckExpectedV1, begin_musubi_pin_outbox_check_v1,
+        };
+        use iroha_data_model::musubi::{
+            MusubiPinOutboxCheckExpectationV1, MusubiPinOutboxCheckFloorV1,
+        };
+
         let fixture = reader_fixture_with_finality(false);
         assert_eq!(
             fixture
@@ -1410,12 +1417,6 @@ pub(crate) mod tests {
                 .expect_err("an uncertified Kura body must fail closed"),
             invalid()
         );
-        use iroha_core::query::musubi_pin_outbox::{
-            MusubiPinOutboxCheckExpectedV1, begin_musubi_pin_outbox_check_v1,
-        };
-        use iroha_data_model::musubi::{
-            MusubiPinOutboxCheckExpectationV1, MusubiPinOutboxCheckFloorV1,
-        };
         let block = fixture
             .chain
             .committed(fixture.query.snapshot.finalized_height);
@@ -1703,7 +1704,7 @@ pub(crate) mod tests {
         let (seed_binding, commitment, plan, car) = fixture();
         let fixture = reader_fixture_with_finality_using(
             true,
-            Some((commitment, seed_binding.semantic_release_manifest_digest)),
+            Some(&(commitment, seed_binding.semantic_release_manifest_digest)),
         );
         let binding = &fixture.archive.staging_receipt.payload.binding;
         let workspace = tempfile::tempdir().expect("seed fixture workspace");

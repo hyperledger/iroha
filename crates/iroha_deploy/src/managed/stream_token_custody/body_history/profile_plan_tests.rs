@@ -54,7 +54,7 @@ fn pending(fixture: &Fixture) -> (BodyHistory, VerifiedStreamTokenCustodyStateV1
         history.selection.digest().unwrap(),
         selection.digest().unwrap()
     );
-    assert!(history.original().unwrap().is_none());
+    assert!(history.original().is_none());
     assert!(history.has_pending());
     (history, current, terms)
 }
@@ -251,7 +251,7 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
     let restored = BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2))
         .unwrap()
         .unwrap();
-    assert!(restored.original().unwrap().is_none());
+    assert!(restored.original().is_none());
     let completed = restored
         .finish_pending_with_reads(
             &fixture.owner,
@@ -261,10 +261,10 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
             &NativeEnrollmentReads(&fixture.native),
         )
         .unwrap();
-    assert!(completed.original().unwrap().is_some());
+    assert!(completed.original().is_some());
     assert_eq!(
         completed.anchor.completed,
-        Some(completed.original().unwrap().unwrap().digest().unwrap())
+        Some(completed.original().unwrap().digest().unwrap())
     );
     assert_eq!(
         encode(&completed.bodies[0].reservation.unsigned, MAX_BODY_BYTES).unwrap(),

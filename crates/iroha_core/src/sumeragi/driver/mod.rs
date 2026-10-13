@@ -1390,7 +1390,7 @@ impl DriverHandle {
     #[cfg(test)]
     pub(crate) fn waiting_after_empty_for_test(&self) -> bool {
         let before = self.shared.empty_epoch.load(Ordering::Acquire);
-        before % 2 == 0
+        before.is_multiple_of(2)
             && !self.shared.transactions_pending.load(Ordering::Acquire)
             && self.shared.empty_waiting.load(Ordering::Acquire)
             && !self.shared.transactions_pending.load(Ordering::Acquire)

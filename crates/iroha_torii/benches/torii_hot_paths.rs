@@ -11,11 +11,10 @@ use axum::{
 use criterion::{BatchSize, BenchmarkId, Criterion};
 use iroha_config::parameters::actual::TelemetryProfile;
 use iroha_core::{
-    block::{BlockBuilder, ValidBlock},
     kura::Kura,
     query::store::{LiveQueryStore, LiveQueryStoreHandle},
     queue::Queue,
-    state::{State, StateReadOnly, World},
+    state::{State, World},
     telemetry::{StateTelemetry, Telemetry},
     tx::AcceptedTransaction,
 };
@@ -35,10 +34,9 @@ use iroha_logger::Level;
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::name::Name;
-use iroha_primitives::const_vec::ConstVec;
 use iroha_telemetry::metrics::Metrics;
 use iroha_torii::{
-    BenchRateLimiter, MaybeTelemetry, NoritoJson, NoritoQuery, QueryOptions, ResponseFormat,
+    BenchRateLimiter, MaybeTelemetry, NoritoQuery, QueryOptions, ResponseFormat,
     SignedQueryAdmission, accept_transaction_for_ingress_for_bench, collection_query_for_bench,
     handle_queries_with_opts, handle_transaction_with_metrics_for_bench,
     handle_v1_contracts_activity_get_for_bench,
@@ -115,9 +113,6 @@ fn deterministic_key_pair_with_algorithm(label: &str, algorithm: Algorithm) -> K
 }
 fn deterministic_key_pair(label: &str) -> KeyPair {
     deterministic_key_pair_with_algorithm(label, Algorithm::Ed25519)
-}
-fn deterministic_bls_key_pair(label: &str) -> KeyPair {
-    deterministic_key_pair_with_algorithm(label, Algorithm::BlsNormal)
 }
 fn query_load_domain_id() -> DomainId {
     DomainId::try_new("querybench", "universal").expect("query bench domain")
@@ -682,15 +677,17 @@ fn account_assets_predicate_envelope(profile: QueryLoadProfile) -> norito::json:
 }
 fn contracts_activity_uri(fixture: &QueryLoadFixture, profile: QueryLoadProfile) -> String {
     use iroha_torii_shared::list_query::{ListQuery, field};
-    let query = ListQuery::new().limit(profile.page_limit as u32).filter(
-        field("authority").eq(fixture.contract_activity_authority.to_string())
-            & field("contract_alias").eq(CONTRACT_ACTIVITY_MATCH_ALIAS)
-            & field("contract_entrypoint").eq(CONTRACT_ACTIVITY_MATCH_ENTRYPOINT)
-            & field("result_ok").eq(true)
-            & field("timestamp_ms").gte(
-                CONTRACT_ACTIVITY_BASE_TIMESTAMP_MS + profile.committed_transactions as u64 / 2,
-            ),
-    );
+    let query = ListQuery::new()
+        .limit(u32::try_from(profile.page_limit).expect("benchmark page limit fits u32"))
+        .filter(
+            field("authority").eq(fixture.contract_activity_authority.to_string())
+                & field("contract_alias").eq(CONTRACT_ACTIVITY_MATCH_ALIAS)
+                & field("contract_entrypoint").eq(CONTRACT_ACTIVITY_MATCH_ENTRYPOINT)
+                & field("result_ok").eq(true)
+                & field("timestamp_ms").gte(
+                    CONTRACT_ACTIVITY_BASE_TIMESTAMP_MS + profile.committed_transactions as u64 / 2,
+                ),
+        );
     let mut serializer = url::form_urlencoded::Serializer::new(String::new());
     serializer.extend_pairs(query.to_query_pairs().expect("benchmark query"));
     format!("/v1/contracts/activity?{}", serializer.finish())

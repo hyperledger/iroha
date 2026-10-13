@@ -462,7 +462,7 @@ fn real_file_failure_drops_publication_and_duplicate_path_sets_are_rejected() {
     let root = directory.path().canonicalize().unwrap();
     let index = root.join(kura::PIPELINE_SIDECARS_INDEX_FILE);
     fs::write(&index, SidecarIndexLayout::base_header(1)).unwrap();
-    let before = index_resource_paths_usage(&[index.clone()]).unwrap();
+    let before = index_resource_paths_usage(std::slice::from_ref(&index)).unwrap();
     let inventory = initialized();
     publish_total(
         &inventory,
@@ -471,7 +471,7 @@ fn real_file_failure_drops_publication_and_duplicate_path_sets_are_rejected() {
     );
     let mutation = inventory.begin(Family::PipelineIndex.mask()).unwrap();
     fs::write(&index, [0_u8; 7]).unwrap();
-    assert!(index_resource_paths_usage(&[index.clone()]).is_err());
+    assert!(index_resource_paths_usage(std::slice::from_ref(&index)).is_err());
     drop(mutation);
     assert_eq!(
         inventory.try_snapshot().unwrap_err(),

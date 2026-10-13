@@ -131,7 +131,9 @@ fn with_original_paid_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
-                            parent_service: Default::default(),
+                            parent_service:
+                                crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                                ),
                         };
                         let original = attempt.original_decoded(&pool).unwrap();
                         test(
@@ -581,7 +583,7 @@ fn with_original_paid_multisig_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
-        parent_service: Default::default(),
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                         };
                             let original = attempt.original_decoded(&pool).unwrap();
                             test(
@@ -839,7 +841,7 @@ fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later
                         block_hash: hash, source: block.clone(),
                         decoder: iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&pool).unwrap(),
                         decoded: None, returned_refusal: None, amx_legs: None,
-        parent_service: Default::default(),
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                     };
                     let original = attempt.original_decoded(&pool).unwrap();
                     let inputs = original.external_entrypoints_slice();

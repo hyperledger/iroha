@@ -21,6 +21,9 @@ use norito::{
 };
 use std::{alloc::Layout, fmt, ops::Deref};
 
+mod draft;
+pub(crate) use draft::{FastPauseDraft, FastPauseRoundDraft, PausePanelDraft};
+
 /// Structural rejection stays distinct from original local allocation refusal.
 #[derive(Debug, thiserror::Error)]
 pub enum PauseRecordError {

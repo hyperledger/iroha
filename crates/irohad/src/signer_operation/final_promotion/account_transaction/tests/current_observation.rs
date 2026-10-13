@@ -401,16 +401,16 @@ fn signed_reserve(
         .check_account(after_account, times().0, times().1)
         .unwrap();
     let after_receipt = f.execute_receipt_check(after_receipt);
-    let signed = pending
+    let signed_transaction = pending
         .release(after_receipt, times().0, times().1)
         .unwrap();
-    (request, signed)
+    (request, signed_transaction)
 }
 
 fn reserved_runtime(
     f: &Fixture,
     request: SignerFinalPromotionRequestV1,
-    signed: SignedFinalPromotionAccountTransactionV1,
+    signed_transaction: SignedFinalPromotionAccountTransactionV1,
     floor: &mut RetainedFloor,
 ) -> (FinalPromotionReservedCheckRuntimeV1, tempfile::TempDir) {
     let (directory, journal) = pending_reserve_journal();
@@ -418,10 +418,10 @@ fn reserved_runtime(
         Arc::clone(f.native.state()),
         f.observer_transactions(),
         request,
-        signed,
+        signed_transaction,
         Duration::from_secs(60),
         floor,
-        journal,
+        &journal,
     )
     .unwrap();
     (runtime, directory)
@@ -475,7 +475,7 @@ fn pending_reserve_rejects_a_finalized_but_rolled_back_floor_before_staging() {
         .check_account(after_account, times().0, times().1)
         .unwrap();
     let after_receipt = f.execute_receipt_check(after_receipt);
-    let signed = pending
+    let signed_transaction = pending
         .release(after_receipt, times().0, times().1)
         .unwrap();
 
@@ -492,10 +492,10 @@ fn pending_reserve_rejects_a_finalized_but_rolled_back_floor_before_staging() {
             Arc::clone(f.native.state()),
             f.observer_transactions(),
             request,
-            signed,
+            signed_transaction,
             Duration::from_secs(60),
             &mut floor,
-            journal,
+            &journal,
         ),
         Err(CurrentError::Floor)
     ));
@@ -511,10 +511,10 @@ fn pending_reserve_rejects_a_finalized_but_rolled_back_floor_before_staging() {
 #[test]
 fn pending_reserve_restart_recovers_only_the_original_signed_attempt() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
     let source_floor = floor.current;
-    let (runtime, directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, directory) = reserved_runtime(&f, request, signed_transaction, &mut floor);
     let pending = directory
         .path()
         .join("pending-reserve-v1")
@@ -539,9 +539,9 @@ fn pending_reserve_restart_recovers_only_the_original_signed_attempt() {
 #[test]
 fn changed_pending_reserve_file_blocks_transport_before_submit() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
-    let (runtime, directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, directory) = reserved_runtime(&f, request, signed_transaction, &mut floor);
     let file = directory.path().join("pending-reserve-v1").join(format!(
         "{}.pending-reserve.norito",
         hex::encode(request.operation_id)
@@ -621,8 +621,8 @@ enum SubmissionMode {
     AmbiguousReconciledWithoutApplication,
     AmbiguousUnresolved,
     AdvanceAudit {
-        reserve: SignedTransaction,
-        binding: SignerCustodyBindingV1,
+        reserve: Box<SignedTransaction>,
+        binding: Box<SignerCustodyBindingV1>,
         operation_id: [u8; 32],
     },
 }
@@ -673,7 +673,10 @@ impl FinalPromotionNativeSubmissionV1 for RuntimeSubmission<'_> {
                 binding,
                 operation_id,
             } => {
-                assert_eq!(self.native.commit(NOW, vec![reserve.clone()]), [true]);
+                assert_eq!(
+                    self.native.commit(NOW, vec![reserve.as_ref().clone()]),
+                    [true]
+                );
                 let view = self.native.state().view();
                 let reserved = read_final_promotion_authority_at_v1(
                     &view,
@@ -775,8 +778,9 @@ fn current_runtime_uses_original_signed_envelope_through_ambiguous_reconciliatio
         assert_eq!(signer.calls, 1);
         assert_eq!(clock.calls, 2);
         assert_eq!(floor.advances, 1);
-        let signed = submission.submitted.as_ref().unwrap();
-        let Executable::Instructions(instructions) = &signed.payload().instructions else {
+        let signed_transaction = submission.submitted.as_ref().unwrap();
+        let Executable::Instructions(instructions) = &signed_transaction.payload().instructions
+        else {
             panic!("signed native Check");
         };
         let instruction = instructions[0]
@@ -926,8 +930,8 @@ fn current_runtime_rejects_changed_custody_audit_and_rollback() {
     let mut submission = RuntimeSubmission::new(
         &mut f.native,
         SubmissionMode::AdvanceAudit {
-            reserve,
-            binding,
+            reserve: Box::new(reserve),
+            binding: Box::new(binding),
             operation_id,
         },
     );
@@ -988,10 +992,11 @@ fn current_runtime_rejects_invalid_reviewed_request_at_construction() {
 #[test]
 fn reserved_runtime_keeps_original_role15_envelope_through_reconciliation_and_finalized_check() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
     let pre_reserve = floor.current;
-    let (runtime, _journal_directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, _journal_directory) =
+        reserved_runtime(&f, request, signed_transaction, &mut floor);
     let mut reserve_submission =
         RuntimeSubmission::new(&mut f.native, SubmissionMode::AmbiguousThenApplied);
     let submitted = runtime
@@ -1049,9 +1054,10 @@ fn reserved_runtime_keeps_original_role15_envelope_through_reconciliation_and_fi
 #[test]
 fn reserved_post_persistence_clock_failure_retains_the_in_memory_check_owner() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
-    let (runtime, _journal_directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, _journal_directory) =
+        reserved_runtime(&f, request, signed_transaction, &mut floor);
     let mut reserve_submission = RuntimeSubmission::new(&mut f.native, SubmissionMode::Applied);
     let submitted = runtime
         .submit_reserve_with(times().0, times().1, &mut floor, &mut reserve_submission)
@@ -1089,9 +1095,10 @@ fn reserved_post_persistence_clock_failure_retains_the_in_memory_check_owner() {
 #[test]
 fn reserved_runtime_refuses_floor_advance_before_reserve_transport() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
-    let (runtime, _journal_directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, _journal_directory) =
+        reserved_runtime(&f, request, signed_transaction, &mut floor);
     let concurrent = pending_current(&f);
     assert_eq!(
         f.native
@@ -1123,7 +1130,7 @@ fn reserved_runtime_refuses_floor_advance_before_reserve_transport() {
 fn reserved_runtime_rejects_wrong_finalized_floor_context_before_construction() {
     let mut f = Fixture::new();
     let earlier_context = f.native.finalized_floor().2;
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
     assert_ne!(earlier_context, floor.current.context_id);
     floor.current.context_id = earlier_context;
@@ -1133,10 +1140,10 @@ fn reserved_runtime_rejects_wrong_finalized_floor_context_before_construction() 
             Arc::clone(f.native.state()),
             f.observer_transactions(),
             request,
-            signed,
+            signed_transaction,
             Duration::from_secs(60),
             &mut floor,
-            journal,
+            &journal,
         ),
         Err(CurrentError::Floor)
     ));
@@ -1157,9 +1164,10 @@ fn reserved_runtime_rejects_wrong_finalized_floor_context_before_construction() 
 fn reserved_runtime_rejects_unapplied_or_substituted_reserve_before_floor_advance() {
     for substitute in [false, true] {
         let mut f = Fixture::new();
-        let (request, signed) = signed_reserve(&mut f);
+        let (request, signed_transaction) = signed_reserve(&mut f);
         let mut floor = RetainedFloor::new(&f);
-        let (runtime, _journal_directory) = reserved_runtime(&f, request, signed, &mut floor);
+        let (runtime, _journal_directory) =
+            reserved_runtime(&f, request, signed_transaction, &mut floor);
         let mut reserve_submission =
             RuntimeSubmission::new(&mut f.native, SubmissionMode::AcceptedWithoutApplication);
         let submitted = runtime
@@ -1199,9 +1207,10 @@ fn reserved_runtime_rejects_unapplied_or_substituted_reserve_before_floor_advanc
 #[test]
 fn reserved_runtime_rejects_post_reserve_floor_before_any_check_work() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
+    let (request, signed_transaction) = signed_reserve(&mut f);
     let mut floor = RetainedFloor::new(&f);
-    let (runtime, _journal_directory) = reserved_runtime(&f, request, signed, &mut floor);
+    let (runtime, _journal_directory) =
+        reserved_runtime(&f, request, signed_transaction, &mut floor);
     let mut reserve_submission = RuntimeSubmission::new(&mut f.native, SubmissionMode::Applied);
     let submitted = runtime
         .submit_reserve_with(times().0, times().1, &mut floor, &mut reserve_submission)
@@ -1231,8 +1240,11 @@ fn reserved_runtime_rejects_post_reserve_floor_before_any_check_work() {
 #[test]
 fn reserved_runtime_rejects_late_reconstruction_after_original_reserve() {
     let mut f = Fixture::new();
-    let (request, signed) = signed_reserve(&mut f);
-    let original = signed.for_submission(times().0, times().1).unwrap().clone();
+    let (request, signed_transaction) = signed_reserve(&mut f);
+    let original = signed_transaction
+        .for_submission(times().0, times().1)
+        .unwrap()
+        .clone();
     assert_eq!(f.native.commit(NOW, vec![original]), [true]);
     let mut floor = RetainedFloor::new(&f);
     let (_journal_directory, journal) = pending_reserve_journal();
@@ -1241,10 +1253,10 @@ fn reserved_runtime_rejects_late_reconstruction_after_original_reserve() {
             Arc::clone(f.native.state()),
             f.observer_transactions(),
             request,
-            signed,
+            signed_transaction,
             Duration::from_secs(60),
             &mut floor,
-            journal,
+            &journal,
         ),
         Err(CurrentError::Check)
     ));
@@ -1257,9 +1269,12 @@ fn current_verification_refusal_retries_exact_signed_owner_before_fresh_clock_an
     use iroha_core::execution_attempt::ExecutionAttemptError;
     let mut f = Fixture::new();
     let pending = pending_current(&f);
-    let signed = pending.signed_transaction().clone();
+    let signed_transaction = pending.signed_transaction().clone();
     let deadline = pending.deadline();
-    assert_eq!(f.native.commit(NOW, vec![signed.clone()]), [true]);
+    assert_eq!(
+        f.native.commit(NOW, vec![signed_transaction.clone()]),
+        [true]
+    );
     let pool = f.native.state().ivm_execution_budget();
     let original_limit = pool.limit_bytes();
     let retained = pool.reserved_bytes();
@@ -1287,7 +1302,7 @@ fn current_verification_refusal_retries_exact_signed_owner_before_fresh_clock_an
         std::time::Instant::now,
         |failure, delay| {
             waits += 1;
-            assert_eq!(failure.signed_transaction(), &signed);
+            assert_eq!(failure.signed_transaction(), &signed_transaction);
             assert_eq!(failure.deadline(), deadline);
             assert_eq!(delay, Duration::from_millis(1));
             let ExecutionAttemptError::Deferred(original) = failure.error() else {
@@ -1362,8 +1377,11 @@ fn current_verification_local_expiry_is_capacity_not_a_completed_check_rejection
     let mut f = Fixture::new();
     let pending = pending_current(&f);
     let deadline = pending.deadline();
-    let signed = pending.signed_transaction().clone();
-    assert_eq!(f.native.commit(NOW, vec![signed.clone()]), [true]);
+    let signed_transaction = pending.signed_transaction().clone();
+    assert_eq!(
+        f.native.commit(NOW, vec![signed_transaction.clone()]),
+        [true]
+    );
     let pool = f.native.state().ivm_execution_budget();
     let limit = pool.limit_bytes();
     let retained = pool.reserved_bytes();
@@ -1375,7 +1393,7 @@ fn current_verification_local_expiry_is_capacity_not_a_completed_check_rejection
         .err()
         .expect("actual original source refusal");
     assert_eq!(failed.deadline(), deadline);
-    assert_eq!(failed.signed_transaction(), &signed);
+    assert_eq!(failed.signed_transaction(), &signed_transaction);
     let ExecutionAttemptError::Deferred(original) = failed.error() else {
         panic!("local State refusal");
     };

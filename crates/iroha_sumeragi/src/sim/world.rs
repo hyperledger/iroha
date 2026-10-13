@@ -204,10 +204,18 @@ pub struct Replica {
     /// The builder's latest `BuildPayload` answered `EMPTY` whose `PayloadReady{req}` is still
     /// owed (at most once per request, §12.2).
     pub pending_ready: Option<u64>,
+    /// Original clock-wait request and the earliest admissible wall time of its retained work.
+    clock_ready: Option<(u64, u64)>,
 }
 
 /// Time-ordered events of the scheduler.
 enum Ev {
+    ClockReady {
+        r: usize,
+        epoch: u64,
+        req: u64,
+        floor: u64,
+    },
     Arrive {
         r: usize,
         from: PublicKey,
@@ -550,6 +558,7 @@ impl World {
                     max_tick_late: 0,
                     wake_mark: (0, 0),
                     pending_ready: None,
+                    clock_ready: None,
                 };
                 machine.replicas[i] = Some(replicas.len());
                 replicas.push(rep);
@@ -761,6 +770,16 @@ impl World {
 
     fn dispatch(&mut self, ev: Ev) {
         match ev {
+            Ev::ClockReady {
+                r,
+                epoch,
+                req,
+                floor,
+            } => {
+                if self.alive(r, epoch) {
+                    self.clock_payload_ready(r, req, floor);
+                }
+            }
             Ev::Arrive { r, from, msg } => self.arrive(r, from, &msg),
             Ev::Local { r, epoch, event } => {
                 if self.alive(r, epoch) {
@@ -1071,10 +1090,11 @@ impl World {
             Action::DriveApplicationControl { .. } | Action::ReceiveApplicationControl { .. } => {}
             Action::BuildPayload {
                 req,
+                height,
                 max_bytes,
                 exec_budget_ms,
                 ..
-            } => self.build_payload(r, req, max_bytes, exec_budget_ms, at),
+            } => self.build_payload(r, req, height, max_bytes, exec_budget_ms, at),
             #[cfg(not(sumeragi_mutation = "ML14"))]
             Action::PayloadRejected { block_hash, .. } => self.quarantine(r, &block_hash),
             #[cfg(sumeragi_mutation = "ML14")]
@@ -1844,7 +1864,15 @@ impl World {
 
     /// The payload builder (§12.2): it only peeks at the queue; an `EMPTY` answer to `req`
     /// makes it owe one `PayloadReady{req}` when a transaction arrives.
-    fn build_payload(&mut self, r: usize, req: u64, max_bytes: u32, budget_ms: u32, at: Millis) {
+    fn build_payload(
+        &mut self,
+        r: usize,
+        req: u64,
+        height: u64,
+        max_bytes: u32,
+        budget_ms: u32,
+        at: Millis,
+    ) {
         let m = self.replicas[r].machine;
         let epoch = self.machines[m].epoch;
         let profile = self.machines[m].profile;
@@ -1869,7 +1897,29 @@ impl World {
             payload.extend_from_slice(tx);
         }
         let inst = rep.inst;
-        self.stamp_block_time(m, &mut payload);
+        self.replicas[r].clock_ready = None;
+        let floor = self.builder_clock_floor(r, height, &payload);
+        let wait = !payload.is_empty()
+            && self.clock_guard.is_some()
+            && !self.machines[m].byz
+            && !cfg!(sumeragi_mutation = "MS68")
+            && floor.is_none_or(|floor| self.wall_ms(m) < i64::try_from(floor).unwrap_or(i64::MAX));
+        if wait {
+            let floor = floor.unwrap_or_else(|| {
+                u64::try_from(self.wall_ms(m))
+                    .unwrap_or(0)
+                    .saturating_add(self.instances[inst].config(height).params.block_time.max(1))
+            });
+            self.replicas[r].clock_ready = Some((req, floor));
+            payload.clear();
+        } else {
+            self.stamp_block_time(m, &mut payload);
+            if !self.machines[m].byz
+                && let Some(floor) = floor
+            {
+                self.raise_block_time_floor(&mut payload, floor);
+            }
+        }
         let hash = crate::preimage::payload_hash(&self.hasher, &payload);
         self.oracle.built.insert((inst, m, hash));
         self.replicas[r].pending_ready = payload.is_empty().then_some(req);
@@ -1893,6 +1943,9 @@ impl World {
                 }),
             },
         );
+        if let Some((req, floor)) = self.replicas[r].clock_ready {
+            self.schedule_clock_payload_ready(r, req, floor, at + latency + 1);
+        }
     }
 
     fn quarantine(&mut self, r: usize, bh: &Hash32) {
@@ -1947,7 +2000,9 @@ impl World {
             return;
         }
         rep.txs.insert(id, tx);
-        if let Some(req) = rep.pending_ready.take() {
+        if rep.clock_ready.is_none()
+            && let Some(req) = rep.pending_ready.take()
+        {
             rep.host.deliver(Event::PayloadReady { req });
             self.refresh(r);
         }
@@ -2187,7 +2242,14 @@ impl World {
                 exec_budget_ms,
             } => {
                 self.replicas[r].exec.prepared = None;
-                self.build_payload(r, req, max_bytes, exec_budget_ms, at);
+                self.build_payload(
+                    r,
+                    req,
+                    self.replicas[r].height,
+                    max_bytes,
+                    exec_budget_ms,
+                    at,
+                );
             }
             Op::Reject { block_hash } => {
                 self.replicas[r].exec.prepared = None;
@@ -2356,6 +2418,8 @@ impl World {
                         rep.height = core.status().height;
                     }
                     rep.busy_until = self.now;
+                    rep.pending_ready = None;
+                    rep.clock_ready = None;
                     rep.applied = rep.store.last().map_or_else(
                         || {
                             let instance = &self.instances[rep.inst];

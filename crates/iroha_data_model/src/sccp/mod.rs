@@ -31,8 +31,8 @@ pub mod light_client;
 pub mod native;
 pub mod outbound;
 pub mod params;
-pub mod registry;
 pub mod reconciliation;
+pub mod registry;
 
 #[cfg(test)]
 pub(crate) mod test_support;

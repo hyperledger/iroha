@@ -502,7 +502,7 @@ fn historical_committee_material_cannot_bypass_global_voting_geometry() {
             super::super::crypto::core_key(member.validator.public_key()).unwrap()
         });
         let result = validate_committee(&members);
-        if count >= 4 && count <= 31 && (count - 1) % 3 == 0 {
+        if (4..=31).contains(&count) && (count - 1) % 3 == 0 {
             result.expect("exact global committee");
             let entry = schedule::global_committee(
                 members

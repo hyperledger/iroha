@@ -117,7 +117,7 @@ pub(crate) use router::{
 #[cfg(test)]
 use std::sync::mpsc;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     num::{NonZeroU64, NonZeroUsize},
     str::FromStr,
@@ -1186,6 +1186,20 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
         transaction: &SignedTransaction,
     ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
+        crate::smartcontracts::isi::sccp::fast_pause::admit(
+            self.view.world(),
+            *self.view.network_id(),
+            transaction.payload(),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                },
+            )?,
+        )
+        .map_err(|error| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: error.to_string(),
+        })?;
         let keepalive = crate::smartcontracts::isi::sccp::keepalive::admit(
             self.view.world(),
             transaction.payload(),
@@ -1219,9 +1233,12 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
             self.next_block_height,
             transaction,
         )
-        .map_err(|reject| Error::NexusFeeAdmissionRejected {
-            code: FeeRejectionCode::OperationNotAllowed,
-            reason: reject.to_string(),
+        .map_err(|reject| match reject.deferred {
+            Some(original) => Error::Deferred(original),
+            None => Error::NexusFeeAdmissionRejected {
+                code: FeeRejectionCode::OperationNotAllowed,
+                reason: reject.to_string(),
+            },
         })
     }
     fn manifest_authority_eligible_lanes(
@@ -1471,6 +1488,11 @@ impl Queue {
     }
 
     /// Admit an ordered batch, reporting the first failure after publishing its accepted prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first transaction whose routing-plan validation or queue
+    /// admission fails, after retaining the previously accepted prefix.
     pub fn push_batch_with_lane_with_state_and_routing_plans(
         &self,
         txs: Vec<(AcceptedTransaction<'static>, RoutingPlan)>,
@@ -1615,6 +1637,10 @@ impl Queue {
         tx.entrypoint_bytes()
     }
     /// Quarantine an empty queue while startup authenticates its State.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the queue already contains pending transactions.
     pub fn enter_emergency_fast_startup(&self) -> std::io::Result<()> {
         let _guard = self.push_remove_lock.lock();
         if self.active_len() != 0 {
@@ -2719,8 +2745,9 @@ impl Queue {
     ) -> bool {
         let binding = self.sumeragi_wake.lock();
         match binding.as_ref() {
-            Some(SumeragiQueueWake::Reserved { budget, .. })
-            | Some(SumeragiQueueWake::Node { budget, .. }) => budget.same_pool(original),
+            Some(
+                SumeragiQueueWake::Reserved { budget, .. } | SumeragiQueueWake::Node { budget, .. },
+            ) => budget.same_pool(original),
             Some(SumeragiQueueWake::Retired { .. }) | None => false,
             #[cfg(test)]
             Some(SumeragiQueueWake::Probe(_)) => true,
@@ -3086,7 +3113,8 @@ impl Queue {
                 }
                 Ok(false) => {}
                 Err(reason) => {
-                    pending_status_fault.get_or_insert((tx_ref.hash_as_entrypoint(), reason));
+                    pending_status_fault
+                        .get_or_insert_with(|| (tx_ref.hash_as_entrypoint(), reason));
                 }
             }
         }
@@ -3139,7 +3167,7 @@ impl Queue {
             cursor.next_index = 0;
         }
         let start = cursor.next_index;
-        let mut seen = HashSet::with_capacity(remaining.min(age_ring.len().saturating_sub(start)));
+        let mut seen = BTreeSet::new();
         let mut sccp_budget = SccpExemptBlockBudgetV1::new(state_view.world());
         let pending = age_ring
             .iter()
@@ -3147,10 +3175,10 @@ impl Queue {
             .take(remaining)
             .filter_map(|(hash, enqueued_at)| {
                 if !seen.insert(*hash)
-                    || !self
+                    || self
                         .queued_tx_enqueued_at_ms
                         .get(hash)
-                        .is_some_and(|row| *row == *enqueued_at)
+                        .is_none_or(|row| *row != *enqueued_at)
                 {
                     return None;
                 }
@@ -3443,6 +3471,11 @@ impl Queue {
     ///
     /// This is used by Torii ingress proxying to compute the authoritative lane
     /// before deciding whether the request can be executed locally.
+    ///
+    /// # Errors
+    ///
+    /// Propagates routing-policy, stale-plan, unavailable-route, and original
+    /// resource-deferral errors from [`Self::route_plan_with_state`].
     pub fn route_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3455,6 +3488,12 @@ impl Queue {
     ///
     /// This is used by Torii, gossip, and block proposal paths to preserve native AMX
     /// participant legs alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if retained transaction identity or routing plans are
+    /// stale, current policy cannot resolve an executable route, or an original
+    /// state resource defers resolution.
     pub fn route_plan_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3515,6 +3554,11 @@ impl Queue {
     /// Resolve the complete routing plan for an exact unsigned payload.
     ///
     /// Native AMX participant legs are retained alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if policy or authoritative targets cannot resolve a
+    /// valid admitted route, including original state-resource deferrals.
     pub fn route_payload_plan_with_state(
         &self,
         payload: &TransactionPayload,
@@ -3888,7 +3932,7 @@ impl Queue {
                 let allows_multisig_envelope_authority =
                     match checked.as_accepted().as_ref().instructions() {
                         Executable::Instructions(instructions) => {
-                            instructions_allow_multisig_envelope_authority(&instructions)
+                            instructions_allow_multisig_envelope_authority(instructions)
                         }
                         Executable::ContractCall(_)
                         | Executable::IvmProved(_)
@@ -4312,7 +4356,10 @@ impl Queue {
                 self.tx_gas_cost.insert(hash, proposal_gas_cost);
                 self.track_expiry_hash(hash);
                 if let Some(authority) = authority {
-                    self.apply_per_user_tx_count_increments(HashMap::from([(authority, 1)]));
+                    self.txs_per_user
+                        .entry(authority)
+                        .and_modify(|count| *count = count.saturating_add(1))
+                        .or_insert(1);
                 }
                 #[cfg(feature = "telemetry")]
                 self.record_teu_enqueue_locked(
@@ -4934,17 +4981,6 @@ impl Queue {
         self.txs_per_user
             .get(account_id)
             .map_or(0, |count| *count.value())
-    }
-    fn apply_per_user_tx_count_increments(&self, increments: HashMap<AccountId, usize>) {
-        for (account_id, delta) in increments {
-            if delta == 0 {
-                continue;
-            }
-            self.txs_per_user
-                .entry(account_id)
-                .and_modify(|count| *count = count.saturating_add(delta))
-                .or_insert(delta);
-        }
     }
     #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
     fn publish_backpressure_state(&self, queued: usize, telemetry: Option<&StateTelemetry>) {
@@ -6037,9 +6073,9 @@ pub mod tests {
             cfg: Config,
             time_source: &TimeSource,
             router: Arc<dyn LaneRouter>,
-            routes: &[(LaneId, DataSpaceId)],
+            route_bindings: &[(LaneId, DataSpaceId)],
         ) -> Self {
-            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(routes);
+            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(route_bindings);
             let mut queue = Self::from_config_with_router_limits_and_catalogs(
                 cfg,
                 tokio::sync::broadcast::Sender::new(1),
@@ -6419,8 +6455,10 @@ pub mod tests {
             ],
         )
         .expect("lane catalog");
-        let mut nexus = Nexus::default();
-        nexus.lane_catalog = lane_catalog.clone();
+        let mut nexus = Nexus {
+            lane_catalog: lane_catalog.clone(),
+            ..Default::default()
+        };
         nexus.routing_policy.default_lane = retired_lane;
         nexus.routing_policy.default_dataspace = DataSpaceId::UNIVERSAL;
         let NexusRoutingFixture {
@@ -7137,12 +7175,16 @@ pub mod tests {
             policy_lane,
             dataspace,
         )));
-        let mut routes = vec![(policy_lane, dataspace)];
+        let mut route_bindings = vec![(policy_lane, dataspace)];
         if conflicting_lane_is_active {
-            routes.push((conflicting_lane, dataspace));
+            route_bindings.push((conflicting_lane, dataspace));
         }
-        let queue =
-            Queue::test_with_router_for_routes(config_factory(), time_source, router, &routes);
+        let queue = Queue::test_with_router_for_routes(
+            config_factory(),
+            time_source,
+            router,
+            &route_bindings,
+        );
 
         let (primary, primary_keypair) = gen_account_in("wonderland");
         let (secondary, _) = gen_account_in("wonderland");
@@ -7192,7 +7234,7 @@ pub mod tests {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         queue.install_test_router_metadata_for_nexus(&nexus);
-        let mut state = if autoscale_lane.is_some() {
+        let state = if autoscale_lane.is_some() {
             // Deliberately model a future lane that production startup refuses.
             let state = State::new(
                 world_with_test_domains(),
@@ -7211,7 +7253,7 @@ pub mod tests {
             )
         };
         for authority in [&primary, &secondary, &outsider, &conflicting_validator] {
-            register_test_authority(&mut state, authority);
+            register_test_authority(&state, authority);
         }
 
         let policy_metadata_key =
@@ -7224,7 +7266,6 @@ pub mod tests {
                     metadata_key: Some(policy_metadata_key.clone()),
                     allowed_ids: Some(BTreeSet::from([RUNTIME_UPGRADE_ALLOWED_ID.to_owned()])),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -8687,7 +8728,6 @@ pub mod tests {
                     metadata_key: None,
                     allowed_ids: None,
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -8765,7 +8805,6 @@ pub mod tests {
                     metadata_key: Some(metadata_key.clone()),
                     allowed_ids: Some(allowed_ids),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -9606,7 +9645,10 @@ pub mod tests {
             crate::tx::exact_signed_transaction_hash(committed.entrypoint()),
             None
         );
-        assert_eq!(SignedTransaction::from(revealed.clone()), signed);
+        assert_eq!(
+            revealed.clone().into_entrypoint(),
+            revealed.entrypoint().clone()
+        );
         assert_eq!(revealed.creation_time(), external.creation_time());
         assert_eq!(revealed.time_to_live(), external.time_to_live());
         assert_eq!(committed.creation_time(), Duration::ZERO);

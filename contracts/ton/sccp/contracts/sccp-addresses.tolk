@@ -3,8 +3,8 @@
 // off-chain tool computes them from code hash and depth alone.
 
 import "sccp-constants"
-import "sccp-storage"
 import "sccp-recovery"
+import "sccp-storage"
 
 /// StateInit destination of the Jetton wallet of `owner` (zero balance).
 fun sccpWalletDeployment(owner: address, minter: address, walletCode: cell): AutoDeployAddress {

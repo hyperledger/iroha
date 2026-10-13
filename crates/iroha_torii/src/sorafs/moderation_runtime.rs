@@ -356,6 +356,11 @@ pub enum ModerationFeeQuoteFailureV1 {
 /// Runtime fee quoter used after Torii has built the exact V1 payload.
 pub trait ModerationFeeQuoterV1: Send + Sync {
     /// Quote the signature-bound fee intent without changing any other field.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` when no quote can be obtained, or `Rejected` when
+    /// the exact payload cannot satisfy the governed fee policy.
     fn quote(
         &self,
         payload: &TransactionPayload,
@@ -480,12 +485,16 @@ impl ModerationTransactionSubmitterAdapterV1 {
     /// substituted, stale, or differs from its independent exact binding.
     pub fn try_new(
         network_id: NetworkId,
-        transaction_signer_handle: &str,
-        expected_transaction_signer_qualification: ModerationRuntimeProviderQualificationV1,
+        (transaction_signer_handle, expected_transaction_signer_qualification): (
+            &str,
+            ModerationRuntimeProviderQualificationV1,
+        ),
         signer: Arc<dyn ModerationSignedTransactionSignerV1>,
         fee_quoter: Arc<dyn ModerationFeeQuoterV1>,
-        strict_ingress_handle: &str,
-        expected_strict_ingress_qualification: ModerationRuntimeProviderQualificationV1,
+        (strict_ingress_handle, expected_strict_ingress_qualification): (
+            &str,
+            ModerationRuntimeProviderQualificationV1,
+        ),
         ingress: Arc<dyn ModerationStrictTransactionIngressV1>,
     ) -> Result<Self, ModerationRuntimeProviderQualificationErrorV1> {
         let signer = QualifiedModerationRuntimeProviderV1::try_new(
@@ -1327,11 +1336,22 @@ pub trait ModerationDurableHandoffBoundaryV1: ModerationRuntimeProviderV1 {
     ///
     /// Implementations must atomically enforce generation/predecessor continuity,
     /// reject forks and gaps, and make the accepted monotonic head publicly readable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if publication fails or its outcome is ambiguous, or if
+    /// the head is permanently rejected, including forks and generation gaps.
+    /// An ambiguous outcome must be retried with the same operation identity.
     fn publish_archive_head_once(
         &self,
         request: &ModerationDurableArchiveHeadPublicationRequestV1,
     ) -> Result<ModerationDurableHandoffOutcomeV1, ModerationDurableHandoffFailureV1>;
     /// Read the monotonic public archive head from the publication store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the durable publication store cannot supply a reliable
+    /// archive-head result; an empty store is reported as `Ok(None)`.
     fn read_published_archive_head(
         &self,
     ) -> Result<Option<ModerationPanelNotificationArchiveHeadV1>, ModerationDurableHandoffFailureV1>;
@@ -2141,12 +2161,10 @@ mod tests {
     ) -> ModerationTransactionSubmitterAdapterV1 {
         ModerationTransactionSubmitterAdapterV1::try_new(
             test_network_id(0xA5),
-            TEST_SIGNER_HANDLE,
-            TEST_SIGNER_QUALIFICATION,
+            (TEST_SIGNER_HANDLE, TEST_SIGNER_QUALIFICATION),
             signer,
             Arc::new(TestFeeQuoter),
-            TEST_INGRESS_HANDLE,
-            TEST_INGRESS_QUALIFICATION,
+            (TEST_INGRESS_HANDLE, TEST_INGRESS_QUALIFICATION),
             ingress,
         )
         .expect("qualified moderation adapter")
@@ -2299,12 +2317,10 @@ mod tests {
         let ingress = Arc::new(TestIngress::default());
         let error = ModerationTransactionSubmitterAdapterV1::try_new(
             test_network_id(0xA5),
-            TEST_SIGNER_HANDLE,
-            TEST_SIGNER_QUALIFICATION,
+            (TEST_SIGNER_HANDLE, TEST_SIGNER_QUALIFICATION),
             Arc::new(signer),
             Arc::new(TestFeeQuoter),
-            TEST_INGRESS_HANDLE,
-            TEST_INGRESS_QUALIFICATION,
+            (TEST_INGRESS_HANDLE, TEST_INGRESS_QUALIFICATION),
             ingress,
         )
         .expect_err("test-marked signer must fail qualification");
@@ -2361,10 +2377,10 @@ mod tests {
         let signer = Arc::new(FixedSigner::exact(signer_key));
         let ingress = Arc::new(TestIngress::default());
         let adapter = adapter(signer, ingress.clone());
-        let signed = adapter.sign(&request).expect("qualified signer result");
+        let signed_payload = adapter.sign(&request).expect("qualified signer result");
         ingress.drift_after_submit(ModerationRuntimeProviderQualificationV1::new(2, [0xB2; 32]));
         assert_eq!(
-            adapter.submit_signed(&request, &signed),
+            adapter.submit_signed(&request, &signed_payload),
             Err(ModerationSubmissionFailureV1::Ambiguous)
         );
         assert_eq!(ingress.calls(), 1);
@@ -2372,7 +2388,7 @@ mod tests {
         ingress.set_qualification(TEST_INGRESS_QUALIFICATION);
         ingress.drift_after_lookup(ModerationRuntimeProviderQualificationV1::new(3, [0xC2; 32]));
         assert_eq!(
-            adapter.lookup(request.operation_id, Some(signed.transaction_id)),
+            adapter.lookup(request.operation_id, Some(signed_payload.transaction_id)),
             ModerationSubmissionLookupV1::Unknown
         );
     }
@@ -2440,13 +2456,13 @@ mod tests {
         let signer = Arc::new(FixedSigner::exact(signer_key));
         let ingress = Arc::new(TestIngress::default());
         let adapter = adapter(signer, ingress.clone());
-        let signed = adapter.sign(&request).expect("sign exact payload");
-        let expected_transaction_id = signed.transaction_id;
+        let signed_payload = adapter.sign(&request).expect("sign exact payload");
+        let expected_transaction_id = signed_payload.transaction_id;
         let first = adapter
-            .submit_signed(&request, &signed)
+            .submit_signed(&request, &signed_payload)
             .expect("first submission");
         let replay = adapter
-            .submit_signed(&request, &signed)
+            .submit_signed(&request, &signed_payload)
             .expect("idempotent replay");
         assert_eq!(first, replay);
         assert_eq!(first.transaction_id, expected_transaction_id);
@@ -2835,21 +2851,21 @@ mod tests {
                 .values()
                 .map(|(_, head)| head)
                 .max_by_key(|head| head.generation);
-            let lineage_is_valid = match latest {
-                None => {
+            let lineage_is_valid = latest.map_or_else(
+                || {
                     request.head.generation == 1
                         && request.head.predecessor_operation_id.is_none()
                         && request.head.predecessor_head_digest.is_none()
                         && request.head.predecessor_chain_commitment.is_none()
-                }
-                Some(predecessor) => {
+                },
+                |predecessor| {
                     predecessor.generation.checked_add(1) == Some(request.head.generation)
                         && request.head.predecessor_operation_id == Some(predecessor.operation_id)
                         && request.head.predecessor_head_digest == Some(predecessor.head_digest)
                         && request.head.predecessor_chain_commitment
                             == Some(predecessor.chain_commitment)
-                }
-            };
+                },
+            );
             if !lineage_is_valid {
                 return Err(ModerationDurableHandoffFailureV1::Permanent);
             }

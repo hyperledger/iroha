@@ -291,7 +291,7 @@ fn malformed_typed_controller_preserves_exact_inverse_without_new_key_admission(
     let mut key = ALICE_ID.expect_single_signatory().clone();
     key.zeroize_for_confidential_discard();
     let owner = AccountId::new(key);
-    let mut world = World::default();
+    let mut world = World::new();
     world.accounts = Storage::from_iter([(owner.clone(), details(Some(uaid()), vec![opaque(1)]))]);
     world.uaid_accounts = Storage::from_iter([(uaid(), owner)]);
     world.opaque_uaids = Storage::from_iter([(opaque(1), uaid())]);

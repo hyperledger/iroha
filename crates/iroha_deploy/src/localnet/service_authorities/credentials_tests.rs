@@ -47,10 +47,10 @@ fn role_credential_requires_exact_bounded_canonical_ed25519_line() {
     assert!(read_role_key(&directory, &authority).unwrap() == key);
     let text = std::str::from_utf8(&canonical[..canonical.len() - 1]).unwrap();
     // Case-only alternate text is noncanonical even when the hexadecimal digit values agree.
-    let alternate = if text.to_ascii_lowercase() != text {
-        text.to_ascii_lowercase()
-    } else {
+    let alternate = if text.to_ascii_lowercase() == text {
         text.to_ascii_uppercase()
+    } else {
+        text.to_ascii_lowercase()
     };
     assert!(alternate != text);
     let malformed = [

@@ -129,12 +129,12 @@ fn original_source(
 ///
 /// Acquisition is lazy. Call `poll` or `complete` on the returned job; either retains the
 /// original descriptor, partial prefix and completed fields when a typed refusal is returned.
-pub fn amx_record_proof<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_record_proof<V: StateReadOnly>(
+    view: &V,
     height: u64,
     kind: AmxRecordKind,
     transaction: [u8; 32],
-) -> NativeAmxRecordProofReadV1<'v, V> {
+) -> NativeAmxRecordProofReadV1<'_, V> {
     NativeAmxRecordProofReadV1::new(view, height, kind, transaction)
 }
 
@@ -369,9 +369,12 @@ pub fn parliament_casting_proof(
     else {
         return Ok(None);
     };
-    let tree = MerkleTree::<CastingBinding>::from_iter(
-        source.casting_bindings.as_slice().iter().map(HashOf::new),
-    );
+    let tree = source
+        .casting_bindings
+        .as_slice()
+        .iter()
+        .map(HashOf::new)
+        .collect::<MerkleTree<CastingBinding>>();
     let leaf_index = u32::try_from(index).map_err(|_| "casting leaf index exceeds u32")?;
     let membership_proof = ParliamentTimedOvnCastingContextMembershipProofV1::new(
         tree.get_proof(leaf_index)

@@ -92,6 +92,10 @@ pub enum PayloadWork {
 
 impl PayloadWork {
     /// Convert only payload actions; return every other action unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original action unchanged when it is not payload work.
     pub fn from_action(action: Action) -> Result<Self, Action> {
         match action {
             Action::AuthorPayload {
@@ -285,6 +289,11 @@ impl PayloadWorker {
 
     /// Accept a command and make bounded progress. Corruption and violated local contracts
     /// stop the worker; neither can masquerade as an absent body or a successful read.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error for corrupt stored payload evidence, violated worker
+    /// contracts, or unrecoverable storage or network delivery failures.
     pub fn step(
         &mut self,
         work: PayloadWork,

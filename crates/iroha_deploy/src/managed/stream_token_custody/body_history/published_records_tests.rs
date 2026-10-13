@@ -135,6 +135,17 @@ fn published_terminal_records_share_exact_owner_and_keep_current_foreign_and_act
 
 #[test]
 fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            self.directory
+                .write_atomic("closed.nrt", &self.bytes, PublishMode::Replace)
+                .unwrap();
+        }
+    }
+    struct Restore {
+        directory: Arc<PrivateDirectory>,
+        bytes: zeroize::Zeroizing<Vec<u8>>,
+    }
     let _resources = crate::managed::native_test_guard();
     let (_fixture, history) = shared_snapshot_tests::history_with_bodies(2);
     let native = history.current_history().unwrap();
@@ -147,17 +158,7 @@ fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
     let original = directory
         .read("closed.nrt", attempts::MAX_RECORD_BYTES)
         .unwrap();
-    struct Restore {
-        directory: Arc<PrivateDirectory>,
-        bytes: zeroize::Zeroizing<Vec<u8>>,
-    }
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            self.directory
-                .write_atomic("closed.nrt", &self.bytes, PublishMode::Replace)
-                .unwrap();
-        }
-    }
+
     let restore = Restore {
         directory,
         bytes: original,

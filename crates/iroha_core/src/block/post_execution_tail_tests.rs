@@ -115,7 +115,7 @@ fn common_tail_receipt_join_preserves_full_prefix_and_rejects_competing_rows_ato
     let second = HashOf::from_untyped_unchecked(Hash::new(b"second executed call"));
     let owners = BTreeMap::from([(first, 0), (second, 1)]);
     let receipt = tail_receipt_fixture();
-    let mut prefix = vec![TransactionResult::new(Ok(Default::default())); 2];
+    let mut prefix = vec![TransactionResult::new(Ok(Vec::default())); 2];
     prefix[0].set_batch_transfer_outcomes(vec![receipt.clone()]);
     let retained = prefix[0].clone();
     attach_fixture_receipts(&mut prefix, &owners, BTreeMap::new()).unwrap();
@@ -136,7 +136,7 @@ fn common_tail_receipt_join_preserves_full_prefix_and_rejects_competing_rows_ato
         prefix, before,
         "a later failure cannot attach any earlier row"
     );
-    let mut empty = vec![TransactionResult::new(Ok(Default::default()))];
+    let mut empty = vec![TransactionResult::new(Ok(Vec::default()))];
     assert!(
         attach_fixture_receipts(
             &mut empty,
@@ -178,7 +178,7 @@ fn common_tail_receipt_join_rejects_unknown_empty_and_out_of_range_owners() {
             BTreeMap::from([(owner, vec![receipt])]),
         ),
     ] {
-        let mut results = vec![TransactionResult::new(Ok(Default::default()))];
+        let mut results = vec![TransactionResult::new(Ok(Vec::default()))];
         let before = results.clone();
         assert!(attach_fixture_receipts(&mut results, &owners, outcomes).is_err());
         assert_eq!(results, before);
@@ -222,7 +222,7 @@ fn time_receipts_bind_distinct_schedule_calls_of_the_same_action() {
             vec![second.clone()],
         ),
     ]);
-    let inner = vec![Ok(Default::default()); 2];
+    let inner = vec![Ok(Vec::default()); 2];
     let full = join_time_fixture_receipts(
         &BTreeMap::new(),
         proposal,

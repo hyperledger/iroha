@@ -423,9 +423,15 @@ def test_minter_initial_data_layout() -> None:
     network, instance = int("11" * 32, 16), int("77" * 32, 16)
     cells = builder.minter_initial_data(network, instance, 1, 10**18, 7, 7000, 1234, keys, wallet, bucket)
     root = cells["root"]
-    # minter_data: 331 zero bits and the empty `retries` dictionary bit
-    assert len(root.bits) == 332 and set(root.bits) == {"0"}
-    assert root.refs == [cells["config"], cells["committee"], cells["checkpoints"]]
+    # minter_data: 331 zero bits and four mandatory references, including recovery.
+    assert len(root.bits) == 331 and set(root.bits) == {"0"}
+    assert root.refs == [cells["config"], cells["committee"], cells["checkpoints"], cells["recovery"]]
+    assert cells["recovery"].bits == format(1, "064b") + "0" * 75
+    assert not cells["recovery"].refs
+    missing_recovery = builder.Builder().raw(bytes(41)).uint(0, 3)
+    for child in root.refs[:3]:
+        missing_recovery.ref(child)
+    assert missing_recovery.end().hash != root.hash
     config = cells["config"]
     assert config.refs == [cells["initial_pin"], wallet, bucket]
     assert config.bits[:256] == format(network, "0256b") and config.bits[256:512] == format(instance, "0256b")
@@ -456,14 +462,24 @@ def test_minter_initial_data_layout() -> None:
 
 def test_bucket_initial_data_layout() -> None:
     data = golden.bucket_initial_data(int("cd" * 32, 16), 5)
-    # addr_std (267) ‖ index:uint64 ‖ activated:Bool ‖ bits:uint512
-    assert len(data.bits) == 267 + 64 + 1 + 512 and not data.refs
+    # addr_std (267) ‖ index:uint64 ‖ activated:Bool ‖ bits:uint512 ‖ ^RecoveryReceipts
+    assert len(data.bits) == 267 + 64 + 1 + 512 and len(data.refs) == 1
+    assert data.refs[0].bits == "0" * 11 and not data.refs[0].refs
     assert data.bits[267:331] == format(5, "064b")
     assert data.bits[331] == "0"
     assert set(data.bits[332:]) == {"0"}
     assert golden.bucket_address(int("cd" * 32, 16), 5, OpaqueCell("bb" * 32, 5)) != golden.bucket_address(
         int("cd" * 32, 16), 6, OpaqueCell("bb" * 32, 5)
     )
+
+
+def test_child_addresses_require_empty_recovery_receipts() -> None:
+    code = OpaqueCell("bb" * 32, 5)
+    owner, minter = 7, 8
+    missing_wallet = builder.Builder().coins(0).address(0, owner).address(0, minter).end()
+    missing_bucket = builder.Builder().address(0, minter).uint(5, 64).bit(False).uint(0, 512).end()
+    assert golden.wallet_address(owner, minter, code) != int.from_bytes(builder.state_init(code, missing_wallet).hash, "big")
+    assert golden.bucket_address(minter, 5, code) != int.from_bytes(builder.state_init(code, missing_bucket).hash, "big")
 
 
 def test_state_init_hash_matches_tvm_formula() -> None:
@@ -714,7 +730,14 @@ def test_cert_vectors_render_certificates_and_scenarios() -> None:
         scenario["name"] for scenario in transitions["scenarios"]
         if scenario.get("flavor") == "ton" or scenario.get("ton_replayable")
     ]
-    assert len(replayed) == text.count("\nfun vecScenario") and len(replayed) >= 20
+    control_rows = builder.load_fixture("control_v1.json")["ton_destination_effects"]
+    assert len(replayed) + len(control_rows) == text.count("\nfun vecScenario")
+    assert len(replayed) >= 20 and len(control_rows) == 10
+    for row in control_rows:
+        assert f"fun vecScenario{builder._camel(row['name'])}() {{\n" in text
+        assert f"const VEC_SCENARIO_{builder._upper(row['name'])}_STEPS = {len(row['steps'])}\n" in text
+    assert f"const VEC_TON_CONTROL_SCENARIO_COUNT = {len(control_rows)}\n" in text
+    assert f"const VEC_TON_CONTROL_SCENARIO_STEPS = {sum(len(row['steps']) for row in control_rows)}\n" in text
     for name in replayed:
         assert f"fun vecScenario{builder._camel(name)}() {{\n" in text
         scenario = next(row for row in transitions["scenarios"] if row["name"] == name)
@@ -730,7 +753,7 @@ def test_cert_vectors_render_certificates_and_scenarios() -> None:
         assert f"fun vecScenario{builder._camel(name)}()" not in text
     # outcomes are exit codes of the shared table and events are full bodies
     assert "expectOutcome(res0, 403);" in text  # BadCommittee: key change without next_keys
-    for call in ("eventCertificate(", "eventCheckpointed(", "eventRotated(", "eventLatched(", "eventControlApplied("):
+    for call in ("eventCertificate(", "eventCheckpointed(", "eventRotated(", "eventLatched(", "eventControlApplied(", "replayEventFinalized(", "replayEventVoided("):
         assert call in text
     for literal in __import__("re").findall(r'"([0-9a-f]*)"\.hexToSlice\(\)', text):
         assert len(literal) <= 254 and len(literal) % 2 == 0
@@ -751,7 +774,7 @@ def test_scenario_renderer_refuses_rows_it_cannot_replay() -> None:
         builder._scenario_function(foreign, transitions, codes, context)
     # an event that TON does not emit in a replayed step is refused, not dropped
     with pytest.raises(builder.TonBuilderError, match="no TON replay form"):
-        builder._event_expr({"event": "SccpFinalized"}, {}, {"checkpoints": []})
+        builder._event_expr({"event": "UnknownFutureEvent"}, {}, {"checkpoints": []})
 
 
 # ---------------------------------------------------------------------------
@@ -808,11 +831,12 @@ def test_fixture_reproduces_from_code_hashes_and_depths_alone() -> None:
         data = vector["initial_data"]
         assert cells["root"].hash.hex() == data["hash"]
         assert cells["root"].depth == data["depth"]
-        for name in ("root", "config", "initial_pin", "committee", "checkpoints"):
+        for name in ("root", "config", "initial_pin", "committee", "checkpoints", "recovery"):
             assert cells[name].hash.hex() == data[name]["hash"], name
             assert cells[name].data_hex() == data[name]["data"], name
             assert len(cells[name].bits) == data[name]["bit_len"], name
-        assert data["root"]["bit_len"] == 332 and data["root"]["refs"] == ["config", "committee", "checkpoints"]
+        assert data["root"]["bit_len"] == 331 and data["root"]["refs"] == ["config", "committee", "checkpoints", "recovery"]
+        assert data["recovery"]["bit_len"] == 139 and data["recovery"]["refs"] == []
         assert data["checkpoints"]["bit_len"] == 2 and data["checkpoints"]["data"] == "00"
         state_init = builder.state_init(code["minter"], cells["root"])
         assert state_init.hash.hex() == vector["state_init_hash"] == vector["address"]["account_id"]
@@ -835,10 +859,11 @@ def test_fixture_bag_of_cells_is_the_initial_data() -> None:
         root = builder.parse_boc(bytes.fromhex(data["boc"]))
         assert root.hash.hex() == data["hash"] and root.depth == data["depth"]
         assert builder.serialize_boc(root).hex() == data["boc"]
-        config, committee, checkpoints = root.refs
+        config, committee, checkpoints, recovery = root.refs
         assert config.hash.hex() == data["config"]["hash"]
         assert committee.hash.hex() == data["committee"]["hash"]
         assert checkpoints.hash.hex() == data["checkpoints"]["hash"]
+        assert recovery.hash.hex() == data["recovery"]["hash"]
         pin, wallet, bucket = config.refs
         assert pin.hash.hex() == data["initial_pin"]["hash"]
         # the bag carries the complete wallet and bucket code
@@ -870,6 +895,7 @@ def test_script_output_parser_and_cross_check() -> None:
             f"sccp-stateinit {label} committee_hash={data['committee']['hash']}",
             f"sccp-stateinit {label} keys_hash={data['keys'][0]['hash']}",
             f"sccp-stateinit {label} checkpoints_hash={data['checkpoints']['hash']}",
+            f"sccp-stateinit {label} recovery_hash={data['recovery']['hash']}",
             f"sccp-stateinit {label} data_hash={vector['initial_data']['hash']}",
             f"sccp-stateinit {label} data_depth={vector['initial_data']['depth']}",
             f"sccp-stateinit {label} state_init_hash={vector['state_init_hash']}",

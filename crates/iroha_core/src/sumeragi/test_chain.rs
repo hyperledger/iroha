@@ -271,6 +271,7 @@ pub struct CertifiedTestChain {
     tip: (u64, Hash32, Hash32),
     clock: KeyPair,
     execution_clock: iroha_primitives::time::MockTimeHandle,
+    #[cfg(test)]
     execution_time_source: TimeSource,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
 }
@@ -556,14 +557,13 @@ impl CertifiedTestChain {
             )
             .expect("fixture committee admits");
         let shared: SharedCrypto = crypto.clone();
-        let instance =
-            root_instance(&genesis, &chain_id.to_string()).map_err(|error| match error {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
-                    error: TestChainError::Deferred(reason),
-                    state: Arc::clone(&state),
-                },
-            })?;
+        let instance = root_instance(&genesis, chain_id.as_ref()).map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
+                error: TestChainError::Deferred(reason),
+                state: Arc::clone(&state),
+            },
+        })?;
         let availability: Arc<dyn AvailabilitySchedule> = Arc::new(
             super::runtime_availability::NativeGlobalAvailability::new(
                 Arc::clone(&state),
@@ -632,6 +632,7 @@ impl CertifiedTestChain {
             tip: (GENESIS_HEIGHT, tip.block_hash, tip.result),
             clock,
             execution_clock,
+            #[cfg(test)]
             execution_time_source,
             lane_blocks,
         })
@@ -857,7 +858,7 @@ impl CertifiedTestChain {
             aggregate.accept_partial(partial).unwrap();
         }
         let pulse = aggregate.finalize().unwrap();
-        let control = super::epoch_beacon::control::encode(Some(pulse)).unwrap();
+        let control = super::epoch_beacon::control::encode(Some(pulse).as_ref()).unwrap();
         chain.commit_with_control(None, Vec::new(), Signers::Quorum, control);
         assert_eq!(chain.height(), 9);
         chain
@@ -957,7 +958,12 @@ impl CertifiedTestChain {
         transactions: Vec<SignedTransaction>,
         signers: Signers,
     ) -> Vec<bool> {
-        self.commit_with_control(time_ms, transactions, signers, Default::default())
+        self.commit_with_control(
+            time_ms,
+            transactions,
+            signers,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute and certify a block with its separately authenticated control witness.
@@ -1058,7 +1064,7 @@ impl CertifiedTestChain {
         let accepted = transactions
             .into_iter()
             .map(|tx| {
-                let accepted = AcceptedTransaction::accept_with_time_source(
+                AcceptedTransaction::accept_with_time_source(
                     tx,
                     &self.network_id(),
                     Duration::from_secs(1),
@@ -1066,8 +1072,7 @@ impl CertifiedTestChain {
                     &iroha_config::parameters::actual::Crypto::default(),
                     &time_source,
                 )
-                .expect("the fixture transaction is accepted");
-                accepted
+                .expect("the fixture transaction is accepted")
             })
             .collect::<Vec<_>>();
         let assembly = Assembly {
@@ -1153,7 +1158,11 @@ impl CertifiedTestChain {
         entrypoints: Vec<iroha_data_model::transaction::TransactionEntrypoint>,
     ) -> CommittedBlock {
         let proposal = self.proposal_entrypoints(entrypoints);
-        self.commit_proposal(proposal, Signers::Quorum, Default::default())
+        self.commit_proposal(
+            proposal,
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute, certify, publish and apply one original resultless proposal through the same
@@ -1179,6 +1188,7 @@ impl CertifiedTestChain {
 
     /// The deterministic fixture wall clock shared by its ordinary execution workers.
     /// Explicit clock-regression tests inject their own independent source instead.
+    #[cfg(test)]
     pub(crate) fn execution_time_source(&self) -> TimeSource {
         self.execution_time_source.clone()
     }
@@ -2281,7 +2291,9 @@ mod tests {
         );
         let original = chain.committed(9);
         let proposal = chain.proposal(None, Vec::new());
-        let error = match chain.begin_proposal(proposal, Default::default()) {
+        let error = match chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        {
             Ok(_) => panic!("absent currency cannot authorize the native boundary"),
             Err(error) => error,
         };
@@ -2352,7 +2364,7 @@ mod tests {
                 peer_id: peer.clone(),
                 stake_account: validator.clone(),
                 initial_stake: amount.clone(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                     source_asset.clone(),
                     escrow_asset.clone(),
@@ -2802,10 +2814,11 @@ mod tests {
                 Some(20_000),
                 Vec::new(),
                 Signers::Quorum,
-                Default::default(),
+                iroha_sumeragi::types::ControlWitness::default(),
                 |proposal| {
                     let mut context = proposal.execution_context().cloned().unwrap_or_default();
-                    context.lane_merge = Some(Default::default());
+                    context.lane_merge =
+                        Some(iroha_data_model::sumeragi_lanes::SumeragiLaneMergeSection::default());
                     proposal.set_execution_context(Some(context));
                 },
             );

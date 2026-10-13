@@ -37,17 +37,19 @@ fn private_state() -> (State, DataSpaceId) {
         .set_parameter(test_support::metadata(scope))
         .expect("valid fixture parameters");
     parameters.commit();
-    let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
-        DataSpaceMetadata::default(),
-        DataSpaceMetadata {
-            id: ds,
-            alias: "private-scope-test".into(),
-            description: None,
-            fault_tolerance: 1,
-        },
-    ])
-    .unwrap();
+    let nexus = iroha_config::parameters::actual::Nexus {
+        dataspace_catalog: DataSpaceCatalog::new(vec![
+            DataSpaceMetadata::default(),
+            DataSpaceMetadata {
+                id: ds,
+                alias: "private-scope-test".into(),
+                description: None,
+                fault_tolerance: 1,
+            },
+        ])
+        .unwrap(),
+        ..Default::default()
+    };
     (
         State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test()),
         ds,

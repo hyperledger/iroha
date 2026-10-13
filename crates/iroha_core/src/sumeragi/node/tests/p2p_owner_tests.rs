@@ -15,7 +15,7 @@ use iroha_sumeragi::{
     message::{Vote, VoteKind, WireMessage},
     types::Signature,
 };
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
@@ -55,7 +55,7 @@ fn network_config(replay_root: &std::path::Path) -> iroha_config::parameters::ac
 async fn live_network(
     key: &KeyPair,
     network_id: NetworkId,
-    targets: HashSet<PeerId>,
+    targets: BTreeSet<PeerId>,
     supervisor: &mut Supervisor,
 ) -> (
     IrohaNetwork,
@@ -73,8 +73,8 @@ async fn live_network(
         None,
         None,
         None,
-        targets.clone(),
-        targets,
+        targets.iter().cloned().collect(),
+        targets.into_iter().collect(),
         supervisor.shutdown_signal(),
     )
     .await
@@ -134,7 +134,7 @@ fn network_start_rejects_closed_retained_actor_before_driver_files() {
     let (unrelated, _, _replay_root) = runtime.block_on(live_network(
         &chain.keys[1],
         *state.network_id_ref(),
-        HashSet::from([PeerId::new(chain.keys[0].public_key().clone())]),
+        BTreeSet::from([PeerId::new(chain.keys[0].public_key().clone())]),
         &mut supervisor,
     ));
     assert!(
@@ -213,13 +213,13 @@ fn retained_live_actor_delivers_signed_native_ingress() {
     let (local, _, _local_replay_root) = runtime.block_on(live_network(
         &chain.keys[0],
         *state.network_id_ref(),
-        HashSet::from([remote_peer.clone()]),
+        BTreeSet::from([remote_peer.clone()]),
         &mut supervisor,
     ));
     let (remote_actor, remote_address, _remote_replay_root) = runtime.block_on(live_network(
         &chain.keys[1],
         *state.network_id_ref(),
-        HashSet::from([local_peer.clone()]),
+        BTreeSet::from([local_peer.clone()]),
         &mut supervisor,
     ));
     let node = prepared
@@ -227,8 +227,8 @@ fn retained_live_actor_delivers_signed_native_ingress() {
         .unwrap();
     let ingress = Arc::clone(&node.ingress);
     let sender = P2pNet::new(remote_actor.clone());
-    local.update_topology(UpdateTopology(HashSet::from([remote_peer.clone()])));
-    remote_actor.update_topology(UpdateTopology(HashSet::from([local_peer])));
+    local.update_topology(UpdateTopology([remote_peer.clone()].into_iter().collect()));
+    remote_actor.update_topology(UpdateTopology([local_peer].into_iter().collect()));
     local.update_peers_addresses(UpdatePeers(vec![(remote_peer, remote_address)]));
     let outcome = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(20), async {

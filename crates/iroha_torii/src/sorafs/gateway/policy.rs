@@ -20,7 +20,7 @@ use std::{
 /// The inner string is private so [`RequestContext`] cannot retain raw request
 /// header bytes by construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CanonicalHost(String);
+pub struct CanonicalHost(String);
 impl CanonicalHost {
     /// Parse and canonicalize an HTTP authority or `Host` header value.
     pub(crate) fn parse_authority(raw: &str) -> Option<Self> {
@@ -35,7 +35,7 @@ impl CanonicalHost {
 /// Construction is crate-private; the HTTP adapter additionally proves that
 /// the immediate peer is a configured trusted proxy before creating one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RegionCode(String);
+pub struct RegionCode(String);
 impl RegionCode {
     /// Validate and canonicalize one trusted-proxy region header value.
     pub(crate) fn parse(raw: &str) -> Option<Self> {

@@ -204,6 +204,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
 
 #[test]
 fn preparation_classification_preserves_real_limit_and_does_not_invent_release_for_allocator() {
+    use iroha_sumeragi::message::ByteAdmissionError;
     let budget = AllocationBudget::new(1);
     let original = budget.try_reserve_bytes(2).unwrap_err();
     let error = ResultPreimageError::Allocation(ChargedBufferError::Admission(original.clone()));
@@ -233,7 +234,6 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         panic!("retain original shared control admission source");
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
-    use iroha_sumeragi::message::ByteAdmissionError;
     for error in [
         ByteAdmissionError::Buffer(ChargedBufferError::Admission(original.clone())),
         ByteAdmissionError::ControlAdmission(original.clone()),
@@ -657,27 +657,25 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                     panic!("storage source erased: {failure:?}")
                 };
                 assert!(
-                    match (owner, source) {
+                    matches!(
+                        (owner, source),
                         (
                             0,
                             PublicationDeferral::StateStorage(StateStorageAdmissionError::World(
                                 mv::storage::AdmittedStorageError::Busy { .. },
                             )),
-                        )
-                        | (
+                        ) | (
                             1,
                             PublicationDeferral::BlockHashAdmission(BlockHashAdmissionError::Busy(
                                 _,
                             )),
-                        )
-                        | (
+                        ) | (
                             2,
                             PublicationDeferral::MembershipAdmission(
                                 MembershipAdmissionError::Busy(_),
                             ),
-                        ) => true,
-                        _ => false,
-                    },
+                        )
+                    ),
                     "the actual refusing owner is retained: {source:?}"
                 );
                 assert!(
@@ -993,7 +991,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         );
         assert_eq!(worker.recovery.as_deref(), Some(recovery_reason.as_str()));
         assert!(worker.quarantine_context.is_none());
-        assert!(worker.results.get(&hash).is_none());
+        assert!(!worker.results.contains_key(&hash));
         assert!(worker.live.is_none() && worker.finishing.is_none());
         assert!(worker.pending_commit.is_none());
         assert!(worker.context.staging.get(&hash).is_none());

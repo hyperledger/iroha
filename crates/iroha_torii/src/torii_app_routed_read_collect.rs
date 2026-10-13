@@ -382,6 +382,10 @@ where
     })
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn filter_permission_opened_alias_lookup_payload(
     app: &SharedAppState,
     caller: &AccountId,
@@ -462,12 +466,10 @@ fn filter_permission_opened_alias_lookup_payload(
 async fn collect_torii_alias_lookup_json_payloads<F, Fut>(
     app: &SharedAppState,
     routes: &[ToriiAliasLookupRouteAccess],
-    denied_routes: usize,
-    permission_denied_message: &'static str,
+    (denied_routes, permission_denied_message): (usize, &'static str),
     caller: Option<&AccountId>,
     request: &routing::AliasLookupByAccountRequestDto,
-    working_set_bytes: usize,
-    max_body_bytes: usize,
+    (working_set_bytes, max_body_bytes): (usize, usize),
     mut fetch: F,
 ) -> Result<ToriiFanoutJsonPayloads, Response>
 where

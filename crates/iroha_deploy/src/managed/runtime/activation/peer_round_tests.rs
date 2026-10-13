@@ -65,18 +65,19 @@ impl HttpTransport for Reads {
                     .recv_timeout(Duration::from_secs(10))
                     .unwrap();
             }
-            if carrier == 0 && peer == 3 {
-                if let Some(path) = &self.replace_config {
-                    let bytes = iroha_fs::read_private(path, crate::managed::MAX_METADATA).unwrap();
-                    iroha_fs::PrivateDirectory::open(path.parent().unwrap())
-                        .unwrap()
-                        .write_atomic(
-                            path.file_name().unwrap(),
-                            &bytes,
-                            iroha_fs::PublishMode::Replace,
-                        )
-                        .unwrap();
-                }
+            if carrier == 0
+                && peer == 3
+                && let Some(path) = &self.replace_config
+            {
+                let bytes = iroha_fs::read_private(path, crate::managed::MAX_METADATA).unwrap();
+                iroha_fs::PrivateDirectory::open(path.parent().unwrap())
+                    .unwrap()
+                    .write_atomic(
+                        path.file_name().unwrap(),
+                        &bytes,
+                        iroha_fs::PublishMode::Replace,
+                    )
+                    .unwrap();
             }
             let fault = self
                 .fault
@@ -159,7 +160,7 @@ fn release_first(
     let mut observed = (0..4)
         .map(|_| starts.recv_timeout(Duration::from_secs(10)).unwrap())
         .collect::<Vec<_>>();
-    observed.sort();
+    observed.sort_unstable();
     assert_eq!(
         observed,
         [0, 1, 2, 3],
@@ -169,6 +170,7 @@ fn release_first(
     for release in releases.into_iter().rev() {
         release.send(()).unwrap();
     }
+    drop(starts);
 }
 
 #[test]
@@ -225,7 +227,7 @@ fn joined_carrier_reads_preserve_all_116_local_receipts_and_exact_failure_bindin
                     *peer
                 })
                 .collect::<Vec<_>>();
-            members.sort();
+            members.sort_unstable();
             assert_eq!(members, [0, 1, 2, 3]);
         }
     }
@@ -348,9 +350,10 @@ fn joined_peer_error_and_panic_wait_for_all_borrows_then_choose_validator_order(
                     .recv_timeout(Duration::from_secs(10))
                     .unwrap();
                 finished.fetch_add(1, Ordering::SeqCst);
-                if panic_first && peer == 1 {
-                    panic!("scheduler-only peer worker panic");
-                }
+                assert!(
+                    !(panic_first && peer == 1),
+                    "scheduler-only peer worker panic"
+                );
                 if peer == 1 || peer == 3 {
                     return Err(Failure::Activation {
                         phase: CARRIER_PHASES[peer],

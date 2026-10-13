@@ -144,13 +144,13 @@ pub(in crate::sumeragi) fn fixed_lane_chain_with_config(
     // Fixture publications retire charged State generations into the shared collector.
     // Retain their real EBR lifetime through each exact baseline assertion, including when
     // unrelated Rayon work collects epochs. Reader buffers/shared controls reclaim directly.
-    let epoch = crossbeam_epoch::pin();
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::{
         parameter::Parameter,
         sumeragi_lanes::{SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy},
     };
     use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
+    let epoch = crossbeam_epoch::pin();
     let mut members = (41..45)
         .map(|seed| {
             let key = KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal);
@@ -213,7 +213,7 @@ fn historical_lane_authority_retains_original_creation_bytes_and_prepaid_config_
     let instance = super::super::lanes::lane_instance(
         &*crypto,
         &chain.network_id(),
-        &chain.state().chain_id_ref().to_string(),
+        chain.state().chain_id_ref().as_ref(),
         &record,
     );
     let provider = NativeLaneStoreAuthorities::new(Arc::clone(chain.state()), Arc::clone(&crypto));

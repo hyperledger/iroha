@@ -1998,7 +1998,10 @@ fn rust_sources(scope: &[&str]) -> Vec<String> {
     fn walk(root: &Path, relative: &str, out: &mut Vec<String>) {
         let path = root.join(relative);
         if path.is_file() {
-            if relative.ends_with(".rs") {
+            if std::path::Path::new(relative)
+                .extension()
+                .is_some_and(|extension| extension == "rs")
+            {
                 out.push(relative.to_owned());
             }
             return;
@@ -7125,10 +7128,12 @@ fn tracked_inventory_matches_the_source() {
 #[test]
 #[ignore = "writes specs/state_table_inventory.json; run it to accept an intended change"]
 fn regenerate_state_table_inventory() {
-    assert!(
-        cfg!(feature = "telemetry"),
-        "regenerate with the node feature set: the tracked inventory lists state.telemetry"
-    );
+    const {
+        assert!(
+            cfg!(feature = "telemetry"),
+            "regenerate with the node feature set: the tracked inventory lists state.telemetry"
+        );
+    }
     let path = repository().join(INVENTORY_PATH);
     let generated = generate();
     // A canonical no-op must preserve the fixture timestamp and Cargo's input
@@ -8868,24 +8873,22 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
     let path = "crates/iroha_core/src/query/native_receipts/amx_read.rs";
     let text = source(path);
     let (_, code) = split_source(&text);
-    let matched: Vec<_> = fn_signatures(&code)
+    let matched = fn_signatures(&code)
         .into_iter()
         .filter(|signature| {
             signature.name == "complete" && signature.reads_state && signature.returns_hash
         })
-        .collect();
+        .count();
     assert_eq!(
-        matched.len(),
-        1,
+        matched, 1,
         "original AMX complete State-reader must remain scanned"
     );
-    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+    let listed = STATE_HASH_FUNCTIONS
         .iter()
         .filter(|listed| listed.path == path && listed.name == "complete")
-        .collect();
+        .count();
     assert_eq!(
-        listed.len(),
-        1,
+        listed, 1,
         "original AMX complete must retain its exact registry entry"
     );
 }

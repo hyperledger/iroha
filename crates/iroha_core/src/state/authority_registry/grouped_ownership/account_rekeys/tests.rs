@@ -34,8 +34,8 @@ fn record() -> AccountRekeyRecord {
         .unwrap()
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     for owner in [&*ALICE_ID, &*BOB_ID] {
         let (id, account) = Account::new(owner.clone()).build(owner).into_key_value();
         world.accounts.insert(id, account);
@@ -484,7 +484,7 @@ fn dense_reassignment_history_defers_locally_then_retries_without_source_mutatio
         .insert(alias("wallet"), dense.clone());
     world.rebuild_account_rekey_records().unwrap();
     let state = State::new_for_testing(
-        *world,
+        world,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
@@ -498,8 +498,8 @@ fn dense_reassignment_history_defers_locally_then_retries_without_source_mutatio
         max_tables: 1,
         max_rows: 1,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 262144,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 262_144,
     };
     // The one canonical row fits retention, but its repeated audit history
     // requires more local inspection work. This is not a validity failure.
@@ -521,7 +521,7 @@ fn dense_reassignment_history_defers_locally_then_retries_without_source_mutatio
 #[test]
 fn checked_catalog_capture_retains_original_state_pool_refusal_and_retry() {
     let state = State::new_for_testing(
-        *fixture(),
+        fixture(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
@@ -530,7 +530,7 @@ fn checked_catalog_capture_retains_original_state_pool_refusal_and_retry() {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     };
     let pool = state.ivm_execution_budget();
     pool.set_limit_bytes(0);

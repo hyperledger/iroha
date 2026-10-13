@@ -633,7 +633,7 @@ impl DecodeResourceAdmissionV1 {
             binding,
             &self.pool.allocation,
         )
-        .map_err(beacon_session_error)?;
+        .map_err(|error| beacon_session_error(&error))?;
         // Verification and scratch refunds above, and retirement of a losing
         // concurrent reader below, occur outside the session mutex. A physical
         // source release callback can therefore reenter this operation safely.
@@ -642,21 +642,18 @@ impl DecodeResourceAdmissionV1 {
                 .beacon_session
                 .lock()
                 .map_err(|_| BrokerError::Protocol)?;
-            match retained.as_ref() {
-                Some(session) => {
-                    if session.record() == record {
-                        session
-                            .check_binding(binding)
-                            .map_err(|_| BrokerError::Rejected)?;
-                        Ok(session.clone())
-                    } else {
-                        Err(BrokerError::Rejected)
-                    }
+            if let Some(session) = retained.as_ref() {
+                if session.record() == record {
+                    session
+                        .check_binding(binding)
+                        .map_err(|_| BrokerError::Rejected)?;
+                    Ok(session.clone())
+                } else {
+                    Err(BrokerError::Rejected)
                 }
-                None => {
-                    *retained = Some(verified.clone());
-                    Ok(verified.clone())
-                }
+            } else {
+                *retained = Some(verified.clone());
+                Ok(verified.clone())
             }
         };
         drop(verified);
@@ -2888,10 +2885,14 @@ fn pop_runtime_bindings_from_wire(
         exact.issuer_id.clone(),
         exact.issuer_signer_handle.clone(),
         exact.issuer_public_key,
-        exact.enrollment_recipient_key_id.clone(),
-        exact.enrollment_recipient_public_key_digest,
-        exact.wallet_recipient_key_id.clone(),
-        exact.wallet_recipient_public_key_digest,
+        (
+            exact.enrollment_recipient_key_id.clone(),
+            exact.enrollment_recipient_public_key_digest,
+        ),
+        (
+            exact.wallet_recipient_key_id.clone(),
+            exact.wallet_recipient_public_key_digest,
+        ),
         exact.wallet_wrapping_key_id.clone(),
     )
     .map_err(|_| BrokerError::BindingMismatch)

@@ -237,12 +237,12 @@ fn attestation_tail_active_owner_keeps_original_recipe_and_finite_resource_refus
 
 #[inline(never)]
 fn check_active_original_recipe(chain: &CertifiedTestChain) {
+    const CEILING: usize = 64 * 1024 * 1024;
     let view = chain.state().view();
     let original = capture(&view, chain, [58; 32], status(chain)).unwrap();
     let signer = installed_signer();
     let pool = view.execution_budget();
     let reserved = pool.reserved_bytes();
-    const CEILING: usize = 64 * 1024 * 1024;
     let expected_budget = DecodeBudgetContext::new(limits(CEILING));
     let expected = expected_budget
         .with(|| finish_selected(&view, chain, &original, [59; 32], &signer, true))

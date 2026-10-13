@@ -805,13 +805,13 @@ impl PorCoordinator {
         let authoritative = authoritative_guard.as_ref();
         #[cfg(not(test))]
         let authoritative =
-            Some(authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?);
+            authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?;
         #[cfg(test)]
         let legacy_indexes = authoritative.is_none().then(|| self.status_indexes.read());
         #[cfg(not(test))]
-        let indexes = &authoritative
-            .expect("required authoritative projection")
-            .indexes;
+        let indexes = &authoritative.indexes;
+        #[cfg(not(test))]
+        let authoritative = Some(authoritative);
         #[cfg(test)]
         let indexes = authoritative
             .map(|projection| &projection.indexes)
@@ -822,7 +822,7 @@ impl PorCoordinator {
             });
         let selection_digest = por_status_selection_digest(filter);
         let after_anchor =
-            self.validate_page_cursor(cursor, indexes.generation, selection_digest)?;
+            Self::validate_page_cursor(cursor, indexes.generation, selection_digest)?;
         if let Some(anchor) = after_anchor {
             let status = self.status_for_indexed_id(authoritative, anchor.challenge_id)?;
             if status.epoch_id != anchor.epoch_id || status.issued_at != anchor.issued_at {
@@ -832,7 +832,7 @@ impl PorCoordinator {
             }
         }
         let after = after_anchor.map(PorStatusCursorAnchor::status_order_key);
-        let candidates = self.smallest_status_index(&indexes, filter);
+        let candidates = Self::smallest_status_index(indexes, filter);
         if let Some(after) = after
             && !candidates.is_some_and(|candidates| candidates.contains(&after))
         {
@@ -924,13 +924,13 @@ impl PorCoordinator {
         let authoritative = authoritative_guard.as_ref();
         #[cfg(not(test))]
         let authoritative =
-            Some(authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?);
+            authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?;
         #[cfg(test)]
         let legacy_indexes = authoritative.is_none().then(|| self.status_indexes.read());
         #[cfg(not(test))]
-        let indexes = &authoritative
-            .expect("required authoritative projection")
-            .indexes;
+        let indexes = &authoritative.indexes;
+        #[cfg(not(test))]
+        let authoritative = Some(authoritative);
         #[cfg(test)]
         let indexes = authoritative
             .map(|projection| &projection.indexes)
@@ -941,7 +941,7 @@ impl PorCoordinator {
             });
         let selection_digest = por_export_selection_digest(range);
         let after_anchor =
-            self.validate_page_cursor(cursor, indexes.generation, selection_digest)?;
+            Self::validate_page_cursor(cursor, indexes.generation, selection_digest)?;
         if let (Some((start, end)), Some(anchor)) = (range, after_anchor)
             && !(start..=end).contains(&anchor.epoch_id)
         {
@@ -1023,7 +1023,6 @@ impl PorCoordinator {
         })
     }
     fn validate_page_cursor(
-        &self,
         cursor: PorStatusPageCursor,
         current_generation: u64,
         expected_selection_digest: [u8; 32],
@@ -1055,7 +1054,6 @@ impl PorCoordinator {
         }
     }
     fn smallest_status_index<'a>(
-        &self,
         indexes: &'a PorStatusIndexes,
         filter: &PorStatusFilter,
     ) -> Option<&'a BTreeSet<PorStatusOrderKey>> {
@@ -1078,6 +1076,13 @@ impl PorCoordinator {
         }
         Some(selected)
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unused_self,
+            reason = "test fixtures read the retained local record projection"
+        )
+    )]
     fn status_for_indexed_id(
         &self,
         authoritative: Option<&AuthoritativePorProjectionV1>,
@@ -1246,13 +1251,13 @@ impl PorCoordinator {
         let authoritative = authoritative_guard.as_ref();
         #[cfg(not(test))]
         let authoritative =
-            Some(authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?);
+            authoritative.ok_or(PorCoordinatorError::AuthoritativeProjectionUnavailable)?;
         #[cfg(test)]
         let legacy_indexes = authoritative.is_none().then(|| self.status_indexes.read());
         #[cfg(not(test))]
-        let indexes = &authoritative
-            .expect("required authoritative projection")
-            .indexes;
+        let indexes = &authoritative.indexes;
+        #[cfg(not(test))]
+        let authoritative = Some(authoritative);
         #[cfg(test)]
         let indexes = authoritative
             .map(|projection| &projection.indexes)

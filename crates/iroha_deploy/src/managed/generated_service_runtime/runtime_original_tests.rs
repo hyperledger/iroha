@@ -50,7 +50,7 @@ fn runtime_original_counts_direct_constructor_images_and_preserves_lock_order() 
     assert_eq!(locks, old_locks);
     let nested = count_profile_images(|| {
         owner.authority.validate_profile().unwrap();
-        let (_, count) = count_profile_images(|| owner.authority.validate_profile().unwrap());
+        let ((), count) = count_profile_images(|| owner.authority.validate_profile().unwrap());
         assert_eq!(count, 1);
         owner.authority.validate_profile().unwrap();
     });
@@ -268,7 +268,10 @@ fn runtime_original_refuses_foreign_scope_and_retains_absence_and_lock_contentio
     );
     let mut independent =
         ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceObservation).unwrap();
-    assert!(!std::ptr::eq(&independent, &owner.authority));
+    assert!(!std::ptr::eq(
+        &raw const independent,
+        &raw const owner.authority
+    ));
     assert!(
         read.eligible(&independent).is_err(),
         "equal configuration is not the same captured Arc"
@@ -355,12 +358,16 @@ fn runtime_original_keeps_dynamic_active_and_owned_recipes_and_charges() {
     intent.finish().unwrap();
     drop(owner);
     let budget = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let owned = budget
+    let generated_runtime = budget
         .with(|| GeneratedServiceRuntime::open(&prepared))
         .unwrap();
-    let (old, old_images, old_locks) = read_selection(&owned.authority, true);
-    let (current, images, locks) = read_selection(&owned.authority, false);
-    assert_same_runtime_selection(&owned.authority, &current.unwrap(), &old.unwrap());
+    let (old, old_images, old_locks) = read_selection(&generated_runtime.authority, true);
+    let (current, images, locks) = read_selection(&generated_runtime.authority, false);
+    assert_same_runtime_selection(
+        &generated_runtime.authority,
+        &current.unwrap(),
+        &old.unwrap(),
+    );
     assert_eq!((images, locks), (old_images, old_locks));
     no_http(&peers);
 }

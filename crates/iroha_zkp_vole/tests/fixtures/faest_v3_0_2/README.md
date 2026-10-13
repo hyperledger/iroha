@@ -35,6 +35,17 @@ The comparison aborts on source hash, scalar, matrix word, or saved-result
 differences. It does not rewrite the Rust tables or qualify the extended ballot
 construction.
 
+## Direct bidirectional reference verification
+
+[`cross_verification.md`](cross_verification.md) records fresh signatures
+exchanged with the unmodified pinned FAEST v3.0.2 library for all twelve
+reference parameter sets, using portable and accelerated Rust verifiers and
+signers. It includes both directions, a finite negative corpus, exact commands,
+and retained evidence. The original campaign's publication was rejected after
+concurrent lockfile drift; a separate positive recovery run preserves the
+frozen-binary result and explicitly labels regenerated C signatures. This
+reference-mode evidence does not qualify the Parliament extension.
+
 ## Provenance
 
 | | |

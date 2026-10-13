@@ -312,9 +312,13 @@ MUTATIONS = [
       ["clock_guard_accepts_exact_drift_allowance",
        "clock_guard_liveness_with_f_plus_one_slow_clocks"], ["f39"]),
     m("MS67", "Prepare signer context: mistake a durable reservation for a certified value",
-      ["det_prepare_context_restart_reservation_alone_is_uncertified"],
+      ["machine::tests::signing::det_prepare_context_restart_reservation_alone_is_uncertified"],
       causes=(ExpectedFailure("a restarted durable Prepare reservation must not grant certified clock exemption",
           "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS68", "CT3 simulator builder: publish before the original canonical clock floor",
+      ["sim::world::clock_guard::tests::clock_guard_committed_parent_wait_retains_work_until_clock_recovery"],
+      causes=(ExpectedFailure("CT3 must retain original work without publishing before the parent and creation floors",
+          "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)),
     # ---- liveness rules
     m("ML1", "level returns start(h)", ["det_l1_levels_grow"], ["f15"]),
     m("ML2", "on_tick rebroadcast 1 deleted", ["det_l2_lost_timeout_resent"], ["f09"]),
@@ -1164,9 +1168,9 @@ CORE_MUTATIONS = [
           "crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration/tests.rs"),)),
 
     m("HC284", "SCCP route proposal: bypass the Parliament ballot gate with proposer permission",
-      ["smartcontracts::isi::world::tests::sccp_route_governance_proposal_requires_permission_or_bond"],
+      ["smartcontracts::isi::world::isi::tests::sccp_route_governance_proposal_requires_permission_or_bond"],
       causes=(ExpectedFailure("SCCP proposer permission must not bypass the Parliament ballot gate",
-          "crates/iroha_core/src/smartcontracts/isi/world.rs"),)),
+          "crates/iroha_core/src/smartcontracts/isi/world_sccp_governance_tests.rs"),)),
 
     m("HC285", "SCCP deployment attestation: lower a retained forgery floor",
       ["smartcontracts::isi::sccp::governance::holds::tests::native_offence_release_and_later_attestation_never_lower_the_floor"],
@@ -1187,6 +1191,164 @@ CORE_MUTATIONS = [
       ["smartcontracts::isi::sccp::governance::holds::tests::quarantined_retirement_requires_the_single_completed_reconciliation_window"],
       causes=(ExpectedFailure("SCCP quarantined retirement must await reconciliation",
           "crates/iroha_core/src/smartcontracts/isi/sccp/governance/holds/tests.rs"),)),
+
+    m("HC295", "SCCP panel seats: replace originals before the acceptance deadline",
+      ["smartcontracts::isi::sccp::fast_pause::tests::sccp_pause_seats_replace_only_unaccepted_in_primary_then_backup_order_at_deadline"],
+      causes=(ExpectedFailure("reserve replacement must wait until the exact acceptance deadline",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/tests.rs"),)),
+
+    m("HC296", "SCCP pause certification: count revoked endorsers toward quorum",
+      ["smartcontracts::isi::sccp::fast_pause::certification::tests::sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt"],
+      causes=(ExpectedFailure("revoked endorsers must not count toward certification quorum",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification/tests.rs"),)),
+
+    m("HC297", "SCCP pause certification: retain endorsements past their exact close",
+      ["smartcontracts::isi::sccp::fast_pause::certification::tests::sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt"],
+      causes=(ExpectedFailure("endorsement windows must expire at the exact close even after a halt",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification/tests.rs"),)),
+
+    m("HC298", "SCCP pause lift: ignore the approving ballot's original casting-open position",
+      ["smartcontracts::isi::sccp::fast_pause::tests::sccp_pause_lift_compares_original_height_position_and_removes_only_the_matching_part"],
+      causes=(ExpectedFailure("a resume cannot lift a pause enacted at or after its original casting-open position",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/tests.rs"),)),
+
+    m("HC299", "SCCP fast-pause suspension: clear an already active hold",
+      ["smartcontracts::isi::sccp::fast_pause::tests::sccp_pause_suspension_never_clears_active_parts_and_zero_removes_only_suspension"],
+      causes=(ExpectedFailure("suspension must preserve every active fast-pause part",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/tests.rs"),)),
+
+    m("HC306", "SCCP bundled admission: skip each signed advance state expectation",
+      ["smartcontracts::isi::sccp::self_claim::bundled_tests::signed_bundle_uses_original_overlay_and_checks_each_advance_cas"],
+      causes=(ExpectedFailure("SCCP bundled admission must enforce each signed advance state expectation",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/self_claim/bundled_tests.rs"),)),
+
+    m("HC307", "SCCP local allocation refusal: replace the original deferral with rejection",
+      ["smartcontracts::isi::sccp::self_claim::bundled_tests::exhausted_bundle_admission_preserves_original_deferral_and_retry"],
+      causes=(ExpectedFailure("SCCP local allocation refusal must remain an original deferred attempt",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/self_claim/bundled_tests.rs"),)),
+
+    m("HC308", "SC1 SCCP result: omit the original fixed header from ordinary voting",
+      ["sumeragi::executor::publication_tests::published_execution_result_binds_the_original_header_and_body_digest"],
+      causes=(ExpectedFailure("SC1 ordinary voting must bind the original finality header and body digest",
+          "crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
+
+    m("HC309", "SC3 SCCP key change: omit native boundary rotation",
+      ["smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary"],
+      causes=(ExpectedFailure("a changed native boundary committee must rotate before the heartbeat deadline",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/generations/tests.rs"),)),
+
+    m("HC310", "SC10 SCCP unavailable inputs: invalidate ordinary execution instead of degrading",
+      ["smartcontracts::isi::sccp::hook::tests::degraded_block_without_leaves_keeps_history_and_records_failure"],
+      causes=(ExpectedFailure("missing SCCP inputs must degrade the extension without invalidating ordinary execution",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs"),)),
+
+    m("HC311", "SC11 SCCP unchanged committee: disable due heartbeat rotation",
+      ["smartcontracts::isi::sccp::hook::tests::native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor"],
+      causes=(ExpectedFailure("a due heartbeat must rotate the unchanged native committee",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs"),)),
+
+    m("HC312", "SC7 SCCP heartbeat: ignore the original due timestamp",
+      ["smartcontracts::isi::sccp::keepalive::tests::heartbeat_due_rejects_early_progress_and_includes_the_exact_deadline"],
+      causes=(ExpectedFailure("SC7 heartbeat must wait for the original inclusive deadline",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/keepalive/tests.rs"),)),
+
+    m("HC313", "SC8 SCCP due work: omit the original fast-pause conclusion leg",
+      ["smartcontracts::isi::sccp::keepalive::tests::governance_due_keeps_the_original_fast_pause_leg_when_heartbeat_is_disabled"],
+      causes=(ExpectedFailure("SC8 due work must retain the original fast-pause conclusion leg",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/keepalive/tests.rs"),)),
+
+    m("HC314", "SC16 SCCP Keepalive: admit a carrier without established due work",
+      ["smartcontracts::isi::sccp::keepalive::tests::keepalive_admission_requires_established_due_work_before_assigning_exemption"],
+      causes=(ExpectedFailure("SC16 Keepalive admission must reject a carrier without established due work",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/keepalive/tests.rs"),)),
+
+    m("HC315", "SC13 SCCP forgery: ignore the signed result-body digest",
+      ["smartcontracts::isi::sccp::forgery::tests::signed_body_digest_only_forgery_is_e4_against_original_anchor"],
+      causes=(ExpectedFailure("SC13 signed D_body mismatch must remain punishable E4 evidence",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/tests.rs"),)),
+
+    m("HC316", "SC14 SCCP forgery: accept evidence outside original generation liability",
+      ["smartcontracts::isi::sccp::forgery::tests::generation_lookup_and_inclusive_liability_use_captured_values_only"],
+      causes=(ExpectedFailure("SC14 expired captured generation must fail E0 before signature verification",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/tests.rs"),)),
+
+    m("HC317", "SC18 SCCP forgery: replace original core anchor with outer Iroha block hash",
+      ["smartcontracts::isi::sccp::forgery::tests::genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash"],
+      causes=(ExpectedFailure("SC18 genuine native certificate cannot become E3 through outer block hash substitution",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/tests.rs"),)),
+
+    m("HC318", "SC21 SCCP penalty: use attacker-selected certificate height for liability",
+      ["sumeragi::penalties::tests::sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or_peer_map"],
+      causes=(ExpectedFailure("SC21 forged height cannot replace original generation liability start",
+          "crates/iroha_core/src/sumeragi/penalties/sccp_tests.rs"),)),
+
+    m("HC319", "SC21 SCCP penalty: replace captured registration with current peer-key mapping",
+      ["sumeragi::penalties::tests::sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody"],
+      causes=(ExpectedFailure("SC21 only the original captured registration remains slashable",
+          "crates/iroha_core/src/sumeragi/penalties/sccp_tests.rs"),)),
+
+    m("HC320", "SC15 SCCP unbond: omit the original generation liability barrier",
+      ["smartcontracts::isi::staking::tests::sccp_liable_unbond_keeps_exact_pending_request_and_both_balances"],
+      causes=(ExpectedFailure("SC15 must retain an unbond while its original SCCP generation is liable",
+          "crates/iroha_core/src/smartcontracts/isi/staking_sccp_liability_tests.rs"),)),
+
+    m("HC321", "SC15 SCCP unbond: omit the exact pending offence barrier",
+      ["smartcontracts::isi::sccp::liability::tests::pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it"],
+      causes=(ExpectedFailure("SC15 must retain an unbond while its exact recorded SCCP penalty is pending",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/liability/tests.rs"),)),
+
+    m("HC322", "SC20 SCCP liability: omit original destination-progress clearance",
+      ["smartcontracts::isi::sccp::liability::tests::current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes"],
+      causes=(ExpectedFailure("SC20 must retain liability until original destination clearance or the progress cap",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/liability/tests.rs"),)),
+
+    m("HC323", "SC25 SCCP holds: ignore the retained maximum forgery generation",
+      ["smartcontracts::isi::sccp::hold::forgery_tests::forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel"],
+      causes=(ExpectedFailure("SC25 must hold every revision whose original forgery floor is not above the maximum offence",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/hold/forgery_tests.rs"),)),
+
+    m("HC324", "SC23 SCCP generation: disable missed-boundary resynchronization",
+      ["smartcontracts::isi::sccp::generations::tests::resync_uses_real_native_parent_time_then_boundary_rotates_again"],
+      causes=(ExpectedFailure("SC23 a missed committee change must create the original resync generation",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/generations/tests.rs"),)),
+
+    m("HC325", "SC2 SCCP rotation: substitute the successor for the outgoing committee root",
+      ["smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary"],
+      causes=(ExpectedFailure("SC2 boundary header must retain the outgoing committee root",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/generations/tests.rs"),)),
+
+    m("HC305", "SCCP genesis: permit a committee signer without an original global staking binding",
+      ["smartcontracts::isi::sccp::init::tests::sccp_genesis_requires_every_original_signer_to_have_one_staking_binding"],
+      causes=(ExpectedFailure("SCCP genesis must refuse any signer without its original global staking binding",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/init.rs"),)),
+
+    m("HC303", "SCCP panel draw: require the committee boundary instead of the native pulse carrying height",
+      ["sumeragi::epoch_beacon::producer::tests::execution_tests::sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height"],
+      causes=(ExpectedFailure("panel draws must receive the original verified pulse at its native carrying height",
+          "crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs"),)),
+
+    m("HC304", "SCCP clock policy: accept a budget that can recertify but never enact a pause",
+      ["sumeragi::schedule::execution::tests::sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment"],
+      causes=(ExpectedFailure("genesis must reject budgets that cannot certify six rounds and enact one pause",
+          "crates/iroha_core/src/sumeragi/schedule/execution_tests.rs"),)),
+
+    m("HC302", "SCCP keepalive: replace the original parent pause-due set with the overlay",
+      ["smartcontracts::isi::sccp::keepalive::tests::keepalive_pause_conclusion_stays_due_through_expiry_and_reads_original_parent"],
+      causes=(ExpectedFailure("new fast-pause work cannot replace the original parent due-work observation",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/keepalive/tests.rs"),)),
+
+    m("HC301", "SCCP fast-pause enactment: ignore previously occupied block leaves",
+      ["smartcontracts::isi::sccp::fast_pause::certification::tests::sccp_pause_controls_preflight_capacity_nonce_and_every_live_part_before_effects"],
+      causes=(ExpectedFailure("every fast-pause control must fit the remaining original block leaf capacity",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification/tests.rs"),)),
+
+    m("HC300", "SCCP panel execution: rearm a consumed direct signed instruction",
+      ["state::sccp_forgery_entrypoint::tests::pause_direct_source_binds_each_signed_slot_and_cannot_be_rearmed_or_substituted"],
+      causes=(ExpectedFailure("a consumed signed panel instruction cannot be rearmed",
+          "crates/iroha_core/src/state/sccp_forgery_entrypoint/tests.rs"),)),
 
     m("HC294", "SCCP Prepare signing: omit the original execution-clock resample",
       ["sumeragi::executor::clock_tests::sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate"],

@@ -1,0 +1,67 @@
+--- frozen-workspace.rs
++++ allocation-trace-workspace.rs
+@@ -5,7 +5,6 @@
+     alloc::{GlobalAlloc, Layout, System},
+     ffi::OsStr,
+     fs::OpenOptions,
+-    io::Read,
+     os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+     path::Path,
+     ptr,
+@@ -47,6 +46,7 @@
+             if pointer.is_null() {
+                 exhausted();
+             }
++            crate::trace::record_alloc(pointer, layout);
+             pointer
+         } else {
+             unsafe { System.alloc(layout) }
+@@ -56,6 +56,7 @@
+     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+         let arena = ARENA.load(Ordering::Acquire);
+         if !arena.is_null() && unsafe { &*arena }.contains(pointer) {
++            crate::trace::record_free(pointer, layout);
+             unsafe { (&*arena).release(pointer, layout) };
+         } else {
+             unsafe { System.dealloc(pointer, layout) };
+@@ -209,6 +210,7 @@
+         return Err(native::NativeError("control_layout", 0));
+     }
+     let mapping = native::Mapping::new(options.heap_limit)?;
++    crate::trace::set_base(mapping.arena().cast::<u8>().wrapping_add(native::CONTROL_BYTES));
+     // mmap is page aligned and control starts at a 4096-byte aligned offset.
+     #[allow(clippy::cast_ptr_alignment)]
+     let request = mapping.control().cast::<Request>();
+@@ -298,7 +300,9 @@
+     }
+     request.result = execute(request);
+     // All record/statement/verifier/error ownership has ended in execute.
++    let trace_was_active = ACTIVE.load(Ordering::Acquire);
+     ACTIVE.store(false, Ordering::Release);
++    if trace_was_active { crate::trace::end(); }
+     ptr::null_mut()
+ }
+ 
+@@ -338,12 +342,13 @@
+     );
+     CHARGED_UNITS.store(charge.verification_units, Ordering::Relaxed);
+     CHARGED_BYTES.store(charge.input_bytes, Ordering::Relaxed);
++    crate::trace::begin();
+     ACTIVE.store(true, Ordering::Release);
+     let mut result = ResultState::failure("input_error", "read", 3);
+     result.charged_units = charge.verification_units;
+     result.charged_bytes = charge.input_bytes;
+     let mut record = vec![0u8; length];
+-    if file.read_exact(&mut record).is_err() || !matches!(file.read(&mut [0u8; 1]), Ok(0)) {
++    if !crate::trace::read_record(&mut file, &mut record) {
+         return result;
+     }
+     let receipt = reservation.verify(request.row, request.role, &record);
+@@ -421,3 +426,7 @@
+         );
+     }
+ }
++
++#[path = "/private/tmp/parliament-allocation-trace/worker-src-3/controls.rs"]
++mod trace_controls;
++pub use trace_controls::run as run_trace_control;

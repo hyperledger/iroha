@@ -177,11 +177,14 @@ impl Snapshot {
     fn revalidate(&self) -> Result<()> {
         #[cfg(test)]
         let _snapshot_timing = finish_timing::phase(finish_timing::Phase::SnapshotRevalidate);
-        match self.tree_root() {
-            Some(root) => root
-                .read_tree_scope(|tree| self.revalidate_in_tree_with_root(Some(tree), Some(root))),
-            None => self.revalidate_in_tree(None),
-        }
+        self.tree_root().map_or_else(
+            || self.revalidate_in_tree(None),
+            |root| {
+                root.read_tree_scope(|tree| {
+                    self.revalidate_in_tree_with_root(Some(tree), Some(root))
+                })
+            },
+        )
     }
     // Only the immutable layout produced below opts into a common-ancestry bracket.
     // This selects a read strategy, never source validity or native ancestry eligibility.
@@ -375,7 +378,7 @@ fn reuse_scope_ancestry() -> bool {
     !norito::core::decode_limits_active()
 }
 
-/// Only BodyHistory constructs this sealed evidence after its complete bounded outer census.
+/// Only `BodyHistory` constructs this sealed evidence after its complete bounded outer census.
 pub(in crate::managed) struct ScopeEvidence {
     root: Arc<PrivateDirectory>,
     body: Arc<PrivateDirectory>,
@@ -459,14 +462,16 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
             }
             Ok::<_, crate::managed::Error>(names)
         };
-        let names = match root_read.filter(|read| read.covers(&self.root)) {
-            Some(read) => read.read(read_names),
-            None => {
-                #[cfg(test)]
-                graph_root_scope_tests::record(graph_root_scope_tests::Point::InventoryBracket);
-                tree.read_scope(&self.root, read_names)
-            }
-        }?;
+        let names = root_read
+            .filter(|read| read.covers(&self.root))
+            .map_or_else(
+                || {
+                    #[cfg(test)]
+                    graph_root_scope_tests::record(graph_root_scope_tests::Point::InventoryBracket);
+                    tree.read_scope(&self.root, read_names)
+                },
+                |read| read.read(read_names),
+            )?;
         require_allowed_names(&names, &SCOPE_ROOT_NAMES)?;
         #[cfg(test)]
         scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::RootClosed)?;
@@ -677,12 +682,8 @@ fn optional_observed<T: norito::NoritoSerialize + for<'de> norito::NoritoDeseria
         .as_ref()
         .map(|bytes| decode(bytes, maximum))
         .transpose()?;
-    let snapshot = RecordSnapshot::from_read(
-        Arc::clone(directory),
-        name,
-        maximum,
-        bytes.as_ref().map(|bytes| bytes.as_slice()),
-    );
+    let snapshot =
+        RecordSnapshot::from_read(Arc::clone(directory), name, maximum, bytes.as_deref());
     Ok((value, snapshot))
 }
 fn read_reference(
@@ -841,16 +842,14 @@ impl BodyHistory {
         // Reuse only the two exact pure epoch contexts within this fresh historical parse.
         // Source, current authority and active decoder admission remain with their owners.
         let mut validation = EpochValidationScope::new();
-        let result = Self::open_with_imports(
+        Self::open_with_imports(
             owner,
             purpose,
             &mut crate::managed::service_authority::CheckpointImports::new(
                 &owner.authority,
                 Some(&mut validation),
             ),
-        );
-        drop(validation);
-        result
+        )
     }
 
     pub(super) fn open_with_imports(
@@ -959,7 +958,6 @@ impl BodyHistory {
                 ),
                 wallets,
             );
-            drop(validation);
             require_retained_material(result)?
         };
         require_retained_material(self.revalidate_handles())?;
@@ -1322,17 +1320,16 @@ impl BodyHistory {
             if let Some(original) = &original {
                 add_bytes(
                     &mut retained_bytes,
-                    match original_snapshot
+                    if let Some((length, _)) = original_snapshot
                         .observed
                         .filter(|_| reuse_original_encoding())
                     {
-                        Some((length, _)) => length,
-                        None => {
-                            #[cfg(test)]
-                            pure_original_tests::recomputed(pure_original_tests::Point::Length);
-                            norito::canonical_frame_len(original)
-                                .map_err(|_| invalid("cannot size retained enrollment body"))?
-                        }
+                        length
+                    } else {
+                        #[cfg(test)]
+                        pure_original_tests::recomputed(pure_original_tests::Point::Length);
+                        norito::canonical_frame_len(original)
+                            .map_err(|_| invalid("cannot size retained enrollment body"))?
                     },
                 )?;
                 if activation.is_none() || ordinal > anchor.active.unwrap_or(0) {
@@ -1812,16 +1809,15 @@ impl BodyHistory {
                         attempt,
                     )?
                 } else {
-                    let account = match account.get() {
-                        Some(account) => account,
-                        None => {
-                            account.set(owner.wallet()?).map_err(|_| {
-                                invalid("body parser account was already initialized")
-                            })?;
-                            account.get().ok_or_else(|| {
-                                invalid("body parser account initialization absent")
-                            })?
-                        }
+                    let account = if let Some(account) = account.get() {
+                        account
+                    } else {
+                        account
+                            .set(owner.wallet()?)
+                            .map_err(|_| invalid("body parser account was already initialized"))?;
+                        account
+                            .get()
+                            .ok_or_else(|| invalid("body parser account initialization absent"))?
                     };
                     original
                         .request(attempt.terms(), attempt.observation()?, Instant::now())?
@@ -2003,12 +1999,11 @@ impl BodyHistory {
     pub(super) fn outer_bytes(&self) -> Result<Vec<u8>> {
         encode(&self.selection, MAX_SELECTION_BYTES)
     }
-    pub(super) fn original(&self) -> Result<Option<&Original>> {
-        Ok(self
-            .anchor
+    pub(super) fn original(&self) -> Option<&Original> {
+        self.anchor
             .active
             .and_then(|ordinal| self.bodies.get(usize::from(ordinal - 1)))
-            .and_then(|body| body.original.as_ref()))
+            .and_then(|body| body.original.as_ref())
     }
     #[cfg(test)]
     pub(super) fn current_history(&self) -> Result<&History> {
@@ -2375,15 +2370,14 @@ impl BodyHistory {
                 Some(root) => Arc::clone(root),
                 None => Arc::new(self.root.ensure_child("bodies")?),
             };
-            let publication = match body_root.open_child_optional(body_name(ordinal)?)? {
-                Some(body) => {
+            let publication =
+                if let Some(body) = body_root.open_child_optional(body_name(ordinal)?)? {
                     if body.read("reserved.nrt", MAX_BODY_BYTES)?.as_slice() != bytes {
                         return Err(invalid("retained body reservation changed"));
                     }
                     // An already present crash prefix has no new same-owner write receipt.
                     None
-                }
-                None => {
+                } else {
                     turn.check(&self.selection, deadline)?;
                     if shared_publication {
                         let body = body_root.publish_private_child(
@@ -2403,8 +2397,7 @@ impl BodyHistory {
                         )?;
                         None
                     }
-                }
-            };
+                };
             self =
                 self.reopen_after_publication_with_wallets(owner, publication, Some(&mut wallets))?;
             let mut retirement_publication = None;
@@ -2571,7 +2564,7 @@ impl BodyHistory {
         // An expired unsigned reservation is activated but never signed. A generated caller can
         // retire this exact unused body through the same bounded outer chain; an explicit caller
         // cannot replace it or obtain a dispatch from this return value.
-        if self.body_expired()? && self.original()?.is_none() {
+        if self.body_expired()? && self.original().is_none() {
             return Ok(self);
         }
         self.sign_retained(owner, current, turn, deadline, reads, &mut wallets)
@@ -2644,7 +2637,7 @@ impl BodyHistory {
             || historical.context_id() != tip.context_id()
             || !matches_predecessor(
                 &unsigned.selection,
-                historical.current().map(|value| value.record()),
+                historical.current().map(iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCustodyRecordV1::record),
             )
         {
             return Err(ManagedBootstrapFailure::EnrollmentPredecessorChanged.into());

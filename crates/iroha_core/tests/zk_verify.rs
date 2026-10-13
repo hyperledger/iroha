@@ -303,7 +303,7 @@ fn verifyproof_rejects_when_exceeding_size_cap() {
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
-    let exec = Executor::default();
+    let _exec = Executor::default();
     let (vk_id, vk_commitment) = seed_production_verifying_key(&mut stx);
     // A correctly framed native envelope is far above the three-byte cap.
     let fixture = iroha_core_zk::test_utils::native_framing_fixture_envelope(
@@ -353,7 +353,7 @@ fn verifyproof_rejects_when_block_cap_hit() {
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
-    let exec = Executor::default();
+    let _exec = Executor::default();
     let (vk_id, vk_commitment) = seed_production_verifying_key(&mut stx);
     // The cap counts verification calls, whatever the backend decides: the first proof is
     // admitted, verified and recorded as rejected, and it uses the one call of the block.

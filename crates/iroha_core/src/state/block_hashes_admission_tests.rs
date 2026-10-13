@@ -362,7 +362,11 @@ fn cold_history_owner_prepays_its_exact_shared_layout() {
 fn cold_construction_refusal_refunds_every_partially_built_owner() {
     for bytes in [1, 4096] {
         let budget = AllocationBudget::new(bytes);
-        let result = BlockHashes::try_new((0..100_000).map(|i| hash(i as u8)), budget.clone());
+        let result = BlockHashes::try_new(
+            (0..100_000)
+                .map(|i| hash(u8::try_from((i) & 0xff).expect("masked fixture byte fits u8"))),
+            budget.clone(),
+        );
         assert!(matches!(result, Err(BlockHashAdmissionError::Capacity(_))));
         assert_eq!(budget.reserved_bytes(), 0);
     }

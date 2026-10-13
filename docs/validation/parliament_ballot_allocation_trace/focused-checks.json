@@ -1,0 +1,81 @@
+{
+  "commands": [
+    {
+      "label": "python-tests",
+      "command": [
+        "python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "scripts/tests/parliament_ballot_allocation_cases_test.py",
+        "scripts/tests/parliament_ballot_allocation_match_test.py",
+        "scripts/tests/parliament_ballot_allocation_prepare_test.py",
+        "scripts/tests/parliament_ballot_allocation_trace_test.py",
+        "scripts/tests/parliament_ballot_stack_frontiers_test.py",
+        "scripts/tests/parliament_ballot_prover_accounting_test.py"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_allocation_trace/python-tests.txt",
+      "log_sha256": "dc97b776d5f73eb56920f28b0e9672360571f040c285f9bd33a81febffc07464",
+      "elapsed_seconds": 2.422933917026967
+    },
+    {
+      "label": "rustfmt",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/controls.rs",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/driver.rs",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/trace.rs"
+      ],
+      "exit": 1,
+      "log": "docs/validation/parliament_ballot_allocation_trace/rustfmt.txt",
+      "log_sha256": "d8cb73a9e6726c0e49b2c5d4f7c03def58c7e3321b8ad46c48d8ec12e3b47e61",
+      "elapsed_seconds": 0.039942167000845075
+    },
+    {
+      "label": "no-legacy-codec",
+      "command": [
+        "bash",
+        "scripts/check_no_legacy_codec.sh"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_allocation_trace/no-legacy-codec.txt",
+      "log_sha256": "379b917f97fed5e8d99dd739ced15cb1d38e3cb7d1fe36e7655a12abe1ee8969",
+      "elapsed_seconds": 1.9379170830361545
+    },
+    {
+      "label": "source-contract",
+      "command": [
+        "python3.11",
+        "scripts/formal/check_sora_parliament_source_contract.py"
+      ],
+      "exit": 1,
+      "log": "docs/validation/parliament_ballot_allocation_trace/source-contract.txt",
+      "log_sha256": "215294a754c15e8cecacff883cd4a969425d7818713f0275b6616eadcc5d2857",
+      "elapsed_seconds": 3.2090703749563545
+    },
+    {
+      "label": "rustfmt-source-files",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "--config",
+        "skip_children=true",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/controls.rs",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/driver.rs",
+        "crates/iroha_parliament_ballot_proof/examples/allocation_trace/trace.rs"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_allocation_trace/rustfmt-source-files.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": "three source templates explicitly; generated module compiled/tested in isolated build, absent beside driver template"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "profile_qualified": false
+}

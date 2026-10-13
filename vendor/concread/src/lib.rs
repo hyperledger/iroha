@@ -1,82 +1,33 @@
-//! Concread - Concurrently Readable Datastructures
+//! Concurrently readable B+trees and epoch-reclaimed cells used by Iroha.
 //!
-//! Concurrently readable is often referred to as [Copy-On-Write](https://en.wikipedia.org/wiki/Copy-on-write), [Multi-Version-Concurrency-Control](https://en.wikipedia.org/wiki/Multiversion_concurrency_control)
-//! or [Software Transactional Memory](https://en.wikipedia.org/wiki/Software_transactional_memory).
+//! Synchronous writers publish new generations while existing readers retain
+//! immutable snapshots. The B+tree supports admitted allocation ownership and
+//! explicit publication phases; EBR cells retain charges through reclamation.
 //!
-//! These structures allow multiple readers with transactions
-//! to proceed while single writers can operate. A reader is guaranteed the content
-//! of their transaction will remain the same for the duration of the read, and readers do not block
-//! writers from proceeding.
-//! Writers are serialised, just like a mutex.
-//!
-//! You can use these in place of a RwLock, and will likely see improvements in
-//! parallel throughput of your application.
-//!
-//! The best use is in place of mutex/rwlock, where the reader exists for a
-//! non-trivial amount of time.
-//!
-//! For example, if you have a RwLock where the lock is taken, data changed or read, and dropped
-//! immediately, this probably won't help you.
-//!
-//! However, if you have a RwLock where you hold the read lock for any amount of time,
-//! writers will begin to stall - or inversely, the writer will cause readers to block
-//! and wait as the writer proceeds.
-//!
-//! # Features
-//! This library provides multiple structures for you to use. You may enable or disable these based
-//! on our features.
-//!
-//! * `ebr` - epoch based reclaim cell
-//! * `maps` - concurrently readable b+tree and hashmaps
-//! * `arcache` - concurrently readable ARC cache
-//!
-//! By default all of these features are enabled. If you are planning to use this crate in a wasm
-//! context we recommend you use only `maps` as a feature.
+//! The default features enable `ebr` and `maps`. `skinny` exercises the same
+//! B+tree engine with a smaller fanout for structural testing.
 
 #![deny(warnings)]
 #![warn(unused_extern_crates)]
 #![warn(missing_docs)]
 #![allow(clippy::needless_lifetimes)]
 #![allow(clippy::type_complexity)]
-#![cfg_attr(feature = "simd", feature(portable_simd))]
-
-#[cfg(all(test, feature = "dhat-heap"))]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
-#[cfg(feature = "maps")]
-#[macro_use]
-extern crate smallvec;
-
-pub mod cowcell;
-pub use cowcell::CowCell;
 
 #[cfg(feature = "ebr")]
 pub mod ebrcell;
 #[cfg(feature = "ebr")]
 pub use ebrcell::EbrCell;
 
-#[cfg(feature = "arcache")]
-pub mod arcache;
-#[cfg(feature = "tcache")]
-pub mod threadcache;
-
-// This is where the scary rust lives.
+#[cfg(feature = "maps")]
+pub mod bptree;
+/// B+tree and linear-cell primitives for coordinated storage ownership.
 #[cfg(feature = "maps")]
 pub mod internals;
-// This is where the good rust lives.
 #[cfg(feature = "maps")]
 mod utils;
 
-#[cfg(feature = "maps")]
-pub mod bptree;
-#[cfg(feature = "maps")]
-pub mod hashmap;
-#[cfg(feature = "maps")]
-pub mod hashtrie;
-
-#[cfg(test)]
+#[cfg(all(test, feature = "maps"))]
 mod lc_tests;
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "maps", feature = "ebr")))]
 mod release_test_support;

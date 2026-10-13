@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(
             sync_generated_outputs(&outputs, GenerationMode::Write, "generator --write")
                 .expect("publish missing output"),
-            [path.clone()]
+            std::slice::from_ref(&path)
         );
         assert_eq!(
             fs::read_to_string(&path).expect("read generated output"),

@@ -21,6 +21,10 @@ impl std::io::Write for FixedCapacityNoritoWriter<'_> {
         Ok(())
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn encode_versioned_norito_bounded<T>(value: &T, max_bytes: usize) -> Result<Vec<u8>, Response>
 where
     T: iroha_version::Version + norito::core::SerializePayload,
@@ -86,6 +90,10 @@ where
     }
     Ok(bytes)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn encode_signed_query_versioned_bounded(
     query: &SignedQuery,
     max_bytes: usize,

@@ -180,7 +180,7 @@ fn digest_bundle_file_for_cli(path: &Path) -> [u8; 32] {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or(".");
-    hasher.update(&[b'F']);
+    hasher.update(b"F");
     hasher.update(
         &u64::try_from(label.len())
             .expect("bundle label length")

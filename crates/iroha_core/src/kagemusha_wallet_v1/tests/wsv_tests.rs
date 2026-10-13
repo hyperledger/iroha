@@ -1397,16 +1397,17 @@ fn private_root_load_rejects_before_debit_or_receipt_creation() {
             .into_custom_parameter()
             .unwrap(),
         ));
-    let mut gas = iroha_config::parameters::actual::Gas::default();
-    gas.tech_account_id = AccountId::new(config.genesis_key.public_key().clone()).to_string();
-    gas.accepted_assets = vec![fee_asset.canonical_address()];
-    gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-        asset: fee_asset.canonical_address(),
-        units_per_gas: 1,
-        twap_local_per_xor: Numeric::one(),
-        liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-        volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-    }];
+    let gas = iroha_config::parameters::actual::Gas {
+        tech_account_id: AccountId::new(config.genesis_key.public_key().clone()).to_string(),
+        accepted_assets: vec![fee_asset.canonical_address()],
+        units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+            asset: fee_asset.canonical_address(),
+            units_per_gas: 1,
+            twap_local_per_xor: Numeric::one(),
+            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+        }],
+    };
     config
         .genesis_parameters
         .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));

@@ -2,8 +2,8 @@
 
 use crate::{
     kagami_bundle::{
-        admit_published_output, collect_native_programs, copy_program, digest,
-        retain_created_output, retain_output,
+        CopiedProgram, PublicationHook, admit_published_output, collect_native_programs,
+        copy_program, digest, retain_created_output, retain_output,
     },
     network_profiles, workspace_root,
 };
@@ -188,10 +188,10 @@ impl BundleCustody {
             }
         }
         for (file, snapshot) in &self.created {
-            if let Some(file) = file {
-                if FileSnapshot::of(file, false)? != *snapshot {
-                    return Err("created Mochi program changed before publication".into());
-                }
+            if let Some(file) = file
+                && FileSnapshot::of(file, false)? != *snapshot
+            {
+                return Err("created Mochi program changed before publication".into());
             }
         }
         Ok(())
@@ -239,7 +239,7 @@ fn publish_bundle(
     bundle_root: &Path,
     profile: &str,
     profiles: Option<&network_profiles::Selection>,
-    before_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
+    before_publication: &mut PublicationHook<'_>,
 ) -> Result<BundlePublication, Box<dyn Error>> {
     validate_bundle_profile(profile)?;
     network_profiles::require_for_profile(profile, profiles)?;
@@ -305,7 +305,7 @@ fn finalize_bundle(
     bundle_root: &Path,
     profile: &str,
     profiles: Option<&network_profiles::Selection>,
-    before_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
+    before_publication: &mut PublicationHook<'_>,
 ) -> Result<BundlePublication, Box<dyn Error>> {
     sync_tree(staging.path())?;
     staging.sync()?;
@@ -754,8 +754,8 @@ pub(crate) fn stage_bundle(
 fn stage_bundle_checked(
     result: &MochiBundleResult,
     stage_root: &Path,
-    before_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
-    after_bundle_publication: &mut dyn FnMut(&Path) -> Result<(), Box<dyn Error>>,
+    before_publication: &mut PublicationHook<'_>,
+    after_bundle_publication: &mut PublicationHook<'_>,
 ) -> Result<(), Box<dyn Error>> {
     let stage_root = resolve_stage_root(stage_root)?;
     if stage_root.starts_with(&result.bundle_root) {
@@ -797,8 +797,12 @@ fn stage_bundle_checked(
             .any(|name| NativeBundleLayout::current().executable(Path::new(""), name) == *relative);
         OwnerDirectory::open_or_create(destination.parent().ok_or("staged file parent absent")?)?;
         let (file, snapshot, hash) = if program {
-            let (file, copied_snapshot, copied_hash, created) =
-                copy_program(source, *snapshot, hash, &destination)?;
+            let CopiedProgram {
+                file,
+                snapshot: copied_snapshot,
+                hash: copied_hash,
+                created,
+            } = copy_program(source, *snapshot, hash, &destination)?;
             copied.created.push((created, copied_snapshot));
             (file, copied_snapshot, copied_hash)
         } else {
@@ -861,13 +865,12 @@ fn stage_bundle_checked(
         let namespace_snapshot = namespace.snapshot()?;
         publication.verify()?;
         original.verify(result)?;
-        if let Some((file, snapshot, hash)) = &mut published_archive {
-            if file.snapshot()? != *snapshot
+        if let Some((file, snapshot, hash)) = &mut published_archive
+            && (file.snapshot()? != *snapshot
                 || sealed_archive_digest(file)? != *hash
-                || file.snapshot()? != *snapshot
-            {
-                return Err("staged archive changed before reporting completion".into());
-            }
+                || file.snapshot()? != *snapshot)
+        {
+            return Err("staged archive changed before reporting completion".into());
         }
         publication.verify()?;
         original.verify(result)?;
@@ -1141,7 +1144,16 @@ fn copy_runtime_binaries(
         .collect();
     let mut custody_outputs = Vec::new();
     let mut created_outputs = Vec::new();
-    for (relative, (file, snapshot, hash, created)) in outputs {
+    for (
+        relative,
+        CopiedProgram {
+            file,
+            snapshot,
+            hash,
+            created,
+        },
+    ) in outputs
+    {
         custody_outputs.push((relative, (file, snapshot, hash)));
         created_outputs.push((created, snapshot));
     }
@@ -2304,7 +2316,7 @@ mod tests {
                     .public_key()
                     .clone(),
                 7,
-                "https://release.example/checkpoint.nrt".into(),
+                "https://release.example/checkpoint.nrt",
             )
             .unwrap(),
         ])

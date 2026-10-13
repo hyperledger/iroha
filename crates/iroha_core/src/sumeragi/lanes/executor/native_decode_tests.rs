@@ -201,7 +201,7 @@ impl Fixture {
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         let authored = PayloadAuthoring::new(header, payload)
             .complete(instance, &config, &budget, &*crypto, &signers[0])
@@ -457,9 +457,12 @@ fn signed_lane_clock_retains_original_admission_until_exact_boundary_and_certifi
     for created_ms in [4_000, 6_000] {
         let fixture = Fixture::with_creation(true, created_ms);
         let effective = Duration::from_millis(5_000.max(created_ms + 1));
-        let boundary = effective - fixture.record.params.max_clock_drift();
-        let (clock, time) =
-            iroha_primitives::time::TimeSource::new_mock(boundary - Duration::from_millis(1));
+        let boundary = effective
+            .checked_sub(fixture.record.params.max_clock_drift())
+            .unwrap();
+        let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+            boundary.checked_sub(Duration::from_millis(1)).unwrap(),
+        );
         let mut lane = fixture
             .recovery_with_clock(time.clone())
             .complete()

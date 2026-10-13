@@ -1,6 +1,6 @@
 //! Native SCCP on four production validator processes, with a closed Parliament launch gate.
 //!
-//! Genuine NPoS registrations precede initialization. An ordinary transaction reaches
+//! Genuine `NPoS` registrations precede initialization. An ordinary transaction reaches
 //! finality, every peer exposes the same genesis-bound certified SCCP result, and even an
 //! authorized proposer cannot substitute a missing qualified Parliament ballot.
 
@@ -13,7 +13,7 @@ use iroha::{
     crypto::{Algorithm, KeyPair},
     data_model::{
         isi::{governance::ProposeSccpRouteGovernance, sccp::InitializeSccpV1},
-        parameter::system::SumeragiNposParameters,
+        parameter::{SumeragiParameter, system::SumeragiNposParameters},
         prelude::*,
         sccp::{
             governance::{
@@ -27,6 +27,7 @@ use iroha::{
     },
 };
 use iroha_executor_data_model::permission::sccp::CanProposeSccpRouteGovernance;
+use iroha_model_base::metadata::Metadata;
 use iroha_sccp::v1::{committee::committee_root, finality::verify_certificate};
 use iroha_test_network::{NetworkBuilder, init_instruction_registry};
 use iroha_test_samples::ALICE_ID;
@@ -127,15 +128,29 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
         );
         runtime.block_on(network.ensure_blocks(after))?;
         let mut original = None;
+        let mut exported = None;
         for peer in network.peers() {
             let client = peer.client();
             let capabilities = client.sccp().capabilities()?;
             ensure!(capabilities.network_id == *epoch.network_id.as_bytes());
             ensure!(capabilities.consensus_instance == instance);
             ensure!(capabilities.parameters == Some(SccpParametersV1::taira_default()));
+            ensure!(
+                capabilities.coalition_slashable_floor == Some(0_u32.into()),
+                "the captured 1,000-unit stakes at one basis point each round to zero"
+            );
             ensure!(!capabilities.parliament_binding_ballot_available);
-            let holds = client.sccp().forgery_hold(Default::default())?;
+            let holds = client
+                .sccp()
+                .forgery_hold(iroha_sccp::api::SccpForgeryHoldQuery::default())?;
             ensure!(holds.revisions.is_empty() && holds.next.is_none());
+            let pause = client.sccp().fast_pause()?;
+            ensure!(pause.panel.is_none() && pause.seats.is_none() && !pause.eligibility_available);
+            ensure!(
+                pause.rounds.is_empty() && pause.active.is_empty() && pause.suspended.is_empty()
+            );
+            let anchor = client.sccp().anchor_witness(NonZeroU64::new(1).unwrap())?;
+            ensure!(anchor.height == 1 && anchor.chunk == 0 && anchor.witness.is_none());
             let generation = client.sccp().committee(1)?;
             ensure!(generation.committee_root == root && generation.keys == keys);
             ensure!(
@@ -164,11 +179,12 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
                 );
             } else {
                 original = Some(certified_result);
+                exported = Some((generation, certificate));
             }
         }
-        let rejection = client
-            .submit(
-                ProposeSccpRouteGovernance {
+        let proposal = client.account_client().prepare_transaction(
+            iroha::client::AccountTransactionDraft::new(
+                vec![InstructionBox::from(ProposeSccpRouteGovernance {
                     proposal: SccpGovernanceProposalV1 {
                         network_id: epoch.network_id,
                         base_revisions: vec![(SccpGovernanceSubjectV1::Parameters, 0).into()],
@@ -178,10 +194,28 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
                             },
                         )],
                     },
-                },
+                })],
                 FeePaymentIntent::authority(Vec::new(), None),
-            )
+                Metadata::default(),
+            ),
+        )?;
+        let proposal = client.account_client().sign_transaction(proposal)?;
+        client
+            .submit_transaction_and_wait(&proposal)
             .expect_err("a proposer permission cannot supply the qualified Parliament ballot");
+        let details = client
+            .client()
+            .get_transaction_details(proposal.hash_as_entrypoint())?;
+        let committed = &details.transaction;
+        ensure!(committed.entrypoint_hash() == &proposal.hash_as_entrypoint());
+        ensure!(
+            matches!(committed.entrypoint(), TransactionEntrypoint::External(signed) if signed == &proposal)
+        );
+        let rejection = committed
+            .result()
+            .0
+            .as_ref()
+            .expect_err("the exact committed proposal must remain rejected");
         ensure!(
             format!("{rejection:?}").contains("ParliamentBallotUnavailable"),
             "unexpected rejection: {rejection:?}"
@@ -189,6 +223,26 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
         for peer in network.peers() {
             ensure!(peer.client().sccp().governance_proposals()?.is_empty());
         }
+        // Public original process output feeds the destination checkpoint corridor. It
+        // carries no route registration or Parliament authority and no validator secrets.
+        let (initial_generation, certificate) = exported.expect("four original peer replies");
+        let export = norito::json!({
+            "version": 1,
+            "chain_id": (network.chain_id().as_str()),
+            "network_id": (epoch.network_id.as_bytes()),
+            "consensus_instance": instance,
+            "signed_genesis_wire": (genesis.0.encode_wire()?),
+            "initial_generation": initial_generation,
+            "certificate": certificate,
+        });
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .join("target/sccp-continuation");
+        std::fs::create_dir_all(&directory)?;
+        let temporary = directory.join("live-fourpeer-sccp.json.tmp");
+        std::fs::write(&temporary, norito::json::to_vec(&export)?)?;
+        std::fs::rename(temporary, directory.join("live-fourpeer-sccp.json"))?;
         Ok(())
     })();
     runtime.block_on(network.shutdown());

@@ -1,0 +1,53 @@
+{
+  "kind": "local_component_regression_not_release_or_hardware_qualification",
+  "rustc_verbose": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+  "target": "aarch64-apple-darwin",
+  "metadata": "--stable-local-metadata sets VERGEN_GIT_SHA=local-fast-build; this is a regression build, not a release artifact identity",
+  "source_manifest": "nonminimal-counter-source.sha256",
+  "source_manifest_sha256": "ad76c42230d77f73b57f5903397e4a31ecd54cd8117a4aaf57dca815adee4559",
+  "source_file_count": 92,
+  "scope": "Standalone ballot/backend/AES source and manifests from the reviewed resource source inventory, test/support, eight existing fixture files, and Cargo wrapper; not the full transitive dependency/toolchain/source closure.",
+  "reviewed_resource_source_aggregate_sha256": "85637106cc477d878f5935f559db568dd7450fac3f8edcc3dde04d44b9f30741",
+  "commands": {
+    "portable": {
+      "test": "scripts/cargo_fast.sh --target-slot parliament-ballot --stable-local-metadata -- test -p iroha_parliament_ballot_proof --release --test nonminimal_counter -- --nocapture --test-threads=1",
+      "clippy": "scripts/cargo_fast.sh --target-slot parliament-ballot --stable-local-metadata -- clippy -p iroha_parliament_ballot_proof --release --test nonminimal_counter -- -D warnings"
+    },
+    "accel": {
+      "test": "scripts/cargo_fast.sh --target-slot parliament-ballot --stable-local-metadata -- test -p iroha_parliament_ballot_proof --release --features accel --test nonminimal_counter -- --nocapture --test-threads=1",
+      "clippy": "scripts/cargo_fast.sh --target-slot parliament-ballot --stable-local-metadata -- clippy -p iroha_parliament_ballot_proof --release --features accel --test nonminimal_counter -- -D warnings"
+    }
+  },
+  "binaries": {
+    "portable": {
+      "path": "target/cargo-fast/parliament-ballot/release/deps/nonminimal_counter-1e3c9a7693cc72aa",
+      "sha256": "d994052cde71406d1c52c1e0ce99d3f9d202f52fa7de264da18dce8912ff44c2"
+    },
+    "accel": {
+      "path": "target/cargo-fast/parliament-ballot/release/deps/nonminimal_counter-a6b4069be2477098",
+      "sha256": "3e9cd16ad31a012b50130f1923c40924db71e88a8517bcb5338c3f6811b7aae8"
+    }
+  },
+  "results": {
+    "portable": {
+      "passed": 4,
+      "failed": 0,
+      "seconds_test_harness": 16.48
+    },
+    "accel": {
+      "passed": 4,
+      "failed": 0,
+      "seconds_test_harness": 3.14
+    },
+    "clippy_both_modes": "pass -D warnings",
+    "scoped_rustfmt": "pass"
+  },
+  "format_command": "rustfmt --edition 2024 --check crates/iroha_parliament_ballot_proof/tests/nonminimal_counter.rs",
+  "scope_limits": [
+    "Vote cases use S=3; both roles and rows are covered.",
+    "Uses independently generated original Python fixture data but the later proof is constructed with Rust backend APIs.",
+    "The test establishes later-counter acceptance; source inspection, not timing or instrumentation, establishes one verifier challenge evaluation.",
+    "No protocol, library, production gate, existing raw fixture, or previous source manifest changed.",
+    "Test harness durations are not benchmark or hardware qualification evidence."
+  ]
+}

@@ -1203,7 +1203,7 @@ mod tests {
             .reads
             .iter()
             .find(|kv| kv.key == key)
-            .unwrap_or_else(|| panic!("expected read key {:?}", key))
+            .unwrap_or_else(|| panic!("expected read key {key:?}"))
             .value
             .clone();
         assert_eq!(value, expected);
@@ -1211,8 +1211,7 @@ mod tests {
     fn assert_no_read_key(witness: &ExecWitness, key: Vec<u8>) {
         assert!(
             witness.reads.iter().all(|kv| kv.key != key),
-            "unexpected read key {:?}",
-            key
+            "unexpected read key {key:?}"
         );
     }
     fn sample_fastpq_transcript(seed: u8, batch_hash: Hash) -> (TransferTranscript, Hash) {

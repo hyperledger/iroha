@@ -123,7 +123,7 @@ pub(crate) struct NexusFeeTestGuard {
 }
 #[cfg(test)]
 impl NexusFeeTestLock {
-    pub(crate) fn lock(&'static self) -> Result<NexusFeeTestGuard, std::convert::Infallible> {
+    pub(crate) fn lock(self) -> Result<NexusFeeTestGuard, std::convert::Infallible> {
         Ok(NexusFeeTestGuard {
             _guard: reentrant_test_guard(&OPERATOR_STATUS_TEST_LOCK),
         })

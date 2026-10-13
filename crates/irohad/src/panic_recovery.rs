@@ -10,10 +10,10 @@ use tokio::task::{JoinError, JoinHandle};
 
 /// Opaque failure returned when a recoverable operation panicked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct RecoverablePanic;
+pub struct RecoverablePanic;
 
 /// Run blocking provider work with suppression installed on its physical worker.
-pub(crate) fn spawn_blocking_recoverable<F, T>(operation: F) -> JoinHandle<thread::Result<T>>
+pub fn spawn_blocking_recoverable<F, T>(operation: F) -> JoinHandle<thread::Result<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
@@ -26,7 +26,7 @@ where
 /// The nested unwind is an expected provider failure. A raw [`JoinError`]
 /// means cancellation or failure outside the physical recovery boundary and
 /// remains an unsuppressed daemon invariant panic.
-pub(crate) fn recover_joined<T>(
+pub fn recover_joined<T>(
     joined: Result<thread::Result<T>, JoinError>,
 ) -> Result<T, RecoverablePanic> {
     match joined {
@@ -39,14 +39,14 @@ pub(crate) fn recover_joined<T>(
 }
 
 /// Join an explicitly recoverable blocking task without exposing its panic payload.
-pub(crate) async fn join_recoverable<T>(
+pub async fn join_recoverable<T>(
     task: JoinHandle<thread::Result<T>>,
 ) -> Result<T, RecoverablePanic> {
     recover_joined(task.await)
 }
 
 /// Spawn a named OS thread with suppression installed inside that physical thread.
-pub(crate) fn spawn_thread_recoverable<F, T>(
+pub fn spawn_thread_recoverable<F, T>(
     builder: thread::Builder,
     operation: F,
 ) -> io::Result<thread::JoinHandle<thread::Result<T>>>
@@ -61,14 +61,13 @@ where
 ///
 /// The outer join can fail only if the recovery wrapper itself failed, so it
 /// remains an unsuppressed daemon invariant panic.
-pub(crate) fn join_thread_recoverable<T>(
+pub fn join_thread_recoverable<T>(
     thread: thread::JoinHandle<thread::Result<T>>,
 ) -> Result<T, RecoverablePanic> {
-    match thread.join() {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(_)) => Err(RecoverablePanic),
-        Err(_) => panic!("recoverable OS thread failed outside its panic boundary"),
-    }
+    thread
+        .join()
+        .unwrap_or_else(|_| panic!("recoverable OS thread failed outside its panic boundary"))
+        .map_err(|_| RecoverablePanic)
 }
 
 #[cfg(test)]

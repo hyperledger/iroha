@@ -234,7 +234,7 @@ impl NativeBeaconProducer {
                 height: context.height,
             })?),
         };
-        control::encode(pulse).map_err(NativeBeaconError::from)
+        control::encode(pulse.as_ref()).map_err(NativeBeaconError::from)
     }
 
     /// Bind only the current parent to the opaque authority retained by this State

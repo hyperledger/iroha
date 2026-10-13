@@ -1,0 +1,16 @@
+{
+  "recorded_at_utc": "2026-10-13T06:08:15.523782+00:00",
+  "scope": "Commands executed in this session; log transcribes their captured output. 35 resource-supervisor tests and 6 request-accounting tests. No worker measurements repeated.",
+  "tests": 41,
+  "test_exit": 0,
+  "require_qualified_exit": 2,
+  "log": "docs/validation/parliament_ballot_b6/request-and-resource-supervisor-tests.txt",
+  "log_sha256": "91ef244eeaeb61de0a9d7bdcfa9127b60e225208554ec2d6a375f99045a01fad",
+  "source_sha256": {
+    "scripts/check_parliament_ballot_request_accounting.py": "83b592e4b7fc70e9d4f78e8b1eec815483c2853976b5e830ca891a1a93d3cae0",
+    "scripts/tests/parliament_ballot_request_accounting_test.py": "2585442e752525d97e1e7370c77885597e23bb750159b575ebe2f05006f0cf7e",
+    "scripts/check_parliament_ballot_resource_contract.py": "545a0655dd83dd5e19bdc428d90841dbf416afd0c523eec3992fba6bd15ade02",
+    "scripts/tests/parliament_ballot_resource_contract_test.py": "2e7c95149e746b5bf666474befacc937a7faed4eb4bfbecb9af12b36475e93dd"
+  },
+  "profile_qualified": false
+}

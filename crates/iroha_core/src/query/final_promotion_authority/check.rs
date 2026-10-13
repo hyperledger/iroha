@@ -118,8 +118,9 @@ pub(crate) fn check_subject(
         Subject::AfterCommit(row) | Subject::BeforeRelease(row) => (row, false),
     };
     let row = operation.ok_or(Error::Conflict)?;
+    let operation_matches = row.intent.operation_id == check.request.operation_id;
     if row != expected
-        || row.intent.operation_id != check.request.operation_id
+        || !operation_matches
         || row.intent.request_digest != check.request.digest().map_err(|_| Error::Invalid)?
         || row.intent.action != SignerOperationActionV1::Sign
         || row.custody != check.request.original_custody

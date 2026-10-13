@@ -410,7 +410,7 @@ impl fmt::Debug for RetainedEvidenceRecord {
             .field("recorded_at_view", &self.recorded_at_view)
             .field("recorded_at_ms", &self.recorded_at_ms)
             .field("penalty_status", &self.penalty_status)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl PartialEq for RetainedEvidenceRecord {

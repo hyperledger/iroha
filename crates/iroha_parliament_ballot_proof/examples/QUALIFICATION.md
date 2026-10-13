@@ -64,6 +64,34 @@ GPU allocation and RSS are excluded. Any unrelated concurrent Rust allocation ca
 contaminate these process-wide counters. These observations cannot establish a
 64 MiB verifier ceiling for a production adapter or a whole process.
 
+## Malformed encoding observations
+
+`qualify malformed` accepts the same options and measures malformed encodings
+through `cold_verify`. For each row/case it first constructs and accepts one
+fixed public-test-tape proof outside timing. It then constructs 16 registration
+or 22 vote mutations outside timing: outer lengths/tag/field framing, descriptor,
+body or vote/list bounds and digests, plus proof counter, grinding bits,
+opening padding and opening capacity. Untimed preflight requires the expected
+decode rejection or the specific backend codec error; all timed samples must
+reject at the same public boundary. No mutation construction/search is timed.
+
+```sh
+<target-directory>/release/examples/qualify malformed --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > malformed-observations.jsonl
+```
+
+Each fixed mutant is repeated in a warm process. These observations report
+timing/allocation distributions and maxima, not fresh-proof trials, exhaustive
+malformed-input coverage or an adversarial worst-case bound. The canonical
+record, one mutant and bounded diagnostic/metric bookkeeping remain live and
+are included in requested-heap totals. Output has `malformed_sample` and
+`malformed_summary` records with exact mutation names, sample indices,
+SHAKE256-32 input digests, rejection outcomes and the same metric units and
+nearest-rank summaries. An unexpected result emits `malformed_case_error` and
+fails. Qualification flags stay false. The ordinary seven-phase campaign and
+its historical results are unchanged.
+
+## Temporary device host
+
 The module is reusable by a temporary device test host:
 
 ```rust,ignore

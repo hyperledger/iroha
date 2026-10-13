@@ -24,24 +24,6 @@ fn fastpq_allocation_deferral(
     .then_some(ivm::error::ExecutionDeferral::AllocationUnavailable)
 }
 
-#[cfg(test)]
-mod fastpq_allocation_deferral_tests {
-    use super::*;
-
-    #[test]
-    fn only_local_allocation_failure_defers_the_attempt() {
-        assert_eq!(
-            fastpq_allocation_deferral(&fastpq_prover::Error::LocalAllocationUnavailable {
-                context: "test",
-            }),
-            Some(ivm::error::ExecutionDeferral::AllocationUnavailable)
-        );
-        assert_eq!(
-            fastpq_allocation_deferral(&fastpq_prover::Error::CommitmentMismatch),
-            None
-        );
-    }
-}
 /// Iroha Special Instructions that have `World` as their target.
 #[allow(clippy::used_underscore_binding)]
 pub mod isi {
@@ -1383,7 +1365,8 @@ pub mod isi {
         record: &VerifyingKeyRecord,
         profile: SoracloudFheStarkVerifierProfile,
     ) -> Result<(), Error> {
-        if id.name != profile.circuit_id && record.circuit_id != profile.circuit_id {
+        let has_canonical_name = id.name == profile.circuit_id;
+        if !has_canonical_name && record.circuit_id != profile.circuit_id {
             return Ok(());
         }
         if id.name != profile.circuit_id {
@@ -1819,8 +1802,9 @@ pub mod isi {
                 "bond amount below minimum".into(),
             ));
         }
+        let zero = Quantity::zero();
         let delta = ballot_amount
-            .try_sub(previous_amount.unwrap_or(&Quantity::zero()))
+            .try_sub(previous_amount.unwrap_or(&zero))
             .map_err(|_| Error::from(MathError::Overflow))?;
         if delta.is_zero() {
             return Ok(());
@@ -2437,15 +2421,15 @@ pub mod isi {
         world: &WorldTransaction<'_, '_>,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<&'manifest ManifestProvenance, InstructionExecutionError> {
+        use crate::execution_attempt::{
+            ExecutionAttemptError, ExecutionDeferred, norito_decode_attempt_error,
+        };
+        use norito::core::{BoundedEncodeError, DecodeBudgetContext};
         let provenance = manifest.provenance.as_ref().ok_or_else(|| {
             InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
                 "manifest.provenance missing".into(),
             ))
         })?;
-        use crate::execution_attempt::{
-            ExecutionAttemptError, ExecutionDeferred, norito_decode_attempt_error,
-        };
-        use norito::core::{BoundedEncodeError, DecodeBudgetContext};
 
         let defer = |reason: ExecutionDeferred| {
             world.attempt_error_to_instruction_error(ExecutionAttemptError::Deferred(reason))
@@ -2967,7 +2951,7 @@ pub mod isi {
                             "abi_hash does not match canonical ABI V1 hash",
                         ));
                     }
-                    if !owner_is_authority && !(parliament_authorized && bonded) {
+                    if !(owner_is_authority || parliament_authorized && bonded) {
                         return Err(InstructionExecutionError::InvariantViolation(
                             "contract lifecycle proposal requires the account owner or a bonded citizen with Parliament authority"
                                 .into(),
@@ -2986,7 +2970,7 @@ pub mod isi {
                             "expected_code_hash does not match the active contract",
                         ));
                     }
-                    if !owner_is_authority && !(parliament_authorized && bonded) {
+                    if !(owner_is_authority || parliament_authorized && bonded) {
                         return Err(InstructionExecutionError::InvariantViolation(
                             "contract lifecycle proposal requires the account owner or a bonded citizen with Parliament authority"
                                 .into(),
@@ -3075,7 +3059,10 @@ pub mod isi {
                     "emergency hold requires non-zero evidence and a duration of 1..=3600 blocks",
                 ));
             }
-            payload.reason = payload.reason.trim().to_owned();
+            let leading_whitespace = payload.reason.len() - payload.reason.trim_start().len();
+            let reason_len = payload.reason.trim().len();
+            payload.reason.replace_range(..leading_whitespace, "");
+            payload.reason.truncate(reason_len);
             if payload.reason.is_empty() {
                 return Err(invalid_governance_parameter(
                     "emergency hold reason must not be empty",
@@ -6538,8 +6525,8 @@ pub mod isi {
                     "validation-fee payout lifecycle requires an active immutable contract".into(),
                 )
             })?;
-        if record.contract_address != binding.contract_address
-            || record.contract_subject != binding.treasury_account_id
+        if (&record.contract_address, &record.contract_subject)
+            != (&binding.contract_address, &binding.treasury_account_id)
             || binding.contract_address.subject_id() != binding.treasury_account_id
             || ivm::contract_code_hash(&record.code_bytes).as_ref() != &binding.code_hash
         {
@@ -7427,9 +7414,7 @@ pub mod isi {
                 return Err(InstructionExecutionError::InvalidParameter(
                     InvalidParameterError::SmartContract(
                         format!(
-                            "stale contract alias target for `{contract_alias}`: expected {:?}, current {:?}",
-                            expected_previous_contract_address,
-                            current_previous_contract_address
+                            "stale contract alias target for `{contract_alias}`: expected {expected_previous_contract_address:?}, current {current_previous_contract_address:?}"
                         )
                         .into(),
                     ),
@@ -9721,7 +9706,7 @@ pub mod isi {
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &state_transaction.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .map_err(|_| {
@@ -9766,7 +9751,7 @@ pub mod isi {
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &state_transaction.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .is_ok()
@@ -10896,10 +10881,39 @@ pub mod isi {
         Ok(())
     }
     fn mul_u128_u64_wide_v1(value: u128, factor: u64) -> [u64; 3] {
-        let low_product = u128::from(value as u64) * u128::from(factor);
-        let high_product = u128::from((value >> 64) as u64) * u128::from(factor);
+        fn words(value: u128) -> [u64; 2] {
+            let bytes = value.to_le_bytes();
+            [
+                u64::from_le_bytes([
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                ]),
+                u64::from_le_bytes([
+                    bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                    bytes[15],
+                ]),
+            ]
+        }
+        let limbs = words(value);
+        let low_product = u128::from(limbs[0]) * u128::from(factor);
+        let high_product = u128::from(limbs[1]) * u128::from(factor);
         let middle = high_product + (low_product >> 64);
-        [(middle >> 64) as u64, middle as u64, low_product as u64]
+        let upper_words = words(middle);
+        [upper_words[1], upper_words[0], words(low_product)[0]]
+    }
+    #[cfg(test)]
+    #[test]
+    fn wide_referendum_product_preserves_all_limbs() {
+        assert_eq!(mul_u128_u64_wide_v1(0, u64::MAX), [0, 0, 0]);
+        assert_eq!(mul_u128_u64_wide_v1(u128::MAX, 0), [0, 0, 0]);
+        assert_eq!(mul_u128_u64_wide_v1(u128::MAX, 1), [0, u64::MAX, u64::MAX]);
+        assert_eq!(
+            mul_u128_u64_wide_v1(1_u128 << 64, u64::MAX),
+            [0, u64::MAX, 0]
+        );
+        assert_eq!(
+            mul_u128_u64_wide_v1(u128::MAX, u64::MAX),
+            [u64::MAX - 1, u64::MAX, 1]
+        );
     }
     pub(crate) fn standalone_referendum_decision_v1(
         referendum_id: String,
@@ -13073,11 +13087,11 @@ pub mod isi {
             usize::try_from(bounded).unwrap_or(usize::MAX)
         };
         let mut retained: Vec<(ProofId, u64)> = Vec::new();
-        let mut stale: Vec<(ProofId, u64)> = Vec::new();
+        let mut outdated: Vec<(ProofId, u64)> = Vec::new();
         for (id, height) in items {
             if let Some(floor) = retention_floor {
                 if height < floor {
-                    stale.push((id, height));
+                    outdated.push((id, height));
                 } else {
                     retained.push((id, height));
                 }
@@ -13087,11 +13101,11 @@ pub mod isi {
         }
         if retained.len() < min_keep {
             let deficit = min_keep - retained.len();
-            let keep_from_stale = stale.split_off(stale.len().saturating_sub(deficit));
+            let keep_from_stale = outdated.split_off(outdated.len().saturating_sub(deficit));
             retained.extend(keep_from_stale);
         }
         retained.sort_by_key(|(_, height)| *height);
-        let mut removals: Vec<ProofId> = stale.into_iter().map(|(id, _)| id).collect();
+        let mut removals: Vec<ProofId> = outdated.into_iter().map(|(id, _)| id).collect();
         if cap > 0 && retained.len() > cap {
             let overflow = retained.len() - cap;
             removals.extend(retained.into_iter().take(overflow).map(|(id, _)| id));
@@ -13100,79 +13114,6 @@ pub mod isi {
             removals.truncate(prune_batch);
         }
         removals
-    }
-    #[cfg(test)]
-    mod retention_tests {
-        use super::*;
-        #[test]
-        fn retention_prunes_entries_older_than_grace_window() {
-            let backend = "pipa-r/pasta";
-            let items: Vec<_> = (1u64..=4)
-                .map(|height| {
-                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
-                    (
-                        ProofId {
-                            backend: backend.into(),
-                            proof_hash: [proof_height; 32],
-                        },
-                        height,
-                    )
-                })
-                .collect();
-            let removals = proof_retention_removals(items, 10, 2, 10, 9);
-            assert_eq!(removals.len(), 2);
-            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
-            assert!(hashes.contains(&1));
-            assert!(hashes.contains(&2));
-        }
-        #[test]
-        fn retention_respects_prune_batch_limit() {
-            let backend = "pipa-r/pasta";
-            let items: Vec<_> = (0u64..5)
-                .map(|height| {
-                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
-                    (
-                        ProofId {
-                            backend: backend.into(),
-                            proof_hash: [proof_height; 32],
-                        },
-                        height,
-                    )
-                })
-                .collect();
-            let removals = proof_retention_removals(items, 1, 0, 2, 5);
-            assert_eq!(removals.len(), 2);
-            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
-            assert!(hashes.contains(&0));
-            assert!(hashes.contains(&1));
-        }
-        #[test]
-        fn retention_keeps_minimum_entries_when_all_are_stale() {
-            let backend = "pipa-r/pasta";
-            let items: Vec<_> = (1u64..=6)
-                .map(|height| {
-                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
-                    (
-                        ProofId {
-                            backend: backend.into(),
-                            proof_hash: [proof_height; 32],
-                        },
-                        height,
-                    )
-                })
-                .collect();
-            // Everything is older than the grace window; we still keep the newest three
-            // entries because grace_blocks acts as a floor when cap=0.
-            let removals = proof_retention_removals(items, 0, 3, 10, 20);
-            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
-            assert_eq!(hashes.len(), 3);
-            assert!(hashes.contains(&1));
-            assert!(hashes.contains(&2));
-            assert!(hashes.contains(&3));
-            assert!(!hashes.contains(&4));
-            assert!(!hashes.contains(&5));
-            assert!(!hashes.contains(&6));
-        }
     }
     struct ProofPruneOutcome {
         backend: String,
@@ -15967,8 +15908,7 @@ pub mod isi {
                 })?;
             if required > vault_balance {
                 return Err(invalid_fee_sponsor_program(format!(
-                    "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {}",
-                    vault_balance
+                    "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {vault_balance}"
                 )));
             }
             state_transaction
@@ -17753,8 +17693,7 @@ pub mod isi {
                             .map_err(|err| {
                                 InstructionExecutionError::InvariantViolation(
                                     format!(
-                                        "account alias `{:?}` could not resolve its qualified domain: {err}",
-                                        label
+                                        "account alias `{label:?}` could not resolve its qualified domain: {err}"
                                     )
                                     .into(),
                                 )
@@ -18557,8 +18496,8 @@ pub mod isi {
             _authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> std::result::Result<(), Error> {
-            crate::retail_fee::execute_assessment_marker(&self, state_transaction)?;
             const TARGET: &str = "log_isi";
+            crate::retail_fee::execute_assessment_marker(&self, state_transaction)?;
             let Self { level, msg } = self;
             match level {
                 Level::TRACE => iroha_logger::trace!(target: TARGET, "{}", msg),
@@ -18568,6 +18507,635 @@ pub mod isi {
                 Level::ERROR => iroha_logger::error!(target: TARGET, "{}", msg),
             }
             Ok(())
+        }
+    }
+    /// Query module provides `IrohaQuery` Peer related implementations.
+    pub mod query {
+        use super::*;
+        use crate::smartcontracts::isi::query::json_predicate::{
+            intersect_candidate_ids, predicate_matches_with_aliases,
+        };
+        use crate::{
+            smartcontracts::ValidQuery,
+            state::{StateReadOnly, WorldReadOnly},
+        };
+        use eyre::Result;
+        use iroha_data_model::{
+            parameter::Parameters,
+            proof::{ProofId, ProofRecord, ProofStatus},
+            query::{
+                dsl::{CompoundPredicate, EvaluatePredicate},
+                error::QueryExecutionFail as Error,
+                json::{PredicateJson, predicate_json_candidate_plan_for_execution},
+            },
+            role::Role,
+        };
+        use norito::json::Value;
+        use std::collections::BTreeSet;
+        fn role_id_from_value(value: &Value) -> Option<RoleId> {
+            norito::json::from_value(value.clone()).ok()
+        }
+        fn role_candidate_ids(predicate: &PredicateJson) -> Option<BTreeSet<RoleId>> {
+            let mut best = None;
+            for cond in &predicate.equals {
+                if cond.field == "id" {
+                    intersect_candidate_ids(
+                        &mut best,
+                        role_id_from_value(&cond.value).into_iter().collect(),
+                    );
+                }
+            }
+            for cond in &predicate.r#in {
+                if cond.field == "id" {
+                    intersect_candidate_ids(
+                        &mut best,
+                        cond.values.iter().filter_map(role_id_from_value).collect(),
+                    );
+                }
+            }
+            best
+        }
+        fn role_id_alias_values(id: &RoleId, field: &str) -> Vec<String> {
+            match field {
+                "id" => vec![id.to_string()],
+                _ => Vec::new(),
+            }
+        }
+        fn predicate_matches_role_id(predicate: &PredicateJson, id: &RoleId) -> bool {
+            predicate_matches_with_aliases(predicate, id, role_id_alias_values)
+        }
+        impl ValidQuery for FindRoles {
+            #[metrics(+"find_roles")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<Role>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                let world = state_ro.world();
+                let predicate_json = filter
+                    .json_payload()
+                    .and_then(predicate_json_candidate_plan_for_execution);
+                if let Some(candidate_ids) = predicate_json.as_ref().and_then(role_candidate_ids) {
+                    let iter: Box<dyn Iterator<Item = Role> + '_> =
+                        Box::new(candidate_ids.into_iter().filter_map(move |role_id| {
+                            world
+                                .roles()
+                                .get(&role_id)
+                                .filter(|role| filter.applies(*role))
+                                .cloned()
+                        }));
+                    return Ok(iter);
+                }
+                let iter: Box<dyn Iterator<Item = Role> + '_> = Box::new(
+                    world
+                        .roles()
+                        .iter()
+                        .map(|(_, role)| role)
+                        .filter(move |&role| filter.applies(role))
+                        .cloned(),
+                );
+                Ok(iter)
+            }
+        }
+        impl ValidQuery for FindRoleIds {
+            #[metrics(+"find_role_ids")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<RoleId>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                let world = state_ro.world();
+                let predicate_json = filter
+                    .json_payload()
+                    .and_then(predicate_json_candidate_plan_for_execution);
+                if let Some(candidate_ids) = predicate_json.as_ref().and_then(role_candidate_ids) {
+                    let iter: Box<dyn Iterator<Item = RoleId> + '_> =
+                        Box::new(candidate_ids.into_iter().filter(move |role_id| {
+                            world.roles().get(role_id).is_some()
+                                && predicate_json.as_ref().map_or_else(
+                                    || filter.applies(role_id),
+                                    |predicate| predicate_matches_role_id(predicate, role_id),
+                                )
+                        }));
+                    return Ok(iter);
+                }
+                let iter: Box<dyn Iterator<Item = RoleId> + '_> =
+                    Box::new(world.roles().iter().filter_map(move |(role_id, role)| {
+                        let matches = predicate_json.as_ref().map_or_else(
+                            || filter.applies(role.id()),
+                            |predicate| predicate_matches_role_id(predicate, role.id()),
+                        );
+                        matches.then(|| role_id.clone())
+                    }));
+                Ok(iter)
+            }
+        }
+        impl ValidQuery for FindPeers {
+            #[metrics(+"find_peers")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<PeerId>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                Ok(state_ro
+                    .world()
+                    .peers()
+                    .into_iter()
+                    .filter(move |peer| filter.applies(peer))
+                    .cloned())
+            }
+        }
+        impl ValidSingularQuery for FindExecutorDataModel {
+            #[metrics(+"find_executor_data_model")]
+            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<ExecutorDataModel, Error> {
+                let model = state_ro.world().executor_data_model();
+                if model.permissions().is_empty() {
+                    let fallback = crate::executor::initial_executor_data_model_fallback();
+                    return crate::smartcontracts::isi::query::own_singular_query_value(&fallback);
+                }
+                crate::smartcontracts::isi::query::own_singular_query_value(model)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::runtime::prelude::FindAbiVersion {
+            #[metrics(+"find_abi_version")]
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<iroha_data_model::query::runtime::AbiVersion, Error> {
+                Ok(iroha_data_model::query::runtime::AbiVersion {
+                    abi_version: state_ro.world().abi_version(),
+                })
+            }
+        }
+        impl ValidSingularQuery for FindParameters {
+            #[metrics(+"find_parameters")]
+            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
+                let params = state_ro.world().parameters();
+                iroha_logger::debug!(
+                    max_tx = params.block().max_transactions().get(),
+                    sc_depth = params.smart_contract().execution_depth(),
+                    exec_depth = params.executor().execution_depth(),
+                    "serving FindParameters"
+                );
+                crate::smartcontracts::isi::query::own_singular_query_value(params)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::proof::prelude::FindProofRecordById {
+            #[metrics(+"find_proof_record_by_id")]
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<iroha_data_model::proof::ProofRecord, Error> {
+                state_ro
+                    .world()
+                    .proofs()
+                    .get(&self.id)
+                    .ok_or_else(|| Error::Conversion("ProofRecord not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery
+            for iroha_data_model::query::endorsement::prelude::FindDomainEndorsementPolicy
+        {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<DomainEndorsementPolicy, Error> {
+                state_ro
+                    .world()
+                    .domain_endorsement_policies()
+                    .get(&self.domain_id)
+                    .ok_or_else(|| {
+                        Error::Conversion("Domain endorsement policy not found".to_string())
+                    })
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::endorsement::prelude::FindDomainCommittee {
+            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<DomainCommittee, Error> {
+                state_ro
+                    .world()
+                    .domain_committees()
+                    .get(&self.committee_id)
+                    .ok_or_else(|| Error::Conversion("Domain committee not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::sorafs::prelude::FindSorafsProviderOwner {
+            #[metrics(+"find_sorafs_provider_owner")]
+            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<AccountId, Error> {
+                state_ro
+                    .world()
+                    .provider_owners()
+                    .get(&self.provider_id)
+                    .ok_or_else(|| Error::Conversion("SoraFS provider owner not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByTicket {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<DaPinIntentWithLocation, Error> {
+                state_ro
+                    .world()
+                    .da_pin_intents_by_ticket()
+                    .get(&self.storage_ticket)
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByManifest {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<DaPinIntentWithLocation, Error> {
+                let ticket = state_ro
+                    .world()
+                    .da_pin_intents_by_manifest()
+                    .get(&self.manifest_hash)
+                    .copied()
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
+                state_ro
+                    .world()
+                    .da_pin_intents_by_ticket()
+                    .get(&ticket)
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByAlias {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<DaPinIntentWithLocation, Error> {
+                let ticket = state_ro
+                    .world()
+                    .da_pin_intents_by_alias()
+                    .get(&self.alias)
+                    .copied()
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
+                state_ro
+                    .world()
+                    .da_pin_intents_by_ticket()
+                    .get(&ticket)
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidSingularQuery
+            for iroha_data_model::query::da::prelude::FindDaPinIntentByLaneEpochSequence
+        {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<DaPinIntentWithLocation, Error> {
+                let ticket = state_ro
+                    .world()
+                    .da_pin_intents_by_lane_epoch()
+                    .get(&(self.lane_id, self.epoch, self.sequence))
+                    .copied()
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
+                state_ro
+                    .world()
+                    .da_pin_intents_by_ticket()
+                    .get(&ticket)
+                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorPrograms {
+            #[metrics(+"find_fee_sponsor_programs")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgram>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                Ok(state_ro
+                    .world()
+                    .fee_sponsor_programs()
+                    .iter()
+                    .map(|(_, policy)| policy)
+                    .filter(move |policy| filter.applies(policy))
+                    .cloned())
+            }
+        }
+        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramIds {
+            #[metrics(+"find_fee_sponsor_program_ids")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgramId>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                Ok(state_ro
+                    .world()
+                    .fee_sponsor_programs()
+                    .iter()
+                    .map(|(id, _)| id)
+                    .filter(move |id| filter.applies(id))
+                    .cloned())
+            }
+        }
+        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramsBySponsor {
+            #[metrics(+"find_fee_sponsor_programs_by_sponsor")]
+            fn execute(
+                self,
+                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgram>,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
+                let sponsor = self.sponsor;
+                Ok(state_ro
+                    .world()
+                    .fee_sponsor_programs()
+                    .iter()
+                    .filter(move |(id, _)| id.sponsor == sponsor)
+                    .map(|(_, policy)| policy)
+                    .filter(move |policy| filter.applies(policy))
+                    .cloned())
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramById {
+            #[metrics(+"find_fee_sponsor_program_by_id")]
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<iroha_data_model::nexus::FeeSponsorProgram, Error> {
+                state_ro
+                    .world()
+                    .fee_sponsor_programs()
+                    .get(&self.id)
+                    .ok_or_else(|| Error::Conversion("FeeSponsorProgram not found".to_string()))
+                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
+            }
+        }
+        fn load_fx_corridor_policy_registry(
+            state_ro: &impl StateReadOnly,
+        ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicyRegistry, Error> {
+            use iroha_data_model::isi::settlement::FxCorridorPolicyRegistry;
+            let parameter = state_ro
+                .world()
+                .parameters()
+                .custom()
+                .get(&FxCorridorPolicyRegistry::parameter_id())
+                .ok_or_else(|| {
+                    Error::Conversion("FX corridor policy registry is not initialized".to_string())
+                })?;
+            if crate::smartcontracts::isi::query::singular_query_limits_active() {
+                let payload = parameter.payload().as_ref();
+                let limits = crate::smartcontracts::isi::query::singular_query_decode_limits(
+                    payload.len(),
+                    norito::canonical_decode_limits(payload.len()),
+                )?;
+                return norito::with_decode_limits_scope(limits, || {
+                    norito::json::from_str::<FxCorridorPolicyRegistry>(payload)
+                })
+                .map_err(|error| {
+                    if error.is_decode_resource_limit() {
+                        Error::CapacityLimit
+                    } else {
+                        Error::Conversion(format!(
+                            "FX corridor policy registry is malformed: {error}"
+                        ))
+                    }
+                });
+            }
+            FxCorridorPolicyRegistry::from_custom_parameter(parameter)
+                .map_err(|error| {
+                    Error::Conversion(format!("FX corridor policy registry is malformed: {error}"))
+                })?
+                .ok_or_else(|| {
+                    Error::Conversion("FX corridor policy registry is malformed".to_string())
+                })
+        }
+        impl ValidSingularQuery
+            for iroha_data_model::query::settlement::prelude::FindFxCorridorPolicyRegistry
+        {
+            #[metrics(+"find_fx_corridor_policy_registry")]
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicyRegistry, Error>
+            {
+                load_fx_corridor_policy_registry(state_ro)
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::settlement::prelude::FindFxCorridorPolicyById {
+            #[metrics(+"find_fx_corridor_policy_by_id")]
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicy, Error> {
+                let mut registry = load_fx_corridor_policy_registry(state_ro)?;
+                registry.policies.remove(&self.policy_id).ok_or_else(|| {
+                    Error::Conversion(format!(
+                        "FX corridor policy `{}` was not found",
+                        self.policy_id
+                    ))
+                })
+            }
+        }
+        impl ValidSingularQuery for iroha_data_model::query::endorsement::prelude::FindDomainEndorsements {
+            fn execute(
+                &self,
+                state_ro: &impl StateReadOnly,
+            ) -> Result<Vec<iroha_data_model::nexus::DomainEndorsementRecord>, Error> {
+                let world = state_ro.world();
+                let hashes = world
+                    .domain_endorsements_by_domain()
+                    .get(&self.domain_id)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let records = hashes
+                    .iter()
+                    .filter_map(|hash| world.domain_endorsements().get(hash));
+                crate::smartcontracts::isi::query::own_singular_query_values(records)
+            }
+        }
+        fn proof_id_from_value(value: &Value) -> Option<ProofId> {
+            norito::json::from_value(value.clone()).ok()
+        }
+        fn proof_status_from_value(value: &Value) -> Option<ProofStatus> {
+            norito::json::from_value(value.clone()).ok()
+        }
+        fn proof_backend_from_value(value: &Value) -> Option<String> {
+            value.as_str().map(ToOwned::to_owned)
+        }
+        fn proof_status_label(status: ProofStatus) -> &'static str {
+            match status {
+                ProofStatus::Submitted => "Submitted",
+                ProofStatus::Verified => "Verified",
+                ProofStatus::Rejected => "Rejected",
+            }
+        }
+        fn proof_ids_for_backends(
+            world: &impl WorldReadOnly,
+            backends: impl IntoIterator<Item = String>,
+        ) -> BTreeSet<ProofId> {
+            let mut ids = BTreeSet::new();
+            for backend in backends {
+                ids.extend(
+                    world
+                        .proofs_by_backend_iter(&backend)
+                        .map(|(proof_id, _)| proof_id.clone()),
+                );
+            }
+            ids
+        }
+        fn proof_ids_for_statuses(
+            world: &impl WorldReadOnly,
+            statuses: impl IntoIterator<Item = ProofStatus>,
+        ) -> BTreeSet<ProofId> {
+            let mut ids = BTreeSet::new();
+            for status in statuses {
+                ids.extend(
+                    world
+                        .proofs_by_status_iter(&status)
+                        .map(|(proof_id, _)| proof_id.clone()),
+                );
+            }
+            ids
+        }
+        fn proof_record_candidate_ids(
+            predicate: &PredicateJson,
+            world: &impl WorldReadOnly,
+        ) -> Option<BTreeSet<ProofId>> {
+            let mut best = None;
+            for cond in &predicate.equals {
+                match cond.field.as_str() {
+                    "id" => intersect_candidate_ids(
+                        &mut best,
+                        proof_id_from_value(&cond.value).into_iter().collect(),
+                    ),
+                    "backend" | "id.backend" => intersect_candidate_ids(
+                        &mut best,
+                        proof_ids_for_backends(world, proof_backend_from_value(&cond.value)),
+                    ),
+                    "status" => intersect_candidate_ids(
+                        &mut best,
+                        proof_ids_for_statuses(world, proof_status_from_value(&cond.value)),
+                    ),
+                    _ => {}
+                }
+            }
+            for cond in &predicate.r#in {
+                match cond.field.as_str() {
+                    "id" => intersect_candidate_ids(
+                        &mut best,
+                        cond.values.iter().filter_map(proof_id_from_value).collect(),
+                    ),
+                    "backend" | "id.backend" => intersect_candidate_ids(
+                        &mut best,
+                        proof_ids_for_backends(
+                            world,
+                            cond.values.iter().filter_map(proof_backend_from_value),
+                        ),
+                    ),
+                    "status" => intersect_candidate_ids(
+                        &mut best,
+                        proof_ids_for_statuses(
+                            world,
+                            cond.values.iter().filter_map(proof_status_from_value),
+                        ),
+                    ),
+                    _ => {}
+                }
+            }
+            best
+        }
+        include!("world/proof_record_query_impls.rs");
+        #[cfg(test)]
+        mod role_candidate_tests {
+            use super::*;
+
+            #[test]
+            fn role_candidate_ids_are_intersected() {
+                let admin_id: RoleId = "intersect_admin".parse().unwrap();
+                let writer_id: RoleId = "intersect_writer".parse().unwrap();
+                let reader_id: RoleId = "intersect_reader".parse().unwrap();
+                let mut candidates = None;
+                intersect_candidate_ids(
+                    &mut candidates,
+                    BTreeSet::from([admin_id.clone(), writer_id]),
+                );
+                intersect_candidate_ids(
+                    &mut candidates,
+                    BTreeSet::from([admin_id.clone(), reader_id]),
+                );
+                assert_eq!(candidates, Some(BTreeSet::from([admin_id])));
+            }
+        }
+    }
+    #[cfg(test)]
+    mod retention_tests {
+        use super::*;
+        #[test]
+        fn retention_prunes_entries_older_than_grace_window() {
+            let backend = "pipa-r/pasta";
+            let items: Vec<_> = (1u64..=4)
+                .map(|height| {
+                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
+                    (
+                        ProofId {
+                            backend: backend.into(),
+                            proof_hash: [proof_height; 32],
+                        },
+                        height,
+                    )
+                })
+                .collect();
+            let removals = proof_retention_removals(items, 10, 2, 10, 9);
+            assert_eq!(removals.len(), 2);
+            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
+            assert!(hashes.contains(&1));
+            assert!(hashes.contains(&2));
+        }
+        #[test]
+        fn retention_respects_prune_batch_limit() {
+            let backend = "pipa-r/pasta";
+            let items: Vec<_> = (0u64..5)
+                .map(|height| {
+                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
+                    (
+                        ProofId {
+                            backend: backend.into(),
+                            proof_hash: [proof_height; 32],
+                        },
+                        height,
+                    )
+                })
+                .collect();
+            let removals = proof_retention_removals(items, 1, 0, 2, 5);
+            assert_eq!(removals.len(), 2);
+            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
+            assert!(hashes.contains(&0));
+            assert!(hashes.contains(&1));
+        }
+        #[test]
+        fn retention_keeps_minimum_entries_when_all_are_stale() {
+            let backend = "pipa-r/pasta";
+            let items: Vec<_> = (1u64..=6)
+                .map(|height| {
+                    let proof_height = u8::try_from(height).unwrap_or(u8::MAX);
+                    (
+                        ProofId {
+                            backend: backend.into(),
+                            proof_hash: [proof_height; 32],
+                        },
+                        height,
+                    )
+                })
+                .collect();
+            // Everything is older than the grace window; we still keep the newest three
+            // entries because grace_blocks acts as a floor when cap=0.
+            let removals = proof_retention_removals(items, 0, 3, 10, 20);
+            let hashes: Vec<u8> = removals.iter().map(|id| id.proof_hash[0]).collect();
+            assert_eq!(hashes.len(), 3);
+            assert!(hashes.contains(&1));
+            assert!(hashes.contains(&2));
+            assert!(hashes.contains(&3));
+            assert!(!hashes.contains(&4));
+            assert!(!hashes.contains(&5));
+            assert!(!hashes.contains(&6));
         }
     }
     #[cfg(test)]
@@ -21248,8 +21816,8 @@ pub mod isi {
                 let permission_event = execution.world.internal_event_buf.iter().any(|event| {
                     matches!(
                         event.as_ref(),
-                        DataEvent::Account(AccountEvent::PermissionAdded(change))
-                            | DataEvent::Account(AccountEvent::PermissionRemoved(change))
+                        DataEvent::Account(AccountEvent::PermissionAdded(change) |
+AccountEvent::PermissionRemoved(change))
                             if change.account == *ALICE_ID && change.permission == permission
                     )
                 });
@@ -21372,7 +21940,7 @@ pub mod isi {
             assert_eq!(event.revision, 2);
             assert_eq!(event.lifecycle, offered_lifecycle);
 
-            let stale = scode::AcceptContractOwnership {
+            let outdated = scode::AcceptContractOwnership {
                 contract_address: contract_address.clone(),
                 expected_revision: 1,
             }
@@ -21380,12 +21948,12 @@ pub mod isi {
             .expect_err("stale account acceptance must fail closed");
             assert!(
                 matches!(
-                    &stale,
+                    &outdated,
                     InstructionExecutionError::InvalidParameter(
                         InvalidParameterError::SmartContract(message)
                     ) if message.contains("stale contract lifecycle revision")
                 ),
-                "unexpected stale ownership-acceptance error: {stale:?}"
+                "unexpected stale ownership-acceptance error: {outdated:?}"
             );
             assert_eq!(
                 execution
@@ -22600,18 +23168,18 @@ pub mod isi {
                 0xB2,
                 roster_hash,
             );
-            let key_b_id = key_b.key_session_id;
+            let replacement_key_id = key_b.key_session_id;
             let key_c = crate::tle_release::tests::public_key_session_fixture_for_context_v1(
                 *state_transaction.network_id.as_bytes(),
                 0xC2,
                 roster_hash,
             );
-            let key_c_id = key_c.key_session_id;
+            let unrelated_key_id = key_c.key_session_id;
             let stale_install_c = certified_threshold_key_lifecycle_instruction_v1(
                 &state_transaction,
                 &validator_keys,
                 consensus_keys::ThresholdKeyLifecycleActionV1::InstallParliamentTleKey,
-                *key_c_id.as_bytes(),
+                *unrelated_key_id.as_bytes(),
                 key_c.transcript_hash,
                 norito::encode_canonical(&key_c).expect("encode canonical TLE key C"),
             );
@@ -22619,7 +23187,7 @@ pub mod isi {
                 &state_transaction,
                 &validator_keys,
                 consensus_keys::ThresholdKeyLifecycleActionV1::InstallParliamentTleKey,
-                *key_b_id.as_bytes(),
+                *replacement_key_id.as_bytes(),
                 key_b.transcript_hash,
                 norito::encode_canonical(&key_b).expect("encode canonical TLE key B"),
             );
@@ -22627,7 +23195,7 @@ pub mod isi {
                 .clone()
                 .execute(&ALICE_ID, &mut state_transaction)
                 .expect("current-roster QC atomically rotates new ballots to TLE key B");
-            assert_eq!(state_transaction.world.active_tle_key_session(), Some(key_b_id));
+            assert_eq!(state_transaction.world.active_tle_key_session(), Some(replacement_key_id));
             assert!(state_transaction.world.tle_key_sessions.get(&key_a_id).is_some());
             assert_eq!(
                 state_transaction
@@ -22641,7 +23209,7 @@ pub mod isi {
                 state_transaction
                     .world
                     .tle_key_session_rosters()
-                    .get(&key_b_id),
+                    .get(&replacement_key_id),
                 Some(&ordered_roster)
             );
             let replay = install_b
@@ -22655,12 +23223,12 @@ pub mod isi {
                 format!("{stale_replacement:?}")
                     .contains("compare-and-set predecessor changed")
             );
-            assert_eq!(state_transaction.world.active_tle_key_session(), Some(key_b_id));
-            assert!(state_transaction.world.tle_key_sessions.get(&key_c_id).is_none());
+            assert_eq!(state_transaction.world.active_tle_key_session(), Some(replacement_key_id));
+            assert!(state_transaction.world.tle_key_sessions.get(&unrelated_key_id).is_none());
 
             let retaining_attempt =
                 crate::governance::parliament::tests::tle_key_session_retention_attempt_fixture_v1(
-                    key_b_id,
+                    replacement_key_id,
                 );
             state_transaction
                 .world
@@ -22670,14 +23238,14 @@ pub mod isi {
                 &state_transaction,
                 &validator_keys,
                 consensus_keys::ThresholdKeyLifecycleActionV1::RetireParliamentTleKey,
-                *key_b_id.as_bytes(),
+                *replacement_key_id.as_bytes(),
                 key_b.transcript_hash,
                 Vec::new(),
             )
             .execute(&ALICE_ID, &mut state_transaction)
             .expect_err("the inclusive committed ballot deadline must block TLE retirement");
             assert!(format!("{retire_b:?}").contains("retained by a committed ballot deadline"));
-            assert_eq!(state_transaction.world.active_tle_key_session(), Some(key_b_id));
+            assert_eq!(state_transaction.world.active_tle_key_session(), Some(replacement_key_id));
         });
 
         world_test!(global_beacon_certificate_cannot_rotate_without_frozen_preparation {
@@ -22819,7 +23387,7 @@ pub mod isi {
                 roster_hash,
             );
             let key_a_id = key_a.key_session_id;
-            let key_b_id = key_b.key_session_id;
+            let replacement_key_id = key_b.key_session_id;
             let current_height = state_transaction.block_height();
             let predecessor_install_height = current_height
                 .checked_sub(1)
@@ -22846,7 +23414,7 @@ pub mod isi {
                 .expect("persist proof-valid TLE key B");
             state_transaction
                 .world
-                .activate_tle_key_session(key_b_id, current_height, policy)
+                .activate_tle_key_session(replacement_key_id, current_height, policy)
                 .expect("schedule an atomic next-height cutover to TLE key B");
 
             super::validated_active_parliament_tle_key_session_for_new_ballot_v1(
@@ -22859,7 +23427,7 @@ pub mod isi {
                 state_transaction
                     .world
                     .selectable_tle_key_session_for_fresh_ballot_at(next_height),
-                Some(key_b_id),
+                Some(replacement_key_id),
                 "successor B becomes selectable exactly at H + 1"
             );
 
@@ -22889,7 +23457,7 @@ pub mod isi {
                 0xC1,
                 seven_peer_roster_hash,
             );
-            let key_c_id = key_c.key_session_id;
+            let unrelated_key_id = key_c.key_session_id;
             let mismatched_roster_error = state_transaction
                 .world
                 .put_tle_key_session(key_c, seven_peer_roster)
@@ -22902,7 +23470,7 @@ pub mod isi {
                 state_transaction
                     .world
                     .tle_key_sessions()
-                    .get(&key_c_id)
+                    .get(&unrelated_key_id)
                     .is_none(),
                 "a rejected pair must not leave a partial public session"
             );
@@ -22910,14 +23478,14 @@ pub mod isi {
                 state_transaction
                     .world
                     .tle_key_session_rosters()
-                    .get(&key_c_id)
+                    .get(&unrelated_key_id)
                     .is_none(),
                 "a rejected pair must not leave a partial roster binding"
             );
 
             super::validated_parliament_tle_key_session_v1(key_a_id, &state_transaction)
                 .expect("already-bound openings must retain proof-valid access to key A");
-            super::validated_parliament_tle_key_session_v1(key_b_id, &state_transaction)
+            super::validated_parliament_tle_key_session_v1(replacement_key_id, &state_transaction)
                 .expect("already-bound openings must retain proof-valid access to stale key B");
             assert!(state_transaction.world.tle_key_sessions.get(&key_a_id).is_some());
         });
@@ -23573,16 +24141,14 @@ pub mod isi {
             let owner = ALICE_ID.to_string();
             let canonical_hash = "aa".repeat(32);
             let cases = [
-                ("".to_owned(), "non-empty JSON object"),
+                (String::new(), "non-empty JSON object"),
                 ("[]".to_owned(), "JSON object"),
                 (
                     r#"{"metadata":{"private_key":"secret"}}"#.to_owned(),
                     "unknown field",
                 ),
                 (
-                    format!(
-                        r#"{{"owner":{{"privateKeyHex":"secret"}},"amount":"1","duration_blocks":1}}"#
-                    ),
+                    r#"{"owner":{"privateKeyHex":"secret"},"amount":"1","duration_blocks":1}"#.to_string(),
                     "private signing field",
                 ),
                 (r#"{"direction":"aye"}"#.to_owned(), "exactly Aye"),
@@ -24050,9 +24616,7 @@ pub mod isi {
                     "unknown field",
                 ),
                 (
-                    format!(
-                        r#"{{"owner":{{"privateKey":"secret"}},"amount":"1","duration_blocks":1}}"#
-                    ),
+                    r#"{"owner":{"privateKey":"secret"},"amount":"1","duration_blocks":1}"#.to_string(),
                     "private signing field",
                 ),
                 (r#"{"direction":"yes"}"#.to_owned(), "exactly Aye"),
@@ -24573,9 +25137,7 @@ pub mod isi {
 
             let amount = Quantity::from(100_u64);
             for (step, maximum) in [(0, 1), (1, 0)] {
-                let mut governance = iroha_config::parameters::actual::Governance::default();
-                governance.conviction_step_blocks = step;
-                governance.max_conviction = maximum;
+                let governance = iroha_config::parameters::actual::Governance { conviction_step_blocks: step, max_conviction: maximum, ..Default::default() };
                 let iroha_data_model::governance::conviction::PlainVotingContextV1::Conviction(policy) =
                     crate::query::standalone_plain_test_fixture::context(&governance, 0) else { unreachable!() };
                 let error = super::plain_ballot_weight(&amount, 100, &policy)
@@ -25718,7 +26280,7 @@ pub mod isi {
         fn governance_lifecycle_artifact() -> (Vec<u8>, ContractManifest) {
             let (artifact, _) = kotodama_lang::compiler::Compiler::new()
                 .compile_source_with_manifest(
-                    r#"
+                    r"
 seiyaku GovernanceLifecycle { permission CanEnactGovernance;
   kotoage fn run() authorize(CanEnactGovernance) {}
   hajimari() {}
@@ -25727,7 +26289,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
     repeats indefinitely;
   }
 }
-"#,
+",
                 )
                 .expect("compile governance lifecycle fixture");
             let verified = ivm::verify_contract_artifact(&artifact)
@@ -26803,7 +27365,8 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             assert!(
                 validate_open_verify_envelope_metadata("ballot", "pipa-r/pasta", &ok, &vk_rec).is_ok()
             );
-            for backend_tag in [BackendTag::Stark] {
+            {
+                let backend_tag = BackendTag::Stark;
                 let mut bad_backend_rec = vk_rec.clone();
                 bad_backend_rec.backend = backend_tag;
                 let err = validate_open_verify_envelope_metadata(
@@ -32165,16 +32728,20 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             };
             Parameter::Custom(CustomParameter::new(
                 GovernanceClockParametersV1::parameter_id().clone(),
-                norito::json::to_json(&clock).unwrap().parse::<iroha_primitives::json::Json>().unwrap(),
+                norito::json::to_json(&clock)
+                    .unwrap()
+                    .parse::<iroha_primitives::json::Json>()
+                    .unwrap(),
             ))
         }
         world_test!(set_parameter_governance_clock_and_drift_preserve_the_joint_bound {
+            use iroha_data_model::parameter::{CustomParameter, GovernanceClockParametersV1};
             blank_state_transaction!(state, block, state_block, stx);
             let current = stx.world.parameters.get().sumeragi();
             let drift = current.max_clock_drift_ms();
             let cadence = current.block_cadence_ms.get();
             let minimum = 2 * drift + 4 * cadence;
-            for (lag, units) in [(minimum - 1, 64), (minimum, 0)] {
+            for (lag, units) in [(minimum - 1, 64), (minimum, 0), (minimum, 4), (minimum, 9)] {
                 let before = stx.world.parameters.get().clone();
                 let events = stx.world.internal_event_buf.len();
                 SetParameter(governance_clock_test_parameter(lag, units))
@@ -32183,8 +32750,8 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 assert_eq!(*stx.world.parameters.get(), before);
                 assert_eq!(stx.world.internal_event_buf.len(), events);
             }
-            SetParameter(governance_clock_test_parameter(minimum, 64))
-                .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag bound");
+            SetParameter(governance_clock_test_parameter(minimum, 10))
+                .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag and work bounds");
             SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
                 .execute(&ALICE_ID, &mut stx)
                 .expect_err("drift increase must preserve committed governance lag");
@@ -32193,7 +32760,6 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_execute(&ALICE_ID, &mut stx, "raise lag before raising drift");
             SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
                 .expect_execute(&ALICE_ID, &mut stx, "jointly valid drift increase");
-            use iroha_data_model::parameter::{CustomParameter, GovernanceClockParametersV1};
             let before = stx.world.parameters.get().clone();
             SetParameter(Parameter::Custom(CustomParameter::new(
                 GovernanceClockParametersV1::parameter_id().clone(),
@@ -33468,7 +34034,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             for (idx, backend_tag) in [BackendTag::Stark].into_iter().enumerate() {
                 original_proof_verification_fixture!(state, block);
                 let vk_id = VerifyingKeyId::new("pipa-r/pasta", format!("vk_bad_record_tag_{idx}"));
-                let vk_box = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![idx as u8, 2, 3]);
+                let vk_box = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![u8::try_from(idx).expect("fixture value fits u8"), 2, 3]);
                 let vk_commitment = hash_vk(&vk_box);
                 let public_inputs = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
                 let public_inputs_schema_hash: [u8; 32] = CryptoHash::new(&public_inputs).into();
@@ -33483,7 +34049,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     circuit_id: circuit_id.clone(),
                     vk_hash: vk_commitment,
                     public_inputs,
-                    proof_bytes: vec![4, 5, 6, idx as u8],
+                    proof_bytes: vec![4, 5, 6, u8::try_from(idx).expect("fixture value fits u8")],
                     aux: Vec::new(),
                 };
                 let proof_box = ProofBox::new(
@@ -34064,7 +34630,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 stx.world
                     .contract_code_upload_chunks
                     .iter()
-                    .all(|(key, _)| &key.upload != &upload_key)
+                    .all(|(key, _)| key.upload != upload_key)
             );
         });
         world_test!(commit_contract_deployment_enforces_cas_derivation_and_protected_rotation {
@@ -34457,7 +35023,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 delegated: true,
             }
             .expect_execute(&ALICE_ID, &mut stx, "owner delegates lifecycle authority");
-            let stale = scode::OfferContractOwnership {
+            let outdated = scode::OfferContractOwnership {
                 contract_address: address.clone(),
                 expected_revision: 1,
                 new_owner: iroha_data_model::smart_contract::ContractLifecycleOwnerV1::Account(
@@ -34467,12 +35033,12 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             .expect_execute_err(&ALICE_ID, &mut stx, "stale ownership offer must fail");
             assert!(
                 matches!(
-                    &stale,
+                    &outdated,
                     InstructionExecutionError::InvalidParameter(
                         InvalidParameterError::SmartContract(message)
                     ) if message.contains("stale contract lifecycle revision")
                 ),
-                "unexpected stale ownership-offer error: {stale:?}"
+                "unexpected stale ownership-offer error: {outdated:?}"
             );
             scode::OfferContractOwnership {
                 contract_address: address.clone(),
@@ -34647,560 +35213,22 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             assert_contains!(msg, "dataspace", "unexpected message for dataspace rejection: {msg}");
         });
     }
-    /// Query module provides `IrohaQuery` Peer related implementations.
-    pub mod query {
-        use super::*;
-        use crate::smartcontracts::isi::query::json_predicate::{
-            intersect_candidate_ids, predicate_matches_with_aliases,
-        };
-        use crate::{
-            smartcontracts::ValidQuery,
-            state::{StateReadOnly, WorldReadOnly},
-        };
-        use eyre::Result;
-        use iroha_data_model::{
-            parameter::Parameters,
-            proof::{ProofId, ProofRecord, ProofStatus},
-            query::{
-                dsl::{CompoundPredicate, EvaluatePredicate},
-                error::QueryExecutionFail as Error,
-                json::{PredicateJson, predicate_json_candidate_plan_for_execution},
-            },
-            role::Role,
-        };
-        use norito::json::Value;
-        use std::collections::BTreeSet;
-        fn role_id_from_value(value: &Value) -> Option<RoleId> {
-            norito::json::from_value(value.clone()).ok()
-        }
-        fn role_candidate_ids(predicate: &PredicateJson) -> Option<BTreeSet<RoleId>> {
-            let mut best = None;
-            for cond in &predicate.equals {
-                if cond.field == "id" {
-                    intersect_candidate_ids(
-                        &mut best,
-                        role_id_from_value(&cond.value).into_iter().collect(),
-                    );
-                }
-            }
-            for cond in &predicate.r#in {
-                if cond.field == "id" {
-                    intersect_candidate_ids(
-                        &mut best,
-                        cond.values.iter().filter_map(role_id_from_value).collect(),
-                    );
-                }
-            }
-            best
-        }
-        #[cfg(test)]
-        mod role_candidate_tests {
-            use super::*;
+}
+#[cfg(test)]
+mod fastpq_allocation_deferral_tests {
+    use super::*;
 
-            #[test]
-            fn role_candidate_ids_are_intersected() {
-                let admin_id: RoleId = "intersect_admin".parse().unwrap();
-                let writer_id: RoleId = "intersect_writer".parse().unwrap();
-                let reader_id: RoleId = "intersect_reader".parse().unwrap();
-                let mut candidates = None;
-                intersect_candidate_ids(
-                    &mut candidates,
-                    BTreeSet::from([admin_id.clone(), writer_id]),
-                );
-                intersect_candidate_ids(
-                    &mut candidates,
-                    BTreeSet::from([admin_id.clone(), reader_id]),
-                );
-                assert_eq!(candidates, Some(BTreeSet::from([admin_id])));
-            }
-        }
-        fn role_id_alias_values(id: &RoleId, field: &str) -> Vec<String> {
-            match field {
-                "id" => vec![id.to_string()],
-                _ => Vec::new(),
-            }
-        }
-        fn predicate_matches_role_id(predicate: &PredicateJson, id: &RoleId) -> bool {
-            predicate_matches_with_aliases(predicate, id, role_id_alias_values)
-        }
-        impl ValidQuery for FindRoles {
-            #[metrics(+"find_roles")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<Role>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                let world = state_ro.world();
-                let predicate_json = filter
-                    .json_payload()
-                    .and_then(predicate_json_candidate_plan_for_execution);
-                if let Some(candidate_ids) = predicate_json.as_ref().and_then(role_candidate_ids) {
-                    let iter: Box<dyn Iterator<Item = Role> + '_> =
-                        Box::new(candidate_ids.into_iter().filter_map(move |role_id| {
-                            world
-                                .roles()
-                                .get(&role_id)
-                                .filter(|role| filter.applies(*role))
-                                .cloned()
-                        }));
-                    return Ok(iter);
-                }
-                let iter: Box<dyn Iterator<Item = Role> + '_> = Box::new(
-                    world
-                        .roles()
-                        .iter()
-                        .map(|(_, role)| role)
-                        .filter(move |&role| filter.applies(role))
-                        .cloned(),
-                );
-                Ok(iter)
-            }
-        }
-        impl ValidQuery for FindRoleIds {
-            #[metrics(+"find_role_ids")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<RoleId>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                let world = state_ro.world();
-                let predicate_json = filter
-                    .json_payload()
-                    .and_then(predicate_json_candidate_plan_for_execution);
-                if let Some(candidate_ids) = predicate_json.as_ref().and_then(role_candidate_ids) {
-                    let iter: Box<dyn Iterator<Item = RoleId> + '_> =
-                        Box::new(candidate_ids.into_iter().filter(move |role_id| {
-                            world.roles().get(role_id).is_some()
-                                && predicate_json.as_ref().map_or_else(
-                                    || filter.applies(role_id),
-                                    |predicate| predicate_matches_role_id(predicate, role_id),
-                                )
-                        }));
-                    return Ok(iter);
-                }
-                let iter: Box<dyn Iterator<Item = RoleId> + '_> =
-                    Box::new(world.roles().iter().filter_map(move |(role_id, role)| {
-                        let matches = predicate_json.as_ref().map_or_else(
-                            || filter.applies(role.id()),
-                            |predicate| predicate_matches_role_id(predicate, role.id()),
-                        );
-                        matches.then(|| role_id.clone())
-                    }));
-                Ok(iter)
-            }
-        }
-        impl ValidQuery for FindPeers {
-            #[metrics(+"find_peers")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<PeerId>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                Ok(state_ro
-                    .world()
-                    .peers()
-                    .into_iter()
-                    .filter(move |peer| filter.applies(peer))
-                    .cloned())
-            }
-        }
-        impl ValidSingularQuery for FindExecutorDataModel {
-            #[metrics(+"find_executor_data_model")]
-            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<ExecutorDataModel, Error> {
-                let model = state_ro.world().executor_data_model();
-                if model.permissions().is_empty() {
-                    let fallback = crate::executor::initial_executor_data_model_fallback();
-                    return crate::smartcontracts::isi::query::own_singular_query_value(&fallback);
-                }
-                crate::smartcontracts::isi::query::own_singular_query_value(model)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::runtime::prelude::FindAbiVersion {
-            #[metrics(+"find_abi_version")]
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<iroha_data_model::query::runtime::AbiVersion, Error> {
-                Ok(iroha_data_model::query::runtime::AbiVersion {
-                    abi_version: state_ro.world().abi_version(),
-                })
-            }
-        }
-        impl ValidSingularQuery for FindParameters {
-            #[metrics(+"find_parameters")]
-            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
-                let params = state_ro.world().parameters();
-                iroha_logger::debug!(
-                    max_tx = params.block().max_transactions().get(),
-                    sc_depth = params.smart_contract().execution_depth(),
-                    exec_depth = params.executor().execution_depth(),
-                    "serving FindParameters"
-                );
-                crate::smartcontracts::isi::query::own_singular_query_value(params)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::proof::prelude::FindProofRecordById {
-            #[metrics(+"find_proof_record_by_id")]
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<iroha_data_model::proof::ProofRecord, Error> {
-                state_ro
-                    .world()
-                    .proofs()
-                    .get(&self.id)
-                    .ok_or_else(|| Error::Conversion("ProofRecord not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery
-            for iroha_data_model::query::endorsement::prelude::FindDomainEndorsementPolicy
-        {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<DomainEndorsementPolicy, Error> {
-                state_ro
-                    .world()
-                    .domain_endorsement_policies()
-                    .get(&self.domain_id)
-                    .ok_or_else(|| {
-                        Error::Conversion("Domain endorsement policy not found".to_string())
-                    })
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::endorsement::prelude::FindDomainCommittee {
-            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<DomainCommittee, Error> {
-                state_ro
-                    .world()
-                    .domain_committees()
-                    .get(&self.committee_id)
-                    .ok_or_else(|| Error::Conversion("Domain committee not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::sorafs::prelude::FindSorafsProviderOwner {
-            #[metrics(+"find_sorafs_provider_owner")]
-            fn execute(&self, state_ro: &impl StateReadOnly) -> Result<AccountId, Error> {
-                state_ro
-                    .world()
-                    .provider_owners()
-                    .get(&self.provider_id)
-                    .ok_or_else(|| Error::Conversion("SoraFS provider owner not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByTicket {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<DaPinIntentWithLocation, Error> {
-                state_ro
-                    .world()
-                    .da_pin_intents_by_ticket()
-                    .get(&self.storage_ticket)
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByManifest {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<DaPinIntentWithLocation, Error> {
-                let ticket = state_ro
-                    .world()
-                    .da_pin_intents_by_manifest()
-                    .get(&self.manifest_hash)
-                    .copied()
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
-                state_ro
-                    .world()
-                    .da_pin_intents_by_ticket()
-                    .get(&ticket)
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::da::prelude::FindDaPinIntentByAlias {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<DaPinIntentWithLocation, Error> {
-                let ticket = state_ro
-                    .world()
-                    .da_pin_intents_by_alias()
-                    .get(&self.alias)
-                    .copied()
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
-                state_ro
-                    .world()
-                    .da_pin_intents_by_ticket()
-                    .get(&ticket)
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidSingularQuery
-            for iroha_data_model::query::da::prelude::FindDaPinIntentByLaneEpochSequence
-        {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<DaPinIntentWithLocation, Error> {
-                let ticket = state_ro
-                    .world()
-                    .da_pin_intents_by_lane_epoch()
-                    .get(&(self.lane_id, self.epoch, self.sequence))
-                    .copied()
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))?;
-                state_ro
-                    .world()
-                    .da_pin_intents_by_ticket()
-                    .get(&ticket)
-                    .ok_or_else(|| Error::Conversion("DA pin intent not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorPrograms {
-            #[metrics(+"find_fee_sponsor_programs")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgram>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                Ok(state_ro
-                    .world()
-                    .fee_sponsor_programs()
-                    .iter()
-                    .map(|(_, policy)| policy)
-                    .filter(move |policy| filter.applies(policy))
-                    .cloned())
-            }
-        }
-        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramIds {
-            #[metrics(+"find_fee_sponsor_program_ids")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgramId>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                Ok(state_ro
-                    .world()
-                    .fee_sponsor_programs()
-                    .iter()
-                    .map(|(id, _)| id)
-                    .filter(move |id| filter.applies(id))
-                    .cloned())
-            }
-        }
-        impl ValidQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramsBySponsor {
-            #[metrics(+"find_fee_sponsor_programs_by_sponsor")]
-            fn execute(
-                self,
-                filter: CompoundPredicate<iroha_data_model::nexus::FeeSponsorProgram>,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<impl Iterator<Item = Self::Item>, Error> {
-                let sponsor = self.sponsor;
-                Ok(state_ro
-                    .world()
-                    .fee_sponsor_programs()
-                    .iter()
-                    .filter(move |(id, _)| id.sponsor == sponsor)
-                    .map(|(_, policy)| policy)
-                    .filter(move |policy| filter.applies(policy))
-                    .cloned())
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::nexus::prelude::FindFeeSponsorProgramById {
-            #[metrics(+"find_fee_sponsor_program_by_id")]
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<iroha_data_model::nexus::FeeSponsorProgram, Error> {
-                state_ro
-                    .world()
-                    .fee_sponsor_programs()
-                    .get(&self.id)
-                    .ok_or_else(|| Error::Conversion("FeeSponsorProgram not found".to_string()))
-                    .and_then(crate::smartcontracts::isi::query::own_singular_query_value)
-            }
-        }
-        fn load_fx_corridor_policy_registry(
-            state_ro: &impl StateReadOnly,
-        ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicyRegistry, Error> {
-            use iroha_data_model::isi::settlement::FxCorridorPolicyRegistry;
-            let parameter = state_ro
-                .world()
-                .parameters()
-                .custom()
-                .get(&FxCorridorPolicyRegistry::parameter_id())
-                .ok_or_else(|| {
-                    Error::Conversion("FX corridor policy registry is not initialized".to_string())
-                })?;
-            if crate::smartcontracts::isi::query::singular_query_limits_active() {
-                let payload = parameter.payload().as_ref();
-                let limits = crate::smartcontracts::isi::query::singular_query_decode_limits(
-                    payload.len(),
-                    norito::canonical_decode_limits(payload.len()),
-                )?;
-                return norito::with_decode_limits_scope(limits, || {
-                    norito::json::from_str::<FxCorridorPolicyRegistry>(payload)
-                })
-                .map_err(|error| {
-                    if error.is_decode_resource_limit() {
-                        Error::CapacityLimit
-                    } else {
-                        Error::Conversion(format!(
-                            "FX corridor policy registry is malformed: {error}"
-                        ))
-                    }
-                });
-            }
-            FxCorridorPolicyRegistry::from_custom_parameter(parameter)
-                .map_err(|error| {
-                    Error::Conversion(format!("FX corridor policy registry is malformed: {error}"))
-                })?
-                .ok_or_else(|| {
-                    Error::Conversion("FX corridor policy registry is malformed".to_string())
-                })
-        }
-        impl ValidSingularQuery
-            for iroha_data_model::query::settlement::prelude::FindFxCorridorPolicyRegistry
-        {
-            #[metrics(+"find_fx_corridor_policy_registry")]
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicyRegistry, Error>
-            {
-                load_fx_corridor_policy_registry(state_ro)
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::settlement::prelude::FindFxCorridorPolicyById {
-            #[metrics(+"find_fx_corridor_policy_by_id")]
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<iroha_data_model::isi::settlement::FxCorridorPolicy, Error> {
-                let mut registry = load_fx_corridor_policy_registry(state_ro)?;
-                registry.policies.remove(&self.policy_id).ok_or_else(|| {
-                    Error::Conversion(format!(
-                        "FX corridor policy `{}` was not found",
-                        self.policy_id
-                    ))
-                })
-            }
-        }
-        impl ValidSingularQuery for iroha_data_model::query::endorsement::prelude::FindDomainEndorsements {
-            fn execute(
-                &self,
-                state_ro: &impl StateReadOnly,
-            ) -> Result<Vec<iroha_data_model::nexus::DomainEndorsementRecord>, Error> {
-                let world = state_ro.world();
-                let hashes = world
-                    .domain_endorsements_by_domain()
-                    .get(&self.domain_id)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-                let records = hashes
-                    .iter()
-                    .filter_map(|hash| world.domain_endorsements().get(hash));
-                crate::smartcontracts::isi::query::own_singular_query_values(records)
-            }
-        }
-        fn proof_id_from_value(value: &Value) -> Option<ProofId> {
-            norito::json::from_value(value.clone()).ok()
-        }
-        fn proof_status_from_value(value: &Value) -> Option<ProofStatus> {
-            norito::json::from_value(value.clone()).ok()
-        }
-        fn proof_backend_from_value(value: &Value) -> Option<String> {
-            value.as_str().map(ToOwned::to_owned)
-        }
-        fn proof_status_label(status: ProofStatus) -> &'static str {
-            match status {
-                ProofStatus::Submitted => "Submitted",
-                ProofStatus::Verified => "Verified",
-                ProofStatus::Rejected => "Rejected",
-            }
-        }
-        fn proof_ids_for_backends(
-            world: &impl WorldReadOnly,
-            backends: impl IntoIterator<Item = String>,
-        ) -> BTreeSet<ProofId> {
-            let mut ids = BTreeSet::new();
-            for backend in backends {
-                ids.extend(
-                    world
-                        .proofs_by_backend_iter(&backend)
-                        .map(|(proof_id, _)| proof_id.clone()),
-                );
-            }
-            ids
-        }
-        fn proof_ids_for_statuses(
-            world: &impl WorldReadOnly,
-            statuses: impl IntoIterator<Item = ProofStatus>,
-        ) -> BTreeSet<ProofId> {
-            let mut ids = BTreeSet::new();
-            for status in statuses {
-                ids.extend(
-                    world
-                        .proofs_by_status_iter(&status)
-                        .map(|(proof_id, _)| proof_id.clone()),
-                );
-            }
-            ids
-        }
-        fn proof_record_candidate_ids(
-            predicate: &PredicateJson,
-            world: &impl WorldReadOnly,
-        ) -> Option<BTreeSet<ProofId>> {
-            let mut best = None;
-            for cond in &predicate.equals {
-                match cond.field.as_str() {
-                    "id" => intersect_candidate_ids(
-                        &mut best,
-                        proof_id_from_value(&cond.value).into_iter().collect(),
-                    ),
-                    "backend" | "id.backend" => intersect_candidate_ids(
-                        &mut best,
-                        proof_ids_for_backends(world, proof_backend_from_value(&cond.value)),
-                    ),
-                    "status" => intersect_candidate_ids(
-                        &mut best,
-                        proof_ids_for_statuses(world, proof_status_from_value(&cond.value)),
-                    ),
-                    _ => {}
-                }
-            }
-            for cond in &predicate.r#in {
-                match cond.field.as_str() {
-                    "id" => intersect_candidate_ids(
-                        &mut best,
-                        cond.values.iter().filter_map(proof_id_from_value).collect(),
-                    ),
-                    "backend" | "id.backend" => intersect_candidate_ids(
-                        &mut best,
-                        proof_ids_for_backends(
-                            world,
-                            cond.values.iter().filter_map(proof_backend_from_value),
-                        ),
-                    ),
-                    "status" => intersect_candidate_ids(
-                        &mut best,
-                        proof_ids_for_statuses(
-                            world,
-                            cond.values.iter().filter_map(proof_status_from_value),
-                        ),
-                    ),
-                    _ => {}
-                }
-            }
-            best
-        }
-        include!("world/proof_record_query_impls.rs");
+    #[test]
+    fn only_local_allocation_failure_defers_the_attempt() {
+        assert_eq!(
+            fastpq_allocation_deferral(&fastpq_prover::Error::LocalAllocationUnavailable {
+                context: "test",
+            }),
+            Some(ivm::error::ExecutionDeferral::AllocationUnavailable)
+        );
+        assert_eq!(
+            fastpq_allocation_deferral(&fastpq_prover::Error::CommitmentMismatch),
+            None
+        );
     }
 }

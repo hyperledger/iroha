@@ -10,6 +10,7 @@ import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@wrappers/SccpTairaXorMinter.gen"
 import "@wrappers/SccpTairaXorWallet.gen"
@@ -196,10 +197,50 @@ get fun `test Rust retry BoC clears the recorded activation`() {
     val env = bocEnv(true);
     var storage = minterStorage(env);
     storage.deployedBuckets = 3;
-    storage.retries.set(1024, SCCP_RETRY_ACTIVATE);
+    val retry = SccpRetry.fromCell(vecBocCell(VEC_BOC_RETRY));
+    var recovery = RecoveryBook.empty();
+    recovery.nextId = retry.operationId + 1;
+    recovery.count = 1;
+    recovery.activatedBuckets = 2;
+    recovery
+        .operations
+        .set(
+            retry.operationId,
+            RecoveryOperation {
+                stage: SCCP_RECOVERY_ACTIVATE,
+                phase: SCCP_RECOVERY_FAILED,
+                attempt: 1,
+                nonce: 2,
+                amount: 0,
+                count: 0,
+                nextId: 0,
+                queryId: retry.queryId,
+                result: 0,
+                tail: ConsumeTail {
+                    kind: 0,
+                    recipient: null,
+                    response: retry.response,
+                    messageId: 0,
+                }.toCell(),
+            }.toCell(),
+        );
+    storage.recovery = recovery.toCell();
     setMinterStorage(env, storage);
-    expectOutcome(sendBoc(env, VEC_BOC_RETRY), 0);
-    expect(env.minter.getSccpRetry(1024)).toEqual(0);
+    expectOutcome(
+        sendToMinter(
+            env,
+            env.deployer,
+            vecBocCell(VEC_BOC_RETRY).beginParse() as RemainingBitsAndRefs,
+            env.minter.retryRequiredValue(),
+        ),
+        0,
+    );
+    expect(env.minter.getSccpRecovery(retry.operationId) == null).toBeTrue();
+    val after = minterStorage(env).recovery.load();
+    expect(after.count).toEqual(0);
+    expect(after.operations.isEmpty()).toBeTrue();
+    expect(after.nextId).toEqual(retry.operationId + 1);
+    expect(after.activatedBuckets).toEqual(3);
     expect(testing.isDeployed(bucketOf(env, 2).address)).toBeTrue();
 }
 

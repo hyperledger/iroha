@@ -4646,6 +4646,17 @@ pub mod sccp {
     /// Read effective forgery holds, quarantine and reconciliation accounting.
     pub const FORGERY_HOLD: RouteDescriptor =
         public_get("sccp.forgery_hold.read", "/v1/sccp/forgery-hold");
+    /// Read original standing panel, rounds and emergency hold state.
+    pub const FAST_PAUSE: RouteDescriptor = public_get("sccp.fast_pause", "/v1/sccp/fast-pause");
+    /// Read one original committed SCCP forgery report.
+    pub const EVIDENCE: RouteDescriptor =
+        public_get("sccp.evidence.read", "/v1/sccp/evidence/{evidence_id}");
+    /// Read a bounded page of original committed SCCP forgery reports.
+    pub const EVIDENCE_PAGE: RouteDescriptor =
+        public_get("sccp.evidence.list", "/v1/sccp/evidence");
+    /// Read a retained original Kura anchor witness for evidence construction.
+    pub const EVIDENCE_ANCHOR: RouteDescriptor =
+        public_get("sccp.evidence.anchor", "/v1/sccp/evidence/anchor/{height}");
     /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
@@ -4694,6 +4705,9 @@ pub mod sccp {
     /// Read the per-subject SCCP governance revisions.
     pub const GOVERNANCE: RouteDescriptor =
         public_get("sccp.governance.read", "/v1/sccp/governance");
+    /// Read SCCP governance readiness and the original committed observation.
+    pub const GOVERNANCE_READINESS: RouteDescriptor =
+        public_get("sccp.governance.readiness", "/v1/sccp/governance/readiness");
     /// Read every open SCCP governance proposal with its newest Parliament attempt.
     pub const GOVERNANCE_PROPOSALS: RouteDescriptor =
         public_get("sccp.governance.proposals", "/v1/sccp/governance/proposals");
@@ -4709,6 +4723,7 @@ pub mod sccp {
         COMMITTEE_ROTATIONS,
         COMMITTEE,
         GOVERNANCE,
+        GOVERNANCE_READINESS,
         GOVERNANCE_PROPOSALS,
         GOVERNANCE_PROPOSAL,
         HISTORY,
@@ -4718,6 +4733,10 @@ pub mod sccp {
         LIGHT_CLIENT_CHECKPOINTS,
         REGISTRY,
         FORGERY_HOLD,
+        FAST_PAUSE,
+        EVIDENCE_ANCHOR,
+        EVIDENCE,
+        EVIDENCE_PAGE,
         MESSAGES_RECENT,
         MESSAGE,
         OUTBOUND_BY_NONCE,

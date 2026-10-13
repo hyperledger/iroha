@@ -1,4 +1,4 @@
-//! Canonical wallet-produced TON BoCs replayed by the independent Tolk contracts.
+//! Canonical wallet-produced TON `BoCs` replayed by the independent Tolk contracts.
 
 use super::*;
 use crate::pure::{
@@ -86,9 +86,9 @@ fn message(f: &Fixture, historical: bool) -> SccpMessageProofBundleV1 {
     }
 }
 
-fn row(label: &str, kind: &str, cell: Cell) -> Value {
+fn row(label: &str, kind: &str, cell: &Cell) -> Value {
     let boc = cell.to_boc().unwrap();
-    assert_eq!(cell_from_boc(&boc).unwrap(), cell, "{label}");
+    assert_eq!(&cell_from_boc(&boc).unwrap(), cell, "{label}");
     json!({
         "label": label,
         "kind": kind,
@@ -105,23 +105,23 @@ fn fixture() -> Value {
     f.destination.destination_word = DESTINATION;
     let next = Fixture::with_tag(1);
     let mut rows = vec![
-        row("keys", "KeyChunk", key_chunks(&f.keys).unwrap()),
-        row("next_keys", "KeyChunk", key_chunks(&next.keys).unwrap()),
-        row("init", "SccpInit", init_body(7).unwrap()),
+        row("keys", "KeyChunk", &key_chunks(&f.keys).unwrap()),
+        row("next_keys", "KeyChunk", &key_chunks(&next.keys).unwrap()),
+        row("init", "SccpInit", &init_body(7).unwrap()),
         row(
             "deploy_buckets",
             "SccpDeployBuckets",
-            deploy_buckets_body(3, 7, &RESPONSE).unwrap(),
+            &deploy_buckets_body(3, 7, &RESPONSE).unwrap(),
         ),
         row(
             "retry",
             "SccpRetry",
-            retry_body(1024, 7, &RESPONSE).unwrap(),
+            &retry_body(1024, 7, &RESPONSE).unwrap(),
         ),
         row(
             "void_frozen",
             "SccpVoidFrozen",
-            void_frozen_body(512, 512, 7, &RESPONSE).unwrap(),
+            &void_frozen_body(512, 512, 7, &RESPONSE).unwrap(),
         ),
     ];
     for historical in [false, true] {
@@ -131,12 +131,12 @@ fn fixture() -> Value {
         rows.push(row(
             &format!("certificate_{label}"),
             "TairaCert",
-            certificate_cell(&wire).unwrap(),
+            &certificate_cell(&wire).unwrap(),
         ));
         rows.push(row(
             &format!("proof_{label}"),
             "MessageProof",
-            message_proof_cell(&bundle.message_proof()).unwrap(),
+            &message_proof_cell(&bundle.message_proof()).unwrap(),
         ));
         f.checkpoints.clear();
         f.checkpoints.insert(
@@ -158,7 +158,7 @@ fn fixture() -> Value {
                 } else {
                     "SccpFinalizeCheckpoint"
                 },
-                finalize_body(&verified, 7, &RESPONSE).unwrap(),
+                &finalize_body(&verified, 7, &RESPONSE).unwrap(),
             ));
             let mut expired = selected;
             expired.now_ms = DEADLINE + 1;
@@ -172,7 +172,7 @@ fn fixture() -> Value {
                 } else {
                     "SccpVoidExpiredCheckpoint"
                 },
-                void_expired_body(&verified, 7, &RESPONSE).unwrap(),
+                &void_expired_body(&verified, 7, &RESPONSE).unwrap(),
             ));
         }
     }
@@ -182,12 +182,12 @@ fn fixture() -> Value {
     rows.push(row(
         "certificate_control",
         "TairaCert",
-        certificate_cell(&wire).unwrap(),
+        &certificate_cell(&wire).unwrap(),
     ));
     rows.push(row(
         "proof_control",
         "ControlProof",
-        control_proof_cell(&control.control_proof()).unwrap(),
+        &control_proof_cell(&control.control_proof()).unwrap(),
     ));
     f.checkpoints.insert(
         control.certificate.height,
@@ -211,7 +211,7 @@ fn fixture() -> Value {
             } else {
                 "SccpApplyControlCheckpoint"
             },
-            apply_control_body(&verified, 7, &RESPONSE).unwrap(),
+            &apply_control_body(&verified, 7, &RESPONSE).unwrap(),
         ));
     }
     f.checkpoints.clear();
@@ -223,14 +223,14 @@ fn fixture() -> Value {
         rows.push(row(
             label,
             "SccpCheckpoint",
-            checkpoint_body(&plan.steps()[0], 7, &RESPONSE).unwrap(),
+            &checkpoint_body(&plan.steps()[0], 7, &RESPONSE).unwrap(),
         ));
     }
     for size in [1, 127, 128, 1024] {
         rows.push(row(
             &format!("burn_{size}"),
             "SccpBurnToTaira",
-            burn_payload_cell(&vec![0x42; size]).unwrap(),
+            &burn_payload_cell(&vec![0x42; size]).unwrap(),
         ));
     }
     let mut negatives = Vec::new();
@@ -269,7 +269,7 @@ fn fixture() -> Value {
             .unwrap()
             .build();
         let refusal = format!("{:?}", check_ton_burn_payload(Some(&cell)).unwrap_err());
-        let mut value = row(label, "SccpBurnToTaira", cell);
+        let mut value = row(label, "SccpBurnToTaira", &cell);
         value
             .as_object_mut()
             .unwrap()

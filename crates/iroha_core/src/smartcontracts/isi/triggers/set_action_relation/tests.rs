@@ -16,13 +16,14 @@ pub(super) fn action() -> LoadedAction<DataEventFilter> {
     }
 }
 pub(super) fn fixture() -> Set {
-    let mut set = Set::default();
-    set.data_triggers = [("a".parse().unwrap(), action())].into_iter().collect();
-    set.ids = [("a".parse().unwrap(), TriggeringEventType::Data)]
-        .into_iter()
-        .collect();
-    set.active_data_trigger_ids = [("a".parse().unwrap(), ())].into_iter().collect();
-    set
+    Set {
+        data_triggers: [("a".parse().unwrap(), action())].into_iter().collect(),
+        ids: [("a".parse().unwrap(), TriggeringEventType::Data)]
+            .into_iter()
+            .collect(),
+        active_data_trigger_ids: [("a".parse().unwrap(), ())].into_iter().collect(),
+        ..Default::default()
+    }
 }
 pub(super) fn checked(set: &Set) -> Result<(), TriggerContractError> {
     let pool = AllocationBudget::new(16 * 1024 * 1024);
@@ -113,7 +114,7 @@ fn original_bool_first_u64_and_malformed_json_decoding_semantics_are_identical()
         (Json::from(1_u64), true),
         (Json::from(u64::MAX), true),
         (Json::from("true"), false),
-        (Json::from(-1_i64 as f64), false),
+        (Json::from(-1_f64), false),
         (Json::from(Vec::<u64>::new()), false),
     ] {
         let mut set = fixture();

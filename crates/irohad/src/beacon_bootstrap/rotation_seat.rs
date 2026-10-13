@@ -1,6 +1,23 @@
 //! One-shot, proof-clocked rotation DKG custody for one exact target seat.
 
 use super::*;
+
+/// Complete explicit inputs for one provision rotation seat.
+#[derive(Clone, Copy)]
+pub(super) struct ProvisionRotationSeat<'a> {
+    pub(super) proof: &'a RotationProofArgs,
+    pub(super) signer_index: u16,
+    pub(super) key_fd: Option<i32>,
+    pub(super) config_fd: Option<i32>,
+    pub(super) public_fd: i32,
+    pub(super) finality_fd: i32,
+    pub(super) provider_handle: &'a str,
+    pub(super) provider_revision: u64,
+    pub(super) attempt_root: &'a Path,
+    pub(super) timeout_ms: u64,
+    pub(super) budget: &'a iroha_allocation::AllocationBudget,
+}
+
 fn exact_rotation_seat_session(
     proof: &RotationProofArgs,
     selected: &VerifiedValidatorCommitteeSelectionV1,
@@ -109,18 +126,22 @@ pub(super) fn encode_local_seat_credential(
     reason = "the supervisor passes separate inherited public finality and signed-DKG frame FIFOs"
 )]
 pub(super) fn provision_rotation_seat_command(
-    proof: &RotationProofArgs,
-    signer_index: u16,
-    key_fd: Option<i32>,
-    config_fd: Option<i32>,
-    public_fd: i32,
-    finality_fd: i32,
-    provider_handle: &str,
-    provider_revision: u64,
-    attempt_root: &Path,
-    timeout_ms: u64,
-    budget: &iroha_allocation::AllocationBudget,
+    ProvisionRotationSeat {
+        proof,
+        signer_index,
+        key_fd,
+        config_fd,
+        public_fd,
+        finality_fd,
+        provider_handle,
+        provider_revision,
+        attempt_root,
+        timeout_ms,
+        budget,
+    }: ProvisionRotationSeat<'_>,
 ) -> Result<()> {
+    use std::os::fd::FromRawFd as _;
+
     let (key_descriptor, from_config) = match (key_fd, config_fd) {
         (Some(198), None) => (198, false),
         (None, Some(198)) => (198, true),
@@ -129,8 +150,8 @@ pub(super) fn provision_rotation_seat_command(
     if public_fd < 3
         || finality_fd < 3
         || public_fd == finality_fd
-        || matches!(public_fd, 198 | 199 | 200)
-        || matches!(finality_fd, 198 | 199 | 200)
+        || matches!(public_fd, 198..=200)
+        || matches!(finality_fd, 198..=200)
         || provider_revision == 0
         || iroha_config::parameters::validate_production_runtime_handle(provider_handle).is_err()
         || timeout_ms == 0
@@ -185,21 +206,20 @@ pub(super) fn provision_rotation_seat_command(
     }
     // SAFETY: fd numbers are distinct, inherited FIFO identities were checked
     // above, and this command transfers each source once into the retained owner.
-    use std::os::fd::FromRawFd as _;
-    let attempt = seat_attempt::SeatDkgAttempt::new(
+    let attempt = seat_attempt::SeatDkgAttempt::prepare(seat_attempt::SeatDkgAttemptPreparation {
         authority,
-        &roster,
+        roster: &roster,
         signer_index,
         signer,
-        unsafe { File::from_raw_fd(public_fd) },
-        unsafe { File::from_raw_fd(finality_fd) },
-        verifier,
+        public_input: unsafe { File::from_raw_fd(public_fd) },
+        finality_input: unsafe { File::from_raw_fd(finality_fd) },
+        clock: verifier,
         provider_handle,
         provider_revision,
         attempt_root,
         deadline,
         budget,
-    )?;
+    })?;
     attempt.resume().map_err(Error::PendingAttempt)
 }
 
@@ -253,12 +273,7 @@ pub(super) fn assemble_rotation_dkg_command(
         .map(|path| read_json::<Provider>(path))
         .collect::<Result<Vec<_>>>()?;
     providers.sort_by_key(|provider| provider.signer_index);
-    let authorization_roster = selected
-        .incumbent_authority()
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let authorization_roster = selected.incumbent_authority().validators.clone();
     let certificate = draft_rotation_certificate(
         &authorization_roster,
         selected.incumbent_beacon().session_id,

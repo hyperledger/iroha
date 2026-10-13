@@ -3,25 +3,17 @@
 use std::time::Duration;
 
 use eyre::{Result, eyre};
-use integration_tests::manifest::ManifestEncodingBudget;
 use iroha::{
     blocking::Client,
     client::{AccountTransactionDraft, FeeQuoteRequest},
     data_model::{
-        governance::types::{ContractAbiHash, ContractCodeHash},
-        isi::{
-            InstructionBox, Log,
-            smart_contract_code::{
-                FinalizeSmartContractCodeUpload, RegisterSmartContractCode,
-                SMART_CONTRACT_CODE_CHUNK_BYTES, UploadSmartContractCodeChunk,
-            },
-        },
+        isi::InstructionBox,
         prelude::{FeePaymentIntent, SignedTransaction},
     },
 };
 use iroha_model_base::metadata::Metadata;
 
-pub(crate) const OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
+pub const OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 
 const FEE_QUOTE_BACKPRESSURE_ATTEMPTS: usize = 8;
 // A single attempt would make the backpressure retry unreachable.
@@ -34,13 +26,13 @@ fn is_query_capacity_backpressure(rendered: &str) -> bool {
         && rendered.contains("Reached the limit of parallel queries")
 }
 
-pub(crate) fn fee() -> FeePaymentIntent {
+pub fn fee() -> FeePaymentIntent {
     FeePaymentIntent::authority(Vec::new(), None)
 }
 
 // The blocking client is retained only as the test network's account/configuration
 // holder. All writes use its current account-owned async signing and finality API.
-pub(crate) async fn prepare_parliament_transaction(
+pub async fn prepare_parliament_transaction(
     client: &Client,
     instructions: impl IntoIterator<Item = impl Into<InstructionBox>>,
 ) -> Result<SignedTransaction> {
@@ -83,7 +75,7 @@ pub(crate) async fn prepare_parliament_transaction(
     Ok(account.sign_transaction(payload)?)
 }
 
-pub(crate) async fn submit_parliament_instructions(
+pub async fn submit_parliament_instructions(
     client: &Client,
     instructions: impl IntoIterator<Item = impl Into<InstructionBox>>,
 ) -> Result<()> {
@@ -104,34 +96,15 @@ pub(crate) async fn submit_parliament_instructions(
     Ok(())
 }
 
-// The caller observes the exact certified carrier height after native admission.
-pub(crate) async fn admit_parliament_height_carrier(
-    client: &Client,
-    instructions: [Log; 1],
-) -> Result<()> {
-    let transaction = prepare_parliament_transaction(client, instructions).await?;
-    let admitted_hash = tokio::time::timeout(
-        OPERATION_TIMEOUT,
-        client.account_client().submit_transaction(&transaction),
-    )
-    .await
-    .map_err(|_| eyre!("Parliament carrier admission exceeded {OPERATION_TIMEOUT:?}"))??;
-    if admitted_hash != transaction.hash() {
-        return Err(eyre!(
-            "Parliament carrier admission substituted the signed hash"
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) fn minimal_contract_artifact() -> Vec<u8> {
+pub fn minimal_contract_artifact() -> Vec<u8> {
     minimal_contract_artifact_with_identity("ParliamentLifecycleSmoke", "integration-tests")
 }
 
-pub(crate) fn minimal_contract_artifact_with_identity(
+pub fn minimal_contract_artifact_with_identity(
     seiyaku_name: &str,
     compiler_fingerprint: &str,
 ) -> Vec<u8> {
+    use ivm::{encoding::wide as enc, instruction::wide};
     let metadata = ivm::ProgramMetadata {
         version_major: 1,
         version_minor: 1,
@@ -180,7 +153,6 @@ pub(crate) fn minimal_contract_artifact_with_identity(
     let mut artifact = metadata.encode();
     artifact.extend_from_slice(&interface.encode_section());
     // Return Unit through the caller-owned result table required by this ABI.
-    use ivm::{encoding::wide as enc, instruction::wide};
     for word in [
         enc::encode_store(wide::memory::STORE64, 12, 0, 0),
         enc::encode_ri(wide::arithmetic::ADDI, 10, 12, 0),
@@ -190,71 +162,6 @@ pub(crate) fn minimal_contract_artifact_with_identity(
         artifact.extend_from_slice(&word.to_le_bytes());
     }
     artifact
-}
-
-pub(crate) async fn stage_contract_artifact(
-    client: &Client,
-    artifact: &[u8],
-) -> Result<(ContractCodeHash, ContractAbiHash)> {
-    let encoding = ManifestEncodingBudget::new()?;
-    let verified = ivm::verify_contract_artifact(artifact)
-        .map_err(|error| eyre!("verify integration contract artifact: {error}"))?;
-    let manifest = verified
-        .manifest
-        .try_signed(
-            encoding.context(),
-            encoding.max_frame_bytes(),
-            client.client().key_pair(),
-        )
-        .map_err(|error| eyre!("sign integration contract manifest: {error}"))?;
-    let total_size = u64::try_from(artifact.len())?;
-    let chunk_count = u32::try_from(artifact.len().div_ceil(SMART_CONTRACT_CODE_CHUNK_BYTES))?;
-    for (index, chunk) in artifact.chunks(SMART_CONTRACT_CODE_CHUNK_BYTES).enumerate() {
-        let chunk_index = u32::try_from(index)?;
-        let mut instructions = vec![InstructionBox::from(UploadSmartContractCodeChunk {
-            artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
-                iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                verified.code_hash,
-            ),
-            total_size,
-            chunk_index,
-            chunk_count,
-            chunk: chunk.to_vec(),
-        })];
-        if chunk_index + 1 == chunk_count {
-            instructions.push(InstructionBox::from(FinalizeSmartContractCodeUpload {
-                artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
-                    iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                    verified.code_hash,
-                ),
-                total_size,
-                chunk_count,
-            }));
-        }
-        submit_parliament_instructions(&client, instructions).await?;
-    }
-    submit_parliament_instructions(
-        &client,
-        [{
-            let scoped_manifest = manifest;
-            RegisterSmartContractCode {
-                artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
-                    iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                    scoped_manifest
-                        .code_hash
-                        .ok_or_else(|| eyre!("verified contract manifest omitted its code hash"))?,
-                ),
-                manifest: scoped_manifest,
-            }
-        }],
-    )
-    .await?;
-    let code_hash = *verified.code_hash.as_ref();
-    let abi_hash = *verified.abi_hash.as_ref();
-    Ok((
-        ContractCodeHash::new(code_hash),
-        ContractAbiHash::new(abi_hash),
-    ))
 }
 
 #[cfg(test)]

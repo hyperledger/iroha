@@ -496,16 +496,16 @@ mod preparation;
 
 impl<Admission> DetachedWorld<Admission> {
     /// Prepare through the same caller-owned aggregate used by State publication.
-    pub(in crate::state) fn try_prepare_publication<'target, Installation, E>(
+    pub(in crate::state) fn try_prepare_publication<Installation, E>(
         self,
-        target: &'target World,
+        target: &World,
         admit: impl FnOnce(&Self, &World) -> Result<Installation, E>,
     ) -> Result<
-        PreparedWorld<'target, Admission, Installation>,
+        PreparedWorld<'_, Admission, Installation>,
         (
             Self,
             WorldPublicationError<E>,
-            AbortedWorld<'target, Installation>,
+            AbortedWorld<'_, Installation>,
         ),
     > {
         let mut slot = self.publication_slot(target);

@@ -13,6 +13,7 @@ use iroha_config::parameters::{
     actual::{NoritoRpcTransport, TelemetryProfile},
     defaults,
 };
+use iroha_core::torii_proxy::ToriiRoutingPlanHintV1;
 use iroha_core::{
     kiso::KisoHandle,
     kura::Kura,
@@ -235,7 +236,7 @@ async fn readiness_content_negotiation_preserves_consensus_failure() {
 /// transport is disconnected; the driver, genesis execution, Kura and safety
 /// records use the node's normal startup path. This observer cannot manufacture
 /// a quorum or a committed block merely to make readiness pass.
-pub(crate) struct ReadinessNode {
+pub struct ReadinessNode {
     pub(crate) app: SharedAppState,
     node: Option<iroha_core::sumeragi::node::RunningNode>,
     _directory: tempfile::TempDir,
@@ -458,7 +459,7 @@ pub fn mk_app_state_for_tests_with_options(
 pub fn mk_app_state_for_tests_with_world(world: World) -> SharedAppState {
     mk_app_state_for_tests_with_world_and_options(world, None, None, None, None)
 }
-pub(crate) fn mk_app_state_for_tests_with_world_and_nexus(
+pub fn mk_app_state_for_tests_with_world_and_nexus(
     world: World,
     nexus: iroha_config::parameters::actual::Nexus,
 ) -> SharedAppState {
@@ -468,8 +469,10 @@ pub(crate) fn mk_app_state_for_tests_with_world_and_nexus(
         None,
         None,
         None,
-        "chain".parse().expect("test chain id"),
-        crate::signed_query_test_network_id(),
+        (
+            "chain".parse().expect("test chain id"),
+            crate::signed_query_test_network_id(),
+        ),
         Some(nexus),
     )
 }
@@ -480,9 +483,7 @@ pub fn mk_app_state_for_tests_with_world_and_push(
 ) -> SharedAppState {
     mk_app_state_for_tests_with_world_and_options(world, None, None, None, Some(push))
 }
-pub(crate) fn app_auth_test_guard(
-    config: crate::app_auth::CanonicalRequestAuthConfig,
-) -> impl Drop {
+pub fn app_auth_test_guard(config: crate::app_auth::CanonicalRequestAuthConfig) -> impl Drop {
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     struct Guard {
         _lock: MutexGuard<'static, ()>,
@@ -495,11 +496,11 @@ pub(crate) fn app_auth_test_guard(
     }
     let guard = TEST_LOCK
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     crate::app_auth::configure(config).expect("valid app-auth test config");
     Guard { _lock: guard }
 }
-pub(crate) fn world_with_account(account_id: &AccountId) -> World {
+pub fn world_with_account(account_id: &AccountId) -> World {
     let domain_id: DomainId = DomainId::try_new("wonderland", "universal").expect("domain id");
     let domain = Domain::new(domain_id.clone()).build(account_id);
     let account = Account::new(account_id.clone()).build(account_id);
@@ -528,7 +529,7 @@ fn bind_uaid_to_dataspace_manifest_for_test(
         .space_directory_manifests_mut_for_testing()
         .insert(uaid, set);
 }
-pub(crate) fn world_with_account_bound_to_dataspace(
+pub fn world_with_account_bound_to_dataspace(
     account_id: &AccountId,
     uaid: UniversalAccountId,
     dataspace: DataSpaceId,
@@ -542,7 +543,7 @@ pub(crate) fn world_with_account_bound_to_dataspace(
     bind_uaid_to_dataspace_manifest_for_test(&mut world, uaid, dataspace);
     world
 }
-pub(crate) fn world_with_target_and_caller_bound_to_dataspace(
+pub fn world_with_target_and_caller_bound_to_dataspace(
     target: &AccountId,
     caller: &AccountId,
     uaid: UniversalAccountId,
@@ -682,7 +683,7 @@ fn configure_nexus_fee_admission_for_test(
     let state_view = app_state.state.view();
     app_state.queue.reconfigure_nexus(&nexus, &state_view, None);
 }
-pub(crate) fn multiple_dataspace_nexus_for_test() -> iroha_config::parameters::actual::Nexus {
+pub fn multiple_dataspace_nexus_for_test() -> iroha_config::parameters::actual::Nexus {
     let secondary_dataspace = DataSpaceId::new(1);
     let secondary_lane = LaneId::new(1);
     let lane_catalog = iroha_data_model::nexus::LaneCatalog::new(
@@ -717,7 +718,7 @@ pub(crate) fn multiple_dataspace_nexus_for_test() -> iroha_config::parameters::a
         ..iroha_config::parameters::actual::Nexus::default()
     }
 }
-pub(crate) fn private_ingress_nexus_for_test() -> iroha_config::parameters::actual::Nexus {
+pub fn private_ingress_nexus_for_test() -> iroha_config::parameters::actual::Nexus {
     let governance_dataspace = DataSpaceId::new(1);
     let governance_lane = LaneId::new(1);
     let restricted_dataspace = DataSpaceId::new(10);
@@ -768,7 +769,7 @@ pub(crate) fn private_ingress_nexus_for_test() -> iroha_config::parameters::actu
         ..iroha_config::parameters::actual::Nexus::default()
     }
 }
-pub(crate) fn private_ingress_with_offline_foreign_nexus_for_test()
+pub fn private_ingress_with_offline_foreign_nexus_for_test()
 -> iroha_config::parameters::actual::Nexus {
     let local_dataspace = DataSpaceId::new(10);
     let local_lane = LaneId::new(1);
@@ -820,7 +821,7 @@ pub(crate) fn private_ingress_with_offline_foreign_nexus_for_test()
         ..iroha_config::parameters::actual::Nexus::default()
     }
 }
-pub(crate) fn assert_initial_nexus_catalog_for_test(
+pub fn assert_initial_nexus_catalog_for_test(
     state: &IrohaState,
     expected: &iroha_config::parameters::actual::Nexus,
 ) {
@@ -894,8 +895,7 @@ async fn configured_catalog_fixture_binds_initial_geometry_and_explicit_network(
         None,
         None,
         None,
-        chain_id.clone(),
-        network_id,
+        (chain_id.clone(), network_id),
         Some(nexus.clone()),
     );
     assert_initial_nexus_catalog_for_test(&app.state, &nexus);
@@ -926,7 +926,7 @@ async fn configured_catalog_fixture_binds_initial_geometry_and_explicit_network(
     assert_eq!(fees.per_instruction_fee, nexus.fees.per_instruction_fee);
     assert_eq!(fees.per_gas_unit_fee, nexus.fees.per_gas_unit_fee);
 }
-pub(crate) fn configure_multiple_dataspace_routes_for_test(app: &mut SharedAppState) {
+pub fn configure_multiple_dataspace_routes_for_test(app: &mut SharedAppState) {
     let nexus = multiple_dataspace_nexus_for_test();
     let app_state = Arc::get_mut(app).expect("unique app state");
     let state = Arc::get_mut(&mut app_state.state).expect("unique state");
@@ -934,7 +934,7 @@ pub(crate) fn configure_multiple_dataspace_routes_for_test(app: &mut SharedAppSt
     let state_view = app_state.state.view();
     app_state.queue.reconfigure_nexus(&nexus, &state_view, None);
 }
-pub(crate) fn configure_private_ingress_routes_for_test(
+pub fn configure_private_ingress_routes_for_test(
     app: &mut SharedAppState,
 ) -> (LaneId, DataSpaceId) {
     let nexus_lane = LaneId::new(0);
@@ -989,7 +989,7 @@ pub(crate) fn configure_private_ingress_routes_for_test(
 }
 /// Execute the original local four-validator committee before decorating offline foreign routes.
 #[cfg(feature = "app_api")]
-pub(crate) fn native_ingress_with_offline_foreign_app_for_test(world: World) -> SharedAppState {
+pub fn native_ingress_with_offline_foreign_app_for_test(world: World) -> SharedAppState {
     let local_seeds = [0xb8, 0xc0, 0xc2, 0xc4];
     let foreign_seeds = [0xba, 0xc6, 0xc8, 0xca];
     let members = local_seeds
@@ -1084,7 +1084,7 @@ pub(crate) fn native_ingress_with_offline_foreign_app_for_test(world: World) -> 
     app
 }
 
-pub(crate) fn configure_private_ingress_with_offline_foreign_route_for_test(
+pub fn configure_private_ingress_with_offline_foreign_route_for_test(
     app: &mut SharedAppState,
 ) -> (RoutingDecision, RoutingDecision) {
     let nexus_lane = LaneId::new(0);
@@ -1442,7 +1442,7 @@ fn build_find_active_trigger_ids_query_for_test() -> iroha_data_model::query::Qu
     .execute();
     executor.into_query()
 }
-pub(crate) fn build_find_account_ids_query_for_test() -> iroha_data_model::query::QueryWithParams {
+pub fn build_find_account_ids_query_for_test() -> iroha_data_model::query::QueryWithParams {
     let executor = CapturingIterableQueryExecutor::default();
     let _ = iroha_data_model::query::builder::QueryBuilder::new(
         &executor,
@@ -1617,7 +1617,7 @@ fn assert_nfts_query_targets_account(
         .expect("nfts query payload should decode");
     assert_eq!(decoded.account_id(), account_id);
 }
-pub(crate) fn signed_find_triggers_query_for_test(
+pub fn signed_find_triggers_query_for_test(
     authority: AccountId,
     key_pair: &KeyPair,
 ) -> iroha_data_model::query::SignedQuery {
@@ -1656,11 +1656,7 @@ fn roundtrip_request_for_test(
     .expect("query request should decode deterministically")
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn bind_account_alias_for_test(
-    app: &SharedAppState,
-    account_id: &AccountId,
-    alias: &str,
-) {
+pub fn bind_account_alias_for_test(app: &SharedAppState, account_id: &AccountId, alias: &str) {
     let dataspace_catalog = app.state.nexus_snapshot().dataspace_catalog.clone();
     let label =
         iroha_data_model::account::rekey::AccountAlias::from_literal(alias, &dataspace_catalog)
@@ -1721,7 +1717,7 @@ pub(crate) fn bind_account_alias_for_test(
         .expect("commit account alias for test");
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn bind_dynamic_account_alias_for_test(
+pub fn bind_dynamic_account_alias_for_test(
     app: &SharedAppState,
     account_id: &AccountId,
     alias_literal: &str,
@@ -1822,7 +1818,7 @@ pub(crate) fn bind_dynamic_account_alias_for_test(
         .expect("commit dynamic account alias for test");
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn bind_contract_alias_for_test(
+pub fn bind_contract_alias_for_test(
     app: &SharedAppState,
     contract_address: &iroha_data_model::smart_contract::ContractAddress,
     alias: &str,
@@ -1851,10 +1847,10 @@ pub(crate) fn bind_contract_alias_for_test(
         .commit_world_overlay_for_testing()
         .expect("commit contract alias for test");
 }
-pub(crate) fn bind_domain_name_for_test(app: &SharedAppState, literal: &str) {
+pub fn bind_domain_name_for_test(app: &SharedAppState, literal: &str) {
     bind_domain_name_for_test_with_status(app, literal, iroha_data_model::sns::NameStatus::Active);
 }
-pub(crate) fn bind_domain_name_for_test_with_status(
+pub fn bind_domain_name_for_test_with_status(
     app: &SharedAppState,
     literal: &str,
     status: iroha_data_model::sns::NameStatus,
@@ -1901,7 +1897,7 @@ pub(crate) fn bind_domain_name_for_test_with_status(
         .commit_world_overlay_for_testing()
         .expect("commit domain alias for test");
 }
-pub(crate) fn signed_app_headers(
+pub fn signed_app_headers(
     account: &AccountId,
     key_pair: &KeyPair,
     method: &axum::http::Method,
@@ -1917,7 +1913,7 @@ pub(crate) fn signed_app_headers(
         body,
     )
 }
-pub(crate) fn signed_network_app_headers(
+pub fn signed_network_app_headers(
     network_id: &NetworkId,
     account: &AccountId,
     key_pair: &KeyPair,
@@ -1927,7 +1923,7 @@ pub(crate) fn signed_network_app_headers(
 ) -> HeaderMap {
     signed_app_headers_for_network(network_id, account, key_pair, method, uri, body)
 }
-pub(crate) fn foreign_network_signed_app_fixture(
+pub fn foreign_network_signed_app_fixture(
     method: &axum::http::Method,
     uri: &axum::http::Uri,
     body: &[u8],
@@ -2019,7 +2015,7 @@ fn checked_torii_test_keypair_from_seed_byte(
 ) -> KeyPair {
     checked_torii_test_keypair(vec![seed; 32], algorithm, context)
 }
-pub(crate) fn checked_torii_test_ed25519_keypair(seed: u8, context: &'static str) -> KeyPair {
+pub fn checked_torii_test_ed25519_keypair(seed: u8, context: &'static str) -> KeyPair {
     checked_torii_test_keypair_from_seed_byte(seed, Algorithm::Ed25519, context)
 }
 fn checked_torii_test_bls_keypair(seed: u8, context: &'static str) -> KeyPair {
@@ -2032,7 +2028,7 @@ fn checked_torii_test_peer_id(seed: u8, context: &'static str) -> PeerId {
             .clone(),
     )
 }
-pub(crate) fn checked_torii_test_account_id(seed: u8, context: &'static str) -> AccountId {
+pub fn checked_torii_test_account_id(seed: u8, context: &'static str) -> AccountId {
     AccountId::new(
         checked_torii_test_ed25519_keypair(seed, context)
             .public_key()
@@ -2141,8 +2137,7 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id(
         deploy_limit,
         norito_rpc,
         push,
-        chain_id,
-        network_id,
+        (chain_id, network_id),
         None,
     )
 }
@@ -2152,8 +2147,7 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
     deploy_limit: Option<(u32, u32)>,
     norito_rpc: Option<iroha_config::parameters::actual::NoritoRpcTransport>,
     push: Option<iroha_config::parameters::actual::Push>,
-    chain_id: ChainId,
-    network_id: NetworkId,
+    (chain_id, network_id): (ChainId, NetworkId),
     intended_nexus: Option<iroha_config::parameters::actual::Nexus>,
 ) -> SharedAppState {
     // These synthetic routing fixtures model a Global root unless their caller explicitly
@@ -2260,7 +2254,7 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
         static SORAFS_NODE_INIT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
         let _init_guard = SORAFS_NODE_INIT_LOCK
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sorafs_node::NodeHandle::new(
             sorafs_node::config::StorageConfig::builder()
                 .enabled(false)
@@ -3223,8 +3217,10 @@ fn install_counting_route_queue(
 }
 fn install_single_slot_transaction_queue(app: &mut SharedAppState) {
     let app_mut = Arc::get_mut(app).expect("unique app state");
-    let mut queue_cfg = iroha_config::parameters::actual::Queue::default();
-    queue_cfg.capacity = NonZeroUsize::new(1).expect("nonzero queue capacity");
+    let queue_cfg = iroha_config::parameters::actual::Queue {
+        capacity: NonZeroUsize::new(1).expect("nonzero queue capacity"),
+        ..Default::default()
+    };
     app_mut.queue = Arc::new(Queue::from_config(queue_cfg, app_mut.events.clone()));
     app_mut.high_load_tx_threshold = usize::MAX;
 }

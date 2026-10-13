@@ -188,7 +188,7 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
         anchor_freshness: 4,
         max_merge_blocks: 8,
         stall_window: 1000,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: vec![SumeragiFixedLane {
             lane: busy_route.lane_id,
             dataspace: busy_route.dataspace_id,

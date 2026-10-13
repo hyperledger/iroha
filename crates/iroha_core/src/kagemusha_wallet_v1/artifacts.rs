@@ -147,9 +147,14 @@ impl NativePackageVerifier for LedgerVerifier {
         // Ledger proof-consuming actions are Bootstrap, Retiring, Send and Unload;
         // none admits a Receive selector without its separately retained Request.
         package.verify(credential)?;
+        #[expect(
+            clippy::default_trait_access,
+            reason = "the verifier's budget type is not re-exported by iroha_core_zk"
+        )]
+        let verification_budget = Default::default();
         installed
             .verifier()
-            .verify_package_proofs(package, None, Default::default())
+            .verify_package_proofs(package, None, verification_budget)
             .map_err(|_| Error::Proof)
     }
 }

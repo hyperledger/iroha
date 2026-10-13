@@ -188,7 +188,7 @@ fn build_history_with_bodies(
                 .unwrap();
             (finished, authorization)
         };
-        assert!(finished.original().unwrap().is_some());
+        assert!(finished.original().is_some());
         if ordinal < count {
             let selected = fixture
                 .retain_generated_attempt(authorization, &finished, &current)
@@ -361,7 +361,7 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
         }
         let oldest = &history.bodies[0].directory;
         let path = oldest.path().to_owned();
-        let held = fixture._temporary.path().join("held-oldest-native-tree");
+        let held = fixture.temporary.path().join("held-oldest-native-tree");
         let result = native.test_native_read_tree(|tree| {
             tree.unwrap().read_scope(oldest, |reader| {
                 reader.read("closed.nrt", attempts::MAX_RECORD_BYTES, |_| ())?;
@@ -483,7 +483,7 @@ fn genuine_graph_snapshot_pass_bounds_reads_and_preserves_mutation_and_decode_re
     #[cfg(unix)]
     {
         let path = oldest.path().to_owned();
-        let held = fixture._temporary.path().join("held-oldest-snapshot");
+        let held = fixture.temporary.path().join("held-oldest-snapshot");
         let result = evidence.with_snapshot_read_pass(&mut |_| {
             std::fs::rename(&path, &held)?;
             let replacement = PrivateDirectory::open_or_create(&path)?;
@@ -661,7 +661,7 @@ fn genuine_parser_pass_bounds_prefix_rechecks_and_closes_persistent_errors() {
     #[cfg(unix)]
     {
         let path = oldest.path().to_owned();
-        let held = fixture._temporary.path().join("held-oldest-parser");
+        let held = fixture.temporary.path().join("held-oldest-parser");
         let result = EnrollmentReadPass::run(&snapshot, |pass| {
             pass.test_retain_predecessor(native)?;
             std::fs::rename(&path, &held)?;
@@ -796,7 +796,7 @@ fn genuine_retained_handle_graph_shares_only_original_ancestry_and_closes_errors
         // node completes. Same-path replacement never inherits the original native owner.
         let path = attempt.directory().path().to_path_buf();
         let saved = fixture
-            ._temporary
+            .temporary
             .path()
             .join("held-retained-handle-attempt");
         let change_path = path.clone();

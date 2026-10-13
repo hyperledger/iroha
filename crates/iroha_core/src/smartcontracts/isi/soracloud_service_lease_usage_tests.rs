@@ -1113,7 +1113,7 @@ pub(super) fn verify_reporter_rollover_and_placement_incarnation(
     );
 
     let fresh_lease = build_http_service_lease_state(
-        &bundle,
+        bundle,
         None,
         lease_started_height.saturating_add(100),
         false,

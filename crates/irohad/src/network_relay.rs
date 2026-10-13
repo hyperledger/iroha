@@ -33,7 +33,7 @@ const EMERGENCY_FAST_SUBSCRIBER_CAP: usize = 32;
 const RESUBSCRIBE_DELAY: Duration = Duration::from_millis(50);
 
 /// The relay's inputs.
-pub(crate) struct NetworkRelay {
+pub struct NetworkRelay {
     pub(crate) tx_gossiper: TransactionGossiperHandle,
     pub(crate) peers_gossiper: PeersGossiperHandle,
     pub(crate) network: IrohaNetwork,
@@ -97,7 +97,7 @@ async fn subscribe_and_relay(shared: Arc<Shared>, filter: SubscriberFilter, capa
             continue;
         }
         while let Some(message) = receiver.recv().await {
-            shared.handle(message).await;
+            shared.handle(message);
         }
         iroha_logger::warn!(?filter, "relay subscriber closed; subscribing again");
         tokio::time::sleep(RESUBSCRIBE_DELAY).await;
@@ -105,7 +105,7 @@ async fn subscribe_and_relay(shared: Arc<Shared>, filter: SubscriberFilter, capa
 }
 
 impl Shared {
-    async fn handle(&self, message: PeerMessage<NetworkMessage>) {
+    fn handle(&self, message: PeerMessage<NetworkMessage>) {
         let (peer, authenticated_via, payload, size_bytes, retention) = message.into_parts();
         if Self::low_priority(&payload) && !self.admit_low_priority(&authenticated_via, size_bytes)
         {
@@ -117,11 +117,10 @@ impl Shared {
             );
             return;
         }
-        self.dispatch(peer, authenticated_via, payload, retention)
-            .await;
+        self.dispatch(peer, authenticated_via, payload, retention);
     }
 
-    async fn dispatch(
+    fn dispatch(
         &self,
         peer: Peer,
         _authenticated_via: PeerId,
@@ -151,15 +150,13 @@ impl Shared {
                 .peers_gossiper
                 .gossip_trust(RetainedGossip::new((*data, peer), retention)),
             TimePing(ping) => {
-                iroha_core::time::handle_message(peer, TimePing(ping), &self.network).await;
+                iroha_core::time::handle_message(peer, TimePing(ping), &self.network);
             }
             TimePong(pong) => {
-                iroha_core::time::handle_message(peer, TimePong(pong), &self.network).await;
+                iroha_core::time::handle_message(peer, TimePong(pong), &self.network);
             }
             // The consensus driver's own route carries Sumeragi frames.
-            Sumeragi(_) => {}
-            // Dedicated subscribers (Torii, health) handle these.
-            ToriiProxyRequest(_) | ToriiProxyResponse(_) | Health | Connect(_) => {}
+            Sumeragi(_) | ToriiProxyRequest(_) | ToriiProxyResponse(_) | Health | Connect(_) => {} // Dedicated subscribers (Torii, health) handle these.
         }
     }
 
@@ -188,19 +185,19 @@ impl Shared {
 
 /// Why a low-priority message was dropped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LowPriorityIngressDropReason {
+pub enum LowPriorityIngressDropReason {
     Rate,
     Bytes,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct BucketConfig {
+pub struct BucketConfig {
     pub(crate) rate_per_sec: std::num::NonZeroU32,
     pub(crate) burst: std::num::NonZeroU32,
 }
 
 /// Per-peer message and byte rate limits of low-priority traffic.
-pub(crate) struct LowPriorityIngressLimiter {
+pub struct LowPriorityIngressLimiter {
     msg_rate: Option<BucketConfig>,
     bytes_rate: Option<BucketConfig>,
     peers: HashMap<PeerId, LowPriorityPeerState>,

@@ -494,6 +494,80 @@ async fn hold_handler_preserves_original_source_and_request_deadline() {
 }
 
 #[tokio::test]
+async fn pause_and_anchor_handlers_reject_unknown_queries_and_preserve_source_refusal() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    for (query, expired, expected) in [
+        (Some("unknown=1"), false, StatusCode::BAD_REQUEST),
+        (None, true, StatusCode::REQUEST_TIMEOUT),
+        (None, false, StatusCode::SERVICE_UNAVAILABLE),
+    ] {
+        let deadline = if expired {
+            Instant::now()
+        } else {
+            Instant::now() + Duration::from_secs(30)
+        };
+        for response in [
+            handler_fast_pause(
+                State(app.clone()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+            handler_evidence_anchor(
+                State(app.clone()),
+                Path("1".into()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+        ] {
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::SERVICE_UNAVAILABLE {
+                assert_eq!(
+                    response.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+            }
+        }
+    }
+    for invalid in ["0", "01", "+1", "latest", "18446744073709551616"] {
+        let response = handler_evidence_anchor(
+            State(app.clone()),
+            Path(invalid.into()),
+            RawQuery(None),
+            Extension(RouteExecutionDeadline(
+                Instant::now() + Duration::from_secs(30),
+            )),
+            HeaderMap::new(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{invalid}");
+    }
+    for (selection, route) in [
+        (Selection::FastPause, sccp::FAST_PAUSE),
+        (
+            Selection::Anchor(NonZeroU64::new(1).unwrap()),
+            sccp::EVIDENCE_ANCHOR,
+        ),
+    ] {
+        assert_eq!(selection.route(), route);
+        assert!(!selection.immutable());
+    }
+}
+
+#[tokio::test]
 async fn committee_handlers_preserve_query_source_deadline_and_no_store_contract() {
     let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
         iroha_core::state::World::new(),

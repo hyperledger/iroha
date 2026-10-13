@@ -485,7 +485,7 @@ fn open_webhook_directory_chain(
             && rustix::fs::FileType::from_raw_mode(after.st_mode) == file_type;
         let opened_matches_name = trusted_system_symlink
             || (u64::try_from(before.st_dev).ok() == Some(opened.dev())
-                && u64::try_from(before.st_ino).ok() == Some(opened.ino()));
+                && before.st_ino == opened.ino());
         if !opened.is_dir()
             || !trusted_owner
             || (opened.mode() & 0o022 != 0 && !trusted_sticky_root)
@@ -577,9 +577,7 @@ fn webhook_identity_from_stat(
         device: u64::try_from(stat.st_dev).map_err(|_| {
             invalid_webhook_storage(format!("invalid device identity for {}", path.display()))
         })?,
-        inode: u64::try_from(stat.st_ino).map_err(|_| {
-            invalid_webhook_storage(format!("invalid inode identity for {}", path.display()))
-        })?,
+        inode: stat.st_ino,
     })
 }
 
@@ -766,7 +764,7 @@ fn create_private_webhook_temp_file(
                 webhook_acl::clear_private(&file, &directory.path.join(&name))?;
                 return Ok((file, name));
             }
-            Err(rustix::io::Errno::EXIST) => continue,
+            Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(io::Error::from(error)),
         }
     }
@@ -2137,7 +2135,6 @@ pub fn enqueue_event_for_matching_webhooks(
         };
         if let Err(err) = admission.persist(&pd) {
             iroha_logger::warn!(%err, "failed to persist webhook payload");
-            continue;
         }
     }
 }
@@ -2572,7 +2569,7 @@ fn transaction_status_name(
     }
 }
 
-fn block_status_name(status: &iroha_data_model::events::pipeline::BlockStatus) -> &'static str {
+fn block_status_name(status: iroha_data_model::events::pipeline::BlockStatus) -> &'static str {
     use iroha_data_model::events::pipeline::BlockStatus;
     match status {
         BlockStatus::Created => "Created",
@@ -2620,7 +2617,7 @@ fn pipeline_webhook_event_fields(
             insert_webhook_event_field(
                 &mut fields,
                 "block_status",
-                norito::json::Value::from(block_status_name(&event.status)),
+                norito::json::Value::from(block_status_name(event.status)),
             );
             insert_webhook_event_field(
                 &mut fields,
@@ -2830,7 +2827,7 @@ fn data_webhook_event_fields(event: &DataEvent) -> norito::json::Map {
                 insert_webhook_event_field(
                     &mut fields,
                     "proof_backend",
-                    norito::json::Value::from(event.id.backend.to_string()),
+                    norito::json::Value::from(event.id.backend.clone()),
                 );
                 insert_webhook_event_field(
                     &mut fields,
@@ -2858,7 +2855,7 @@ fn data_webhook_event_fields(event: &DataEvent) -> norito::json::Map {
                 insert_webhook_event_field(
                     &mut fields,
                     "proof_backend",
-                    norito::json::Value::from(event.id.backend.to_string()),
+                    norito::json::Value::from(event.id.backend.clone()),
                 );
                 insert_webhook_event_field(
                     &mut fields,
@@ -3206,11 +3203,10 @@ async fn http_post_plain(
         .await
         .map_err(|_| io_timeout_error("tcp write", timeouts.write))?;
         write_result?;
-        let read_result =
-            tokio::time::timeout(timeouts.read, read_webhook_http_status(&mut stream))
-                .await
-                .map_err(|_| io_timeout_error("tcp read", timeouts.read))?;
-        read_result
+
+        tokio::time::timeout(timeouts.read, read_webhook_http_status(&mut stream))
+            .await
+            .map_err(|_| io_timeout_error("tcp read", timeouts.read))?
     }
 }
 async fn read_webhook_http_status<R>(reader: R) -> io::Result<u16>
@@ -3575,7 +3571,7 @@ async fn try_deliver(pd: &PendingDelivery) -> bool {
     }
 }
 /// Spawn the background delivery worker after persistence initialization.
-pub(crate) fn start_delivery_worker(
+pub fn start_delivery_worker(
     shutdown: ShutdownSignal,
 ) -> tokio::task::JoinHandle<crate::ToriiCriticalWorkerExit> {
     tokio::spawn(async move {

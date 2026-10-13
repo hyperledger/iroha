@@ -102,11 +102,11 @@ impl NativeTransactions {
         {
             return Err(Error::BindingMismatch);
         }
-        if let Action::Check(check) = &request.action {
-            if check.expected_operator != self.operator || check.expected_observer != self.observer
-            {
-                return Err(Error::BindingMismatch);
-            }
+        if let Action::Check(check) = &request.action
+            && (check.expected_operator != self.operator
+                || check.expected_observer != self.observer)
+        {
+            return Err(Error::BindingMismatch);
         }
         let (authority, key) = if observer {
             (&self.observer, &self.observer_key)

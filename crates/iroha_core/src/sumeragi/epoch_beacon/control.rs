@@ -28,10 +28,10 @@ fn limits() -> norito::DecodeLimits {
 }
 
 /// Stream the exact Pulse frame into inline header storage. No heap Vec is constructed.
-pub(crate) fn encode(pulse: Option<Pulse>) -> Result<ControlWitness, ControlCodecError> {
+pub(crate) fn encode(pulse: Option<&Pulse>) -> Result<ControlWitness, ControlCodecError> {
     let mut witness = ControlWitness::empty();
     if let Some(pulse) = pulse {
-        norito::core::write_canonical_to_writer(&pulse, &mut witness)?;
+        norito::core::write_canonical_to_writer(pulse, &mut witness)?;
     }
     Ok(witness)
 }

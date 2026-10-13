@@ -42,7 +42,8 @@ fn storage_resource_file_bytes_with_admission_hooks(
             (rustix::fs::OFlags::NOFOLLOW
                 | rustix::fs::OFlags::NONBLOCK
                 | rustix::fs::OFlags::CLOEXEC)
-                .bits() as i32,
+                .bits()
+                .cast_signed(),
         );
     }
     #[cfg(windows)]

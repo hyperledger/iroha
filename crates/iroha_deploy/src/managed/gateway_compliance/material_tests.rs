@@ -216,7 +216,7 @@ fn acknowledgement_refuses_substituted_original_private_material() {
 }
 
 /// A generated catalog signed through the real held provider owner for lower pure checks.
-pub(crate) fn generated_catalog_fixture() -> (
+pub fn generated_catalog_fixture() -> (
     tempfile::TempDir,
     RetainedGatewayCompliancePlan,
     GatewayComplianceCatalogV1,
@@ -289,7 +289,7 @@ fn generated_catalogs_sign_exact_successors_without_extending_original_material(
     assert!(first.payload.predecessor_digest.is_none());
     assert_eq!(
         first.payload.valid_until_unix,
-        start + plan.catalog_validity_seconds()
+        start + crate::localnet::service_authorities::RetainedGatewayCompliancePlan::catalog_validity_seconds()
     );
     assert_eq!(
         encode(&first, MAX_RECORD_BYTES).unwrap(),
@@ -491,7 +491,7 @@ fn retained_compliance_signers_refuse_profile_and_operation_custody_drift_withou
                 .is_err()
         );
     };
-    let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+    let ((), parses) = crate::localnet::service_authorities::count_profile_validations(|| {
         accept();
         let generation =
             PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
@@ -524,7 +524,7 @@ fn retained_compliance_signers_refuse_profile_and_operation_custody_drift_withou
         }
         #[cfg(windows)]
         {
-            let original_lock = iroha_fs::FileIdentity::of(&authority._lock).unwrap();
+            let original_lock = iroha_fs::FileIdentity::of(&authority.lock).unwrap();
             assert!(
                 authority
                     .directory
@@ -532,7 +532,7 @@ fn retained_compliance_signers_refuse_profile_and_operation_custody_drift_withou
                     .is_err()
             );
             assert_eq!(
-                iroha_fs::FileIdentity::of(&authority._lock).unwrap(),
+                iroha_fs::FileIdentity::of(&authority.lock).unwrap(),
                 original_lock
             );
             assert_eq!(

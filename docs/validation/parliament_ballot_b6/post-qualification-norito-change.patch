@@ -1,0 +1,51 @@
+--- a/crates/norito/src/lib.rs
++++ b/crates/norito/src/lib.rs
+@@ -9534,10 +9534,46 @@
+ {
+     let header = checked_canonical_header(bytes)?;
+     let defaults = canonical_decode_limits(bytes.len());
+-    with_decode_limits(defaults, || {
++    decode_canonical_with_scopes_into_slot(
++        bytes,
++        header,
++        slot,
++        CanonicalDecodeScope::Ordinary(defaults),
++        CanonicalDecodeScope::Ordinary(limits),
++    )
++}
++
++mod prepared_canonical;
++pub use prepared_canonical::PreparedCanonicalDecode;
++
++enum CanonicalDecodeScope<'a> {
++    Ordinary(DecodeLimits),
++    Prepared(&'a core::DecodeBudgetContext),
++}
++impl CanonicalDecodeScope<'_> {
++    fn with<T>(self, body: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
++        match self {
++            Self::Ordinary(limits) => with_decode_limits(limits, body),
++            Self::Prepared(context) => context.with(body),
++        }
++    }
++}
++
++fn decode_canonical_with_scopes_into_slot<T>(
++    bytes: &[u8],
++    header: core::Header,
++    slot: &mut core::TypedFieldSlot<T>,
++    defaults: CanonicalDecodeScope<'_>,
++    schema: CanonicalDecodeScope<'_>,
++) -> Result<(), Error>
++where
++    T: NoritoSerialize,
++    for<'de> T: NoritoDeserialize<'de>,
++{
++    defaults.with(|| {
+         let _canonical_flags = core::DecodeFlagsGuard::enter(core::default_encode_flags());
+         let _payload_context = core::PayloadCtxGuard::enter(bytes);
+-        let decoded = with_decode_limits(limits, || {
++        let decoded = schema.with(|| {
+             let payload = checked_uncompressed_payload::<T>(bytes, &header)?;
+             let _flags = core::DecodeFlagsGuard::enter(header.flags);
+             core::decode_field_canonical_into_slot(payload, slot)

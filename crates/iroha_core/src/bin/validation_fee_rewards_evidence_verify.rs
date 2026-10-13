@@ -61,10 +61,10 @@ struct VerifiedWithContracts {
     verified_contract_artifacts: BTreeMap<String, VerifiedContractArtifact>,
 }
 fn verify_contract_bytes(bytes: &[u8], expected_code_hash: &[u8; 32]) -> Result<(), String> {
-    let verified = ivm::verify_contract_artifact(bytes).map_err(|error| {
+    let authenticated_evidence = ivm::verify_contract_artifact(bytes).map_err(|error| {
         format!("contract artifact is not deployable by this native runtime: {error}")
     })?;
-    if verified.code_hash.as_ref() != expected_code_hash {
+    if authenticated_evidence.code_hash.as_ref() != expected_code_hash {
         return Err(
             "signed contract artifact differs from the finalized governed code hash".into(),
         );
@@ -221,13 +221,13 @@ fn run() -> Result<(), String> {
             )
             .map_err(|error| error.to_string())?;
         for (index, block) in proof.blocks.iter().enumerate() {
-            let verified = if index == 0 {
+            let authenticated_evidence = if index == 0 {
                 verifier.verify_same_decision(checkpoint.tip(), &block.finality)
             } else {
                 verifier.verify(&block.finality)
             }
             .map_err(|error| error.to_string())?;
-            closing_context_id_hex = hex::encode(verified.context_id().as_ref());
+            closing_context_id_hex = hex::encode(authenticated_evidence.context_id().as_ref());
         }
         registry_snapshot_hash_hex = hex::encode(
             closing

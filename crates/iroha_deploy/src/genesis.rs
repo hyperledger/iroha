@@ -2,6 +2,7 @@
 pub mod amx;
 mod defaults;
 pub mod profile;
+pub mod sccp;
 pub mod staging;
 pub use defaults::{ConsensusPolicy, generate_default, validate_consensus_mode};
 use iroha_data_model::prelude::RoleId;

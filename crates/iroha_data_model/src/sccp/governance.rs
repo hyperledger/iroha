@@ -89,6 +89,14 @@ pub enum SccpGovernanceSubjectV1 {
     #[codec(index = 5)]
     #[norito(rename = "forgery_hold")]
     ForgeryHold(SccpNetworkV1),
+    /// Automatic emergency pause head; no Parliament action directly changes it.
+    #[codec(index = 6)]
+    #[norito(rename = "fast_hold")]
+    FastHold(SccpNetworkV1),
+    /// Parliament control over emergency pause suspension.
+    #[codec(index = 7)]
+    #[norito(rename = "fast_pause_control")]
+    FastPauseControl(SccpNetworkV1),
 }
 
 /// Destination fact attested by Parliament to raise a revision's forgery floor.
@@ -181,6 +189,32 @@ pub struct SccpOpenReconciliationActionV1 {
     pub revision: u32,
     /// Nonzero proof-window duration, added with overflow checking at enactment.
     pub window_ms: u64,
+}
+
+/// Suspend emergency endorsements and certification for a bounded duration (§4.14.7).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sccp::governance::SccpSetFastPauseSuspendedActionV1")]
+#[derive(Copy)]
+pub struct SccpSetFastPauseSuspendedActionV1 {
+    /// External destination network.
+    pub network: SccpNetworkV1,
+    /// Duration from enactment, at most three maximum pause periods; zero clears suspension.
+    pub duration_ms: u64,
 }
 
 /// `RegisterRoute`: stage a new revision bound to one destination deployment.
@@ -610,6 +644,10 @@ pub enum SccpGovernanceActionV1 {
     #[codec(index = 17)]
     #[norito(rename = "open_reconciliation")]
     OpenSccpReconciliation(SccpOpenReconciliationActionV1),
+    /// Suspend or restore the emergency pause pipeline of one external network.
+    #[codec(index = 18)]
+    #[norito(rename = "set_fast_pause_suspended")]
+    SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1),
 }
 
 /// One entry of `base_revisions`: a subject and the `rev(s)` the proposer saw.
@@ -837,6 +875,12 @@ pub enum SccpGovernanceStaticError {
     /// `base_revisions` does not list exactly `S(P)` in ascending order.
     #[error("base_revisions must list exactly the proposal's subjects in ascending order")]
     BaseRevisionsMismatch,
+    /// Emergency pause suspension exceeds three immutable maximum pause periods.
+    #[error("action {action} fast pause suspension exceeds three maximum pause periods")]
+    FastPauseSuspensionTooLong {
+        /// Index of the offending action.
+        action: usize,
+    },
     /// A `u64` of the payload exceeds [`SCCP_JSON_SAFE_U64_MAX_V1`].
     #[error("{detail}")]
     ExceedsJsonSafeInteger {
@@ -874,6 +918,9 @@ impl SccpGovernanceActionV1 {
                 ..
             }) => SccpGovernanceSubjectV1::LightClient(*network),
             Self::SetParameters(_) => SccpGovernanceSubjectV1::Parameters,
+            Self::SetFastPauseSuspended(action) => {
+                SccpGovernanceSubjectV1::FastPauseControl(action.network)
+            }
             Self::AttestSccpDeploymentProgress(action) => {
                 SccpGovernanceSubjectV1::ForgeryHold(action.network)
             }
@@ -893,7 +940,9 @@ impl SccpGovernanceActionV1 {
             SccpGovernanceSubjectV1::Route(network)
             | SccpGovernanceSubjectV1::RouteControl(network)
             | SccpGovernanceSubjectV1::LightClient(network)
-            | SccpGovernanceSubjectV1::ForgeryHold(network) => Some(network),
+            | SccpGovernanceSubjectV1::ForgeryHold(network)
+            | SccpGovernanceSubjectV1::FastHold(network)
+            | SccpGovernanceSubjectV1::FastPauseControl(network) => Some(network),
             SccpGovernanceSubjectV1::Parameters => None,
         }
     }
@@ -903,6 +952,8 @@ impl SccpGovernanceActionV1 {
     pub fn first_json_u64_violation(&self) -> Option<&'static str> {
         let maximum = SCCP_JSON_SAFE_U64_MAX_V1;
         match self {
+            Self::SetFastPauseSuspended(action) => (action.duration_ms > maximum)
+                .then_some("fast pause duration_ms exceeds the exact JSON u64 bound"),
             Self::OpenSccpReconciliation(action) => (action.window_ms > maximum)
                 .then_some("reconciliation window_ms exceeds the exact JSON u64 bound"),
             Self::InitializeLightClient(action) => action.params.first_json_u64_violation(maximum),
@@ -956,6 +1007,12 @@ impl SccpGovernanceActionV1 {
             }
         };
         match self {
+            Self::SetFastPauseSuspended(suspension) => {
+                if suspension.duration_ms > 3 * super::params::SCCP_MAX_FAST_PAUSE_MS_V1 {
+                    return Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action });
+                }
+                Ok(())
+            }
             Self::OpenSccpReconciliation(open) => {
                 nonzero(open.revision)?;
                 if open.window_ms == 0 {

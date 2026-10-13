@@ -37,7 +37,10 @@ fn ascending_native_continuation_charges_one_reverse_and_one_forward_source_pass
             reader
                 .walk_from_execution(
                     NonZeroUsize::new(start).unwrap(),
-                    NonZeroUsize::new(chain.height() as usize).unwrap(),
+                    NonZeroUsize::new(
+                        usize::try_from(chain.height()).expect("fixture value fits usize"),
+                    )
+                    .unwrap(),
                     &mut admit,
                 )
                 .collect::<Result<Vec<_>, _>>()
@@ -293,7 +296,8 @@ fn state_certificate_reads_only_target_and_parent_under_exact_source_limits() {
             let mut remaining_bytes = bytes;
             let (result, observed) = relation_counts::measure(|| {
                 reader.certified_from_execution(
-                    NonZeroUsize::new(height as usize).unwrap(),
+                    NonZeroUsize::new(usize::try_from(height).expect("fixture value fits usize"))
+                        .unwrap(),
                     |work, bytes| {
                         remaining_work = remaining_work.checked_sub(work).ok_or(
                             crate::execution_attempt::ExecutionAttemptError::Deferred(
@@ -621,8 +625,11 @@ fn state_certificate_source_allowance_includes_genesis_and_recent_ancestry() {
                 Ok(())
             };
             let reader = CertifiedChain::new_with_source_admission(&view, &mut admit).unwrap();
-            let result = reader
-                .certified_from_execution(NonZeroUsize::new(height as usize).unwrap(), &mut admit);
+            let result = reader.certified_from_execution(
+                NonZeroUsize::new(usize::try_from(height).expect("fixture value fits usize"))
+                    .unwrap(),
+                &mut admit,
+            );
             if succeeds {
                 assert_eq!(result.unwrap().id(), chain.committed(height).id());
                 assert_eq!((work_left, bytes_left), (0, 0));

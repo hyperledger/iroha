@@ -21,6 +21,10 @@ fn limits() -> LeafLimits {
 fn keys() -> [TriggerId; 2] {
     ["original_a".parse().unwrap(), "original_b".parse().unwrap()]
 }
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the retained snapshot projector borrows its original typed row"
+)]
 fn project(value: &u32) -> u32 {
     *value
 }

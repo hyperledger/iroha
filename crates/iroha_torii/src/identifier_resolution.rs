@@ -1,5 +1,5 @@
 //! Identifier resolution service plumbing for app-facing endpoints.
-pub(crate) mod owner_prf;
+pub mod owner_prf;
 use iroha_crypto::{
     BfvIdentifierPublicParameters, BfvProgrammedPublicParameters, BfvRamProgramProfile,
     ClientRequest, Hash, HiddenRamFheProgram, KeyPair, RamLfeBackend, RamLfeError, RamLfeSecret,
@@ -42,7 +42,7 @@ impl fmt::Debug for ProgramRuntime {
             .field("hidden_program", &"[REDACTED hidden RAM-FHE program]")
             .field("signer", &"[REDACTED RAM-LFE signer]")
             .field("receipt_ttl_ms", &self.receipt_ttl_ms)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 /// In-process RAM-LFE runtime used by Torii app endpoints.
@@ -307,7 +307,7 @@ impl IdentifierResolutionService {
     }
 }
 /// Reject unsupported backends before decoding requests, looking up private material, or signing.
-pub(crate) fn require_supported_program_policy(
+pub fn require_supported_program_policy(
     program_policy: &RamLfeProgramPolicy,
 ) -> Result<(), IdentifierResolutionError> {
     program_policy.backend.require_production_support()?;
@@ -372,7 +372,7 @@ fn validate_output_opening(
         .verify_signature(&program_policy.output_opening_public_key)
         .map_err(|err| IdentifierResolutionError::InvalidOutputOpening(err.to_string()))
 }
-pub(crate) fn decode_bfv_public_parameters(
+pub fn decode_bfv_public_parameters(
     program_policy: &RamLfeProgramPolicy,
 ) -> Result<BfvIdentifierPublicParameters, IdentifierResolutionError> {
     if program_policy.commitment.public_parameters.is_empty() {
@@ -398,7 +398,7 @@ pub(crate) fn decode_bfv_public_parameters(
         )),
     }
 }
-pub(crate) fn decode_programmed_public_parameters(
+pub fn decode_programmed_public_parameters(
     program_policy: &RamLfeProgramPolicy,
 ) -> Result<Option<BfvProgrammedPublicParameters>, IdentifierResolutionError> {
     if program_policy.commitment.backend != RamLfeBackend::BfvProgrammedV1 {
@@ -411,12 +411,12 @@ pub(crate) fn decode_programmed_public_parameters(
         .map(Some)
         .map_err(|err| IdentifierResolutionError::InvalidFheParameters(err.to_string()))
 }
-pub(crate) fn decode_ram_fhe_profile(
+pub fn decode_ram_fhe_profile(
     program_policy: &RamLfeProgramPolicy,
 ) -> Result<Option<BfvRamProgramProfile>, IdentifierResolutionError> {
     Ok(decode_programmed_public_parameters(program_policy)?.map(|value| value.ram_fhe_profile))
 }
-pub(crate) fn program_id_bytes(program_id: &RamLfeProgramId) -> Vec<u8> {
+pub fn program_id_bytes(program_id: &RamLfeProgramId) -> Vec<u8> {
     let mut bytes = Vec::new();
     norito::core::write_canonical_to_writer(program_id, &mut bytes)
         .expect("RAM-LFE program id encoding must succeed");
@@ -985,8 +985,7 @@ mod tests {
                     ),
                 ));
                 assert_insecure(service.derive_owner_prf(
-                    &policy,
-                    &program_policy,
+                    (&policy, &program_policy),
                     "alice@example.com",
                     &[1; 32],
                     draft.opening.clone(),

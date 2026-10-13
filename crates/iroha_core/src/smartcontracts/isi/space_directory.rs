@@ -256,7 +256,7 @@ fn permissions_allow_manifest<'a>(
 ) -> bool {
     permissions
         .into_iter()
-        .any(|permission| match permission.name().as_ref() {
+        .any(|permission| match permission.name() {
             MANIFEST_PERMISSION => permission
                 .payload()
                 .try_into_any_norito::<CanPublishSpaceDirectoryManifest>()

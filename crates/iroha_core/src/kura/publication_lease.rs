@@ -189,12 +189,26 @@ impl<'kura> KuraPublicationLease<'kura> {
 impl KuraPublicationLease<'_> {
     /// Release every physical Kura fence without invoking retry callbacks.
     /// The caller retains these original notifications through its outer fences.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate publication to retained pending-byte admission and deferred cleanup; release physical fences before notifying outer owners"
+        )
+    )]
     pub(crate) fn release_deferred(self) -> KuraPublicationCleanup {
         self.fences.release_deferred()
     }
 
     /// Pending canonical bytes captured before the inner publication fences.
     /// Prune/canonical custody keeps this snapshot valid for the lease lifetime.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate publication to retained pending-byte admission and deferred cleanup; release physical fences before notifying outer owners"
+        )
+    )]
     pub(super) fn pending_canonical_bytes(&self) -> u64 {
         self.pending_canonical_bytes
     }

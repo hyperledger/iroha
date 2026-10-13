@@ -68,7 +68,8 @@ pub(super) fn adjust_pending(
     Ok(())
 }
 
-/// Add `delta` to `liability(revision)` of `network`.
+/// Add `delta` to `liability(revision)` of `network` in test fixtures.
+#[cfg(test)]
 pub(super) fn adjust_liability(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,

@@ -63,12 +63,13 @@ addresses. `generate_ton_sccp_stateinit_golden.py` independently recomputes cell
 in Python and compares them with the Tolk script's output. Regenerate after a
 contract change; update any affected Rust golden assertions in the same change.
 
-The Rust mirror reads the expected addresses from that fixture. Its storage
-allowance and the contracts' matching `MINTER_FLOOR` use 115,000 bits and 225
-cells. The emulator checks a minter with 31 keys, three checkpoints and eight
-retained retries against this allowance. TODO: establish a bound or funded
-storage policy for arbitrary retained retry history; this sampled state does
-not qualify deployment.
+The Rust mirror reads the expected addresses from that fixture. The minter's
+maximum 512-operation graph is bounded by 2,380 cells/790,000 bits; destination
+wallet and bucket fixtures retain 512 receipts each. These admitted capacities
+are priced for 100 years at current TON storage rates. The canonical empty
+minter book is 139 bits; each mandatory child receipt cell is 11 bits. Native
+capacity, lost-ACK, stale-delete and full-graph tests accompany the layout and
+code-hash checks. Component checks do not qualify deployment.
 
 ## Emulator and gas checks
 

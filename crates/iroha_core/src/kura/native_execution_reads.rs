@@ -366,6 +366,7 @@ impl Kura {
             }))
     }
 
+    #[cfg(test)]
     /// Read the exact frame of an already authenticated original execution graph.
     /// The caller admits its full stored length first. No second decoded graph is constructed.
     pub(crate) fn read_authenticated_execution_wire(
@@ -482,6 +483,7 @@ mod native_execution_read_tests {
     #[test]
     fn native_original_frame_admission_preserves_cumulative_allocation_on_both_stores() {
         for evicted in [false, true] {
+            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let mut chain =
                 CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
             chain.commit(Vec::new());
@@ -519,7 +521,6 @@ mod native_execution_read_tests {
             });
             // Include the real repeated durable-marker decodes; source metadata is not free.
             // Probe cumulative consumption without guessing those current codec allocations.
-            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let limits =
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, PROBE_LIMIT, 64);
             let exact = norito::with_decode_limits_scope(limits, || {

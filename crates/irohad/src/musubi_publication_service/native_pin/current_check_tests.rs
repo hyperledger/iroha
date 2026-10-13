@@ -258,7 +258,7 @@ fn daemon_fresh_check_keeps_independent_network_and_original_deadline() {
         begin_musubi_pin_outbox_check_v1(
             Arc::clone(&reader),
             fixture.expected(MusubiPinOutboxCheckExpectationV1::Absent),
-            Instant::now() - Duration::from_secs(1),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
         )
         .err(),
         Some(

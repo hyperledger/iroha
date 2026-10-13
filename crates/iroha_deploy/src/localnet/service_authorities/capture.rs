@@ -90,12 +90,12 @@ impl CapturedDirectory {
     }
 
     pub(super) fn revalidate(&self) -> crate::managed::Result<()> {
-        match &self.inventory {
-            // The canonical inventory owner checks custody before and after enumeration,
-            // then once more after comparing the complete expected names.
-            Some(expected) => require_entries(&self.directory, expected.iter().cloned()),
-            None => self.directory.revalidate().map_err(Into::into),
-        }
+        // The canonical inventory owner checks custody before and after enumeration,
+        // then once more after comparing the complete expected names.
+        self.inventory.as_ref().map_or_else(
+            || self.directory.revalidate().map_err(Into::into),
+            |expected| require_entries(&self.directory, expected.iter().cloned()),
+        )
     }
 
     // The root and standalone fixtures retain the same closed canonical file policy.
@@ -214,7 +214,7 @@ impl CapturedProfile {
             Some(
                 NETWORK_ROLES
                     .into_iter()
-                    .map(|role| role.credential_filename())
+                    .map(super::NetworkServiceAuthorityRole::credential_filename)
                     .chain(network_material::COUNCIL_KEYS)
                     .map(OsString::from)
                     .collect(),
@@ -236,7 +236,7 @@ impl CapturedProfile {
                 Some(
                     ROLES
                         .into_iter()
-                        .map(|role| role.credential_filename())
+                        .map(super::StreamTokenAuthorityRole::credential_filename)
                         .chain(provider_material::filenames())
                         .chain(compliance_material::filenames())
                         .map(OsString::from)
@@ -290,7 +290,7 @@ impl CapturedProfile {
         )?;
         for name in NETWORK_ROLES
             .into_iter()
-            .map(|role| role.credential_filename())
+            .map(super::NetworkServiceAuthorityRole::credential_filename)
             .chain(network_material::COUNCIL_KEYS)
         {
             directories[NETWORK].capture(
@@ -303,7 +303,7 @@ impl CapturedProfile {
         for slot in 0..PROVIDER_COUNT {
             for name in ROLES
                 .into_iter()
-                .map(|role| role.credential_filename())
+                .map(super::StreamTokenAuthorityRole::credential_filename)
                 .chain(provider_material::credential_filenames())
                 .chain(compliance_material::filenames())
             {

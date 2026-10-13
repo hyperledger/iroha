@@ -164,6 +164,13 @@ impl State {
     /// Rebuild an isolated replay State's exact committed prefix without publishing
     /// its DA journal to the shared Kura directory. A cached result is preserved;
     /// an absent cache must still authenticate and reconstruct all five indexes.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect isolated replay prevalidation; rebuild exact DA indexes without publishing its journal into the shared live Kura directory"
+        )
+    )]
     pub(super) fn ensure_da_indexes_hydrated_for_replay_prevalidation(
         &self,
     ) -> Result<(), DaIndexHydrationError> {

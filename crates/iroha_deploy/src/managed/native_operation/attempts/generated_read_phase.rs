@@ -29,7 +29,7 @@ fn empty(history: &History) -> bool {
 pub(super) fn read_empty_prefix(
     history: History,
     authorization: &dyn DispatchAuthorization,
-    _native: &NativeClosureInspector<'_>,
+    native: &NativeClosureInspector<'_>,
 ) -> Result<(History, Progress)> {
     if norito::core::decode_limits_active()
         || !matches!(history.scope, HistoryScope::Enrollment(_))
@@ -47,7 +47,7 @@ pub(super) fn read_empty_prefix(
             output = Some(Progress::Initial);
             return Ok(());
         };
-        let graph = retained_graph::ReadPhaseGraph::enter(&owner.history, snapshot, _native)?;
+        let graph = retained_graph::ReadPhaseGraph::enter(&owner.history, snapshot, native)?;
         let pass = EnrollmentReadPass::empty_generated(snapshot, &owner);
         let result = owner.read(authorization, Some(&pass));
         #[cfg(test)]

@@ -12,9 +12,10 @@
 //! afterward. Request-only retirement appends `retired.json` under the original lock and never
 //! removes or renews evidence. Private staging siblings are never authority selectors.
 //!
-//! Every record is immutable, with one canonical first-release layout and the existing fixed
+//! Authority-bearing records are immutable, with one canonical first-release layout and the existing fixed
 //! submission-intent schema. Retained descriptors bind the owner-private directory and original
 //! exclusive lock; changed ancestry, links, access, identities and record bytes are refused.
+//! An optional bounded discovery hint is mutable and grants no submission or completion authority.
 use eyre::{Result, WrapErr as _, eyre};
 use iroha_fs::{FileIdentity, OwnerDirectory, PrivateDirectory, PrivateReadScope, PublishMode};
 use norito::json::{self, JsonDeserialize, JsonSerialize};
@@ -598,6 +599,53 @@ impl Journal {
             Some(_) => eyre::bail!("retained wallet evidence differs from the exact operation"),
             None => self.install(APPLIED_EVIDENCE, &bytes),
         }
+    }
+
+    /// Read final evidence under the original held directory and lock.
+    ///
+    /// # Errors
+    /// Refuses changed custody, malformed JSON or a noncanonical final record.
+    pub fn read_applied_evidence<T: JsonDeserialize + JsonSerialize>(&self) -> Result<Option<T>> {
+        self.read_optional(APPLIED_EVIDENCE)?
+            .map(|bytes| decode_native(&bytes))
+            .transpose()
+    }
+
+    /// Read a non-authoritative discovery hint, bounded to four KiB. Corrupt content or an
+    /// oversized hint is equivalent to absence; unsafe directory or file custody is an error.
+    /// Purpose owners must bind the hint to the exact original and independently verify results.
+    ///
+    /// # Errors
+    /// Preserves unsafe custody and native read failures.
+    pub fn read_discovery_hint<T: JsonDeserialize + JsonSerialize>(&self) -> Result<Option<T>> {
+        let Some(bytes) = self.read_optional("discovery.json")? else {
+            return Ok(None);
+        };
+        if bytes.len() > 4096 {
+            return Ok(None);
+        }
+        Ok(decode_native(&bytes).ok())
+    }
+
+    /// Atomically replace only the bounded non-authoritative discovery hint under the original
+    /// descriptor and lock. Losing this hint must safely restart discovery, never a submission.
+    ///
+    /// # Errors
+    /// Refuses more than four KiB, changed custody, unsafe existing files or failed durability.
+    pub fn write_discovery_hint<T: JsonSerialize>(&self, hint: &T) -> Result<()> {
+        let bytes = canonical_bytes(hint)?;
+        eyre::ensure!(bytes.len() <= 4096, "discovery hint exceeds four KiB");
+        self.revalidate()?;
+        let result = self
+            .directory
+            .write_atomic("discovery.json", &bytes, PublishMode::Replace);
+        self.revalidate()?;
+        result.wrap_err("cannot persist discovery hint")?;
+        eyre::ensure!(
+            self.read("discovery.json")? == bytes.as_ref(),
+            "saved discovery hint differs"
+        );
+        Ok(())
     }
 
     fn revalidate(&self) -> Result<()> {

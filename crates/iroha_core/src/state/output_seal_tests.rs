@@ -346,9 +346,7 @@ fn finalizer_error_and_unwind_poison_the_consumed_owner() {
         run(&mut block, &source);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             block.seal_execution_outputs(&mut source, |_, _, _| {
-                if unwind {
-                    panic!("crash cut inside finalizer");
-                }
+                assert!(!unwind, "crash cut inside finalizer");
                 Err(17_u8)
             })
         }));

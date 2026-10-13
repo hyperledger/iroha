@@ -14,7 +14,7 @@ use tokio_rustls::{
 };
 
 /// Validate programmatically constructed actual configurations as well as parsed ones.
-pub(super) fn validate(config: &ToriiHttpsTransport) -> io::Result<()> {
+pub fn validate(config: &ToriiHttpsTransport) -> io::Result<()> {
     if !(1..=https::MAX_CERTIFICATES).contains(&config.certificate_chain.len())
         || config
             .certificate_chain
@@ -33,7 +33,7 @@ pub(super) fn validate(config: &ToriiHttpsTransport) -> io::Result<()> {
 }
 
 /// Successfully loaded identity; neither listener nor service worker has started.
-pub(super) struct PreparedHttps {
+pub struct PreparedHttps {
     address: SocketAddr,
     acceptor: TlsAcceptor,
     handshake_timeout: Duration,
@@ -116,12 +116,12 @@ pub fn native_https_server_identity_v1(
 }
 
 #[derive(Clone)]
-pub(super) struct HttpsIdentity {
+pub struct HttpsIdentity {
     pub(super) acceptor: TlsAcceptor,
     pub(super) handshake_timeout: Duration,
 }
 
-pub(super) struct BoundHttpsListener {
+pub struct BoundHttpsListener {
     pub(super) listener: TcpListener,
     pub(super) identity: HttpsIdentity,
 }

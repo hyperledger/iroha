@@ -9,6 +9,8 @@ use std::{
 /// Filesystem paths used only by CLI commands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FilesystemConfig {
+    /// SCCP preferences parsed from this same original client source.
+    pub(crate) sccp: Option<iroha_sccp_wallet::config::SccpClientConfig>,
     /// Root directory containing Connect queue state.
     pub(crate) connect_queue_root: PathBuf,
     /// Optional canonical request witness used for multisig Soracloud HTTP mutations.
@@ -18,6 +20,7 @@ pub(crate) struct FilesystemConfig {
 impl Default for FilesystemConfig {
     fn default() -> Self {
         Self {
+            sccp: None,
             connect_queue_root: default_connect_queue_root(),
             soracloud_http_witness_file: None,
         }
@@ -41,6 +44,28 @@ impl FilesystemConfig {
     /// Remove and validate the CLI-owned sections from a complete client TOML table.
     pub(crate) fn take_from(table: &mut toml::Table, source_path: &Path) -> Result<Self> {
         let mut config = Self::default();
+        let mut sccp_table = toml::Table::new();
+        if let Some(value) = table.get("sccp") {
+            sccp_table.insert("sccp".to_owned(), value.clone());
+        }
+        let mut reader = iroha_config_base::read::ConfigReader::new()
+            .without_env()
+            .with_toml_source(iroha_config_base::toml::TomlSource::new(
+                source_path.to_path_buf(),
+                sccp_table,
+            ));
+        let sccp = reader.read_nested::<iroha::config::sccp::SccpClientConfigUser>("sccp");
+        reader
+            .into_result()
+            .map_err(|error| eyre!("invalid client SCCP configuration: {error:?}"))?;
+        let journal = source_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(iroha::config::sccp::defaults::JOURNAL_DIR_NAME);
+        config.sccp = Some(iroha_sccp_wallet::config::SccpClientConfig::from_user(
+            sccp.unwrap(),
+            &journal,
+        )?);
         if let Some(mut connect) = take_section(table, "connect")? {
             if let Some(value) = connect.remove("queue_root") {
                 config.connect_queue_root =
@@ -283,6 +308,45 @@ fn reject_unknown_keys(section: &str, table: &toml::Table) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sccp_client_configuration_retains_same_source_and_defaults() {
+        let source = std::path::Path::new("/config/client.toml");
+        let mut table = toml::toml! {
+            [sccp]
+            poll_interval_ms = 321
+            journal_dir = "journal"
+            [sccp.endpoints]
+            bsc = ["https://bsc.example"]
+        };
+        let config = super::FilesystemConfig::take_from(&mut table, source).unwrap();
+        assert!(
+            table.contains_key("sccp"),
+            "the ordinary SDK root owns the same subtree"
+        );
+        let sccp = config.sccp.unwrap();
+        assert_eq!(sccp.poll_interval, std::time::Duration::from_millis(321));
+        assert_eq!(sccp.journal_dir, std::path::Path::new("/config/journal"));
+        assert_eq!(sccp.endpoints.bsc[0].as_str(), "https://bsc.example/");
+        let default = super::FilesystemConfig::take_from(&mut toml::Table::new(), source).unwrap();
+        assert_eq!(
+            default.sccp.unwrap().journal_dir,
+            std::path::Path::new("/config/sccp-journal")
+        );
+        for invalid in [
+            "poll_interval_ms = 0",
+            "attestation_timeout_ms = 1",
+            "[endpoints]\nbsc = [\"http://rpc.example\"]",
+        ] {
+            let mut table = toml::Table::from_iter([(
+                "sccp".into(),
+                toml::Value::Table(invalid.parse().unwrap()),
+            )]);
+            assert!(
+                super::FilesystemConfig::take_from(&mut table, source).is_err(),
+                "{invalid}"
+            );
+        }
+    }
     use super::*;
 
     #[cfg(unix)]

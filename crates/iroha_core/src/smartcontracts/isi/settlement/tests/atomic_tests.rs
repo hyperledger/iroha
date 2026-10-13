@@ -90,7 +90,11 @@ fn atomic_state_in_scope_with_source_delta_limit(
     let mut movements = Vec::new();
     for index in 0..count {
         let mut seed = vec![0xA5; 32];
-        seed[..2].copy_from_slice(&(index as u16).to_le_bytes());
+        seed[..2].copy_from_slice(
+            &u16::try_from(index)
+                .expect("fixture value fits u16")
+                .to_le_bytes(),
+        );
         let owner = AccountId::new(
             KeyPair::try_from_seed(seed, Algorithm::Ed25519)
                 .expect("fixture key")

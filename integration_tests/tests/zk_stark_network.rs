@@ -315,7 +315,7 @@ async fn stark_governance_paths() -> Result<()> {
         &network,
         iroha_data_model::isi::zk::FinalizeElection {
             election_id,
-            tally,
+            tally: tally.into_iter().map(u128::from).collect(),
             tally_proof: tally_attachment,
         },
         &mut expected_height,

@@ -51,7 +51,7 @@ struct CompletedReplyBackend {
     calls: AtomicU64,
 }
 impl StreamTokenStateObserverClientV1 for CompletedReplyBackend {
-    fn handle(&self) -> &str {
+    fn handle(&self) -> &'static str {
         "state://sorafs/stream-token/observer-primary"
     }
     fn finalize_check(
@@ -76,7 +76,7 @@ impl StreamTokenStateObserverClientV1 for CompletedReplyBackend {
 }
 struct UnusedReplySigner;
 impl StreamTokenSignerClientV1 for UnusedReplySigner {
-    fn handle(&self) -> &str {
+    fn handle(&self) -> &'static str {
         "hsm://sorafs/stream-token/primary-a"
     }
     fn sign(

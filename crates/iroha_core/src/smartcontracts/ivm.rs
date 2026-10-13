@@ -717,7 +717,7 @@ mod tests {
     fn declared_contract_abort_maps_to_manifest_authenticated_rejection() {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
                 seiyaku LiquidityPolicy { permission Test;
                     error enum LiquidityError {
                         BelowMinimum = 18,
@@ -727,7 +727,7 @@ mod tests {
                         require(false, LiquidityError::BelowMinimum);
                     }
                 }
-                "#,
+                ",
             )
             .expect("compile contract rejection fixture");
         let mut vm = ivm::IVM::new(u64::MAX);

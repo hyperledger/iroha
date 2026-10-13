@@ -21,6 +21,10 @@ fn with_chain(assert_original: fn(&CertifiedTestChain)) {
 }
 
 #[test]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "the reservation is retained by ownership in production; this test checks its original pool"
+)]
 fn native_certificate_binds_exact_original_x_body_qc_and_historical_keys() {
     with_chain(|chain| {
         let view = chain.state().view();
@@ -90,6 +94,10 @@ fn native_certificate_binds_exact_original_x_body_qc_and_historical_keys() {
 }
 
 #[test]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "the reservation is retained by ownership in production; this test checks its original pool"
+)]
 fn native_certificate_capacity_refusal_preserves_original_wait_and_retries_same_receipt() {
     with_chain(|chain| {
         let view = chain.state().view();

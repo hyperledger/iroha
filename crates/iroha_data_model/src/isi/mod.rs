@@ -443,6 +443,8 @@ impl_direct_instruction_box!(
     crate::isi::sccp::SettleSccpV1,
     crate::isi::sccp::SubmitSccpOutboundVoidV1,
     crate::isi::sccp::ProveSccpForgedMintV1,
+    crate::isi::sccp::AcceptSccpPausePanelSeatV1,
+    crate::isi::sccp::EndorseSccpFastPauseV1,
     crate::isi::sccp::AdvanceSccpLightClientV1,
     crate::isi::sccp::ReportSccpLightClientEquivocationV1,
 );

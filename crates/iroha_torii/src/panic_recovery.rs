@@ -12,7 +12,7 @@ use tokio::task::{JoinError, JoinHandle};
 
 /// Failure returned after joining an explicitly recoverable task.
 #[derive(Debug, Error)]
-pub(crate) enum RecoverableTaskError {
+pub enum RecoverableTaskError {
     /// The operation panicked after the shutdown hook was suppressed.
     #[error("recoverable operation panicked")]
     Panicked,
@@ -22,7 +22,7 @@ pub(crate) enum RecoverableTaskError {
 }
 
 /// Run blocking request work with suppression installed on its physical worker.
-pub(crate) fn spawn_blocking_recoverable<F, T>(operation: F) -> JoinHandle<std::thread::Result<T>>
+pub fn spawn_blocking_recoverable<F, T>(operation: F) -> JoinHandle<std::thread::Result<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
@@ -32,7 +32,7 @@ where
 
 /// Poll asynchronous request work in the current task with shutdown-hook
 /// suppression and convert a panic into an opaque error payload.
-pub(crate) async fn catch_async_recoverable<F, T>(future: F) -> std::thread::Result<T>
+pub async fn catch_async_recoverable<F, T>(future: F) -> std::thread::Result<T>
 where
     F: Future<Output = T>,
 {
@@ -41,7 +41,7 @@ where
 }
 
 /// Run an asynchronous request task with task-local panic-hook suppression.
-pub(crate) fn spawn_joined_recoverable<F, T>(future: F) -> JoinHandle<std::thread::Result<T>>
+pub fn spawn_joined_recoverable<F, T>(future: F) -> JoinHandle<std::thread::Result<T>>
 where
     F: Future<Output = T> + Send + 'static,
     T: Send + 'static,
@@ -50,7 +50,7 @@ where
 }
 
 /// Join an explicitly recoverable task without exposing its panic payload.
-pub(crate) async fn join_recoverable<T>(
+pub async fn join_recoverable<T>(
     task: JoinHandle<std::thread::Result<T>>,
 ) -> Result<T, RecoverableTaskError> {
     match task.await {

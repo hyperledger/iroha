@@ -197,7 +197,7 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
                     );
                 }
                 assert!(!matches!(
-                    grant.object().name().as_ref(),
+                    grant.object().name(),
                     "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
                 ));
             }
@@ -282,7 +282,7 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
     let network_directory = inventory.open_child(NETWORK_DIRECTORY).unwrap();
     let network_files = NETWORK_ROLES
         .into_iter()
-        .map(|role| role.credential_filename())
+        .map(super::NetworkServiceAuthorityRole::credential_filename)
         .chain(network_material::COUNCIL_KEYS)
         .map(std::ffi::OsString::from)
         .collect::<BTreeSet<_>>();
@@ -304,7 +304,7 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
     }
     let expected_files = ROLES
         .into_iter()
-        .map(|role| role.credential_filename())
+        .map(super::StreamTokenAuthorityRole::credential_filename)
         .chain(provider_material::filenames())
         .chain(compliance_material::filenames())
         .map(std::ffi::OsString::from)
@@ -381,7 +381,7 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
         Some(&prepared.peers[0].config_path),
     )
     .unwrap();
-    let genesis = RawGenesisTransaction::from_path(&root.join("genesis.json")).unwrap();
+    let genesis = RawGenesisTransaction::from_path(root.join("genesis.json")).unwrap();
     let signed =
         iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)
             .unwrap();

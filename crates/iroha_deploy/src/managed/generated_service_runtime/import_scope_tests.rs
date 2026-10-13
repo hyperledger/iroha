@@ -35,7 +35,9 @@ impl Observer {
         Self
     }
     fn finish(self) -> Observation {
-        OBSERVATION.with(|value| value.borrow_mut().take().unwrap())
+        let observation = OBSERVATION.with(|value| value.borrow_mut().take().unwrap());
+        drop(self);
+        observation
     }
 }
 impl Drop for Observer {
@@ -120,10 +122,11 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
             .map(|genesis| genesis.into_parts().0)
             .unwrap();
     let cold = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let mut validation = iroha_data_model::sumeragi_finality::EpochValidationScope::new();
-    cold.with(|| validation.core_epoch(&context)).unwrap();
-    assert!(cold.consumed_allocated_bytes() > 0);
-    drop(validation);
+    {
+        let mut validation = iroha_data_model::sumeragi_finality::EpochValidationScope::new();
+        cold.with(|| validation.core_epoch(&context)).unwrap();
+        assert!(cold.consumed_allocated_bytes() > 0);
+    }
 
     // This control selects None at the sole changed argument. It executes the identical
     // canonical RuntimeSelection parser, physical children and return/exit path.
@@ -196,7 +199,7 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
     let Genuine {
         owner,
         prepared,
-        _temporary,
+        _temporary: temporary,
         native,
         selection,
         components,
@@ -222,7 +225,7 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
     assert!(actual_calls.alive.is_none());
     no_http(&peers);
     drop(owned);
-    drop(_temporary);
+    drop(temporary);
 }
 
 #[test]
@@ -327,7 +330,7 @@ fn genuine_selection_scope_keeps_changed_sources_and_ordinary_error_exit_precede
     no_http(&peers);
     drop((body, initial, generation));
     let Genuine {
-        _temporary,
+        _temporary: temporary,
         prepared,
         owner,
         native,
@@ -340,5 +343,5 @@ fn genuine_selection_scope_keeps_changed_sources_and_ordinary_error_exit_precede
     drop((
         prepared, owner, native, selection, components, carriers, options, catalog,
     ));
-    drop(_temporary);
+    drop(temporary);
 }

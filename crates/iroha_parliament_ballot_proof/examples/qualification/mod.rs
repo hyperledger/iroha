@@ -5,6 +5,8 @@
 //! Calls must be serialized: the allocator counters are process-wide. Foreign
 //! allocators, including Objective-C allocations, are outside these counters.
 
+pub mod malformed;
+
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     error::Error,

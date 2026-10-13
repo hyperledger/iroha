@@ -13,9 +13,6 @@ use std::ops::RangeBounds;
 /// This structure can be used in locations where you would otherwise us
 /// `RwLock<BTreeMap>` or `Mutex<BTreeMap>`.
 ///
-/// Generally, the concurrent [HashMap](crate::hashmap::HashMap) is a better
-/// choice unless you require ordered key storage.
-///
 /// This is a concurrently readable structure, meaning it has transactional
 /// properties. Writers are serialised (one after the other), and readers
 /// can exist in parallel with stable views of the structure at a point

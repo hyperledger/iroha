@@ -39,9 +39,9 @@ use std::{
 use tokio::time::{Instant, timeout_at};
 
 static NONCE: AtomicU64 = AtomicU64::new(0);
-pub(super) const DEADLINE: Duration = Duration::from_secs(180);
+pub const DEADLINE: Duration = Duration::from_secs(180);
 
-pub(super) fn http() -> Result<reqwest::Client> {
+pub fn http() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .no_proxy()
         .no_gzip()
@@ -55,18 +55,18 @@ pub(super) fn http() -> Result<reqwest::Client> {
         .build()?)
 }
 
-pub(super) async fn bytes(mut response: reqwest::Response, maximum: usize) -> Result<Vec<u8>> {
+pub async fn bytes(mut response: reqwest::Response, maximum: usize) -> Result<Vec<u8>> {
     ensure!(
-        !response
+        response
             .content_length()
-            .is_some_and(|length| length > maximum as u64),
+            .is_none_or(|length| length <= maximum as u64),
         "publication response length exceeds bound"
     );
     ensure!(
-        !response
+        response
             .headers()
             .get("Content-Encoding")
-            .is_some_and(|encoding| encoding != "identity"),
+            .is_none_or(|encoding| encoding == "identity"),
         "unexpected content encoding"
     );
     let mut bytes = Vec::new();
@@ -80,7 +80,7 @@ pub(super) async fn bytes(mut response: reqwest::Response, maximum: usize) -> Re
     Ok(bytes)
 }
 
-pub(super) async fn post(
+pub async fn post(
     http: &reqwest::Client,
     network: &NetworkId,
     base: &str,
@@ -95,14 +95,13 @@ pub(super) async fn post(
         key,
         path,
         body,
-        "application/x-norito",
-        None,
+        ("application/x-norito", None),
     )
     .await
 }
 
 /// Send exact canonical Norito JSON with the compliance route's request-bound replay key.
-pub(super) async fn post_json(
+pub async fn post_json(
     http: &reqwest::Client,
     network: &NetworkId,
     base: &str,
@@ -118,8 +117,7 @@ pub(super) async fn post_json(
         key,
         path,
         body,
-        "application/json",
-        Some(idempotency_key),
+        ("application/json", Some(idempotency_key)),
     )
     .await
 }
@@ -131,8 +129,7 @@ async fn post_with_headers(
     key: &KeyPair,
     path: &str,
     body: Vec<u8>,
-    content_type: &str,
-    idempotency_key: Option<&str>,
+    (content_type, idempotency_key): (&str, Option<&str>),
 ) -> Result<reqwest::Response> {
     let url = reqwest::Url::parse(base)?.join(path)?;
     let timestamp = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
@@ -167,7 +164,7 @@ async fn post_with_headers(
     Ok(request.send().await?)
 }
 
-pub(super) fn decode<
+pub fn decode<
     T: for<'de> norito::NoritoDeserialize<'de> + norito::NoritoSerialize + norito::NoritoSchema,
 >(
     bytes: &[u8],
@@ -182,7 +179,7 @@ pub(super) fn decode<
 
 /// Start trust from the independently constructed signed genesis and its registered roster.
 /// The current genesis certificate has no QC; certified successors authenticate its result binding.
-pub(super) async fn genesis_checkpoint(
+pub async fn genesis_checkpoint(
     http: &reqwest::Client,
     network: &Network,
 ) -> Result<SumeragiFinalityCheckpoint> {
@@ -207,11 +204,8 @@ pub(super) async fn genesis_checkpoint(
         validators.len() == 4,
         "qualification requires exactly four independently registered validators"
     );
-    let mut verifier = SumeragiFinalityVerifier::new(
-        genesis.block(),
-        &network.chain_id().to_string(),
-        validators,
-    )?;
+    let mut verifier =
+        SumeragiFinalityVerifier::new(genesis.block(), network.chain_id().as_ref(), validators)?;
     ensure!(
         NetworkId::from_genesis_hash(genesis.expected_hash()) == network.network_id(),
         "independently constructed genesis differs from network identity"
@@ -244,9 +238,10 @@ pub(super) async fn genesis_checkpoint(
             );
             let maximum = MAX_FINALITY_BLOCK_BYTES + 4 * 1024 * 1024;
             let proof: SumeragiFinalityProof = decode(&bytes(response, maximum).await?, maximum)?;
-            let verified = verifier.verify(&proof)?;
+            let authenticated = verifier.verify(&proof)?;
             ensure!(
-                verified.height() == 1 && verified.block().hash() == genesis.expected_hash(),
+                authenticated.height() == 1
+                    && authenticated.block().hash() == genesis.expected_hash(),
                 "queried checkpoint changed independent signed-genesis identity"
             );
             let checkpoint = verifier.export_checkpoint(&proof)?;
@@ -260,7 +255,7 @@ pub(super) async fn genesis_checkpoint(
     .await?
 }
 
-pub(super) async fn preparation(
+pub async fn preparation(
     http: &reqwest::Client,
     network: &NetworkId,
     base: &str,
@@ -308,7 +303,7 @@ pub(super) async fn preparation(
     .await?
 }
 
-pub(super) async fn prove(
+pub async fn prove(
     http: &reqwest::Client,
     client: &Client,
     base: &str,
@@ -373,9 +368,9 @@ pub(super) async fn prove(
                 &bytes(response, PUBLICATION_PROOF_MAX_BYTES_V1).await?,
                 PUBLICATION_PROOF_MAX_BYTES_V1,
             )?;
-            let verified = verify_sorafs_publication_v1(&network, floor, &signed, &proof)?;
+            let authenticated = verify_sorafs_publication_v1(&network, floor, &signed, &proof)?;
             ensure!(
-                verified.completed() == completed,
+                authenticated.completed() == completed,
                 "publication phase substituted"
             );
             let mut malformed = proof.clone();
@@ -393,22 +388,20 @@ pub(super) async fn prove(
                 Instant::now() < deadline,
                 "publication verification exceeded its deadline"
             );
-            return Ok(verified.finality().clone());
+            return Ok(authenticated.finality().clone());
         }
     })
     .await?
 }
 
-pub(super) async fn stage(
+pub async fn stage(
     http: &reqwest::Client,
     network: &NetworkId,
     base: &str,
     publisher: &KeyPair,
     provider: [u8; 32],
     row: &SorafsPublicationPreparationV1,
-    manifest: &ManifestV1,
-    plan: &CarBuildPlan,
-    payload: &[u8],
+    (manifest, plan, payload): (&ManifestV1, &CarBuildPlan, &[u8]),
 ) -> Result<()> {
     let header = PublisherSourceHeaderV1::new(
         provider,
@@ -428,9 +421,12 @@ pub(super) async fn stage(
                 manifest_digest,
                 header_digest,
                 upload: PublisherSourceUploadV1 {
-                    index: index as u32,
-                    bytes: payload
-                        [chunk.offset as usize..chunk.offset as usize + chunk.length as usize]
+                    index: u32::try_from(index).expect("fixture chunk index fits u32"),
+                    bytes: payload[usize::try_from(chunk.offset)
+                        .expect("fixture chunk offset fits usize")
+                        ..usize::try_from(chunk.offset).expect("fixture chunk offset fits usize")
+                            + usize::try_from(chunk.length)
+                                .expect("fixture chunk length fits usize")]
                         .to_vec(),
                 },
             })

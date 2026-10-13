@@ -16,7 +16,9 @@ pub(super) fn forgery_or_quarantine(
     world: &(impl WorldReadOnly + ?Sized),
     revision: &SccpRouteRevisionV1,
 ) -> bool {
-    revision.forgery_held(store::forgery_max_generation(world)) || revision.quarantine.is_some()
+    (!cfg!(all(test, sumeragi_core_mutation = "HC323"))
+        && revision.forgery_held(store::forgery_max_generation(world)))
+        || revision.quarantine.is_some()
 }
 
 /// A committed timestamp must belong to this exact captured original history.

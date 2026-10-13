@@ -62,6 +62,11 @@ pub const LANE_RESULT_TAG: &[u8] = b"iroha/sumeragi/lane/result/v1";
 
 /// The committed lane policy of `world`, preserving an unfinished original JSON read.
 /// Missing or completed malformed parameters retain their existing absent-policy outcome.
+///
+/// # Errors
+///
+/// Returns the original resource deferral if decoding the committed lane
+/// policy cannot complete.
 pub fn lane_policy(
     world: &impl WorldReadOnly,
 ) -> Result<Option<SumeragiLanePolicy>, crate::execution_attempt::ExecutionDeferred> {

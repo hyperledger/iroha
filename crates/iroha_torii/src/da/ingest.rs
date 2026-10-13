@@ -708,8 +708,7 @@ fn compute_da_manifest_candidate(
         queued_at_secs,
         transformed_metadata,
         proof_scheme,
-        enforced_retention.clone(),
-        retention_mismatch,
+        (enforced_retention.clone(), retention_mismatch),
         manifest.encoded.clone(),
         server_assignment_signer,
     )
@@ -1722,8 +1721,7 @@ pub async fn handler_post_da_ingest(
                 })?;
                 let ssm_outcome = taikai::validate_taikai_ssm(
                     &ssm_bytes,
-                    &manifest.manifest_hash,
-                    &taikai.car_digest,
+                    (&manifest.manifest_hash, &taikai.car_digest),
                     &taikai.envelope_bytes,
                     taikai.telemetry.segment_sequence,
                     &app.sorafs_alias_cache_policy,

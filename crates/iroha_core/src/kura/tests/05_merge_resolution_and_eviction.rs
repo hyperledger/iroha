@@ -739,7 +739,9 @@ fn eviction_digest_is_independent_of_short_reads() {
         }
     }
     let bytes = (0_u32..200_000)
-        .map(|value| value.wrapping_mul(31) as u8)
+        .map(|value| {
+            u8::try_from((value.wrapping_mul(31)) & 0xff).expect("masked fixture byte fits u8")
+        })
         .collect::<Vec<_>>();
     let total = u64::try_from(bytes.len()).unwrap();
     let expected =

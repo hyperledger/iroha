@@ -31,7 +31,7 @@ pub(crate) fn assert_clock_ahead_defers_original(
             let boundary = time
                 .checked_sub(drift)
                 .expect("fixture exceeds the drift allowance");
-            clock.set(boundary - Duration::from_millis(1));
+            clock.set(boundary.checked_sub(Duration::from_millis(1)).unwrap());
             let height = worker.state.view().height();
             for _ in 0..2 {
                 assert!(
@@ -124,6 +124,13 @@ fn sccp_clock_chain() -> CertifiedTestChain {
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.staking.unbonding_delay = Duration::from_millis(test_support::SCCP_UNBONDING_DELAY_MS);
     nexus.staking.max_slash_bps = 10_000;
+    let keys = crate::smartcontracts::isi::sccp::forgery::tests::keys();
+    config.validator_keys = Some(keys.clone());
+    crate::smartcontracts::isi::sccp::forgery::tests::register_genesis_members(
+        &mut config,
+        &keys,
+        &nexus.staking,
+    );
     config.nexus = Some(nexus);
     config
         .genesis_instructions

@@ -24,7 +24,7 @@ fn observation_preserves_original_pool_and_exact_borrowed_keys() {
     let view = world.view();
     let budget = AllocationBudget::new(1_000_000);
     let source = validate(&view, &budget, allowance()).unwrap();
-    assert!(std::ptr::eq(source.execution_budget(), &budget));
+    assert!(std::ptr::eq(source.execution_budget(), &raw const budget));
     for ((key, authority), (original, row)) in source
         .availability_rows()
         .zip(view.musubi_archive_availability().iter())

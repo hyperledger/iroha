@@ -9,6 +9,9 @@ use zeroize::Zeroize as _;
 /// `toml::de::Error` retains the complete input and renders source lines. Runtime configuration
 /// commonly contains private keys or passwords, so preserve only the byte offset before dropping
 /// that error and return a deliberately generic diagnostic.
+///
+/// # Errors
+/// Returns a source-free diagnostic when the input is not a valid TOML table.
 pub fn parse_table(input: &str, description: &str) -> Result<toml::Table> {
     input.parse::<toml::Table>().map_err(|mut error| {
         let offset = error.span().map(|span| span.start);

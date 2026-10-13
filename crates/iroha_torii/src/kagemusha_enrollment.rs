@@ -27,7 +27,7 @@ mod signer;
 #[cfg(test)]
 mod test_fixture;
 mod worker;
-pub(super) use handler::handler;
+pub use handler::handler;
 
 type Result<T> = std::result::Result<T, IssuerError>;
 
@@ -157,7 +157,7 @@ impl EnrollmentIssuerRuntimeV1 for Runtime {
     }
 }
 
-pub(super) struct EnrollmentService {
+pub struct EnrollmentService {
     owner: Arc<owner_thread::OwnerThread>,
     slots: Arc<tokio::sync::Semaphore>,
     body_timeout: std::time::Duration,
@@ -179,7 +179,7 @@ impl EnrollmentService {
 }
 
 /// Register the private issuer thread in normal startup, rollback and test-router shutdown.
-pub(super) fn register_worker(
+pub fn register_worker(
     app: &crate::AppState,
     shutdown: iroha_futures::supervisor::ShutdownSignal,
     workers: &mut Vec<crate::ToriiCriticalWorker>,
@@ -246,9 +246,11 @@ fn authenticate_http(
         state,
         state.network_id_ref(),
         &call.headers,
-        &call.method,
-        &call.uri,
-        &call.body,
+        crate::app_auth::CanonicalRequestParts {
+            method: &call.method,
+            uri: &call.uri,
+            body: &call.body,
+        },
         Some(&dispatch.account),
         &context,
     )

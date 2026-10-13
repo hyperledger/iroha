@@ -249,7 +249,9 @@ fn carrier_cancellation_or_expiry_prevents_reused_transport_dispatch() {
         .is_err()
     );
     let expired = Budget {
-        started: Instant::now() - Duration::from_secs(121),
+        started: Instant::now()
+            .checked_sub(Duration::from_secs(121))
+            .unwrap(),
         ..budget()
     };
     assert!(

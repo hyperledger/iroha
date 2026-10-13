@@ -814,17 +814,27 @@ fn refunds_credit_the_sender_or_strand_and_never_abort() {
     set_enabled(&mut stx, false);
     set_holding_limit(&mut stx, &refusing, None);
     execute_settle(retry(), &holder(), &mut stx).expect("the reason changes to Disabled");
-    assert!(matches!(outbound_status(&stx, &by_refusing), SccpOutboundStatusV1::Voided(
-        SccpVoidStatusV1 { refund_pending: Some(SccpPendingReasonV1::Disabled), .. }
-    )));
+    assert!(matches!(
+        outbound_status(&stx, &by_refusing),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::Disabled),
+            ..
+        })
+    ));
     execute_settle(retry(), &holder(), &mut stx).expect_err("unchanged Disabled makes no progress");
     set_enabled(&mut stx, true);
     set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::Paused);
-    execute_settle(retry(), &holder(), &mut stx).expect("the reason changes to RevisionNotSettleable");
-    assert!(matches!(outbound_status(&stx, &by_refusing), SccpOutboundStatusV1::Voided(
-        SccpVoidStatusV1 { refund_pending: Some(SccpPendingReasonV1::RevisionNotSettleable), .. }
-    )));
-    execute_settle(retry(), &holder(), &mut stx).expect_err("unchanged paused reason makes no progress");
+    execute_settle(retry(), &holder(), &mut stx)
+        .expect("the reason changes to RevisionNotSettleable");
+    assert!(matches!(
+        outbound_status(&stx, &by_refusing),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::RevisionNotSettleable),
+            ..
+        })
+    ));
+    execute_settle(retry(), &holder(), &mut stx)
+        .expect_err("unchanged paused reason makes no progress");
     set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::Bidirectional);
     execute_settle(retry(), &holder(), &mut stx).expect("refunded");
     assert!(matches!(
@@ -1003,9 +1013,13 @@ fn a_frozen_void_of_a_full_ton_bucket_refunds_strands_and_holds_without_aborting
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"frozen-ton-end"));
     execute_settle(SettleSccpV1::refund(TON, 1, 200), &holder(), &mut stx)
         .expect("deferred refund now records its sender's credit refusal");
-    assert!(matches!(outbound_status(&stx, &ids[200]), SccpOutboundStatusV1::Voided(
-        SccpVoidStatusV1 { refund_pending: Some(SccpPendingReasonV1::CreditRefused), .. }
-    )));
+    assert!(matches!(
+        outbound_status(&stx, &ids[200]),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::CreditRefused),
+            ..
+        })
+    ));
     execute_settle(SettleSccpV1::refund(TON, 1, 200), &holder(), &mut stx)
         .expect_err("the refusing sender still refuses");
     assert_eq!(

@@ -55,10 +55,9 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         view: &'v V,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
     ) -> Result<Self, ExecutionAttemptError<QueryExecutionFail>> {
-        let genesis = view.canonical_history().block_with_admission(
-            NonZeroUsize::new(GENESIS_HEIGHT as usize).expect("genesis height is nonzero"),
-            before_read,
-        )?;
+        let genesis = view
+            .canonical_history()
+            .block_with_admission(NonZeroUsize::MIN, before_read)?;
         Self::from_genesis(ChainSource::State(view), genesis).map_err(|error| {
             error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
         })
@@ -1034,7 +1033,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     ) -> Result<Option<VerifiedParentService>, ParentServiceError> {
         proposal
             .validate_proposal_commitments()
-            .map_err(|error| ParentServiceError::Invalid(error.to_string()))?;
+            .map_err(|error| ParentServiceError::Invalid(error.clone()))?;
         let height = proposal.header().height().get();
         let offered = proposal
             .npos_consensus_effects()
@@ -1194,7 +1193,7 @@ impl ParentServicePreparation {
     ) -> Result<Option<VerifiedParentService>, ParentServiceError> {
         proposal
             .validate_proposal_commitments()
-            .map_err(|error| ParentServiceError::Invalid(error.to_string()))?;
+            .map_err(|error| ParentServiceError::Invalid(error.clone()))?;
         let parent_height = proposal
             .header()
             .height()

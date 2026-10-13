@@ -249,7 +249,8 @@ fn startup_and_entry_keep_original_allocations_across_resource_refusals() {
     );
     store.append(&body, &qc).unwrap();
     let path = store.dir.join(frame_name(1));
-    let raw = fs::metadata(&path).unwrap().len() as usize;
+    let raw =
+        usize::try_from(fs::metadata(&path).unwrap().len()).expect("fixture value fits usize");
     drop(store);
     drop(body);
     drop(qc);
@@ -578,7 +579,7 @@ fn contiguous_heights_context_conflicts_and_reopening_preserve_prior_semantics()
             1 => bad.epoch.context = Hash32([9; 32]),
             2 => bad.height = 2,
             _ => unreachable!(),
-        };
+        }
         assert!(store.append(&first, &bad).is_err());
         assert_eq!(store.height(), 0);
     }
@@ -786,8 +787,7 @@ fn append_rejects_body_from_another_committee_even_with_a_valid_store_commit_qc(
         body.payload().clone(),
     )
     .complete(&budget, &crypto)
-    .err()
-    .expect("foreign author must fail independent restoration");
+    .expect_err("foreign author must fail independent restoration");
     assert!(!error.is_local_refusal());
     let store = open(
         dir.path(),
@@ -1254,8 +1254,7 @@ fn startup_retains_original_directory_before_exposing_empty_or_recovered_tip() {
         fs::create_dir(&path).unwrap();
         let (startup, error) = startup
             .complete()
-            .err()
-            .expect("startup must retain original namespace");
+            .expect_err("startup must retain original namespace");
         assert_eq!(error.io_kind(), io::ErrorKind::Other);
         assert_eq!(startup.validated, 0);
         assert_eq!(startup.store.height(), 0);

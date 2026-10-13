@@ -117,11 +117,11 @@ fn measured<T>(action: impl FnOnce() -> T) -> (T, usize, usize) {
     (result, opens, parses)
 }
 
-fn assert_absent(value: Phase<ManagedTransactionFinality>) {
+fn assert_absent(value: &Phase<ManagedTransactionFinality>) {
     match value {
         Phase::Incomplete(Incomplete::Pending { step, status }) => {
-            assert_eq!(step, ServiceBootstrapStep::ReservePolicy);
-            assert_eq!(status, OperationStatus::Absent);
+            assert_eq!(*step, ServiceBootstrapStep::ReservePolicy);
+            assert_eq!(*status, OperationStatus::Absent);
         }
         _ => panic!("missing reserve purpose must preserve the exact unfinished step"),
     }
@@ -139,7 +139,7 @@ fn absent_first_reserve_is_fresh_readonly_without_child_capture_http_or_original
     for mode in [Mode::Local, Mode::Recover] {
         let (result, opens, parses) =
             measured(|| fixture.reserve(mode, None, Instant::now() + Duration::from_secs(60)));
-        assert_absent(result.unwrap());
+        assert_absent(&result.unwrap());
         assert_eq!((opens, parses), (0, 0));
         assert_eq!(network.entries(64).unwrap(), names);
         assert_eq!(
@@ -170,7 +170,7 @@ fn present_first_reserve_keeps_empty_dirty_link_and_native_lock_owner_refusals()
     let original = fixture.original_bytes();
     let deadline = Instant::now() + Duration::from_secs(60);
     let (empty, opens, parses) = measured(|| fixture.reserve(Mode::Local, None, deadline));
-    assert_absent(empty.unwrap());
+    assert_absent(&empty.unwrap());
     assert_eq!(
         (opens, parses),
         (1, 0),
@@ -199,7 +199,7 @@ fn present_first_reserve_keeps_empty_dirty_link_and_native_lock_owner_refusals()
     assert_eq!((opens, parses), (1, 0));
     drop(held);
     let (retried, opens, parses) = measured(|| fixture.reserve(Mode::Local, None, deadline));
-    assert_absent(retried.unwrap());
+    assert_absent(&retried.unwrap());
     assert_eq!((opens, parses), (1, 0));
     assert!(!purpose.path().join("set").exists());
     #[cfg(unix)]
@@ -212,7 +212,7 @@ fn present_first_reserve_keeps_empty_dirty_link_and_native_lock_owner_refusals()
         assert_eq!((opens, parses), (1, 0));
         std::fs::remove_file(purpose.path()).unwrap();
         let (retried, opens, parses) = measured(|| fixture.reserve(Mode::Local, None, deadline));
-        assert_absent(retried.unwrap());
+        assert_absent(&retried.unwrap());
         assert_eq!((opens, parses), (0, 0));
     }
     assert_eq!(fixture.original_bytes(), original);
@@ -250,7 +250,7 @@ fn enclosing_budget_keeps_original_absent_child_capture_charges_and_refusal_retr
         phase_budget
             .with(|| fixture.reserve(Mode::Local, None, Instant::now() + Duration::from_secs(60)))
     });
-    assert_absent(result.unwrap());
+    assert_absent(&result.unwrap());
     assert_eq!((opens, parses), (1, 1));
     assert_eq!(phase_budget.consumed_allocated_bytes(), charge);
     let expected_budget = DecodeBudgetContext::new(caller_limits(0));
@@ -279,7 +279,7 @@ fn enclosing_budget_keeps_original_absent_child_capture_charges_and_refusal_retr
     assert_eq!(fixture.network().entries(64).unwrap(), names);
     let (retried, opens, parses) =
         measured(|| fixture.reserve(Mode::Local, None, Instant::now() + Duration::from_secs(60)));
-    assert_absent(retried.unwrap());
+    assert_absent(&retried.unwrap());
     assert_eq!((opens, parses), (0, 0));
     assert_eq!(
         refusing_budget.consumed_allocated_bytes(),
@@ -317,7 +317,7 @@ fn absent_advance_requires_real_live_authorization_before_any_child_creation() {
         fixture.reserve(
             Mode::Advance,
             Some(&authorization),
-            Instant::now() - Duration::from_secs(1),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
         )
     });
     assert!(matches!(
@@ -390,7 +390,7 @@ fn custody_absence_keeps_original_authorization_and_enclosing_admission_before_c
         fixture.custody(
             Mode::Advance,
             Some(&authorization),
-            Instant::now() - Duration::from_secs(1),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
         )
     });
     assert!(matches!(

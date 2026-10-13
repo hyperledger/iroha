@@ -172,7 +172,7 @@ fn fixture_with_source_delta_limit(
         .map(|index| AtomicSettlementMovement {
             source: AssetId::with_scope(
                 definition.clone(),
-                owner(index as u16),
+                owner(u16::try_from(index).expect("fixture value fits u16")),
                 AssetBalanceScope::Global,
             ),
             recipient: sponsor.clone(),

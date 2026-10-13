@@ -19052,7 +19052,6 @@
               "MAX_PIPELINE_RECOVERY_SIDECAR_BYTES",
               "MAX_EVICTION_COMPACTION_STAGE_BYTES",
               "MAX_EVICTION_COMPACTION_ENTRIES",
-              "CONSENSUS_SIDECAR_MATCH_SCAN_BUDGET",
               "MAX_INDEXED_SIDECAR_GAP_ENTRIES",
               "BLOCK_NOTIFY_CHANNEL_CAPACITY",
               "STRICT_INIT_MAX_BLOCK_BYTES",
@@ -19070,7 +19069,6 @@
               "MAX_PIPELINE_RECOVERY_SIDECAR_BYTES": "1024 * 1024",
               "MAX_EVICTION_COMPACTION_STAGE_BYTES": "1024 * 1024",
               "MAX_EVICTION_COMPACTION_ENTRIES": "4096",
-              "CONSENSUS_SIDECAR_MATCH_SCAN_BUDGET": "64",
               "MAX_INDEXED_SIDECAR_GAP_ENTRIES": "4_096",
               "BLOCK_NOTIFY_CHANNEL_CAPACITY": "1",
               "STRICT_INIT_MAX_BLOCK_BYTES": "MAX_EXECUTED_BLOCK_WIRE_BYTES",
@@ -20945,15 +20943,6 @@
       {
         "reason": "Decimal scales, a basis-point denominator and a warning percentage that a numeric field is compared with. They bound the value of one number, not a size.",
         "files": [
-          {
-            "path": "crates/iroha_core/src/settlement/mod.rs",
-            "symbols": [
-              "SETTLEMENT_MICRO_SCALE"
-            ],
-            "exprs": {
-              "SETTLEMENT_MICRO_SCALE": "6"
-            }
-          },
           {
             "path": "crates/iroha_core/src/telemetry.rs",
             "symbols": [

@@ -2,7 +2,7 @@
 
 struct IsoPaymentOutcomeFixture {
     app: SharedAppState,
-    hash: HashOf<SignedTransaction>,
+    entrypoint_hash: HashOf<TransactionEntrypoint>,
     operator: KeyPair,
     chain: iroha_core::sumeragi::test_chain::CertifiedTestChain,
     _store: tempfile::TempDir,
@@ -137,6 +137,7 @@ impl IsoPaymentOutcomeFixture {
             .sign_transaction_payload(payload)
             .expect("signed transfer");
         let hash = transaction.hash();
+        let entrypoint_hash = transaction.hash_as_entrypoint();
         assert!(runtime.update_message_context("outcome-payment", context));
         runtime.mark_accepted("outcome-payment", &hash.to_string());
         assert_eq!(chain.commit(vec![transaction]), vec![!rejected]);
@@ -157,7 +158,7 @@ impl IsoPaymentOutcomeFixture {
                 );
             }
         }
-        assert!(app.state.has_committed_entrypoint(entrypoint_hash(hash)));
+        assert!(app.state.has_committed_entrypoint(entrypoint_hash));
         assert_eq!(
             runtime
                 .message_status("outcome-payment")
@@ -167,7 +168,7 @@ impl IsoPaymentOutcomeFixture {
         );
         Self {
             app,
-            hash,
+            entrypoint_hash,
             operator,
             chain,
             _store: store,
@@ -191,8 +192,7 @@ impl IsoPaymentOutcomeFixture {
             HashMap::new(),
             "127.0.0.1:8080".parse().unwrap(),
             body.into(),
-            "pacs.002",
-            "v1/iso20022/pacs002",
+            ("pacs.002", "v1/iso20022/pacs002"),
         )
         .await
     }
@@ -262,7 +262,7 @@ async fn iso_settlement_accepts_successful_payment_without_later_network_traffic
 async fn iso_settlement_rejects_absent_canonical_payment() {
     let fixture = IsoPaymentOutcomeFixture::new(false);
     let mut membership = fixture.app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove canonical payment membership");
@@ -270,7 +270,7 @@ async fn iso_settlement_rejects_absent_canonical_payment() {
         !fixture
             .app
             .state
-            .has_committed_entrypoint(entrypoint_hash(fixture.hash))
+            .has_committed_entrypoint(fixture.entrypoint_hash)
     );
     assert!(fixture.submit_settlement().await.is_err());
     assert_ne!(
@@ -296,7 +296,7 @@ async fn iso_settlement_rejects_absent_canonical_payment() {
     );
     let mut membership = fixture.app.state.transactions.block_and_revert();
     membership.insert_block(
-        HashSet::from([entrypoint_hash(fixture.hash)]),
+        BTreeSet::from([fixture.entrypoint_hash]),
         NonZeroUsize::new(2).unwrap(),
     );
     membership.commit().expect("restore canonical membership");
@@ -322,7 +322,7 @@ async fn iso_settlement_rejects_conflicting_canonical_carrier() {
         fixture
             .app
             .state
-            .has_committed_entrypoint(entrypoint_hash(fixture.hash))
+            .has_committed_entrypoint(fixture.entrypoint_hash)
     );
     assert!(fixture.submit_settlement().await.is_err());
     assert_ne!(

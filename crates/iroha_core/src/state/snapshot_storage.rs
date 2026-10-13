@@ -155,7 +155,7 @@ impl SnapshotStorage {
             // canonical bare Norito representations fit this checked 512-byte envelope.
             let text = blob.encoded_hex;
             if text.len() > 1024
-                || text.len() % 2 != 0
+                || !text.len().is_multiple_of(2)
                 || text
                     .bytes()
                     .any(|b| !(b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
@@ -393,7 +393,7 @@ impl SnapshotStorage {
             budget: &iroha_allocation::AllocationBudget,
         ) -> Result<[u8; 32], StateRestoreError> {
             let text = blob.encoded_hex;
-            if text.len() % 2 != 0
+            if !text.len().is_multiple_of(2)
                 || text
                     .bytes()
                     .any(|b| !b.is_ascii_digit() && !(b'a'..=b'f').contains(&b))
@@ -456,6 +456,88 @@ impl SnapshotStorage {
         result.map_err(|e| match e {
             mv::storage::AdmittedBlockError::Admission(e) => e.into(),
             mv::storage::AdmittedBlockError::Callback(e) => e,
+        })
+    }
+}
+
+impl SnapshotStorage {
+    /// Restore original validator bytes and exact predecessor scalars directly into admitted maps.
+    pub(crate) fn decode_light_client_sets(
+        self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<crate::smartcontracts::isi::sccp::light_client_set::Storage, StateRestoreError>
+    {
+        use crate::smartcontracts::isi::sccp::light_client_set::{Key, RetainedSccpLcSet, Storage};
+        fn invalid(message: &str) -> StateRestoreError {
+            json::Error::InvalidField {
+                field: "sccp_light_client_sets".into(),
+                message: message.into(),
+            }
+            .into()
+        }
+        fn key(blob: SnapshotNoritoBlob) -> Result<Key, StateRestoreError> {
+            let text = blob.encoded_hex;
+            if text.len() > 128
+                || !text.len().is_multiple_of(2)
+                || text
+                    .bytes()
+                    .any(|b| !(b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+            {
+                return Err(invalid("noncanonical validator key hex"));
+            }
+            let mut bytes = [0u8; 64];
+            let bytes = &mut bytes[..text.len() / 2];
+            hex::decode_to_slice(&text, bytes).map_err(|_| invalid("validator key hex"))?;
+            let codec = |error: norito::Error| {
+                error.decode_resource_error().map_or_else(
+                    || invalid("validator key payload"),
+                    |original| {
+                        StateRestoreError::Sccp(
+                            sccp_snapshot_state::SccpRestoreError::ReconciliationDecode(original),
+                        )
+                    },
+                )
+            };
+            let key = Key::decode_all(&mut &*bytes).map_err(codec)?;
+            norito::codec::verify_exact_payload(&key, bytes).map_err(codec)?;
+            Ok(key)
+        }
+        fn value(
+            blob: SnapshotNoritoBlob,
+            budget: &iroha_allocation::AllocationBudget,
+        ) -> Result<RetainedSccpLcSet, StateRestoreError> {
+            RetainedSccpLcSet::decode_snapshot_hex(&blob.encoded_hex, budget).map_err(|error| {
+                StateRestoreError::Sccp(sccp_snapshot_state::SccpRestoreError::LightClient(error))
+            })
+        }
+        Storage::try_restore_admitted(budget.clone(), |current, undo| {
+            let mut last = None;
+            for row in self.revert {
+                let key = key(row.key)?;
+                let value = row.value.map(|blob| value(blob, budget)).transpose()?;
+                if last.is_some_and(|last| last >= key)
+                    || value.as_ref().is_some_and(|set| set.set_id != key.1)
+                {
+                    return Err(invalid("unordered or mismatched predecessor validator set"));
+                }
+                last = Some(key);
+                undo(key, value)?;
+            }
+            last = None;
+            for row in self.blocks {
+                let key = key(row.key)?;
+                let value = value(row.value, budget)?;
+                if last.is_some_and(|last| last >= key) || value.set_id != key.1 {
+                    return Err(invalid("unordered or mismatched current validator set"));
+                }
+                last = Some(key);
+                current(key, value)?;
+            }
+            Ok::<(), StateRestoreError>(())
+        })
+        .map_err(|error| match error {
+            mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+            mv::storage::AdmittedBlockError::Callback(original) => original,
         })
     }
 }

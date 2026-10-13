@@ -208,7 +208,7 @@ fn sorafs_app_state_with_privacy_aggregate_schedule()
         }
     }
     impl ProductionTransparencyRuntimeProviderV1 for TestPrivacyReleaseAnchor {
-        fn handle(&self) -> &str {
+        fn handle(&self) -> &'static str {
             "governance-dag:transparency:primary"
         }
         fn qualification(&self) -> Result<TransparencyRuntimeProviderQualificationV1, String> {
@@ -223,7 +223,7 @@ fn sorafs_app_state_with_privacy_aggregate_schedule()
         fencing_token: AtomicU64,
     }
     impl ProductionTransparencyRuntimeProviderV1 for TestTransparencyLeaderLeaseProvider {
-        fn handle(&self) -> &str {
+        fn handle(&self) -> &'static str {
             "sealed-cas:transparency:leader-primary"
         }
         fn qualification(&self) -> Result<TransparencyRuntimeProviderQualificationV1, String> {

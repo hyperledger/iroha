@@ -126,8 +126,10 @@ fn first_configure_proof_is_consumed_before_changed_native_preparation_refusal()
     assert_eq!(native.chain.commit(vec![change]), vec![true]);
     let error = owner
         .advance_selected_with_preflight(
-            CustodyPurpose::Configure,
-            selected,
+            SelectedCustodyOperation {
+                purpose: CustodyPurpose::Configure,
+                original: selected,
+            },
             deadline,
             Mode::SubmitAuthorized(&grant),
             false,

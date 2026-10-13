@@ -28,7 +28,7 @@ use mv::{
 use std::num::NonZeroU64;
 
 fn world() -> World {
-    let mut world = *fixture();
+    let mut world = fixture();
     world
         .contract_alias_bindings
         .insert(address(1), record("removed"));
@@ -92,7 +92,7 @@ fn stage(block: &mut StateBlock<'_>) {
     block.world.contract_aliases.remove(record("absent").alias);
 }
 fn expected_world() -> World {
-    let mut world = *fixture();
+    let mut world = fixture();
     let mut renamed = record("renamed");
     renamed.lease_expiry_ms = Some(2);
     renamed.grace_until_ms = Some(3);
@@ -198,7 +198,7 @@ fn rename_expired_lease_delete_insert_noop_and_absent_rows_keep_both_original_im
 fn inverse_and_duplicate_defects_reject_current_and_repaired_current_predecessor() {
     for previous in [false, true] {
         for defect in 0..4 {
-            let mut state = state(*fixture());
+            let mut state = state(fixture());
             let router = record("router").alias;
             let foreign = record("foreign").alias;
             if previous {
@@ -288,7 +288,7 @@ fn every_malformed_lease_window_rejects_either_original_image_without_cleanup() 
             (Some(1), None, 1),
             (Some(2), Some(1), 1),
         ] {
-            let mut state = state(*fixture());
+            let mut state = state(fixture());
             let mut invalid = record("router");
             invalid.lease_expiry_ms = expiry;
             invalid.grace_until_ms = grace;
@@ -552,7 +552,7 @@ fn real_replacement_preserves_rewound_aliases_and_both_original_modes() {
 
 #[test]
 fn unadmitted_lease_work_defers_latent_inverse_corruption_without_a_verdict() {
-    let state = state(*fixture());
+    let state = state(fixture());
     let mut block = state.block(header());
     block.world.contract_aliases.remove(record("router").alias);
     freeze(&mut block);

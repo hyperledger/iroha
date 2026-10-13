@@ -51,7 +51,9 @@ fn signed_lifecycle_index_refusal_precedes_geometry_and_replays_final_cursor_jou
     );
     let proposal = chain.proposal(None, vec![transaction]);
     let expected_hash = proposal.hash();
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let original = pending
         .inspect(|view| prepared_lifecycle_identity(view.state))
         .unwrap()

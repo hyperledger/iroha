@@ -493,9 +493,10 @@ impl DatagramInbox {
         // Quinn's decoded DATAGRAM is a slice of a packet-sized allocation.
         // Copying here makes the application inbox's byte and entry limits
         // bound the buffers it actually retains instead of pinning that packet.
-        let frame = Bytes::copy_from_slice(&frame);
-        state.bytes += frame.len();
-        state.frames.push_back(frame);
+        let retained_frame = Bytes::copy_from_slice(&frame);
+        drop(frame);
+        state.bytes += retained_frame.len();
+        state.frames.push_back(retained_frame);
         drop(state);
         self.notify.notify_one();
         Ok(())
@@ -560,36 +561,33 @@ impl DatagramInbox {
                     .state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match state.terminal.clone() {
-                    Some(terminal) => Some(Err(terminal.into_error())),
-                    None => {
-                        let max_datagram = state.policy;
-                        if max_datagram == DATAGRAM_NEGOTIATING {
-                            None
-                        } else if max_datagram == 0 {
-                            Some(Err(Error::ProtocolViolation(
-                                "DATAGRAM delivery is disabled for this session".into(),
-                            )))
+                state.terminal.clone().map_or_else(|| {
+                    let max_datagram = state.policy;
+                    if max_datagram == DATAGRAM_NEGOTIATING {
+                        None
+                    } else if max_datagram == 0 {
+                        Some(Err(Error::ProtocolViolation(
+                            "DATAGRAM delivery is disabled for this session".into(),
+                        )))
+                    } else {
+                        state.frames.pop_front().map(|frame| {
+                        state.bytes = state.bytes.saturating_sub(frame.len());
+                        if frame.len() > max_datagram {
+                            let reason = format!(
+                                "peer sent datagram of {} bytes above negotiated maximum {max_datagram}",
+                                frame.len()
+                            );
+                            state.frames.clear();
+                            state.bytes = 0;
+                            state.terminal =
+                                Some(DatagramTerminal::Protocol(reason.clone()));
+                            Err(Error::ProtocolViolation(reason))
                         } else {
-                            state.frames.pop_front().map(|frame| {
-                            state.bytes = state.bytes.saturating_sub(frame.len());
-                            if frame.len() > max_datagram {
-                                let reason = format!(
-                                    "peer sent datagram of {} bytes above negotiated maximum {max_datagram}",
-                                    frame.len()
-                                );
-                                state.frames.clear();
-                                state.bytes = 0;
-                                state.terminal =
-                                    Some(DatagramTerminal::Protocol(reason.clone()));
-                                Err(Error::ProtocolViolation(reason))
-                            } else {
-                                Ok(frame)
-                            }
-                        })
+                            Ok(frame)
                         }
+                    })
                     }
-                }
+                }, |terminal| Some(Err(terminal.into_error())))
             };
             if let Some(outcome) = outcome {
                 return outcome;
@@ -1842,6 +1840,8 @@ mod tests {
     }
     #[test]
     fn control_frame_decode_uses_wire_derived_allocation_budget() {
+        const DECLARED_EXPANSION: u64 = 63 * 1024 * 1024;
+        const EXPECTED_WIRE_DERIVED_LIMIT: u64 = (MAX_CONTROL_FRAME_LEN as u64) * 64 + 64 * 1024;
         let frame = ControlFrame::CapabilityReport(capability_report(1));
         let encoded =
             norito::to_compressed_bytes(&frame, Some(norito::CompressionConfig::default()))
@@ -1851,8 +1851,6 @@ mod tests {
             ControlFrame::CapabilityReport(_)
         ));
 
-        const DECLARED_EXPANSION: u64 = 63 * 1024 * 1024;
-        const EXPECTED_WIRE_DERIVED_LIMIT: u64 = (MAX_CONTROL_FRAME_LEN as u64) * 64 + 64 * 1024;
         let mut forged = encoded;
         forged.resize(MAX_CONTROL_FRAME_LEN, 0);
         let length_offset = 4 + 1 + 1 + 16 + 1;

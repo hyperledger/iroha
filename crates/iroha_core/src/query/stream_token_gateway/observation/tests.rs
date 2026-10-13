@@ -65,7 +65,15 @@ impl Fixture {
         world.provider_owners.insert(provider, account(4));
         world.capacity_declarations.insert(
             provider,
-            CapacityDeclarationRecord::new(provider, vec![1], 1, 1, 1, 2, Default::default()),
+            CapacityDeclarationRecord::new(
+                provider,
+                vec![1],
+                1,
+                1,
+                1,
+                2,
+                iroha_model_base::metadata::Metadata::default(),
+            ),
         );
         let mut configuration = TestChainConfig::new(world, START);
         configuration.genesis_instructions.push(
@@ -141,12 +149,12 @@ impl Fixture {
         ));
     }
 
-    fn deliver_reputation(&mut self, record: StreamTokenGatewayAdmissionRecordV1) {
+    fn deliver_reputation(&mut self, record: &StreamTokenGatewayAdmissionRecordV1) {
         use crate::smartcontracts::isi::sorafs_reputation::stream_token_delivery;
         use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
         let (source, state) = {
             let view = self.chain.state().view();
-            stream_token_delivery::read(view.world(), &self.policy.network_id, &record).unwrap()
+            stream_token_delivery::read(view.world(), &self.policy.network_id, record).unwrap()
         };
         if matches!(
             state.disposition,
@@ -348,8 +356,12 @@ impl Fixture {
         assert!(self.commit(2, vec![action.into()]));
         self.record(self.current().unwrap().head.head.high_water_sequence)
     }
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the native acknowledgement instruction owns the supplied record"
+    )]
     fn acknowledge(&mut self, record: Record) {
-        self.deliver_reputation(record);
+        self.deliver_reputation(&record);
         let action = self.instruction(Action::Acknowledge(record));
         assert!(self.commit(2, vec![action.into()]));
     }
@@ -613,7 +625,9 @@ fn gateway_post_proof_clock_rejects_both_malformed_endpoints() {
 #[test]
 fn gateway_phase_start_cannot_renew_an_original_absolute_deadline() {
     let fixture = Fixture::ready();
-    let deadline = Instant::now() - Duration::from_millis(1);
+    let deadline = Instant::now()
+        .checked_sub(Duration::from_millis(1))
+        .unwrap();
     assert!(matches!(
         begin_stream_token_gateway_check_v1(
             Arc::clone(fixture.chain.state()),

@@ -279,7 +279,7 @@ fn parameters_in<'a>(parameters: &'a [Value], location: &str) -> Vec<&'a Value> 
         .collect()
 }
 #[track_caller]
-fn operation_parameters<'a>(operation: &'a Map) -> &'a Vec<Value> {
+fn operation_parameters(operation: &Map) -> &Vec<Value> {
     contract_array(operation.get("parameters"), "operation parameters")
 }
 fn operation_parameter<'a>(operation: &'a Map, name: &str) -> &'a Value {
@@ -289,11 +289,11 @@ fn operation_parameter<'a>(operation: &'a Map, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("operation parameter `{name}`"))
 }
 #[track_caller]
-fn parameter_schema<'a>(parameter: &'a Value) -> &'a Map {
+fn parameter_schema(parameter: &Value) -> &Map {
     contract_object(parameter.get("schema"), "parameter schema")
 }
 #[track_caller]
-fn operation_responses<'a>(operation: &'a Map) -> &'a Map {
+fn operation_responses(operation: &Map) -> &Map {
     contract_object(operation.get("responses"), "operation responses")
 }
 #[track_caller]
@@ -307,7 +307,7 @@ fn response_content<'a>(operation: &'a Map, status: &str) -> &'a Map {
     )
 }
 #[track_caller]
-fn request_content<'a>(operation: &'a Map) -> &'a Map {
+fn request_content(operation: &Map) -> &Map {
     contract_object(
         operation
             .get("requestBody")
@@ -489,7 +489,7 @@ fn evidence_openapi_matches_authenticated_protocol_contract() {
         let (_, _, secret, status, response_headers) = protocol
             .into_iter()
             .find(|(path, verb, ..)| *path == route.path() && *verb == method)
-            .unwrap_or((route.path(), method, "", "200", ""));
+            .unwrap_or_else(|| (route.path(), method, "", "200", ""));
         let secret = contract_word_set(secret);
         let expected_headers = contract_word_set(response_headers);
         let parameters = operation_parameters(operation);
@@ -839,7 +839,7 @@ fn sorafs_replication_openapi_is_a_strict_chain_authoritative_v1_projection() {
     assert!(status_variants.iter().all(|variant| {
         variant.get("additionalProperties").and_then(Value::as_bool) == Some(false)
     }));
-    let states = status_variants
+    let state_variants = status_variants
         .iter()
         .filter_map(|variant| {
             variant
@@ -849,7 +849,7 @@ fn sorafs_replication_openapi_is_a_strict_chain_authoritative_v1_projection() {
                 .and_then(Value::as_str)
         })
         .collect::<BTreeSet<_>>();
-    set_contracts! { states => contract_word_set("pending completed cancelled expired"); status_variants[0] .get("properties") .and_then(Value::as_object) .expect("pending status properties") .keys() .map(String::as_str) .collect::<BTreeSet<_>>() => contract_word_set("state"); }
+    set_contracts! { state_variants => contract_word_set("pending completed cancelled expired"); status_variants[0] .get("properties") .and_then(Value::as_object) .expect("pending status properties") .keys() .map(String::as_str) .collect::<BTreeSet<_>>() => contract_word_set("state"); }
     assert!(status_variants[1..].iter().all(|variant| {
         variant
             .get("properties")

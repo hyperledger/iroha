@@ -169,3 +169,160 @@ fn signed_body_completion_clears_any_remaining_ticket() {
     tx.clear_sccp_forgery_source();
     assert!(tx.consume_direct_sccp_forgery(&data).is_err());
 }
+
+#[test]
+fn pause_direct_source_binds_each_signed_slot_and_cannot_be_rearmed_or_substituted() {
+    use crate::state::sccp_pause_entrypoint::PauseOperation;
+    use iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1;
+    let state = blank_state();
+    let mut block = state.block(header(2));
+    let mut tx = block.transaction();
+    let first = AcceptSccpPausePanelSeatV1 { panel_seq: 1 };
+    let second = AcceptSccpPausePanelSeatV1 { panel_seq: 2 };
+    let signed = signed(&state, vec![first.into(), second.into()]);
+    let input = TransactionEntrypoint::External(signed.clone());
+    for direct in [false, true] {
+        source(&mut tx, &input);
+        tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &first.into(), 0, direct);
+        assert_eq!(
+            tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+                .is_ok(),
+            direct
+        );
+        assert!(
+            tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+                .is_err()
+        );
+    }
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &first.into(), 0, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+            .is_err(),
+        "a consumed signed panel instruction cannot be rearmed"
+    );
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &first.into(), 1, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+            .is_err()
+    );
+    tx.arm_direct_sccp_forgery(&signed, &BOB_ID, &second.into(), 1, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(second))
+            .is_err()
+    );
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &second.into(), 1, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+            .is_err()
+    );
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &second.into(), 1, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(second))
+            .is_err(),
+        "failed substitution consumes original slot"
+    );
+    source(&mut tx, &input);
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &second.into(), 1, true);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(second))
+            .is_ok()
+    );
+    source(&mut tx, &input);
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &first.into(), 0, true);
+    tx.current_entrypoint_index = Some(5);
+    assert!(
+        tx.consume_direct_sccp_pause(PauseOperation::Accept(first))
+            .is_err()
+    );
+}
+
+#[test]
+fn sccp_pause_acceptance_executes_only_from_the_actual_signed_frame_and_rolls_back() {
+    use crate::smartcontracts::{
+        Execute as _,
+        isi::sccp::{
+            fast_pause,
+            pause_record::RetainedSccpPausePanel,
+            store,
+            test_support::{sample_pause_panel, sample_route},
+        },
+    };
+    use iroha_data_model::{
+        bridge::SccpNetworkV1,
+        isi::sccp::{AcceptSccpPausePanelSeatV1, EndorseSccpFastPauseV1},
+        sccp::params::SccpParametersV1,
+    };
+    let state = blank_state();
+    let mut block = state.block(header(2));
+    let acceptance = AcceptSccpPausePanelSeatV1 { panel_seq: 1 };
+    let signed = signed(&state, vec![acceptance.into()]);
+    let input = TransactionEntrypoint::External(signed.clone());
+    let mut panel = sample_pause_panel(1);
+    panel.drawn[0] = ALICE_ID.clone();
+    panel.accepted.clear();
+    let mut tx = block.transaction();
+    store::parameters::set(&mut tx, Some(SccpParametersV1::taira_default()));
+    let retained =
+        RetainedSccpPausePanel::admit(&panel, tx.sccp_evidence_preparation_budget()).unwrap();
+    store::pause_panel::set(&mut tx, Some(retained));
+    store::routes::insert(
+        &mut tx,
+        SccpNetworkV1::EthereumMainnet,
+        sample_route(SccpNetworkV1::EthereumMainnet),
+    )
+    .unwrap();
+    tx.apply();
+    {
+        let mut tx = block.transaction();
+        assert!(
+            fast_pause::admit(&*tx.world, *state.network_id_ref(), signed.payload(), None).is_ok()
+        );
+        assert!(acceptance.execute(&ALICE_ID, &mut tx).is_err());
+        source(&mut tx, &input);
+        tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &acceptance.into(), 0, true);
+        acceptance.execute(&ALICE_ID, &mut tx).unwrap();
+        assert!(
+            store::pause_panel::get(&*tx.world)
+                .as_ref()
+                .unwrap()
+                .accepted
+                .binary_search(&ALICE_ID)
+                .is_ok()
+        );
+        assert!(
+            fast_pause::admit(&*tx.world, *state.network_id_ref(), signed.payload(), None).is_err()
+        );
+        assert!(acceptance.execute(&ALICE_ID, &mut tx).is_err());
+        // Dropping the actual transaction discards both the account graph and its event.
+    }
+    assert!(
+        store::pause_panel::get(&block.world)
+            .as_ref()
+            .unwrap()
+            .accepted
+            .is_empty()
+    );
+    let instruction = EndorseSccpFastPauseV1 {
+        network_id: *state.network_id_ref(),
+        network: SccpNetworkV1::EthereumMainnet,
+        panel_id: panel.primary_id,
+        head: 0,
+        incident_digest: [7; 32],
+    };
+    let signed = self::signed(&state, vec![instruction.into()]);
+    let mut tx = block.transaction();
+    source(&mut tx, &TransactionEntrypoint::External(signed.clone()));
+    tx.arm_direct_sccp_forgery(&signed, &ALICE_ID, &instruction.into(), 0, true);
+    assert!(
+        instruction.execute(&ALICE_ID, &mut tx).is_err(),
+        "a genuine signature does not supply missing Parliament eligibility"
+    );
+    assert!(store::fast_pause_rounds::iter(&*tx.world).next().is_none());
+    assert!(
+        store::pause_panel::get(&*tx.world)
+            .as_ref()
+            .unwrap()
+            .accepted
+            .is_empty()
+    );
+}

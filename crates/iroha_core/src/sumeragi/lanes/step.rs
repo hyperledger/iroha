@@ -197,7 +197,7 @@ fn record_sample(
     budget: &iroha_allocation::AllocationBudget,
 ) -> Result<(), LaneStepError> {
     let Some(autoscale) = policy.and_then(|policy| policy.autoscale.as_ref()) else {
-        state.samples = Default::default();
+        state.samples = iroha_data_model::sumeragi_lanes::SumeragiLaneSamples::default();
         return Ok(());
     };
     let policy = policy.expect("autoscale comes from the policy");
@@ -513,7 +513,7 @@ fn rank(incarnation: &[u8; 32], peer: &PeerId) -> [u8; 32] {
     let mut bytes = LANE_COMMITTEE_RANK_TAG.to_vec();
     bytes.extend_from_slice(incarnation);
     let (_, key) = peer.public_key().to_bytes();
-    bytes.extend_from_slice(&key);
+    bytes.extend_from_slice(key);
     chain_hash(&bytes).0
 }
 

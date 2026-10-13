@@ -18,7 +18,8 @@ use super::Kura;
 
 pub(super) const SEGMENT_NAME: &str = "membership-0000000000000001.norito";
 /// Exact frame size of the first-release membership record schema.
-pub const MEMBERSHIP_RECORD_BYTES: u64 = 184;
+pub const MEMBERSHIP_RECORD_BYTES: u64 = MEMBERSHIP_RECORD_CAPACITY as u64;
+const MEMBERSHIP_RECORD_CAPACITY: usize = 184;
 
 /// A physical refusal never represents authenticated membership absence.
 #[derive(Debug, thiserror::Error)]
@@ -85,7 +86,7 @@ struct ActiveRange {
 struct UncertainWrite {
     offset: u64,
     len: usize,
-    bytes: [u8; MEMBERSHIP_RECORD_BYTES as usize],
+    bytes: [u8; MEMBERSHIP_RECORD_CAPACITY],
 }
 
 #[derive(Default)]
@@ -226,11 +227,6 @@ impl Kura {
         (waits, cleanup)
     }
 
-    /// Join the separate physical publication owners without borrowing their locks together.
-    pub(super) fn all_publication_budget_reserved_bytes(&self) -> super::Result<u64> {
-        Ok(self.membership_storage.pending_bytes())
-    }
-
     /// Borrow the original finite membership allocation pool before constructing
     /// an append workspace. This does not reserve bytes by itself.
     pub fn membership_memory_budget(&self) -> AllocationBudget {
@@ -261,9 +257,9 @@ impl Kura {
             canonical: self.canonical_chain_lock.defer_notifications(),
             range_release: None,
         };
-        let _prune = cleanup.prune.lock();
+        let prune_guard = cleanup.prune.lock();
         self.ensure_prune_recovery_not_required()?;
-        let _canonical = cleanup.canonical.lock();
+        let canonical_guard = cleanup.canonical.lock();
         self.durable_mutation_authorized()?;
         let (id, start, end) = {
             let control = self.membership_storage.control.lock();
@@ -319,8 +315,8 @@ impl Kura {
             return Err(error);
         }
         drop(control);
-        drop(_canonical);
-        drop(_prune);
+        drop(canonical_guard);
+        drop(prune_guard);
         Ok(MembershipAppendRange {
             kura: self,
             id,
@@ -406,9 +402,9 @@ impl Kura {
             || metadata.nlink() != 1
             || rustix::fs::FileType::from_raw_mode(entry.st_mode)
                 != rustix::fs::FileType::RegularFile
-            || entry.st_nlink as u64 != 1
-            || entry.st_dev as u64 != metadata.dev()
-            || entry.st_ino as u64 != metadata.ino()
+            || entry.st_nlink != 1
+            || crate::kura::unix_device_identity(entry.st_dev) != metadata.dev()
+            || entry.st_ino != metadata.ino()
         {
             return Err(MembershipStorageError::NamespaceChanged);
         }
@@ -548,7 +544,7 @@ impl<'kura> MembershipAppendRange<'kura> {
         }
         let present = usize::try_from(after.min(request_end).saturating_sub(request.offset))
             .map_err(|_| MembershipStorageError::Bounds)?;
-        let mut actual = [0; MEMBERSHIP_RECORD_BYTES as usize];
+        let mut actual = [0; MEMBERSHIP_RECORD_CAPACITY];
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileExt as _;
@@ -601,7 +597,7 @@ impl<'kura> MembershipAppendRange<'kura> {
             .active
             .as_mut()
             .ok_or(MembershipStorageError::Closed)?;
-        if active.id != self.id || active.end != self.reserved_end {
+        if (active.id, active.end) != (self.id, self.reserved_end) {
             return Err(MembershipStorageError::Closed);
         }
         if active.abandoned {
@@ -643,7 +639,7 @@ impl<'kura> MembershipAppendRange<'kura> {
         }
         let readable = self
             .completed_end
-            .unwrap_or(control.physical_len.min(self.reserved_end));
+            .unwrap_or_else(|| control.physical_len.min(self.reserved_end));
         if end > readable {
             return Err(MembershipStorageError::Bounds);
         }
@@ -686,7 +682,7 @@ impl<'kura> MembershipAppendRange<'kura> {
             .ok_or(MembershipStorageError::Bounds)?;
         if offset < self.start
             || end > self.reserved_end
-            || bytes.len() > MEMBERSHIP_RECORD_BYTES as usize
+            || bytes.len() > MEMBERSHIP_RECORD_CAPACITY
             || (!bytes.is_empty()
                 && offset / MEMBERSHIP_RECORD_BYTES != (end - 1) / MEMBERSHIP_RECORD_BYTES)
         {
@@ -714,7 +710,7 @@ impl<'kura> MembershipAppendRange<'kura> {
         let mut request = UncertainWrite {
             offset,
             len: bytes.len(),
-            bytes: [0; MEMBERSHIP_RECORD_BYTES as usize],
+            bytes: [0; MEMBERSHIP_RECORD_CAPACITY],
         };
         request.bytes[..bytes.len()].copy_from_slice(bytes);
         active.uncertain = Some(request);
@@ -838,7 +834,10 @@ impl<'kura> MembershipAppendRange<'kura> {
                 Err(MembershipStorageError::Closed)
             };
         }
-        if end < self.start || end > self.reserved_end || end % MEMBERSHIP_RECORD_BYTES != 0 {
+        if end < self.start
+            || end > self.reserved_end
+            || !end.is_multiple_of(MEMBERSHIP_RECORD_BYTES)
+        {
             return Err(MembershipStorageError::Bounds);
         }
         let mut retained = self.cleanup.borrow_mut();

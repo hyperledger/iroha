@@ -277,33 +277,27 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
         | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(original))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(original))
         | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Decode(original))
-        | PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(original))
-        | PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
-            BlockSignatureCustodyError::Decode(original),
-        )) => canonical_decode_attempt_error(original, |error| rejected(error.to_string())),
+        | PreparedSignatureBlockError::Decode(
+            PreparedDecodeError::Codec(original)
+            | PreparedDecodeError::Destination(BlockSignatureCustodyError::Decode(original)),
+        ) => canonical_decode_attempt_error(original, |error| rejected(error.to_string())),
         PreparedSignatureBlockError::Certificate(CertificateCustodyError::Admission(original))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Admission(original))
         | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Admission(original)) => {
             ExecutionAttemptError::Deferred(original.into())
         }
-        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Buffer(
-            ChargedBufferFromChargeError::Allocator { .. },
-        ))
-        | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Control(
-            SharedFromChargeError::Allocator { .. },
-        ))
-        | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Buffer(
-            ChargedBufferFromChargeError::Allocator { .. },
-        ))
-        | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Control(
-            SharedFromChargeError::Allocator { .. },
-        ))
-        | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Buffer(
-            ChargedBufferFromChargeError::Allocator { .. },
-        ))
-        | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Control(
-            SharedFromChargeError::Allocator { .. },
-        )) => ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into()),
+        PreparedSignatureBlockError::Certificate(
+            CertificateCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
+            | CertificateCustodyError::Control(SharedFromChargeError::Allocator { .. }),
+        )
+        | PreparedSignatureBlockError::Policy(
+            DaProofPolicyCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
+            | DaProofPolicyCustodyError::Control(SharedFromChargeError::Allocator { .. }),
+        )
+        | PreparedSignatureBlockError::Commitments(
+            DaCommitmentCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
+            | DaCommitmentCustodyError::Control(SharedFromChargeError::Allocator { .. }),
+        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into()),
         PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
             BlockSignatureCustodyError::Buffer(original),
         )) => ExecutionAttemptError::Deferred(buffer(original)),
@@ -1297,8 +1291,8 @@ mod tests {
         };
         let mut release = release.clone().wait_for_release(&mut registration);
         let wakes = Arc::new(Wakes::default());
-        let waker = Waker::from(Arc::clone(&wakes));
-        let mut context = Context::from_waker(&waker);
+        let task_waker = Waker::from(Arc::clone(&wakes));
+        let mut context = Context::from_waker(&task_waker);
         assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
         drop(occupied);
         assert_eq!(wakes.0.load(Ordering::SeqCst), 1);

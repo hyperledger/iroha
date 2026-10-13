@@ -339,32 +339,39 @@ impl BeaconBlockHeader {
     }
 }
 /// A bounded SSZ `ByteList[32]` used for execution payload extra data.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ExtraData(Vec<u8>);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExtraData {
+    bytes: [u8; 32],
+    len: u8,
+}
 impl ExtraData {
     /// Validate and construct bounded extra data.
     ///
     /// # Errors
     ///
     /// Returns an error when `bytes` exceeds the SSZ `ByteList[32]` limit.
-    pub fn new(bytes: Vec<u8>) -> Result<Self, EthereumLightClientError> {
+    pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self, EthereumLightClientError> {
+        let bytes = bytes.as_ref();
         if bytes.len() > 32 {
             return Err(EthereumLightClientError::ExtraDataTooLong(bytes.len()));
         }
-        Ok(Self(bytes))
+        let mut backing = [0; 32];
+        backing[..bytes.len()].copy_from_slice(bytes);
+        Ok(Self {
+            bytes: backing,
+            len: u8::try_from(bytes.len()).expect("SSZ extra data is at most 32 bytes"),
+        })
     }
     /// Borrow the extra-data bytes.
     pub fn as_slice(&self) -> &[u8] {
-        &self.0
+        &self.bytes[..usize::from(self.len)]
     }
     fn hash_tree_root(&self) -> Root {
-        let mut data = [0; 32];
-        data[..self.0.len()].copy_from_slice(&self.0);
-        hash_nodes(&data, &usize_root(self.0.len()))
+        hash_nodes(&self.bytes, &usize_root(usize::from(self.len)))
     }
 }
 /// Official Capella SSZ `ExecutionPayloadHeader`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CapellaExecutionPayloadHeader {
     /// Parent execution block hash.
     pub parent_hash: Root,
@@ -398,8 +405,8 @@ pub struct CapellaExecutionPayloadHeader {
     pub withdrawals_root: Root,
 }
 impl CapellaExecutionPayloadHeader {
-    fn leaves(&self) -> Vec<Root> {
-        vec![
+    fn leaves(&self) -> [Root; 15] {
+        [
             self.parent_hash,
             byte_vector_root(&self.fee_recipient),
             self.state_root,
@@ -423,7 +430,7 @@ impl CapellaExecutionPayloadHeader {
     }
 }
 /// Official Deneb SSZ `ExecutionPayloadHeader`, also used by Electra and Fulu.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DenebExecutionPayloadHeader {
     /// Capella-compatible fields.
     pub capella: CapellaExecutionPayloadHeader,
@@ -435,16 +442,17 @@ pub struct DenebExecutionPayloadHeader {
 impl DenebExecutionPayloadHeader {
     /// Compute the canonical Deneb SSZ `hash_tree_root`.
     pub fn hash_tree_root(&self) -> Root {
-        let mut leaves = self.capella.leaves();
-        leaves.push(uint64_root(self.blob_gas_used));
-        leaves.push(uint64_root(self.excess_blob_gas));
+        let mut leaves = [ZERO_ROOT; 17];
+        leaves[..15].copy_from_slice(&self.capella.leaves());
+        leaves[15] = uint64_root(self.blob_gas_used);
+        leaves[16] = uint64_root(self.excess_blob_gas);
         merkleize(&leaves)
     }
 }
 /// Fixed execution-payload Merkle branch at generalized index 25.
 pub type ExecutionBranch = [Root; 4];
 /// Official fork-specific SSZ `LightClientHeader`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LightClientHeader {
     /// Altair header (beacon header only).
     Altair {
@@ -461,7 +469,7 @@ pub enum LightClientHeader {
         /// Beacon header.
         beacon: BeaconBlockHeader,
         /// Capella execution payload header.
-        execution: Box<CapellaExecutionPayloadHeader>,
+        execution: CapellaExecutionPayloadHeader,
         /// Execution payload branch in the beacon block body.
         execution_branch: ExecutionBranch,
     },
@@ -470,7 +478,7 @@ pub enum LightClientHeader {
         /// Beacon header.
         beacon: BeaconBlockHeader,
         /// Deneb execution payload header.
-        execution: Box<DenebExecutionPayloadHeader>,
+        execution: DenebExecutionPayloadHeader,
         /// Execution payload branch in the beacon block body.
         execution_branch: ExecutionBranch,
     },
@@ -479,7 +487,7 @@ pub enum LightClientHeader {
         /// Beacon header.
         beacon: BeaconBlockHeader,
         /// Deneb-format execution payload header.
-        execution: Box<DenebExecutionPayloadHeader>,
+        execution: DenebExecutionPayloadHeader,
         /// Execution payload branch in the beacon block body.
         execution_branch: ExecutionBranch,
     },
@@ -488,7 +496,7 @@ pub enum LightClientHeader {
         /// Beacon header.
         beacon: BeaconBlockHeader,
         /// Deneb-format execution payload header.
-        execution: Box<DenebExecutionPayloadHeader>,
+        execution: DenebExecutionPayloadHeader,
         /// Execution payload branch in the beacon block body.
         execution_branch: ExecutionBranch,
     },
@@ -541,7 +549,7 @@ impl LightClientHeader {
     pub fn authenticated_execution_block(&self) -> Option<AuthenticatedExecutionBlock> {
         let capella = match self {
             Self::Altair { .. } | Self::Bellatrix { .. } => return None,
-            Self::Capella { execution, .. } => execution.as_ref(),
+            Self::Capella { execution, .. } => execution,
             Self::Deneb { execution, .. }
             | Self::Electra { execution, .. }
             | Self::Fulu { execution, .. } => &execution.capella,
@@ -651,19 +659,19 @@ impl BlsSignature {
     }
 }
 /// Official SSZ `SyncCommittee` with exactly 512 positions.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyncCommittee {
-    pubkeys: Box<[BlsPublicKey; SYNC_COMMITTEE_SIZE]>,
+    pubkeys: [BlsPublicKey; SYNC_COMMITTEE_SIZE],
     aggregate_pubkey: BlsPublicKey,
 }
 impl SyncCommittee {
     /// Construct a fixed-size sync committee.
     pub fn new(
-        pubkeys: Box<[BlsPublicKey; SYNC_COMMITTEE_SIZE]>,
+        pubkeys: &[BlsPublicKey; SYNC_COMMITTEE_SIZE],
         aggregate_pubkey: BlsPublicKey,
     ) -> Self {
         Self {
-            pubkeys,
+            pubkeys: *pubkeys,
             aggregate_pubkey,
         }
     }
@@ -677,16 +685,14 @@ impl SyncCommittee {
     }
     /// Compute the canonical SSZ `hash_tree_root`.
     pub fn hash_tree_root(&self) -> Root {
-        let pubkey_roots: Vec<_> = self
-            .pubkeys
-            .iter()
-            .copied()
-            .map(BlsPublicKey::hash_tree_root)
-            .collect();
-        hash_nodes(
-            &merkleize(&pubkey_roots),
-            &self.aggregate_pubkey.hash_tree_root(),
-        )
+        let pubkey_root = merkleize_iter(
+            self.pubkeys
+                .iter()
+                .copied()
+                .map(BlsPublicKey::hash_tree_root),
+            SYNC_COMMITTEE_SIZE,
+        );
+        hash_nodes(&pubkey_root, &self.aggregate_pubkey.hash_tree_root())
     }
     /// Run BLS `KeyValidate` over every position and the aggregate key.
     ///
@@ -794,7 +800,7 @@ impl NextSyncCommitteeBranch {
     }
 }
 /// Official SSZ `LightClientBootstrap`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LightClientBootstrap {
     /// Header whose beacon state commits to the current committee.
     pub header: LightClientHeader,
@@ -828,7 +834,7 @@ impl LightClientBootstrap {
     }
 }
 /// A next sync committee and its branch in the attested beacon state.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NextSyncCommitteeProof {
     /// Next sync committee committed by the attested beacon state.
     pub committee: SyncCommittee,
@@ -840,7 +846,7 @@ pub struct NextSyncCommitteeProof {
 /// The finality branch is mandatory; the next committee is optional (finality updates from
 /// `/light_client/finality_update` carry none). The consensus type's zero-filled fields are not
 /// accepted as substitutes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LightClientUpdate {
     /// Header signed by the sync committee.
     pub attested_header: LightClientHeader,
@@ -927,12 +933,17 @@ impl LightClientUpdate {
         committee: &SyncCommittee,
         schedule: &ForkSchedule,
     ) -> Result<(), EthereumLightClientError> {
-        let participant_public_keys =
-            selected_participant_public_keys(committee, self.sync_aggregate.bits());
+        #[expect(
+            clippy::large_stack_arrays,
+            reason = "The protocol fixes 512 keys; bounded stack scratch avoids unadmitted verifier allocations"
+        )]
+        let mut selected = [[0; 48]; SYNC_COMMITTEE_SIZE];
+        let count =
+            selected_participant_public_keys(committee, self.sync_aggregate.bits(), &mut selected);
         let signing_root =
             sync_committee_signing_root(&self.attested_header, self.signature_slot, schedule)?;
         let signature = self.sync_aggregate.signature().to_bytes();
-        ethereum_bls_pop_fast_aggregate_verify(&participant_public_keys, &signing_root, &signature)
+        ethereum_bls_pop_fast_aggregate_verify(&selected[..count], &signing_root, &signature)
             .map_err(|_| EthereumLightClientError::InvalidSyncCommitteeSignature)
     }
 }
@@ -978,15 +989,17 @@ pub fn compute_domain(
 fn selected_participant_public_keys(
     committee: &SyncCommittee,
     bits: &[u8; SYNC_COMMITTEE_BITS_BYTES],
-) -> Vec<[u8; 48]> {
-    let mut selected = Vec::with_capacity(SYNC_COMMITTEE_SIZE);
+    selected: &mut [[u8; 48]; SYNC_COMMITTEE_SIZE],
+) -> usize {
+    let mut count = 0;
     for (position, public_key) in committee.pubkeys.iter().enumerate() {
         let mask = 1_u8 << (position % 8);
         if bits[position / 8] & mask != 0 {
-            selected.push(public_key.to_bytes());
+            selected[count] = public_key.to_bytes();
+            count += 1;
         }
     }
-    selected
+    count
 }
 /// SSZ node hash: `sha256(left ‖ right)`.
 pub fn hash_nodes(left: &Root, right: &Root) -> Root {
@@ -1007,33 +1020,41 @@ fn usize_root(value: usize) -> Root {
     root
 }
 fn byte_vector_root(bytes: &[u8]) -> Root {
-    let chunks: Vec<Root> = bytes
-        .chunks(32)
-        .map(|chunk| {
-            let mut root = ZERO_ROOT;
-            root[..chunk.len()].copy_from_slice(chunk);
-            root
-        })
-        .collect();
-    merkleize(&chunks)
+    let chunks = bytes.chunks(32).map(|chunk| {
+        let mut root = ZERO_ROOT;
+        root[..chunk.len()].copy_from_slice(chunk);
+        root
+    });
+    merkleize_iter(chunks, bytes.len().div_ceil(32))
 }
 /// SSZ `merkleize` of `leaves`, padded with zero roots to the next power of two.
+/// The binary frontier has a fixed native-word depth and allocates no heap backing.
 pub fn merkleize(leaves: &[Root]) -> Root {
-    if leaves.is_empty() {
+    merkleize_iter(leaves.iter().copied(), leaves.len())
+}
+fn merkleize_iter(leaves: impl Iterator<Item = Root>, count: usize) -> Root {
+    if count == 0 {
         return ZERO_ROOT;
     }
-    let width = leaves.len().next_power_of_two();
-    let mut level = Vec::with_capacity(width);
-    level.extend_from_slice(leaves);
-    level.resize(width, ZERO_ROOT);
-    while level.len() > 1 {
-        let mut parent = Vec::with_capacity(level.len() / 2);
-        for pair in level.chunks_exact(2) {
-            parent.push(hash_nodes(&pair[0], &pair[1]));
+    // A realizable byte/root slice is bounded by isize::MAX, so this rounding
+    // cannot overflow usize for the concrete callers above.
+    let width = count.next_power_of_two();
+    let mut frontier = [ZERO_ROOT; usize::BITS as usize];
+    for (index, mut node) in leaves
+        .chain(std::iter::repeat(ZERO_ROOT))
+        .take(width)
+        .enumerate()
+    {
+        let mut position = index;
+        let mut height = 0;
+        while position & 1 == 1 {
+            node = hash_nodes(&frontier[height], &node);
+            position >>= 1;
+            height += 1;
         }
-        level = parent;
+        frontier[height] = node;
     }
-    level[0]
+    frontier[width.trailing_zeros() as usize]
 }
 /// Recompute the root proven by a single-leaf SSZ branch at generalized index `gindex`.
 ///
@@ -1102,14 +1123,15 @@ mod tests {
     fn altair_schedule() -> ForkSchedule {
         schedule_with_epochs([0, u64::MAX, u64::MAX, u64::MAX, u64::MAX, u64::MAX])
     }
-    fn boxed_public_keys(public_key: [u8; 48]) -> Box<[BlsPublicKey; SYNC_COMMITTEE_SIZE]> {
-        vec![BlsPublicKey::new(public_key); SYNC_COMMITTEE_SIZE]
-            .into_boxed_slice()
-            .try_into()
-            .expect("sync committee vector has the fixed protocol length")
-    }
+    #[expect(
+        clippy::large_stack_arrays,
+        reason = "This test constructs the same fixed 512-key stack representation as the verifier"
+    )]
     fn committee(public_key: [u8; 48]) -> SyncCommittee {
-        SyncCommittee::new(boxed_public_keys(public_key), BlsPublicKey::new(public_key))
+        SyncCommittee::new(
+            &[BlsPublicKey::new(public_key); SYNC_COMMITTEE_SIZE],
+            BlsPublicKey::new(public_key),
+        )
     }
     fn sparse_node(gindex: u64, max_depth: usize, explicit: &BTreeMap<u64, Root>) -> Root {
         if let Some(value) = explicit.get(&gindex) {
@@ -1145,7 +1167,7 @@ mod tests {
             },
         }
     }
-    fn altair_bootstrap(current: SyncCommittee) -> LightClientBootstrap {
+    fn altair_bootstrap(current: &SyncCommittee) -> LightClientBootstrap {
         let mut explicit = BTreeMap::new();
         explicit.insert(
             CURRENT_SYNC_COMMITTEE_GINDEX_PRE_ELECTRA,
@@ -1158,7 +1180,7 @@ mod tests {
                 .expect("current branch length");
         LightClientBootstrap {
             header: altair_header(1, state_root),
-            current_sync_committee: current,
+            current_sync_committee: *current,
             current_sync_committee_branch: CurrentSyncCommitteeBranch::PreElectra(branch),
         }
     }
@@ -1173,7 +1195,7 @@ mod tests {
         finalized_slot: u64,
         attested_slot: u64,
         signature_slot: u64,
-        next: SyncCommittee,
+        next: &SyncCommittee,
         signature: [u8; 96],
     ) -> LightClientUpdate {
         let finalized_header = altair_header(finalized_slot, root(0x41));
@@ -1199,7 +1221,7 @@ mod tests {
         LightClientUpdate {
             attested_header,
             next_sync_committee: Some(NextSyncCommitteeProof {
-                committee: next,
+                committee: *next,
                 branch: NextSyncCommitteeBranch::PreElectra(next_branch),
             }),
             finalized_header,
@@ -1378,7 +1400,7 @@ mod tests {
                 state_root: root(26),
                 body_root,
             },
-            execution: Box::new(execution),
+            execution,
             execution_branch: branch,
         };
         // Consensus-spec Capella `LightClientHeader` is a three-field SSZ
@@ -1400,7 +1422,7 @@ mod tests {
         assert_eq!(block.block_number, 7);
         assert_eq!(block.timestamp, 10);
         assert_eq!(block.parent_hash, root(1));
-        let mut tampered = header.clone();
+        let mut tampered = header;
         if let LightClientHeader::Capella { beacon, .. } = &mut tampered {
             beacon.body_root[0] ^= 1;
         }
@@ -1421,9 +1443,10 @@ mod tests {
     #[test]
     fn deneb_execution_root_extends_capella_leaves() {
         let deneb = blank_deneb_execution();
-        let mut leaves = deneb.capella.leaves();
-        leaves.push(uint64_root(17));
-        leaves.push(uint64_root(18));
+        let mut leaves = [ZERO_ROOT; 17];
+        leaves[..15].copy_from_slice(&deneb.capella.leaves());
+        leaves[15] = uint64_root(17);
+        leaves[16] = uint64_root(18);
         assert_eq!(deneb.hash_tree_root(), merkleize(&leaves));
         assert_ne!(deneb.hash_tree_root(), deneb.capella.hash_tree_root());
     }
@@ -1453,15 +1476,15 @@ mod tests {
                 state_root,
                 body_root,
             },
-            execution: Box::new(execution),
+            execution,
             execution_branch,
         };
         let branch: [Root; 6] = sparse_branch(CURRENT_SYNC_COMMITTEE_GINDEX_ELECTRA, 6, &explicit)
             .try_into()
             .expect("Electra current branch length");
         LightClientBootstrap {
-            header: header.clone(),
-            current_sync_committee: current.clone(),
+            header,
+            current_sync_committee: current,
             current_sync_committee_branch: CurrentSyncCommitteeBranch::Electra(branch),
         }
         .verify(&schedule)
@@ -1493,16 +1516,16 @@ mod tests {
     #[test]
     fn bootstrap_rejects_wrong_branch_and_key() {
         let schedule = altair_schedule();
-        let bootstrap = altair_bootstrap(committee(GENERATOR_PUBLIC_KEY));
+        let bootstrap = altair_bootstrap(&committee(GENERATOR_PUBLIC_KEY));
         bootstrap.verify(&schedule).expect("valid bootstrap");
-        let mut wrong_branch = bootstrap.clone();
+        let mut wrong_branch = bootstrap;
         wrong_branch.current_sync_committee_branch =
             CurrentSyncCommitteeBranch::PreElectra([ZERO_ROOT; 5]);
         assert_eq!(
             wrong_branch.verify(&schedule),
             Err(EthereumLightClientError::InvalidCurrentCommitteeBranch)
         );
-        let invalid = altair_bootstrap(committee([0xff; 48]));
+        let invalid = altair_bootstrap(&committee([0xff; 48]));
         assert_eq!(
             invalid.verify(&schedule),
             Err(EthereumLightClientError::InvalidCommitteePublicKey(0))
@@ -1511,7 +1534,7 @@ mod tests {
     #[test]
     fn update_structure_rejects_threshold_slot_and_branch_attacks() {
         let schedule = altair_schedule();
-        let mut update = unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+        let mut update = unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         update.verify_structure(&schedule).expect("valid structure");
         update.sync_aggregate = SyncAggregate::new(
             participant_bits(FINALITY_PARTICIPANT_THRESHOLD - 1),
@@ -1531,12 +1554,12 @@ mod tests {
             Err(EthereumLightClientError::InvalidSlotOrder)
         );
         let finalized_after_attested =
-            unsigned_update(4, 3, 5, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+            unsigned_update(4, 3, 5, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         assert_eq!(
             finalized_after_attested.verify_structure(&schedule),
             Err(EthereumLightClientError::InvalidSlotOrder)
         );
-        let mut bad_branch = unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+        let mut bad_branch = unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         if let FinalityBranch::PreElectra(branch) = &mut bad_branch.finality_branch {
             branch[0][0] ^= 1;
         }
@@ -1544,14 +1567,14 @@ mod tests {
             bad_branch.verify_structure(&schedule),
             Err(EthereumLightClientError::InvalidFinalityBranch)
         );
-        let mut wrong_shape = unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+        let mut wrong_shape = unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         wrong_shape.finality_branch = FinalityBranch::Electra([ZERO_ROOT; 7]);
         assert_eq!(
             wrong_shape.verify_structure(&schedule),
             Err(EthereumLightClientError::FinalityBranchForkMismatch)
         );
         let mut bad_next_branch =
-            unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+            unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         if let Some(NextSyncCommitteeProof {
             branch: NextSyncCommitteeBranch::PreElectra(branch),
             ..
@@ -1563,12 +1586,12 @@ mod tests {
             bad_next_branch.verify_structure(&schedule),
             Err(EthereumLightClientError::InvalidNextCommitteeBranch)
         );
-        let invalid_key_update = unsigned_update(2, 3, 4, committee([0xff; 48]), [0; 96]);
+        let invalid_key_update = unsigned_update(2, 3, 4, &committee([0xff; 48]), [0; 96]);
         assert_eq!(
             invalid_key_update.verify_structure(&schedule),
             Err(EthereumLightClientError::InvalidCommitteePublicKey(0))
         );
-        let mut next_shape = unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+        let mut next_shape = unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         if let Some(next) = &mut next_shape.next_sync_committee {
             next.branch = NextSyncCommitteeBranch::Electra([ZERO_ROOT; 6]);
         }
@@ -1585,7 +1608,7 @@ mod tests {
             boundary - 1,
             boundary,
             boundary + 1,
-            committee(GENERATOR_PUBLIC_KEY),
+            &committee(GENERATOR_PUBLIC_KEY),
             [0; 96],
         );
         assert_eq!(
@@ -1601,12 +1624,12 @@ mod tests {
     #[test]
     fn exact_threshold_update_with_duplicate_positions_verifies() {
         let schedule = altair_schedule();
-        let bootstrap = altair_bootstrap(committee(GENERATOR_PUBLIC_KEY));
+        let bootstrap = altair_bootstrap(&committee(GENERATOR_PUBLIC_KEY));
         let update = unsigned_update(
             2,
             3,
             4,
-            committee(GENERATOR_PUBLIC_KEY),
+            &committee(GENERATOR_PUBLIC_KEY),
             FIXTURE_AGGREGATE_SIGNATURE,
         );
         assert_eq!(
@@ -1618,7 +1641,7 @@ mod tests {
         update
             .verify_signature(&bootstrap.current_sync_committee, &schedule)
             .expect("342 duplicate positions form a valid aggregate");
-        let mut wrong_signature = update.clone();
+        let mut wrong_signature = update;
         wrong_signature.sync_aggregate = SyncAggregate::new(
             participant_bits(343),
             BlsSignature::new(FIXTURE_AGGREGATE_SIGNATURE),
@@ -1663,7 +1686,7 @@ mod tests {
     }
     #[test]
     fn fixture_signing_root_is_stable() {
-        let update = unsigned_update(2, 3, 4, committee(GENERATOR_PUBLIC_KEY), [0; 96]);
+        let update = unsigned_update(2, 3, 4, &committee(GENERATOR_PUBLIC_KEY), [0; 96]);
         let signing_root = sync_committee_signing_root(
             &update.attested_header,
             update.signature_slot,

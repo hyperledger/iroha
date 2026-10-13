@@ -61,14 +61,8 @@ fn derived_checkpoint_and_signed_installation_roundtrip_through_native_authentic
     )
     .unwrap();
     assert_eq!(checkpoint, fixture.checkpoint());
-    let prepared = prepare_checkpoint(
-        checkpoint.clone(),
-        369,
-        policy(&checkpoint),
-        &signer(),
-        2_000,
-    )
-    .unwrap();
+    let prepared =
+        prepare_checkpoint(&checkpoint, 369, policy(&checkpoint), &signer(), 2_000).unwrap();
     assert_eq!(prepared.release.network_id, fixture.network_id());
     assert_eq!(prepared.release.chain_id, fixture.chain_id());
     assert_eq!(prepared.release.checkpoint_height, 2);
@@ -166,16 +160,13 @@ fn release_policy_rejects_signer_substitution_expiry_excess_lifetime_and_untrust
     selected.release_public_key = KeyPair::from_seed(vec![114; 32], Algorithm::Ed25519)
         .public_key()
         .clone();
-    assert!(prepare_checkpoint(checkpoint.clone(), 369, selected, &signer(), 2_000).is_err());
+    assert!(prepare_checkpoint(&checkpoint, 369, selected, &signer(), 2_000).is_err());
     for now in [999, 10_000] {
-        assert!(
-            prepare_checkpoint(checkpoint.clone(), 369, policy(&checkpoint), &signer(), now)
-                .is_err()
-        );
+        assert!(prepare_checkpoint(&checkpoint, 369, policy(&checkpoint), &signer(), now).is_err());
     }
     let mut selected = policy(&checkpoint);
     selected.expires_at_ms = selected.issued_at_ms + super::super::MAX_RELEASE_VALIDITY_MS + 1;
-    assert!(prepare_checkpoint(checkpoint.clone(), 369, selected, &signer(), 2_000).is_err());
+    assert!(prepare_checkpoint(&checkpoint, 369, selected, &signer(), 2_000).is_err());
     for location in [
         "http://releases.example/checkpoint.nrt",
         "https://user:credential@releases.example/checkpoint.nrt",
@@ -183,11 +174,11 @@ fn release_policy_rejects_signer_substitution_expiry_excess_lifetime_and_untrust
     ] {
         let mut selected = policy(&checkpoint);
         selected.checkpoint_url = location.into();
-        assert!(prepare_checkpoint(checkpoint.clone(), 369, selected, &signer(), 2_000).is_err());
+        assert!(prepare_checkpoint(&checkpoint, 369, selected, &signer(), 2_000).is_err());
     }
     let mut selected = policy(&checkpoint);
     selected.peers.pop();
-    assert!(prepare_checkpoint(checkpoint, 369, selected, &signer(), 2_000).is_err());
+    assert!(prepare_checkpoint(&checkpoint, 369, selected, &signer(), 2_000).is_err());
 }
 
 #[test]
@@ -310,8 +301,8 @@ fn operator_entry_point_authenticates_original_manifest_and_real_executed_succes
         .collect::<Vec<_>>();
     let proofs = (1..=2)
         .map(|height| {
-            let committed = chain.committed(height);
-            let block = committed.block();
+            let decision = chain.committed(height);
+            let block = decision.block();
             SumeragiFinalityProof {
                 block_header: block.header(),
                 block_wire: block.encode_wire().unwrap(),

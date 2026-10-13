@@ -61,7 +61,7 @@ pub(super) fn is_canonical_attachment_digest(value: &str) -> bool {
 ///
 /// Returns a descriptive error when identity, tenant, provenance, sanitizer,
 /// digest-shape, size, or media-type invariants are violated.
-pub(crate) fn validate_attachment_metadata_contract(
+pub fn validate_attachment_metadata_contract(
     meta: &AttachmentMeta,
     expected_tenant: &str,
     expected_id: &str,
@@ -110,10 +110,7 @@ pub(crate) fn validate_attachment_metadata_contract(
 ///
 /// Returns a descriptive error when size, digest, sanitizer, or media-type
 /// provenance does not match `body`.
-pub(crate) fn validate_attachment_body_contract(
-    meta: &AttachmentMeta,
-    body: &[u8],
-) -> Result<(), String> {
+pub fn validate_attachment_body_contract(meta: &AttachmentMeta, body: &[u8]) -> Result<(), String> {
     let actual_size = body.len() as u64;
     if meta.size != actual_size {
         return Err(format!(
@@ -523,12 +520,10 @@ pub(super) fn spawn_sanitizer_stdout_reader(
         // Keep physical admission for as long as this reader can remain blocked
         // so detached pipe readers cannot accumulate outside the semaphore.
         let admission = admission;
-        let result = match iroha_panic_hook::catch_unwind_suppressed(|| {
+        let result = iroha_panic_hook::catch_unwind_suppressed(|| {
             read_sanitizer_stdout_limited(&mut stdout, max_output_bytes)
-        }) {
-            Ok(result) => result,
-            Err(_) => Err("attachment sanitizer stdout reader panicked".to_owned()),
-        };
+        })
+        .unwrap_or_else(|_| Err("attachment sanitizer stdout reader panicked".to_owned()));
         drop(admission);
         let _ = tx.send(result);
     });
@@ -815,7 +810,7 @@ pub(super) fn executable_file(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        return metadata.permissions().mode() & 0o111 != 0;
+        metadata.permissions().mode() & 0o111 != 0
     }
     #[cfg(not(unix))]
     true

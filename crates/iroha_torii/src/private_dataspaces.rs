@@ -37,7 +37,7 @@ fn require_global_parent(world: &impl iroha_core::state::WorldReadOnly) -> Resul
     Ok(())
 }
 
-pub(crate) async fn record_proof(
+pub async fn record_proof(
     State(app): State<SharedAppState>,
     axum::extract::Path((dataspace, height)): axum::extract::Path<(String, String)>,
     headers: axum::http::HeaderMap,

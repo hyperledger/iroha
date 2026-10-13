@@ -395,6 +395,13 @@ impl<'kura> TotalDiskUsageMutation<'kura> {
     }
 
     /// Observe both disjoint trees around a move, including classification changes.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained lane retirement to physical tree accounting; preserve original mutation/refund ownership through move and deletion"
+        )
+    )]
     fn with_resource_tree_move(self, source: &Path, destination: &Path) -> Self {
         self.bind_physical_target(PhysicalResourceTarget::MovedTrees {
             source: source.to_path_buf(),
@@ -403,6 +410,13 @@ impl<'kura> TotalDiskUsageMutation<'kura> {
     }
 
     /// Count the exact authenticated retirement tree whose removal must complete.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained lane retirement to physical tree accounting; preserve original mutation/refund ownership through move and deletion"
+        )
+    )]
     fn removing_resource_tree(self, root: &Path) -> Self {
         self.bind_physical_target(PhysicalResourceTarget::DeletedTree(root.to_path_buf()))
     }
@@ -511,12 +525,15 @@ pub(crate) struct ResourceBatchChild<'guard, 'kura> {
     may_discharge: bool,
 }
 
+#[cfg(test)]
 impl<'kura> ResourceBatchChild<'_, 'kura> {
     /// Access only this nested batch's exact child declarations.
     pub(crate) fn guard(&mut self) -> &mut TotalDiskUsageMutation<'kura> {
         &mut self.nested
     }
+}
 
+impl ResourceBatchChild<'_, '_> {
     /// Discharge one parent slot only after every nested child has completed.
     pub(crate) fn finish(mut self) {
         if self.may_discharge

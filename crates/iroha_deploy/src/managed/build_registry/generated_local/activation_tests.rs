@@ -236,7 +236,7 @@ fn generated_service_observation_keeps_independent_custody_from_live_archive_cli
     let required = *enrollment.finalized();
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut peers = UnavailablePeers::start(&prepared);
-    let (config, transport) = prepare(prepared.clone(), deadline).unwrap().unwrap();
+    let (config, transport) = prepare(&prepared, deadline).unwrap().unwrap();
     let client = transport.build_client().unwrap();
     drop(transport);
     // A materialized archive client still pins its original exclusive discovery journal.
@@ -250,7 +250,7 @@ fn generated_service_observation_keeps_independent_custody_from_live_archive_cli
     observer.validate_profile().unwrap();
     let observation_path = observer.directory.path().to_path_buf();
     let observation_identity = observer.directory.identity().unwrap();
-    let observation_lock = iroha_fs::FileIdentity::of(&observer._lock).unwrap();
+    let observation_lock = iroha_fs::FileIdentity::of(&observer.lock).unwrap();
     assert_eq!(observation_path.file_name().unwrap(), "service-observation");
     let registry =
         PrivateDirectory::open_exact(observation_path.parent().unwrap().join("build-registry"))
@@ -298,7 +298,7 @@ fn generated_service_observation_keeps_independent_custody_from_live_archive_cli
         ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceObservation).unwrap();
     assert_eq!(observer.directory.identity().unwrap(), observation_identity);
     assert_eq!(
-        iroha_fs::FileIdentity::of(&observer._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&observer.lock).unwrap(),
         observation_lock
     );
     let generation =

@@ -67,3 +67,55 @@ fn sccp_prepare_clock_raw_prepare_and_missing_observations_refuse() {
         KeyPairSigner::new(&key).unwrap().sign(&commit).unwrap()
     );
 }
+
+#[test]
+fn sccp_prepare_clock_fixed_slots_reuse_admission_and_retire_other_heights() {
+    let (_, time) = TimeSource::new_mock(Duration::ZERO);
+    let budget = AllocationBudget::new(1 << 20);
+    let guard = PrepareClock::new(&budget, time).unwrap();
+    let occupied = budget.reserved_bytes();
+    let mut header = BlockHeader {
+        instance: Hash32([1; 32]),
+        epoch: EpochId {
+            epoch: 2,
+            context: Hash32([3; 32]),
+        },
+        height: 7,
+        origin_view: 0,
+        parent_hash: Hash32([4; 32]),
+        parent_result: Hash32([5; 32]),
+        payload_hash: Hash32([6; 32]),
+        availability_digest: Hash32([7; 32]),
+        payload_len: 1,
+        proposer: 0,
+        skipped_leaders: Vec::new(),
+        control_witness: iroha_sumeragi::types::ControlWitness::default(),
+    };
+    let result = Hash32([9; 32]);
+    for number in 1..=OBSERVATIONS + 1 {
+        let hash = Hash32([u8::try_from(number).unwrap(); 32]);
+        guard.record(&header, hash, result, None);
+        assert_eq!(
+            guard.authorize_uncertified_for_test(&header, hash, result),
+            Ok(())
+        );
+        assert_eq!(budget.reserved_bytes(), occupied);
+    }
+    assert_eq!(
+        guard.authorize_uncertified_for_test(&header, Hash32([1; 32]), result),
+        Err(SigningError::Refused)
+    );
+    let last = Hash32([u8::try_from(OBSERVATIONS + 1).unwrap(); 32]);
+    header.height += 1;
+    guard.record(&header, last, result, None);
+    assert_eq!(
+        guard.authorize_uncertified_for_test(&header, last, result),
+        Ok(())
+    );
+    header.height -= 1;
+    assert_eq!(
+        guard.authorize_uncertified_for_test(&header, last, result),
+        Err(SigningError::Refused)
+    );
+    assert_eq!(budget.reserved_bytes(), occupied);
+}

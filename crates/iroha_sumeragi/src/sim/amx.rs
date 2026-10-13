@@ -1347,6 +1347,9 @@ impl World {
     /// The execution of `block` of instance `inst` on the post-state certified by `parent`: the
     /// simulator's `block_exec` and, in an AMX world, the application's records bound into `R`.
     pub fn app_exec(&self, inst: usize, parent: &Hash32, block: &AvailableBody) -> ExecOutcome {
+        if let Some(outcome) = self.clock_payload_validity(inst, block) {
+            return outcome;
+        }
         let config = &self.instances[inst];
         let base = block_exec(parent, block, &config.config(block.header().height).epoch);
         match &self.amx {

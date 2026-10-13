@@ -393,14 +393,14 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "canonical recipient claim with advances (TODO(ws41))",
+            "recipient claim with an invalid bundled advance",
             ed25519(RECIPIENT),
             vec![
                 self_registration(&recipient),
                 advance(false),
                 submit(ETH, ten, to_recipient.clone()),
             ],
-            Expected::Ordinary,
+            Expected::Rejected(self_claim),
         ),
         (
             "recipient settle that progresses",
@@ -889,7 +889,10 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         .try_block(&budget)
         .expect("original World admission");
     for apply in [false, true] {
-        let mut tx = block.transaction_without_telemetry(Default::default(), 0);
+        let mut tx = block.transaction_without_telemetry(
+            iroha_config::parameters::actual::LaneConfig::default(),
+            0,
+        );
         let parameters = tx.sccp_parameters.get_mut().as_mut().unwrap();
         parameters.enabled = false;
         parameters.max_exempt_transactions_per_block = 0;
@@ -903,7 +906,11 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         tx.sccp_inbound_messages
             .get_mut(&parent.settleable)
             .unwrap()
-            .status = SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 { height: 2, payout: 1 });
+            .status =
+            SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 {
+                height: 2,
+                payout: 1,
+            });
         let pause = super::pause_record::RetainedSccpFastPause::admit(
             &super::test_support::sample_fast_pause(1),
             &budget,
@@ -937,7 +944,8 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         .try_block_and_revert(&budget)
         .expect("original replacement admission");
     check(&BlockParent(&replacement));
-    let mut tx = replacement.transaction_without_telemetry(Default::default(), 0);
+    let mut tx = replacement
+        .transaction_without_telemetry(iroha_config::parameters::actual::LaneConfig::default(), 0);
     tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
     check(&TransactionParent(&tx));
     drop(tx);

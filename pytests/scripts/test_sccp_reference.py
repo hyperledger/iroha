@@ -1394,6 +1394,8 @@ def _fixture_scenarios() -> list[tuple[dict, dict]]:
     control = json.loads((FIXTURES / "control_v1.json").read_text())
     return [(transitions["certificates"], scenario) for scenario in transitions["scenarios"]] + [
         (control["certificates"], scenario) for scenario in control["destination_effects"]
+    ] + [
+        (control["ton_certificates"], scenario) for scenario in control["ton_destination_effects"]
     ]
 
 
@@ -1473,6 +1475,9 @@ def test_required_scenarios_are_present():
     assert len(names) == len(set(names)) and not set(REQUIRED_TRANSITION_ROWS) - set(names)
     effects = [s["name"] for s in control["destination_effects"]]
     assert len(effects) == len(set(effects)) and not set(REQUIRED_CONTROL_ROWS) - set(effects)
+    ton_effects = [s["name"] for s in control["ton_destination_effects"]]
+    assert len(ton_effects) == len(set(ton_effects))
+    assert {"ton_control_" + name for name in REQUIRED_CONTROL_ROWS} <= set(ton_effects)
 
 
 def test_fixture_rows_of_the_cheap_path_and_the_identity_signature():
@@ -1571,7 +1576,7 @@ def test_fixture_rows_of_checkpoint_use_after_rotation():
         assert not rows - seen, (name, sorted(rows - seen))
     # Every other checkpoint use of the two scenario files is a header of the current generation.
     control = json.loads((FIXTURES / "control_v1.json").read_text())
-    for scenario in transitions["scenarios"] + control["destination_effects"]:
+    for scenario in transitions["scenarios"] + control["destination_effects"] + control["ton_destination_effects"]:
         if scenario["name"] in required:
             continue
         cur = scenario["initial_state"]["committee"]
@@ -1938,7 +1943,7 @@ def test_every_fixture_outcome_is_a_named_error():
     doc = json.loads((FIXTURES / "committee_transitions_v1.json").read_text())
     known = {"ok", *doc["error_codes"]["shared"], *doc["error_codes"]["ton_only"]}
     control = json.loads((FIXTURES / "control_v1.json").read_text())
-    for scenario in doc["scenarios"] + control["destination_effects"]:
+    for scenario in doc["scenarios"] + control["destination_effects"] + control["ton_destination_effects"]:
         for step in scenario["steps"]:
             assert step["expected"].get("outcome", "ok") in known, (scenario["name"], step)
     assert doc["selectors"]["submitCheckpoints"]["selector"] == "0x07a5e706"
@@ -2007,7 +2012,7 @@ def test_flavor_is_bound_to_the_profile():
             Destination(deployment)
     transitions = json.loads((FIXTURES / "committee_transitions_v1.json").read_text())
     control = json.loads((FIXTURES / "control_v1.json").read_text())
-    rows = transitions["scenarios"] + control["destination_effects"]
+    rows = transitions["scenarios"] + control["destination_effects"] + control["ton_destination_effects"]
     assert any(row["flavor"] == "ton" for row in rows)
     for row in rows:
         deployment = row["deployment"]
@@ -2158,7 +2163,12 @@ def test_anchor_helpers_refuse_undefined_inputs():
 def _scenario_rows():
     transitions = json.loads((FIXTURES / "committee_transitions_v1.json").read_text())
     control = json.loads((FIXTURES / "control_v1.json").read_text())
-    return [(transitions, row) for row in transitions["scenarios"]] + [(control, row) for row in control["destination_effects"]]
+    ton_control = {**control, "certificates": control["ton_certificates"]}
+    return (
+        [(transitions, row) for row in transitions["scenarios"]]
+        + [(control, row) for row in control["destination_effects"]]
+        + [(ton_control, row) for row in control["ton_destination_effects"]]
+    )
 
 
 def test_certificate_events_name_a_certificate_the_step_submitted():

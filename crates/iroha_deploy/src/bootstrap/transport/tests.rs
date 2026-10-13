@@ -41,7 +41,7 @@ fn fixture() -> (InstalledNetworkProfile, Vec<u8>) {
         "fixture".into(),
         key.public_key().clone(),
         5,
-        "https://installed.example/checkpoint.nrt".into(),
+        "https://installed.example/checkpoint.nrt",
     )
     .unwrap();
     (profile, bytes)
@@ -103,7 +103,7 @@ fn downloaded_bytes_cannot_select_an_authority_label_or_floor_or_replace_install
             name.into(),
             key.clone(),
             floor,
-            profile.checkpoint_url().to_string(),
+            profile.checkpoint_url().as_str(),
         )
         .unwrap();
         let (reader, raw) = transport(bytes.clone());

@@ -109,7 +109,7 @@ mod dpn_domain_enrollment_tests {
             item: QueryItemKind::Permission,
             predicate_bytes: Vec::new(),
             selector_bytes: Vec::new(),
-            params: Default::default(),
+            params: iroha_data_model::query::parameters::QueryParams::default(),
         })
     }
     #[test]
@@ -169,7 +169,7 @@ mod dpn_domain_enrollment_tests {
             item: QueryItemKind::RoleId,
             predicate_bytes: Vec::new(),
             selector_bytes: Vec::new(),
-            params: Default::default(),
+            params: iroha_data_model::query::parameters::QueryParams::default(),
         });
         assert!(
             validate_builtin_native_query_permission(tx.world(), &f.registrar, &role_query, 50)

@@ -50,11 +50,7 @@ fn real_kaigi_release_builders_preserve_governed_keys_and_final_carriers() {
         } else {
             &participant
         };
-        let sequence = if action == KaigiAuthorizationActionV1::HostEnd {
-            0
-        } else {
-            1
-        };
+        let sequence = u64::from(action != KaigiAuthorizationActionV1::HostEnd);
         let generated =
             build_kaigi_release_authorization_v1(network, &record, subject, sequence, action);
         assert_eq!(generated.root, record.roster_root());

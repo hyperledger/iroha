@@ -70,8 +70,8 @@ use crate::{
 };
 
 /// Default ceiling on one response body (64 MiB). Each route has a smaller
-/// cap of its own ([`crate::limits`]); the ceiling bounds the routes without
-/// one, such as a full `eth_getBlockReceipts`.
+/// cap of its own ([`crate::limits`]); the ceiling also bounds incremental receipt
+/// decoding and routes without a smaller cap, such as `eth_getBlockReceipts`.
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 /// Most calls accepted in one JSON-RPC batch.
 pub const MAX_JSON_RPC_BATCH: usize = 100;
@@ -638,12 +638,10 @@ impl HttpTransport {
 
     /// Moves the next request to the endpoint after the one that answered
     /// last, for callers whose verification (`iroha_sccp`, or admission on
-    /// Taira) rejected that endpoint's data. The builders' `rotate_endpoints`
-    /// calls it, and the keeper does so after a build that failed on the data
-    /// it was served.
-    // TODO(WP9): the keeper does not observe on-chain rejections of its
-    // submitted advances, and the wallet and CLI do not rotate after a local
-    // verification failure yet.
+    /// Taira) rejected that endpoint's data. The keeper's original finite admission
+    /// and the wallet/CLI's bounded `builders::build_verified` retry use typed source
+    /// rejections. A local refusal, changed state/profile or generic commit rejection
+    /// does not establish that another endpoint should be selected.
     pub fn rotate_preferred(&self) {
         self.endpoints.rotate_preferred();
     }
@@ -762,6 +760,62 @@ impl HttpTransport {
         )
     }
 
+    /// Decode one receipt response incrementally under the caller's whole-response ceiling.
+    /// The receipt-specific decoder owns its finite scratch/output bounds. Route-wide Value
+    /// limits do not apply because no JSON tree is materialized.
+    pub(crate) fn receipt_stream<T>(
+        &self,
+        hash: &[u8; 32],
+        decode: impl Fn(&mut dyn io::Read, u64, &str, usize) -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let body = encode_json(&json_rpc_request(
+            id,
+            "eth_getTransactionReceipt",
+            vec![Value::from(crate::evm::format_data(hash))],
+        ))?;
+        let spec = json_rpc_spec(&body, None);
+        run_with_failover(
+            &self.endpoints,
+            &self.policy,
+            self.sleeper.as_ref(),
+            self.budget.deadline(),
+            |endpoint| {
+                let cap = self.config.max_response_bytes;
+                let (response, _, _, deadline) = self.send_open(endpoint, &spec)?;
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > cap as u64)
+                {
+                    return Err(RpcError::ResponseTooLarge {
+                        endpoint: endpoint.origin().to_owned(),
+                        limit: cap,
+                    });
+                }
+                let mut input = ReceiptRead {
+                    response,
+                    remaining: cap,
+                    deadline,
+                    refusal: None,
+                };
+                let result = decode(&mut input, id, endpoint.origin(), cap);
+                if let Some(refusal) = input.refusal {
+                    return Err(match refusal {
+                        BodyReadFailure::TooLarge => RpcError::ResponseTooLarge {
+                            endpoint: endpoint.origin().to_owned(),
+                            limit: cap,
+                        },
+                        BodyReadFailure::Deadline => RpcError::Timeout {
+                            endpoint: endpoint.origin().to_owned(),
+                        },
+                        BodyReadFailure::Io(error) => read_error(endpoint.origin(), error),
+                    });
+                }
+                result
+            },
+        )
+    }
+
     /// One JSON-RPC 2.0 batch of 1..=[`MAX_JSON_RPC_BATCH`] calls; returns one
     /// result per call, in call order.
     ///
@@ -843,6 +897,22 @@ impl HttpTransport {
         spec: &RequestSpec<'_>,
         cap: usize,
     ) -> Result<HttpResponse, RpcError> {
+        let (response, status, content_type, deadline) = self.send_open(endpoint, spec)?;
+        let origin = endpoint.origin();
+        let body = read_body(response, cap, origin, deadline)?;
+        Ok(HttpResponse {
+            endpoint: origin.to_owned(),
+            status,
+            content_type,
+            body,
+            cap,
+        })
+    }
+    fn send_open(
+        &self,
+        endpoint: &Endpoint,
+        spec: &RequestSpec<'_>,
+    ) -> Result<(Response, u16, Option<String>, Instant), RpcError> {
         let origin = endpoint.origin();
         let started = Instant::now();
         let deadline =
@@ -889,14 +959,46 @@ impl HttpTransport {
                 message: body.and_then(|body| error_message(content_type.as_deref(), &body)),
             });
         }
-        let body = read_body(response, cap, origin, deadline)?;
-        Ok(HttpResponse {
-            endpoint: origin.to_owned(),
-            status,
-            content_type,
-            body,
-            cap,
-        })
+        Ok((response, status, content_type, deadline))
+    }
+}
+
+struct ReceiptRead {
+    response: Response,
+    remaining: usize,
+    deadline: Instant,
+    refusal: Option<BodyReadFailure>,
+}
+impl io::Read for ReceiptRead {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if Instant::now() >= self.deadline {
+            self.refusal = Some(BodyReadFailure::Deadline);
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "receipt response deadline",
+            ));
+        }
+        let maximum = buffer.len().min(self.remaining.saturating_add(1));
+        match self.response.read(&mut buffer[..maximum]) {
+            Ok(count) if count <= self.remaining => {
+                self.remaining -= count;
+                Ok(count)
+            }
+            Ok(_) => {
+                self.refusal = Some(BodyReadFailure::TooLarge);
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "receipt response byte limit",
+                ))
+            }
+            Err(error) => {
+                self.refusal = Some(BodyReadFailure::Io(error));
+                Err(io::Error::other("receipt response read failed"))
+            }
+        }
     }
 }
 
@@ -945,7 +1047,7 @@ pub(crate) fn encode_json(value: &Value) -> Result<Vec<u8>, RpcError> {
 
 /// Decodes one JSON-RPC response object answering request `expected_id`
 /// (`None` for an object answering a whole batch, which must be an error).
-fn decode_json_rpc_response(
+pub(crate) fn decode_json_rpc_response(
     value: Value,
     expected_id: Option<u64>,
     endpoint: &str,

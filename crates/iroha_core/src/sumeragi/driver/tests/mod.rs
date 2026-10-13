@@ -131,7 +131,7 @@ pub(super) fn row_messages(body: &AvailableBody) -> Vec<iroha_sumeragi::message:
             instance: body.header().instance,
             height: body.header().height,
             block_hash: hash(body),
-            index: index as u32,
+            index: u32::try_from(index).expect("fixture value fits u32"),
             bytes: iroha_sumeragi::availability::RowBytes::from_untrusted(
                 encoded.codeword()[shape.chunk_range(index).unwrap()].to_vec(),
             )

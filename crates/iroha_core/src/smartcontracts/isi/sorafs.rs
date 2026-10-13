@@ -1753,6 +1753,14 @@ fn verify_council_envelope(
     approval_policy: &iroha_config::parameters::actual::SorafsPinPolicyConstraints,
     executing_block_height: u64,
 ) -> Result<[u8; 32], InstructionExecutionError> {
+    const ALLOWED_ENVELOPE_FIELDS: &[&str] = &[
+        "chunk_digest_sha3_256",
+        "manifest",
+        "manifest_blake3",
+        "profile",
+        "profile_aliases",
+        "signatures",
+    ];
     let manifest_label = manifest_hex(&record.digest);
     validate_council_approval_policy(approval_policy, executing_block_height, &manifest_label)?;
     if envelope.is_empty() || envelope.len() > MAX_COUNCIL_ENVELOPE_BYTES {
@@ -1771,14 +1779,6 @@ fn verify_council_envelope(
             "council envelope for manifest {manifest_label} must be a JSON object"
         ))
     })?;
-    const ALLOWED_ENVELOPE_FIELDS: &[&str] = &[
-        "chunk_digest_sha3_256",
-        "manifest",
-        "manifest_blake3",
-        "profile",
-        "profile_aliases",
-        "signatures",
-    ];
     if let Some(unknown) = obj
         .keys()
         .find(|field| !ALLOWED_ENVELOPE_FIELDS.contains(&field.as_str()))
@@ -1907,13 +1907,13 @@ fn verify_council_envelope(
     let mut previous_signer: Option<[u8; 32]> = None;
     let mut verified_signatures = 0_usize;
     for entry in signatures {
+        const ALLOWED_SIGNATURE_FIELDS: &[&str] =
+            &["algorithm", "signature", "signer", "signer_multihash"];
         let entry = entry.as_object().ok_or_else(|| {
             invalid_parameter(format!(
                 "council envelope signature entries for manifest {manifest_label} must be objects"
             ))
         })?;
-        const ALLOWED_SIGNATURE_FIELDS: &[&str] =
-            &["algorithm", "signature", "signer", "signer_multihash"];
         if let Some(unknown) = entry
             .keys()
             .find(|field| !ALLOWED_SIGNATURE_FIELDS.contains(&field.as_str()))
@@ -2177,7 +2177,7 @@ const AUTO_REPLICATION_ORDER_AVAILABILITY_PERCENT_MILLI: u32 = 99_500;
 const AUTO_REPLICATION_ORDER_POR_SUCCESS_PERCENT_MILLI: u32 = 98_000;
 fn automatic_replication_slice_gib(content_length: u64) -> Result<u64, InstructionExecutionError> {
     let whole_gib = content_length / BYTES_PER_GIB;
-    let partial_gib = u64::from(content_length % BYTES_PER_GIB != 0);
+    let partial_gib = u64::from(!content_length.is_multiple_of(BYTES_PER_GIB));
     whole_gib
         .checked_add(partial_gib)
         .map(|slice_gib| slice_gib.max(1))
@@ -3382,7 +3382,7 @@ impl Execute for iroha_data_model::isi::sorafs::RegisterCapacityDeclaration {
                 credit_record.bonded
             )));
         }
-        if &credit_record.bonded < &credit_record.required_bond {
+        if credit_record.bonded < credit_record.required_bond {
             return Err(invalid_parameter(format!(
                 "provider {provider_hex} unslashed custody-backed bond {} is below its governed requirement {}",
                 credit_record.bonded, credit_record.required_bond
@@ -5506,7 +5506,6 @@ fn validate_repair_task_record(
     }
     let report_submitted_at_unix = report.submitted_at_unix;
     drop(report);
-    drop(report_current);
     let mut last_revision = 1_u64;
     for (index, receipt) in task.action_receipts.iter().enumerate() {
         let expected = last_revision.checked_add(1).ok_or_else(|| {
@@ -5953,8 +5952,8 @@ fn validate_repair_event_task_binding_for_current(
         || event.provider_id.as_bytes() != &task.provider_id
         || event.manifest_digest.as_bytes() != &task.manifest_digest
         || event.revision > task.revision
-        || event.occurred_at_unix_ms < task.submitted_at_unix_ms
-        || event.occurred_at_unix_ms > task.updated_at_unix_ms
+        || !(task.submitted_at_unix_ms..=task.updated_at_unix_ms)
+            .contains(&event.occurred_at_unix_ms)
     {
         return Err(corrupt_repair_state(format!(
             "repair event sequence {} disagrees with its authoritative task",
@@ -6074,7 +6073,7 @@ fn validate_repair_event_current_transition(
     task: &RepairLedgerTaskV1,
     event: &SorafsRepairLedgerEvent,
 ) -> Result<(), InstructionExecutionError> {
-    if task.revision != event.revision || task.updated_at_unix_ms != event.occurred_at_unix_ms {
+    if (task.revision, task.updated_at_unix_ms) != (event.revision, event.occurred_at_unix_ms) {
         return Err(corrupt_repair_state(
             "repair event does not describe the latest accepted task transition",
         ));
@@ -11519,12 +11518,12 @@ mod sorafs_tests {
             .expect("pending manifest remains stored");
         assert!(matches!(stored.status, PinStatus::Pending));
         assert!(stored.council_envelope_digest.is_none());
-        let stale = stx
+        let outdated = stx
             .world
             .manifest_aliases
             .get(&alias_id)
             .expect("stale alias record remains");
-        assert!(stale.targets_manifest(&second_digest()));
+        assert!(outdated.targets_manifest(&second_digest()));
     }
     #[test]
     fn approve_pending_manifest_rejects_digest_mismatch_with_envelope_without_side_effects() {
@@ -14645,7 +14644,7 @@ mod sorafs_tests {
             0,
             10_000,
             10_000,
-            BYTES_PER_GIB as u64,
+            BYTES_PER_GIB,
             0,
             0,
             0,
@@ -14665,7 +14664,7 @@ mod sorafs_tests {
             .storage_charge(StorageClass::Hot, 1, telemetry.window_end_epoch)
             .expect("expected storage fee");
         let expected_egress_fee = pricing
-            .egress_charge_bytes(StorageClass::Hot, BYTES_PER_GIB as u64)
+            .egress_charge_bytes(StorageClass::Hot, BYTES_PER_GIB)
             .expect("expected egress fee");
         let expected_settlement = pricing
             .expected_settlement_storage_charge(StorageClass::Hot, 1)
@@ -15170,7 +15169,7 @@ mod sorafs_tests {
     #[test]
     fn stored_capacity_declaration_rejects_committed_capacity_mismatch() {
         let (_, mut record) = capacity_record_with_owner(&alice());
-        record.committed_capacity_gib = record.committed_capacity_gib + 1;
+        record.committed_capacity_gib += 1;
         let error = validate_stored_capacity_declaration(&record, "corrupt summary")
             .expect_err("stored projection must match canonical payload");
         assert!(
@@ -15610,17 +15609,17 @@ mod sorafs_tests {
         .expect("exclusive cursor exhausts the one-record page");
         assert!(exhausted.manifests.is_empty());
         assert!(!exhausted.has_more);
-        let stale = PinManifestFinalizedCursorV1 {
+        let outdated = PinManifestFinalizedCursorV1 {
             height: 1,
             block_hash: [0xED; 32],
         };
         assert_eq!(
-            FindSorafsPinManifest::new(digest, Some(stale)).execute(&state.view()),
+            FindSorafsPinManifest::new(digest, Some(outdated)).execute(&state.view()),
             Err(QueryExecutionFail::Expired)
         );
         assert_eq!(
             FindSorafsPinManifests::new(
-                Some(stale),
+                Some(outdated),
                 None,
                 None,
                 1,
@@ -15862,7 +15861,7 @@ mod sorafs_tests {
                 norito::encode_canonical(&decoded).expect("re-encode all fields"),
                 *bytes
             );
-            let mut substituted = bytes.to_vec();
+            let mut substituted = bytes.clone();
             substituted[6..22]
                 .copy_from_slice(&norito::schema::identity::frame_hash::<iroha_crypto::Hash>());
             assert!(matches!(
@@ -15871,7 +15870,7 @@ mod sorafs_tests {
             ));
             assert!(decode(&substituted).is_err());
             assert!(decode(&bytes[..bytes.len() - 1]).is_err());
-            let mut trailing = bytes.to_vec();
+            let mut trailing = bytes.clone();
             trailing.push(0);
             assert!(decode(&trailing).is_err());
         }

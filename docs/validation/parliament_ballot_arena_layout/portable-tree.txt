@@ -1,0 +1,336 @@
+
+/tmp/parliament-resource-contract/resource-portable:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+0000000100020918 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E>:
+100020918:     	sub	sp, sp, #0xc0
+10002091c:     	stp	x28, x27, [sp, #0x60]
+100020920:     	stp	x26, x25, [sp, #0x70]
+100020924:     	stp	x24, x23, [sp, #0x80]
+100020928:     	stp	x22, x21, [sp, #0x90]
+10002092c:     	stp	x20, x19, [sp, #0xa0]
+100020930:     	stp	x29, x30, [sp, #0xb0]
+100020934:     	add	x29, sp, #0xb0
+100020938:     	mov	x19, x0
+10002093c:     	ldrb	w10, [x1, #0x40]
+100020940:     	lsl	x27, x10, #6
+100020944:     	add	x8, x27, #0x80
+100020948:     	ldr	w9, [x2, #0x120]
+10002094c:     	cmp	x8, x9
+100020950:     	b.ne	0x1000209f8 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0xe0>
+100020954:     	mov	x20, x2
+100020958:     	mov	x21, x1
+10002095c:     	ldr	x24, [x1, #0x10]
+100020960:     	ldr	w8, [x2, #0x124]
+100020964:     	cmp	x24, x8
+100020968:     	b.ne	0x100020c3c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x324>
+10002096c:     	ldr	x23, [x21, #0x18]
+100020970:     	ldr	w8, [x20, #0x128]
+100020974:     	cmp	x23, x8
+100020978:     	b.ne	0x100020c5c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x344>
+10002097c:     	ldr	x11, [x21, #0x38]
+100020980:     	ldr	w8, [x20, #0x12c]
+100020984:     	cmp	x11, x8
+100020988:     	b.ne	0x100020c7c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x364>
+10002098c:     	stp	x23, x10, [sp, #0x20]
+100020990:     	ldr	x8, [x21, #0x30]
+100020994:     	stp	x8, x11, [sp, #0x10]
+100020998:     	str	x27, [sp, #0x8]
+10002099c:     	cbz	x24, 0x100020cc4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x3ac>
+1000209a0:     	add	x8, x24, x24, lsl #1
+1000209a4:     	lsl	x22, x8, #3
+1000209a8:     	bl	0x100006790 <__RNvCsdBezzDwma51_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+1000209ac:     	mov	x0, x22
+1000209b0:     	mov	w1, #0x8                ; =8
+1000209b4:     	bl	0x100002244 <__RNvCsdBezzDwma51_7___rustc12___rust_alloc>
+1000209b8:     	cbz	x0, 0x100020df8 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x4e0>
+1000209bc:     	mov	x26, #0x0               ; =0
+1000209c0:     	mov	x22, #0x0               ; =0
+1000209c4:     	ldp	x25, x10, [x20, #0x8]
+1000209c8:     	sub	x8, x27, x23
+1000209cc:     	add	x8, x8, #0x80
+1000209d0:     	udiv	x9, x8, x24
+1000209d4:     	stp	x9, x10, [sp, #0x38]
+1000209d8:     	msub	x8, x9, x24, x8
+1000209dc:     	str	x8, [sp, #0x30]
+1000209e0:     	add	x8, x25, #0x20
+1000209e4:     	str	x8, [sp]
+1000209e8:     	stp	x24, x0, [sp, #0x48]
+1000209ec:     	str	xzr, [sp, #0x58]
+1000209f0:     	mov	w27, #0xf               ; =15
+1000209f4:     	b	0x100020a44 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x12c>
+1000209f8:     	mov	w10, #0xe               ; =14
+1000209fc:     	str	w10, [x19, #0x8]
+100020a00:     	adrp	x10, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020a04:     	add	x10, x10, #0xa52
+100020a08:     	mov	w11, #0x6               ; =6
+100020a0c:     	stp	x10, x11, [x19, #0x10]
+100020a10:     	stp	x8, x9, [x19, #0x20]
+100020a14:     	b	0x100020c9c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x384>
+100020a18:     	ldr	x8, [sp, #0x50]
+100020a1c:     	mov	w9, #0x18               ; =24
+100020a20:     	madd	x8, x26, x9, x8
+100020a24:     	add	x26, x26, #0x1
+100020a28:     	stp	x28, x22, [x8]
+100020a2c:     	str	w24, [x8, #0x10]
+100020a30:     	str	x26, [sp, #0x58]
+100020a34:     	add	x22, x28, x22
+100020a38:     	mov	x24, x23
+100020a3c:     	cmp	x26, x23
+100020a40:     	b.eq	0x100020cd0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x3b8>
+100020a44:     	ldp	x9, x8, [sp, #0x30]
+100020a48:     	cmp	x26, x9
+100020a4c:     	cinc	x28, x8, lo
+100020a50:     	ldr	x9, [sp, #0x40]
+100020a54:     	cmp	x26, x9
+100020a58:     	b.hs	0x100020a60 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x148>
+100020a5c:     	ldrh	w8, [x25, x26, lsl #1]
+100020a60:     	and	w8, w8, #0xffff
+100020a64:     	clz	w8, w8
+100020a68:     	sub	w8, w8, #0x10
+100020a6c:     	subs	w8, w27, w8, uxth
+100020a70:     	csel	w8, wzr, w8, lo
+100020a74:     	cmp	x26, x9
+100020a78:     	mov	w10, #-0x1              ; =-1
+100020a7c:     	csel	x8, x8, x10, lo
+100020a80:     	cmp	x28, x8
+100020a84:     	b.ne	0x100020d7c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x464>
+100020a88:     	cmp	x26, x9
+100020a8c:     	b.eq	0x100020d8c <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x474>
+100020a90:     	cbz	x26, 0x100020aa8 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x190>
+100020a94:     	cmp	x26, #0x4
+100020a98:     	b.hs	0x100020ab0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x198>
+100020a9c:     	mov	x8, #0x0                ; =0
+100020aa0:     	mov	w9, #0x0                ; =0
+100020aa4:     	b	0x100020bec <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2d4>
+100020aa8:     	mov	x8, #0x0                ; =0
+100020aac:     	b	0x100020c14 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2fc>
+100020ab0:     	cmp	x26, #0x20
+100020ab4:     	b.hs	0x100020ac4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x1ac>
+100020ab8:     	mov	x8, #0x0                ; =0
+100020abc:     	mov	w9, #0x0                ; =0
+100020ac0:     	b	0x100020ba8 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x290>
+100020ac4:     	movi.2d	v0, #0000000000000000
+100020ac8:     	and	x9, x26, #0xffffffffffffffe0
+100020acc:     	movi.2d	v1, #0000000000000000
+100020ad0:     	and	x8, x26, #0xffffffffffffffe0
+100020ad4:     	ldr	x10, [sp]
+100020ad8:     	movi.2d	v3, #0000000000000000
+100020adc:     	movi.2d	v4, #0000000000000000
+100020ae0:     	movi.2d	v2, #0000000000000000
+100020ae4:     	movi.2d	v7, #0000000000000000
+100020ae8:     	movi.2d	v5, #0000000000000000
+100020aec:     	movi.2d	v6, #0000000000000000
+100020af0:     	movi.4s	v24, #0xf
+100020af4:     	ldp	q16, q17, [x10, #-0x20]
+100020af8:     	clz.8h	v16, v16
+100020afc:     	ldp	q18, q19, [x10], #0x40
+100020b00:     	clz.8h	v17, v17
+100020b04:     	clz.8h	v18, v18
+100020b08:     	clz.8h	v19, v19
+100020b0c:     	ushll2.4s	v20, v16, #0x0
+100020b10:     	ushll.4s	v16, v16, #0x0
+100020b14:     	ushll2.4s	v21, v17, #0x0
+100020b18:     	ushll.4s	v17, v17, #0x0
+100020b1c:     	ushll2.4s	v22, v18, #0x0
+100020b20:     	ushll.4s	v18, v18, #0x0
+100020b24:     	ushll2.4s	v23, v19, #0x0
+100020b28:     	ushll.4s	v19, v19, #0x0
+100020b2c:     	uqsub.4s	v16, v24, v16
+100020b30:     	uqsub.4s	v20, v24, v20
+100020b34:     	uqsub.4s	v17, v24, v17
+100020b38:     	uqsub.4s	v21, v24, v21
+100020b3c:     	uqsub.4s	v18, v24, v18
+100020b40:     	uqsub.4s	v22, v24, v22
+100020b44:     	uqsub.4s	v19, v24, v19
+100020b48:     	uqsub.4s	v23, v24, v23
+100020b4c:     	add.4s	v1, v20, v1
+100020b50:     	add.4s	v0, v16, v0
+100020b54:     	add.4s	v4, v21, v4
+100020b58:     	add.4s	v3, v17, v3
+100020b5c:     	add.4s	v7, v22, v7
+100020b60:     	add.4s	v2, v18, v2
+100020b64:     	add.4s	v6, v23, v6
+100020b68:     	add.4s	v5, v19, v5
+100020b6c:     	subs	x9, x9, #0x20
+100020b70:     	b.ne	0x100020af4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x1dc>
+100020b74:     	add.4s	v0, v3, v0
+100020b78:     	add.4s	v1, v4, v1
+100020b7c:     	add.4s	v1, v7, v1
+100020b80:     	add.4s	v0, v2, v0
+100020b84:     	add.4s	v0, v5, v0
+100020b88:     	add.4s	v1, v6, v1
+100020b8c:     	add.4s	v0, v0, v1
+100020b90:     	addv.4s	s0, v0
+100020b94:     	fmov	w9, s0
+100020b98:     	cmp	x26, x8
+100020b9c:     	b.eq	0x100020c10 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2f8>
+100020ba0:     	tst	x26, #0x1c
+100020ba4:     	b.eq	0x100020bec <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2d4>
+100020ba8:     	and	x10, x26, #0xfffffffffffffffc
+100020bac:     	sub	x10, x8, x10
+100020bb0:     	add	x11, x25, x8, lsl #1
+100020bb4:     	and	x8, x26, #0xfffffffffffffffc
+100020bb8:     	movi.2d	v0, #0000000000000000
+100020bbc:     	mov.s	v0[0], w9
+100020bc0:     	movi.4s	v2, #0xf
+100020bc4:     	ldr	d1, [x11], #0x8
+100020bc8:     	clz.4h	v1, v1
+100020bcc:     	ushll.4s	v1, v1, #0x0
+100020bd0:     	uqsub.4s	v1, v2, v1
+100020bd4:     	add.4s	v0, v1, v0
+100020bd8:     	adds	x10, x10, #0x4
+100020bdc:     	b.ne	0x100020bc4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2ac>
+100020be0:     	addv.4s	s0, v0
+100020be4:     	fmov	w9, s0
+100020be8:     	b	0x100020c08 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2f0>
+100020bec:     	ldrh	w10, [x25, x8, lsl #1]
+100020bf0:     	clz	w10, w10
+100020bf4:     	sub	w10, w10, #0x10
+100020bf8:     	subs	w10, w27, w10, uxth
+100020bfc:     	csel	w10, wzr, w10, lo
+100020c00:     	add	w9, w10, w9
+100020c04:     	add	x8, x8, #0x1
+100020c08:     	cmp	x26, x8
+100020c0c:     	b.ne	0x100020bec <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x2d4>
+100020c10:     	mov	w8, w9
+100020c14:     	cmp	x22, x8
+100020c18:     	b.ne	0x100020db0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x498>
+100020c1c:     	mov	x23, x24
+100020c20:     	ldrh	w24, [x25, x26, lsl #1]
+100020c24:     	ldr	x8, [sp, #0x48]
+100020c28:     	cmp	x26, x8
+100020c2c:     	b.ne	0x100020a18 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x100>
+100020c30:     	add	x0, sp, #0x48
+100020c34:     	bl	0x100056800 <__ZN5alloc7raw_vec19RawVec$LT$T$C$A$GT$8grow_one17hfedea3772aa97d6cE>
+100020c38:     	b	0x100020a18 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x100>
+100020c3c:     	mov	w9, #0xe                ; =14
+100020c40:     	str	w9, [x19, #0x8]
+100020c44:     	adrp	x9, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020c48:     	add	x9, x9, #0xa58
+100020c4c:     	mov	w10, #0x3               ; =3
+100020c50:     	stp	x9, x10, [x19, #0x10]
+100020c54:     	str	x24, [x19, #0x20]
+100020c58:     	b	0x100020c98 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x380>
+100020c5c:     	mov	w9, #0xe                ; =14
+100020c60:     	str	w9, [x19, #0x8]
+100020c64:     	adrp	x9, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020c68:     	add	x9, x9, #0xa5b
+100020c6c:     	mov	w10, #0x7               ; =7
+100020c70:     	stp	x9, x10, [x19, #0x10]
+100020c74:     	str	x23, [x19, #0x20]
+100020c78:     	b	0x100020c98 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x380>
+100020c7c:     	mov	w9, #0xe                ; =14
+100020c80:     	str	w9, [x19, #0x8]
+100020c84:     	adrp	x9, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020c88:     	add	x9, x9, #0xa62
+100020c8c:     	mov	w10, #0x6               ; =6
+100020c90:     	stp	x9, x10, [x19, #0x10]
+100020c94:     	str	x11, [x19, #0x20]
+100020c98:     	str	x8, [x19, #0x28]
+100020c9c:     	mov	x8, #-0x8000000000000000 ; =-9223372036854775808
+100020ca0:     	str	x8, [x19]
+100020ca4:     	ldp	x29, x30, [sp, #0xb0]
+100020ca8:     	ldp	x20, x19, [sp, #0xa0]
+100020cac:     	ldp	x22, x21, [sp, #0x90]
+100020cb0:     	ldp	x24, x23, [sp, #0x80]
+100020cb4:     	ldp	x26, x25, [sp, #0x70]
+100020cb8:     	ldp	x28, x27, [sp, #0x60]
+100020cbc:     	add	sp, sp, #0xc0
+100020cc0:     	ret
+100020cc4:     	mov	w8, #0x8                ; =8
+100020cc8:     	stp	xzr, x8, [sp, #0x48]
+100020ccc:     	str	xzr, [sp, #0x58]
+100020cd0:     	cbz	x24, 0x100020e04 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x4ec>
+100020cd4:     	ldr	x8, [x21]
+100020cd8:     	ldp	x0, x17, [sp, #0x20]
+100020cdc:     	ldp	x9, x1, [sp, #0x8]
+100020ce0:     	sub	x9, x9, x0
+100020ce4:     	add	x9, x9, #0x80
+100020ce8:     	udiv	x10, x9, x24
+100020cec:     	ldur	q0, [sp, #0x48]
+100020cf0:     	str	q0, [x19]
+100020cf4:     	ldr	x11, [sp, #0x58]
+100020cf8:     	ldur	q0, [x21, #0x20]
+100020cfc:     	stur	q0, [x19, #0x28]
+100020d00:     	msub	x12, x10, x24, x9
+100020d04:     	ldur	w13, [x21, #0x41]
+100020d08:     	stur	w13, [x19, #0x49]
+100020d0c:     	cmp	x12, #0x0
+100020d10:     	cinc	x13, x10, ne
+100020d14:     	ldur	w14, [x21, #0x44]
+100020d18:     	str	w14, [x19, #0x4c]
+100020d1c:     	add	x14, x1, #0x3
+100020d20:     	lsl	x15, x17, #3
+100020d24:     	add	x15, x15, #0x10
+100020d28:     	lsr	x16, x8, #3
+100020d2c:     	stp	x11, x24, [x19, #0x10]
+100020d30:     	str	x0, [x19, #0x20]
+100020d34:     	str	x1, [x19, #0x38]
+100020d38:     	ldr	x1, [sp, #0x18]
+100020d3c:     	str	x1, [x19, #0x40]
+100020d40:     	strb	w17, [x19, #0x48]
+100020d44:     	stp	x20, x15, [x19, #0x50]
+100020d48:     	stp	x8, x16, [x19, #0x60]
+100020d4c:     	madd	x8, x13, x14, x8
+100020d50:     	lsr	x11, x8, #3
+100020d54:     	tst	x8, #0x7
+100020d58:     	cinc	x11, x11, ne
+100020d5c:     	stp	x8, x11, [x19, #0x70]
+100020d60:     	stp	x9, x0, [x19, #0x80]
+100020d64:     	cmp	x12, #0x0
+100020d68:     	stp	x14, x1, [x19, #0x90]
+100020d6c:     	cinc	x8, x10, ne
+100020d70:     	str	x8, [x19, #0xa0]
+100020d74:     	strb	w17, [x19, #0xa8]
+100020d78:     	b	0x100020ca4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x38c>
+100020d7c:     	mov	w10, #0x13              ; =19
+100020d80:     	adrp	x11, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020d84:     	add	x11, x11, #0xa68
+100020d88:     	b	0x100020dc0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x4a8>
+100020d8c:     	mov	w8, #-0x1               ; =-1
+100020d90:     	cmp	x22, x8
+100020d94:     	b.ne	0x100020db0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x498>
+100020d98:     	mov	w10, #0xb               ; =11
+100020d9c:     	mov	x28, x24
+100020da0:     	mov	x8, x9
+100020da4:     	adrp	x11, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020da8:     	add	x11, x11, #0xa89
+100020dac:     	b	0x100020dc0 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x4a8>
+100020db0:     	adrp	x11, 0x1000bb000 <__ZN14iroha_zkp_vole3crt9generated17faest_256s_tables6W_TREE17h86ad1e09d0e51974E+0x1638>
+100020db4:     	add	x11, x11, #0xa7b
+100020db8:     	mov	w10, #0xe               ; =14
+100020dbc:     	mov	x28, x22
+100020dc0:     	mov	w9, #0xe                ; =14
+100020dc4:     	str	w9, [x19, #0x8]
+100020dc8:     	stp	x11, x10, [x19, #0x10]
+100020dcc:     	stp	x28, x8, [x19, #0x20]
+100020dd0:     	mov	x8, #-0x8000000000000000 ; =-9223372036854775808
+100020dd4:     	str	x8, [x19]
+100020dd8:     	ldr	x8, [sp, #0x48]
+100020ddc:     	cbz	x8, 0x100020ca4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x38c>
+100020de0:     	ldr	x0, [sp, #0x50]
+100020de4:     	add	x8, x8, x8, lsl #1
+100020de8:     	lsl	x1, x8, #3
+100020dec:     	mov	w2, #0x8                ; =8
+100020df0:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100020df4:     	b	0x100020ca4 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x38c>
+100020df8:     	mov	w0, #0x8                ; =8
+100020dfc:     	mov	x1, x22
+100020e00:     	bl	0x10005aa48 <__ZN5alloc7raw_vec12handle_error17h2d2c5c9552d6042aE>
+100020e04:     	adrp	x0, 0x1000d1000 <__ZN14iroha_zkp_vole3crt9generated10FAEST_256F17h8b1d7f0ffdc619e4E+0x78>
+100020e08:     	add	x0, x0, #0x490
+100020e0c:     	bl	0x10005add4 <__ZN4core9panicking11panic_const23panic_const_rem_by_zero17h051a687871b74827E>
+100020e10:     	brk	#0x1
+100020e14:     	b	0x100020e18 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x500>
+100020e18:     	mov	x19, x0
+100020e1c:     	ldr	x8, [sp, #0x48]
+100020e20:     	cbz	x8, 0x100020e38 <__ZN14iroha_zkp_vole4vole6Layout3new17h4de7a274c18ef259E+0x520>
+100020e24:     	ldr	x0, [sp, #0x50]
+100020e28:     	add	x8, x8, x8, lsl #1
+100020e2c:     	lsl	x1, x8, #3
+100020e30:     	mov	w2, #0x8                ; =8
+100020e34:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100020e38:     	mov	x0, x19
+100020e3c:     	bl	0x10005b094 <dyld_stub_binder+0x10005b094>

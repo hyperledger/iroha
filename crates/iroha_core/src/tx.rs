@@ -2875,22 +2875,6 @@ impl AcceptedTransaction<'static> {
         Ok(accepted.with_validation_time(now))
     }
 }
-impl<'tx> From<AcceptedTransaction<'tx>> for SignedTransaction {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        match source.entrypoint.into_owned() {
-            TransactionEntrypoint::External(entrypoint) => entrypoint,
-            TransactionEntrypoint::SealedReveal(entrypoint) => entrypoint.signed_transaction,
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("sealed commitment entrypoints are not signed transactions")
-            }
-        }
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for (AccountId, Executable) {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        SignedTransaction::from(source).into()
-    }
-}
 impl AsRef<SignedTransaction> for AcceptedTransaction<'_> {
     fn as_ref(&self) -> &SignedTransaction {
         self.external()
@@ -3250,7 +3234,11 @@ impl StateBlock<'_> {
             _ => {}
         }
         debug!(tx=%tx.hash(), "Validating transaction");
-        Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;
+        Self::validate_transaction_with_runtime_executor(
+            tx.as_ref().clone(),
+            state_transaction,
+            ivm_cache,
+        )?;
         let trigger_sequence = if allow_unregistered_authority {
             debug!(
                 authority = %authority,
@@ -3660,11 +3648,10 @@ impl StateBlock<'_> {
     ///
     /// Note: transaction instructions will be executed on the given `state_transaction`.
     fn validate_transaction_with_runtime_executor(
-        tx: AcceptedTransaction<'_>,
+        tx: SignedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
         ivm_cache: &mut IvmCache,
     ) -> Result<(), ExecutionAttemptError<TransactionRejectionReason>> {
-        let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
         state_transaction
             .world
@@ -6563,11 +6550,15 @@ pub mod tests {
         let authority_account = new_account_in_domain(&authority, &domain_id).build(&authority);
         let validator_a_account =
             new_account_in_domain(&validator_a, &domain_id).build(&validator_a);
-        let validator_b_account =
+        let second_validator_registration =
             new_account_in_domain(&validator_b, &domain_id).build(&validator_b);
         let world = World::with(
             [domain],
-            [authority_account, validator_a_account, validator_b_account],
+            [
+                authority_account,
+                validator_a_account,
+                second_validator_registration,
+            ],
             [],
         );
         let kura = Kura::blank_kura_for_testing();
@@ -9384,14 +9375,16 @@ pub mod tests {
         let chain: ChainId = "chain".parse().unwrap();
         let state = State::new_with_chain(world, kura, query_handle, chain.clone());
         // Commit the pipeline gas allowlist in the original signed genesis.
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.accepted_assets = vec![
-            AssetDefinitionId::derive_from_components(
-                DomainId::try_new("domain", "universal").unwrap(),
-                "xor".parse().unwrap(),
-            )
-            .canonical_address(),
-        ];
+        let gas = iroha_config::parameters::actual::Gas {
+            accepted_assets: vec![
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("domain", "universal").unwrap(),
+                    "xor".parse().unwrap(),
+                )
+                .canonical_address(),
+            ],
+            ..Default::default()
+        };
         let chain = crate::block::tests::component_chain_with_genesis_parameters(
             state,
             crate::pipeline_gas_policy::parameters_for_testing(gas).into(),
@@ -9777,12 +9770,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_metadata_conflict_rejected_even_if_state_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a correct manifest for the program.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -9892,9 +9885,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_abi_and_code_hash_match() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
         let mut block = fixture.state.block(header);
@@ -9951,8 +9944,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_hashes() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         // Compute real code hash; then corrupt expected
@@ -10000,8 +9993,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_code_hash() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         let mut wrong_bytes = [0u8; 32];
@@ -10049,12 +10042,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_state_conflict_rejected_even_if_metadata_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a manifest that has the right code_hash but wrong abi_hash.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10299,9 +10292,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_lookup_in_state() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1: insert a manifest into WSV directly via state tx
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10520,10 +10513,10 @@ pub mod tests {
     fn ivm_bytecode_at_limit_is_accepted_at_admission() {
         use iroha_data_model::transaction::{Executable, TransactionBuilder};
         use std::time::Duration;
+        const BYTECODE_LIMIT: u64 = 1021;
         let (authority_id, kp) = gen_account_in("wonderland");
         // Use an exact bytecode-size limit that can be represented by the 17-byte
         // IVM metadata header plus a valid literal-prefix alignment.
-        const BYTECODE_LIMIT: u64 = 1021;
         let default_limits = TransactionParameters::default();
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10534,8 +10527,14 @@ pub mod tests {
             default_limits.max_metadata_depth(),
         );
         // Create a blob exactly at the allowed bytecode size.
-        let at_limit_blob = minimal_ivm_program_with_literal_padding(1, BYTECODE_LIMIT as usize);
-        assert_eq!(at_limit_blob.len(), BYTECODE_LIMIT as usize);
+        let at_limit_blob = minimal_ivm_program_with_literal_padding(
+            1,
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize"),
+        );
+        assert_eq!(
+            at_limit_blob.len(),
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize")
+        );
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),

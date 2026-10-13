@@ -11,7 +11,7 @@ use std::{
 const REPLAY_KEY_DIGEST_DOMAIN_V1: &[u8] = b"iroha:torii:replay-cache:v1\0";
 /// Reason a nonce could not be admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InsertError {
+pub enum InsertError {
     /// The nonce is already live in the cache.
     Replay,
     /// All configured slots contain live nonces, or slot storage is unavailable.
@@ -107,16 +107,15 @@ impl Inner {
         // A wider window could otherwise make a nonce whose evidence was
         // already pruned admissible again. Reject all unknown nonces for the
         // newly exposed interval; live keys still take the Replay path.
-        let extension = ttl - self.ttl;
+        let extension = ttl.checked_sub(self.ttl).unwrap();
         let base = match self.admission_gate {
             AdmissionGate::QuarantinedUntil(until) if until > now => until,
             AdmissionGate::Closed => return,
             AdmissionGate::Open | AdmissionGate::QuarantinedUntil(_) => now,
         };
-        self.admission_gate = match base.checked_add(extension) {
-            Some(until) => AdmissionGate::QuarantinedUntil(until),
-            None => AdmissionGate::Closed,
-        };
+        self.admission_gate = base
+            .checked_add(extension)
+            .map_or(AdmissionGate::Closed, AdmissionGate::QuarantinedUntil);
     }
 
     fn admits_new_nonce_at(&mut self, now: Instant) -> bool {
@@ -132,7 +131,7 @@ impl Inner {
 }
 /// Bounded replay cache that never evicts an unexpired nonce.
 #[derive(Debug)]
-pub(crate) struct ReplayCache {
+pub struct ReplayCache {
     inner: Mutex<Inner>,
 }
 impl ReplayCache {

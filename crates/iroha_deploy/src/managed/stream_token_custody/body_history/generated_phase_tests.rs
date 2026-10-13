@@ -149,18 +149,20 @@ impl Drop for ReplacedDirectory {
 fn limits(allocation: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64)
 }
+type GeneratedPhaseObservation = (
+    Result<(History, u8)>,
+    Vec<Point>,
+    (usize, usize, usize),
+    u64,
+);
+
 fn run(
     owned: History,
     authorization: &dyn DispatchAuthorization,
     inspector: &NativeClosureInspector<'_>,
     shared: bool,
     hook: Option<Hook>,
-) -> (
-    Result<(History, u8)>,
-    Vec<Point>,
-    (usize, usize, usize),
-    u64,
-) {
+) -> GeneratedPhaseObservation {
     let timing = finish_timing::Capture::start();
     let ((result, work), points) = observe(hook, || {
         History::test_validation_work(usize::MAX, || {
@@ -192,7 +194,7 @@ fn native_generated_empty_prefix_shares_reads_and_preserves_inherited_decoders()
     assert_eq!(head.reserved_attempt_count(), 0);
     let account = fixture.owner.wallet().unwrap();
     let inspector = NativeClosureInspector::new(
-        history.original().unwrap().unwrap(),
+        history.original().unwrap(),
         &account,
         fixture.options.deadline,
     );
@@ -294,7 +296,7 @@ fn native_generated_empty_prefix_closes_source_errors_before_any_effect() {
     let head = history.current_history().unwrap();
     let account = fixture.owner.wallet().unwrap();
     let inspector = NativeClosureInspector::new(
-        history.original().unwrap().unwrap(),
+        history.original().unwrap(),
         &account,
         fixture.options.deadline,
     );
@@ -476,13 +478,15 @@ fn native_generated_reread_discovery_closes_before_first_wallet_callback() {
                     let callbacks = Cell::new(0);
                     let (result, points) = observe(Some(hook), || {
                         attempts::generated_native(
-                            directory,
-                            original.dispatch_purpose().unwrap(),
-                            original.digest().unwrap(),
-                            scope,
-                            authorization,
-                            deadline,
-                            Some(body_expiry),
+                            crate::managed::native_operation::attempts::GeneratedSelection {
+                                operation: directory,
+                                purpose: original.dispatch_purpose().unwrap(),
+                                semantic: original.digest().unwrap(),
+                                scope,
+                                authorization,
+                                deadline,
+                                body_expiry: Some(body_expiry),
+                            },
                             &inspector,
                             |_| {
                                 assert!(
@@ -506,9 +510,8 @@ fn native_generated_reread_discovery_closes_before_first_wallet_callback() {
                             },
                         )
                     });
-                    let error = result
-                        .err()
-                        .expect("callback or persistent source refusal must escape");
+                    let error =
+                        result.expect_err("callback or persistent source refusal must escape");
                     assert_eq!(callbacks.get(), usize::from(!corrupt_at_close));
                     assert_eq!(closed.get(), !corrupt_at_close);
                     assert_eq!(points.contains(&Point::AfterClose), !corrupt_at_close);
@@ -545,6 +548,16 @@ fn native_generated_reread_discovery_closes_before_first_wallet_callback() {
 
 #[test]
 fn native_generated_exit_keeps_refresh_custody_and_original_error_closure() {
+    impl Drop for AddedDispatch {
+        fn drop(&mut self) {
+            assert!(
+                self.0
+                    .remove_private("dispatch.nrt")
+                    .expect("restore absent dispatch")
+            );
+        }
+    }
+    struct AddedDispatch(Arc<PrivateDirectory>);
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let mut turn = fixture.renewal_turn();
@@ -554,7 +567,7 @@ fn native_generated_exit_keeps_refresh_custody_and_original_error_closure() {
     let head = history.current_history().unwrap();
     let account = fixture.owner.wallet().unwrap();
     let inspector = NativeClosureInspector::new(
-        history.original().unwrap().unwrap(),
+        history.original().unwrap(),
         &account,
         fixture.options.deadline,
     );
@@ -665,17 +678,6 @@ fn native_generated_exit_keeps_refresh_custody_and_original_error_closure() {
         evidence.unchanged(history.root.path());
     }
     assert_eq!(entry_refusals[0], entry_refusals[1]);
-
-    struct AddedDispatch(Arc<PrivateDirectory>);
-    impl Drop for AddedDispatch {
-        fn drop(&mut self) {
-            assert!(
-                self.0
-                    .remove_private("dispatch.nrt")
-                    .expect("restore absent dispatch")
-            );
-        }
-    }
 
     // A failed canonical refresh must retain the original full exit. When the
     // inner read succeeds, a bad current-head exit must still close the oldest

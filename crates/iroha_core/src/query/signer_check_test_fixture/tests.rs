@@ -226,7 +226,7 @@ fn test_facade_executes_every_instruction_through_the_real_executor() {
         Log::new(Level::INFO, "first source".into()).into(),
     );
     let outcomes = fixture.commit(1_000, vec![log.clone(), register]);
-    assert_eq!(outcomes[0], true);
+    assert!(outcomes[0]);
     assert_eq!(
         fixture.state().view().world.accounts.get(&other).is_some(),
         outcomes[1],

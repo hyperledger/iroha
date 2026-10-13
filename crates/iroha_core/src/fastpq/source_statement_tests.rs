@@ -39,14 +39,14 @@ fn leaves() -> Vec<FastpqOrdinarySourceStatementLeafV1> {
             statement_index: i,
             entry_index: i * 2,
             effect_count: 1,
-            entry_hash: Hash::new([i as u8]),
+            entry_hash: Hash::new([u8::try_from(i).expect("fixture value fits u8")]),
             execution_kind: FastpqSourceExecutionKindV1::ExecutionCall,
             route: FastpqSourceRouteV1::Lane(FastpqSourceLaneV1 {
                 lane_id: LaneId::new(2),
                 lane_incarnation: Hash::new(b"source lane incarnation"),
             }),
             dataspace_id: DataSpaceId::new(4),
-            effects_digest: [i as u8 + 9; 32],
+            effects_digest: [u8::try_from(i).expect("fixture value fits u8") + 9; 32],
             slot: 19_000_000,
             perm_root: Hash::new(b"synthetic source permission root").into(),
             tx_set_hash: Hash::new(b"synthetic ordered source transactions").into(),
@@ -82,20 +82,20 @@ fn manifest_write_matches_existing_core_sparse_tree_and_rejects_substitution() {
         5
     ));
     for mutation in 0..6 {
-        let mut changed = manifest;
+        let mut tampered_value = manifest;
         match mutation {
-            0 => changed.source.network_id = network(8),
-            1 => changed.source.height += 1,
-            2 => changed.executed_entry_count += 1,
-            3 => changed.statement_count -= 1,
-            4 => changed.statement_root = Hash::new(b"another statement tree"),
-            5 => changed.source_entries_digest = Hash::new(b"another source inventory"),
+            0 => tampered_value.source.network_id = network(8),
+            1 => tampered_value.source.height += 1,
+            2 => tampered_value.executed_entry_count += 1,
+            3 => tampered_value.statement_count -= 1,
+            4 => tampered_value.statement_root = Hash::new(b"another statement tree"),
+            5 => tampered_value.source_entries_digest = Hash::new(b"another source inventory"),
             _ => unreachable!(),
         }
         assert!(
             !verify_fastpq_ordinary_source_statement_manifest_write_v1(
-                &changed,
-                changed.source,
+                &tampered_value,
+                tampered_value.source,
                 &siblings,
                 root,
                 6,
@@ -105,12 +105,12 @@ fn manifest_write_matches_existing_core_sparse_tree_and_rejects_substitution() {
         );
     }
     for level in [0, 1, 127, 255] {
-        let mut changed = siblings;
-        changed[level] = Hash::new([level as u8]);
+        let mut tampered_value = siblings;
+        tampered_value[level] = Hash::new([u8::try_from(level).expect("fixture value fits u8")]);
         assert!(!verify_fastpq_ordinary_source_statement_manifest_write_v1(
             &manifest,
             manifest.source,
-            &changed,
+            &tampered_value,
             root,
             5,
             5
@@ -170,10 +170,15 @@ fn empty_manifest_write_is_present_and_layout_invariant() {
         5,
         5
     ));
-    let mut changed = manifest;
-    changed.statement_root = Hash::new(b"nonempty root with zero count");
+    let mut tampered_value = manifest;
+    tampered_value.statement_root = Hash::new(b"nonempty root with zero count");
     assert!(!verify_fastpq_ordinary_source_statement_manifest_write_v1(
-        &changed, source, &siblings, root, 5, 5
+        &tampered_value,
+        source,
+        &siblings,
+        root,
+        5,
+        5
     ));
 }
 fn opening_fixture() -> (FastpqOrdinarySourceStatementOpeningV1, Hash) {
@@ -225,19 +230,19 @@ fn bounded_opening_roundtrip_and_both_inclusions_require_expected_context() {
         5,
         5
     ));
-    let mut changed = decoded.clone();
-    changed.leaf.entry_hash = Hash::new(b"another entry");
+    let mut tampered_value = decoded.clone();
+    tampered_value.leaf.entry_hash = Hash::new(b"another entry");
     assert!(!verify_fastpq_ordinary_source_statement_opening_v1(
-        &changed,
-        &changed.leaf,
+        &tampered_value,
+        &tampered_value.leaf,
         root,
         5,
         5
     ));
-    let mut changed = decoded.clone();
-    changed.manifest.source.network_id = network(8);
+    let mut tampered_value = decoded.clone();
+    tampered_value.manifest.source.network_id = network(8);
     assert!(!verify_fastpq_ordinary_source_statement_opening_v1(
-        &changed,
+        &tampered_value,
         &opening.leaf,
         root,
         5,
@@ -295,9 +300,11 @@ fn bounded_opening_keeps_enclosing_cumulative_allocation_limits() {
     let short = norito::DecodeLimits::new(1_024, 32 * 1_024, 64 * 1_024, charged - 1, 32);
     assert!(norito::core::with_decode_limits_scope(short, run).is_err());
     for count in [255, 257] {
-        let mut changed = opening.clone();
-        changed.manifest_siblings.resize(count, Hash::new([]));
-        let bytes = norito::encode_canonical(&changed).unwrap();
+        let mut tampered_value = opening.clone();
+        tampered_value
+            .manifest_siblings
+            .resize(count, Hash::new([]));
+        let bytes = norito::encode_canonical(&tampered_value).unwrap();
         assert!(
             decode_fastpq_ordinary_source_statement_opening_v1(
                 &bytes,
@@ -446,25 +453,25 @@ fn source_opening_producer_rejects_entire_malformed_or_duplicate_reserved_family
 fn source_opening_producer_requires_exact_complete_archive_source_and_position() {
     let (witness, leaves) = witness_fixture();
     for mutation in 0..9 {
-        let mut changed = leaves.clone();
+        let mut tampered_value = leaves.clone();
         match mutation {
-            0 => changed.swap(0, 1),
+            0 => tampered_value.swap(0, 1),
             1 => {
-                changed.remove(1);
-                changed[1].statement_index = 1;
+                tampered_value.remove(1);
+                tampered_value[1].statement_index = 1;
             }
-            2 => changed[1].effects_digest[0] ^= 1,
+            2 => tampered_value[1].effects_digest[0] ^= 1,
             3 => {
-                changed[1].route = FastpqSourceRouteV1::Lane(FastpqSourceLaneV1 {
+                tampered_value[1].route = FastpqSourceRouteV1::Lane(FastpqSourceLaneV1 {
                     lane_id: LaneId::new(2),
                     lane_incarnation: Hash::new(b"another incarnation"),
                 })
             }
-            4 => changed[1].route = FastpqSourceRouteV1::Unrouted,
-            5 => changed[1].execution_kind = FastpqSourceExecutionKindV1::ProtocolPurpose,
-            6 => changed[1].slot += 1,
-            7 => changed[1].perm_root[0] ^= 1,
-            8 => changed[1].tx_set_hash[0] ^= 1,
+            4 => tampered_value[1].route = FastpqSourceRouteV1::Unrouted,
+            5 => tampered_value[1].execution_kind = FastpqSourceExecutionKindV1::ProtocolPurpose,
+            6 => tampered_value[1].slot += 1,
+            7 => tampered_value[1].perm_root[0] ^= 1,
+            8 => tampered_value[1].tx_set_hash[0] ^= 1,
             _ => unreachable!(),
         }
         assert!(
@@ -472,7 +479,7 @@ fn source_opening_producer_requires_exact_complete_archive_source_and_position()
                 &witness,
                 leaves[0].source,
                 &entries(),
-                &changed,
+                &tampered_value,
                 0,
                 source_build_limits()
             )
@@ -537,12 +544,12 @@ fn source_opening_producer_enforces_write_entry_byte_and_decode_budgets() {
         .is_ok()
     );
     for mutation in 0..4 {
-        let mut changed = limits;
+        let mut tampered_value = limits;
         match mutation {
-            0 => changed.max_ordinary_writes -= 1,
-            1 => changed.max_ordinary_write_bytes -= 1,
-            2 => changed.max_executed_entries -= 1,
-            3 => changed.manifest_decode = norito::DecodeLimits::new(1, 1, 1, 1, 1),
+            0 => tampered_value.max_ordinary_writes -= 1,
+            1 => tampered_value.max_ordinary_write_bytes -= 1,
+            2 => tampered_value.max_executed_entries -= 1,
+            3 => tampered_value.manifest_decode = norito::DecodeLimits::new(1, 1, 1, 1, 1),
             _ => unreachable!(),
         }
         assert!(
@@ -552,7 +559,7 @@ fn source_opening_producer_enforces_write_entry_byte_and_decode_budgets() {
                 &entries(),
                 &leaves,
                 0,
-                changed
+                tampered_value
             )
             .is_err(),
             "budget mutation {mutation}"
@@ -567,11 +574,11 @@ fn source_opening_producer_rejects_wrong_schema_and_oversized_manifest_values() 
         norito::encode_canonical(&leaves[0]).unwrap(),
         vec![0xff; FASTPQ_SOURCE_STATEMENT_MANIFEST_MAX_BYTES_V1 + 1],
     ] {
-        let mut changed = witness.clone();
-        changed.writes[1].value = value;
+        let mut tampered_value = witness.clone();
+        tampered_value.writes[1].value = value;
         assert!(
             fastpq_ordinary_source_statement_opening_v1(
-                &changed,
+                &tampered_value,
                 leaves[0].source,
                 &entries(),
                 &leaves,
@@ -614,24 +621,24 @@ fn ordinary_recorder_cannot_alias_the_protected_source_manifest_key() {
 fn complete_effect_source_context_fields_and_coverage_are_bound_by_both_inclusions() {
     let (opening, root) = opening_fixture();
     for mutation in 0..3 {
-        let mut changed = opening.clone();
+        let mut tampered_value = opening.clone();
         match mutation {
-            0 => changed.leaf.slot += 1,
-            1 => changed.leaf.perm_root[0] ^= 1,
-            2 => changed.leaf.tx_set_hash[0] ^= 1,
+            0 => tampered_value.leaf.slot += 1,
+            1 => tampered_value.leaf.perm_root[0] ^= 1,
+            2 => tampered_value.leaf.tx_set_hash[0] ^= 1,
             _ => unreachable!(),
         }
         // Even an offered matching expected leaf cannot replace the original Merkle member.
         assert!(!verify_fastpq_ordinary_source_statement_opening_v1(
-            &changed,
-            &changed.leaf,
+            &tampered_value,
+            &tampered_value.leaf,
             root,
             5,
             5
         ));
         assert!(!verify_fastpq_ordinary_source_statement_opening_v1(
             &opening,
-            &changed.leaf,
+            &tampered_value.leaf,
             root,
             5,
             5

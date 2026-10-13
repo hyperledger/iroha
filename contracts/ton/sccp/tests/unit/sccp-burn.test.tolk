@@ -18,7 +18,9 @@ import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpTairaXorMinter.gen"
@@ -194,7 +196,7 @@ get fun `test the TON to Taira payload vector of the fixture is what a burn emit
         messageProofCell(0, [], minted, ownBlockRef(x)),
         finalizeValue(env, 0),
     );
-    expect(mint).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(mint).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(jettonBalanceOf(env, owner)).toEqual(VEC_OUTBOUND_AMOUNT);
     // the source nonce of the row (storage injection)
     var st = minterStorage(env);
@@ -435,15 +437,17 @@ get fun `test owners outside workchain 0 cannot burn`() {
         env.minter.address,
         createMessage({
             bounce: BounceMode.NoBounce,
-            value: grams("1"),
+            value: sccpWalletRecoveryFloor() + grams("1"),
             dest: sccpWalletDeployment(owner, env.minter.address, build("SccpTairaXorWallet")),
-            body: InternalTransferStep {
+            body: SccpRecoveryDispatch {
+                operationId: 1,
+                stage: SCCP_RECOVERY_MINT,
+                attempt: 1,
+                nonce: 0,
+                count: 1,
+                amount: 50,
                 queryId: 0,
-                jettonAmount: 50,
-                transferInitiator: null,
-                sendExcessesTo: null,
-                forwardTonAmount: 0,
-                forwardPayload: beginCell().storeUint(0, 1).toSlice(),
+                response: owner,
             },
         }),
     );

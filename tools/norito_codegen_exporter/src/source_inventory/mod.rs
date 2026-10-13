@@ -999,15 +999,15 @@ impl<'ast> Visit<'ast> for Walker<'_> {
                         .collect::<Result<_>>()?,
                 });
             }
-            if let Item::Mod(value) = item {
-                if let Some((_, items)) = &value.content {
-                    self.module_floor = self.imports.len();
-                    self.imports.push(collect_imports(
-                        self.source,
-                        items.iter(),
-                        &self.conditions,
-                    )?);
-                }
+            if let Item::Mod(value) = item
+                && let Some((_, items)) = &value.content
+            {
+                self.module_floor = self.imports.len();
+                self.imports.push(collect_imports(
+                    self.source,
+                    items.iter(),
+                    &self.conditions,
+                )?);
             }
             Ok(())
         })();

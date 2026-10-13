@@ -550,8 +550,10 @@ fn genesis_outcome_cannot_supply_an_arbitrary_epoch_or_boundary() {
 
 #[test]
 fn sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization() {
-    let mut current = SumeragiParameters::default();
-    current.block_cadence_ms = NonZeroU64::new(1000).unwrap();
+    let current = SumeragiParameters {
+        block_cadence_ms: NonZeroU64::new(1000).unwrap(),
+        ..Default::default()
+    };
     for genesis in [false, true] {
         let exact = SumeragiParameter::EpochLengthBlocks(NonZeroU64::new(3600).unwrap());
         validate_parameter_change(&current, &exact, genesis, true).unwrap();

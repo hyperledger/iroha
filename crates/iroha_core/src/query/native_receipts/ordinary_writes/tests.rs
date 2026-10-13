@@ -445,7 +445,7 @@ fn nonempty_lane_graph_is_borrowed_from_the_original_charged_frame() {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::new(1),
             incarnation: [1; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee,
             created_at: 1,
             active_from: 3,
@@ -501,7 +501,10 @@ fn alternate_archive_flags_and_noncanonical_outer_lengths_are_rejected() {
     let fields = fields::<6>(&payload, flags).unwrap();
     let mut changed = Vec::new();
     // Encode the first short length with an overlong compact prefix, preserving all field bytes.
-    changed.extend_from_slice(&[(fields[0].len() as u8) | 0x80, 0]);
+    changed.extend_from_slice(&[
+        u8::try_from(fields[0].len()).expect("fixture value fits u8") | 0x80,
+        0,
+    ]);
     changed.extend_from_slice(fields[0]);
     for field in &fields[1..] {
         ncore::write_len_with_flags(&mut changed, field.len() as u64, flags).unwrap();

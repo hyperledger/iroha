@@ -7,8 +7,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 8,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn fixture() -> Set {
@@ -268,11 +268,11 @@ fn empty_and_singleton_full_capture_equations_are_independent_below_exact_above_
     // Empty: prior contract24S+16N+83; inverse Current9S+9N+27 and Prior18S+18N+45.
     // Singleton instructions: contract+encode24S+19N+159; inverse C23S+31N+304,P46S+54N+366.
     // call name4 rather than a name1 adds10 comparisons*6 bytes=60.
-    assert_eq!(51 * 1900 + 43 * 1114 + 155, 144957);
-    assert_eq!(93 * 1900 + 104 * 1114 + 829 + 60, 293445);
+    assert_eq!(51 * 1900 + 43 * 1114 + 155, 144_957);
+    assert_eq!(93 * 1900 + 104 * 1114 + 829 + 60, 293_445);
     for (set, table, exact, rows) in [
-        (Set::default(), ActionTable::Data, 144957_u64, 0),
-        (fixture(), ActionTable::ByCall, 293445, 1),
+        (Set::default(), ActionTable::Data, 144_957_u64, 0),
+        (fixture(), ActionTable::ByCall, 293_445, 1),
     ] {
         for amount in [exact - 1, exact, exact + 1] {
             let mut checked = CheckedActions::capture(&set, amount, &pool).unwrap();

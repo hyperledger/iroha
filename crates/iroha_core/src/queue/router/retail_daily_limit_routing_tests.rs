@@ -58,7 +58,7 @@ fn fixture() -> (State, Nexus, KeyPair, RetailDailyLimitPolicyV1) {
         )
         .build(&owner)],
     );
-    let native = &mut world.smart_contract_state_mut_for_testing();
+    let native = world.smart_contract_state_mut_for_testing();
     native.insert(
         crate::state::retail_daily_limit_state::policy_key(
             &policy.asset_definition_id,
@@ -99,7 +99,8 @@ fn fixture() -> (State, Nexus, KeyPair, RetailDailyLimitPolicyV1) {
     .unwrap();
     // Keep the routing catalog, its derived geometry and this component State
     // aligned. This fixture does not authenticate a native genesis or history.
-    nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
+    nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
     nexus.configured_lane_catalog = nexus.lane_catalog.clone();
     nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
     let state = State::new_with_nexus_for_testing(

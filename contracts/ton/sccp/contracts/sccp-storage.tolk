@@ -113,7 +113,7 @@ fun WalletStorage.save(self) {
 /// bits:uint512`; the 512 flags are stored as their high and low 256-bit
 /// halves, so flag `i` is bit `i` of the 512-bit big-endian integer
 /// `bitsHi ‖ bitsLo`. The canonical `StateInit` has `activated = false` and
-/// clear flags; only the minter's `sccp_activate_bucket` sets `activated`.
+/// clear flags; only the minter's activation dispatch sets `activated`.
 struct BucketStorage {
     minterAddress: address
     index: uint64

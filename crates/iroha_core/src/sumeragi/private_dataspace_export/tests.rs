@@ -15,7 +15,6 @@ use iroha_model_base::topology::DataSpaceId;
 use std::num::NonZeroU32;
 
 fn private_chain() -> CertifiedTestChain {
-    let ds = DataSpaceId::new(u64::MAX - 15);
     use iroha_data_model::{
         Registrable,
         account::{Account, AccountId},
@@ -27,6 +26,7 @@ fn private_chain() -> CertifiedTestChain {
         domain::Domain,
         parameter::Parameter,
     };
+    let ds = DataSpaceId::new(u64::MAX - 15);
     let clock = iroha_crypto::KeyPair::from_seed(vec![0xCC; 32], iroha_crypto::Algorithm::Ed25519);
     let owner = AccountId::new(clock.public_key().clone());
     let domain =
@@ -176,7 +176,7 @@ fn compact_export_rejects_global_roots_and_oversized_native_quorums() {
     let mut private = private_chain();
     let proposal = private.proposal(Some(1_100), vec![]);
     let refusal = private
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .unwrap()
         .publish(Signers::All)
         .unwrap_err();

@@ -1,4 +1,4 @@
-//! Bounded retirement using original retained liability and exact permanent penalty records.
+//! Retirement with bounded deletions using original liability and exact penalty records.
 
 use super::{liability, store};
 use crate::state::{
@@ -12,6 +12,8 @@ const MAX_RETIREMENTS: usize = 8;
 /// Prune after G2/G7 and before destination clearance. The caller owns rollback on error.
 /// No evidence-history scan or absent external-owner assumption is needed: the permanent
 /// offence index provides at most 31 exact, funded member probes per retained generation.
+/// The ascending selection and minimum-height scan are O(retained generations); §4.11
+/// bounds deletions, not visits, and Pending penalties can extend retention indefinitely.
 pub(super) fn prune(stx: &mut StateTransaction<'_, '_>) -> Result<(), StateStorageAdmissionError> {
     let current = *store::committee_current::get(&*stx.world);
     // A degraded/uninitialized SCCP state grants no retirement authority.

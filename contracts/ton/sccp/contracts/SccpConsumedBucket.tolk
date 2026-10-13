@@ -1,7 +1,7 @@
 // SccpConsumedBucket: 512 replay flags of the SCCP v1 TON minter (§5.3.3,
 // §5.3.4). Bucket `index` holds the flags of outbound nonces
 // `index·512 .. index·512 + 511`. Only its minter may set or clear flags, and
-// only after the minter activated the bucket with `sccp_activate_bucket`. The
+// only after the minter activated the bucket with an activation dispatch. The
 // minter activates each index exactly once, so a bucket that someone else
 // deploys (before the minter, or again after a deletion for rent) stays
 // inactive until that activation, and a deleted bucket can never come back
@@ -13,9 +13,9 @@ import "sccp-constants"
 import "sccp-errors"
 import "sccp-fees"
 import "sccp-messages"
-import "sccp-storage"
 import "sccp-recovery"
 import "sccp-recovery-wire"
+import "sccp-storage"
 
 contract SccpConsumedBucket {
     author: "Hyperledger Iroha"
@@ -67,6 +67,12 @@ fun BucketStorage.requireActiveFromMinter(self, sender: address) {
 }
 
 fun onInternalMessage(in: InMessage) {
+    assert (in.body.remainingBitsCount() >= 32) throw SccpErrors.InvalidMessage;
+    val opcode = in.body.preloadUint(32);
+    assert (
+        (opcode == 0x53435241) | (opcode == 0x53435242) | (opcode == 0x53435243) |
+        (opcode == 0xd372158c)
+    ) throw SccpErrors.InvalidMessage;
     val msg = BucketMessage.fromSlice(in.body);
     if (msg is TopUpTons) {
         return;
@@ -84,15 +90,19 @@ fun onInternalMessage(in: InMessage) {
                 result = existing;
             } else {
                 // Admission and funding precede the replay flag mutation.
-                assert (contract.getOriginalBalance() >= sccpBucketFloor() +
-                    sccpGasFee(SCCP_GAS_BUCKET_CONSUME_RANGE)) throw SccpErrors.NotEnoughValue;
+                assert (
+                    contract.getOriginalBalance() >=
+                    sccpBucketFloor() + sccpGasFee(SCCP_GAS_RECOVERY)
+                ) throw SccpErrors.NotEnoughValue;
                 if (msg.stage == SCCP_RECOVERY_ACTIVATE) {
                     assert (msg.nonce == storage.index) throw SccpErrors.BadRange;
                     storage.activated = true;
                 } else {
                     assert (storage.activated) throw SccpErrors.BucketNotActive;
-                    if ((msg.stage == SCCP_RECOVERY_CONSUME) |
-                        (msg.stage == SCCP_RECOVERY_UNCONSUME)) {
+                    if (
+                        (msg.stage == SCCP_RECOVERY_CONSUME) |
+                        (msg.stage == SCCP_RECOVERY_UNCONSUME)
+                    ) {
                         val (hi, lo) = storage.flagMask(msg.nonce);
                         if (msg.stage == SCCP_RECOVERY_UNCONSUME) {
                             storage.bitsHi &= ~hi;
@@ -105,12 +115,15 @@ fun onInternalMessage(in: InMessage) {
                         }
                     } else {
                         assert (msg.stage == SCCP_RECOVERY_RANGE) throw SccpErrors.BadRecovery;
-                        assert ((msg.count >= 1) & (msg.count <= SCCP_BUCKET_BITS))
-                            throw SccpErrors.BadRange;
-                        assert ((msg.nonce >> SCCP_BUCKET_SHIFT) == storage.index)
-                            throw SccpErrors.BadRange;
-                        assert (((msg.nonce + msg.count - 1) >> SCCP_BUCKET_SHIFT) == storage.index)
-                            throw SccpErrors.BadRange;
+                        assert (
+                            (msg.count >= 1) & (msg.count <= SCCP_BUCKET_BITS)
+                        ) throw SccpErrors.BadRange;
+                        assert (
+                            (msg.nonce >> SCCP_BUCKET_SHIFT) == storage.index
+                        ) throw SccpErrors.BadRange;
+                        assert (
+                            ((msg.nonce + msg.count - 1) >> SCCP_BUCKET_SHIFT) == storage.index
+                        ) throw SccpErrors.BadRange;
                         val (hi, lo) = bucketRangeMask(msg.nonce & SCCP_BUCKET_MASK, msg.count);
                         if (((storage.bitsHi & hi) | (storage.bitsLo & lo)) == 0) {
                             storage.bitsHi |= hi;
@@ -124,18 +137,41 @@ fun onInternalMessage(in: InMessage) {
                 storage.recovery = receipts.toCell();
                 storage.save();
             }
-            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt, result);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                result,
+                msg.queryId,
+                msg.response,
+            );
         }
         SccpRecoveryConfirm => {
             val result = receipts.confirm(msg.operationId, msg.stage, msg.attempt);
-            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt, result);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                result,
+                msg.queryId,
+                msg.response,
+            );
         }
         SccpRecoveryDrop => {
             receipts.drop(msg.operationId, msg.stage, msg.attempt);
             storage.recovery = receipts.toCell();
             storage.save();
-            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt,
-                SCCP_RECEIPT_DROPPED);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                SCCP_RECEIPT_DROPPED,
+                msg.queryId,
+                msg.response,
+            );
         }
     }
 }

@@ -231,7 +231,7 @@ pub fn minimal_ivm_program(abi_version: u8) -> Vec<u8> {
 /// This matches Torii's domain-separated full-artifact deployment hashing.
 pub fn contract_code_hash_hex(code_bytes: &[u8]) -> String {
     ivm::ProgramMetadata::parse(code_bytes).expect("parse contract artifact");
-    let h = ivm::contract_code_hash(&code_bytes);
+    let h = ivm::contract_code_hash(code_bytes);
     hex::encode(<[u8; 32]>::from(h))
 }
 /// Guard that overrides Torii's data directory with a temporary path for test isolation
@@ -586,14 +586,18 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
     use iroha_logger::Level;
     use iroha_primitives::addr::socket_addr;
     let torii_data_dir = crate::data_dir::base_dir();
-    let mut da_ingest = A::DaIngest::default();
-    da_ingest.replay_cache_store_dir = torii_data_dir.join("da_replay");
-    da_ingest.manifest_store_dir = torii_data_dir.join("da_manifests");
-    let mut sorafs_storage = A::SorafsStorage::default();
-    sorafs_storage.data_dir = torii_data_dir.join("sorafs");
+    let da_ingest = A::DaIngest {
+        replay_cache_store_dir: torii_data_dir.join("da_replay"),
+        manifest_store_dir: torii_data_dir.join("da_manifests"),
+        ..Default::default()
+    };
+    let sorafs_storage = A::SorafsStorage {
+        data_dir: torii_data_dir.join("sorafs"),
+        ..Default::default()
+    };
     let mut sorafs_por = A::SorafsPor::default();
     let sorafs_por_state_dir = sorafs_storage.data_dir.join("por");
-    sorafs_por.state_dir = sorafs_por_state_dir.clone();
+    sorafs_por.state_dir.clone_from(&sorafs_por_state_dir);
     sorafs_por.drand.state_path =
         sorafs_por_state_dir.join(defaults::sorafs::por::DRAND_STATE_FILE);
     sorafs_por.vrf_state_path = sorafs_por_state_dir.join(defaults::sorafs::por::VRF_STATE_FILE);

@@ -167,6 +167,10 @@ impl Sensitivity {
 
 /// Standard MCP tool-annotation hints derived from the orthogonal semantics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "MCP defines four orthogonal boolean annotations on every tool."
+)]
 pub(in crate::mcp) struct ToolAnnotations {
     /// Whether invoking the tool leaves server and ledger state unchanged.
     pub(super) read_only: bool,

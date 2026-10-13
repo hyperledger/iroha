@@ -584,7 +584,7 @@ fn build_report(
     advert_obj.insert("version".into(), Value::from(advert.version));
     advert_obj.insert(
         "network_id_hex".into(),
-        Value::from(hex::encode(&advert.network_id)),
+        Value::from(hex::encode(advert.network_id)),
     );
     advert_obj.insert("issued_at".into(), Value::from(advert.issued_at));
     advert_obj.insert("expires_at".into(), Value::from(advert.expires_at));
@@ -600,7 +600,7 @@ fn build_report(
     let mut body_obj = Map::new();
     body_obj.insert(
         "provider_id_hex".into(),
-        Value::from(hex::encode(&advert.body.provider_id)),
+        Value::from(hex::encode(advert.body.provider_id)),
     );
     body_obj.insert(
         "profile_id".into(),
@@ -635,7 +635,7 @@ fn build_report(
     }
     body_obj.insert(
         "stake_pool_id_hex".into(),
-        Value::from(hex::encode(&advert.body.stake.pool_id)),
+        Value::from(hex::encode(advert.body.stake.pool_id)),
     );
     body_obj.insert(
         "stake_amount".into(),
@@ -836,7 +836,7 @@ fn build_signing_request_report(
     report.insert("signature_algorithm".into(), Value::from("ed25519"));
     report.insert(
         "network_id_hex".into(),
-        Value::from(hex::encode(&advert.network_id)),
+        Value::from(hex::encode(advert.network_id)),
     );
     report.insert(
         "public_key_hex".into(),
@@ -848,7 +848,7 @@ fn build_signing_request_report(
     );
     report.insert(
         "signing_payload_sha256".into(),
-        Value::from(hex::encode(&sha256(signing_payload))),
+        Value::from(hex::encode(sha256(signing_payload))),
     );
     report.insert(
         "signing_payload_len".into(),
@@ -856,7 +856,7 @@ fn build_signing_request_report(
     );
     report.insert(
         "provider_id_hex".into(),
-        Value::from(hex::encode(&advert.body.provider_id)),
+        Value::from(hex::encode(advert.body.provider_id)),
     );
     report.insert("issued_at".into(), Value::from(advert.issued_at));
     report.insert("expires_at".into(), Value::from(advert.expires_at));

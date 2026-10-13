@@ -93,7 +93,7 @@ fn exact_private_settlement_authority_fixture(validator_count: u8) -> (State, Ve
         lane: LaneId::new(1),
         dataspace: DataSpaceId::new(1),
         incarnation: Hash::new(b"private settlement native incarnation").into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee: private_settlement_native_members(&keypairs),
         created_at: 1,
         active_from: 3,
@@ -381,13 +381,13 @@ fn private_settlement_authority_rejects_recreated_roster_and_stale_incarnation()
         &replacement,
     )
     .expect("new incarnation's exact pinned roster");
-    let mut stale = replacement;
-    stale.route.lane_incarnation = original.route.lane_incarnation;
+    let mut outdated = replacement;
+    outdated.route.lane_incarnation = original.route.lane_incarnation;
     assert!(
         crate::private_settlement::validate_private_settlement_committee_authority_v1(
             &state.view(),
             7,
-            &stale,
+            &outdated,
         )
         .is_err(),
         "current members cannot authorize an old incarnation"
@@ -682,7 +682,7 @@ fn exact_lane_committee_rejects_manifest_dataspace_mismatch() {
         .map(|key| AccountId::new(key.public_key().clone()))
         .collect();
     let retained = resolve_universal_committee(&state).expect("valid canonical manifest authority");
-    let stale =
+    let outdated =
         stale_lane_manifest_registry_for_test(&state, &[(LaneId::SINGLE, other, validators)]);
     assert_eq!(
         resolve_universal_committee(&state)
@@ -692,7 +692,7 @@ fn exact_lane_committee_rejects_manifest_dataspace_mismatch() {
     );
     // Retain the deliberately malformed source in an isolated resolver view.
     let mut view = state.view();
-    view.lane_manifests = stale;
+    view.lane_manifests = outdated;
     assert!(matches!(
         view.resolve_lane_committee_at_height(
             LaneAuthorityRoute::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL),

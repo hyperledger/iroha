@@ -1,4 +1,4 @@
-//! Bounded execution resources shared by the real four-validator SoraFS tests.
+//! Bounded execution resources shared by the real four-validator `SoraFS` tests.
 
 use iroha_model_base::metadata::Metadata;
 use std::future::Future;
@@ -19,7 +19,7 @@ const NETWORK_STACK_BYTES: usize = 32 * 1024 * 1024;
 const LOCAL_STORAGE_BUDGET_BYTES: i64 = 1_073_741_824;
 
 /// Pin each validator's ordinary storage allocation for these bounded local scenarios.
-pub(super) fn bounded_storage(builder: NetworkBuilder) -> NetworkBuilder {
+pub fn bounded_storage(builder: NetworkBuilder) -> NetworkBuilder {
     builder.with_config_layer(|writer| {
         writer.write(
             ["nexus", "storage", "local_budget_bytes"],
@@ -29,7 +29,7 @@ pub(super) fn bounded_storage(builder: NetworkBuilder) -> NetworkBuilder {
 }
 
 /// Run genesis preparation and the async scenario on explicit network-sized stacks.
-pub(super) fn run<F, Fut>(name: &'static str, body: F) -> Result<()>
+pub fn run<F, Fut>(name: &'static str, body: F) -> Result<()>
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = Result<()>>,
@@ -54,7 +54,7 @@ where
 }
 
 /// Prepare and sign one exact native transaction after independently quoting its fee intent.
-pub(super) async fn prepare_transaction(
+pub async fn prepare_transaction(
     client: &Client,
     instructions: impl IntoIterator<Item = impl Into<InstructionBox>>,
     metadata: Metadata,
@@ -79,7 +79,7 @@ pub(super) async fn prepare_transaction(
 }
 
 /// Submit one canonical native instruction and require its Applied finality.
-pub(super) async fn submit_instruction(
+pub async fn submit_instruction(
     client: &Client,
     instruction: impl Into<InstructionBox>,
 ) -> Result<iroha::crypto::HashOf<SignedTransaction>> {

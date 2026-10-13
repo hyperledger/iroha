@@ -10,7 +10,7 @@
 //! parsed key, and refuses every aggregate that names a key it has not admitted (fail closed).
 //! Individual signatures need no `PoP` and verify under any well-formed BLS-normal key.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use iroha_crypto::{
     Algorithm, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey, PublicKey as IrohaPublicKey,
@@ -72,7 +72,7 @@ pub fn iroha_key(key: &PublicKey) -> Result<IrohaPublicKey, KeyError> {
 /// hundred bytes each); a key stays admitted, since certificates of old heights still name it.
 #[derive(Debug, Default)]
 pub struct BlsCrypto {
-    admitted: RwLock<HashMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
+    admitted: RwLock<BTreeMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
 }
 
 impl BlsCrypto {
@@ -593,7 +593,7 @@ mod tests {
         for kp in &kps[..2] {
             fresh.admit(kp.public_key(), &pop(kp)).unwrap();
         }
-        assert!(fresh.is_admitted(&keys[0]) && !fresh.is_admitted(&keys[2]));
+        assert!(fresh.is_admitted(keys[0]) && !fresh.is_admitted(keys[2]));
         assert!(
             !fresh.verify_aggregate(&keys, &message(1), &agg),
             "one not admitted"

@@ -462,20 +462,7 @@ pub enum Error {
     /// Kura requires restart to complete an interrupted durable prune transaction
     PruneRecoveryRequired,
 }
-impl Error {
-    /// Return whether this error proves that the canonical publication boundary cannot be
-    /// retried safely by the live consensus process.
-    #[must_use]
-    pub(crate) const fn requires_restart_recovery(&self) -> bool {
-        matches!(
-            self,
-            Self::DaBlockRewriteCommitStateUnknown { .. }
-                | Self::CanonicalBlockCommittedRecoveryRequired { .. }
-                | Self::CanonicalStoragePoisoned
-                | Self::PruneRecoveryRequired
-        )
-    }
-}
+impl Error {}
 trait AddErrContextExt<T> {
     type Context;
     fn add_err_context(self, context: &Self::Context) -> Result<T, Error>;

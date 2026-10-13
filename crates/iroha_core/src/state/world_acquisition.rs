@@ -25,6 +25,7 @@ pub(super) trait WorldFieldAcquisition {
     fn try_initialize(&mut self, mode: BlockMode) -> Result<(), AdmittedStorageError>;
     fn release(&mut self);
     fn take_block(&mut self) -> Self::Block;
+    #[cfg(test)]
     fn into_block(self) -> Self::Block;
 }
 pub(super) struct OrdinaryAcquisition<A: BlockAcquisition>(pub(super) A);
@@ -40,6 +41,7 @@ impl<A: BlockAcquisition> WorldFieldAcquisition for OrdinaryAcquisition<A> {
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -68,6 +70,7 @@ impl<'a, V: mv::Value, C: Send + Sync + 'static> WorldFieldAcquisition
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -101,6 +104,7 @@ where
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -126,6 +130,11 @@ impl IntoWorldField for super::TriggerSetBlock<'_> {
 // Only the admitted table needs a scope argument. The entire aggregate retains
 // that original scope until every ordinary and prepaid sibling has released.
 macro_rules! install_frozen_world_field {
+    ($fields:ident, $target:ident, $scope:expr, sccp_light_client_sets) => {
+        $fields
+            .sccp_light_client_sets
+            .install_frozen_publication_owned(&$target.sccp_light_client_sets, $scope)
+    };
     ($fields:ident, $target:ident, $scope:expr, sccp_reconciliations) => {
         $fields
             .sccp_reconciliations

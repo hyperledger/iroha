@@ -1081,8 +1081,16 @@ fn sccp_event_network(
         SccpEvent::ReconciliationSettled(ev) => Some(ev.network),
         SccpEvent::ReconciledClaimSettled(ev) => Some(ev.network),
         SccpEvent::InboundStranded(ev) => Some(ev.network),
+        SccpEvent::FastPauseEndorsed(ev) => Some(ev.network),
+        SccpEvent::FastPauseNoResult(ev) => Some(ev.network),
+        SccpEvent::FastPauseEnacted(ev) => Some(ev.network),
+        SccpEvent::FastPauseRetained(ev) => Some(ev.network),
+        SccpEvent::FastPauseCleared(ev) => Some(ev.network),
         SccpEvent::FastPauseLapsed(ev) => Some(ev.network),
-        SccpEvent::BlockCommitted(_)
+        SccpEvent::PausePanelSeated(_)
+        | SccpEvent::PausePanelUnavailable(_)
+        | SccpEvent::PausePanelSeatAccepted(_)
+        | SccpEvent::BlockCommitted(_)
         | SccpEvent::GovernanceEnacted(_)
         | SccpEvent::CommitteeGenerationCreated(_)
         | SccpEvent::GenerationMemberUnslashable(_)
@@ -2849,17 +2857,73 @@ mod sccp_filter_tests {
         use crate::sccp::events::*;
         let network = SccpNetworkV1::TonMainnet;
         let rows = [
-            (SccpEvent::ReconciliationOpened(SccpReconciliationOpenedV1 { network, revision: 1, opened_at_ms: 1, closes_at_ms: 2 }), SccpEventSet::ReconciliationOpened),
-            (SccpEvent::ForgedMintProven(SccpForgedMintProvenV1 { network, revision: 1, message_id: [1;32], amount: 1 }), SccpEventSet::ForgedMintProven),
-            (SccpEvent::ReconciliationSettled(SccpReconciliationSettledV1 { network, revision: 1, backing: 1, forged_supply: 1 }), SccpEventSet::ReconciliationSettled),
-            (SccpEvent::ReconciledClaimSettled(SccpReconciledClaimSettledV1 { network, revision: 1, message_id: [1;32], amount: 2, payout: 1 }), SccpEventSet::ReconciledClaimSettled),
-            (SccpEvent::InboundStranded(SccpInboundStrandedV1 { network, revision: 1, message_id: [1;32], amount: 1, reason: SccpBounceReasonV1::UndecodableRecipient }), SccpEventSet::InboundStranded),
+            (
+                SccpEvent::ReconciliationOpened(SccpReconciliationOpenedV1 {
+                    network,
+                    revision: 1,
+                    opened_at_ms: 1,
+                    closes_at_ms: 2,
+                }),
+                SccpEventSet::ReconciliationOpened,
+            ),
+            (
+                SccpEvent::ForgedMintProven(SccpForgedMintProvenV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 1,
+                }),
+                SccpEventSet::ForgedMintProven,
+            ),
+            (
+                SccpEvent::ReconciliationSettled(SccpReconciliationSettledV1 {
+                    network,
+                    revision: 1,
+                    backing: 1,
+                    forged_supply: 1,
+                }),
+                SccpEventSet::ReconciliationSettled,
+            ),
+            (
+                SccpEvent::ReconciledClaimSettled(SccpReconciledClaimSettledV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 2,
+                    payout: 1,
+                }),
+                SccpEventSet::ReconciledClaimSettled,
+            ),
+            (
+                SccpEvent::InboundStranded(SccpInboundStrandedV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 1,
+                    reason: SccpBounceReasonV1::UndecodableRecipient,
+                }),
+                SccpEventSet::InboundStranded,
+            ),
         ];
         for (event, flag) in rows {
             assert_eq!(sccp_event_network(&event), Some(network));
-            assert!(SccpEventFilter::new().for_network(network).for_events(flag).matches(&event));
-            assert!(!SccpEventFilter::new().for_network(SccpNetworkV1::EthereumMainnet).for_events(flag).matches(&event));
-            assert!(!SccpEventFilter::new().for_events(SccpEventSet::MessageRecorded).matches(&event));
+            assert!(
+                SccpEventFilter::new()
+                    .for_network(network)
+                    .for_events(flag)
+                    .matches(&event)
+            );
+            assert!(
+                !SccpEventFilter::new()
+                    .for_network(SccpNetworkV1::EthereumMainnet)
+                    .for_events(flag)
+                    .matches(&event)
+            );
+            assert!(
+                !SccpEventFilter::new()
+                    .for_events(SccpEventSet::MessageRecorded)
+                    .matches(&event)
+            );
         }
     }
 

@@ -34,7 +34,7 @@ const APPROVAL_JOB_LIMITS: DecodeLimits = DecodeLimits::new(
 );
 
 /// One native ordinary-open journal and the exact dedicated-key approval owner.
-pub(crate) struct NativeAttestationV1 {
+pub struct NativeAttestationV1 {
     custody: NativeMusubiProviderAttestationCustodyV1,
     signer: Arc<NativeApprovalV1>,
 }
@@ -165,11 +165,11 @@ impl NativeApprovalV1 {
             ),
         ] {
             iroha_core::query::signer_finality::verify_signer_finality_v1(&view, height, hash)
-                .map_err(map_execution_attempt)?;
+                .map_err(|error| map_execution_attempt(&error))?;
         }
         let finalized_now = view
             .latest_block()
-            .map_err(map_execution_attempt)?
+            .map_err(|error| map_execution_attempt(&error))?
             .ok_or(rejected)?
             .header()
             .creation_time()
@@ -191,7 +191,7 @@ impl NativeApprovalV1 {
     }
 }
 fn map_execution_attempt<E>(
-    error: iroha_core::execution_attempt::ExecutionAttemptError<E>,
+    error: &iroha_core::execution_attempt::ExecutionAttemptError<E>,
 ) -> MusubiProviderAttestationSignerErrorV1 {
     match error {
         iroha_core::execution_attempt::ExecutionAttemptError::Deferred(_) => {
@@ -337,7 +337,7 @@ impl MusubiProviderAttestationSignerV1 for NativeApprovalV1 {
 }
 
 /// Supervise the existing bounded driver. Cancellation leaves exact retained journal recovery.
-pub(crate) fn start(
+pub fn start(
     mut driver: ProviderIngestCompletedMusubiAttestationDriverV1,
     scan_interval_ms: u64,
     shutdown_signal: ShutdownSignal,
@@ -359,9 +359,7 @@ pub(crate) fn start(
                         result = driver.drive_one_bounded_page() => result,
                     };
                     if let Err(error) = result {
-                        if !error.is_retryable() {
-                            panic!("native provider-attestation driver stopped: {error}");
-                        }
+                        assert!(error.is_retryable(), "native provider-attestation driver stopped: {error}");
                         iroha_logger::warn!(%error, "native provider-attestation step deferred");
                     }
                 }

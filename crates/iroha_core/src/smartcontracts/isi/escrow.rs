@@ -359,7 +359,7 @@ pub fn escrow_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     escrow_id: &EscrowId,
     asset_definition: &AssetDefinitionId,
-) -> Result<AccountId, Error> {
+) -> AccountId {
     let asset_definition = asset_definition.to_string();
     let public_key = derive_non_signing_ed25519_public_key(
         ESCROW_CUSTODY_ACCOUNT_DOMAIN.as_bytes(),
@@ -369,7 +369,7 @@ pub fn escrow_custody_account_id(
             asset_definition.as_bytes(),
         ],
     );
-    Ok(AccountId::new(public_key))
+    AccountId::new(public_key)
 }
 fn has_permission(
     state_transaction: &StateTransaction<'_, '_>,
@@ -497,7 +497,7 @@ fn validate_native_orderbook_lock_record(
         state_transaction.network_id(),
         escrow_id,
         &record.asset_definition,
-    )?;
+    );
     if record.id != *escrow_id
         || record.custody != expected_custody
         || record.custody == record.seller
@@ -813,7 +813,7 @@ pub(crate) fn partition_orderbook_asset_lock(
         state_transaction.network_id(),
         parent_id,
         &parent.asset_definition,
-    )?;
+    );
     if parent.custody != expected_parent_custody {
         return Err(validation_err(
             "orderbook bid asset-lock custody binding is invalid",
@@ -859,7 +859,7 @@ pub(crate) fn partition_orderbook_asset_lock(
         state_transaction.network_id(),
         &child_id,
         &parent.asset_definition,
-    )?;
+    );
     if child_custody == parent.custody
         || child_custody == parent.seller
         || child_custody == provider
@@ -991,7 +991,7 @@ pub(crate) fn settle_orderbook_asset_lock(
         state_transaction.network_id(),
         escrow_id,
         &record.asset_definition,
-    )?;
+    );
     if record.custody != expected_custody
         || record.custody == record.seller
         || record.buyer.as_ref() == Some(&record.custody)
@@ -1218,7 +1218,7 @@ impl Execute for OpenAssetEscrow {
             state_transaction.network_id(),
             &self.escrow_id,
             &self.asset_definition,
-        )?;
+        );
         let seller_asset = AssetId::new(self.asset_definition.clone(), authority.clone());
         let custody_asset = AssetId::new(self.asset_definition.clone(), custody.clone());
         let custody_created = ensure_custody_account(&custody, state_transaction)?;
@@ -1581,7 +1581,7 @@ fn execute_open_asset_lock(
         state_transaction.network_id(),
         &instruction.escrow_id,
         &instruction.asset_definition,
-    )?;
+    );
     let source_asset = AssetId::new(instruction.asset_definition.clone(), authority.clone());
     let custody_asset = AssetId::new(instruction.asset_definition.clone(), custody.clone());
     let custody_created = ensure_custody_account(&custody, state_transaction)?;
@@ -1942,7 +1942,7 @@ impl Execute for OpenConditionalEscrow {
             state_transaction.network_id(),
             &self.escrow_id,
             &self.asset_definition,
-        )?;
+        );
         let source_asset = AssetId::new(self.asset_definition.clone(), authority.clone());
         let custody_asset = AssetId::new(self.asset_definition.clone(), custody.clone());
         let custody_created = ensure_custody_account(&custody, state_transaction)?;
@@ -2335,7 +2335,8 @@ impl ValidQuery for FindAssetEscrows {
             world
                 .asset_escrows()
                 .iter()
-                .filter_map(move |(_, record)| filter.applies(record).then(|| record.clone())),
+                .filter(move |&(_, record)| filter.applies(record))
+                .map(|(_, record)| record.clone()),
         );
         Ok(iter)
     }
@@ -2752,17 +2753,14 @@ mod tests {
         let asset_definition: AssetDefinitionId =
             "61CtjvNd9T3THAR65GsMVHr82Bjc".parse().expect("asset");
         let escrow_id = EscrowId::new(Hash::new("escrow"));
-        let custody = escrow_custody_account_id(&network_id, &escrow_id, &asset_definition)
-            .expect("custody account derivation succeeds");
+        let custody = escrow_custody_account_id(&network_id, &escrow_id, &asset_definition);
         assert_eq!(
             custody,
             escrow_custody_account_id(&network_id, &escrow_id, &asset_definition)
-                .expect("custody account derivation is repeatable")
         );
         assert_ne!(
             custody,
-            escrow_custody_account_id(&escrow_test_network_id(2), &escrow_id, &asset_definition,)
-                .expect("different exact network custody derivation succeeds"),
+            escrow_custody_account_id(&escrow_test_network_id(2), &escrow_id, &asset_definition,),
             "same-label deployments with different genesis hashes need disjoint custody",
         );
         let mut public_seed_material = Vec::new();
@@ -2856,8 +2854,7 @@ mod tests {
             balance(&tx, &seller, &asset_definition),
             Quantity::from(100_u32)
         );
-        let custody = escrow_custody_account_id(tx.network_id(), &escrow_id, &asset_definition)
-            .expect("custody account derivation succeeds");
+        let custody = escrow_custody_account_id(tx.network_id(), &escrow_id, &asset_definition);
         assert_eq!(balance(&tx, &custody, &asset_definition), Quantity::zero());
     }
     #[test]
@@ -3492,8 +3489,7 @@ mod tests {
             "insufficient source balance must be rejected"
         );
         let custody =
-            escrow_custody_account_id(tx.network_id(), &over_balance_id, &asset_definition)
-                .expect("custody account derivation succeeds");
+            escrow_custody_account_id(tx.network_id(), &over_balance_id, &asset_definition);
         assert!(tx.world.asset_escrows.get(&over_balance_id).is_none());
         assert!(tx.world.account(&custody).is_err());
         assert_eq!(
@@ -3790,12 +3786,12 @@ mod tests {
         DrawdownAssetLock::new(escrow_id, Quantity::from(10_u32), Quantity::from(30_u32))
             .execute(&destination, &mut tx)
             .expect("destination draws down partial amount");
-        let stale = DrawdownAssetLock::new(escrow_id, Quantity::one(), Quantity::from(30_u32))
+        let outdated = DrawdownAssetLock::new(escrow_id, Quantity::one(), Quantity::from(30_u32))
             .execute(&destination, &mut tx)
             .expect_err("stale drawdown precondition must fail");
         assert!(
-            stale.to_string().contains("remaining amount changed"),
-            "unexpected error: {stale}"
+            outdated.to_string().contains("remaining amount changed"),
+            "unexpected error: {outdated}"
         );
         assert!(
             ExpireAssetLock::new(escrow_id)

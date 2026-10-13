@@ -70,9 +70,11 @@ fn config(fixture: &Fixture) -> (tempfile::TempDir, actual::SorafsStorage) {
             active_until_unix_ms: policy.active_until_unix_ms,
         }
     };
-    let mut storage = actual::SorafsStorage::default();
-    storage.enabled = true;
-    storage.provider_id = Some(ProviderId::new(*fixture.provider.as_bytes()));
+    let mut storage = actual::SorafsStorage {
+        enabled: true,
+        provider_id: Some(ProviderId::new(*fixture.provider.as_bytes())),
+        ..actual::SorafsStorage::default()
+    };
     storage.stream_tokens.enabled = true;
     storage.stream_tokens.signer = Some(actual::SorafsStreamTokenSignerConfig {
         clock_uncertainty_ms: 0,
@@ -127,7 +129,7 @@ fn native_check_signing_and_submission_use_original_absolute_deadline() {
     let source = source(&fixture, queue.clone());
     let reviewed = reviewed(&source);
     let prepared = source
-        .prepare_check(reviewed, Phase::Current(reviewed.intent.previous_audit))
+        .prepare_check(&reviewed, Phase::Current(reviewed.intent.previous_audit))
         .unwrap();
     let deadline = prepared.deadline();
     let before_sign = std::time::Instant::now();
@@ -477,7 +479,7 @@ fn native_source_requires_current_operator_and_observer_permissions() {
         let source = source(&fixture, queue.clone());
         let reviewed = reviewed(&source);
         let prepared = source
-            .prepare_check(reviewed, Phase::Current(reviewed.intent.previous_audit))
+            .prepare_check(&reviewed, Phase::Current(reviewed.intent.previous_audit))
             .unwrap();
         let signed = source
             .transactions
@@ -741,7 +743,7 @@ fn native_production_issuer_releases_verifiable_cid_token_and_rechecks_revocatio
                     let Executable::Instructions(instructions) = signed.instructions() else {
                         panic!("native issuer submitted a non-instruction transaction");
                     };
-                    for instruction in instructions.iter() {
+                    for instruction in instructions {
                         let native = instruction
                             .as_any()
                             .downcast_ref::<MutateSorafsStreamTokenAuthority>()
@@ -763,20 +765,20 @@ fn native_production_issuer_releases_verifiable_cid_token_and_rechecks_revocatio
         (fixture, actions)
     });
     let cid = sorafs_manifest::canonical_manifest_root_cid([0x3a; 32]);
-    let issued = issue_native_token_v1(
+    let issuance_result = issue_native_token_v1(
         &issuer,
         Fixture::key(2).public_key(),
         cid.clone(),
         provider,
         "sorafs.sf1@1.0.0".into(),
     );
-    let admitted = issued
+    let admitted = issuance_result
         .as_ref()
         .ok()
         .map(|token| before_native_token_admission_v1(&issuer, token));
     stop.store(true, std::sync::atomic::Ordering::Release);
     let (mut fixture, actions) = worker.join().unwrap();
-    let token = issued.expect("production issuer must consume native completed proofs");
+    let token = issuance_result.expect("production issuer must consume native completed proofs");
     admitted
         .unwrap()
         .expect("issued token must pass fresh current-custody admission");

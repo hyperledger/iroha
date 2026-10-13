@@ -140,12 +140,7 @@ fn quarantine_retains_its_original_cause_across_replays_and_progress() {
         network: NETWORK,
         revision: 1,
     };
-    quarantine(
-        &mut stx,
-        &target,
-        ControlCauseV1::for_test([1; 32], [2; 32]),
-    )
-    .unwrap();
+    quarantine(&mut stx, target, ControlCauseV1::for_test([1; 32], [2; 32])).unwrap();
     let original = store::routes::get(&*stx.world, &NETWORK).unwrap().revisions[&1].quarantine;
     assert_eq!(
         original,
@@ -155,12 +150,7 @@ fn quarantine_retains_its_original_cause_across_replays_and_progress() {
         })
     );
     let events = stx.world.internal_event_buf.len();
-    quarantine(
-        &mut stx,
-        &target,
-        ControlCauseV1::for_test([3; 32], [4; 32]),
-    )
-    .unwrap();
+    quarantine(&mut stx, target, ControlCauseV1::for_test([3; 32], [4; 32])).unwrap();
     assert_eq!(
         store::routes::get(&*stx.world, &NETWORK).unwrap().revisions[&1].quarantine,
         original,
@@ -175,7 +165,7 @@ fn quarantine_retains_its_original_cause_across_replays_and_progress() {
     assert!(
         quarantine(
             &mut stx,
-            &SccpRouteRevisionActionV1 {
+            SccpRouteRevisionActionV1 {
                 revision: 99,
                 ..target
             },
@@ -204,7 +194,7 @@ fn quarantined_retirement_requires_the_single_completed_reconciliation_window() 
         revision: 1,
     };
     let cause = ControlCauseV1::for_test([1; 32], [2; 32]);
-    quarantine(&mut stx, &target, cause).unwrap();
+    quarantine(&mut stx, target, cause).unwrap();
     let retire = SccpGovernanceProposalV1 {
         network_id: *stx.network_id(),
         base_revisions: vec![],
@@ -221,9 +211,14 @@ fn quarantined_retirement_requires_the_single_completed_reconciliation_window() 
             },
         )],
     };
+    let premature = enact(&mut stx, &retire, [3; 32], cause);
     assert!(
-        enact(&mut stx, &retire, [3; 32], cause)
-            .expect_err("SCCP quarantined retirement must await reconciliation")
+        premature.is_err(),
+        "SCCP quarantined retirement must await reconciliation"
+    );
+    assert!(
+        premature
+            .unwrap_err()
             .to_string()
             .contains("reconciled before retirement")
     );

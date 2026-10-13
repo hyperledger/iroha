@@ -150,12 +150,12 @@ impl RuntimeHttp {
                         // bounded socket timeouts rather than failing between packet arrivals.
                         socket.set_nonblocking(false)?;
                         let request = wallet_request(&mut socket)?;
-                        let step = worker_remaining
+                        let action = worker_remaining
                             .lock()
                             .unwrap()
                             .pop_front()
                             .ok_or_else(|| io::Error::other("unexpected compliance HTTP retry"))?;
-                        let (step, change) = match step {
+                        let (action, change) = match action {
                             Step::ChangeAfterStatus(observation, change) => {
                                 (Step::Status(observation), Some(change))
                             }
@@ -163,10 +163,10 @@ impl RuntimeHttp {
                                 Step::Mutation(Mutation::Ack, false),
                                 Some(RetainedChange::CorruptAck),
                             ),
-                            step => (step, None),
+                            action => (action, None),
                         };
                         let now = now_ms().unwrap() / 1_000;
-                        let response = match step {
+                        let response = match action {
                             Step::Status(observation) => {
                                 assert_eq!(request.method, "GET");
                                 assert_eq!(
@@ -480,7 +480,7 @@ fn retain_catalog(
         .directory
         .ensure_child("catalogs")
         .unwrap()
-        .ensure_child(&catalog_name(sequence))
+        .ensure_child(catalog_name(sequence))
         .unwrap();
     child
         .write_atomic(
@@ -509,7 +509,7 @@ fn publication_promotes_exact_original_then_reopens_with_one_status_only() {
             });
         assert_eq!(parses, 1);
         assert!(ManagedGatewayCompliance::open(&prepared, provider).is_err());
-        let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        let ((), parses) = crate::localnet::service_authorities::count_profile_validations(|| {
             publisher
                 .validate(&mut TestLive::default(), deadline())
                 .unwrap()
@@ -642,7 +642,7 @@ fn empty_final_catalog_slot_is_reused_without_creating_another_sequence() {
         .directory
         .ensure_child("catalogs")
         .unwrap()
-        .ensure_child(&catalog_name(1))
+        .ensure_child(catalog_name(1))
         .unwrap();
     let mut http = RuntimeHttp::start(
         &prepared,
@@ -717,7 +717,7 @@ fn malformed_foreign_trailing_oversized_and_gapped_originals_refuse_before_http(
             .ensure_child("catalogs")
             .unwrap();
         catalogs
-            .ensure_child(&catalog_name(sequence))
+            .ensure_child(catalog_name(sequence))
             .unwrap()
             .write_atomic("original.nrt", &bytes, PublishMode::CreateNew)
             .unwrap();
@@ -735,7 +735,7 @@ fn malformed_foreign_trailing_oversized_and_gapped_originals_refuse_before_http(
         .ensure_child("catalogs")
         .unwrap();
     catalogs
-        .ensure_child(&catalog_name(1))
+        .ensure_child(catalog_name(1))
         .unwrap()
         .write_atomic("acknowledgement.nrt", b"orphan", PublishMode::CreateNew)
         .unwrap();
@@ -750,9 +750,9 @@ fn malformed_foreign_trailing_oversized_and_gapped_originals_refuse_before_http(
         .directory
         .ensure_child("catalogs")
         .unwrap();
-    catalogs.ensure_child(&catalog_name(1)).unwrap();
+    catalogs.ensure_child(catalog_name(1)).unwrap();
     catalogs
-        .ensure_child(&catalog_name(2))
+        .ensure_child(catalog_name(2))
         .unwrap()
         .write_atomic("original.nrt", &exact, PublishMode::CreateNew)
         .unwrap();
@@ -787,7 +787,7 @@ fn corrupted_retained_ack_is_rejected_before_any_recovery_http() {
         .directory
         .open_child("catalogs")
         .unwrap()
-        .open_child(&catalog_name(1))
+        .open_child(catalog_name(1))
         .unwrap();
     let original = child.read("acknowledgement.nrt", MAX_RECORD_BYTES).unwrap();
     let mut ack: GatewayComplianceAcknowledgementV1 = decode(&original).unwrap();
@@ -1062,7 +1062,7 @@ fn joined_catalog_partial_publication_recovers_each_exact_original() {
         .map(|plan| plan.provider_id);
     let publishers =
         providers.map(|provider| ManagedGatewayCompliance::open(&prepared, provider).unwrap());
-    let paths = publishers.each_ref().map(|publisher| operation(publisher));
+    let paths = publishers.each_ref().map(operation);
     let mut servers: [_; 3] = std::array::from_fn(|slot| {
         let script = if slot == 1 {
             vec![

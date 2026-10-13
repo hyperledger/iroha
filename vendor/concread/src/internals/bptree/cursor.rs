@@ -3027,6 +3027,6 @@ mod tests {
     */
 }
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "cursor_allocation_tests.rs"]
 mod allocation_tests;

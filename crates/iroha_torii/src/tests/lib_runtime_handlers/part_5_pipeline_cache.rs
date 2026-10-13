@@ -279,7 +279,7 @@ fn pipeline_status_cache_live_counts_track_entries_and_pending_blocks() {
     );
     assert_eq!(cache.pending_count.load(Ordering::Relaxed), 1);
     assert_eq!(cache.pending_order.lock().len(), 1);
-    assert!(cache.remove_pending_by_height(&height_a));
+    assert!(cache.remove_pending_by_height(height_a));
     assert_eq!(cache.pending_count.load(Ordering::Relaxed), 0);
 }
 #[test]

@@ -7,8 +7,8 @@ fn policy(tables: LeafLimits) -> TableCaptureLimits {
         tables,
         membership: MembershipWorkLimits {
             max_row_visits: 64,
-            max_streamed_bytes: 131072,
-            max_ordered_bytes: 131072,
+            max_streamed_bytes: 131_072,
+            max_ordered_bytes: 131_072,
         },
     }
 }
@@ -271,8 +271,8 @@ fn occupied_original_pool_preserves_exact_refusal_wake_and_retry() {
         panic!("occupied original pool");
     };
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     let mut future = release.wait_for_release(&mut registration);
     assert_eq!(Pin::new(&mut future).poll(&mut context), Poll::Pending);
     let unrelated = AllocationBudget::new(backing_bytes());

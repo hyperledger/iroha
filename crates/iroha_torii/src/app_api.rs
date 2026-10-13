@@ -1,4 +1,3 @@
-#![cfg(feature = "app_api")]
 use crate::{JsonBody, SharedAppState, sorafs::site::encode_content_cid};
 use axum::{
     body::Bytes,
@@ -11,8 +10,8 @@ use iroha_data_model::soracloud::SoraRouteVisibilityV1;
 use mv::storage::StorageReadOnly;
 use norito::json::{self, Map, Value};
 use std::{collections::HashSet, net::SocketAddr};
-pub(crate) const APP_API_BINDING_CONFIG_NAME: &str = "torii/app_api_binding";
-pub(crate) const APP_API_MANIFEST_SCHEMA_VERSION_V1: u16 = 1;
+pub const APP_API_BINDING_CONFIG_NAME: &str = "torii/app_api_binding";
+pub const APP_API_MANIFEST_SCHEMA_VERSION_V1: u16 = 1;
 const ADAPTER_CONTRACT_VIEW_BATCH_V1: &str = "contract.view_batch.v1";
 const ADAPTER_SWAPS_FILLS_V1: &str = "contract.rollups.swaps_fills.v1";
 const ADAPTER_SWAPS_CANDLES_V1: &str = "contract.rollups.swaps_candles.v1";
@@ -34,7 +33,7 @@ const API_MANIFEST_FILE_NAMES: &[&str] = &[
     Eq,
 )]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ToriiAppApiRouteV1 {
+pub struct ToriiAppApiRouteV1 {
     pub method: String,
     pub path: String,
     pub adapter: String,
@@ -48,7 +47,7 @@ pub(crate) struct ToriiAppApiRouteV1 {
     Eq,
 )]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ToriiAppApiManifestV1 {
+pub struct ToriiAppApiManifestV1 {
     pub schema_version: u16,
     pub app_id: String,
     #[norito(default)]
@@ -130,6 +129,10 @@ fn adapter_is_dataspace_visible_read(adapter: &str) -> bool {
             | ADAPTER_TRADER_ACCOUNT_V1
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_route(route: &ToriiAppApiRouteV1) -> Result<(&'static str, String), Response> {
     if !is_supported_method(&route.method) {
         return Err(json_error(
@@ -160,6 +163,10 @@ fn validate_route(route: &ToriiAppApiRouteV1) -> Result<(&'static str, String), 
     }
     Ok((expected_method, canonical_path))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_routes(routes: &[ToriiAppApiRouteV1]) -> Result<(), Response> {
     let mut canonical_routes = HashSet::with_capacity(routes.len());
     for route in routes {
@@ -173,6 +180,10 @@ fn validate_routes(routes: &[ToriiAppApiRouteV1]) -> Result<(), Response> {
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_manifest(
     manifest: &ToriiAppApiManifestV1,
     expected_cid: Option<&str>,
@@ -223,6 +234,10 @@ fn validate_manifest(
     validate_routes(&manifest.routes)?;
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_binding(binding: &ToriiAppApiBindingV1) -> Result<(), Response> {
     if binding.schema_version != APP_API_MANIFEST_SCHEMA_VERSION_V1 {
         return Err(json_error(
@@ -257,6 +272,10 @@ fn binding_to_manifest(binding: &ToriiAppApiBindingV1) -> ToriiAppApiManifestV1 
         routes: binding.routes.clone(),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn resolve_binding_candidates(state: &SharedAppState) -> Result<Vec<ResolvedBinding>, Response> {
     let state_view = state.state.view();
     let world = state_view.world();
@@ -354,6 +373,10 @@ fn binding_to_json(candidate: &ResolvedBinding) -> Value {
     );
     Value::Object(object)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn read_api_manifest_payload(
     state: &SharedAppState,
     stored: &sorafs_node::store::StoredManifest,
@@ -450,6 +473,10 @@ where
         .await
         .map(|crate::NoritoQuery(value)| value)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_json_body<T>(body: &Bytes) -> Result<T, Response>
 where
     T: norito::json::JsonDeserializeOwned,
@@ -500,12 +527,21 @@ fn enforce_dispatch_response_policy(
     }
     response
 }
-async fn dispatch_app_api_route(
-    app: SharedAppState,
+struct AppApiDispatchRequest {
     headers: HeaderMap,
     remote: SocketAddr,
     method: Method,
     uri: Uri,
+}
+
+async fn dispatch_app_api_route(
+    app: SharedAppState,
+    AppApiDispatchRequest {
+        headers,
+        remote,
+        method,
+        uri,
+    }: AppApiDispatchRequest,
     route: &ToriiAppApiRouteV1,
     source: AppApiRouteSource,
     body: Option<(Bytes, crate::app_auth::VerifiedCanonicalRequest)>,
@@ -641,10 +677,12 @@ async fn dispatch_app_api_route(
 }
 async fn dispatch_manifest_path(
     app: SharedAppState,
-    headers: HeaderMap,
-    remote: SocketAddr,
-    method: Method,
-    uri: Uri,
+    AppApiDispatchRequest {
+        headers,
+        remote,
+        method,
+        uri,
+    }: AppApiDispatchRequest,
     raw_path: String,
     manifest: ToriiAppApiManifestV1,
     source: AppApiRouteSource,
@@ -662,11 +700,22 @@ async fn dispatch_manifest_path(
             ),
         );
     };
-    let response =
-        dispatch_app_api_route(app, headers, remote, method, uri, route, source, body).await;
+    let response = dispatch_app_api_route(
+        app,
+        AppApiDispatchRequest {
+            headers,
+            remote,
+            method,
+            uri,
+        },
+        route,
+        source,
+        body,
+    )
+    .await;
     enforce_dispatch_response_policy(response, route)
 }
-pub(crate) async fn handle_get_app_api_bindings(State(app): State<SharedAppState>) -> Response {
+pub async fn handle_get_app_api_bindings(State(app): State<SharedAppState>) -> Response {
     let candidates = match resolve_binding_candidates(&app) {
         Ok(value) => value,
         Err(response) => return response,
@@ -690,7 +739,7 @@ pub(crate) async fn handle_get_app_api_bindings(State(app): State<SharedAppState
     );
     JsonBody(Value::Object(body)).into_response()
 }
-pub(crate) async fn handle_get_app_api_cid_manifest(
+pub async fn handle_get_app_api_cid_manifest(
     State(app): State<SharedAppState>,
     Path(cid): Path<String>,
 ) -> Response {
@@ -700,7 +749,7 @@ pub(crate) async fn handle_get_app_api_cid_manifest(
     };
     JsonBody(manifest_to_json(&manifest)).into_response()
 }
-pub(crate) async fn handle_get_app_api_cid_path(
+pub async fn handle_get_app_api_cid_path(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,
@@ -718,11 +767,25 @@ pub(crate) async fn handle_get_app_api_cid_path(
         service_id: None,
     };
     dispatch_manifest_path(
-        app, headers, remote, method, uri, raw_path, manifest, source, None,
+        app,
+        AppApiDispatchRequest {
+            headers,
+            remote,
+            method,
+            uri,
+        },
+        raw_path,
+        manifest,
+        source,
+        None,
     )
     .await
 }
-pub(crate) async fn handle_post_app_api_cid_path(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Axum extracts authenticated request metadata, peer address, route path and body independently."
+)]
+pub async fn handle_post_app_api_cid_path(
     State(app): State<SharedAppState>,
     axum::Extension(verified): axum::Extension<crate::app_auth::VerifiedCanonicalRequest>,
     method: Method,
@@ -743,10 +806,12 @@ pub(crate) async fn handle_post_app_api_cid_path(
     };
     dispatch_manifest_path(
         app,
-        headers,
-        remote,
-        method,
-        uri,
+        AppApiDispatchRequest {
+            headers,
+            remote,
+            method,
+            uri,
+        },
         raw_path,
         manifest,
         source,
@@ -754,7 +819,7 @@ pub(crate) async fn handle_post_app_api_cid_path(
     )
     .await
 }
-pub(crate) async fn handle_get_app_api_active_path(
+pub async fn handle_get_app_api_active_path(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,
@@ -789,11 +854,25 @@ pub(crate) async fn handle_get_app_api_active_path(
         service_id: Some(candidate.service_id.clone()),
     };
     dispatch_manifest_path(
-        app, headers, remote, method, uri, raw_path, manifest, source, None,
+        app,
+        AppApiDispatchRequest {
+            headers,
+            remote,
+            method,
+            uri,
+        },
+        raw_path,
+        manifest,
+        source,
+        None,
     )
     .await
 }
-pub(crate) async fn handle_post_app_api_active_path(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Axum extracts authenticated request metadata, peer address, route path and body independently."
+)]
+pub async fn handle_post_app_api_active_path(
     State(app): State<SharedAppState>,
     axum::Extension(verified): axum::Extension<crate::app_auth::VerifiedCanonicalRequest>,
     method: Method,
@@ -831,10 +910,12 @@ pub(crate) async fn handle_post_app_api_active_path(
     };
     dispatch_manifest_path(
         app,
-        headers,
-        remote,
-        method,
-        uri,
+        AppApiDispatchRequest {
+            headers,
+            remote,
+            method,
+            uri,
+        },
         raw_path,
         manifest,
         source,
@@ -882,10 +963,12 @@ mod tests {
             };
             let response = dispatch_manifest_path(
                 app.clone(),
-                HeaderMap::new(),
-                SocketAddr::from(([127, 0, 0, 1], 0)),
-                Method::POST,
-                "/v1/app-api/active/read".parse().expect("URI"),
+                AppApiDispatchRequest {
+                    headers: HeaderMap::new(),
+                    remote: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    method: Method::POST,
+                    uri: "/v1/app-api/active/read".parse().expect("URI"),
+                },
                 "read".to_owned(),
                 manifest,
                 source,

@@ -48,7 +48,7 @@ impl<'source> CapturedPhaseV1<'source> {
     /// Consume the same capture into one fresh round; nothing survives for a later phase.
     pub(super) fn into_check(
         self,
-        reviewed: StreamTokenReviewedV1,
+        reviewed: &StreamTokenReviewedV1,
         phase: Phase,
     ) -> Result<PreparedStreamTokenCheckV1, SignerOperationErrorV1> {
         if self.current.operator != self.source.transactions.operator() {
@@ -62,7 +62,7 @@ impl<'source> CapturedPhaseV1<'source> {
                 expected_operator: self.current.operator,
                 control_revision: self.current.control_revision,
                 control_digest: self.current.anchor.state_digest,
-                reviewed,
+                reviewed: *reviewed,
                 phase,
                 floor: self.current.floor,
             },
@@ -75,7 +75,7 @@ impl<'source> CapturedPhaseV1<'source> {
 impl NativeStreamTokenSourceV1 {
     pub(super) fn prepare_check(
         &self,
-        reviewed: StreamTokenReviewedV1,
+        reviewed: &StreamTokenReviewedV1,
         phase: Phase,
     ) -> Result<PreparedStreamTokenCheckV1, SignerOperationErrorV1> {
         CapturedPhaseV1::capture(self, reviewed.request.operation_id)?.into_check(reviewed, phase)
@@ -94,7 +94,7 @@ impl NativeStreamTokenSourceV1 {
             SignerReservedObservationPhaseV1::AfterProvider => Phase::AfterProvider(row),
             SignerReservedObservationPhaseV1::BeforeCommit => Phase::BeforeCommit(row),
         };
-        captured.into_check(reviewed, phase)
+        captured.into_check(&reviewed, phase)
     }
     pub(super) fn prepare_committed_check(
         &self,
@@ -121,7 +121,7 @@ impl NativeStreamTokenSourceV1 {
             SignerCommittedObservationPhaseV1::AfterCommit => Phase::AfterCommit(row),
             SignerCommittedObservationPhaseV1::BeforeRelease => Phase::BeforeRelease(row),
         };
-        captured.into_check(reviewed, phase)
+        captured.into_check(&reviewed, phase)
     }
 }
 

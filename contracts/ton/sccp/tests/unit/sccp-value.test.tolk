@@ -20,6 +20,7 @@ import "@contracts/sccp-errors"
 import "@contracts/sccp-fees"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -239,8 +240,8 @@ get fun `test the quote is the entry minimum plus the storage grace`() {
     expect(testing.getAccountBalance(env.minter.address)).toEqual(sccpMinterFloor());
 
     // a quote goes stale only when another transaction collects more storage
-    // than the grace: here a burn after five idle weeks
-    testing.setNow(T0 + 40 * DAY_S);
+    // than the grace: here a burn after 400 idle days
+    testing.setNow(T0 + 400 * DAY_S);
     val stale = env.minter.deployBucketsRequiredValue(1);
     expect(stale).toEqual(sccpDeployBucketsRequiredValue(1) + sccpMinterStorageGrace());
     expect(
@@ -407,7 +408,7 @@ get fun `test a bucket reply at a minter below its floor completes without payin
     val rest = cursor.executeAllRemaining();
     cursor.close();
     expect(rest).toHaveAllSuccessfulTxs();
-    expect(rest).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(rest).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(rest).toEmitExternalMessage<SccpFinalizedEvent>();
     expect(jettonBalanceOf(env, alice)).toEqual(1300);
     // the reply kept the prior balance and paid nothing toward the floor
@@ -436,7 +437,7 @@ get fun `test a bucket reply at a minter below its floor completes without payin
     val refused = duplicate.executeAllRemaining();
     duplicate.close();
     expect(refused).toHaveAllSuccessfulTxs();
-    expect(refused).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(refused).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(refused).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
     expect(testing.getAccountBalance(env.minter.address)).toEqual(low);
     val state = env.minter.getSccpState();

@@ -1,0 +1,48 @@
+{
+  "schema": "parliament-allocation-trace-summary-v1",
+  "campaign_sha256": "5f8c367c599cee7b11d8f4537e8ecf79874273a684c78ed073a963ca0a1f8085",
+  "source_changes": {},
+  "guarded_inputs": 2041,
+  "observations": 146,
+  "proof_observations": 132,
+  "outcomes": {
+    "accepted": 16,
+    "rejected": 104,
+    "admission_rejected": 4,
+    "input_error": 8
+  },
+  "stages": {
+    "complete": 16,
+    "proof": 28,
+    "codec": 76,
+    "reserve": 4,
+    "read": 8
+  },
+  "controls": {
+    "control_matched": 6,
+    "expected_invalid_recorder": 4,
+    "expected_setup_refusal": 2,
+    "expected_terminal_without_trace": 2
+  },
+  "matched_allocation_events": 8943472,
+  "matched_allocations": 4471736,
+  "rows": {
+    "candidate": {
+      "peak_requested_bytes": 4069654,
+      "peak_block_bytes": 5017216,
+      "peak_live_objects": 23,
+      "max_allocations_observed": 19041
+    },
+    "comparator": {
+      "peak_requested_bytes": 6565341,
+      "peak_block_bytes": 7211136,
+      "peak_live_objects": 23,
+      "max_allocations_observed": 184164
+    }
+  },
+  "complete_allocation_correspondence": false,
+  "complete_workspace_certificate": false,
+  "profile_qualified": false,
+  "feature_mode_outcome_debit_pairs": 66,
+  "retained_dump_roundtrips_verified": 146
+}

@@ -1,0 +1,36 @@
+--- frozen-workspace.rs
++++ diagnostic-workspace.rs
+@@ -102,6 +102,7 @@
+         }
+         written += count.cast_unsigned();
+     }
++    crate::observer::terminal();
+     unsafe { libc::_exit(73) }
+ }
+ 
+@@ -298,7 +299,9 @@
+     }
+     request.result = execute(request);
+     // All record/statement/verifier/error ownership has ended in execute.
++    let probe_was_active = ACTIVE.load(Ordering::Acquire);
+     ACTIVE.store(false, Ordering::Release);
++    if probe_was_active { crate::observer::end(); }
+     ptr::null_mut()
+ }
+ 
+@@ -338,6 +341,7 @@
+     );
+     CHARGED_UNITS.store(charge.verification_units, Ordering::Relaxed);
+     CHARGED_BYTES.store(charge.input_bytes, Ordering::Relaxed);
++    crate::observer::begin();
+     ACTIVE.store(true, Ordering::Release);
+     let mut result = ResultState::failure("input_error", "read", 3);
+     result.charged_units = charge.verification_units;
+@@ -421,3 +425,7 @@
+         );
+     }
+ }
++
++#[path = "/private/tmp/parliament-native-probe/worker-src-4/routed_control.rs"]
++mod probe_control;
++pub use probe_control::run as run_probe_control;

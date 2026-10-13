@@ -452,3 +452,82 @@ fn wide_set_preserves_high_bits_across_matching_binary_json_and_schema() {
         64
     );
 }
+
+#[test]
+fn wide_set_matches_each_bit_independently() {
+    let events = [
+        WideEvent::Event0,
+        WideEvent::Event1,
+        WideEvent::Event2,
+        WideEvent::Event3,
+        WideEvent::Event4,
+        WideEvent::Event5,
+        WideEvent::Event6,
+        WideEvent::Event7,
+        WideEvent::Event8,
+        WideEvent::Event9,
+        WideEvent::Event10,
+        WideEvent::Event11,
+        WideEvent::Event12,
+        WideEvent::Event13,
+        WideEvent::Event14,
+        WideEvent::Event15,
+        WideEvent::Event16,
+        WideEvent::Event17,
+        WideEvent::Event18,
+        WideEvent::Event19,
+        WideEvent::Event20,
+        WideEvent::Event21,
+        WideEvent::Event22,
+        WideEvent::Event23,
+        WideEvent::Event24,
+        WideEvent::Event25,
+        WideEvent::Event26,
+        WideEvent::Event27,
+        WideEvent::Event28,
+        WideEvent::Event29,
+        WideEvent::Event30,
+        WideEvent::Event31,
+        WideEvent::Event32,
+        WideEvent::Event33,
+        WideEvent::Event34,
+        WideEvent::Event35,
+        WideEvent::Event36,
+        WideEvent::Event37,
+        WideEvent::Event38,
+        WideEvent::Event39,
+        WideEvent::Event40,
+        WideEvent::Event41,
+        WideEvent::Event42,
+        WideEvent::Event43,
+        WideEvent::Event44,
+        WideEvent::Event45,
+        WideEvent::Event46,
+        WideEvent::Event47,
+        WideEvent::Event48,
+        WideEvent::Event49,
+        WideEvent::Event50,
+        WideEvent::Event51,
+        WideEvent::Event52,
+        WideEvent::Event53,
+        WideEvent::Event54,
+        WideEvent::Event55,
+        WideEvent::Event56,
+        WideEvent::Event57,
+        WideEvent::Event58,
+        WideEvent::Event59,
+        WideEvent::Event60,
+        WideEvent::Event61,
+        WideEvent::Event62,
+        WideEvent::Event63,
+    ];
+    for (bit, event) in events.iter().enumerate() {
+        let name = format!("Event{bit}");
+        let selected = json::from_value::<WideEventSet>(array(&[&name])).unwrap();
+        assert!(WideEventSet::all().matches(event));
+        assert!(!WideEventSet::empty().matches(event));
+        for (candidate_bit, candidate) in events.iter().enumerate() {
+            assert_eq!(selected.matches(candidate), bit == candidate_bit);
+        }
+    }
+}

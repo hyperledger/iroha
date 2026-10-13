@@ -1,0 +1,53 @@
+{
+  "commands": [
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-arena",
+        "--incremental",
+        "--",
+        "clippy",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "arena_trace_replay",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 7.580002374947071,
+      "source_changes": {},
+      "log_sha256": "da63d731ddfb69352f9c144b703f88d3e51cc99e233b9e0f8e728926e8a1a411"
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-arena",
+        "--incremental",
+        "--",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "arena_trace_replay"
+      ],
+      "exit": 0,
+      "elapsed_seconds": 1.422840624814853,
+      "source_changes": {},
+      "log_sha256": "5fd2ed208ea8bbebc849f227d8fdd6e884b0b8b0e4ffb1450988af49c244adbf"
+    }
+  ],
+  "binary": {
+    "path": "/tmp/parliament-arena-trace-replay",
+    "sha256": "081faba276cdcc0521a87b1908abbeab572449e5dbc6b9934f034340697fafcc"
+  },
+  "source_manifest_sha256": "8d09e9390be8ee3f0dbb0c2dca4e09c7e99bbb41a4e1dd76dddec79727e6365b",
+  "profile_qualified": false
+}

@@ -14,6 +14,7 @@ import "@acton/io"
 import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-finality"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@tests/unit/sccp-test-vectors.gen"
 
@@ -99,7 +100,7 @@ fun emitVector(
         config: config.toCell(),
         committee: committee.toCell(),
         checkpoints,
-        retries: [],
+        recovery: RecoveryBook.empty().toCell(),
     };
     val data = storage.toCell();
     val code = build("SccpTairaXorMinter");
@@ -112,6 +113,7 @@ fun emitVector(
     println("sccp-stateinit {} committee_hash={:064x}", label, committee.toCell().hash());
     println("sccp-stateinit {} keys_hash={:064x}", label, keysCell.hash());
     println("sccp-stateinit {} checkpoints_hash={:064x}", label, checkpoints.hash());
+    println("sccp-stateinit {} recovery_hash={:064x}", label, storage.recovery.hash());
     println("sccp-stateinit {} data_hash={:064x}", label, data.hash());
     println("sccp-stateinit {} data_depth={}", label, (data as cell).depth());
     println("sccp-stateinit {} state_init_hash={:064x}", label, stateInitHash);

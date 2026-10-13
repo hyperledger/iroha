@@ -338,7 +338,7 @@ async fn storage_token_requires_an_authenticated_operator_identity() {
     insert_static_api_test_header(&mut headers, HEADER_SORA_NONCE, "operator-auth-nonce");
     let missing = api_test_route!(post_storage_token_authenticated; None; State(context.app.clone()); headers.clone(); JsonOnly(request()));
     assert_eq!(missing.status(), StatusCode::FORBIDDEN);
-    let valid = api_test_route!(post_storage_token_authenticated; test_stream_token_operator(); State(context.app.clone()); headers; JsonOnly(request()));
+    let valid = api_test_route!(post_storage_token_authenticated; Some(test_stream_token_operator()); State(context.app.clone()); headers; JsonOnly(request()));
     assert_eq!(valid.status(), StatusCode::OK);
     assert_eq!(
         api_test_header_str(valid.headers(), HEADER_SORA_ISSUANCE_QUOTA_REMAINING),

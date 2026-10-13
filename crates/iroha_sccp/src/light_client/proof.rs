@@ -38,6 +38,13 @@ use super::{
 };
 use crate::{ethereum_source::EthereumNativeLightClientBootstrapV1, v1::payload::PayloadAccountV1};
 
+/// Return the chain of a canonically shaped, non-Backfill keeper advance without allocating
+/// a decoded verifier graph. This confers no source validity or advancement authority.
+#[must_use]
+pub fn keeper_advance_network(bytes: &[u8]) -> Option<SccpNetworkV1> {
+    super::shape::keeper_network(bytes)
+}
+
 fn encode_frame<T: norito::NoritoSerialize>(
     value: &T,
     kind: &'static str,
@@ -408,7 +415,7 @@ impl SccpSourceEmitterV1 {
 
 /// Source event yielded by a verified proof (§4.12.1 step 4, §4.16).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SccpNormalizedEventV1 {
+pub enum SccpNormalizedEventV1<Sender = PayloadAccountV1> {
     /// An outbound mint finalized on the destination, authenticated by its source proof.
     Finalized {
         /// Emitting destination contract.
@@ -429,7 +436,7 @@ pub enum SccpNormalizedEventV1 {
         /// Message id the source contract computed.
         message_id: [u8; 32],
         /// Burning account in the payload's sender codec.
-        sender: PayloadAccountV1,
+        sender: Sender,
         /// Source per-sender nonce.
         nonce: u64,
         /// `payload_hash` of the payload the event carries.
@@ -454,7 +461,7 @@ pub enum SccpNormalizedEventV1 {
     },
 }
 
-impl SccpNormalizedEventV1 {
+impl<Sender> SccpNormalizedEventV1<Sender> {
     /// Emitting contract.
     #[must_use]
     pub const fn emitter(&self) -> &SccpSourceEmitterV1 {
@@ -594,7 +601,7 @@ mod tests {
         };
         assert_eq!(transfer.emitter(), &SccpSourceEmitterV1::Evm([1; 20]));
         assert_eq!(transfer.locator(), &locator);
-        let void = SccpNormalizedEventV1::Void {
+        let void: SccpNormalizedEventV1 = SccpNormalizedEventV1::Void {
             emitter: SccpSourceEmitterV1::Evm([1; 20]),
             kind: SccpVoidKindV1::Frozen,
             first_nonce: 1,

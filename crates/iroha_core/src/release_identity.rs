@@ -306,6 +306,12 @@ fn is_exact_commit(source: &str) -> bool {
 
 /// Verify canonical signed genesis bytes against the explicitly selected genesis key.
 /// Returns the actual block hash and its validated signed consensus metadata.
+///
+/// # Errors
+///
+/// Returns an error if the bytes are not a canonical signed genesis block,
+/// validation against the supplied public key fails, or consensus metadata
+/// cannot be extracted.
 pub fn genesis_identity(
     bytes: &[u8],
     public_key: &PublicKey,
@@ -512,10 +518,10 @@ mod tests {
 
     #[test]
     fn wire_schema_hash_binds_fixed_result_header_and_outer_hash_contract() {
+        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();
         let roots = [&block, &consensus, &execution];
-        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
         let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, &[], abi);
         let contract = wire_identity::descriptor();
         let bind = |contract: &[u8]| {

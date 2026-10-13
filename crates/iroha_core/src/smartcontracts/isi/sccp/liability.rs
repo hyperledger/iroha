@@ -57,19 +57,22 @@ pub(crate) fn release_blocker<'a>(
         if *generation != record.generation || !record.is_well_formed() {
             return Err(ForgeryStorageError::Invalid);
         }
-        if slashable_through_height.is_none_or(|height| record.start_height <= height)
+        if !cfg!(all(test, sumeragi_core_mutation = "HC320"))
+            && slashable_through_height.is_none_or(|height| record.start_height <= height)
             && record.is_liable(current_generation, clock)
         {
             return Ok(Some(ReleaseBlocker::LiabilityActive));
         }
-        if member_has_pending_penalty(
-            current,
-            record,
-            validator.lane_id,
-            &validator.validator,
-            validator.activation_height,
-            budget,
-        )? {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC321"))
+            && member_has_pending_penalty(
+                current,
+                record,
+                validator.lane_id,
+                &validator.validator,
+                validator.activation_height,
+                budget,
+            )?
+        {
             return Ok(Some(ReleaseBlocker::PenaltyPending));
         }
     }

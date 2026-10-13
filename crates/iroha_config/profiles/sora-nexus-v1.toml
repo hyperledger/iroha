@@ -75,6 +75,9 @@ lane_count = 4
 exit_teu = 50000000
 
 [static.nexus.staking]
+# SCCP validity plus evidence grace; part of the signed consensus policy.
+unbonding_delay_ms = 1814400000
+max_slash_bps = 10000
 stake_asset_id = "6TEAJqbb8oEPmLncoNiMRbLEK6tw"
 stake_escrow_account_id = "testuﾛ1PgwﾋWｦﾆﾏﾎ4ﾏjｹ2ghﾇKVｾﾓﾐﾍｵﾑVﾔｦEｼGﾐｶﾌSｽﾋﾕｸBS35S9"
 slash_sink_account_id = "testuﾛ1PgwﾋWｦﾆﾏﾎ4ﾏjｹ2ghﾇKVｾﾓﾐﾍｵﾑVﾔｦEｼGﾐｶﾌSｽﾋﾕｸBS35S9"

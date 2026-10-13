@@ -24,13 +24,14 @@ fn original_allocation_refusal(error: &StateRestoreError) -> &AllocationRefusal 
                 original,
             )),
         ))
-        | StateRestoreError::Sccp(SccpRestoreError::Storage(
-            mv::storage::AdmittedStorageError::Allocation(original),
-        ))
-        | StateRestoreError::Sccp(SccpRestoreError::Admission(original))
-        | StateRestoreError::Sccp(SccpRestoreError::Generation(
-            GenerationRecordError::Admission(original),
-        )) => original,
+        | StateRestoreError::Sccp(
+            SccpRestoreError::Storage(mv::storage::AdmittedStorageError::Allocation(original))
+            | SccpRestoreError::Admission(original)
+            | SccpRestoreError::Generation(GenerationRecordError::Admission(original))
+            | SccpRestoreError::LightClient(
+                iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1::Admission(original),
+            ),
+        ) => original,
         _ => panic!("original local allocation refusal must retain its type: {error:?}"),
     }
 }

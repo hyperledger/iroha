@@ -3,7 +3,7 @@
 //
 // - The size constants cover the compiled contracts, the largest minter
 //   state (n = 31, three checkpoints, the largest supplies and counters, room
-//   for recorded retries) and the largest message of each kind.
+//   for 512 prepaid recovery slots) and the largest message of each kind.
 // - Every per-step gas limit covers its step at the largest inputs: n = 31
 //   with the 21 highest signers, full checkpoint slots, the last leaf of a
 //   512-leaf block under a history of 2^32 blocks, a 1024-byte sender or
@@ -29,6 +29,7 @@ import "@contracts/sccp-errors"
 import "@contracts/sccp-fees"
 import "@contracts/sccp-finality"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -40,9 +41,6 @@ import "sccp-test-vectors.gen"
 const MAX_U256 = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 /// The largest `Coins` value: a `VarUInteger 16` holds 15 bytes.
 const MAX_COINS = 0xffffffffffffffffffffffffffffff
-/// Recorded retries that the bound of the minter state leaves room for. A
-/// record exists only after a bounce of a message the minter sent (§5.3.4).
-const RETRY_ROOM = 8
 
 /// (cells, bits) of a cell tree.
 fun treeSize(c: cell): (int, int) {
@@ -66,7 +64,8 @@ fun expectCovered(label: string, cells: int, bits: int, maxCells: int, maxBits: 
 get fun `test state size constants cover the compiled contracts`() {
     val minter = testing.treasury("minter").address;
     val owner = testing.treasury("owner").address;
-    val bucketData: BucketStorage = {
+    var bucketData: BucketStorage = {
+        recovery: RecoveryReceipts.empty().toCell(),
         minterAddress: minter,
         index: 0xFFFFFFFF,
         activated: true,
@@ -75,13 +74,7 @@ get fun `test state size constants cover the compiled contracts`() {
     };
     val (bc, bb) = treeSize(build("SccpConsumedBucket"));
     val (bdc, bdb) = treeSize(bucketData.toCell());
-    expectCovered(
-        "bucket state",
-        bc + bdc,
-        bb + bdb,
-        SCCP_BUCKET_STATE_CELLS,
-        SCCP_BUCKET_STATE_BITS,
-    );
+
     expectCovered(
         "bucket StateInit",
         bc + bdc + 1,
@@ -90,20 +83,15 @@ get fun `test state size constants cover the compiled contracts`() {
         SCCP_BUCKET_STATE_INIT_BITS,
     );
 
-    val walletData: WalletStorage = {
+    var walletData: WalletStorage = {
+        recovery: RecoveryReceipts.empty().toCell(),
         jettonBalance: SCCP_TON_AMOUNT_LIMIT,
         ownerAddress: owner,
         minterAddress: minter,
     };
     val (wc, wb) = treeSize(build("SccpTairaXorWallet"));
     val (wdc, wdb) = treeSize(walletData.toCell());
-    expectCovered(
-        "wallet state",
-        wc + wdc,
-        wb + wdb,
-        SCCP_WALLET_STATE_CELLS,
-        SCCP_WALLET_STATE_BITS,
-    );
+
     expectCovered(
         "wallet StateInit",
         wc + wdc + 1,
@@ -112,8 +100,35 @@ get fun `test state size constants cover the compiled contracts`() {
         SCCP_WALLET_STATE_INIT_BITS,
     );
 
+    bucketData.recovery = maximumRecoveryReceipts(SCCP_RECOVERY_CONSUME).toCell();
+    walletData.recovery = maximumRecoveryReceipts(SCCP_RECOVERY_MINT).toCell();
+    val (bmc, bmb) = treeSize(
+        beginCell().storeRef(build("SccpConsumedBucket")).storeRef(bucketData.toCell()).endCell(),
+    );
+    val (wmc, wmb) = treeSize(
+        beginCell().storeRef(build("SccpTairaXorWallet")).storeRef(walletData.toCell()).endCell(),
+    );
+    expectCovered(
+        "maximum bucket state",
+        bmc,
+        bmb,
+        SCCP_BUCKET_STATE_CELLS,
+        SCCP_BUCKET_STATE_BITS,
+    );
+    expectCovered(
+        "maximum wallet state",
+        wmc,
+        wmb,
+        SCCP_WALLET_STATE_CELLS,
+        SCCP_WALLET_STATE_BITS,
+    );
+    expect(SCCP_BUCKET_STATE_CELLS * 100 <= bmc * 105).toBeTrue();
+    expect(SCCP_BUCKET_STATE_BITS * 100 <= bmb * 105).toBeTrue();
+    expect(SCCP_WALLET_STATE_CELLS * 100 <= wmc * 105).toBeTrue();
+    expect(SCCP_WALLET_STATE_BITS * 100 <= wmb * 105).toBeTrue();
+
     // The largest minter: the 16 `KeyChunk`s of n = 31, three checkpoints,
-    // the largest supplies and counters and `RETRY_ROOM` recorded retries.
+    // the largest supplies and counters and 512 retained recovery operations.
     // It is installed as an account, because the storage phase charges for
     // the storage statistics of the account, which count its own cells too.
     testing.setNow(T0);
@@ -142,14 +157,7 @@ get fun `test state size constants cover the compiled contracts`() {
     expect(slots.insert(SCCP_MAX_U64 - 1, MAX_U256 - 1)).toBeTrue();
     expect(slots.insert(SCCP_MAX_U64, MAX_U256)).toBeTrue();
     storage.checkpoints = slots.toCell();
-    // Retries under keys that differ in their first and in their last bits:
-    // every record then has its own leaf and no two forks are one cell, so
-    // the dictionary of `RETRY_ROOM` records has `2 · RETRY_ROOM − 1` cells.
-    var k = 0;
-    repeat (RETRY_ROOM) {
-        storage.retries.set((k << 61) | (k * SCCP_BUCKET_BITS + 1), SCCP_RETRY_UNCONSUME);
-        k += 1;
-    }
+    storage.recovery = maximumRecoveryBook().toCell();
     val largest = installPinned(storage, deployer, grams("20"));
     val (mc, mb) = accountStorageUsed(largest.address);
     expectCovered("minter state", mc, mb, SCCP_MINTER_STATE_CELLS, SCCP_MINTER_STATE_BITS);
@@ -167,60 +175,72 @@ get fun `test state size constants cover the compiled contracts`() {
     // The union's zero-bit root stands in for the account's own storage cell.
     expect(mc).toEqual(unionCells);
     expect(mb >= unionBits).toBeTrue();
-    // the same data without retries, as a deployment holds it in practice
-    storage.retries = [];
+    // The same data with the canonical empty operation book.
+    storage.recovery = RecoveryBook.empty().toCell();
     val plain = installPinned(storage, deployer, grams("20"));
     val (pc, pb) = accountStorageUsed(plain.address);
-    println("largest minter state without retries: {} cells, {} bits", pc, pb);
-    expect(mc - pc).toEqual(2 * RETRY_ROOM - 1);
+    println("largest minter state with empty recovery book: {} cells, {} bits", pc, pb);
+    expect(mc - pc >= 3 * SCCP_RECOVERY_CAPACITY).toBeTrue();
 }
 
 get fun `test message size constants cover the largest messages`() {
     val a = testing.treasury("a").address;
     val b = testing.treasury("b").address;
-    val tail: ConsumeTail = {
-        kind: 0,
-        recipient: a,
+    val dispatch = SccpRecoveryDispatch {
+        operationId: SCCP_MAX_U64,
+        stage: SCCP_RECOVERY_MINT,
+        attempt: SCCP_MAX_U64,
+        nonce: SCCP_MAX_U64,
+        count: 512,
+        amount: SCCP_TON_AMOUNT_LIMIT - 1,
+        queryId: SCCP_MAX_U64,
         response: b,
-        messageId: MAX_U256,
     };
     val consume = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         value: SCCP_TON_AMOUNT_LIMIT,
         dest: a,
-        body: SccpConsume {
-            queryId: (1 << 64) - 1,
-            nonce: (1 << 64) - 1,
-            amount: SCCP_TON_AMOUNT_LIMIT - 1,
-            tail: tail.toCell(),
-        },
+        body: dispatch,
     });
     val (cc, cb) = treeSize(consume.messageCell);
-    expectCovered("consume", cc, cb, SCCP_MSG_CONSUME_CELLS, SCCP_MSG_CONSUME_BITS);
+    expectCovered("recovery dispatch", cc, cb, SCCP_MSG_CONSUME_CELLS, SCCP_MSG_CONSUME_BITS);
     val activate = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         value: SCCP_TON_AMOUNT_LIMIT,
         dest: sccpBucketDeployment(a, 0xFFFFFFFF, build("SccpConsumedBucket")),
-        body: SccpActivateBucket {
-            queryId: (1 << 64) - 1,
-            index: 0xFFFFFFFF,
-        },
+        body: dispatch,
     });
     val (ac, ab) = treeSize(activate.messageCell);
     expectCovered(
-        "activate + StateInit",
+        "recovery activation + StateInit",
         ac,
         ab,
-        SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
-        SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
+        SCCP_MSG_CONSUME_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
+        SCCP_MSG_CONSUME_BITS + SCCP_BUCKET_STATE_INIT_BITS,
     );
     val smalls: array<cell> = [
-        (SccpConsumeReverted {
-            queryId: (1 << 64) - 1,
-            nonce: (1 << 64) - 1,
-            amount: SCCP_TON_AMOUNT_LIMIT - 1,
-        }).toCell(),
-        (SccpUnconsume { nonce: (1 << 64) - 1 }).toCell(),
+        SccpRecoveryConfirm {
+            operationId: SCCP_MAX_U64,
+            stage: SCCP_RECOVERY_CONSUME,
+            attempt: SCCP_MAX_U64,
+            queryId: SCCP_MAX_U64,
+            response: b,
+        }.toCell(),
+        SccpRecoveryDrop {
+            operationId: SCCP_MAX_U64,
+            stage: SCCP_RECOVERY_CONSUME,
+            attempt: SCCP_MAX_U64,
+            queryId: SCCP_MAX_U64,
+            response: b,
+        }.toCell(),
+        SccpRecoveryAck {
+            operationId: SCCP_MAX_U64,
+            stage: SCCP_RECOVERY_CONSUME,
+            attempt: SCCP_MAX_U64,
+            result: SCCP_RECEIPT_DROPPED,
+            queryId: SCCP_MAX_U64,
+            response: b,
+        }.toCell(),
     ];
     var k = 0;
     while (k < smalls.size()) {
@@ -231,55 +251,23 @@ get fun `test message size constants cover the largest messages`() {
             body: smalls.get(k),
         });
         val (sc, sb) = treeSize(small.messageCell);
-        expectCovered("small message", sc, sb, SCCP_MSG_SMALL_CELLS, SCCP_MSG_SMALL_BITS);
+        expectCovered("recovery reply", sc, sb, SCCP_MSG_CONSUME_CELLS, SCCP_MSG_CONSUME_BITS);
         k += 1;
     }
-    val consumed = createMessage({
-        bounce: BounceMode.Only256BitsOfBody,
-        value: SCCP_TON_AMOUNT_LIMIT,
-        dest: a,
-        body: SccpConsumed {
-            queryId: (1 << 64) - 1,
-            nonce: (1 << 64) - 1,
-            amount: SCCP_TON_AMOUNT_LIMIT - 1,
-            tail: tail.toCell(),
-        },
-    });
-    val (dc, db) = treeSize(consumed.messageCell);
-    expectCovered("consumed", dc, db, SCCP_MSG_CONSUME_CELLS, SCCP_MSG_CONSUME_BITS);
     val mint = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         value: SCCP_TON_AMOUNT_LIMIT,
         dest: sccpWalletDeployment(a, b, build("SccpTairaXorWallet")),
-        body: InternalTransferStep {
-            queryId: (1 << 64) - 1,
-            jettonAmount: SCCP_TON_AMOUNT_LIMIT - 1,
-            transferInitiator: null,
-            sendExcessesTo: b,
-            forwardTonAmount: 0,
-            forwardPayload: beginCell().storeUint(0, 1).toSlice(),
-        },
+        body: dispatch,
     });
     val (ic, ib) = treeSize(mint.messageCell);
     expectCovered(
-        "internal_transfer + StateInit",
+        "recovery mint + StateInit",
         ic,
         ib,
-        SCCP_MSG_INTERNAL_TRANSFER_CELLS + SCCP_WALLET_STATE_INIT_CELLS,
-        SCCP_MSG_INTERNAL_TRANSFER_BITS + SCCP_WALLET_STATE_INIT_BITS,
+        SCCP_MSG_CONSUME_CELLS + SCCP_WALLET_STATE_INIT_CELLS,
+        SCCP_MSG_CONSUME_BITS + SCCP_WALLET_STATE_INIT_BITS,
     );
-    val range = createMessage({
-        bounce: BounceMode.Only256BitsOfBody,
-        value: SCCP_TON_AMOUNT_LIMIT,
-        dest: a,
-        body: SccpConsumeRange {
-            queryId: (1 << 64) - 1,
-            first: (1 << 64) - 1,
-            count: 512,
-        },
-    });
-    val (rc, rb) = treeSize(range.messageCell);
-    expectCovered("consume_range", rc, rb, SCCP_MSG_SMALL_CELLS, SCCP_MSG_SMALL_BITS);
     val excess = createMessage({
         bounce: BounceMode.NoBounce,
         value: SCCP_TON_AMOUNT_LIMIT,
@@ -673,6 +661,9 @@ fun measureLimits(n: int) {
     val env = setupEnvWith(n, SCCP_TON_AMOUNT_LIMIT * 4);
     val alice = testing.treasury("alice").address;
     fillCheckpointSlots(env);
+    var maximumCustody = minterStorage(env);
+    maximumCustody.recovery = deepAdmissionBook(507).toCell();
+    setMinterStorage(env, maximumCustody);
 
     // sccp_finalize: bucket 3 is four past the deployed ones
     val mintNonce = (SCCP_MAX_DEPLOY_AHEAD - 1) * SCCP_BUCKET_BITS + 7;
@@ -816,19 +807,23 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
     val bucket = env.minter.getBucketAddress(SCCP_MAX_DEPLOY_AHEAD - 1);
     reportGas(
         "step bucket activation",
-        gasOf<SccpActivateBucket>(res, env.minter.getBucketAddress(0)),
-        SCCP_GAS_BUCKET_ACTIVATE,
+        recoveryGas(res, env.minter.getBucketAddress(0), SCCP_RECOVERY_ACTIVATE, false),
+        SCCP_GAS_RECOVERY,
     );
-    reportGas("step bucket consume", gasOf<SccpConsume>(res, bucket), SCCP_GAS_BUCKET_CONSUME);
+    reportGas(
+        "step bucket consume",
+        recoveryGas(res, bucket, SCCP_RECOVERY_CONSUME, false),
+        SCCP_GAS_RECOVERY,
+    );
     reportGas(
         "step minter consumed mint",
-        gasOf<SccpConsumed>(res, env.minter.address),
-        SCCP_GAS_MINTER_CONSUMED,
+        recoveryGas(res, env.minter.address, SCCP_RECOVERY_CONSUME, true),
+        SCCP_GAS_RECOVERY,
     );
     reportGas(
         "step wallet receive",
-        gasOf<InternalTransferStep>(res, walletOf(env, alice).address),
-        SCCP_GAS_WALLET_RECEIVE,
+        recoveryGas(res, walletOf(env, alice).address, SCCP_RECOVERY_MINT, false),
+        SCCP_GAS_RECOVERY,
     );
     // floors: the bucket of the nonce, a bucket that was only activated, the minter
     expect(testing.getAccountBalance(bucket) >= sccpBucketFloor()).toBeTrue();
@@ -864,8 +859,8 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
         calculateStorageFee(
             BASECHAIN,
             5 * year,
-            SCCP_WALLET_STATE_BITS,
-            SCCP_WALLET_STATE_CELLS,
+            SCCP_WALLET_STATE_INIT_BITS,
+            SCCP_WALLET_STATE_INIT_CELLS,
         ),
     );
     println(
@@ -884,17 +879,17 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
     // the same message again: the bucket answers `sccp_already_consumed`
     val again = sendFinalize(env, env.deployer, d, finalizeValue(env, nonce));
     expect(again).toHaveAllSuccessfulTxs();
-    expect(again).toHaveSuccessfulTx<SccpAlreadyConsumed>({ to: env.minter.address });
+    expect(again).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(env.minter.getSccpState().pendingSupply).toEqual(0);
     reportGas(
         "step bucket already consumed",
-        gasOf<SccpConsume>(again, bucket),
-        SCCP_GAS_BUCKET_CONSUME,
+        recoveryGas(again, bucket, SCCP_RECOVERY_CONSUME, false),
+        SCCP_GAS_RECOVERY,
     );
     reportGas(
         "step minter already consumed",
-        gasOf<SccpAlreadyConsumed>(again, env.minter.address),
-        SCCP_GAS_MINTER_CONSUMED,
+        recoveryGas(again, env.minter.address, SCCP_RECOVERY_CONSUME, true),
+        SCCP_GAS_RECOVERY,
     );
 
     // a second finalize into the active bucket and the existing wallet
@@ -919,8 +914,8 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
     );
     reportGas(
         "step wallet receive existing",
-        gasOf<InternalTransferStep>(res2, walletOf(env, alice).address),
-        SCCP_GAS_WALLET_RECEIVE,
+        recoveryGas(res2, walletOf(env, alice).address, SCCP_RECOVERY_MINT, false),
+        SCCP_GAS_RECOVERY,
     );
 
     // a void of an expired message
@@ -942,8 +937,8 @@ get fun `test the bucket and wallet round trip of a finalize and the floors`() {
     expect(isConsumedAt(env, nonce + 2)).toBeTrue();
     reportGas(
         "step minter consumed void",
-        gasOf<SccpConsumed>(void, env.minter.address),
-        SCCP_GAS_MINTER_CONSUMED,
+        recoveryGas(void, env.minter.address, SCCP_RECOVERY_CONSUME, true),
+        SCCP_GAS_RECOVERY,
     );
     println(
         "void_required_value: {}; consumed: {}",
@@ -1004,13 +999,13 @@ get fun `test burn, deploy, void frozen and unconsume gas`() {
     reportGas("5.4 void frozen", stepGas(frozen), SCCP_GAS_MINTER_VOID_FROZEN);
     reportGas(
         "step bucket consume range 512",
-        gasOf<SccpConsumeRange>(frozen, env.minter.getBucketAddress(1)),
-        SCCP_GAS_BUCKET_CONSUME_RANGE,
+        recoveryGas(frozen, env.minter.getBucketAddress(1), SCCP_RECOVERY_RANGE, false),
+        SCCP_GAS_RECOVERY,
     );
     reportGas(
         "step minter range consumed",
-        gasOf<SccpRangeConsumed>(frozen, env.minter.address),
-        SCCP_GAS_MINTER_RANGE_REPLY,
+        recoveryGas(frozen, env.minter.address, SCCP_RECOVERY_RANGE, true),
+        SCCP_GAS_RECOVERY,
     );
     // the range reply keeps its value in the minter, so the caller's cost is
     // what the request did not return
@@ -1031,29 +1026,36 @@ get fun `test burn, deploy, void frozen and unconsume gas`() {
     // a range that holds a consumed nonce is rejected by the bucket
     val rejected = sendVoidFrozen(env, 0, 512, env.minter.voidFrozenRequiredValue(0));
     expect(rejected).toHaveAllSuccessfulTxs();
-    expect(rejected).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(rejected).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     reportGas(
         "step bucket consume range rejected",
-        gasOf<SccpConsumeRange>(rejected, env.minter.getBucketAddress(0)),
-        SCCP_GAS_BUCKET_CONSUME_RANGE,
+        recoveryGas(rejected, env.minter.getBucketAddress(0), SCCP_RECOVERY_RANGE, false),
+        SCCP_GAS_RECOVERY,
     );
     reportGas(
         "step minter range rejected",
-        gasOf<SccpRangeRejected>(rejected, env.minter.address),
-        SCCP_GAS_MINTER_RANGE_REPLY,
+        recoveryGas(rejected, env.minter.address, SCCP_RECOVERY_RANGE, true),
+        SCCP_GAS_RECOVERY,
     );
 
     // unconsume (via a forged minter sender in the emulator)
-    val un = bucketOf(env, 0).sendSccpUnconsume(
+    val un = bucketOf(env, 0).sendSccpRecoveryDispatch(
         env.minter.address,
+        SCCP_MAX_U64,
+        SCCP_RECOVERY_UNCONSUME,
+        1,
         0,
-        { value: sccpUnconsumeValue(), bounce: true },
+        1,
+        0,
+        0,
+        env.deployer,
+        { value: sccpBucketFloor() + sccpRecoveryRoundTrip(), bounce: true },
     );
     expect(un).toHaveAllSuccessfulTxs();
     reportGas(
         "step bucket unconsume",
-        gasOf<SccpUnconsume>(un, env.minter.getBucketAddress(0)),
-        SCCP_GAS_BUCKET_UNCONSUME,
+        recoveryGas(un, env.minter.getBucketAddress(0), SCCP_RECOVERY_UNCONSUME, false),
+        SCCP_GAS_RECOVERY,
     );
     expect(isConsumedAt(env, 0)).toBeFalse();
 }
@@ -1124,4 +1126,46 @@ get fun `test an underfunded minter charges its floor deficit to the next caller
     expect(
         finalizeValue(env, 1),
     ).toEqual(sccpFinalizeRequiredValue(0) + sccpMinterStorageGrace());
+}
+
+get fun `test deploy sixteen buckets admits full custody on the deepest monotonic id path`() {
+    val env = setupEnv();
+    var storage = minterStorage(env);
+    storage.recovery = deepAdmissionBook(496).toCell();
+    setMinterStorage(env, storage);
+    val result = env
+        .minter
+        .sendSccpDeployBuckets(
+            env.deployer,
+            1,
+            env.deployer,
+            16,
+            { value: env.minter.deployBucketsRequiredValue(16), bounce: true },
+        );
+    expect(result).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().deployedBuckets).toEqual(16);
+    expect(minterStorage(env).recovery.load().count).toEqual(496);
+    reportGas(
+        "recovery deploy16 at deepest monotonic id path",
+        stepGas(result),
+        SCCP_GAS_MINTER_DEPLOY_BUCKETS,
+    );
+}
+
+get fun `test frozen void four activation admission stays funded on deepest monotonic id path`() {
+    val env = setupEnv();
+    var storage = minterStorage(env);
+    storage.recovery = deepAdmissionBook(507).toCell();
+    setMinterStorage(env, storage);
+    testing.setNow(T0 + TEST_VALIDITY_MS / 1000 + 1);
+    val first = 3 * SCCP_BUCKET_BITS;
+    val result = sendVoidFrozen(env, first, 512, env.minter.voidFrozenRequiredValue(first));
+    expect(result).toHaveAllSuccessfulTxs();
+    expect(isConsumedAt(env, first)).toBeTrue();
+    expect(minterStorage(env).recovery.load().count).toEqual(507);
+    reportGas(
+        "recovery frozen void4 at deepest monotonic id path",
+        stepGas(result),
+        SCCP_GAS_MINTER_VOID_FROZEN,
+    );
 }

@@ -32,6 +32,7 @@ Both profiles use the same creation code, built by solc
 | `test/harness/SccpDirtyMemoryHarness.sol` | Test-only subclass that runs the certificate-verifying entry points on memory that is not zero |
 | `test/sccp_bls.test.js` | Library suite |
 | `test/sccp_v1_fixtures.test.js` | Fixture replay suite |
+| `test/sccp_live_fourpeer.js` | Replays the authentic public four-peer export through the locked chain-1 CREATE2 destination |
 | `test/sccp_taira_xor.test.js` | Behaviour and revert-path suite |
 | `test/sccp_gas.test.js`, `test/gas_baseline_v1.json` | Gas suite and its committed baseline (§5.4) |
 
@@ -184,6 +185,16 @@ node --test contracts/evm/sccp/test/sccp_taira_xor.test.js
 node --test contracts/evm/sccp/test/sccp_gas.test.js
 bash scripts/sccp_evm_contract_smoke.sh                  # all of the above, fail-closed, in a private directory
 ```
+
+After the real `sccp_lanes` integration test exports
+`target/sccp-continuation/live-fourpeer-sccp.json`, run
+`node contracts/evm/sccp/test/sccp_live_fourpeer.js target/sccp-continuation/live-fourpeer-sccp.json`.
+The replay checks the original generation and exact native quorum on Ethereum chain 1
+under Prague and Osaka, then submits the genuine checkpoint to the locked CREATE2
+deployment. It rejects signature and network substitutions, duplicate progress and an
+expired generation. It keeps supply and operation count at zero: route activation and
+a genuine monetary corridor still require the Parliament launch gate. Monetary component
+qualification remains in the separate fixture and behaviour suites.
 
 The toolchain policy (native arm64/x86-64 compiler, no Rosetta or Docker,
 cancun legacy pipeline without metadata hash or CBOR) is described in

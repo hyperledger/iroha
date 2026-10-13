@@ -14,8 +14,8 @@ fn tip() -> NativeExecutionTip {
         let mut chain =
             CertifiedTestChain::start(TestChainConfig::new(World::new(), 1000)).unwrap();
         chain.commit_at(2000, Vec::new());
-        let tip = chain.state().view().native_execution_tip().unwrap();
-        tip
+
+        chain.state().view().native_execution_tip().unwrap()
     })
 }
 fn seed(world: &World, values: &[(&str, Vec<u8>)]) {

@@ -231,8 +231,10 @@ fn service_snapshot_requires_every_envelope_and_rejects_each_invalid_prior() {
             "soradns_history_len" => json::to_value(&9_u64).unwrap(),
             "soradns_directory_latest" => json::to_value(&Some([99_u8; 32])).unwrap(),
             "soradns_rotation_policy" => {
-                let mut policy = DirectoryRotationPolicyV1::default();
-                policy.min_interval_ms = 0;
+                let policy = DirectoryRotationPolicyV1 {
+                    min_interval_ms: 0,
+                    ..Default::default()
+                };
                 json::to_value(&policy).unwrap()
             }
             _ => {

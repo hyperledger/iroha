@@ -218,9 +218,10 @@ fn limits(allocation: usize) -> norito::DecodeLimits {
 
 #[test]
 fn exact_tip_placement_preserves_active_decoder_charges_and_refusals() {
+    const CEILING: usize = 64 * 1024 * 1024;
     let chain = Chain::constant(4, 3);
     let prefix = Prefix::new(chain.verifier_at(3).checkpoint()).unwrap();
-    const CEILING: usize = 64 * 1024 * 1024;
+
     let expected_budget = DecodeBudgetContext::new(limits(CEILING));
     let expected = expected_budget
         .with(|| independently_place(&prefix, &prefix.tip, epoch(&prefix)))

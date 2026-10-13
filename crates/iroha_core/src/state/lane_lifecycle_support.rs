@@ -363,7 +363,7 @@ fn derive_lifecycle_lane_incarnations(
         let incarnation = if changed_lanes.contains(&lane.id) {
             let prior = previous_lineage.get(&lane.id).copied();
             let prior_present = [u8::from(prior.is_some())];
-            let prior = prior.unwrap_or(LaneIncarnationLineage {
+            let prior = prior.unwrap_or_else(|| LaneIncarnationLineage {
                 generation: 0,
                 incarnation: Hash::prehashed([0; Hash::LENGTH]),
                 activation_height: 0,
@@ -529,7 +529,7 @@ mod physical_catalog_addition_tests {
         let mut extra = first.clone();
         extra.id = LaneId::new(7);
         let original = [first.clone(), extra.clone()];
-        ensure_physical_lane_ids_retained(&[first.clone()], &original).unwrap();
+        ensure_physical_lane_ids_retained(std::slice::from_ref(&first), &original).unwrap();
         ensure_physical_lane_ids_retained(&original, &[extra, first.clone()]).unwrap();
         assert!(matches!(
             ensure_physical_lane_ids_retained(&original, &[first]),

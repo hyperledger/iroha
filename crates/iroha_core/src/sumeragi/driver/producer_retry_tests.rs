@@ -36,7 +36,8 @@ fn key(tag: usize) -> PublicKey {
     PublicKey::new(bytes).unwrap()
 }
 fn key_index(key: &PublicKey) -> usize {
-    u64::from_le_bytes(key.as_bytes()[..8].try_into().unwrap()) as usize
+    usize::try_from(u64::from_le_bytes(key.as_bytes()[..8].try_into().unwrap()))
+        .expect("fixture value fits usize")
 }
 fn scheduler(budget: &AllocationBudget) -> ExecSched {
     let mut result = ExecSched::new(
@@ -141,7 +142,6 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
         }
         drop(retry);
         drop(expected);
-        drop(message);
         drop(error);
         drop(sched);
         assert_eq!(budget.reserved_bytes(), 0);
@@ -233,7 +233,10 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
     let mut held: [_; MAX_COMMITTEE_SIZE] =
         std::array::from_fn(|i| Some(notifications[i].guard(locks[i].lock().unwrap())));
     for index in 0..MAX_COMMITTEE_SIZE {
-        let message = partial(source(), index as u8);
+        let message = partial(
+            source(),
+            u8::try_from(index).expect("fixture value fits u8"),
+        );
         sched.receive_control(key(index), message);
     }
     assert_eq!(sched.queued_ops(), MAX_COMMITTEE_SIZE);
@@ -250,7 +253,13 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
         };
         let index = key_index(&from);
         assert_eq!(occurrence, occurrences[index]);
-        assert_eq!(message, partial(source(), index as u8));
+        assert_eq!(
+            message,
+            partial(
+                source(),
+                u8::try_from(index).expect("fixture value fits u8")
+            )
+        );
         // In-flight custody consumes the same bounded seat; conflicting ingress cannot replace it.
         sched.receive_control(from.clone(), partial(source(), 253));
         sched.done(
@@ -279,7 +288,13 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
     };
     assert_eq!(key_index(&from), freed);
     assert_eq!(occurrence, occurrences[freed]);
-    assert_eq!(message, partial(source(), freed as u8));
+    assert_eq!(
+        message,
+        partial(
+            source(),
+            u8::try_from(freed).expect("fixture value fits u8")
+        )
+    );
     sched.done(
         0,
         ExecDone::ApplicationControlReceived {
@@ -682,7 +697,13 @@ fn lane_sized_peer_inputs_above_global_bound_keep_independent_progress() {
     let budget = AllocationBudget::new(ExecutionRegistrations::admission_bytes() + (1 << 20));
     let mut sched = scheduler(&budget);
     for index in 0..members {
-        sched.receive_control(key(index), partial(source(), index as u8));
+        sched.receive_control(
+            key(index),
+            partial(
+                source(),
+                u8::try_from(index).expect("fixture value fits u8"),
+            ),
+        );
     }
     assert_eq!(sched.queued_ops(), members);
     let released = notify(&budget);

@@ -1679,7 +1679,7 @@ mod tests {
     fn verify_bench_manifest_rejects_untrusted_signers_and_payload_tampering() {
         let temp = TempDir::new().expect("tempdir");
         let (path, trusted) = signed_manifest_fixture(&temp);
-        let other: KeyPair = PrivateKey::from_hex(Algorithm::Ed25519, &hex::encode([0x66u8; 32]))
+        let other: KeyPair = PrivateKey::from_hex(Algorithm::Ed25519, hex::encode([0x66u8; 32]))
             .expect("other key")
             .into();
         let (_, other_bytes) = other

@@ -142,7 +142,7 @@ impl AttachmentStore {
     pub fn relay_once<S: FinalitySource + ?Sized>(
         &mut self,
         child: &impl PrivateRootSource,
-        parent: RelayParent<'_, S>,
+        parent: &mut RelayParent<'_, S>,
     ) -> Result<RelayProgress> {
         self.revalidate()?;
         require_time(parent.options.deadline)?;

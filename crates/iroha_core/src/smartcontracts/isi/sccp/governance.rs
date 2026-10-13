@@ -41,8 +41,10 @@ fn refuse(reason: impl core::fmt::Display) -> Error {
 
 /// Whether all authenticated quarantine reconciliation paths are implemented (§10.2).
 ///
-/// TODO: WP-S10 must supply R1–R6 before this launch leg can open. A complete
-/// deployment binding or a qualified Parliament ballot does not replace reconciliation.
+/// The R1–R6 accounting consumers are implemented. TODO: Parliament must supply the
+/// authenticated remaining budget and position of the shared G1/G2a pass before the
+/// production reconciliation close can run. A separate SCCP budget or an assumed-empty
+/// Parliament prefix cannot open this gate.
 #[must_use]
 pub const fn sccp_reconciliation_available() -> bool {
     false
@@ -95,21 +97,57 @@ pub fn preflight_attempt_in(
     world: &(impl WorldReadOnly + ?Sized),
     proposal: &SccpGovernanceProposalV1,
 ) -> Result<(), Error> {
+    match preflight_rejection_in(world, proposal) {
+        None => Ok(()),
+        Some(PreflightRejection::Stale {
+            subject,
+            current,
+            base,
+        }) => Err(refuse(format_args!(
+            "stale proposal: subject {subject:?} is at revision {current}, not {base}"
+        ))),
+        Some(PreflightRejection::DestinationUsed) => {
+            Err(refuse("the destination word is already registered"))
+        }
+    }
+}
+
+/// Scalar outcome of the shared preflight relation, before diagnostic string construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PreflightRejection {
+    /// The first base revision differs from current committed state.
+    Stale {
+        subject: SccpGovernanceSubjectV1,
+        current: u64,
+        base: u64,
+    },
+    /// A requested deployment word is already registered.
+    DestinationUsed,
+}
+
+/// Check exactly the preflight relation without allocating a diagnostic on rejection.
+pub(super) fn preflight_rejection_in(
+    world: &(impl WorldReadOnly + ?Sized),
+    proposal: &SccpGovernanceProposalV1,
+) -> Option<PreflightRejection> {
     for base in &proposal.base_revisions {
         let current = store::governance_revision(world, &base.subject);
         if current != base.revision {
-            return Err(refuse(format_args!(
-                "stale proposal: subject {:?} is at revision {current}, not {}",
-                base.subject, base.revision
-            )));
+            return Some(PreflightRejection::Stale {
+                subject: base.subject,
+                current,
+                base: base.revision,
+            });
         }
     }
     for action in &proposal.actions {
-        if let SccpGovernanceActionV1::RegisterRoute(register) = action {
-            ensure_word_unused(world, &register.deployment)?;
+        if let SccpGovernanceActionV1::RegisterRoute(register) = action
+            && store::destination_words::contains(world, &register.deployment.destination_word())
+        {
+            return Some(PreflightRejection::DestinationUsed);
         }
     }
-    Ok(())
+    None
 }
 
 fn ensure_word_unused(
@@ -183,7 +221,7 @@ fn apply_action(
             holds::attest(state_transaction, action)
         }
         SccpGovernanceActionV1::QuarantineSccpRevision(action) => {
-            holds::quarantine(state_transaction, action, cause)
+            holds::quarantine(state_transaction, *action, cause)
         }
         SccpGovernanceActionV1::OpenSccpReconciliation(action) => super::reconciliation::open(
             state_transaction,
@@ -192,7 +230,7 @@ fn apply_action(
             action.window_ms,
         ),
         SccpGovernanceActionV1::ActivateRevision(action) => {
-            activate_revision(state_transaction, action)
+            activate_revision(state_transaction, *action)
         }
         SccpGovernanceActionV1::SwitchRevision(action) => {
             switch_revision(state_transaction, action)
@@ -204,13 +242,21 @@ fn apply_action(
             SccpRouteActivationV1::InboundOnly,
         ),
         SccpGovernanceActionV1::RetireRevision(action) => {
-            retire_revision(state_transaction, action)
+            retire_revision(state_transaction, *action)
         }
-        SccpGovernanceActionV1::RemoveStaged(action) => remove_staged(state_transaction, action),
+        SccpGovernanceActionV1::RemoveStaged(action) => remove_staged(state_transaction, *action),
         SccpGovernanceActionV1::ReleaseStranded(action) => {
             release_stranded(state_transaction, action, proposal_id)
         }
         SccpGovernanceActionV1::SetTairaPaused(action) => {
+            if !action.paused {
+                super::fast_pause::lift(
+                    state_transaction,
+                    action.network,
+                    iroha_data_model::sccp::events::SccpFastPausePartV1::Taira,
+                    cause,
+                )?;
+            }
             set_taira_paused(state_transaction, action.network, action.paused)
         }
         SccpGovernanceActionV1::SetDestinationPaused(action) => {
@@ -227,6 +273,16 @@ fn apply_action(
             {
                 // The caller writes only its own Parliament flag. record_control snapshots
                 // the complete post-update state inside this same isolated effect transaction.
+                if !action.paused {
+                    super::fast_pause::lift(
+                        state_transaction,
+                        action.network,
+                        iroha_data_model::sccp::events::SccpFastPausePartV1::Destination {
+                            revision: action.revision,
+                        },
+                        cause,
+                    )?;
+                }
                 revision.destination_paused = action.paused;
                 store::routes::insert(state_transaction, action.network, route)?;
                 controls::record_control(
@@ -246,6 +302,9 @@ fn apply_action(
         }
         SccpGovernanceActionV1::FreezeLightClient(action) => {
             light_clients::freeze(state_transaction, action, proposal_id)
+        }
+        SccpGovernanceActionV1::SetFastPauseSuspended(action) => {
+            super::fast_pause::suspend(state_transaction, action.network, action.duration_ms)
         }
         SccpGovernanceActionV1::SetParameters(action) => {
             super::init::check_parameters(state_transaction, &action.next)
@@ -309,7 +368,7 @@ fn revision_activation(
 
 fn activate_revision(
     state_transaction: &mut StateTransaction<'_, '_>,
-    action: &SccpRouteRevisionActionV1,
+    action: SccpRouteRevisionActionV1,
 ) -> Result<(), Error> {
     let world = &*state_transaction.world;
     if revision_activation(world, action.network, action.revision)? != SccpRouteActivationV1::Staged
@@ -361,7 +420,7 @@ fn switch_revision(
 
 fn retire_revision(
     state_transaction: &mut StateTransaction<'_, '_>,
-    action: &SccpRouteRevisionActionV1,
+    action: SccpRouteRevisionActionV1,
 ) -> Result<(), Error> {
     let world = &*state_transaction.world;
     let record = store::routes::get(world, &action.network)
@@ -398,7 +457,7 @@ fn retire_revision(
 
 fn remove_staged(
     state_transaction: &mut StateTransaction<'_, '_>,
-    action: &SccpRouteRevisionActionV1,
+    action: SccpRouteRevisionActionV1,
 ) -> Result<(), Error> {
     let mut route = store::routes::get(&*state_transaction.world, &action.network)
         .cloned()
@@ -690,12 +749,26 @@ mod tests {
         setup(&mut stx);
         let route = SccpGovernanceSubjectV1::Route(NETWORK);
         let fresh = proposal(id, vec![(route.clone(), 0)], vec![register(1, 7)]);
+        assert_eq!(preflight_rejection_in(stx.world(), &fresh), None);
         preflight_attempt(&stx, &fresh).expect("fresh");
         store::destination_words::insert(&mut stx, evm(7).destination_word(), (NETWORK, 9))
             .expect("word");
         preflight_attempt(&stx, &fresh).expect_err("word taken");
+        assert_eq!(
+            preflight_rejection_in(stx.world(), &fresh),
+            Some(PreflightRejection::DestinationUsed)
+        );
         let other = proposal(id, vec![(route.clone(), 0)], vec![register(1, 8)]);
         store::set_governance_revision(&mut stx, route, 1);
+        assert_eq!(
+            preflight_rejection_in(stx.world(), &fresh),
+            Some(PreflightRejection::Stale {
+                subject: route,
+                current: 1,
+                base: 0,
+            }),
+            "stale revision is reported before a reused destination word"
+        );
         let error = preflight_attempt(&stx, &other).expect_err("stale");
         assert!(error.to_string().contains("stale"), "{error}");
     }

@@ -304,26 +304,37 @@ pub(crate) fn rebuild_due(
 /// Validate permanent proof amounts against both accounting images during restoration.
 /// This restore-time merge is never part of block-start progress work.
 pub(crate) fn validate_proof_sums(records: &mut Records, proofs: &mut Proofs) -> bool {
-    fn image<'a>(records: impl Iterator<Item=(&'a Key,&'a SccpReconciliationStateV1)>, proofs: impl Iterator<Item=(&'a ProofKey,&'a u128)>) -> bool {
-        let mut proofs=proofs.peekable();
-        for (key,record) in records {
-            let mut sum=0u128;
-            while let Some((proof,amount))=proofs.peek() {
-                let group=(proof.0,proof.1);
-                if group < *key { return false; }
-                if group > *key { break; }
-                let Some(next)=sum.checked_add(**amount) else { return false; };
-                sum=next;
+    fn image<'a>(
+        records: impl Iterator<Item = (&'a Key, &'a SccpReconciliationStateV1)>,
+        proofs: impl Iterator<Item = (&'a ProofKey, &'a u128)>,
+    ) -> bool {
+        let mut proofs = proofs.peekable();
+        for (key, record) in records {
+            let mut sum = 0u128;
+            while let Some((proof, amount)) = proofs.peek() {
+                let group = (proof.0, proof.1);
+                if group < *key {
+                    return false;
+                }
+                if group > *key {
+                    break;
+                }
+                let Some(next) = sum.checked_add(**amount) else {
+                    return false;
+                };
+                sum = next;
                 proofs.next();
             }
-            if sum != record.forged_supply { return false; }
+            if sum != record.forged_supply {
+                return false;
+            }
         }
         proofs.next().is_none()
     }
-    let records=records.history();
-    let proofs=proofs.history();
-    image(records.current().iter(),proofs.current().iter())
-        && image(records.iter_before_block(),proofs.iter_before_block())
+    let records = records.history();
+    let proofs = proofs.history();
+    image(records.current().iter(), proofs.current().iter())
+        && image(records.iter_before_block(), proofs.iter_before_block())
 }
 
 #[cfg(test)]

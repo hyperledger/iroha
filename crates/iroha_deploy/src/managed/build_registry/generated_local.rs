@@ -20,7 +20,7 @@ use iroha_data_model::sumeragi_finality::VerifiedSumeragiBlock;
 use iroha_storage_client::musubi_archive_fetch::GeneratedLocalProviderTransportV1;
 
 pub(super) fn prepare(
-    prepared: PreparedLocalnet,
+    prepared: &PreparedLocalnet,
     deadline: Instant,
 ) -> Result<Option<(Config, PreparedMusubiArchiveFetchConfigV1)>> {
     require_deadline(deadline)?;
@@ -29,7 +29,7 @@ pub(super) fn prepare(
     {
         return Ok(None);
     }
-    let authority = ServiceAuthority::open_network(&prepared, NetworkPurpose::BuildRegistry)?;
+    let authority = ServiceAuthority::open_network(prepared, NetworkPurpose::BuildRegistry)?;
     let plans = authority.provider_plans()?;
     let config = authority.config.clone();
     let mut originals = Vec::with_capacity(3);
@@ -38,8 +38,8 @@ pub(super) fn prepare(
         if plan.network_id() != config.network_id
             || usize::from(plan.slot()) != slot
             || plan.peer_index() != slot
-            || &plan.reserve_terms().provider_account
-                != &inventory
+            || plan.reserve_terms().provider_account
+                != inventory
                     .authority(StreamTokenAuthorityRole::IssuerOperator)?
                     .account
         {
@@ -82,20 +82,17 @@ pub(super) fn prepare(
 
 /// Timing from actual current native discovery, not an activation or signing capability.
 /// Only the existing verifier below constructs this observation.
+#[derive(Clone, Copy)]
 pub(in crate::managed) struct GeneratedServiceObservation {
     valid_until_unix_ms: u64,
-    advert_issued_at_unix_ms: u64,
-    advert_expires_at_unix_ms: u64,
+    advert_interval: (u64, u64),
 }
 impl GeneratedServiceObservation {
     pub(in crate::managed) fn valid_until_unix_ms(&self) -> u64 {
         self.valid_until_unix_ms
     }
     pub(in crate::managed) fn advert_interval(&self) -> (u64, u64) {
-        (
-            self.advert_issued_at_unix_ms,
-            self.advert_expires_at_unix_ms,
-        )
+        self.advert_interval
     }
 }
 
@@ -194,18 +191,20 @@ pub(in crate::managed) fn observe_generated_service(
     }
     Ok(GeneratedServiceObservation {
         valid_until_unix_ms: valid_until,
-        advert_issued_at_unix_ms: current
-            .discovery()
-            .advert()
-            .issued_at
-            .checked_mul(1_000)
-            .ok_or_else(|| invalid("provider advertisement interval overflow"))?,
-        advert_expires_at_unix_ms: current
-            .discovery()
-            .advert()
-            .expires_at
-            .checked_mul(1_000)
-            .ok_or_else(|| invalid("provider advertisement interval overflow"))?,
+        advert_interval: (
+            current
+                .discovery()
+                .advert()
+                .issued_at
+                .checked_mul(1_000)
+                .ok_or_else(|| invalid("provider advertisement interval overflow"))?,
+            current
+                .discovery()
+                .advert()
+                .expires_at
+                .checked_mul(1_000)
+                .ok_or_else(|| invalid("provider advertisement interval overflow"))?,
+        ),
     })
 }
 

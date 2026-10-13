@@ -69,7 +69,7 @@ fn block_validation_sequential_entrypoints_execute_rejected_transaction_pipeline
         let (mut probe_state_block, probe_state_block_recorder) =
             crate::block::ValidBlock::start_component_execution(
                 &probe_block.clone().into(),
-                &probe_state,
+                probe_state,
             )
             .expect("original writer-first component execution");
         let valid_probe = probe_block
@@ -233,7 +233,7 @@ fn block_validation_sequential_entrypoints_execute_rejected_transaction_pipeline
         .unpack(|_| {});
     assert_ne!(block.header().height(), nonzero!(9999_u64));
     let (mut state_block, state_block_recorder) =
-        crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+        crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
             .expect("original writer-first component execution");
     let valid_block = block
         .validate_and_record_transactions(&mut state_block, state_block_recorder)

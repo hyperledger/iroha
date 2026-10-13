@@ -186,7 +186,7 @@ fn proof_blob_fixture(
 ) -> Result<ProofBlob, Box<dyn Error>> {
     let mut fastpq_binding = fixture_fastpq_binding(dsid);
     let committed_amount = if let Some((asset, amount)) = source_transfer {
-        fastpq_binding.claim_type = "tx_predicate".to_owned();
+        "tx_predicate".clone_into(&mut fastpq_binding.claim_type);
         fastpq_binding.effect_binding = Some(AxtEffectBinding {
             destination_domain: None,
             destination_account_id: None,
@@ -227,7 +227,7 @@ fn signed_fixture_spend(
     intent: RemoteSpendIntent,
     proof: ProofBlob,
     amount: Quantity,
-    anchor: AxtFinalizedSpendAnchorV1,
+    anchor: &AxtFinalizedSpendAnchorV1,
 ) -> AxtAnchoredSpendV1 {
     let dsid = anchor.dataspace_id;
     let source_receipt = AxtSourceSuccessReceiptV1 {
@@ -265,7 +265,7 @@ fn signed_fixture_spend(
         source_occurrence,
     }
     .sign_by_issuer_v1(
-        anchor,
+        *anchor,
         expiry_slot,
         AxtSpendNonceV1::try_new(fixture_hash(b"spend-nonce", dsid).into())
             .expect("fixture nonce is nonzero"),
@@ -321,7 +321,7 @@ fn transfer_spend_fixture(
         },
         proof,
         Quantity::from(2_500_u64),
-        fixture_anchor(dsid, LaneId::new(4)),
+        &fixture_anchor(dsid, LaneId::new(4)),
     )
 }
 fn lock_spend_fixture(
@@ -372,7 +372,7 @@ fn lock_spend_fixture(
         },
         proof,
         Quantity::from(9_001_u64),
-        fixture_anchor(dsid, LaneId::new(4)),
+        &fixture_anchor(dsid, LaneId::new(4)),
     )
 }
 fn rejected_spend_fixtures(happy: &[AxtAnchoredSpendV1]) -> Vec<AxtAnchoredSpendV1> {

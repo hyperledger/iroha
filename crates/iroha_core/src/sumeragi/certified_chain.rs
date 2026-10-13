@@ -2054,7 +2054,7 @@ fn authenticate_genesis_with(
         .instance_id(
             &BlsCrypto::new(),
             NetworkId::from_genesis_hash(genesis.hash()),
-            &chain_id.to_string(),
+            chain_id.as_ref(),
         )
         .map_err(|_| ChainReadError::ForeignGenesis)?;
     Ok((epoch, instance, root_scope))
@@ -2284,7 +2284,7 @@ pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
     // Only AMX transfers its actual constructor acquisition into this same reader. The
     // genesis body/control lives above; raw bytes and original source retire here after
     // the prefix/terminal graphs at the caller's existing scoped chain drop.
-    _amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
+    amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
     amx_genesis_source: Option<native_acquisition::NativeCarrierAcquisition<'v>>,
 }
 
@@ -2347,7 +2347,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             #[cfg(test)]
             terminal_probe: parking_lot::Mutex::new(None),
             proof_source_genesis: None,
-            _amx_genesis_authentication: None,
+            amx_genesis_authentication: None,
             amx_genesis_source: None,
         }
     }

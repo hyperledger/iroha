@@ -30,6 +30,60 @@ pub const WORD: usize = 32;
 /// Bytes before the canonical `transferToTaira` recipient: selector, three head words and length.
 pub const TRANSFER_TO_TAIRA_HEAD_BYTES: usize = 4 + 4 * WORD;
 
+/// Published certificate bytes read by destination watchers. This is untrusted DATA;
+/// Core authenticates the original generation and E1–E4 relation before accepting evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CertificateLogV1 {
+    /// Certificate height from the indexed topic.
+    pub height: u64,
+    /// Signing generation from the indexed topic.
+    pub generation: u64,
+    /// Exact `QC_FIXED` bytes.
+    pub qc: [u8; 116],
+    /// Exact finality-header bytes.
+    pub header: [u8; 221],
+    /// EVM affine-coordinate signature form, before recompression.
+    pub signature: [u8; 192],
+}
+
+impl CertificateLogV1 {
+    /// Decode one canonical `SccpCertificate` event without authenticating its signature.
+    /// # Errors
+    /// Rejects inexact topics, offsets, field lengths, padding or duplicated header fields.
+    pub fn decode(topics: &[[u8; 32]], data: &[u8]) -> Result<Self, AbiError> {
+        if topics.len() != 3 {
+            return Err(AbiError::WrongTopicCount);
+        }
+        if topics[0] != TOPIC_CERTIFICATE {
+            return Err(AbiError::WrongTopic);
+        }
+        check_canonical_args(data, &[AbiShape::Bytes; 3])?;
+        let bytes = |index| -> Result<&[u8], AbiError> {
+            let at = read_usize(data, index * WORD)?;
+            let length = read_usize(data, at)?;
+            data.get(at + WORD..at + WORD + length)
+                .ok_or(AbiError::BadLength)
+        };
+        let height = read_u64(&topics[1], 0)?;
+        let generation = read_u64(&topics[2], 0)?;
+        let qc = bytes(0)?.try_into().map_err(|_| AbiError::BadLength)?;
+        let header: [u8; 221] = bytes(1)?.try_into().map_err(|_| AbiError::BadLength)?;
+        let signature = bytes(2)?.try_into().map_err(|_| AbiError::BadLength)?;
+        let parsed = super::finality::SccpFinalityHeaderV1::parse(&header)
+            .map_err(|_| AbiError::PayloadMismatch)?;
+        if parsed.height() != height || parsed.generation() != generation {
+            return Err(AbiError::PayloadMismatch);
+        }
+        Ok(Self {
+            height,
+            generation,
+            qc,
+            header,
+            signature,
+        })
+    }
+}
+
 unit_error! {
     /// Strict ABI decoding errors.
     pub enum AbiError {
@@ -938,6 +992,19 @@ pub struct TransferToTairaLogV1 {
     pub payload: Vec<u8>,
 }
 
+/// Authenticated transfer log fields borrowing the original receipt payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransferToTairaLogRefV1<'a> {
+    /// Source contract's message identifier.
+    pub message_id: [u8; 32],
+    /// Canonical EVM burning account.
+    pub sender: [u8; 20],
+    /// Per-sender nonce.
+    pub nonce: u64,
+    /// Canonical payload bytes retained by the original proof owner.
+    pub payload: &'a [u8],
+}
+
 impl TransferToTairaLogV1 {
     /// The log's topics and data.
     #[must_use]
@@ -962,6 +1029,23 @@ impl TransferToTairaLogV1 {
     ///
     /// Returns the first violated [`AbiError`].
     pub fn decode(topics: &[[u8; 32]], data: &[u8]) -> Result<Self, AbiError> {
+        let value = Self::decode_ref(topics, data)?;
+        Ok(Self {
+            message_id: value.message_id,
+            sender: value.sender,
+            nonce: value.nonce,
+            payload: value.payload.to_vec(),
+        })
+    }
+
+    /// Strictly decode an event while borrowing its payload from the authenticated receipt.
+    ///
+    /// # Errors
+    /// Returns the same canonical ABI failures as [`Self::decode`].
+    pub fn decode_ref<'a>(
+        topics: &[[u8; 32]],
+        data: &'a [u8],
+    ) -> Result<TransferToTairaLogRefV1<'a>, AbiError> {
         if topics.len() != 3 {
             return Err(AbiError::WrongTopicCount);
         }
@@ -987,11 +1071,11 @@ impl TransferToTairaLogV1 {
         if data[end..].iter().any(|byte| *byte != 0) {
             return Err(AbiError::DirtyPadding);
         }
-        Ok(Self {
+        Ok(TransferToTairaLogRefV1 {
             message_id: topics[1],
             sender,
             nonce,
-            payload: data[3 * WORD..end].to_vec(),
+            payload: &data[3 * WORD..end],
         })
     }
 

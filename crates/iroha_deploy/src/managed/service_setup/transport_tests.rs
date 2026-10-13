@@ -83,7 +83,7 @@ fn unavailable_native_finality_prevents_both_originals_quotes_and_dispatch() {
             &options(),
         ),
     ] {
-        let error = result.err().expect("native finality missing");
+        let error = result.expect_err("native finality missing");
         assert!(
             error
                 .to_string()
@@ -266,7 +266,7 @@ fn all_closed_wallet_dispatches_keep_exact_wire_once_only_after_ambiguous_http_a
                 assert_eq!(before, &retained)
             } else {
                 marker = Some(retained)
-            };
+            }
             assert_eq!(
                 std::fs::read(path.join("operation.json")).unwrap(),
                 operation

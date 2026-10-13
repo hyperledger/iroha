@@ -87,14 +87,14 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     .insert(source.clone(), Quantity::from(10_u32));
                 setup.apply();
             }
-            let signed = TransactionBuilder::new(
+            let signed_payload = TransactionBuilder::new(
                 block.network_id,
                 authority.clone(),
                 FeePaymentIntent::authority(Vec::new(), nonzero!(100_000_000_u64).into()),
             )
             .with_instructions(vec![InstructionBox::from(approval.clone())])
             .sign(signer.private_key());
-            let call = Hash::from(signed.hash_as_entrypoint());
+            let call = Hash::from(signed_payload.hash_as_entrypoint());
             let fragments = block.committed_fragment_count();
             if check_body_binding {
                 let mut tx = block.transaction_for_fastpq_testing(call);
@@ -111,7 +111,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                     .execute_transaction(
                         &mut tx,
                         authority,
-                        signed.clone(),
+                        signed_payload.clone(),
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                     .expect_err("the signed hash cannot authorize a substituted retained body");
@@ -225,7 +225,7 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                 .execute_transaction(
                     &mut tx,
                     authority,
-                    signed,
+                    signed_payload,
                     &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                 )
                 .unwrap();
@@ -404,14 +404,14 @@ fn terminal_decode_retry(expired: bool) {
                 tx.apply();
             }
             let approval = MultisigApprove::new(account.clone(), hash);
-            let signed = TransactionBuilder::new(
+            let signed_payload = TransactionBuilder::new(
                 block.network_id,
                 authority.clone(),
                 FeePaymentIntent::authority(Vec::new(), nonzero!(100_000_000_u64).into()),
             )
             .with_instructions(vec![InstructionBox::from(approval)])
             .sign(signer.private_key());
-            let call = Hash::from(signed.hash_as_entrypoint());
+            let call = Hash::from(signed_payload.hash_as_entrypoint());
             let before: BTreeMap<_, _> = block
                 .transaction_for_callback_testing()
                 .world
@@ -517,7 +517,7 @@ fn terminal_decode_retry(expired: bool) {
                 norito::with_decode_limits_scope(limits, || {
                     crate::executor::root_scope::ensure_executable_scope(
                         &mut tx,
-                        signed.instructions(),
+                        signed_payload.instructions(),
                     )
                 })
                 .expect("the signed attempt reaches past immutable root admission");
@@ -525,7 +525,7 @@ fn terminal_decode_retry(expired: bool) {
                     Executor::Initial.execute_transaction(
                         &mut tx,
                         authority,
-                        signed.clone(),
+                        signed_payload.clone(),
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                 })
@@ -552,7 +552,7 @@ fn terminal_decode_retry(expired: bool) {
                 .execute_transaction(
                     &mut tx,
                     authority,
-                    signed,
+                    signed_payload,
                     &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                 )
                 .unwrap();

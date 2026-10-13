@@ -88,9 +88,12 @@ world_test!(sccp_route_governance_proposal_requires_permission_or_bond {
         )]),
     );
     let before_events = stx.world.internal_event_buf.len();
-    let error = gov::ProposeSccpRouteGovernance { proposal }
-        .execute(&ALICE_ID, &mut stx)
-        .expect_err("SCCP proposer permission must not bypass the Parliament ballot gate");
+    let result = gov::ProposeSccpRouteGovernance { proposal }.execute(&ALICE_ID, &mut stx);
+    assert!(
+        result.is_err(),
+        "SCCP proposer permission must not bypass the Parliament ballot gate"
+    );
+    let error = result.unwrap_err();
     assert!(error.to_string().contains("ParliamentBallotUnavailable"));
     assert!(stx.world.governance_proposals.iter().next().is_none());
     assert_eq!(stx.world.internal_event_buf.len(), before_events);
@@ -302,11 +305,30 @@ fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state(
             .unwrap()
             .clone();
         let mut execution = state_block.transaction();
-        assert_eq!(
+        let outcome =
             execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
-                .unwrap(),
-            DueParliamentCertificateExecutionV1::Applied
-        );
+                .unwrap();
+        if !paused {
+            assert!(
+                matches!(
+                    outcome,
+                    DueParliamentCertificateExecutionV1::EffectFailed { .. }
+                ),
+                "an approving certificate without its original Policy Jury opening cannot lift fast-pause state"
+            );
+            assert_eq!(
+                store::fast_pauses::get(&*execution.world, &network),
+                Some(&original_pause)
+            );
+            let revision = &store::routes::get(&*execution.world, &network)
+                .unwrap()
+                .revisions[&1];
+            assert!(revision.destination_paused);
+            assert_eq!(revision.next_control_nonce, 1);
+            assert!(store::control_messages::get(&*execution.world, &(network, 1, 1)).is_none());
+            continue;
+        }
+        assert_eq!(outcome, DueParliamentCertificateExecutionV1::Applied);
         let expected_id = *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes();
         assert_ne!(expected_id, fixture.proposal_id);
         let row = *store::control_messages::get(&*execution.world, &(network, 1, 1)).unwrap();
@@ -380,7 +402,11 @@ fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
         let mut seed = state_block.transaction();
         let fixture = seed_due_sccp_control_certificate(&mut seed, true);
         for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
-            leaves::allocate_leaf(&mut seed, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+            leaves::allocate_leaf(
+                &mut seed,
+                SccpLeafRefV1::transfer([index.to_le_bytes()[0]; 32]),
+            )
+            .unwrap();
         }
         seed.apply();
         fixture

@@ -37,6 +37,10 @@ impl Default for GovernanceClockParametersV1 {
 }
 
 impl GovernanceClockParametersV1 {
+    /// Six cost-one SCCP conclusions and one cost-four enactment must fit in one
+    /// pass, so recertification alone cannot starve every pause until expiry.
+    pub const MIN_BLOCK_START_WORK_UNITS: u32 = 10;
+
     /// The sole canonical custom parameter identity.
     #[must_use]
     pub fn parameter_id() -> &'static CustomParameterId {
@@ -50,7 +54,7 @@ impl GovernanceClockParametersV1 {
 
     /// Validate the lag against the same committed Sumeragi clock parameters.
     /// # Errors
-    /// Rejects zero work capacity, arithmetic overflow, or insufficient lag.
+    /// Rejects work capacity below ten, arithmetic overflow, or insufficient lag.
     pub fn validate(self, drift_ms: u64, cadence_ms: u64) -> Result<(), &'static str> {
         let minimum = drift_ms
             .checked_mul(2)
@@ -60,8 +64,8 @@ impl GovernanceClockParametersV1 {
                     .and_then(|cadence| drift.checked_add(cadence))
             })
             .ok_or("governance clock bound overflows")?;
-        if self.governance_block_start_work_units == 0 {
-            return Err("governance block-start work budget must be positive");
+        if self.governance_block_start_work_units < Self::MIN_BLOCK_START_WORK_UNITS {
+            return Err("governance block-start work budget must be at least ten");
         }
         if self.due_work_max_lag_ms < minimum {
             return Err("governance due-work lag must cover twice drift plus four cadences");
@@ -85,6 +89,25 @@ impl GovernanceClockParametersV1 {
 mod tests {
     use super::*;
     use norito::codec::{Decode, Encode};
+
+    #[test]
+    fn work_budget_funds_all_six_pause_conclusions_and_one_enactment() {
+        for units in 0..10 {
+            let policy = GovernanceClockParametersV1 {
+                governance_block_start_work_units: units,
+                ..GovernanceClockParametersV1::default()
+            };
+            assert!(policy.validate(1_000, 1_000).is_err());
+        }
+        for units in [10, 64, u32::MAX] {
+            let policy = GovernanceClockParametersV1 {
+                governance_block_start_work_units: units,
+                ..GovernanceClockParametersV1::default()
+            };
+            assert_eq!(policy.validate(1_000, 1_000), Ok(()));
+            assert!(units - 6 >= 4);
+        }
+    }
 
     #[test]
     fn committed_clock_bound_and_wire_roundtrip() {

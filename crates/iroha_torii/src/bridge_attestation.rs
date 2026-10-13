@@ -13,11 +13,9 @@ use iroha_torii_shared::bridge_attestation::{
 };
 
 /// Reject restart or contradictory status before deciding whether consensus is uninitialized.
-pub(crate) fn startup_failure(
-    restart_required: bool,
-    status: Option<&SumeragiStatus>,
-) -> Option<Reason> {
-    if restart_required || status.is_some_and(|value| value.is_halted()) {
+pub fn startup_failure(restart_required: bool, status: Option<&SumeragiStatus>) -> Option<Reason> {
+    if restart_required || status.is_some_and(iroha_data_model::sumeragi::SumeragiStatus::is_halted)
+    {
         return Some(Reason::RestartRequired);
     }
     if status.is_none() {
@@ -30,7 +28,7 @@ pub(crate) fn startup_failure(
 }
 
 /// Classify the actual immutable-view build failure without treating missing proof as startup.
-pub(crate) fn build_failure(error: BuildError, status_committed_height: u64) -> Reason {
+pub fn build_failure(error: BuildError, status_committed_height: u64) -> Reason {
     match error {
         BuildError::EmptyState if status_committed_height == 0 => Reason::GenesisUncommitted,
         BuildError::EmptyState => Reason::ConflictingState,
@@ -43,10 +41,10 @@ pub(crate) fn build_failure(error: BuildError, status_committed_height: u64) -> 
             ProofError::Chain(
                 ChainReadError::NotCommitted { .. }
                 | ChainReadError::NotInView { .. }
-                | ChainReadError::MissingCertificate { .. },
+                | ChainReadError::MissingCertificate { .. }
+                | ChainReadError::Committee { .. },
             )
-            | ProofError::UnverifiedCommittee(_)
-            | ProofError::Chain(ChainReadError::Committee { .. }) => Reason::FinalityUnavailable,
+            | ProofError::UnverifiedCommittee(_) => Reason::FinalityUnavailable,
             ProofError::NativeExecution(QueryExecutionFail::CanonicalHistory(
                 CanonicalHistoryError::BodyUnavailable { .. }
                 | CanonicalHistoryError::HeightOutsideSnapshot { .. },
@@ -64,7 +62,7 @@ pub(crate) fn build_failure(error: BuildError, status_committed_height: u64) -> 
 }
 
 /// Encode one closed non-success observation with the endpoint cache protections.
-pub(crate) fn failure_response(
+pub fn failure_response(
     reason: Reason,
     challenge: [u8; 32],
     height: u64,

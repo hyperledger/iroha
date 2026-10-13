@@ -1077,7 +1077,7 @@ fn pipeline_sidecar_prune_marker_sync_failure_keeps_main_pair_unchanged() {
             height,
             block_hash,
             PipelineDagSnapshot {
-                fingerprint: [height as u8; 32],
+                fingerprint: [u8::try_from(height).expect("fixture value fits u8"); 32],
                 key_count: u32::try_from(height).expect("test height fits u32"),
             },
             Vec::new(),

@@ -31,6 +31,11 @@ pub fn clock_parameters(
         .map(GovernanceClockParametersV1::from_custom_parameter)
         .transpose()?
         .unwrap_or_default();
+    #[cfg(all(test, sumeragi_core_mutation = "HC304"))]
+    let policy = GovernanceClockParametersV1 {
+        governance_block_start_work_units: 64,
+        ..policy
+    };
     policy.validate(
         parameters.sumeragi().max_clock_drift_ms(),
         parameters.sumeragi().block_cadence_ms.get(),
@@ -92,7 +97,7 @@ pub(crate) fn heartbeat_due(source: &(impl EligibilityRead + ?Sized), time_ms: u
     (degraded_run < 2 || cfg!(all(test, sumeragi_core_mutation = "HC278")))
         && start_ms
             .checked_add(parameters.committee_heartbeat_ms)
-            .is_some_and(|due| time_ms >= due)
+            .is_some_and(|due| time_ms >= due || cfg!(all(test, sumeragi_core_mutation = "HC312")))
 }
 
 /// Observe the shared due predicate against an original parent.
@@ -101,7 +106,8 @@ pub(crate) fn due_from(
     next_height: u64,
     time_ms: u64,
 ) -> Result<bool, DueWorkUnavailable> {
-    if heartbeat_due(source, time_ms)
+    if (source.fast_pause_due() && !cfg!(all(test, sumeragi_core_mutation = "HC313")))
+        || heartbeat_due(source, time_ms)
         || source
             .reconciliation_due_at_ms()
             .is_some_and(|due| due <= time_ms)
@@ -146,6 +152,7 @@ pub fn next_progress_at_ms(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64>
     next_heartbeat_at_ms(world)
         .into_iter()
         .chain(next_reconciliation_at_ms(world))
+        .chain(Current(world).fast_pause_due().then_some(0))
         .min()
 }
 
@@ -179,7 +186,12 @@ pub fn admit(
         .creation_time_ms
         .checked_add(1)
         .ok_or_else(|| SccpAdmissionRejectV1::new("Keepalive creation time overflows"))?;
-    match due(world, next_height, candidate) {
+    let due = if cfg!(all(test, sumeragi_core_mutation = "HC314")) {
+        Ok(true)
+    } else {
+        due(world, next_height, candidate)
+    };
+    match due {
         Ok(true) => Ok(Some(
             SccpAdmissionKeysV1::new(SccpExemptClassV1::Keepalive)
                 .with_exclusive(&payload.authority),

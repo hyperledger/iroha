@@ -3,11 +3,11 @@ pub mod custom;
 pub mod execution_output;
 pub mod fastpq_source;
 pub mod governance_clock;
-pub use governance_clock::GovernanceClockParametersV1;
 pub use execution_output::ExecutionOutputPolicyV1;
 pub use fastpq_source::{
     FastpqMandatorySourcePolicyV1, FastpqSourceLimitsV1, FastpqSourcePolicyV1,
 };
+pub use governance_clock::GovernanceClockParametersV1;
 pub mod system;
 pub(crate) use custom::CustomParameters;
 pub use custom::{CustomParameter, CustomParameterId};

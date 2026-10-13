@@ -69,8 +69,8 @@ fn rebuild(world: &mut World) {
     world.rebuild_rwa_indexes();
 }
 
-fn restart(world: &World) -> Box<World> {
-    let mut result = Box::new(World::default());
+fn restart(world: &World) -> World {
+    let mut result = World::new();
     result.accounts = restored(&world.accounts);
     result.domains = restored(&world.domains);
     result.nfts = restored(&world.nfts);
@@ -119,8 +119,8 @@ fn third_owner() -> AccountId {
     )
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     let alice = iroha_test_samples::ALICE_ID.clone();
     let bob = iroha_test_samples::BOB_ID.clone();
     let third = third_owner();

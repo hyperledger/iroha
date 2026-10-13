@@ -317,7 +317,9 @@ fn actual_signed_sources_apply_once_in_original_output_positions() {
         let key: Name = format!("network_{index}").parse().unwrap();
         assert_eq!(
             block.world.account(&ALICE_ID).unwrap().metadata().get(&key),
-            Some(&Json::new(index as i32))
+            Some(&Json::new(
+                i32::try_from(index).expect("fixture value fits i32")
+            ))
         );
     }
     let (ordinary, mandatory) = block.fastpq_source_usage_for_testing();

@@ -105,16 +105,17 @@ fn private_config(global: &CertifiedTestChain, id: DataSpaceId) -> TestChainConf
             .into_custom_parameter()
             .unwrap(),
         ));
-    let mut gas = iroha_config::parameters::actual::Gas::default();
-    gas.tech_account_id = account(&config.genesis_key).to_string();
-    gas.accepted_assets = vec![fee_asset().canonical_address()];
-    gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-        asset: fee_asset().canonical_address(),
-        units_per_gas: 1,
-        twap_local_per_xor: Numeric::one(),
-        liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-        volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-    }];
+    let gas = iroha_config::parameters::actual::Gas {
+        tech_account_id: account(&config.genesis_key).to_string(),
+        accepted_assets: vec![fee_asset().canonical_address()],
+        units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+            asset: fee_asset().canonical_address(),
+            units_per_gas: 1,
+            twap_local_per_xor: Numeric::one(),
+            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+        }],
+    };
     config
         .genesis_parameters
         .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
@@ -236,8 +237,8 @@ impl Roots {
                 .into()
             })
             .collect::<Vec<InstructionBox>>();
-        let signed = global.sign(&global_config().genesis_key, registrations, 1_999);
-        assert_eq!(global.commit_at(2_000, vec![signed]), vec![true]);
+        let signed_payload = global.sign(&global_config().genesis_key, registrations, 1_999);
+        assert_eq!(global.commit_at(2_000, vec![signed_payload]), vec![true]);
         Self {
             global,
             participants,
@@ -269,7 +270,7 @@ impl Roots {
         &mut self,
         transaction: &AmxTransactionV1,
     ) -> iroha_data_model::sumeragi_amx::AllocatedAmxRecordProofV1 {
-        let signed = self.global.sign(
+        let signed_payload = self.global.sign(
             &global_config().genesis_key,
             [BeginAmxV1 {
                 transaction: transaction.clone(),
@@ -277,7 +278,10 @@ impl Roots {
             .into()],
             2_999,
         );
-        assert_eq!(self.global.commit_at(3_000, vec![signed]), vec![true]);
+        assert_eq!(
+            self.global.commit_at(3_000, vec![signed_payload]),
+            vec![true]
+        );
         super::super::amx_record_proof(
             &self.global.state().view(),
             self.global.height(),
@@ -305,7 +309,7 @@ impl Roots {
     ) -> iroha_data_model::sumeragi_amx::AllocatedAmxRecordProofV1 {
         let id = [FIRST, SECOND][index];
         let chain = &mut self.participants[index];
-        let signed = chain.sign(
+        let signed_payload = chain.sign(
             &payer(),
             [begin
                 .try_copy(&self.global.state().ivm_execution_budget())
@@ -315,7 +319,10 @@ impl Roots {
                 .unwrap()],
             timestamp_ms.checked_sub(1).unwrap(),
         );
-        assert_eq!(chain.commit_at(timestamp_ms, vec![signed]), vec![true]);
+        assert_eq!(
+            chain.commit_at(timestamp_ms, vec![signed_payload]),
+            vec![true]
+        );
         let proof = super::super::amx_record_proof(
             &chain.state().view(),
             chain.height(),
@@ -326,7 +333,7 @@ impl Roots {
         .unwrap()
         .unwrap();
         assert!(
-            proof.canonical().block.commit_qc.len() > 0,
+            !proof.canonical().block.commit_qc.is_empty(),
             "original signed certificate"
         );
         proof
@@ -336,7 +343,7 @@ impl Roots {
         proofs: impl IntoIterator<Item = iroha_data_model::sumeragi_amx::AllocatedAmxRecordProofV1>,
         tx: [u8; 32],
     ) -> iroha_data_model::sumeragi_amx::AllocatedAmxRecordProofV1 {
-        let signed = self.global.sign(
+        let signed_payload = self.global.sign(
             &global_config().genesis_key,
             proofs.into_iter().map(|proof| {
                 let AmxRecordV1::Prepared(record) = &proof.canonical().record else {
@@ -353,7 +360,10 @@ impl Roots {
             }),
             4_999,
         );
-        assert_eq!(self.global.commit_at(5_000, vec![signed]), vec![true]);
+        assert_eq!(
+            self.global.commit_at(5_000, vec![signed_payload]),
+            vec![true]
+        );
         super::super::amx_record_proof(
             &self.global.state().view(),
             self.global.height(),
@@ -515,9 +525,10 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
         Unregister::asset_definition(principal()).into(),
         Unregister::domain(DomainId::try_new("amx", "private-amx").unwrap()).into(),
     ] {
-        let signed = roots.participants[0].sign(&global_config().genesis_key, [instruction], 4_399);
+        let signed_payload =
+            roots.participants[0].sign(&global_config().genesis_key, [instruction], 4_399);
         assert_eq!(
-            roots.participants[0].commit_at(4_400, vec![signed]),
+            roots.participants[0].commit_at(4_400, vec![signed_payload]),
             vec![false],
             "original pending parties and monetary definitions cannot be retired"
         );
@@ -547,7 +558,7 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
     );
     assert!(native(&roots.participants[0]).escrows[0].settled.is_none());
     for (id, chain) in [FIRST, SECOND].into_iter().zip(&mut roots.participants) {
-        let signed = chain.sign(
+        let signed_payload = chain.sign(
             &payer(),
             [decision
                 .try_copy(&roots.global.state().ivm_execution_budget())
@@ -557,7 +568,7 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
                 .unwrap()],
             5_999,
         );
-        assert_eq!(chain.commit_at(6_000, vec![signed]), vec![true]);
+        assert_eq!(chain.commit_at(6_000, vec![signed_payload]), vec![true]);
         let native = native(chain);
         assert_eq!(native.escrows[0].settled, Some(AmxOutcomeV1::Commit));
         assert_eq!(
@@ -642,9 +653,9 @@ fn native_amx_certified_abort_returns_yes_escrow_and_held_decision_never_debits(
         .complete(&budget)
         .unwrap();
     assert!(settle.amx_proof_admitted_to(&budget));
-    let signed = roots.participants[0].sign(&payer(), [settle], 5_999);
+    let signed_payload = roots.participants[0].sign(&payer(), [settle], 5_999);
     assert_eq!(
-        roots.participants[0].commit_at(6_000, vec![signed]),
+        roots.participants[0].commit_at(6_000, vec![signed_payload]),
         vec![true]
     );
     assert_eq!(
@@ -662,7 +673,7 @@ fn native_amx_certified_abort_returns_yes_escrow_and_held_decision_never_debits(
     );
     // A separately authenticated root holds the decision before its first Prepare.
     let mut fresh = CertifiedTestChain::start(private_config(&roots.global, FIRST)).unwrap();
-    let signed = fresh.sign(
+    let signed_payload = fresh.sign(
         &payer(),
         [decision
             .into_settle(FIRST)
@@ -670,14 +681,14 @@ fn native_amx_certified_abort_returns_yes_escrow_and_held_decision_never_debits(
             .unwrap()],
         6_999,
     );
-    assert_eq!(fresh.commit_at(7_000, vec![signed]), vec![true]);
+    assert_eq!(fresh.commit_at(7_000, vec![signed_payload]), vec![true]);
     let prepare = begin
         .into_prepare(FIRST, &transaction)
         .complete(&budget)
         .unwrap();
     assert!(prepare.amx_proof_admitted_to(&budget));
-    let signed = fresh.sign(&payer(), [prepare], 7_999);
-    assert_eq!(fresh.commit_at(8_000, vec![signed]), vec![true]);
+    let signed_payload = fresh.sign(&payer(), [prepare], 7_999);
+    assert_eq!(fresh.commit_at(8_000, vec![signed_payload]), vec![true]);
     assert!(native(&fresh).escrows.is_empty());
     assert_eq!(
         native(&fresh)
@@ -1208,7 +1219,7 @@ fn native_amx_edited_snapshot_admission_cannot_settle_without_original_replay() 
         *world.sumeragi_amx_participant.get_mut() = restored;
         world.commit();
     }
-    let signed = chain.sign(
+    let signed_payload = chain.sign(
         &payer(),
         [decision
             .into_settle(FIRST)
@@ -1216,7 +1227,7 @@ fn native_amx_edited_snapshot_admission_cannot_settle_without_original_replay() 
             .unwrap()],
         5_999,
     );
-    assert_eq!(chain.commit_at(6_000, vec![signed]), vec![false]);
+    assert_eq!(chain.commit_at(6_000, vec![signed_payload]), vec![false]);
     assert_eq!(native(chain).escrows[0].settled, None);
     assert_eq!(
         balance(chain, FIRST, principal(), account(&receiver())),
@@ -1276,7 +1287,7 @@ fn native_amx_new_state_cannot_inherit_live_authority_without_certified_replay()
         *block.sumeragi_amx_participant.get_mut() = admitted;
         block.commit();
     }
-    let signed = chain.sign(
+    let signed_payload = chain.sign(
         &payer(),
         [decision
             .into_settle(FIRST)
@@ -1284,7 +1295,7 @@ fn native_amx_new_state_cannot_inherit_live_authority_without_certified_replay()
             .unwrap()],
         5_999,
     );
-    assert_eq!(chain.commit_at(6_000, vec![signed]), vec![false]);
+    assert_eq!(chain.commit_at(6_000, vec![signed_payload]), vec![false]);
     assert_eq!(native(chain).escrows[0].settled, None);
     assert_eq!(
         balance(chain, FIRST, principal(), account(&receiver())),
@@ -1308,7 +1319,7 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
             global.committed(9).block().commit_certificate().unwrap(),
         ),
     };
-    let signed = participant.sign(
+    let signed_payload = participant.sign(
         &payer(),
         [RelayGlobalAmxHandoffV1 {
             dataspace: FIRST,
@@ -1317,7 +1328,10 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
         .into()],
         1_999,
     );
-    assert_eq!(participant.commit_at(2_000, vec![signed]), vec![false]);
+    assert_eq!(
+        participant.commit_at(2_000, vec![signed_payload]),
+        vec![false]
+    );
     assert_eq!(native(&participant), original);
     global.commit(Vec::new());
     assert_eq!(global.height(), 10);
@@ -1328,7 +1342,7 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
     };
     let mut corrupt = boundary.clone();
     corrupt.block.commit_qc[0] ^= 1;
-    let signed = participant.sign(
+    let signed_payload = participant.sign(
         &payer(),
         [RelayGlobalAmxHandoffV1 {
             dataspace: FIRST,
@@ -1337,9 +1351,12 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
         .into()],
         2_099,
     );
-    assert_eq!(participant.commit_at(2_100, vec![signed]), vec![false]);
+    assert_eq!(
+        participant.commit_at(2_100, vec![signed_payload]),
+        vec![false]
+    );
     assert_eq!(native(&participant), original);
-    let signed = participant.sign(
+    let signed_payload = participant.sign(
         &payer(),
         [RelayGlobalAmxHandoffV1 {
             dataspace: FIRST,
@@ -1348,7 +1365,10 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
         .into()],
         2_999,
     );
-    assert_eq!(participant.commit_at(3_000, vec![signed]), vec![true]);
+    assert_eq!(
+        participant.commit_at(3_000, vec![signed_payload]),
+        vec![true]
+    );
     let next = native(&participant);
     assert_eq!(next.participant.global.epoch(), 1);
     assert_eq!(
@@ -1369,7 +1389,7 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
     assert_eq!(next.global_genesis, original.global_genesis);
     assert_eq!(next.global_successor, original.global_successor);
     assert_eq!(next.global_chain_label, original.global_chain_label);
-    let signed = participant.sign(
+    let signed_payload = participant.sign(
         &payer(),
         [RelayGlobalAmxHandoffV1 {
             dataspace: FIRST,
@@ -1378,7 +1398,10 @@ fn native_amx_global_handoff_requires_real_boundary_and_preserves_original_sourc
         .into()],
         3_099,
     );
-    assert_eq!(participant.commit_at(3_100, vec![signed]), vec![true]);
+    assert_eq!(
+        participant.commit_at(3_100, vec![signed_payload]),
+        vec![true]
+    );
     assert_eq!(
         native(&participant),
         next,
@@ -1401,7 +1424,7 @@ fn native_amx_caught_completed_failure_cannot_publish_partial_world_effects() {
         iroha_primitives::json::Json::new(true),
     )
     .into();
-    let signed = chain.sign(&signer, [write.clone()], 1_499);
+    let signed_payload = chain.sign(&signer, [write.clone()], 1_499);
     let mut block = chain.state().block(BlockHeader::new(
         core::num::NonZeroU64::new(2).unwrap(),
         Some(chain.genesis().hash()),
@@ -1412,12 +1435,16 @@ fn native_amx_caught_completed_failure_cannot_publish_partial_world_effects() {
     let fragments = block.committed_fragment_count();
     let mut attempt = block.transaction();
     attempt.current_entrypoint_index = Some(0);
-    attempt.current_tx_hash = Some(signed.hash());
-    attempt.tx_call_hash = Some(iroha_crypto::Hash::from(signed.hash_as_entrypoint()));
+    attempt.current_tx_hash = Some(signed_payload.hash());
+    attempt.tx_call_hash = Some(iroha_crypto::Hash::from(
+        signed_payload.hash_as_entrypoint(),
+    ));
     attempt.current_lane_id = Some(iroha_model_base::topology::LaneId::SINGLE);
     attempt.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
     attempt.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
-    attempt.begin_execution_effect_budget(&signed).unwrap();
+    attempt
+        .begin_execution_effect_budget(&signed_payload)
+        .unwrap();
     attempt
         .admit_authored_execution_effects(std::slice::from_ref(&write))
         .unwrap();

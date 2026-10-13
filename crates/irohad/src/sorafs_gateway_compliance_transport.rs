@@ -18,7 +18,7 @@ use std::{
 
 /// Select the exact built-in transport or require the independently configured external provider.
 /// Native construction performs no DNS or feed reads and invents no catalog authority.
-pub(crate) fn resolve(
+pub fn resolve(
     binding: &SorafsGatewayRuntimeProviderBinding,
     feeds: &[SorafsGatewayComplianceFeed],
     injected: Option<Arc<dyn GatewayComplianceFeedTransport>>,

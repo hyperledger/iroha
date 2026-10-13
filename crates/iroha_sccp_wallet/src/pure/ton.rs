@@ -81,6 +81,8 @@ pub enum TonError {
     KeyFile(KeyFileError),
     /// A TVM stack is malformed or holds another value type.
     BadStack,
+    /// A retained wallet message differs from the exact v5r1 external-message shape.
+    BadWalletEnvelope,
 }
 
 impl core::fmt::Display for TonError {
@@ -97,6 +99,7 @@ impl core::fmt::Display for TonError {
             }
             Self::KeyFile(error) => write!(formatter, "key file: {error}"),
             Self::BadStack => formatter.write_str("malformed TVM stack"),
+            Self::BadWalletEnvelope => formatter.write_str("malformed v5r1 wallet envelope"),
         }
     }
 }
@@ -123,6 +126,29 @@ impl From<TonCellError> for TonError {
 /// Returns [`TonError::Cell`] for an empty or oversized recipient.
 pub fn burn_payload_cell(recipient: &[u8]) -> Result<Cell, TonError> {
     Ok(burn_to_taira_payload(recipient)?)
+}
+
+/// Standard TEP-74 burn body carrying the required SCCP recipient payload.
+///
+/// # Errors
+/// Refuses zero or non-contract amount, invalid recipient and cell capacity violations.
+pub fn burn_body(
+    query_id: u64,
+    amount: u128,
+    response: &TonAccountV1,
+    recipient: &[u8],
+) -> Result<Cell, TonError> {
+    if amount == 0 || amount >= (1u128 << 96) {
+        return Err(TonError::FieldTooLarge);
+    }
+    let mut body = CellBuilder::new();
+    body.store_uint(0x595f_07bc, 32)?
+        .store_uint(query_id.into(), 64)?
+        .store_coins(amount)?
+        .store_address_std(0, response)?
+        .store_bit(true)?
+        .store_ref(burn_payload_cell(recipient)?)?;
+    Ok(body.build())
 }
 
 /// `x_head#_ bytes:bits872 tail:^XTail`, with the original fixed 221-byte header.
@@ -402,15 +428,19 @@ pub fn deploy_buckets_body(
     Ok(body.build())
 }
 
-/// `sccp_retry query_id response nonce`: re-runs the step the minter recorded for `nonce`
-/// (get method `get_sccp_retry`).
+/// `sccp_retry query_id response operation_id`: retries the durable recovery operation
+/// recorded under that id (get method `get_sccp_recovery`).
 ///
 /// # Errors
 ///
 /// Never fails for a workchain-0 response; the `Result` mirrors the builder.
-pub fn retry_body(nonce: u64, query_id: u64, response: &TonAccountV1) -> Result<Cell, TonError> {
+pub fn retry_body(
+    operation_id: u64,
+    query_id: u64,
+    response: &TonAccountV1,
+) -> Result<Cell, TonError> {
     let mut body = header(OP_SCCP_RETRY, query_id, response)?;
-    body.store_uint(u128::from(nonce), 64)?;
+    body.store_uint(u128::from(operation_id), 64)?;
     Ok(body.build())
 }
 
@@ -539,6 +569,44 @@ pub fn wallet_v5_transfer(
     messages: &[(Cell, u8)],
     key: &TonWalletKeyV1,
 ) -> Result<Vec<u8>, TonError> {
+    let mut request = wallet_v5_request_builder(wallet_id, seqno, valid_until, messages)?;
+    let unsigned = request.build();
+    let signature = key.key.sign(unsigned.hash()).to_bytes();
+    request.store_bytes(&signature)?;
+    let body = request.build();
+    let mut external = CellBuilder::new();
+    external
+        .store_uint(0b10, 2)? // ext_in_msg_info$10
+        .store_uint(0, 2)? // src: addr_none
+        .store_address_std(0, wallet)?
+        .store_coins(0)? // import_fee
+        .store_bit(false)? // no StateInit
+        .store_bit(true)?
+        .store_ref(body)?;
+    Ok(external.build().to_boc()?)
+}
+
+/// Exact v5r1 signing request without a signature, for an external signer.
+/// Sign this cell's representation hash with the selected wallet's Ed25519 key;
+/// append the signature to its bits and wrap it in an external message to that wallet.
+///
+/// # Errors
+/// Refuses an empty or oversized action list and malformed cells.
+pub fn wallet_v5_unsigned_request(
+    wallet_id: u32,
+    seqno: u32,
+    valid_until: u32,
+    messages: &[(Cell, u8)],
+) -> Result<Cell, TonError> {
+    Ok(wallet_v5_request_builder(wallet_id, seqno, valid_until, messages)?.build())
+}
+
+fn wallet_v5_request_builder(
+    wallet_id: u32,
+    seqno: u32,
+    valid_until: u32,
+    messages: &[(Cell, u8)],
+) -> Result<CellBuilder, TonError> {
     if messages.is_empty() || messages.len() > MAX_SEND_ACTIONS {
         return Err(TonError::BadActionCount);
     }
@@ -560,20 +628,121 @@ pub fn wallet_v5_transfer(
         .store_uint(u128::from(seqno), 32)?
         .store_maybe_ref(Some(actions))?
         .store_bit(false)?; // no extended actions
-    let unsigned = request.build();
-    let signature = key.key.sign(unsigned.hash()).to_bytes();
-    request.store_bytes(&signature)?;
-    let body = request.build();
-    let mut external = CellBuilder::new();
-    external
-        .store_uint(0b10, 2)? // ext_in_msg_info$10
-        .store_uint(0, 2)? // src: addr_none
-        .store_address_std(0, wallet)?
-        .store_coins(0)? // import_fee
-        .store_bit(false)? // no StateInit
-        .store_bit(true)?
-        .store_ref(body)?;
-    Ok(external.build().to_boc()?)
+    Ok(request)
+}
+
+/// Public recovery coordinates of an original signed v5r1 envelope. These are diagnostic
+/// metadata, never proof that the wallet executed, rejected or expired the operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalletEnvelopeV1 {
+    /// Original basechain wallet account.
+    pub wallet: TonAccountV1,
+    /// Original wallet namespace.
+    pub wallet_id: u32,
+    /// Original replay-protection sequence number.
+    pub seqno: u32,
+    /// Original deadline in Unix seconds.
+    pub valid_until: u32,
+}
+
+/// Read only the exact envelope shape emitted by [`wallet_v5_transfer`].
+/// This does not validate its signature or grant retry/completion authority.
+///
+/// # Errors
+/// Refuses another message layout, workchain, body shape or malformed `BoC`.
+pub fn wallet_v5_envelope(boc: &[u8]) -> Result<WalletEnvelopeV1, TonError> {
+    let root = cell_from_boc(boc)?;
+    let malformed = || TonError::BadWalletEnvelope;
+    if root.bit_len() != 277 || root.refs().len() != 1 {
+        return Err(malformed());
+    }
+    let mut bits = Bits {
+        cell: &root,
+        offset: 0,
+    };
+    if bits.read(2)? != 2
+        || bits.read(2)? != 0
+        || bits.read(2)? != 2
+        || bits.read(1)? != 0
+        || bits.read(8)? != 0
+    {
+        return Err(malformed());
+    }
+    let mut wallet = [0; 32];
+    wallet[..16].copy_from_slice(&bits.read(128)?.to_be_bytes());
+    wallet[16..].copy_from_slice(&bits.read(128)?.to_be_bytes());
+    if bits.read(4)? != 0 || bits.read(1)? != 0 || bits.read(1)? != 1 {
+        return Err(malformed());
+    }
+    let body = root.refs()[0].cell().ok_or_else(malformed)?;
+    if body.bit_len() != 642 || body.refs().len() != 1 {
+        return Err(malformed());
+    }
+    let mut bits = Bits {
+        cell: body,
+        offset: 0,
+    };
+    if bits.read(32)? != u128::from(OP_SIGNED_EXTERNAL) {
+        return Err(malformed());
+    }
+    let wallet_id = u32::try_from(bits.read(32)?).map_err(|_| malformed())?;
+    let valid_until = u32::try_from(bits.read(32)?).map_err(|_| malformed())?;
+    let seqno = u32::try_from(bits.read(32)?).map_err(|_| malformed())?;
+    if bits.read(1)? != 1 || bits.read(1)? != 0 {
+        return Err(malformed());
+    }
+    Ok(WalletEnvelopeV1 {
+        wallet,
+        wallet_id,
+        seqno,
+        valid_until,
+    })
+}
+
+/// Fixed recovery row coordinates; a getter observation is not proof of transfer completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryRowV1 {
+    /// Immutable nonce, amount, count, chained id, query id and original tail commitment.
+    pub identity: [u8; 32],
+    /// Activation, consumption, mint, unconsume or range stage (1..=5).
+    pub stage: u8,
+    /// Wait, drop, failed or queued phase (0..=3).
+    pub phase: u8,
+    /// Monotonic attempt within the stage.
+    pub attempt: u64,
+}
+
+/// Decode the exact current `RecoveryOperation` cell for retry binding.
+///
+/// # Errors
+/// Refuses another row shape, an unknown stage or an opaque tail.
+pub fn recovery_row(cell: &Cell) -> Result<RecoveryRowV1, TonError> {
+    if cell.bit_len() != 369 || cell.refs().len() != 1 {
+        return Err(TonError::BadWalletEnvelope);
+    }
+    let mut bits = Bits { cell, offset: 0 };
+    let stage = u8::try_from(bits.read(3)?).map_err(|_| TonError::BadWalletEnvelope)?;
+    let phase = u8::try_from(bits.read(2)?).map_err(|_| TonError::BadWalletEnvelope)?;
+    if !(1..=5).contains(&stage) {
+        return Err(TonError::BadWalletEnvelope);
+    }
+    let attempt = u64::try_from(bits.read(64)?).map_err(|_| TonError::BadWalletEnvelope)?;
+    let mut identity = CellBuilder::new();
+    for _ in 69..367 {
+        identity.store_bit(bits.read(1)? != 0)?;
+    }
+    identity.store_ref(
+        cell.refs()[0]
+            .cell()
+            .ok_or(TonError::BadWalletEnvelope)?
+            .clone(),
+    )?;
+    Ok(RecoveryRowV1 {
+        identity: *identity.build().hash(),
+        stage,
+        phase,
+        attempt,
+    })
 }
 
 /// Load a contract code artifact (`code_boc64`) as a cell.
@@ -620,7 +789,7 @@ pub fn stack_of_ints(values: &[i64]) -> Result<Vec<u8>, TonError> {
             .store_uint(u128::from(value.cast_unsigned()), 64)?;
         list = node.build();
     }
-    finish_stack(list, values.len())
+    finish_stack(&list, values.len())
 }
 
 /// A `VmStack` `BoC` of unsigned 64-bit arguments, preserving the complete nonce range.
@@ -639,10 +808,10 @@ pub fn stack_of_uints(values: &[u64]) -> Result<Vec<u8>, TonError> {
             .store_uint(u128::from(value), 128)?;
         list = node.build();
     }
-    finish_stack(list, values.len())
+    finish_stack(&list, values.len())
 }
 
-fn finish_stack(list: Cell, depth: usize) -> Result<Vec<u8>, TonError> {
+fn finish_stack(list: &Cell, depth: usize) -> Result<Vec<u8>, TonError> {
     let depth = u128::try_from(depth).map_err(|_| TonError::FieldTooLarge)?;
     let mut root = CellBuilder::new();
     root.store_uint(depth, 24)?;
@@ -812,6 +981,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn standard_burn_body_retains_exact_query_amount_owner_and_recipient() {
+        let body = burn_body(19, 1, &[0x42; 32], &[0x07; 34]).unwrap();
+        assert_eq!(&body.data()[..4], &0x595f_07bcu32.to_be_bytes());
+        assert_eq!(&body.data()[4..12], &19u64.to_be_bytes());
+        assert_eq!(body.bit_len(), 32 + 64 + 4 + 8 + 267 + 1);
+        assert_eq!(body.refs().len(), 1);
+        assert_eq!(
+            body.refs()[0].hash(),
+            burn_payload_cell(&[0x07; 34]).unwrap().hash()
+        );
+        assert!(burn_body(1, 0, &[1; 32], &[2; 34]).is_err());
+        assert!(burn_body(1, 1u128 << 96, &[1; 32], &[2; 34]).is_err());
+        assert!(burn_body(1, 1, &[1; 32], &[]).is_err());
+        assert_ne!(
+            body.hash(),
+            burn_body(20, 1, &[0x42; 32], &[0x07; 34]).unwrap().hash()
+        );
+    }
+
+    #[test]
     fn burn_payloads_match_wallet_and_minter_admission() {
         use iroha_sccp::v1::{
             constants::MAX_TAIRA_ACCOUNT_BYTES, destination::check_ton_burn_payload,
@@ -862,10 +1051,11 @@ mod tests {
         assert_eq!(quote_with_margin(u128::MAX), u128::MAX);
         let floor = ton_minter_floor_at_mainnet_prices();
         assert!(minter_deploy_value() > floor + floor / 5);
-        // about 13.78 TON at mainnet prices (MINTER_FLOOR is about 10.95 TON)
+        // The maximum recovery book funds a 95.28 TON floor, plus 25% and
+        // initialization headroom: about 119.20 TON at mainnet prices.
         assert_eq!(
             minter_deploy_value(),
-            10_947_326_661 + 2_736_831_665 + 100_000_000
+            95_277_832_032 + 23_819_458_008 + 100_000_000
         );
     }
 
@@ -902,11 +1092,113 @@ mod tests {
             &key,
         )
         .expect("transfer");
+        assert_eq!(
+            wallet_v5_envelope(&boc).unwrap(),
+            WalletEnvelopeV1 {
+                wallet: [2; 32],
+                wallet_id: WALLET_V5R1_MAINNET_ID,
+                seqno: 3,
+                valid_until: 1_900_000_000,
+            }
+        );
+        assert!(wallet_v5_envelope(&message.to_boc().unwrap()).is_err());
+        assert!(wallet_v5_envelope(&boc[..boc.len() - 1]).is_err());
         let external = cell_from_boc(&boc).expect("parses");
         let request = external.refs()[0].cell().expect("body");
         assert_eq!(request.bit_len(), 32 * 4 + 2 + 512);
         assert_eq!(&request.data()[..4], &0x7369_676e_u32.to_be_bytes());
+        let unsigned = wallet_v5_unsigned_request(
+            WALLET_V5R1_MAINNET_ID,
+            3,
+            1_900_000_000,
+            &[(message.clone(), SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS)],
+        )
+        .unwrap();
+        assert_eq!(unsigned.bit_len(), 130);
+        assert_eq!(unsigned.refs(), request.refs());
+        let mut signature = [0_u8; 64];
+        for bit in 0..512 {
+            let source = 130 + bit;
+            signature[bit / 8] |=
+                ((request.data()[source / 8] >> (7 - source % 8)) & 1) << (7 - bit % 8);
+        }
+        key.key
+            .verifying_key()
+            .verify_strict(
+                unsigned.hash(),
+                &ed25519_dalek::Signature::from_bytes(&signature),
+            )
+            .unwrap();
+        let changed = wallet_v5_unsigned_request(
+            WALLET_V5R1_MAINNET_ID,
+            4,
+            1_900_000_000,
+            &[(message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS)],
+        )
+        .unwrap();
+        assert!(
+            key.key
+                .verifying_key()
+                .verify_strict(
+                    changed.hash(),
+                    &ed25519_dalek::Signature::from_bytes(&signature)
+                )
+                .is_err()
+        );
         assert!(wallet_v5_transfer(&[2; 32], 1, 3, 1, &[], &key).is_err());
+    }
+
+    #[test]
+    fn recovery_row_preserves_original_cause_across_only_mutable_progress_fields() {
+        let row = |stage, phase, attempt, nonce, tail: Cell| {
+            let mut cell = CellBuilder::new();
+            cell.store_uint(stage, 3)
+                .unwrap()
+                .store_uint(phase, 2)
+                .unwrap()
+                .store_uint(attempt, 64)
+                .unwrap()
+                .store_uint(nonce, 64)
+                .unwrap()
+                .store_uint(73, 96)
+                .unwrap()
+                .store_uint(1, 10)
+                .unwrap()
+                .store_uint(0, 64)
+                .unwrap()
+                .store_uint(19, 64)
+                .unwrap()
+                .store_uint(0, 2)
+                .unwrap()
+                .store_ref(tail)
+                .unwrap();
+            cell.build()
+        };
+        let tail = init_body(5).unwrap();
+        let original = recovery_row(&row(2, 2, 1, 7, tail.clone())).unwrap();
+        let retry = recovery_row(&row(2, 0, 2, 7, tail.clone())).unwrap();
+        assert_eq!(original.identity, retry.identity);
+        assert_ne!(
+            (original.phase, original.attempt),
+            (retry.phase, retry.attempt)
+        );
+        let stage = recovery_row(&row(3, 0, 1, 7, tail.clone())).unwrap();
+        assert_eq!(stage.identity, original.identity);
+        assert_ne!(stage.stage, original.stage);
+        assert_ne!(
+            recovery_row(&row(2, 2, 1, 8, tail.clone()))
+                .unwrap()
+                .identity,
+            original.identity
+        );
+        assert_ne!(
+            recovery_row(&row(2, 2, 1, 7, init_body(6).unwrap()))
+                .unwrap()
+                .identity,
+            original.identity
+        );
+        assert!(recovery_row(&row(0, 0, 0, 7, tail.clone())).is_err());
+        assert!(recovery_row(&tail).is_err());
     }
 
     #[test]

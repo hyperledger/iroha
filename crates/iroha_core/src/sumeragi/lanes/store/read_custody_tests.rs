@@ -54,6 +54,7 @@ impl Crypto for ReplaceAfterAuthenticating {
 
 #[test]
 fn completed_restoration_retains_its_exact_body_before_switching_requested_heights() {
+    use crate::sumeragi::driver::traits::BlockStore as _;
     let root = tempfile::tempdir().unwrap();
     let (body, qc, source, budget, crypto) = fixture(1025);
     let concrete = Arc::new(ReplaceAfterAuthenticating {
@@ -65,7 +66,6 @@ fn completed_restoration_retains_its_exact_body_before_switching_requested_heigh
     });
     let crypto: SharedCrypto = concrete.clone();
     let store = open(root.path(), &source, crypto, &budget, Arc::new(NoFaults));
-    use crate::sumeragi::driver::traits::BlockStore as _;
     store.append(&body, &qc).unwrap();
     let mut state = store.state.lock();
     state.read = Some(super::super::PendingRead {

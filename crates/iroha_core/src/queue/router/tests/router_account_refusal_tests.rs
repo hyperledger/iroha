@@ -359,7 +359,7 @@ fn fallible_rule_selection_keeps_first_match_and_skips_inapplicable_query_rules(
     })
     .unwrap()
     .unwrap();
-    assert!(std::ptr::eq(selected, &rules[0]));
+    assert!(std::ptr::eq(selected, &raw const rules[0]));
     let mut instruction_only = rules[1].clone();
     instruction_only.matcher.instruction = Some("transfer".into());
     assert_eq!(
@@ -409,10 +409,10 @@ fn original_native_policy_account_matcher_retains_refusal_before_route_selection
         "original matcher".to_owned(),
     )]);
     builder.set_creation_time(core::time::Duration::from_millis(1));
-    let signed = builder.sign(signer.private_key());
+    let signed_payload = builder.sign(signer.private_key());
     let (_, time_source) = TimeSource::new_mock(core::time::Duration::from_millis(2));
     let tx = AcceptedTransaction::accept_with_time_source(
-        signed,
+        signed_payload,
         chain.state().network_id_ref(),
         core::time::Duration::from_secs(30),
         TransactionParameters::default(),

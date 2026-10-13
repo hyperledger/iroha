@@ -1,7 +1,7 @@
 //! Current frame assertions with scrubbed encodings and payload-free diagnostics.
 
 /// Check the literal owner of a real frame, including encode-only signing views.
-pub(crate) fn assert_frame_encoding<T: norito::NoritoSerialize>(
+pub fn assert_frame_encoding<T: norito::NoritoSerialize>(
     value: &T,
     nominal: &str,
     frame: &str,
@@ -16,11 +16,7 @@ pub(crate) fn assert_frame_encoding<T: norito::NoritoSerialize>(
 }
 
 /// Check exact framing and reject substituted, truncated, or suffixed frames.
-pub(crate) fn assert_current_frame<T>(
-    value: &T,
-    nominal: &str,
-    frame: &str,
-) -> zeroize::Zeroizing<Vec<u8>>
+pub fn assert_current_frame<T>(value: &T, nominal: &str, frame: &str) -> zeroize::Zeroizing<Vec<u8>>
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
 {
@@ -46,7 +42,7 @@ where
 }
 
 /// Check nominal composition without requiring clone or a decoder for signing views.
-pub(crate) fn assert_nominal_container_frames<T: norito::NoritoSerialize>(
+pub fn assert_nominal_container_frames<T: norito::NoritoSerialize>(
     make: impl Fn() -> T,
     nominal: &str,
     frame: &str,

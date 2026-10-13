@@ -210,7 +210,7 @@ fn checked_context_rejects_a_genuine_capability_after_its_original_deadline() {
     let reviewed = reviewed(&source);
     let started = std::time::Instant::now();
     let prepared = source
-        .prepare_check(reviewed, Phase::Current(reviewed.intent.previous_audit))
+        .prepare_check(&reviewed, Phase::Current(reviewed.intent.previous_audit))
         .unwrap();
     let signed = source
         .transactions

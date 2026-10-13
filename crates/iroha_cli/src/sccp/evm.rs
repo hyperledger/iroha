@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, path::Path};
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{
-    api::{SccpMessageProofBundleV1, SccpRotationV1},
+    api::{SccpControlProofBundleV1, SccpMessageProofBundleV1, SccpRotationV1},
     v1::{
         committee::CommitteeStateV1,
         destination::DestinationFlavor,
@@ -21,11 +21,12 @@ use iroha_sccp::{
     },
 };
 use iroha_sccp_rpc::{
-    EndpointSet, EvmClient, FailoverPolicy, HttpConfig, HttpTransport,
+    EndpointSet, EvmClient, FailoverPolicy, HttpTransport,
     evm::{BlockId, BlockTag, EvmCallRequest},
 };
 use iroha_sccp_wallet::pure::{
     bundle::{BundlePurposeV1, CertificateUseV1, DestinationContextV1, verify_message_bundle},
+    control::{DestinationControlStateV1, verify_control_bundle},
     evm::{
         Eip1559TransactionV1, EvmSigningKey, eip1559_chain_id, finalize_calldata,
         submit_checkpoints_calldata,
@@ -68,6 +69,7 @@ pub(super) struct EvmDestination {
 impl EvmDestination {
     /// Connect to the selected deployment; every observation checks its original code hash.
     pub(super) fn connect(
+        config: &iroha_sccp_wallet::config::SccpClientConfig,
         rpc_url: &str,
         network: SccpNetworkV1,
         contract: [u8; 20],
@@ -75,7 +77,7 @@ impl EvmDestination {
         code_hash: [u8; 32],
     ) -> Result<Self> {
         Ok(Self {
-            client: connect_chain(rpc_url, network)?,
+            client: connect_chain_config(config, rpc_url, network)?,
             network,
             contract,
             destination,
@@ -113,22 +115,23 @@ impl EvmDestination {
         })
     }
 
-    /// Read the actual current committee and latch from one destination block.
-    pub(super) fn committee_state(&self) -> Result<CommitteeStateV1> {
-        Ok(self.observe([])?.committee)
-    }
     /// Verify against selected destination identity and encode an accepted current source.
     pub(super) fn finalize_call(
         &self,
         bundle: &SccpMessageProofBundleV1,
         network: [u8; 32],
         instance: [u8; 32],
+        required_control: u64,
     ) -> Result<Vec<u8>> {
         let observed = self.observe([bundle.certificate.height])?;
         ensure!(
             observed.network == network && observed.instance == instance,
             "Taira and the selected deployment have different network or consensus identities"
         );
+        super::administration::require_latest_control(
+            observed.pause.control_nonce,
+            required_control,
+        )?;
         ensure!(!observed.pause.effective, "the destination is paused");
         let source = if observed
             .checkpoints
@@ -147,6 +150,53 @@ impl EvmDestination {
         .map_err(|e| eyre!("proof bundle: {e}"))?;
         finalize_calldata(&verified).map_err(|e| eyre!("finalize calldata: {e:?}"))
     }
+    /// Verify a complete control against the same code-bound destination observation.
+    pub(super) fn control_call(
+        &self,
+        bundle: &SccpControlProofBundleV1,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<Vec<u8>> {
+        let observed = self.observe([bundle.certificate.height])?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and destination identities differ"
+        );
+        let applied = DestinationControlStateV1 {
+            control_nonce: observed.pause.control_nonce,
+            parliament_paused: observed.pause.parliament_paused,
+            fast_pause_until_ms: observed.pause.fast_pause_until_ms,
+        };
+        let source = if observed
+            .checkpoints
+            .contains_key(&bundle.certificate.height)
+        {
+            CertificateUseV1::Checkpoint
+        } else {
+            CertificateUseV1::Inline
+        };
+        let verified = verify_control_bundle(
+            bundle,
+            &observed.context(self.destination),
+            &applied,
+            source,
+        )
+        .map_err(|e| eyre!("control proof: {e}"))?;
+        Ok(iroha_sccp_wallet::pure::evm::apply_control_calldata(
+            &verified,
+        ))
+    }
+
+    /// Read all current identity fields after the registered runtime hash matches.
+    pub(super) fn verify_identity(&self, network: [u8; 32], instance: [u8; 32]) -> Result<()> {
+        let observed = self.observe([])?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and destination identities differ"
+        );
+        Ok(())
+    }
+
     /// Verify a bounded current rotation page and return its checkpoint calldata.
     /// The next invocation re-observes the destination; a page is never authority by itself.
     pub(super) fn rotation_calls(
@@ -165,11 +215,134 @@ impl EvmDestination {
             .map_err(|e| eyre!("committee checkpoint chain: {e}"))?;
         Ok(submit_checkpoints_calldata(&plan))
     }
-    /// Sign and broadcast verified calldata with the selected fee-paying key.
-    pub(super) fn send(&self, key: &EvmSigningKey, data: Vec<u8>) -> Result<[u8; 32]> {
-        send_transaction(&self.client, self.network, key, Some(self.contract), data)
-            .map(|(hash, _)| hash)
+    /// Replay-protected transaction adapter for this selected destination.
+    pub(super) fn transport(&self) -> EvmTransport<'_> {
+        EvmTransport {
+            client: &self.client,
+            network: self.network,
+            contract: self.contract,
+        }
     }
+}
+
+/// Original EIP-1559 custody and finalized receipts for one explicit call target.
+pub(super) struct EvmTransport<'a> {
+    client: &'a EvmClient,
+    network: SccpNetworkV1,
+    contract: [u8; 20],
+}
+
+impl EvmTransport<'_> {
+    /// A successful transaction alone is not a terminal mint observation.
+    pub(super) fn confirm_finalized(
+        &self,
+        receipt: &iroha_sccp_rpc::evm::EvmReceipt,
+        bundle: &SccpMessageProofBundleV1,
+    ) -> Result<()> {
+        let payload = iroha_sccp::v1::payload::SccpTransferPayloadRefV1::decode(&bundle.payload)?;
+        let expected = iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+            message_id: bundle.message_id,
+            nonce: payload.nonce,
+            token_amount: payload.amount,
+            recipient: payload
+                .recipient
+                .bytes
+                .try_into()
+                .map_err(|_| eyre!("original recipient is not EVM"))?,
+        };
+        require_finalized_log(&receipt.logs, self.contract, expected)?;
+        let call = ViewCallV1::IsConsumed(expected.nonce);
+        let bytes = self.client.call(
+            &EvmCallRequest::new(self.contract, call.calldata()),
+            BlockId::Hash(receipt.block_hash),
+        )?;
+        ensure!(
+            call.decode_return(&bytes)? == ViewReturnV1::Bool(true),
+            "finalized event lacks its consumed nonce at the original block"
+        );
+        Ok(())
+    }
+    /// Quote an exact unsigned transaction for an external payer, without loading a key.
+    pub(super) fn unsigned(&self, payer: [u8; 20], data: Vec<u8>) -> Result<Eip1559TransactionV1> {
+        unsigned_transaction(self.client, self.network, payer, Some(self.contract), data)
+    }
+    /// Sign without network dispatch; the caller must persist these exact bytes first.
+    pub(super) fn prepare(&self, key: &EvmSigningKey, data: Vec<u8>) -> Result<Vec<u8>> {
+        prepare_transaction(&self.client, self.network, key, Some(self.contract), data)
+            .map(|(raw, _)| raw)
+    }
+
+    /// Check that a retained signed transaction is this exact requested contract call.
+    pub(super) fn retained_hash(&self, raw: &[u8], calldata: &[u8]) -> Result<[u8; 32]> {
+        let signed = iroha_sccp_wallet::pure::evm::SignedEip1559V1::decode(raw)
+            .map_err(|error| eyre!("retained EVM transaction: {error:?}"))?;
+        ensure!(
+            signed.transaction.chain_id
+                == eip1559_chain_id(self.network).map_err(|error| eyre!("{error:?}"))?
+                && signed.transaction.to == Some(self.contract)
+                && signed.transaction.value == 0
+                && signed.transaction.data == calldata
+                && signed.raw() == raw,
+            "retained transaction differs from the selected chain, contract or exact call"
+        );
+        Ok(signed.hash())
+    }
+
+    /// Broadcast only bytes retained by a durable pre-dispatch marker.
+    pub(super) fn broadcast(&self, raw: &[u8]) -> Result<[u8; 32]> {
+        self.client
+            .send_raw_transaction(raw)
+            .map_err(|error| eyre!("eth_sendRawTransaction: {error}"))
+    }
+
+    /// Observe the exact transaction without signing or sending.
+    pub(super) fn receipt(
+        &self,
+        hash: &[u8; 32],
+    ) -> Result<Option<iroha_sccp_rpc::evm::EvmReceipt>> {
+        let Some(receipt) = self
+            .client
+            .transaction_receipt(hash)
+            .map_err(|error| eyre!("eth_getTransactionReceipt: {error}"))?
+        else {
+            return Ok(None);
+        };
+        let finalized = self
+            .client
+            .block_by_number(BlockTag::Finalized)
+            .map_err(|error| eyre!("finalized block: {error}"))?
+            .ok_or_else(|| eyre!("the destination has no finalized block"))?;
+        if receipt.block_number > finalized.header.number {
+            return Ok(None);
+        }
+        let canonical = self
+            .client
+            .block_by_number(BlockTag::Number(receipt.block_number))
+            .map_err(|error| eyre!("receipt canonical block: {error}"))?
+            .ok_or_else(|| eyre!("receipt block is absent"))?;
+        if canonical.header.hash != receipt.block_hash {
+            return Ok(None);
+        }
+        Ok(Some(receipt))
+    }
+}
+
+fn require_finalized_log(
+    logs: &[iroha_sccp_rpc::evm::EvmLog],
+    contract: [u8; 20],
+    expected: iroha_sccp::v1::evm_abi::FinalizedLogV1,
+) -> Result<()> {
+    ensure!(
+        logs.iter()
+            .filter(|log| !log.removed
+                && log.address == contract
+                && iroha_sccp::v1::evm_abi::FinalizedLogV1::decode(&log.topics, &log.data)
+                    == Ok(expected))
+            .count()
+            == 1,
+        "receipt must contain exactly the original recipient, amount, nonce and message finalized event"
+    );
+    Ok(())
 }
 
 fn read_observation(
@@ -228,36 +401,59 @@ fn read_observation(
     })
 }
 
-/// Connect to `rpc_url` and check that it serves `network`.
-pub(super) fn connect_chain(rpc_url: &str, network: SccpNetworkV1) -> Result<EvmClient> {
-    let endpoints =
-        EndpointSet::parse(&[rpc_url], &[]).map_err(|error| eyre!("RPC endpoint: {error}"))?;
-    let transport = HttpTransport::new(endpoints, HttpConfig::default(), FailoverPolicy::default())
-        .map_err(|error| eyre!("RPC transport: {error}"))?;
-    let client = EvmClient::new(transport);
-    let expected = eip1559_chain_id(network).map_err(|error| eyre!("{error:?}"))?;
-    let served = client
-        .chain_id()
-        .map_err(|error| eyre!("eth_chainId: {error}"))?;
-    if served != expected {
-        return Err(eyre!(
-            "the RPC endpoint serves chain {served}, not {} ({expected})",
-            network.profile_key()
-        ));
-    }
+/// Configured endpoint custody, including runtime-only headers and request deadlines.
+pub(super) fn connect_chain_config(
+    config: &iroha_sccp_wallet::config::SccpClientConfig,
+    rpc_override: &str,
+    network: SccpNetworkV1,
+) -> Result<EvmClient> {
+    let kind = match network {
+        SccpNetworkV1::EthereumMainnet => iroha_sccp_rpc::HttpEndpointKind::EthereumExecution,
+        SccpNetworkV1::BscMainnet => iroha_sccp_rpc::HttpEndpointKind::Bsc,
+        _ => return Err(eyre!("network has no EVM transport")),
+    };
+    let endpoints = if rpc_override.trim().is_empty() {
+        config.endpoint_set(kind)?
+    } else {
+        EndpointSet::parse(
+            &rpc_override.split(',').map(str::trim).collect::<Vec<_>>(),
+            &config.secret_headers,
+        )?
+    };
+    let client = EvmClient::new(HttpTransport::new(
+        endpoints,
+        config.http_config(),
+        FailoverPolicy::default(),
+    )?);
+    ensure!(
+        client.chain_id()? == eip1559_chain_id(network).map_err(|error| eyre!("{error:?}"))?,
+        "configured RPC serves another chain"
+    );
     Ok(client)
 }
 
-/// Sign and broadcast a call of `to` (a contract creation when `None`) with `key`, returning
-/// the transaction hash and the sender nonce it used.
-pub(super) fn send_transaction(
+fn prepare_transaction(
     client: &EvmClient,
     network: SccpNetworkV1,
     key: &EvmSigningKey,
     to: Option<[u8; 20]>,
     data: Vec<u8>,
-) -> Result<([u8; 32], u64)> {
-    let sender = key.address();
+) -> Result<(Vec<u8>, u64)> {
+    let transaction = unsigned_transaction(client, network, key.address(), to, data)?;
+    let nonce = transaction.nonce;
+    let signed = transaction
+        .sign(key)
+        .map_err(|error| eyre!("signing: {error:?}"))?;
+    Ok((signed.raw(), nonce))
+}
+
+fn unsigned_transaction(
+    client: &EvmClient,
+    network: SccpNetworkV1,
+    sender: [u8; 20],
+    to: Option<[u8; 20]>,
+    data: Vec<u8>,
+) -> Result<Eip1559TransactionV1> {
     let nonce = client
         .transaction_count(&sender, BlockId::Tag(BlockTag::Pending))
         .map_err(|error| eyre!("eth_getTransactionCount: {error}"))?;
@@ -297,35 +493,54 @@ pub(super) fn send_transaction(
     transaction
         .validate()
         .map_err(|error| eyre!("transaction: {error:?}"))?;
-    let signed = transaction
-        .sign(key)
-        .map_err(|error| eyre!("signing: {error:?}"))?;
-    let hash = client
-        .send_raw_transaction(&signed.raw())
-        .map_err(|error| eyre!("eth_sendRawTransaction: {error}"))?;
-    Ok((hash, nonce))
+    Ok(transaction)
 }
 
-const DEPLOYER_RUNTIME: &str = "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
-/// Check the canonical proxy bytecode before paying for deterministic deployment.
-pub(super) fn deploy_current(
-    client: &EvmClient,
+use iroha_sccp::v1::constants::SCCP_EVM_DEPLOYER_RUNTIME;
+/// A deterministic deployment, bound to the canonical proxy and original constructor bytes.
+pub(super) struct Deployment {
+    client: EvmClient,
     network: SccpNetworkV1,
-    key: &EvmSigningKey,
+    pub(super) address: [u8; 20],
+    pub(super) calldata: Vec<u8>,
+}
+impl Deployment {
+    pub(super) fn transport(&self) -> EvmTransport<'_> {
+        EvmTransport {
+            client: &self.client,
+            network: self.network,
+            contract: DEPLOYER,
+        }
+    }
+    pub(super) fn runtime_code_hash(&self) -> Result<[u8; 32]> {
+        runtime_code_hash(&self.client, &self.address)
+    }
+}
+
+/// Check the canonical proxy before preparing any paid deployment transaction.
+pub(super) fn deployment(
+    config: &iroha_sccp_wallet::config::SccpClientConfig,
+    rpc_url: &str,
+    network: SccpNetworkV1,
     init_code: Vec<u8>,
-) -> Result<([u8; 32], [u8; 20])> {
+) -> Result<Deployment> {
+    let client = connect_chain_config(config, rpc_url, network)?;
     let actual = client
         .code(&DEPLOYER, BlockId::Tag(BlockTag::Latest))
-        .map_err(|e| eyre!("deployment proxy: {e}"))?;
+        .map_err(|error| eyre!("deployment proxy: {error}"))?;
     ensure!(
-        actual == hex::decode(DEPLOYER_RUNTIME).expect("fixed proxy code"),
+        actual.as_slice() == SCCP_EVM_DEPLOYER_RUNTIME,
         "canonical deterministic deployment proxy is absent or has different code"
     );
     let address = create2_address(&DEPLOYER, &[0; 32], &init_code);
     let mut calldata = vec![0; 32];
     calldata.extend(init_code);
-    let (hash, _) = send_transaction(client, network, key, Some(DEPLOYER), calldata)?;
-    Ok((hash, address))
+    Ok(Deployment {
+        client,
+        network,
+        address,
+        calldata,
+    })
 }
 
 /// Exact nine static constructor words of the current native deployment.
@@ -370,10 +585,122 @@ pub(super) fn load_key(path: &Path) -> Result<EvmSigningKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finalized_receipt_requires_exact_original_effect_once() {
+        let expected = iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+            message_id: [1; 32],
+            nonce: 7,
+            recipient: [2; 20],
+            token_amount: 31,
+        };
+        let (topics, data) = expected.encode();
+        let log = iroha_sccp_rpc::evm::EvmLog {
+            address: [3; 20],
+            topics,
+            data,
+            log_index: Some(0),
+            transaction_index: Some(0),
+            transaction_hash: Some([4; 32]),
+            block_hash: Some([5; 32]),
+            block_number: Some(6),
+            removed: false,
+        };
+        require_finalized_log(std::slice::from_ref(&log), [3; 20], expected).unwrap();
+        assert!(require_finalized_log(&[], [3; 20], expected).is_err());
+        assert!(require_finalized_log(&[log.clone(), log.clone()], [3; 20], expected).is_err());
+        for changed in [
+            iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+                message_id: [8; 32],
+                ..expected
+            },
+            iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+                nonce: 8,
+                ..expected
+            },
+            iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+                recipient: [8; 20],
+                ..expected
+            },
+            iroha_sccp::v1::evm_abi::FinalizedLogV1 {
+                token_amount: 8,
+                ..expected
+            },
+        ] {
+            assert!(require_finalized_log(std::slice::from_ref(&log), [3; 20], changed).is_err());
+        }
+        assert!(require_finalized_log(std::slice::from_ref(&log), [8; 20], expected).is_err());
+        assert!(
+            require_finalized_log(
+                &[iroha_sccp_rpc::evm::EvmLog {
+                    removed: true,
+                    ..log
+                }],
+                [3; 20],
+                expected
+            )
+            .is_err()
+        );
+    }
     use iroha_sccp::v1::{
         evm_abi::{CommitteeViewV1, PauseViewV1},
         hashes::{word_u64, word_u128},
     };
+    #[test]
+    fn source_endpoint_lists_preserve_order_and_enforce_chain_identity() {
+        use std::{
+            io::{BufRead as _, Read as _, Write as _},
+            net::TcpListener,
+        };
+        for (chain, accepted) in [("0x1", true), ("0x38", false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let worker = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut input = std::io::BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    input.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                input.read_exact(&mut body).unwrap();
+                let request: norito::json::Value = norito::json::from_slice(&body).unwrap();
+                assert_eq!(request["method"].as_str(), Some("eth_chainId"));
+                let body = format!(
+                    r#"{{"jsonrpc":"2.0","id":{},"result":"{}"}}"#,
+                    request["id"].as_u64().unwrap(),
+                    chain
+                );
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            });
+            let config = iroha_sccp_wallet::config::SccpClientConfig::from_user(
+                Default::default(),
+                Path::new("target/sccp-continuation/export-test-journal"),
+            )
+            .unwrap();
+            let result = connect_chain_config(
+                &config,
+                &format!(" http://{address} , http://127.0.0.1:1 "),
+                SccpNetworkV1::EthereumMainnet,
+            );
+            if accepted {
+                let client = result.unwrap();
+                assert_eq!(client.transport().endpoints().len(), 2);
+                assert_eq!(client.transport().endpoints().preferred(), 0);
+            } else {
+                assert!(result.is_err());
+            }
+            worker.join().unwrap();
+        }
+    }
+
     #[test]
     fn deterministic_deployment_follows_eip1014_and_binds_every_constructor_word() {
         assert_eq!(
@@ -413,7 +740,7 @@ mod tests {
             changed[index * 32 + 31] ^= 1;
             assert_ne!(create2_address(&DEPLOYER, &[0; 32], &changed), original);
         }
-        assert_eq!(hex::decode(DEPLOYER_RUNTIME).unwrap().len(), 69);
+        assert_eq!(SCCP_EVM_DEPLOYER_RUNTIME.len(), 69);
     }
     #[test]
     fn destination_observation_preserves_latch_checkpoint_and_identity_and_rejects_mixed_pause() {
@@ -454,3 +781,114 @@ mod tests {
         assert!(read_observation(1, 100, [], |_| Ok(ViewReturnV1::Bool(false))).is_err());
     }
 }
+
+impl EvmDestination {
+    /// Bind burn nonce and identity to the registered immutable destination before signing.
+    pub(super) fn burn_call(
+        &self,
+        key: &EvmSigningKey,
+        recipient: &[u8],
+        amount: u128,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<Vec<u8>> {
+        let observed = self.observe([])?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "burn destination identity differs"
+        );
+        let call = ViewCallV1::TransferNonces(key.address());
+        let bytes = self
+            .client
+            .call(
+                &EvmCallRequest::new(self.contract, call.calldata()),
+                BlockId::Tag(BlockTag::Latest),
+            )
+            .map_err(|error| eyre!("burn nonce: {error}"))?;
+        let ViewReturnV1::U64(nonce) = call
+            .decode_return(&bytes)
+            .map_err(|error| eyre!("burn nonce: {error}"))?
+        else {
+            return Err(eyre!("burn nonce has the wrong type"));
+        };
+        iroha_sccp_wallet::pure::evm::transfer_to_taira_calldata(recipient, amount, nonce)
+            .map_err(Into::into)
+    }
+}
+
+impl EvmDestination {
+    /// Verify the exact expired message or actual freeze before encoding one permanent void.
+    pub(super) fn void_call(
+        &self,
+        bundle: Option<&SccpMessageProofBundleV1>,
+        nonce: u64,
+        frozen: bool,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<Vec<u8>> {
+        let observed = self.observe(bundle.map(|bundle| bundle.certificate.height))?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "void destination identity differs"
+        );
+        if frozen {
+            ensure!(
+                !observed.committee.is_live(observed.now_ms),
+                "destination is not frozen"
+            );
+            return iroha_sccp_wallet::pure::evm::void_frozen_calldata(nonce, 1)
+                .map_err(Into::into);
+        }
+        let bundle = bundle.ok_or_else(|| eyre!("expired void requires the original proof"))?;
+        let source = if observed
+            .checkpoints
+            .contains_key(&bundle.certificate.height)
+        {
+            CertificateUseV1::Checkpoint
+        } else {
+            CertificateUseV1::Inline
+        };
+        let verified = verify_message_bundle(
+            bundle,
+            &observed.context(self.destination),
+            BundlePurposeV1::VoidExpired,
+            source,
+        )?;
+        ensure!(verified.nonce() == nonce, "void proof names another nonce");
+        iroha_sccp_wallet::pure::evm::void_expired_calldata(&verified).map_err(Into::into)
+    }
+}
+
+impl EvmDestination {
+    /// Refuse a new source transfer unless the current destination and full handoff horizon verify.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record_preflight(
+        &self,
+        client: &iroha::blocking::Client,
+        original: &super::origin::AuthenticatedOrigin,
+        revision: &iroha::data_model::sccp::registry::SccpRouteRevisionV1,
+        parameters: &iroha::data_model::sccp::params::SccpParametersV1,
+        current: u64,
+        margin_ms: u64,
+    ) -> Result<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>> {
+        let observed = self.observe([])?;
+        let applied = DestinationControlStateV1 {
+            control_nonce: observed.pause.control_nonce,
+            parliament_paused: observed.pause.parliament_paused,
+            fast_pause_until_ms: observed.pause.fast_pause_until_ms,
+        };
+        super::record::preflight(
+            client,
+            original,
+            revision,
+            &observed.context(self.destination),
+            &applied,
+            parameters,
+            current,
+            margin_ms,
+        )
+    }
+}
+
+#[path = "evm_monitor.rs"]
+mod monitor;

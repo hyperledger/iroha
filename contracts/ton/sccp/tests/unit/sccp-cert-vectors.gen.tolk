@@ -17,6 +17,8 @@
 //   step by step on the minter at `0:35…35`, one message per step, and
 //   compare the exit code, the external-out events and the state after
 //   every step.
+// - `vecScenarioTonControl…` replays all TON destination-effect rows of
+//   `control_v1.json`, including their independent certificates and native effects.
 
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
@@ -2328,11 +2330,13 @@ fun vecScenarioInitialPin() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: views
     replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
 }
 
@@ -2350,6 +2354,7 @@ fun vecScenarioCheckpointRaisesHigh() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: submitCheckpoints -> ok
@@ -2371,6 +2376,7 @@ fun vecScenarioCheckpointRaisesHigh() {
         eventCheckpointed(1020, 0xe380613d58008d0835bf626b795ce6b64fbf0d38609cd14190a31545ad874101),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1020, 0xe380613d58008d0835bf626b795ce6b64fbf0d38609cd14190a31545ad874101, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 1: submitCheckpoints -> ok
@@ -2392,6 +2398,7 @@ fun vecScenarioCheckpointRaisesHigh() {
         eventCheckpointed(1005, 0xa1b931c5bc64aaea72e17e15a2bd7380206cfbdc958dea862339c204bf008e35),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 2, 1005, 0xa1b931c5bc64aaea72e17e15a2bd7380206cfbdc958dea862339c204bf008e35, 1020, 0xe380613d58008d0835bf626b795ce6b64fbf0d38609cd14190a31545ad874101, 0, 0);
     testing.setNow(1800000120);
     // step 2: submitCheckpoints -> NothingToDo
@@ -2410,6 +2417,7 @@ fun vecScenarioCheckpointRaisesHigh() {
     expectOutcome(res2, 428);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 2, 1005, 0xa1b931c5bc64aaea72e17e15a2bd7380206cfbdc958dea862339c204bf008e35, 1020, 0xe380613d58008d0835bf626b795ce6b64fbf0d38609cd14190a31545ad874101, 0, 0);
 }
 
@@ -2427,6 +2435,7 @@ fun vecScenarioRotationKeyChange() {
         1800003660,
     );
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800003660);
     // step 0: submitCheckpoints -> ok
@@ -2454,6 +2463,7 @@ fun vecScenarioRotationKeyChange() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801213200000, 1101),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0xd72fd57bf1357811b3530e2942b9dfb72291eb301e6421e1e920bd453b5dffa2, 0, 0, 0, 0);
     testing.setNow(1800003720);
     // step 1: submitCheckpoints -> ok
@@ -2475,6 +2485,7 @@ fun vecScenarioRotationKeyChange() {
         eventCheckpointed(1101, 0xb41b2e7b244c755d1679facd34d2f95be01b50c2a92757d97f65937185c55fc3),
     ]);
     replayExpectState(env, 1800003720000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1101, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 2, 1100, 0xd72fd57bf1357811b3530e2942b9dfb72291eb301e6421e1e920bd453b5dffa2, 1101, 0xb41b2e7b244c755d1679facd34d2f95be01b50c2a92757d97f65937185c55fc3, 0, 0);
 }
 
@@ -2492,6 +2503,7 @@ fun vecScenarioHeartbeatRotation() {
         1800086460,
     );
     replayExpectState(env, 1800086460000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800086460);
     // step 0: submitCheckpoints -> ok
@@ -2514,6 +2526,7 @@ fun vecScenarioHeartbeatRotation() {
         eventRotated(6, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1801296000000, 1101),
     ]);
     replayExpectState(env, 1800086460000, 6, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1101, 1100, 1801296000000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0x4d41c77377e114552efd5d6ae87fee9ae731959a4a15d87f6768174c08116262, 0, 0, 0, 0);
 }
 
@@ -2531,6 +2544,7 @@ fun vecScenarioRotationLoweredValidity() {
         1800003660,
     );
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800003660);
     // step 0: submitCheckpoints -> ok
@@ -2558,16 +2572,19 @@ fun vecScenarioRotationLoweredValidity() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1800262800000, 1101),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1800262800000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0xf58799c57ef8b8cf7b1c29f616f32468a43987aceb5aae4d95d52be771f70e98, 0, 0, 0, 0);
     testing.setNow(1800262800);
     // step 1: views
     replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
     replayExpectState(env, 1800262800000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1800262800000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0xf58799c57ef8b8cf7b1c29f616f32468a43987aceb5aae4d95d52be771f70e98, 0, 0, 0, 0);
     testing.setNow(1800262801);
     // step 2: views
     replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
     replayExpectState(env, 1800262801000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1800262800000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0xf58799c57ef8b8cf7b1c29f616f32468a43987aceb5aae4d95d52be771f70e98, 0, 0, 0, 0);
 }
 
@@ -2585,6 +2602,7 @@ fun vecScenarioV1NeighbourSameXOtherResultBody() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: submitCheckpoints -> ok
@@ -2606,6 +2624,7 @@ fun vecScenarioV1NeighbourSameXOtherResultBody() {
         eventCheckpointed(1030, 0x2d6c003bbc00fd64133f60dc4ac6b15a1bd8f1e320d7e1778d4d5ade40ae6cc0),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1030, 0x2d6c003bbc00fd64133f60dc4ac6b15a1bd8f1e320d7e1778d4d5ade40ae6cc0, 0, 0, 0, 0);
     testing.setNow(1800000120);
     // step 1: submitCheckpoints -> NothingToDo
@@ -2624,6 +2643,7 @@ fun vecScenarioV1NeighbourSameXOtherResultBody() {
     expectOutcome(res1, 428);
     expectEvents(res1, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1030, 0x2d6c003bbc00fd64133f60dc4ac6b15a1bd8f1e320d7e1778d4d5ade40ae6cc0, 0, 0, 0, 0);
 }
 
@@ -2641,6 +2661,7 @@ fun vecScenarioV2BelowStart() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: submitCheckpoints -> ok
@@ -2662,6 +2683,7 @@ fun vecScenarioV2BelowStart() {
         eventLatched(2, 5, 999, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 0xb23ad9b8671588dcef2dd4a321a84e97e749caaeb900e03f77967e1c135e9df6),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 0, true, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
 }
 
@@ -2679,6 +2701,7 @@ fun vecScenarioV2NeighbourAtStart() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: submitCheckpoints -> ok
@@ -2700,6 +2723,7 @@ fun vecScenarioV2NeighbourAtStart() {
         eventCheckpointed(1000, 0x680595810fa93b9726fb6ae16b24244042a31e06558e8ae92dd53153f0e498b2),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1000, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1000, 0x680595810fa93b9726fb6ae16b24244042a31e06558e8ae92dd53153f0e498b2, 0, 0, 0, 0);
 }
 
@@ -2717,6 +2741,7 @@ fun vecScenarioV3RotationBelowHigh() {
         1800000120,
     );
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000120);
     // step 0: submitCheckpoints -> ok
@@ -2738,6 +2763,7 @@ fun vecScenarioV3RotationBelowHigh() {
         eventCheckpointed(1060, 0x272938a509e5c624f700cf13b7ff4a21ae033687588c3cfb288ae39842eece0e),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1060, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1060, 0x272938a509e5c624f700cf13b7ff4a21ae033687588c3cfb288ae39842eece0e, 0, 0, 0, 0);
     testing.setNow(1800000180);
     // step 1: submitCheckpoints -> ok
@@ -2759,6 +2785,7 @@ fun vecScenarioV3RotationBelowHigh() {
         eventLatched(3, 5, 1050, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 0xe025d833fb90a19ffb8bace48e1e6ad7d772a88c9879161530b42c548ae029b0),
     ]);
     replayExpectState(env, 1800000180000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1060, 0, true, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1060, 0x272938a509e5c624f700cf13b7ff4a21ae033687588c3cfb288ae39842eece0e, 0, 0, 0, 0);
 }
 
@@ -2776,6 +2803,7 @@ fun vecScenarioFutureDatedRotationTEff() {
         1800003600,
     );
     replayExpectState(env, 1800003600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800003600);
     // step 0: submitCheckpoints -> ok
@@ -2803,6 +2831,7 @@ fun vecScenarioFutureDatedRotationTEff() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801213200000, 1101),
     ]);
     replayExpectState(env, 1800003600000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0x9b248807e621f553a4469d08e796b7f19aebbd2ac4de90efeeee9eaa856700e5, 0, 0, 0, 0);
 }
 
@@ -2820,6 +2849,7 @@ fun vecScenarioTonRotationNextKeys() {
         1800003660,
     );
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -2844,6 +2874,7 @@ fun vecScenarioTonRotationNextKeys() {
     expectOutcome(res0, 403);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -2873,6 +2904,7 @@ fun vecScenarioTonRotationNextKeys() {
     expectOutcome(res1, 403);
     expectEvents(res1, ([] as array<cell>));
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -2906,6 +2938,7 @@ fun vecScenarioTonRotationNextKeys() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801213200000, 1101),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -2934,6 +2967,7 @@ fun vecScenarioTonRotationNextKeys() {
         eventRotated(7, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801299600000, 1201),
     ]);
     replayExpectState(env, 1800090060000, 7, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1201, 1200, 1801299600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -2957,6 +2991,7 @@ fun vecScenarioTonCheckpointEviction() {
         1800000120,
     );
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -2984,6 +3019,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventCheckpointed(1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3011,6 +3047,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventCheckpointed(1020, 0xe380613d58008d0835bf626b795ce6b64fbf0d38609cd14190a31545ad874101),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3038,6 +3075,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventCheckpointed(1030, 0x2d6c003bbc00fd64133f60dc4ac6b15a1bd8f1e320d7e1778d4d5ade40ae6cc0),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3065,6 +3103,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventCheckpointed(1015, 0xb91bca47319d7bf60549deda7140aec4af927e3684ccf2796769e72ef1955540),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3089,6 +3128,7 @@ fun vecScenarioTonCheckpointEviction() {
     expectOutcome(res4, 428);
     expectEvents(res4, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3116,6 +3156,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventCheckpointed(1040, 0x9c55fef3140b73751d4b840dbedcb6b7b526338c1ce3a5ae44bd6ebcf3110475),
     ]);
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3140,6 +3181,7 @@ fun vecScenarioTonCheckpointEviction() {
     expectOutcome(res6, 428);
     expectEvents(res6, ([] as array<cell>));
     replayExpectState(env, 1800000180000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3175,6 +3217,7 @@ fun vecScenarioTonCheckpointEviction() {
     expectOutcome(res7, 411);
     expectEvents(res7, ([] as array<cell>));
     replayExpectState(env, 1800000180000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3202,6 +3245,7 @@ fun vecScenarioTonCheckpointEviction() {
         eventLatched(1, 5, 1030, 0x2d6c003bbc00fd64133f60dc4ac6b15a1bd8f1e320d7e1778d4d5ade40ae6cc0, 0x662507e6e729c5e8d1324d6f8a7fc670a471851236925c6981497625432335d1),
     ]);
     replayExpectState(env, 1800000240000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 0, true, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3225,6 +3269,7 @@ fun vecScenarioRotationSubSecondDeadline() {
         1800003660,
     );
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800003660);
     // step 0: submitCheckpoints -> ok
@@ -3252,6 +3297,7 @@ fun vecScenarioRotationSubSecondDeadline() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801213200999, 1101),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200999, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1100, 0x6cdf06519767b63669d959337182a7f0c312342a179298599e2af532893fcb9f, 0, 0, 0, 0);
     testing.setNow(1801213200);
     // step 1: submitCheckpoints -> ok
@@ -3273,6 +3319,7 @@ fun vecScenarioRotationSubSecondDeadline() {
         eventCheckpointed(1101, 0xd76710cbf98977de2a0a9e8643f981d1a0414913e303989c896bce7802469de),
     ]);
     replayExpectState(env, 1801213200000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1101, 1801213200999, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 2, 1100, 0x6cdf06519767b63669d959337182a7f0c312342a179298599e2af532893fcb9f, 1101, 0xd76710cbf98977de2a0a9e8643f981d1a0414913e303989c896bce7802469de, 0, 0);
     testing.setNow(1801213201);
     // step 2: submitCheckpoints -> CommitteeNotAccepted
@@ -3291,6 +3338,7 @@ fun vecScenarioRotationSubSecondDeadline() {
     expectOutcome(res2, 402);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1801213201000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1101, 1801213200999, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 2, 1100, 0x6cdf06519767b63669d959337182a7f0c312342a179298599e2af532893fcb9f, 1101, 0xd76710cbf98977de2a0a9e8643f981d1a0414913e303989c896bce7802469de, 0, 0);
 }
 
@@ -3308,6 +3356,7 @@ fun vecScenarioCheapPathIdentitySignature() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 0: submitCheckpoints -> BadSignature
@@ -3326,6 +3375,7 @@ fun vecScenarioCheapPathIdentitySignature() {
     expectOutcome(res0, 405);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
     testing.setNow(1800000060);
     // step 1: submitCheckpoints -> ok
@@ -3347,6 +3397,7 @@ fun vecScenarioCheapPathIdentitySignature() {
         eventCheckpointed(1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9, 0, 0, 0, 0);
     testing.setNow(1800000120);
     // step 2: submitCheckpoints -> NothingToDo
@@ -3365,6 +3416,7 @@ fun vecScenarioCheapPathIdentitySignature() {
     expectOutcome(res2, 428);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9, 0, 0, 0, 0);
     testing.setNow(1800000120);
     // step 3: submitCheckpoints -> BadSignature
@@ -3383,6 +3435,7 @@ fun vecScenarioCheapPathIdentitySignature() {
     expectOutcome(res3, 405);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectCheckpoints(env, 1, 1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9, 0, 0, 0, 0);
 }
 
@@ -3400,6 +3453,7 @@ fun vecScenarioTonCheapPathIdentitySignature() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3424,6 +3478,7 @@ fun vecScenarioTonCheapPathIdentitySignature() {
     expectOutcome(res0, 405);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3451,6 +3506,7 @@ fun vecScenarioTonCheapPathIdentitySignature() {
         eventCheckpointed(1010, 0xdef7f1427fa0401297d6b9142e8fd8b7b9baa0d1ff6f067753dc55c4483eafc9),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3475,6 +3531,7 @@ fun vecScenarioTonCheapPathIdentitySignature() {
     expectOutcome(res2, 428);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3499,6 +3556,7 @@ fun vecScenarioTonCheapPathIdentitySignature() {
     expectOutcome(res3, 405);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1800000120000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3522,6 +3580,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         1800003660,
     );
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3549,6 +3608,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         eventCheckpointed(1010, 0xcdd59427c69fb32729be1046565c5d2ab2c57d4631120da5b1b9f37f339c6194),
     ]);
     replayExpectState(env, 1800003660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3582,6 +3642,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         eventRotated(6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1801213200000, 1101),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -3622,6 +3683,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
     expectOutcome(res2, 402);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -3659,6 +3721,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
     expectOutcome(res3, 402);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -3701,6 +3764,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         eventControlApplied(1, 1, false, 0, 0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1),
     ]);
     replayExpectState(env, 1800003660000, 6, 0xf9551f11b169f436b1154ea0c2fb8bf95e42024a4f11194ee85aaba8c7ac6452, 1101, 1100, 1801213200000, false, true, 1, false, 0, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8229974ce0f34c072df84dffddca1a109b5880cfb0ac68b95d45445fb7712c17998cb295aac7db60322697f07f490f81".hexToSlice(),
         "8e2e10f9d1be62fae689afe8e4b377defed9fa4354747e831c41fc58ec6e24bd4dcea502c12b0783c8831f1cebfd0cca".hexToSlice(),
@@ -3734,6 +3798,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         eventRotated(7, 0xe5962e40997695578dc38f58274bda7733e9e5e2552e1458e6a9869f501adab5, 1801216800000, 1201),
     ]);
     replayExpectState(env, 1800007260000, 7, 0xe5962e40997695578dc38f58274bda7733e9e5e2552e1458e6a9869f501adab5, 1201, 1200, 1801216800000, false, true, 1, false, 0, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8854a43edc15c20d89804c3f02ee6934edcdfc6e61e01fe55ae02e2a6a1f851defc5d1ab1082a6343f6b2a21b7721f46".hexToSlice(),
         "a909429dbe9500c4626192d13866933f69c06a237fdef39497b3935d0ca4191ba02420884013456cc36edc13c8dde3c4".hexToSlice(),
@@ -3774,6 +3839,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
     expectOutcome(res6, 402);
     expectEvents(res6, ([] as array<cell>));
     replayExpectState(env, 1800007260000, 7, 0xe5962e40997695578dc38f58274bda7733e9e5e2552e1458e6a9869f501adab5, 1201, 1200, 1801216800000, false, true, 1, false, 0, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8854a43edc15c20d89804c3f02ee6934edcdfc6e61e01fe55ae02e2a6a1f851defc5d1ab1082a6343f6b2a21b7721f46".hexToSlice(),
         "a909429dbe9500c4626192d13866933f69c06a237fdef39497b3935d0ca4191ba02420884013456cc36edc13c8dde3c4".hexToSlice(),
@@ -3811,6 +3877,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
     expectOutcome(res7, 402);
     expectEvents(res7, ([] as array<cell>));
     replayExpectState(env, 1800007260000, 7, 0xe5962e40997695578dc38f58274bda7733e9e5e2552e1458e6a9869f501adab5, 1201, 1200, 1801216800000, false, true, 1, false, 0, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8854a43edc15c20d89804c3f02ee6934edcdfc6e61e01fe55ae02e2a6a1f851defc5d1ab1082a6343f6b2a21b7721f46".hexToSlice(),
         "a909429dbe9500c4626192d13866933f69c06a237fdef39497b3935d0ca4191ba02420884013456cc36edc13c8dde3c4".hexToSlice(),
@@ -3853,6 +3920,7 @@ fun vecScenarioTonCheckpointUseAfterRotation() {
         eventControlApplied(2, 1, false, 0, 0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2),
     ]);
     replayExpectState(env, 1800007260000, 7, 0xe5962e40997695578dc38f58274bda7733e9e5e2552e1458e6a9869f501adab5, 1201, 1200, 1801216800000, false, true, 2, false, 0, false, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "8854a43edc15c20d89804c3f02ee6934edcdfc6e61e01fe55ae02e2a6a1f851defc5d1ab1082a6343f6b2a21b7721f46".hexToSlice(),
         "a909429dbe9500c4626192d13866933f69c06a237fdef39497b3935d0ca4191ba02420884013456cc36edc13c8dde3c4".hexToSlice(),
@@ -3876,6 +3944,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3889,6 +3958,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
     expectOutcome(res0, 426);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3902,6 +3972,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
     expectOutcome(res1, 426);
     expectEvents(res1, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3915,6 +3986,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
     expectOutcome(res2, 426);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3928,6 +4000,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
     expectOutcome(res3, 426);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3941,6 +4014,7 @@ fun vecScenarioTonVoidFrozenRangeBeforeFrozen() {
     expectOutcome(res4, 416);
     expectEvents(res4, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3964,6 +4038,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -3999,6 +4074,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
     expectOutcome(res0, 408);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4034,6 +4110,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
     expectOutcome(res1, 412);
     expectEvents(res1, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4070,6 +4147,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
     expectOutcome(res2, 408);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4097,6 +4175,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
         eventCheckpointed(1010, 0xfa7ffc09b095caa49f4bc89a5333f7f893ab33c7843d2c1ef46ace9d9dac911d),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4134,6 +4213,7 @@ fun vecScenarioTonFinalizeTwoFaults() {
     expectOutcome(res4, 414);
     expectEvents(res4, ([] as array<cell>));
     replayExpectState(env, 1800003601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4157,6 +4237,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
         1800000060,
     );
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4199,6 +4280,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res0, 407);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4226,6 +4308,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
         eventCheckpointed(1010, 0x2aeb608740d5166a3017cfb091b3519991ef6687745a45a1df26ed924e570258),
     ]);
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4266,6 +4349,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res2, 407);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4308,6 +4392,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res3, 407);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4346,6 +4431,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res4, 407);
     expectEvents(res4, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4386,6 +4472,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res5, 407);
     expectEvents(res5, ([] as array<cell>));
     replayExpectState(env, 1800000060000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4424,6 +4511,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res6, 407);
     expectEvents(res6, ([] as array<cell>));
     replayExpectState(env, 1800003601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4464,6 +4552,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
     expectOutcome(res7, 407);
     expectEvents(res7, ([] as array<cell>));
     replayExpectState(env, 1800003601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4506,6 +4595,7 @@ fun vecScenarioTonSameHeightBlockRefWithHistory() {
         eventControlApplied(1, 1, false, 0, 0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1),
     ]);
     replayExpectState(env, 1800003601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 1, false, 0, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4529,6 +4619,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
         1801209599,
     );
     replayExpectState(env, 1801209599000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4571,6 +4662,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res0, 405);
     expectEvents(res0, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4615,6 +4707,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res1, 405);
     expectEvents(res1, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4657,6 +4750,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res2, 405);
     expectEvents(res2, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4699,6 +4793,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res3, 402);
     expectEvents(res3, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4743,6 +4838,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res4, 402);
     expectEvents(res4, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4785,6 +4881,7 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
     expectOutcome(res5, 402);
     expectEvents(res5, ([] as array<cell>));
     replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
     replayExpectKeys(env, [
         "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
         "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
@@ -4792,4 +4889,1803 @@ fun vecScenarioTonInlineCallsAfterExpiry() {
         "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
     ]);
     replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+}
+
+const VEC_TON_CONTROL_SCENARIO_COUNT = 10
+const VEC_TON_CONTROL_SCENARIO_STEPS = 42
+const VEC_SCENARIO_TON_CONTROL_PARLIAMENT_PAUSE_THEN_FAST_PAUSE_THEN_LAPSE_STEPS = 5
+const VEC_SCENARIO_TON_CONTROL_FAST_PAUSE_THEN_PARLIAMENT_PAUSE_THEN_LAPSE_STEPS = 3
+const VEC_SCENARIO_TON_CONTROL_TRACK2_LEAF_AFTER_EXPIRY_STEPS = 3
+const VEC_SCENARIO_TON_CONTROL_STALE_EQUAL_AND_GAP_NONCES_STEPS = 4
+const VEC_SCENARIO_TON_CONTROL_MAX_FAST_PAUSE_CLAMP_STEPS = 3
+const VEC_SCENARIO_TON_CONTROL_FAST_PAUSE_LOCAL_EXPIRY_STEPS = 7
+const VEC_SCENARIO_TON_CONTROL_PAUSE_THEN_RESUME_STEPS = 3
+const VEC_SCENARIO_TON_CONTROL_HISTORICAL_CONTROL_PROOF_STEPS = 1
+const VEC_SCENARIO_TON_CONTROL_FOREIGN_AND_MALFORMED_CONTROLS_STEPS = 8
+const VEC_SCENARIO_TON_CONTROL_FAST_PAUSE_SUB_SECOND_EXPIRY_STEPS = 5
+/// `ton_control_parliament_pause_then_fast_pause_then_lapse` (TON scenario): CX-3: a Parliament pause, then a fast pause, then the lapse; the Parliament pause stays in force.
+fun vecScenarioTonControlParliamentPauseThenFastPauseThenLapse() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "b81ac71cbd7948acac0713df00ebb46c954390c1e984192cda19608a5bb83f2bd7a31118ee3d964acad9b40e5e518ed41730bd013dd1d2a075fad3fbd7f6a1ae018bf0794ea31f336b224f4dd6a17bde9d3b3eb9552e97c11972f606b76dbc85".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b000000000000000045199cd1fccd813e51e39777dca5fb7074598a3e0d740b5abd5718629351c7a1cbd841675fe76e9a1d2048038f8f8ccff611a5f34b158e0799108e969faa8df1".hexToSlice(),
+        "534343502f46494e414c4954592f5631111111111111111111111111111111111111111111111111111111111111111100000000000003f2000001a3185d3a60010000000155ae7d54e5206ec2f1d090af7efa5975fec969997cb48b78c4e079de67aad4270000000000000001".hexToSlice(),
+        "8605a0da96d0254a8269e084d987929a640362f7d6e897f970e8e85f28e9d3420000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x75f8e1dabcb57914d176beb72133ee53091bc1cf24c3dc53b51bf5dddff3c63d,
+            0xfe56de5ca0992bf00532bc1aeea0843762ec7427b75797ee3fecbce44860b1b9,
+            0,
+            ([] as array<int>),
+            blockRefCell(
+                1010,
+                0x55ae7d54e5206ec2f1d090af7efa5975fec969997cb48b78c4e079de67aad427,
+                1,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1010, 5, cert0),
+        eventCheckpointed(1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068),
+        eventControlApplied(1, 1, true, 0, 0x75f8e1dabcb57914d176beb72133ee53091bc1cf24c3dc53b51bf5dddff3c63d),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1010, 1801209600000, false, true, 1, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068, 0, 0, 0, 0);
+    testing.setNow(1800001200);
+    // step 1: sccp_apply_control -> ok
+    val cert1 = certCell(
+        "a25284c8f2929f070d8af49c08db61f2450d7e2bf7b2da6f04a4102fbe347ad6117048fa3d4c235428c8a9cfb5618fc202e5cdfab8e0668b48b4493dbaa23a27314c35b4ada033c4179ed501a06474fc1e4f7e67e76ff258853841b8b2cbddca".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b00000000000000007a616d14e7396ede514e3274b90eb30ecf757227ed23250e06b9ef41334762bd1bba729a52dcbd8de4247a22318b30cc761fa9a697d4586b873c1a0564025263".hexToSlice(),
+        "534343502f46494e414c4954592f5631111111111111111111111111111111111111111111111111111111111111111100000000000003fc000001a3185e24c001000000027b2e1098162ffa9bf74da32a3b208f93e9307a38a9419b7045c14cbe2fe760800000000000000002".hexToSlice(),
+        "4eb3b9dbe4049c031002965ef88833db152df6207bf23e1643e343274b84f2890000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res1 = replayApplyControl(
+        env,
+        cert1,
+        null,
+        controlProofCell(
+            2,
+            2,
+            true,
+            1800007200000,
+            0x993ba4636f4ab6cc32bccee5874799b334c026a5fed86abceff746fc3db57e15,
+            0x62daec27691a91804aa23d2a12b994e4d8d601f8c3ed8878930307c34d458999,
+            0,
+            [
+                0xc112bd79eee18bb997538afc9d485ee11585272b33b290fc787d0ef45ddc8ab,
+            ],
+            blockRefCell(
+                1020,
+                0x7b2e1098162ffa9bf74da32a3b208f93e9307a38a9419b7045c14cbe2fe76080,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 0);
+    expectEvents(res1, [
+        eventCertificate(1020, 5, cert1),
+        eventCheckpointed(1020, 0x2e6086e1f7622d4d1255f2a5cb5cc9f0adf4f31725a1d3302798d4ee3cf3c1d9),
+        eventControlApplied(2, 2, true, 1800007200000, 0x993ba4636f4ab6cc32bccee5874799b334c026a5fed86abceff746fc3db57e15),
+    ]);
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068, 1020, 0x2e6086e1f7622d4d1255f2a5cb5cc9f0adf4f31725a1d3302798d4ee3cf3c1d9, 0, 0);
+    testing.setNow(1800003600);
+    // step 2: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800003600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068, 1020, 0x2e6086e1f7622d4d1255f2a5cb5cc9f0adf4f31725a1d3302798d4ee3cf3c1d9, 0, 0);
+    testing.setNow(1800010800);
+    // step 3: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800010800000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068, 1020, 0x2e6086e1f7622d4d1255f2a5cb5cc9f0adf4f31725a1d3302798d4ee3cf3c1d9, 0, 0);
+    testing.setNow(1800010800);
+    // step 4: sccp_finalize_checkpoint -> MintingIsPaused
+    val res4 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f5631111111111111111111111111111111111111111111111111111111111111111100000000000003fc000001a3185e24c001000000027b2e1098162ffa9bf74da32a3b208f93e9307a38a9419b7045c14cbe2fe760800000000000000002".hexToSlice(),
+            "4eb3b9dbe4049c031002965ef88833db152df6207bf23e1643e343274b84f2890000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0x7ce6ed76cb64e2ac5dec0a134812bb6657e91502bc20dc4ae35552b5eabf8a5,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000000000001000001a31d82ac0000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1020,
+                0x7b2e1098162ffa9bf74da32a3b208f93e9307a38a9419b7045c14cbe2fe76080,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res4, 401);
+    expectEvents(res4, ([] as array<cell>));
+    replayExpectState(env, 1800010800000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1020, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1010, 0x9d9d67a8918c5fa29a4013c7f9ad8845a316fa44296d463a59b9c8926d44b068, 1020, 0x2e6086e1f7622d4d1255f2a5cb5cc9f0adf4f31725a1d3302798d4ee3cf3c1d9, 0, 0);
+}
+
+/// `ton_control_fast_pause_then_parliament_pause_then_lapse` (TON scenario): CX-3: the fast pause, then a Parliament pause whose leaf carries the live fast pause; after the lapse the Parliament pause remains.
+fun vecScenarioTonControlFastPauseThenParliamentPauseThenLapse() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "82cb3f142af9a6e7967855cac42eb1a0a09cf82a1a1a55eb55d4b54e8a136e875cd2027bcb55daf66fdfd56d7e960d590a0012d114b7867596c84ae464a435f782d5d91454a178ee118faa76339d5aad4e893ad480af792a515a4b390da135a7".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b00000000000000000ff8ea0cfabb0059e7cfba7028fb2272e2fddcb62cdd5d3465aac0f2fbec57e1d7120498c471fcbb8d7d3d1a6c6e66d0a2a5fa3cee079b62f0eb19e24f22898b".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000406000001a3185f0f20010000000297b809d2c4640309bb939d58968dd3f7780d15863f8a179c34e5d5bc8971fe170000000000000003".hexToSlice(),
+        "55fc587fc5f2bcd24a0888c40885e277eb5af6d301b92e7d56d3a041722406be0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            2,
+            false,
+            1800007200000,
+            0xb41416c113bc11ee1e4a96ff8852b7f511deaded53df137301637b1bb65eacf,
+            0xee131bb861bf1381d0b7209f58f91ae1e4420deab701c0f16fc765af2cd84f9,
+            0,
+            [
+                0x5d47d59ab8f51e7192018d9d428199b0089a9c9a87ccf5abd5bae450154b7545,
+            ],
+            blockRefCell(
+                1030,
+                0x97b809d2c4640309bb939d58968dd3f7780d15863f8a179c34e5d5bc8971fe17,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1030, 5, cert0),
+        eventCheckpointed(1030, 0x63e42a2de12125ae4869affd4ef4d9b55320f5d48743c0fd19a1f11587b3f2fd),
+        eventControlApplied(1, 2, false, 1800007200000, 0xb41416c113bc11ee1e4a96ff8852b7f511deaded53df137301637b1bb65eacf),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 1, false, 1800007200000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1030, 0x63e42a2de12125ae4869affd4ef4d9b55320f5d48743c0fd19a1f11587b3f2fd, 0, 0, 0, 0);
+    testing.setNow(1800001200);
+    // step 1: sccp_apply_control_checkpoint -> ok
+    val res1 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000406000001a3185f0f20010000000297b809d2c4640309bb939d58968dd3f7780d15863f8a179c34e5d5bc8971fe170000000000000003".hexToSlice(),
+            "55fc587fc5f2bcd24a0888c40885e277eb5af6d301b92e7d56d3a041722406be0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            2,
+            1,
+            true,
+            1800007200000,
+            0x9a10690d67966c4e615e1c6b7fc314c068c84178fbbc48276262ad55490c3ef9,
+            0x13400f5cb5debb1bc6f715ba73c924c3332974d53b677a4b23550c4b8de17fd3,
+            1,
+            [
+                0x379ad2ed612180eafbdd153faa0595bec1e363689ac74e5510b456a385d1d7b2,
+            ],
+            blockRefCell(
+                1030,
+                0x97b809d2c4640309bb939d58968dd3f7780d15863f8a179c34e5d5bc8971fe17,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 0);
+    expectEvents(res1, [
+        eventControlApplied(2, 1, true, 1800007200000, 0x9a10690d67966c4e615e1c6b7fc314c068c84178fbbc48276262ad55490c3ef9),
+    ]);
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1030, 0x63e42a2de12125ae4869affd4ef4d9b55320f5d48743c0fd19a1f11587b3f2fd, 0, 0, 0, 0);
+    testing.setNow(1800010800);
+    // step 2: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800010800000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1030, 1801209600000, false, true, 2, true, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1030, 0x63e42a2de12125ae4869affd4ef4d9b55320f5d48743c0fd19a1f11587b3f2fd, 0, 0, 0, 0);
+}
+
+/// `ton_control_track2_leaf_after_expiry` (TON scenario): CX-4: a fast-pause leaf delivered after its expiry consumes its nonce and does not pause.
+fun vecScenarioTonControlTrack2LeafAfterExpiry() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800007200,
+    );
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800007200);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "9274268cc862b3fc9e7a6b46634380399f5fba5350a81236fb65656ae8ed0dc302864e7a37af550c8d43c5a16484ce4504ea834f141b4ef50ccf8bde151c287bb4cb6a9d35441c58a918fd9a1491bd396a5efbe17f0cfe8ae3b063949f52744d".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000621338bd77ed49c35a1483b66f90dc3c0572276f2791dfc70eb861530a4d09833ce07e20cd709ab760120b794cf5bd5aba65d806f9634b61295ee32a73e86d9d".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000410000001a3185ff98001000000026f6a598d80115b6595a2c24a39aa081c7246dcc0e2d159fa5f8b2bcaff6615c70000000000000004".hexToSlice(),
+        "1f0a6889ffe6837b0d8f5494906ec26b100d2860c0c2a4945f64014c2e6525b60000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            2,
+            false,
+            1800003600000,
+            0x7e66b06935a864ff76a3e4da2e6d439670b83cdb3ea022e9a8ea2b0241081cf1,
+            0xdd3735fb4f75a11f6d026831202d2598d0aab835fad7fe8713f97a5af542b531,
+            0,
+            [
+                0x7b90b263eeba8848c4c3e6ac053993c91f8514ed2efbc7cd8b669083e74b0bcd,
+            ],
+            blockRefCell(
+                1040,
+                0x6f6a598d80115b6595a2c24a39aa081c7246dcc0e2d159fa5f8b2bcaff6615c7,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1040, 5, cert0),
+        eventCheckpointed(1040, 0x5a7ad321068a7d303af5c4f75e088e4b16a0a36eb338e7ce969d40303d76f51e),
+        eventControlApplied(1, 2, false, 1800003600000, 0x7e66b06935a864ff76a3e4da2e6d439670b83cdb3ea022e9a8ea2b0241081cf1),
+    ]);
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 1, false, 1800003600000, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1040, 0x5a7ad321068a7d303af5c4f75e088e4b16a0a36eb338e7ce969d40303d76f51e, 0, 0, 0, 0);
+    testing.setNow(1800007200);
+    // step 1: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 1, false, 1800003600000, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1040, 0x5a7ad321068a7d303af5c4f75e088e4b16a0a36eb338e7ce969d40303d76f51e, 0, 0, 0, 0);
+    testing.setNow(1800007200);
+    // step 2: sccp_finalize_checkpoint -> ok
+    val res2 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000410000001a3185ff98001000000026f6a598d80115b6595a2c24a39aa081c7246dcc0e2d159fa5f8b2bcaff6615c70000000000000004".hexToSlice(),
+            "1f0a6889ffe6837b0d8f5494906ec26b100d2860c0c2a4945f64014c2e6525b60000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0x867cc8f2820802ad2d72ada95a910419f6732102db06da70a2334b2f73f1a3b4,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000100000001000001a31d82ac0000000000010003786f7200000000000000000000000077359400030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1040,
+                0x6f6a598d80115b6595a2c24a39aa081c7246dcc0e2d159fa5f8b2bcaff6615c7,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res2, 0);
+    expectEvents(res2, [
+        replayEventFinalized(0x93036981741f378df6e09e4b2666a2fed73d50c72f5c217d8faf2333e7c8fb09, 1),
+    ]);
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1040, 1801209600000, false, true, 1, false, 1800003600000, false, 2);
+    replayExpectValueState(env, 2000000000, [
+        1,
+    ]);
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1040, 0x5a7ad321068a7d303af5c4f75e088e4b16a0a36eb338e7ce969d40303d76f51e, 0, 0, 0, 0);
+}
+
+/// `ton_control_stale_equal_and_gap_nonces` (TON scenario): newest nonce wins: 3 applied, 2 and 3 stale, 5 accepted across the gap.
+fun vecScenarioTonControlStaleEqualAndGapNonces() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "a9fa5988ba1080faf53c5af7bbc2cddfe85cd5d24b06ef873e0c6281e985cb6120046757a8b431f029e6721f717b11fe15519c4548b21f2f5044a310ae582ff4d1dbc578e8ab84b2cd7477496597d34a21e6e140d5b70365b80e42dd20ed588c".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b000000000000000065bc93a15079db2aba93f86d12ea2361989333793a7bd05e46cb21f3c4c2b6e535561b2dc9dc917cb948ad7610bc054f4173d8997dae28359375c26ccf9d571f".hexToSlice(),
+        "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000041a000001a31860e3e001000000038777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d60000000000000005".hexToSlice(),
+        "09ad77abdd7f2d47c82fc99fb028ad2c6a23e542b131aefe8c67d338a9efc70a0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            3,
+            1,
+            true,
+            0,
+            0xcf5746a0cecb6b142dcb46d75f6335685b2aec6df9b09310af44b495eee64ac0,
+            0xb744a1d78d9730a05b2aee45937442c384d1197be6f23765e5cf9594343bddc1,
+            0,
+            [
+                0xf72781e72299fd1902bc486abf48e1fc30f9e6aacdbb36a8d227e58717927c47,
+                0xa7f5081bc4541cd9a4423f3e475f75447e04cbdf7ad5b49bbcad9238f9f6118f,
+            ],
+            blockRefCell(
+                1050,
+                0x8777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d6,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1050, 5, cert0),
+        eventCheckpointed(1050, 0xbf52cd66dbb24f63725915c930b361154f5cbaa05c903577a42a04ec948c04c1),
+        eventControlApplied(3, 1, true, 0, 0xcf5746a0cecb6b142dcb46d75f6335685b2aec6df9b09310af44b495eee64ac0),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1050, 1801209600000, false, true, 3, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1050, 0xbf52cd66dbb24f63725915c930b361154f5cbaa05c903577a42a04ec948c04c1, 0, 0, 0, 0);
+    testing.setNow(1800000660);
+    // step 1: sccp_apply_control_checkpoint -> StaleControl
+    val res1 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000041a000001a31860e3e001000000038777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d60000000000000005".hexToSlice(),
+            "09ad77abdd7f2d47c82fc99fb028ad2c6a23e542b131aefe8c67d338a9efc70a0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            2,
+            1,
+            false,
+            0,
+            0x2c0ce6af9c0481fac1989550595e7d15cd866a9f0f2209b59880ed6ecbba53bb,
+            0x913e4c6d21a5e72ccda34cfd0cd9c6baeb28a2e16e3caac2fb88fa5dc7ee8151,
+            1,
+            [
+                0x63e6f6ece67e9570dd6b131b68c8b26e3029330ccaffa89cd77eaefe3e80faa5,
+                0xa7f5081bc4541cd9a4423f3e475f75447e04cbdf7ad5b49bbcad9238f9f6118f,
+            ],
+            blockRefCell(
+                1050,
+                0x8777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d6,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 417);
+    expectEvents(res1, ([] as array<cell>));
+    replayExpectState(env, 1800000660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1050, 1801209600000, false, true, 3, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1050, 0xbf52cd66dbb24f63725915c930b361154f5cbaa05c903577a42a04ec948c04c1, 0, 0, 0, 0);
+    testing.setNow(1800000720);
+    // step 2: sccp_apply_control_checkpoint -> StaleControl
+    val res2 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000041a000001a31860e3e001000000038777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d60000000000000005".hexToSlice(),
+            "09ad77abdd7f2d47c82fc99fb028ad2c6a23e542b131aefe8c67d338a9efc70a0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            3,
+            1,
+            true,
+            0,
+            0xcf5746a0cecb6b142dcb46d75f6335685b2aec6df9b09310af44b495eee64ac0,
+            0xb744a1d78d9730a05b2aee45937442c384d1197be6f23765e5cf9594343bddc1,
+            0,
+            [
+                0xf72781e72299fd1902bc486abf48e1fc30f9e6aacdbb36a8d227e58717927c47,
+                0xa7f5081bc4541cd9a4423f3e475f75447e04cbdf7ad5b49bbcad9238f9f6118f,
+            ],
+            blockRefCell(
+                1050,
+                0x8777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d6,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res2, 417);
+    expectEvents(res2, ([] as array<cell>));
+    replayExpectState(env, 1800000720000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1050, 1801209600000, false, true, 3, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1050, 0xbf52cd66dbb24f63725915c930b361154f5cbaa05c903577a42a04ec948c04c1, 0, 0, 0, 0);
+    testing.setNow(1800000780);
+    // step 3: sccp_apply_control_checkpoint -> ok
+    val res3 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000041a000001a31860e3e001000000038777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d60000000000000005".hexToSlice(),
+            "09ad77abdd7f2d47c82fc99fb028ad2c6a23e542b131aefe8c67d338a9efc70a0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            5,
+            1,
+            false,
+            0,
+            0x3d6fbb9a8d136376e8a7c9b8f45852ad0f63f861807481c94896fd9517b28e72,
+            0xa39445eff2e86e24ef3a41317ff771702db7a0f7e637e2c7555868e7b997c3df,
+            2,
+            [
+                0xf120351c5ee876d13989215d986c7ea68c2f82ba24dc1450098a2cef96f6f83e,
+            ],
+            blockRefCell(
+                1050,
+                0x8777b2c950e5730d98af241a72259a22a6f4e95c639ff2826975e042500886d6,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res3, 0);
+    expectEvents(res3, [
+        eventControlApplied(5, 1, false, 0, 0x3d6fbb9a8d136376e8a7c9b8f45852ad0f63f861807481c94896fd9517b28e72),
+    ]);
+    replayExpectState(env, 1800000780000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1050, 1801209600000, false, true, 5, false, 0, false, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1050, 0xbf52cd66dbb24f63725915c930b361154f5cbaa05c903577a42a04ec948c04c1, 0, 0, 0, 0);
+}
+
+/// `ton_control_max_fast_pause_clamp` (TON scenario): fast_pause_until_ms 40 days ahead is clamped to now + MAX_FAST_PAUSE_MS.
+fun vecScenarioTonControlMaxFastPauseClamp() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "8e7318791a7a03e788bc35a8d263e319e17427d613e8cdff6ba6fee853c62bd0ee41f52baf8fcd10d4b83f0a7975284a009312dfcfc0256d9b2b65366b475a63b9711aeed03cff1f0e0a5a6c35aa6ab3a41b8ee210cc37b3fd57e5bb41e2ae40".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b00000000000000001d146be3bc584683503b030c25243aeafc96244b3bb3852c1f57d390f8b768ffa5909170b5ba52360943c4a5cd732d6a6ba01b51c14576a72ec53f07f04678d1".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000424000001a31861ce4001000000013834b1c9f4a158f272ff354b83fe8aae95e9fb62e2ded83f402f086ef6c454fa0000000000000006".hexToSlice(),
+        "d18a43876f8cdff50a13cf9d2b0212982ed3fc59bcd63e3f1fc33cbdaad0eb130000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            2,
+            false,
+            1803456360000,
+            0x77d973a4866b174a8f49c5f4aed12d00038d05ebba1597e5d5988ae1cf96199f,
+            0xb619409e0a83a136ec121e99b2214649109acf8c2e554f5d83650872f7c6f31b,
+            0,
+            ([] as array<int>),
+            blockRefCell(
+                1060,
+                0x3834b1c9f4a158f272ff354b83fe8aae95e9fb62e2ded83f402f086ef6c454fa,
+                1,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1060, 5, cert0),
+        eventCheckpointed(1060, 0x54762a1bf14c5d8276770e6424e0a075e7851a8cabd4b402c49c9505e779d35f),
+        eventControlApplied(1, 2, false, 1802592600000, 0x77d973a4866b174a8f49c5f4aed12d00038d05ebba1597e5d5988ae1cf96199f),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1060, 1801209600000, false, true, 1, false, 1802592600000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1060, 0x54762a1bf14c5d8276770e6424e0a075e7851a8cabd4b402c49c9505e779d35f, 0, 0, 0, 0);
+    testing.setNow(1802592599);
+    // step 1: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1802592599000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1060, 1801209600000, false, false, 1, false, 1802592600000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1060, 0x54762a1bf14c5d8276770e6424e0a075e7851a8cabd4b402c49c9505e779d35f, 0, 0, 0, 0);
+    testing.setNow(1802592600);
+    // step 2: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1802592600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1060, 1801209600000, false, false, 1, false, 1802592600000, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1060, 0x54762a1bf14c5d8276770e6424e0a075e7851a8cabd4b402c49c9505e779d35f, 0, 0, 0, 0);
+}
+
+/// `ton_control_fast_pause_local_expiry` (TON scenario): minting is paused while now < fastPauseUntilMs and resumes at the expiry with no relay; voids and checkpoints work while paused.
+fun vecScenarioTonControlFastPauseLocalExpiry() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "b3c745a56b64bd62d4be5ec556adefdf59f56e32baac28f4e2abb9a9898792ac0abfd08b8ee10f81c4c41333337e8d1b16a86c607eca36f0d25e9696cf5be84a82d70effa341e861347701fadb6959d2138fc730565b85b30291f47cc23a7936".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000cbfe81973c13d5a16581aa8c267386d618c5d3e5816de19be2d6698091936fddccb75898dc910e7e096db680703ff805871b06f1ed0e8289f5312add1ea0e5b1".hexToSlice(),
+        "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+        "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            2,
+            false,
+            1800007200000,
+            0x554bd6fc580b43603380fa074ab0a74fb46008bb1858bf4a2402c1ab36003012,
+            0x91fa3d016b37057d9e870d28d5b999cfb32ad0ca3ab05bac751392f83c22d40a,
+            0,
+            [
+                0x41434f14b9ac4c75347dc73b6f1ed14d66675dd56fc63ee8ccafc7959570da2f,
+                0xbef619c88b7dafc357d00001a2b1df8e10935e992c4326121d1bc72946aeb7a3,
+            ],
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1070, 5, cert0),
+        eventCheckpointed(1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f),
+        eventControlApplied(1, 2, false, 1800007200000, 0x554bd6fc580b43603380fa074ab0a74fb46008bb1858bf4a2402c1ab36003012),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1070, 1801209600000, false, true, 1, false, 1800007200000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 0, 0, 0, 0);
+    testing.setNow(1800001200);
+    // step 1: sccp_finalize_checkpoint -> MintingIsPaused
+    val res1 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+            "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0x9179bab23157dfbb98862ad3bff0b5e279f0d764e1574ae9d3049b38aebd7edd,
+                0xbef619c88b7dafc357d00001a2b1df8e10935e992c4326121d1bc72946aeb7a3,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000200000001000001a31d82ac0000000000010003786f72000000000000000000000000b2d05e00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 401);
+    expectEvents(res1, ([] as array<cell>));
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1070, 1801209600000, false, true, 1, false, 1800007200000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 0, 0, 0, 0);
+    testing.setNow(1800001200);
+    // step 2: sccp_checkpoint -> ok
+    val cert2 = certCell(
+        "8b69c953122815aca2f99603ef7ca9440071a18e067ce43c57f6f062642ea20483f722b53bbeb3ba28d822adabf8544f11a2083b9b6d2bbb973243c2688d77208eee3e4ab98fb27cacfc36fec4272465d1f6c85c89d2179b6d471041eeb1a56d".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000c69f408e465dc32e8762b687c2c5d81b3d97e17f4453697b29281f34ef40f13d000fb2db77c8a8bb220a7a1eca93ba2e8f9960b9b502a45fa8227ed6f14322dd".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000438000001a31863a3000100000002883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa60000000000000008".hexToSlice(),
+        "331889bd14428f224a74cc3cfaaccdf9761c68c9b9278e4a5b54ccfe06510b290000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res2 = replayCheckpoint(
+        env,
+        cert2,
+        null,
+    );
+    expectOutcome(res2, 0);
+    expectEvents(res2, [
+        eventCertificate(1080, 5, cert2),
+        eventCheckpointed(1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f),
+    ]);
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, false, 1800007200000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0);
+    testing.setNow(1800001800);
+    // step 3: sccp_void_expired_checkpoint -> DeadlineNotReached
+    val res3 = replayVoidExpired(
+        env,
+        3,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+            "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            2,
+            [
+                0xbe4c9dad6dd55a29262d9b371ee0cb758b78208a2c43d5fe4590ec1ae0b90ccc,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000300000001000001a31877c74000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res3, 415);
+    expectEvents(res3, ([] as array<cell>));
+    replayExpectState(env, 1800001800000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, false, 1800007200000, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0);
+    testing.setNow(1800003600);
+    // step 4: sccp_void_expired_checkpoint -> ok
+    val res4 = replayVoidExpired(
+        env,
+        3,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+            "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            2,
+            [
+                0xbe4c9dad6dd55a29262d9b371ee0cb758b78208a2c43d5fe4590ec1ae0b90ccc,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000300000001000001a31877c74000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res4, 0);
+    expectEvents(res4, [
+        replayEventVoided(0xa40da804e1aa00af67eef0dd395d3356d793019f851105dad550ce08a1bce6f1, 3, 1),
+    ]);
+    replayExpectState(env, 1800003600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, false, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, [
+        3,
+    ]);
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0);
+    testing.setNow(1800007199);
+    // step 5: sccp_finalize_checkpoint -> MintingIsPaused
+    val res5 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+            "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0x9179bab23157dfbb98862ad3bff0b5e279f0d764e1574ae9d3049b38aebd7edd,
+                0xbef619c88b7dafc357d00001a2b1df8e10935e992c4326121d1bc72946aeb7a3,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000200000001000001a31d82ac0000000000010003786f72000000000000000000000000b2d05e00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res5, 401);
+    expectEvents(res5, ([] as array<cell>));
+    replayExpectState(env, 1800007199000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, false, 1800007200000, true, 2);
+    replayExpectValueState(env, 0, [
+        3,
+    ]);
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0);
+    testing.setNow(1800007200);
+    // step 6: sccp_finalize_checkpoint -> ok
+    val res6 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000042e000001a31862b8a00100000003a6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c0000000000000007".hexToSlice(),
+            "67f54e6787504e8570ecaad6898436e8e95dfc927e777a68f77a0862cdcdbf840000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0x9179bab23157dfbb98862ad3bff0b5e279f0d764e1574ae9d3049b38aebd7edd,
+                0xbef619c88b7dafc357d00001a2b1df8e10935e992c4326121d1bc72946aeb7a3,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000200000001000001a31d82ac0000000000010003786f72000000000000000000000000b2d05e00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1070,
+                0xa6b9c7eca06f09b9ba59e843fd935269cb8a949de797bda949d459a307185a8c,
+                3,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res6, 0);
+    expectEvents(res6, [
+        replayEventFinalized(0xb65a051ef9358ce7e861dc280b5f731b7eb230c68f5bc6deb9abaa39971deb06, 2),
+    ]);
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, false, 1800007200000, false, 3);
+    replayExpectValueState(env, 3000000000, [
+        2,
+        3,
+    ]);
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 2, 1070, 0x49e442852056d9f2003fc240bd93183401de74fab02afff06ea66436c4cc902f, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0);
+}
+
+/// `ton_control_pause_then_resume` (TON scenario): a Parliament pause (nonce 1) then a resume (nonce 2) in one block.
+fun vecScenarioTonControlPauseThenResume() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000600,
+    );
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000600);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "8b69c953122815aca2f99603ef7ca9440071a18e067ce43c57f6f062642ea20483f722b53bbeb3ba28d822adabf8544f11a2083b9b6d2bbb973243c2688d77208eee3e4ab98fb27cacfc36fec4272465d1f6c85c89d2179b6d471041eeb1a56d".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000c69f408e465dc32e8762b687c2c5d81b3d97e17f4453697b29281f34ef40f13d000fb2db77c8a8bb220a7a1eca93ba2e8f9960b9b502a45fa8227ed6f14322dd".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000438000001a31863a3000100000002883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa60000000000000008".hexToSlice(),
+        "331889bd14428f224a74cc3cfaaccdf9761c68c9b9278e4a5b54ccfe06510b290000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0xfddf237c39ea88eeabebeac8828dcde455af8431af975693acd04884e8053027,
+            0x14dc0c08049d5bf167e56de81dcf41165afc4f64936a50dc021472e8fdee91d9,
+            0,
+            [
+                0x9f4c9f8c5287afedb140e242bfcf9e2028d7c01cbdad380985d6c254c23beffc,
+            ],
+            blockRefCell(
+                1080,
+                0x883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa6,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1080, 5, cert0),
+        eventCheckpointed(1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f),
+        eventControlApplied(1, 1, true, 0, 0xfddf237c39ea88eeabebeac8828dcde455af8431af975693acd04884e8053027),
+    ]);
+    replayExpectState(env, 1800000600000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 1, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0, 0, 0);
+    testing.setNow(1800000660);
+    // step 1: sccp_apply_control_checkpoint -> ok
+    val res1 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000438000001a31863a3000100000002883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa60000000000000008".hexToSlice(),
+            "331889bd14428f224a74cc3cfaaccdf9761c68c9b9278e4a5b54ccfe06510b290000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            2,
+            1,
+            false,
+            0,
+            0x1b23c1521108eb0c8d80f646deba54f07545f47b7f17c2ac79702c87935aea0,
+            0x9201c13ab75775f1cd3298f29491fd9f5b54a31458d0ddaf559839c47478aea6,
+            1,
+            [
+                0x155213c97d1bbb5ca3b142415bba367e9e942bcb792ee0ec7350d31d4b36a7bb,
+            ],
+            blockRefCell(
+                1080,
+                0x883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa6,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 0);
+    expectEvents(res1, [
+        eventControlApplied(2, 1, false, 0, 0x1b23c1521108eb0c8d80f646deba54f07545f47b7f17c2ac79702c87935aea0),
+    ]);
+    replayExpectState(env, 1800000660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 2, false, 0, false, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0, 0, 0);
+    testing.setNow(1800000660);
+    // step 2: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800000660000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1080, 1801209600000, false, true, 2, false, 0, false, 2);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1080, 0xdc0e902e4e94faf2ad9bb23045ae3d8b64cfada41b37a31d251a6f762e9be79f, 0, 0, 0, 0);
+}
+
+/// `ton_control_historical_control_proof` (TON scenario): a control of block 1010 proven through the history path of X_1100.
+fun vecScenarioTonControlHistoricalControlProof() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000900,
+    );
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "a11a550e56cadcddefc7e3ea5ef91019218f46a794530b53cf4885acaea383492eb7067dfa138c2bf3ebd408063ea670017c04653063dc1b9a0e56a0acd773c33f291b772fe9f1c8830b268b49f52ebc51cb46a186258d19cbdb082593bbe120".hexToSlice(),
+        7,
+        "000000000000000ba273a069ca10e4dc9ffc462d1b964533c962d0f0146b180dfa1a1a9419c8838d000000000000000043af54be6af76ef6ec057f5155f8b6b66a4499aa0598b336347282bf2d0ce303617fa627ed3630ae7c5bc90adf9726678f295d6ba70876db97c79c06e90fb2f7".hexToSlice(),
+        "534343502f46494e414c4954592f56311111111111111111111111111111111111111111111111111111111111111111000000000000044c000001a3186577c0010000000000000000000000000000000000000000000000000000000000000000000000000000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x75f8e1dabcb57914d176beb72133ee53091bc1cf24c3dc53b51bf5dddff3c63d,
+            0xfe56de5ca0992bf00532bc1aeea0843762ec7427b75797ee3fecbce44860b1b9,
+            0,
+            ([] as array<int>),
+            blockRefCell(
+                1010,
+                0x55ae7d54e5206ec2f1d090af7efa5975fec969997cb48b78c4e079de67aad427,
+                1,
+                0,
+                [
+                    0x869d889952da7ed5e8406256d16505c5cdd18bc6c4714e3b174e5322f6901645,
+                    0xaee3571dc96ae16b2d03b57d54e608505d3b37faf263c59b9487b160d0ca4d7e,
+                    0x2c1087c925819f9ee6f92d0e78a31d5d6e03c8d2cccd5c44042e72c0589172b9,
+                    0xd426f7c2a27251e06410839f710c8956596ff793703fcc7065429c4bcc6b139c,
+                ],
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1100, 5, cert0),
+        eventCheckpointed(1100, 0x91b3344b5cafd0ea979ce281486d4a477818ad108979d9eca003312ab3f83c2d),
+        eventControlApplied(1, 1, true, 0, 0x75f8e1dabcb57914d176beb72133ee53091bc1cf24c3dc53b51bf5dddff3c63d),
+    ]);
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1100, 1801209600000, false, true, 1, true, 0, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1100, 0x91b3344b5cafd0ea979ce281486d4a477818ad108979d9eca003312ab3f83c2d, 0, 0, 0, 0);
+}
+
+/// `ton_control_foreign_and_malformed_controls` (TON scenario): leaves of another network, Taira network, revision or destination, a transfer leaf offered as a control, and a recorded leaf violating a constraint.
+fun vecScenarioTonControlForeignAndMalformedControls() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800000900,
+    );
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 0: sccp_apply_control -> BadProof
+    val cert0 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x935d2d8e8bb9297784e986783b1e5a38941729b0009e7b69fc11d1b8d228d800,
+            0x84c554ee00dba8aeaa1855a1fcb70f8cf759f721bf5f615f879b35ec3da1a8e3,
+            0,
+            [
+                0x4ebf5a487243ffae5e419955c896775fa7d4bd2e0b21099c3e97503e051ae3f3,
+                0xe62104002b9693e5a9abd97db8181346b7fe26021b9fcb260662e149cbae9baf,
+                0x53eedcebceb753f7e2931f7629e3d0de50e3e57dff62a98de1990cf88e189028,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 407);
+    expectEvents(res0, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 1: sccp_apply_control -> BadProof
+    val cert1 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res1 = replayApplyControl(
+        env,
+        cert1,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x3a4e2020f946eda852348c736db1ff375ba807903e8db19fd27f8fc1a5e2bdb7,
+            0xecee4c131066e383776aef6054b8989ee2b8e77f3dff04beb9cf869a57413ea9,
+            1,
+            [
+                0xf3055fc11d0a5cb92638e4134a85113f72861e051955a9687e5e365d76840ada,
+                0xe62104002b9693e5a9abd97db8181346b7fe26021b9fcb260662e149cbae9baf,
+                0x53eedcebceb753f7e2931f7629e3d0de50e3e57dff62a98de1990cf88e189028,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res1, 407);
+    expectEvents(res1, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 2: sccp_apply_control -> BadProof
+    val cert2 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res2 = replayApplyControl(
+        env,
+        cert2,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x44c3bde66c7473806f15b8d932c9f0270b3e30aaa4244b7e4068c3fb11d3d342,
+            0xfea3e29f43dc72613547ba49f562460690d6c675850267170567272734285cd0,
+            2,
+            [
+                0xd8e6875274085c909f8ceb3275d021e95b3578802df1e148437b9f9661cd2e58,
+                0xf5d70e344d936031690b55e435fd60fe312e5ed667dfcda1adbff0da836a15d4,
+                0x53eedcebceb753f7e2931f7629e3d0de50e3e57dff62a98de1990cf88e189028,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res2, 407);
+    expectEvents(res2, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 3: sccp_apply_control -> BadProof
+    val cert3 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res3 = replayApplyControl(
+        env,
+        cert3,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0xfdc6c2e8675c967720fb8431c3435dfe5ccb15a572c52027fb5dc69aedb93607,
+            0xbe6f7844db126486c5cec48523f3e0920ddae6c7853b94cc7b9fb72acfe378e,
+            3,
+            [
+                0xb16fef700d4aededf9b5b3592156817a414841f3be39cf6b76ed310192d18d27,
+                0xf5d70e344d936031690b55e435fd60fe312e5ed667dfcda1adbff0da836a15d4,
+                0x53eedcebceb753f7e2931f7629e3d0de50e3e57dff62a98de1990cf88e189028,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res3, 407);
+    expectEvents(res3, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 4: sccp_apply_control -> BadProof
+    val cert4 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res4 = replayApplyControl(
+        env,
+        cert4,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x36c138e01f975d093b9d998a0d4c2af03ef01099bcac6fdb08bc935e5fb8568c,
+            0x36c138e01f975d093b9d998a0d4c2af03ef01099bcac6fdb08bc935e5fb8568c,
+            5,
+            [
+                0xe76900163c6b537c1a5402980d2c03a67071e23779fcf52a4263fd9a915d3cb4,
+                0x37066fa2db6e50aadddea7b6c023b1d0e89622d1d5dc7273211b95cc3af2cdfd,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res4, 407);
+    expectEvents(res4, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 5: sccp_apply_control -> BadControl
+    val cert5 = certCell(
+        "ad7505628505c3e08f70bdc7486cc35bdf473da63b09a2864b7bfdaa42b249ba1801037f732f3803f84819b706a4538e00879b9bada28887289137bf9d357de5568c38f3b464435cff99291abf572322d17a597ba85f1973bd3a96365d0e20e2".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b0000000000000000b091efc1c688a7f3461f34a42966ec496d31f0d9185409e9e01c0b5a479063e7d0c650744051427e83d87f00e3cd8e112a6ae35f40da3af5b903bfa286370169".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000442000001a318648d6001000000062da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab0000000000000009".hexToSlice(),
+        "7a3b866ba055f0ad325027e06aea32d582ac307eb33daf4fba397ed525a592a40000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res5 = replayApplyControl(
+        env,
+        cert5,
+        null,
+        controlProofCell(
+            1,
+            3,
+            false,
+            0,
+            0x5c1950e87fb883f11ac52b5e1e7db31749a213e2710ceb9ec7819021780db416,
+            0xbc0727ffaae581c5b79483e1eb451b11ff57cce4654d0e42a95c383c3abe1ac4,
+            4,
+            [
+                0x36c138e01f975d093b9d998a0d4c2af03ef01099bcac6fdb08bc935e5fb8568c,
+                0x37066fa2db6e50aadddea7b6c023b1d0e89622d1d5dc7273211b95cc3af2cdfd,
+            ],
+            blockRefCell(
+                1090,
+                0x2da3ac3ca5ef16ca6c45cf52e33ef35a9c8e9895d8b84ab9e50350813720eeab,
+                6,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res5, 420);
+    expectEvents(res5, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800000900);
+    // step 6: sccp_apply_control_checkpoint -> UnknownCheckpoint
+    val res6 = replayApplyControl(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000438000001a31863a3000100000002883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa60000000000000008".hexToSlice(),
+            "331889bd14428f224a74cc3cfaaccdf9761c68c9b9278e4a5b54ccfe06510b290000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0xfddf237c39ea88eeabebeac8828dcde455af8431af975693acd04884e8053027,
+            0x14dc0c08049d5bf167e56de81dcf41165afc4f64936a50dc021472e8fdee91d9,
+            0,
+            [
+                0x9f4c9f8c5287afedb140e242bfcf9e2028d7c01cbdad380985d6c254c23beffc,
+            ],
+            blockRefCell(
+                1080,
+                0x883053be5e305d501c86279f97a3e9ab4f41fae6b518ef3fd61ecd6d7bffefa6,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res6, 411);
+    expectEvents(res6, ([] as array<cell>));
+    replayExpectState(env, 1800000900000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1801209601);
+    // step 7: sccp_apply_control -> CommitteeNotAccepted
+    val cert7 = certCell(
+        "b81ac71cbd7948acac0713df00ebb46c954390c1e984192cda19608a5bb83f2bd7a31118ee3d964acad9b40e5e518ed41730bd013dd1d2a075fad3fbd7f6a1ae018bf0794ea31f336b224f4dd6a17bde9d3b3eb9552e97c11972f606b76dbc85".hexToSlice(),
+        7,
+        "000000000000000acd2f6a3aba482dcd97f4ca156c1143327db3175c94ac10a9bbfb3a5eea548f3b000000000000000045199cd1fccd813e51e39777dca5fb7074598a3e0d740b5abd5718629351c7a1cbd841675fe76e9a1d2048038f8f8ccff611a5f34b158e0799108e969faa8df1".hexToSlice(),
+        "534343502f46494e414c4954592f5631111111111111111111111111111111111111111111111111111111111111111100000000000003f2000001a3185d3a60010000000155ae7d54e5206ec2f1d090af7efa5975fec969997cb48b78c4e079de67aad4270000000000000001".hexToSlice(),
+        "8605a0da96d0254a8269e084d987929a640362f7d6e897f970e8e85f28e9d3420000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res7 = replayApplyControl(
+        env,
+        cert7,
+        null,
+        controlProofCell(
+            1,
+            1,
+            true,
+            0,
+            0x75f8e1dabcb57914d176beb72133ee53091bc1cf24c3dc53b51bf5dddff3c63d,
+            0xfe56de5ca0992bf00532bc1aeea0843762ec7427b75797ee3fecbce44860b1b9,
+            0,
+            ([] as array<int>),
+            blockRefCell(
+                1010,
+                0x55ae7d54e5206ec2f1d090af7efa5975fec969997cb48b78c4e079de67aad427,
+                1,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res7, 402);
+    expectEvents(res7, ([] as array<cell>));
+    replayExpectState(env, 1801209601000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, false, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+}
+
+/// `ton_control_fast_pause_sub_second_expiry` (TON scenario): a fast pause whose expiry ends in 001 ms: the whole-second destination clock is paused at the last clock value below fastPauseUntilMs (1 ms earlier) and mints at the next one (999 ms later).
+fun vecScenarioTonControlFastPauseSubSecondExpiry() {
+    val env = replayDeploy(
+        InitialPin { generation: 5, root: 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, start: 1000, untilMs: 1801209600000 },
+        [
+            "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+            "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+            "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+            "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+        ],
+        1000000000000000000,
+        1800001200,
+    );
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 999, 1801209600000, false, true, 0, false, 0, false, 0);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 0, 0, 0, 0, 0, 0, 0);
+    testing.setNow(1800001200);
+    // step 0: sccp_apply_control -> ok
+    val cert0 = certCell(
+        "88524d04a3c3e8794d53730951b8a0a91411df9160e499e6035889194d80f9a79391079b7a3237f6cefc635f86cfc0d001c746d5dd262e6cba244dd501912b9bef61a9aef7fc150be7d91073d03856df01fc96fe59ca7cd37caf7e169b8884b2".hexToSlice(),
+        7,
+        "000000000000000ba273a069ca10e4dc9ffc462d1b964533c962d0f0146b180dfa1a1a9419c8838d0000000000000000e2d4c2eac6b9369c447ac13308ec5edc4ffeb3f859670fdab0c97e270eb73fdd084a0dab2db9435b5cb98954c2cbd63846ba42819e851c24afd1118bacfb6b63".hexToSlice(),
+        "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000025fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed000000000000000a".hexToSlice(),
+        "8f25b190011e5c785ae0085af5ee95ada2e169107e8fe73e4e9f24322004c8910000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+    );
+    val res0 = replayApplyControl(
+        env,
+        cert0,
+        null,
+        controlProofCell(
+            1,
+            2,
+            false,
+            1800007200001,
+            0x54dc46651f30d61b06134b3bfe5cff3dc09f0c454074c8ae442f7fc6d209a2d4,
+            0x3c33dfe77275b6e509f60b732913c7d6803dd7ca28d9d3fb0a9e0146a3e748da,
+            0,
+            [
+                0x2859570c1a24247b96b1c49dc53f3174ffa601fc889ea9b09d5947c177f1f4c5,
+            ],
+            blockRefCell(
+                1110,
+                0x5fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res0, 0);
+    expectEvents(res0, [
+        eventCertificate(1110, 5, cert0),
+        eventCheckpointed(1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3),
+        eventControlApplied(1, 2, false, 1800007200001, 0x54dc46651f30d61b06134b3bfe5cff3dc09f0c454074c8ae442f7fc6d209a2d4),
+    ]);
+    replayExpectState(env, 1800001200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1110, 1801209600000, false, true, 1, false, 1800007200001, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3, 0, 0, 0, 0);
+    testing.setNow(1800007200);
+    // step 1: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1110, 1801209600000, false, true, 1, false, 1800007200001, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3, 0, 0, 0, 0);
+    testing.setNow(1800007200);
+    // step 2: sccp_finalize_checkpoint -> MintingIsPaused
+    val res2 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000025fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed000000000000000a".hexToSlice(),
+            "8f25b190011e5c785ae0085af5ee95ada2e169107e8fe73e4e9f24322004c8910000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0xe51dbc316a4a42829e67bfacaecdae84bc79fc81480a78bcab5da9253d5ebbaf,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000500000001000001a31d82ac0000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1110,
+                0x5fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res2, 401);
+    expectEvents(res2, ([] as array<cell>));
+    replayExpectState(env, 1800007200000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1110, 1801209600000, false, true, 1, false, 1800007200001, true, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3, 0, 0, 0, 0);
+    testing.setNow(1800007201);
+    // step 3: views
+    replayExpectPin(env, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1801209600000);
+    replayExpectState(env, 1800007201000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1110, 1801209600000, false, true, 1, false, 1800007200001, false, 1);
+    replayExpectValueState(env, 0, ([] as array<int>));
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3, 0, 0, 0, 0);
+    testing.setNow(1800007201);
+    // step 4: sccp_finalize_checkpoint -> ok
+    val res4 = replayFinalize(
+        env,
+        null,
+        checkpointRefCell(
+            "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000025fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed000000000000000a".hexToSlice(),
+            "8f25b190011e5c785ae0085af5ee95ada2e169107e8fe73e4e9f24322004c8910000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+        ),
+        messageProofCell(
+            1,
+            [
+                0xe51dbc316a4a42829e67bfacaecdae84bc79fc81480a78bcab5da9253d5ebbaf,
+            ],
+            snakeFromPieces([
+                "02010000000000000004000000000000000500000001000001a31d82ac0000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a07002400000000444444444444444444444444444444444444444444444444444444".hexToSlice(),
+                "444444444401000d74616972615f746f6e5f786f72".hexToSlice(),
+            ]),
+            blockRefCell(
+                1110,
+                0x5fdb196dd284e7f2ddcf900fe54a577717d3d2460ee22b2ee33b9c19598943ed,
+                2,
+                0,
+                ([] as array<int>),
+            ),
+        ),
+    );
+    expectOutcome(res4, 0);
+    expectEvents(res4, [
+        replayEventFinalized(0x37c97960de5237027fb668171e3768df1761602d22da5c2aa4418913b4845f8d, 5),
+    ]);
+    replayExpectState(env, 1800007201000, 5, 0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1, 1000, 1110, 1801209600000, false, true, 1, false, 1800007200001, false, 2);
+    replayExpectValueState(env, 1000000000, [
+        5,
+    ]);
+    replayExpectKeys(env, [
+        "83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39".hexToSlice(),
+        "8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325".hexToSlice(),
+        "a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2".hexToSlice(),
+        "ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001".hexToSlice(),
+    ]);
+    replayExpectCheckpoints(env, 1, 1110, 0xf51372a40e2251b8473d27baf88ce8ce551efef58a30bdc9e0f728488ab4f5e3, 0, 0, 0, 0);
 }

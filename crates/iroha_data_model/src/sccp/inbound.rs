@@ -413,7 +413,14 @@ mod tests {
 
     #[test]
     fn status_helpers() {
-        let [disabled, not_settleable, shortfall, released, bounced, stranded] = statuses();
+        let [
+            disabled,
+            not_settleable,
+            shortfall,
+            released,
+            bounced,
+            stranded,
+        ] = statuses();
         for status in [disabled, not_settleable, shortfall] {
             assert!(status.is_pending());
         }

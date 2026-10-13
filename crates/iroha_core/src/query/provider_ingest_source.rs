@@ -85,8 +85,7 @@ pub fn authorize_publisher_source_v1(
     if pin.submitted_by != *publisher
         || !matches!(pin.status, PinStatus::Approved(_))
         || pin.policy.retention_epoch <= now
-        || order.manifest_digest != pin.digest
-        || order.manifest_root_cid != pin.root_cid
+        || (&order.manifest_digest, &order.manifest_root_cid) != (&pin.digest, &pin.root_cid)
         || order.assignment_revision != binding.assignment_revision
         || !matches!(order.status, ReplicationOrderStatus::Pending)
         || order.deadline_epoch < now
@@ -189,8 +188,7 @@ pub fn authorize_provider_source_v1(
         || !matches!(order.status, ReplicationOrderStatus::Pending)
         || order.provider_completion(target).is_some()
         || order.assignment_revision != request.assignment_revision
-        || order.manifest_digest != pin.digest
-        || order.manifest_root_cid != pin.root_cid
+        || (&order.manifest_digest, &order.manifest_root_cid) != (&pin.digest, &pin.root_cid)
         || order.issued_epoch > finalized_secs
         || order.deadline_epoch < now
     {

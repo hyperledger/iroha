@@ -336,7 +336,9 @@ impl PrivateSettlementPoolGovernanceProjectionV1 {
         if !replacement.prior_revisions.is_empty() {
             return Err(PrivateSettlementStateErrorV1::PoolGovernance);
         }
-        replacement.prior_revisions = self.prior_revisions.clone();
+        replacement
+            .prior_revisions
+            .clone_from(&self.prior_revisions);
         replacement.prior_revisions.push(self.current_revision());
         replacement.validate()?;
         Ok(replacement)
@@ -680,9 +682,15 @@ impl PrivateSettlementPoolStateV1 {
                 .lifecycle
                 .retirement_height
                 .is_some_and(|retirement| expiry_height >= retirement)
-            || governance.governance_digest != self.restricted_pool_policy_digest
-            || governance.route != self.route
-            || governance.pool_id != self.pool_id
+            || (
+                &governance.governance_digest,
+                &governance.route,
+                &governance.pool_id,
+            ) != (
+                &self.restricted_pool_policy_digest,
+                &self.route,
+                &self.pool_id,
+            )
             || delta.version != ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1
             || delta.route != self.route
             || delta.pool_id != self.pool_id

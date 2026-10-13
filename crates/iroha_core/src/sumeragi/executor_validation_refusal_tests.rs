@@ -552,7 +552,8 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                ),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -594,12 +595,14 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                         }
                         if let Some(original) = source.execution() {
                             let requested = match original.allocation_refusal() {
-                                Some(AllocationRefusal::Capacity {
-                                    requested_bytes, ..
-                                })
-                                | Some(AllocationRefusal::ExceedsLimit {
-                                    requested_bytes, ..
-                                }) => *requested_bytes,
+                                Some(
+                                    AllocationRefusal::Capacity {
+                                        requested_bytes, ..
+                                    }
+                                    | AllocationRefusal::ExceedsLimit {
+                                        requested_bytes, ..
+                                    },
+                                ) => *requested_bytes,
                                 other => panic!(
                                     "actual execution capacity refused without demand: {other:?}"
                                 ),
@@ -763,7 +766,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                ),
             };
             let entries = attempt
                 .original_decoded(&budget)

@@ -13,7 +13,7 @@ use tokio::{
 };
 
 /// One admitted request, including its complete proxy working set and transport owner.
-pub(super) struct RequestWork {
+pub struct RequestWork {
     peer: Peer,
     request: Arc<ToriiProxyRequestV1>,
     proxy_memory: ToriiProxyMemoryReservation,
@@ -64,7 +64,7 @@ where
 }
 
 /// Start the exact two-child topology after validating its execution context.
-pub(super) fn start(
+pub fn start(
     app: SharedAppState,
     network: iroha_core::IrohaNetwork,
     shutdown: ShutdownSignal,
@@ -148,7 +148,7 @@ async fn pump(
 }
 
 /// Transfer each retained message to its final bounded owner, or drop it on explicit backpressure.
-pub(super) async fn dispatch(
+pub async fn dispatch(
     app: &SharedAppState,
     network: &iroha_core::IrohaNetwork,
     requests: &mpsc::Sender<RequestWork>,

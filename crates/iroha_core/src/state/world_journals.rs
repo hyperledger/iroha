@@ -190,7 +190,7 @@ impl<B: CaptureWorldField + super::block_field::OriginalPublicationBlock> Captur
     type Retained = B::Retained;
     type Capture = B::Capture;
     fn capture_mode(&self) -> Result<BlockMode, CaptureError<Infallible>> {
-        std::ops::Deref::deref(self).capture_mode()
+        CaptureWorldField::capture_mode(&**self)
     }
     fn into_capture(self) -> Self::Capture {
         self.into_executing().into_capture()

@@ -17,18 +17,16 @@ use iroha_data_model::{
 };
 use iroha_model_base::topology::LaneId;
 pub use persistence::{DaReceiptLog, ReceiptInsertOutcome, ReplayCursorStore};
-pub(crate) use spool::{
-    DaSpoolAction, DaSpoolActionOutput, DaSpoolBatch, DaSpoolBatchReport, DaSpooler,
-};
+pub use spool::{DaSpoolAction, DaSpoolActionOutput, DaSpoolBatch, DaSpoolBatchReport, DaSpooler};
 use std::collections::BTreeMap;
 #[cfg(feature = "app_api")]
-pub(crate) use taikai::spawn_anchor_worker;
+pub use taikai::spawn_anchor_worker;
 #[cfg(feature = "app_api")]
-pub(crate) use taikai::taikai_ingest::recover_pending_lineages as recover_pending_taikai_lineages;
+pub use taikai::taikai_ingest::recover_pending_lineages as recover_pending_taikai_lineages;
 
 /// One generation-stable view of committed DA admission policy and lane incarnations.
 #[derive(Clone, Debug)]
-pub(crate) struct DaIngestAdmissionSnapshot {
+pub struct DaIngestAdmissionSnapshot {
     policy: Option<DaIngestAdmissionPolicyV1>,
     active_incarnations: BTreeMap<LaneId, iroha_crypto::Hash>,
 }
@@ -72,7 +70,7 @@ impl DaIngestAdmissionSnapshot {
 /// Returns an error when the reserved policy payload is malformed. Absence is
 /// represented explicitly and makes DA ingest fail closed without destroying
 /// pre-upgrade replay evidence during startup.
-pub(crate) fn committed_da_ingest_admission_snapshot(
+pub fn committed_da_ingest_admission_snapshot(
     state: &iroha_core::state::State,
 ) -> Result<DaIngestAdmissionSnapshot, String> {
     let view = state.view();

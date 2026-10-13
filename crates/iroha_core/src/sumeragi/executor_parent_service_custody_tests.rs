@@ -36,7 +36,7 @@ fn occupy_at_real_authority(
     let pointers = Rc::new(RefCell::new(None));
     let observed = Rc::clone(&pointers);
     let original = budget.clone();
-    let observer =
+    let budget_observer =
         super::super::certified_chain::observe_parent_service_admission(move |parent, current| {
             *observed.borrow_mut() = Some([
                 std::ptr::from_ref(parent) as usize,
@@ -52,7 +52,7 @@ fn occupy_at_real_authority(
                     .unwrap(),
             );
         });
-    (observer, occupied, pointers)
+    (budget_observer, occupied, pointers)
 }
 
 fn release_of(error: PublicationError) -> crate::execution_attempt::ExecutionDeferred {
@@ -384,6 +384,7 @@ fn parent_service_preparation_refuses_foreign_original_owner_without_replacing_r
 
 #[test]
 fn parent_service_errors_keep_original_waiter_and_permanent_source_classification() {
+    use super::super::certified_chain::{ChainReadError, ParentServiceError};
     use crate::execution_attempt::ExecutionAttemptError;
     use iroha_data_model::query::error::{CanonicalHistoryError, QueryExecutionFail};
     use ivm::error::ExecutionDeferral;
@@ -451,7 +452,6 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         )),
         PublicationError::Retryable(_)
     ));
-    use super::super::certified_chain::{ChainReadError, ParentServiceError};
     for (original, unavailable) in [
         (ChainReadError::NotCommitted { height: 2 }, true),
         (ChainReadError::NotInView { height: 2 }, true),

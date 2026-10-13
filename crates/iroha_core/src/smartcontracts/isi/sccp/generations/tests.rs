@@ -8,7 +8,7 @@ use crate::smartcontracts::isi::sccp::test_support::{authority, blank_state, hea
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::nexus::{PublicLaneValidatorRecord, PublicLaneValidatorStatus};
 use iroha_model_base::{metadata::Metadata, topology::LaneId};
-use std::{collections::BTreeSet, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 fn peers(seed: u8, count: u8) -> Vec<PeerId> {
     let mut peers = (seed..seed + count)
@@ -109,6 +109,43 @@ fn key_change_beats_heartbeat_and_keeps_outgoing_certificate_generation() {
 }
 
 #[test]
+fn key_change_before_heartbeat_requires_rotation_at_the_original_boundary() {
+    let state = blank_state();
+    let candidate = at(2, 1_001);
+    let mut block = state.block(candidate);
+    let mut stx = block.transaction();
+    let original = peers(1, 4);
+    let successor = peers(10, 7);
+    seed(&mut stx, &original);
+    let source = inputs(2, &original, Some(&successor));
+    let prepared = plan(&stx, &candidate, Some(&source)).unwrap();
+    assert!(
+        prepared.rotation.is_some(),
+        "a changed native boundary committee must rotate before the heartbeat deadline"
+    );
+    assert_eq!(prepared.generation, 1);
+    assert_eq!(
+        prepared.rotation.as_ref().unwrap().cause,
+        SccpGenerationCauseV1::KeyChange
+    );
+    let successor_root = Committee::read(&successor).unwrap().root;
+    assert_eq!(prepared.next_committee_root, successor_root);
+    assert_eq!(
+        prepared.committee_root,
+        Committee::read(&original).unwrap().root,
+        "SC2 boundary header must retain the outgoing committee root"
+    );
+    prepared.publish(&mut stx).unwrap();
+    assert_eq!(*store::committee_current::get(&*stx.world), 2);
+    assert_eq!(
+        store::committee_generations::get(&*stx.world, &2)
+            .unwrap()
+            .start_height,
+        3
+    );
+}
+
+#[test]
 fn unchanged_committee_has_only_the_exact_heartbeat_trigger() {
     let state = blank_state();
     let original = peers(1, 4);
@@ -187,7 +224,10 @@ fn resync_uses_real_native_parent_time_then_boundary_rotates_again() {
     seed(&mut stx, &previous);
     let source = inputs(2, &current, Some(&next));
     let prepared = plan(&stx, &candidate, Some(&source)).unwrap();
-    assert_eq!(prepared.generation, 2);
+    assert_eq!(
+        prepared.generation, 2,
+        "SC23 a missed committee change must create the original resync generation"
+    );
     assert_eq!(
         prepared.resync.as_ref().unwrap().cause,
         SccpGenerationCauseV1::Resync
@@ -270,73 +310,6 @@ fn frozen_member_binding_rejects_ambiguous_or_inactive_registration() {
         .insert((lane, first.validator), ended);
     assert!(member_for_peer(&stx, &peer, 2).is_none());
     assert!(member_for_peer(&stx, &peer, 1).is_some());
-}
-
-#[test]
-fn pruning_requires_explicit_pending_set_preserves_inclusive_liability_and_eight_bound() {
-    let state = blank_state();
-    let mut block = state.block(header(2));
-    let mut stx = block.transaction();
-    // Keep peer storage alive for the borrowed committee owner.
-    let peers = peers(1, 4);
-    let committee = Committee::read(&peers).unwrap();
-    let params = SccpParametersV1::taira_default();
-    for id in 1..=12 {
-        let mut record = prepare_record(
-            &stx,
-            &committee,
-            Creation {
-                generation: id,
-                cause: if id == 1 {
-                    SccpGenerationCauseV1::Genesis
-                } else {
-                    SccpGenerationCauseV1::Heartbeat
-                },
-                start_height: id,
-                timestamp_ms: 1_000,
-                liability_clock: 1_000,
-            },
-            &params,
-        )
-        .unwrap();
-        if id != 12 {
-            record.end = Some(SccpGenerationEndV1 {
-                end_height: 12,
-                end_timestamp_ms: 1_000,
-                next_committee_root: committee.root,
-                successor_validity_ms: params.committee_validity_ms,
-            });
-        }
-        publish_record(&mut stx, record).expect("fixture generation publication");
-    }
-    let boundary = store::committee_generations::get(&*stx.world, &1)
-        .unwrap()
-        .liable_until_lc
-        .saturating_add(params.destination_progress_cap_ms);
-    let pending = BTreeSet::from([2, 4]);
-    assert_eq!(
-        prune_selection(
-            store::committee_generations::iter(&*stx.world),
-            12,
-            boundary,
-            &pending
-        )
-        .1,
-        0
-    );
-    let (selected, count) = prune_selection(
-        store::committee_generations::iter(&*stx.world),
-        12,
-        boundary + 1,
-        &pending,
-    );
-    assert_eq!(count, 8);
-    assert_eq!(selected, [1, 3, 5, 6, 7, 8, 9, 10]);
-    assert_eq!(
-        store::committee_generations::len(&*stx.world),
-        12,
-        "pure selector grants no retirement authority"
-    );
 }
 
 #[test]

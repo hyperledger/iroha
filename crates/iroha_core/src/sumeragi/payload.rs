@@ -497,7 +497,7 @@ fn build_at(
     work_tests::record_build_at();
     let height = assembly.parent.header().height().get().saturating_add(1);
     let (_, time_source) = TimeSource::new_mock(time);
-    let accepted = transactions.iter().cloned().collect::<Vec<_>>();
+    let accepted = transactions.to_vec();
     let nexus = state.nexus_snapshot();
     let view = state.view();
     let npos = view
@@ -650,16 +650,18 @@ pub(crate) fn decode_prepared(
                 PreparedSignatureBlockError::Frame(_)
                     | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(_))
-                    | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Commitments(
-                        DaCommitmentCustodyError::Signature(
-                            iroha_crypto::PreparedCryptoDecodeError::Signature(_)
-                        )
+                        DaCommitmentCustodyError::Decode(_)
+                            | DaCommitmentCustodyError::Signature(
+                                iroha_crypto::PreparedCryptoDecodeError::Signature(_)
+                            )
                     )
-                    | PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(_))
-                    | PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
-                        BlockSignatureCustodyError::Decode(_)
-                    ))
+                    | PreparedSignatureBlockError::Decode(
+                        PreparedDecodeError::Codec(_)
+                            | PreparedDecodeError::Destination(BlockSignatureCustodyError::Decode(
+                                _
+                            ))
+                    )
             );
             match crate::execution_attempt::prepared_signature_block_attempt_error(
                 error,
@@ -725,6 +727,7 @@ pub fn select(
     use crate::smartcontracts::isi::sccp::admission::{
         SccpExemptBlockBudgetV1, SccpExemptClassV1, exempt_class_of_entrypoint,
     };
+    use crate::smartcontracts::isi::sccp::keepalive;
     let block_parameters = view.world().parameters().block();
     // The next block executes under the FASTPQ source policy frozen at its start (the
     // committed one): proposal packing honours its Network input cap, as validation does.
@@ -768,7 +771,6 @@ pub fn select(
     let mut future_input = false;
     let mut original_parent = None;
     let budget = view.execution_budget();
-    use crate::smartcontracts::isi::sccp::keepalive;
     let newest_keepalive = pending
         .iter()
         .filter_map(|transaction| {
@@ -1123,7 +1125,7 @@ mod tests {
             anchor_freshness: 4,
             max_merge_blocks: 8,
             stall_window: 1000,
-            lane_params: Default::default(),
+            lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             fixed: vec![SumeragiFixedLane {
                 lane: LaneId::new(2),
                 dataspace: DataSpaceId::UNIVERSAL,

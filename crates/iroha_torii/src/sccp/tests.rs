@@ -640,8 +640,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         &HistoryQuery::default(),
         Some(&accept),
         &headers,
-        &mut cache,
-        &cache_budget,
+        (&mut cache, &cache_budget),
         &owner,
     ))
     .await;
@@ -665,8 +664,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         },
         Some(&accept),
         &headers,
-        &mut cache,
-        &cache_budget,
+        (&mut cache, &cache_budget),
         &owner,
     );
     let etag = sized.headers()[header::ETAG].clone();
@@ -683,8 +681,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &conditional,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         )
         .status(),
@@ -699,8 +696,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &headers,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         ))
         .await,
@@ -713,8 +709,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             &HistoryQuery::default(),
             Some(&accept),
             &headers,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         ))
         .await,
@@ -734,8 +729,22 @@ async fn governance_route_reports_missing_records() {
 #[tokio::test]
 async fn capabilities_list_paths_profiles_and_limits() {
     let state = blank_state();
+    let budget = iroha_allocation::AllocationBudget::new(32_768);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let offered = read::capabilities(
+        &state.view(),
+        &budget,
+        read::native::SccpNativeReadControl {
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+            stop: &stop,
+        },
+        iroha_torii_shared::route_catalog::sccp::ROUTES
+            .iter()
+            .map(|route| route.path()),
+    )
+    .unwrap();
     let capabilities: SccpCapabilitiesV1 =
-        decode(capabilities_response(&state.view(), Some(&norito_accept()))).await;
+        decode(respond(Some(&norito_accept()), offered.data().clone())).await;
     assert_eq!(capabilities.limits, SccpReadLimitsV1::v1());
     assert_eq!(capabilities.profiles.len(), 3);
     for route in iroha_torii_shared::route_catalog::sccp::ROUTES {
@@ -821,7 +830,12 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
 async fn committee_routes_report_current_records_and_reject_zero_or_absent_generation() {
     use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
     use iroha_data_model::{
-        isi::sccp::InitializeSccpV1,
+        Registrable,
+        account::Account,
+        asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+        domain::Domain,
+        isi::{RegisterPublicLaneValidator, sccp::InitializeSccpV1},
+        nexus::PublicLaneMonetaryPlanV1,
         parameter::{
             Parameter,
             system::{SumeragiConsensusMode, SumeragiNposParameters},
@@ -852,6 +866,61 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms,
     );
     nexus.staking.max_slash_bps = 10_000;
+    // Capture each original G1 member from its genuine global staking registration.
+    // Pre-existing fixture balances fund the normal signed genesis monetary plan.
+    let owner = AccountId::new(config.genesis_key.public_key().clone());
+    let definition: AssetDefinitionId = nexus.staking.stake_asset_id.parse().unwrap();
+    let escrow = AccountId::parse_encoded(&nexus.staking.stake_escrow_account_id).unwrap();
+    let amount = iroha_crypto::numeric::Quantity::from(1_000_u32);
+    let validators = iroha_core::sumeragi::test_chain::fixture_validators();
+    let accounts = validators
+        .iter()
+        .map(|(peer, _)| AccountId::new(peer.public_key().clone()))
+        .collect::<Vec<_>>();
+    config.world = World::with_assets(
+        [
+            Domain::new(iroha_model_base::domain::DomainId::try_new("nexus", "universal").unwrap())
+                .build(&owner),
+        ],
+        accounts
+            .iter()
+            .chain([&escrow])
+            .map(|account| Account::new(account.clone()).build(&owner)),
+        [AssetDefinition::new(
+            definition.clone(),
+            "Network XOR",
+            iroha_primitives::numeric::NumericSpec::fractional(9),
+            AssetBalancePolicy::Global,
+            None,
+        )
+        .build(&owner)],
+        accounts.iter().map(|account| {
+            Asset::new(
+                AssetId::new(definition.clone(), account.clone()),
+                amount.clone(),
+            )
+        }),
+        [],
+    );
+    for ((peer, _), validator) in validators.iter().zip(accounts) {
+        let source = AssetId::new(definition.clone(), validator.clone());
+        config.genesis_instructions.push(
+            RegisterPublicLaneValidator {
+                lane_id: iroha_model_base::topology::LaneId::SINGLE,
+                validator: validator.clone(),
+                peer_id: peer.clone(),
+                stake_account: validator,
+                initial_stake: amount.clone(),
+                metadata: Default::default(),
+                monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
+                    source,
+                    AssetId::new(definition.clone(), escrow.clone()),
+                    amount.clone(),
+                ),
+            }
+            .into(),
+        );
+    }
     config.nexus = Some(nexus);
     config.genesis_instructions.push(
         InitializeSccpV1 {
@@ -874,7 +943,7 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
                 .unwrap()
         })
         .collect::<Vec<[u8; 48]>>();
-    keys.sort();
+    keys.sort_unstable();
     let view = state.view();
     let record = store::committee_generations::get(view.world(), &1).unwrap();
     let liability_clock = record.liable_until_lc + 1;
@@ -904,12 +973,21 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         committee_response(&stx, Some(2), None).status(),
         StatusCode::NOT_FOUND
     );
-    let capabilities = read::capabilities(&stx);
+    let capabilities = read::capabilities(
+        &stx,
+        &iroha_allocation::AllocationBudget::new(32_768),
+        iroha_core::smartcontracts::isi::sccp::read::native::SccpNativeReadControl {
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+            stop: &std::sync::atomic::AtomicBool::new(false),
+        },
+        std::iter::empty(),
+    )
+    .unwrap();
     assert_eq!(
-        capabilities.current_generation.unwrap().deadline_ms,
+        capabilities.data().current_generation.unwrap().deadline_ms,
         chain.genesis().header().creation_time_ms + parameters.committee_validity_ms
     );
-    assert_eq!(capabilities.liability_clock, liability_clock);
+    assert_eq!(capabilities.data().liability_clock, liability_clock);
 }
 
 fn history_owner() -> (
@@ -944,8 +1022,7 @@ async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() 
             },
             Some(&accept),
             &HeaderMap::new(),
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         );
         assert_eq!(response.status(), StatusCode::OK);
@@ -1015,8 +1092,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &owner,
         )
     };
@@ -1035,8 +1111,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &cloned.sccp_history_budget,
+            (&mut cache, &cloned.sccp_history_budget),
             &warm_owner,
         )
     };
@@ -1065,8 +1140,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &refused_owner,
         )
     };
@@ -1084,8 +1158,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &retry_owner,
         )
     };
