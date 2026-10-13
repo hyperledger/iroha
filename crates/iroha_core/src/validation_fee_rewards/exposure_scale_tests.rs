@@ -220,6 +220,53 @@ fn prefix_capture_handles_identity_extremes_rollback_and_replacement() {
 }
 
 #[test]
+fn capture_accepts_full_recipient_cohort_replacement() {
+    let validator = account(1);
+    let lane = LaneId::new(0);
+    let selected = BTreeMap::from([(lane, BTreeSet::from([validator.clone()]))]);
+    let stakers: Vec<_> = (0..2 * MAX_REWARD_RECIPIENTS)
+        .map(|index| account(index as u32 + 100))
+        .collect();
+    let storage: Storage<_, _> = stakers[..MAX_REWARD_RECIPIENTS]
+        .iter()
+        .map(|staker| {
+            let key = (lane, validator.clone(), staker.clone());
+            (key.clone(), share(&key, Quantity::one()))
+        })
+        .collect();
+    let expected = BTreeMap::from([(
+        (lane, validator.clone()),
+        stakers[..MAX_REWARD_RECIPIENTS]
+            .iter()
+            .cloned()
+            .map(|staker| (staker, Quantity::one()))
+            .collect(),
+    )]);
+    let mut block = storage.block();
+    for staker in &stakers[..MAX_REWARD_RECIPIENTS] {
+        block.remove((lane, validator.clone(), staker.clone()));
+    }
+    for staker in &stakers[MAX_REWARD_RECIPIENTS..] {
+        let key = (lane, validator.clone(), staker.clone());
+        block.insert(key.clone(), share(&key, Quantity::from(2_u32)));
+    }
+
+    let mut visits = [0_usize; 3];
+    assert_eq!(
+        capture_stakes(&block, &selected, |v| visits[v as usize] += 1).unwrap(),
+        expected
+    );
+    assert_eq!(
+        visits,
+        [
+            MAX_REWARD_RECIPIENTS,
+            2 * MAX_REWARD_RECIPIENTS,
+            MAX_REWARD_RECIPIENTS,
+        ]
+    );
+}
+
+#[test]
 fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
     let validator = account(1);
     let lane = LaneId::new(0);
@@ -241,6 +288,33 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
         visits,
         MAX_REWARD_RECIPIENTS + 1,
         "oversized current prefixes stop at the first impossible recipient"
+    );
+
+    // Individually bounded current and undo sets must still reject an oversized
+    // parent cohort split across both sources.
+    {
+        let mut block = storage.block();
+        block.remove((lane, validator.clone(), account(100)));
+        let mut visits = [0_usize; 3];
+        assert!(capture_stakes(&block, &selected, |v| visits[v as usize] += 1).is_err());
+        assert_eq!(
+            visits,
+            [MAX_REWARD_RECIPIENTS, 1, MAX_REWARD_RECIPIENTS + 1]
+        );
+    }
+
+    // The same bound applies to removed parent rows discovered through undo;
+    // malformed block churn cannot force capture to collect an unbounded key set.
+    let mut block = storage.block();
+    for index in 0..=MAX_REWARD_RECIPIENTS {
+        block.remove((lane, validator.clone(), account(index as u32 + 100)));
+    }
+    visits = 0;
+    assert!(capture_stakes(&block, &selected, |_| visits += 1).is_err());
+    assert_eq!(
+        visits,
+        MAX_REWARD_RECIPIENTS + 1,
+        "oversized undo prefixes stop at the first impossible recipient"
     );
 }
 
