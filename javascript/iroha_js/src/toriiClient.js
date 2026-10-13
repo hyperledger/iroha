@@ -177,7 +177,12 @@ import {
   normalizeValidationFeeLedgerBindingV1,
 } from "./validationFeeTrust.js";
 import { SorafsOrderbookSubmissionAmbiguousError } from "./sorafsOrderbookAmbiguousError.js";
-import { ToriiError, ToriiHttpError, extractToriiErrorFields } from "./toriiErrors.js";
+import {
+  ToriiError,
+  ToriiHttpError,
+  extractToriiErrorFields,
+  isIdempotentSubmissionRejection,
+} from "./toriiErrors.js";
 import { createToriiCollections } from "./query/collections.js";
 import { decodePage, decodePageText, stringifyRequestJson } from "./query/page.js";
 import { filterQueryText } from "./query/listQuery.js";
@@ -207,6 +212,7 @@ const SORAFS_POR_CURSOR_MAX_LENGTH = 256;
 const APPLICATION_JSON = "application/json";
 const APPLICATION_NORITO = "application/x-norito";
 const JSON_ACCEPT_HEADERS = Object.freeze({ Accept: APPLICATION_JSON });
+/** Queue rejections that mean the exact signed transaction is already known. */
 const JSON_REQUEST_HEADERS = Object.freeze({
   "Content-Type": APPLICATION_JSON,
   Accept: APPLICATION_JSON,
@@ -5177,7 +5183,11 @@ export class ToriiClient {
   /**
    * Submit a signed transaction and await exact state-resolved Applied finality.
    * The transaction hash is derived from the signed bytes; an optional
-   * `hashHex` is checked against it before anything is sent.
+   * `hashHex` is checked against it before anything is sent. Resubmission is
+   * idempotent: HTTP 409 `already_committed` and `already_enqueued` rejections
+   * of the same bytes continue with the finality wait. Rejected and Expired outcomes
+   * throw `TransactionStatusError` (the status route carries no rejection
+   * reason; subscribe to `streamEvents` for `rejection_code`).
    * @param {ArrayBufferView | ArrayBuffer | Buffer} payload
    * @param {{
    *   hashHex?: string,
@@ -5213,7 +5223,15 @@ export class ToriiClient {
         );
       }
     }
-    await this.submitTransaction(payload, { signal: pollOptions.signal });
+    try {
+      await this.submitTransaction(payload, { signal: pollOptions.signal });
+    } catch (error) {
+      // The hash is derived from the exact signed bytes, so a node that already
+      // queued or committed this transaction only needs the finality wait.
+      if (!isIdempotentSubmissionRejection(error)) {
+        throw error;
+      }
+    }
     return this.waitForTransactionStatus(transactionHash, pollOptions);
   }
 

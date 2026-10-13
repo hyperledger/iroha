@@ -1,7 +1,12 @@
 import { requireMultisigId, requireMultisigNonce } from "./multisigIdentifiers.js";
 import { requireNetworkPrefix } from "./networkPrefix.js";
 import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
-import { ToriiHttpError, ToriiStreamGapError, toriiHttpErrorFromResponseText } from "./toriiErrors.js";
+import {
+  ToriiHttpError,
+  ToriiStreamGapError,
+  isIdempotentSubmissionRejection,
+  toriiHttpErrorFromResponseText,
+} from "./toriiErrors.js";
 import { createToriiCollections } from "./query/collections.js";
 import { decodePageText, stringifyRequestJson } from "./query/page.js";
 import { filterQueryText } from "./query/listQuery.js";
@@ -2192,7 +2197,11 @@ export class ToriiBrowserClient {
     throw error;
   }
 
-  /** Submit exact locally signed bytes and wait for global state-resolved Applied finality. */
+  /**
+   * Submit exact locally signed bytes and wait for global state-resolved Applied
+   * finality. An HTTP 409 `already_committed` or `already_enqueued` rejection of
+   * the same bytes continues with the finality wait.
+   */
   async submitTransactionAndWait(signedTransaction, options = {}) {
     const context = (TEXT_SUBMIT_TRANSACTION_AND_WAIT + "options");
     const opts = requireObject(options, context);
@@ -2212,10 +2221,18 @@ export class ToriiBrowserClient {
         rejectError((TEXT_SUBMIT_TRANSACTION_AND_WAIT + "options.hashHex does not match signedTransaction"));
       }
     }
-    await this.submitTransaction(body, {
-      signal: signalFrom(opts),
-      headers: opts.headers,
-    });
+    try {
+      await this.submitTransaction(body, {
+        signal: signalFrom(opts),
+        headers: opts.headers,
+      });
+    } catch (error) {
+      // The hash is derived from the exact signed bytes, so a node that already
+      // queued or committed this transaction only needs the finality wait.
+      if (!isIdempotentSubmissionRejection(error)) {
+        throw error;
+      }
+    }
     return this.waitForTransactionStatus(hashHex, {
       signal: opts.signal,
       headers: opts.headers,

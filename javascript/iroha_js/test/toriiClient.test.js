@@ -10527,6 +10527,68 @@ test("submitTransactionAndWait delegates to submitTransaction + waitForTransacti
   assert.equal(waitArgs.hashHex, finalHash, "an asserted hash that matches the bytes is accepted");
 });
 
+test("submitTransactionAndWait treats already committed or enqueued resubmissions as idempotent", async () => {
+  const finalHash = "59".repeat(32);
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async () => createResponse({ status: 200 }),
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from(finalHash, "hex"),
+    }),
+  });
+  const applied = {
+    kind: "Transaction",
+    content: { hash: finalHash, status: { kind: "Applied", content: null } },
+  };
+  const queueRejection = (status, code, rejectCode) =>
+    client._buildHttpError(
+      createResponse({
+        status,
+        jsonData: { code, message: code, details: { reject_code: rejectCode } },
+      }),
+      [200, 201, 202, 204],
+    );
+  let rejection = null;
+  let waited = 0;
+  client.submitTransaction = async () => {
+    throw rejection;
+  };
+  client.waitForTransactionStatus = async (hashHex) => {
+    assert.equal(hashHex, finalHash);
+    waited += 1;
+    return applied;
+  };
+  for (const [code, rejectCode] of [
+    ["already_committed", "PRTRY:ALREADY_COMMITTED"],
+    ["already_enqueued", "PRTRY:ALREADY_ENQUEUED"],
+  ]) {
+    rejection = await queueRejection(409, code, rejectCode);
+    assert.equal(rejection.rejectCode, rejectCode);
+    assert.strictEqual(await client.submitTransactionAndWait(Buffer.from([1]), {}), applied);
+    // A proxy that strips the details still forwards the envelope code.
+    rejection = await client._buildHttpError(
+      createResponse({ status: 409, jsonData: { code, message: code } }),
+      [200, 201, 202, 204],
+    );
+    assert.strictEqual(await client.submitTransactionAndWait(Buffer.from([1]), {}), applied);
+  }
+  assert.equal(waited, 4);
+
+  for (const [status, code, rejectCode] of [
+    [409, "transaction_rejected", "transaction_rejected"],
+    [400, "already_committed", "PRTRY:ALREADY_COMMITTED"],
+    [429, "queue_full", "PRTRY:QUEUE_FULL"],
+  ]) {
+    rejection = await queueRejection(status, code, rejectCode);
+    await assert.rejects(
+      () => client.submitTransactionAndWait(Buffer.from([1]), {}),
+      (error) => error === rejection,
+    );
+  }
+  rejection = new Error("network down");
+  await assert.rejects(() => client.submitTransactionAndWait(Buffer.from([1]), {}), /network down/u);
+  assert.equal(waited, 4, "only exact idempotent rejections continue to the finality wait");
+});
+
 test("transaction finality policy cannot be overridden", async () => {
   const client = new ToriiClient(BASE_URL, {
     fetchImpl: async () => createResponse({ status: 200 }),
