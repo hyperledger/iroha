@@ -147,8 +147,8 @@ fn native_finality_schema_matches_executed_norito_json_and_rejects_retired_field
     let checkpoint = build_checkpoint(&view, 1).expect("independently selected original checkpoint");
     let proof = build_proof(&view, 2).expect("actual executed native proof");
     let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(&checkpoint, &checkpoint.network_id(), checkpoint.chain_id()).unwrap();
-    let verified = verifier.verify(&proof).expect("full contiguous native BLS proof");
-    assert_eq!(verified.commitment().schedule.current.mode, ConsensusMode::Npos);
+    let authenticated = verifier.verify(&proof).expect("full contiguous native BLS proof");
+    assert_eq!(authenticated.commitment().schedule.current.mode, ConsensusMode::Npos);
     let value = norito::json::to_value(&proof).expect("serialize native proof");
     let proof_object = value.as_object().expect("proof object");
     set_contracts! { object_field_set(proof_object) => asset_field_set("bridge.proof.required"); }
@@ -176,13 +176,13 @@ fn native_finality_schema_matches_executed_norito_json_and_rejects_retired_field
     }
     let decoded: SumeragiFinalityProof = norito::json::from_value(value.clone()).expect("current JSON roundtrip");
     assert_eq!(decoded, proof);
-    let certificate = verified.block().commit_certificate().unwrap();
+    let certificate = authenticated.block().commit_certificate().unwrap();
     let qc: iroha_sumeragi::message::Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
     assert_eq!(qc.kind, iroha_sumeragi::message::VoteKind::Commit); assert_eq!(qc.signers.count_ones(), 3);
-    assert_eq!(qc.agg_sig.0.len(), 96); assert_eq!(qc.result, verified.result()); assert_eq!(qc.block_hash, verified.core_hash());
-    let wire = verified.canonical_executed_wire().unwrap();
-    assert_eq!(verified.execution().executed_block_wire_len, wire.len() as u64);
-    assert_eq!(verified.execution().executed_block_wire_hash, iroha_crypto::Hash::new(&wire));
+    assert_eq!(qc.agg_sig.0.len(), 96); assert_eq!(qc.result, authenticated.result()); assert_eq!(qc.block_hash, authenticated.core_hash());
+    let wire = authenticated.canonical_executed_wire().unwrap();
+    assert_eq!(authenticated.execution().executed_block_wire_len, wire.len() as u64);
+    assert_eq!(authenticated.execution().executed_block_wire_hash, iroha_crypto::Hash::new(&wire));
     let mut missing_result = proof.clone(); let mut block = decode_framed_signed_block(&missing_result.block_wire).unwrap();
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(certificate.consensus_header().to_vec(), certificate.commit_qc().to_vec(), Vec::new(), certificate.availability().to_vec())));
     missing_result.block_wire = block.encode_wire().unwrap();
@@ -402,9 +402,8 @@ fn generated_spec_documents_exact_current_sumeragi_status() {
     scalar_contracts! { diagnostics.get("additionalProperties") => Flag(false); }
     let diagnostics = contract_object(diagnostics.get("properties"), "diagnostics properties");
     member_contracts! { diagnostics; Present => ["npos"]; }
-    for (field, expected) in contract_rows! {
-        "lane_governance", "#/components/schemas/SumeragiLaneGovernance";
-    } {
+    {
+        let (field, expected) = ("lane_governance", "#/components/schemas/SumeragiLaneGovernance");
         scalar_contracts! { diagnostics.get(field).and_then(|schema| schema.get("items")).and_then(|items| items.get("$ref")) => Text(expected); }
     }
     member_contracts! { diagnostics; Absent => contract_words("height view phase leader locked_prepare_qc"); }

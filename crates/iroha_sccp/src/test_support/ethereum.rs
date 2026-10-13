@@ -227,7 +227,7 @@ impl SyntheticBeaconChainV1 {
             .iter()
             .fold(Scalar::from(0_u64), |sum, secret| sum + secret);
         let native = SyncCommittee::new(
-            Box::new(pubkeys.try_into().expect("512 positions")),
+            pubkeys.as_slice().try_into().expect("512 positions"),
             BlsPublicKey::new(compressed_g1(&sum)),
         );
         let entry = Arc::new(SyntheticCommitteeV1 {
@@ -295,7 +295,7 @@ impl SyntheticBeaconChainV1 {
             withdrawals_root: [0; 32],
         };
         let deneb = DenebExecutionPayloadHeader {
-            capella: capella.clone(),
+            capella,
             blob_gas_used: 0,
             excess_blob_gas: 0,
         };
@@ -319,22 +319,22 @@ impl SyntheticBeaconChainV1 {
             }
             EthereumFork::Capella => LightClientHeader::Capella {
                 beacon,
-                execution: Box::new(capella),
+                execution: capella,
                 execution_branch,
             },
             EthereumFork::Deneb => LightClientHeader::Deneb {
                 beacon,
-                execution: Box::new(deneb),
+                execution: deneb,
                 execution_branch,
             },
             EthereumFork::Electra => LightClientHeader::Electra {
                 beacon,
-                execution: Box::new(deneb),
+                execution: deneb,
                 execution_branch,
             },
             EthereumFork::Fulu => LightClientHeader::Fulu {
                 beacon,
-                execution: Box::new(deneb),
+                execution: deneb,
                 execution_branch,
             },
         }
@@ -361,7 +361,7 @@ impl SyntheticBeaconChainV1 {
         };
         EthereumNativeLightClientBootstrapV1::from_native(&LightClientBootstrap {
             header,
-            current_sync_committee: committee.native.clone(),
+            current_sync_committee: committee.native,
             current_sync_committee_branch,
         })
     }
@@ -430,7 +430,7 @@ impl SyntheticBeaconChainV1 {
         };
         let next_branch = sparse_branch(indices.next_sync_committee, depth, &state);
         let next_sync_committee = spec.include_next_committee.then(|| NextSyncCommitteeProof {
-            committee: next.native.clone(),
+            committee: next.native,
             branch: if electra {
                 NextSyncCommitteeBranch::Electra(fixed(next_branch))
             } else {
@@ -840,17 +840,15 @@ fn light_client_header_from_json(value: &Value, fork: EthereumFork) -> LightClie
         .collect::<Vec<_>>()
         .try_into()
         .expect("four execution roots");
-    let deneb = || {
-        Box::new(DenebExecutionPayloadHeader {
-            capella: capella.clone(),
-            blob_gas_used: decimal(execution, "blob_gas_used"),
-            excess_blob_gas: decimal(execution, "excess_blob_gas"),
-        })
+    let deneb = || DenebExecutionPayloadHeader {
+        capella,
+        blob_gas_used: decimal(execution, "blob_gas_used"),
+        excess_blob_gas: decimal(execution, "excess_blob_gas"),
     };
     match fork {
         EthereumFork::Capella => LightClientHeader::Capella {
             beacon,
-            execution: Box::new(capella.clone()),
+            execution: capella,
             execution_branch,
         },
         EthereumFork::Deneb => LightClientHeader::Deneb {
@@ -890,7 +888,7 @@ fn committee_from_json(value: &Value) -> SyncCommittee {
         .map(|key| BlsPublicKey::new(key.try_into().expect("48-byte key")))
         .collect();
     SyncCommittee::new(
-        Box::new(keys.try_into().expect("512 keys")),
+        keys.as_slice().try_into().expect("512 keys"),
         BlsPublicKey::new(
             hex_bytes(text(value, "aggregate_pubkey"))
                 .try_into()

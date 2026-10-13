@@ -1,7 +1,7 @@
 //! Object-safe, source-bound storage reads handed to the availability restoration worker.
 
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
-use std::{io, path::Path};
+use std::io;
 
 use iroha_allocation::AllocationBudget;
 use iroha_sumeragi::{
@@ -11,7 +11,8 @@ use iroha_sumeragi::{
 
 use super::{
     artifact_read::{ArtifactRead, ArtifactReadError},
-    body_record::{BodyDecodeError, BodyRecordDecode},
+    bodies::BodyReadCustody,
+    body_record::{BodyDecodeError, BodyRecord, BodyRecordDecode},
 };
 
 /// A persistent source that can begin one independently selected body acquisition.
@@ -126,6 +127,7 @@ enum ReadState {
     Absent,
     Reading(ArtifactRead),
     Decoding(BodyRecordDecode),
+    Ready(BodyRecord),
     Consumed,
 }
 
@@ -134,23 +136,34 @@ pub(super) struct FileBodyRead {
     source: AvailabilitySource,
     budget: AllocationBudget,
     state: ReadState,
+    custody: BodyReadCustody,
 }
 
 impl FileBodyRead {
     pub(super) fn open(
+        custody: BodyReadCustody,
         source: AvailabilitySource,
-        path: &Path,
         max_bytes: usize,
         budget: AllocationBudget,
     ) -> Result<Self, BodyReadError> {
-        let state = match ArtifactRead::open(path, max_bytes).map_err(BodyReadError::Io)? {
+        custody.revalidate().map_err(BodyReadError::Io)?;
+        let state = match ArtifactRead::open_in_child(
+            &custody.directory,
+            &format!("{:020}", source.height()),
+            &hex::encode(source.block_hash().0),
+            max_bytes,
+        )
+        .map_err(BodyReadError::Io)?
+        {
             Some(read) => ReadState::Reading(read),
             None => ReadState::Absent,
         };
+        custody.revalidate().map_err(BodyReadError::Io)?;
         Ok(Self {
             source,
             budget,
             state,
+            custody,
         })
     }
 }
@@ -165,6 +178,8 @@ impl BodyReadJob for FileBodyRead {
             return Err(BodyReadError::ForeignBudget);
         }
         loop {
+            // A completed original record stays owned here across a late root/lock refusal.
+            self.custody.revalidate().map_err(BodyReadError::Io)?;
             match std::mem::replace(&mut self.state, ReadState::Consumed) {
                 ReadState::Absent => {
                     self.state = ReadState::Absent;
@@ -184,11 +199,7 @@ impl BodyReadJob for FileBodyRead {
                     }
                 },
                 ReadState::Decoding(decode) => match decode.complete(budget) {
-                    Ok(record) => {
-                        return Ok(BodyReadPoll::Ready(
-                            record.into_restoration(self.source.clone()),
-                        ));
-                    }
+                    Ok(record) => self.state = ReadState::Ready(record),
                     Err((decode, error)) => {
                         self.state = ReadState::Decoding(decode);
                         return match error {
@@ -203,6 +214,11 @@ impl BodyReadJob for FileBodyRead {
                         };
                     }
                 },
+                ReadState::Ready(record) => {
+                    return Ok(BodyReadPoll::Ready(
+                        record.into_restoration(self.source.clone()),
+                    ));
+                }
                 ReadState::Consumed => return Err(BodyReadError::Completed),
             }
         }

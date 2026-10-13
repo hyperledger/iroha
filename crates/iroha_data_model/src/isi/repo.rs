@@ -106,7 +106,7 @@ impl RepoIsi {
     }
     /// Return the settlement identifier used by exact consent permissions.
     pub fn settlement_id(&self) -> SettlementId {
-        SettlementId::new(self.agreement_id.name().clone())
+        SettlementId::new(self.initiator.clone(), self.agreement_id.name().clone())
     }
     /// Commit to every term authorized for the counterparty cash debit.
     #[must_use]
@@ -560,9 +560,10 @@ mod tests {
             instruction.maturity_intent_hash(),
             "cash and maturity permissions must not be interchangeable"
         );
+        assert_eq!(instruction.settlement_id().owner(), instruction.initiator());
         assert_eq!(
-            instruction.settlement_id().to_string(),
-            instruction.agreement_id().to_string()
+            instruction.settlement_id().reference(),
+            instruction.agreement_id().name()
         );
     }
     #[test]

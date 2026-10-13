@@ -55,6 +55,13 @@ impl<B: OriginalPublicationBlock> BlockField<B> {
 
     /// Transfer the original journal and notices to the aggregate's exact retry
     /// cursor. This does not create a second publisher or refresh its predecessor.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry; return the same frozen journal without cloning or replacing original custody"
+        )
+    )]
     pub(crate) fn into_frozen(mut self) -> (B::Frozen, CaptureCleanup) {
         assert!(!self.released, "field was terminally released");
         assert!(
@@ -188,6 +195,27 @@ impl<'a, K: Key, V: Value> StorageField<'a, K, V> {
             Ok(mv::storage::BlockPublicationSlot::from_frozen(
                 original, target,
             ))
+        })
+    }
+}
+
+impl<'a, K, V, P> StorageField<'a, K, V, concread::bptree::Prepaid<P>>
+where
+    K: Key,
+    V: Value,
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    /// Install the same prepaid pair under the aggregate's original refund scope.
+    /// A foreign pool leaves the exact frozen journal available for its real owner.
+    pub(crate) fn install_frozen_publication_owned(
+        &mut self,
+        target: &'a mv::storage::Storage<K, V, concread::bptree::Prepaid<P>>,
+        scope: &iroha_allocation::OwnedAllocationScope,
+    ) -> Result<(), mv::storage::AdmittedStorageError> {
+        self.begin_frozen_publication(|original| {
+            mv::storage::BlockPublicationSlot::try_from_frozen_owned(original, target, scope)
         })
     }
 }

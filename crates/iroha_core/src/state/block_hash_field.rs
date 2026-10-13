@@ -71,6 +71,13 @@ impl<'a> BlockHashField<'a> {
             retry_writers: target.released.deferred_batch(),
         }
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry; recover the original executing hash journal without replacing its allocation or release custody"
+        )
+    )]
     pub(crate) fn into_executing(mut self) -> BlockHashesBlock<'a> {
         self.executing();
         match self.phase.take() {

@@ -276,6 +276,8 @@ mod model {
         GameSession(iroha_crypto::Hash),
         /// Native execution proof verification `{0}` not found
         ExecutionProofVerification(iroha_crypto::Hash),
+        /// Native settlement receipt `{0}` not found
+        SettlementReceipt(crate::isi::SettlementId),
     }
 }
 
@@ -459,6 +461,27 @@ mod tests {
                 norito::json::from_str(&json).expect("decode canonical-history query failure JSON");
             assert_eq!(decoded, failure);
         }
+    }
+
+    #[test]
+    fn settlement_receipt_absence_preserves_exact_owner_and_reference() {
+        let account = crate::account::AccountId::new(
+            iroha_crypto::KeyPair::from_seed(vec![0x72; 32], iroha_crypto::Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let id = crate::isi::SettlementId::new(account, "missing-receipt".parse().unwrap());
+        let failure = QueryExecutionFail::Find(FindError::SettlementReceipt(id));
+        let frame = norito::encode_canonical(&failure).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<QueryExecutionFail>(&frame).unwrap(),
+            failure
+        );
+        let json = norito::json::to_json(&failure).unwrap();
+        assert_eq!(
+            norito::json::from_str::<QueryExecutionFail>(&json).unwrap(),
+            failure
+        );
     }
 }
 

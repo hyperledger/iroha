@@ -24,6 +24,10 @@ use iroha_data_model::{
 
 /// Acquire State first and bind the original recorder before component effects.
 /// These synthetic output callbacks do not acquire production Network authority.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
 pub(super) fn recorded_component_block(
     state: &State,
     header: BlockHeader,
@@ -55,10 +59,14 @@ fn fixture(
         policy.max_time_invocations = maximum;
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-        parameters.get_mut().set_parameter(Parameter::Block(
-            BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::new(maximum).unwrap()),
-        ));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
+        parameters
+            .get_mut()
+            .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                NonZeroU32::new(maximum).unwrap(),
+            )))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     {
@@ -81,7 +89,12 @@ fn fixture(
         ALICE_ID.clone(),
         FeePaymentIntent::authority(vec![], None),
     );
-    builder.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+    builder.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(std::time::Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
+    );
     let signed = builder
         .with_instructions(network)
         .sign(ALICE_KEYPAIR.private_key());
@@ -910,10 +923,14 @@ mod retry_and_periodic {
             policy.validate().unwrap();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-            parameters.get_mut().set_parameter(Parameter::Block(
-                BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::new(3).unwrap()),
-            ));
+                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+                .expect("valid fixture parameters");
+            parameters
+                .get_mut()
+                .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                    NonZeroU32::new(3).unwrap(),
+                )))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         {
@@ -951,7 +968,12 @@ mod retry_and_periodic {
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let signed = transaction
             .with_instructions(plain_network())
             .sign(ALICE_KEYPAIR.private_key());
@@ -1202,9 +1224,8 @@ fn scheduled_vm_refusal_does_not_advance_retry_policy_or_emit_a_failure() {
             execute_network(producer)?;
             producer.execute_scheduled_time_outputs()
         });
-        assert_eq!(
-            outcome,
-            Err(ExecutionOutputAttemptError::Deferred(reason.into()))
+        assert!(
+            matches!(&(outcome), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == reason && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
         );
         assert!(block.retained_execution_outputs_for_test().is_err());
         let action = block.world.triggers.time_triggers().get(&id).unwrap();

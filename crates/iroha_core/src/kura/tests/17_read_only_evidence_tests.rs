@@ -9,6 +9,28 @@ mod canonical_evidence_reader_tests {
         root: PathBuf,
         blocks: Vec<iroha_data_model::block::SharedSignedBlock>,
     }
+    #[test]
+    fn index_and_hash_reject_unaddressable_heights_without_overflow() {
+        let fixture = Fixture::new();
+        let reader = fixture.open();
+        for height in [
+            0,
+            u64::MAX,
+            u64::MAX / BlockIndex::SIZE + 1,
+            u64::MAX / SIZE_OF_BLOCK_HASH + 1,
+        ] {
+            assert!(reader.index(height).is_err());
+            assert!(reader.hash(height).is_err());
+        }
+        let first = reader.index(1).unwrap();
+        assert_eq!(first.start, 0);
+        assert_eq!(
+            first.length,
+            u64::try_from(fixture.blocks[0].encode_wire().unwrap().len()).unwrap()
+        );
+        assert_eq!(reader.hash(1).unwrap(), fixture.blocks[0].hash());
+    }
+
     impl Fixture {
         fn new() -> Self {
             // Native originals execute once; individual tests retain only immutable block images.
@@ -677,7 +699,7 @@ mod canonical_evidence_reader_tests {
         use iroha_data_model::block::CommitCertificate;
         for variant in 0..5 {
             let mut fixture = Fixture::new();
-            let at = if variant == 1 { 0 } else { 1 };
+            let at = usize::from(variant != 1);
             let mut block = (*fixture.blocks[at]).clone();
             let original = block.commit_certificate().unwrap();
             let header = original.consensus_header().to_vec();
@@ -1014,7 +1036,8 @@ mod canonical_evidence_reader_tests {
         let mut index = Vec::new();
         for block in &fixture.blocks {
             let wire = block.canonical_wire().expect("real canonical frame");
-            let bare = iroha_version::codec::EncodeVersioned::encode_versioned(block.as_ref());
+            let mut bare = vec![wire.version()];
+            bare.extend_from_slice(wire.payload());
             assert_ne!(wire.as_framed(), bare.as_slice());
             assert!(iroha_data_model::block::decode_framed_signed_block(wire.as_framed()).is_ok());
             assert!(iroha_data_model::block::decode_framed_signed_block(&bare).is_err());

@@ -59,6 +59,10 @@ impl Guard {
             }))
         }))
     }
+    #[expect(
+        clippy::unused_self,
+        reason = "the borrowed guard keeps the thread-local refusal probe installed throughout assertions"
+    )]
     fn assert_retry(&self) {
         PROBE.with(|slot| {
             let probe = slot.borrow();

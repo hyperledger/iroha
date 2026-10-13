@@ -62,7 +62,9 @@
 //!   `transcript_repr`, degenerate-challenge rejection and static opening
 //!   groups.
 //!
-//! In oracle mode the prover reproduces vendored halo2-axiom proof bytes
+//! The unit-only `captured_goldens` suite freshly proves native circuits and
+//! compares descriptors, keys and proof bytes with the corpus captured before
+//! the vendored halo2-axiom prover and external oracle crate were deleted
 //! (Committed and Direct instances, both curves, with and without selector
 //! compression).
 //!
@@ -101,6 +103,12 @@
 //!
 //! # Independent reference tests
 //!
+//! Captured golden proofs remain checked by `captured_goldens`; quotient
+//! evaluation is compared with the serial `row_wise_reference` in
+//! `prover/quotient/streamed_tests.rs`. The separate standard-library Python
+//! verifier under `fixtures/native_prover/reference_verifier` checks its
+//! documented frozen proof corpus without importing a second Rust prover.
+//!
 //! Historical transcript framing and caller-seeded randomness exist only in
 //! this crate's unit tests. Shipping builds expose only the production proof
 //! and verifier API; there is no external configuration that enables a second
@@ -127,6 +135,7 @@ pub mod prover;
 #[cfg(test)]
 mod test_circuits;
 pub mod transcript;
+pub mod verification_attempt;
 pub mod verifier;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
@@ -165,3 +174,8 @@ mod cancellation_integration_tests;
 
 #[cfg(test)]
 mod captured_goldens;
+
+/// Canonical local verification attempt owners, shared by native consumers and the VM.
+pub use verification_attempt::{
+    NativeVerifierInitError, VerificationAttemptError, VerificationRefusal, VerificationRefusalKind,
+};

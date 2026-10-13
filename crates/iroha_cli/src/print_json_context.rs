@@ -19,6 +19,12 @@ impl<W: std::io::Write, E: std::io::Write> RunContext for PrintJsonContext<W, E>
     fn config(&self) -> &Config {
         &self.config
     }
+    fn sccp_config(&self) -> Result<iroha_sccp_wallet::config::SccpClientConfig> {
+        self.filesystem_config
+            .sccp
+            .clone()
+            .ok_or_else(|| eyre!("this context has no original SCCP client configuration"))
+    }
     fn has_client_config(&self) -> bool {
         !self.offline_fallback
     }

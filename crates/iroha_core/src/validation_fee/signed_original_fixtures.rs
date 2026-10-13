@@ -83,13 +83,14 @@ pub(super) fn signed_fee_registry_root_fixture_with_config(
     Vec<u8>,
     Hash,
 ) {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use crate::sumeragi::test_chain::CertifiedTestChain;
     use iroha_data_model::{
         isi::smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
         smart_contract::ContractArtifactId,
     };
     use iroha_model_base::topology::DataSpaceId;
+
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());
     let (code, manifest) = minimal_bound_contract_artifact();
@@ -286,4 +287,48 @@ pub(crate) fn with_original_validation_fee_payout_state_at_height(
     let mut block = state.block(header);
     let mut transaction = block.transaction();
     test(&mut transaction, &deployer, &code, code_hash);
+}
+
+/// Sign bounded fixture work with limits quoted from its original committed State.
+/// Global and private fixtures both pay their configured first-release Nexus schedule.
+pub(crate) fn sign_paid_fixture(
+    chain: &crate::sumeragi::test_chain::CertifiedTestChain,
+    key: &KeyPair,
+    instructions: impl IntoIterator<Item = iroha_data_model::isi::InstructionBox>,
+    created_ms: u64,
+) -> iroha_data_model::transaction::SignedTransaction {
+    use iroha_data_model::{
+        block::consensus::SumeragiRootScope,
+        transaction::{FeePaymentIntent, TransactionBuilder},
+    };
+    let mut builder = TransactionBuilder::new(
+        chain.network_id(),
+        AccountId::new(key.public_key().clone()),
+        FeePaymentIntent::authority(Vec::new(), None),
+    );
+    builder.set_creation_time(std::time::Duration::from_millis(created_ms));
+    let builder = builder.with_instructions(instructions);
+    let draft = builder.clone().sign(key.private_key());
+    let view = chain.state().view();
+    let route = match chain.root_scope() {
+        SumeragiRootScope::Global => DataSpaceId::UNIVERSAL,
+        SumeragiRootScope::Dataspace { dataspace_id, .. } => dataspace_id,
+    };
+    let quote = crate::executor::quote_nexus_fee_admission_draft(
+        view.world(),
+        view.nexus(),
+        view.pipeline(),
+        &view.zk().gas,
+        draft.payload(),
+        created_ms,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture clock"),
+        chain.height() + 1,
+        Some(route),
+    )
+    .expect("fixture work must afford its actual signed fee intent");
+    drop(view);
+    builder
+        .with_fee_payment_intent(quote.recommended_intent)
+        .sign(key.private_key())
 }

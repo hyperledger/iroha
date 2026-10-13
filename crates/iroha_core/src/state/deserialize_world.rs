@@ -377,10 +377,15 @@ impl SoracloudInrouPersistedStateV1<'_> {
                         "app state is missing its exact updated_sequence audit event",
                     )
                 })?;
-            if updated_event.app_name != state.app_name
-                || updated_event.to_version != state.current_app_version
-                || updated_event.app_manifest_hash != state.current_manifest_hash
-            {
+            if (
+                &updated_event.app_name,
+                &updated_event.to_version,
+                &updated_event.app_manifest_hash,
+            ) != (
+                &state.app_name,
+                &state.current_app_version,
+                &state.current_manifest_hash,
+            ) {
                 return Err(invalid_soracloud_state(
                     "soracloud_app_infra_audit_events",
                     "app state's current revision does not match its updated_sequence audit event",
@@ -424,9 +429,7 @@ impl SoracloudInrouPersistedStateV1<'_> {
                 || first_event.1.action != iroha_data_model::soracloud::SoraAppInfraActionV1::Deploy
                 || first_event.1.from_version.is_some()
                 || last_event.0 != state.updated_sequence
-                || u32::try_from(state.manifest.services.len()).map_or(true, |service_count| {
-                    last_event.1.service_count != service_count
-                })
+                || (u32::try_from(state.manifest.services.len()) != Ok(last_event.1.service_count))
             {
                 return Err(invalid_soracloud_state(
                     "soracloud_app_infra_audit_events",
@@ -875,10 +878,15 @@ impl SoracloudInrouPersistedStateV1<'_> {
                         ),
                     )
                 })?;
-            if audit_event.action != entry.source_action
-                || audit_event.service_name != entry.service_name
-                || audit_event.to_version != entry.service_version
-                || audit_event.service_manifest_hash != bundle.service_manifest_hash()
+            if (
+                &audit_event.action,
+                &audit_event.service_name,
+                &audit_event.to_version,
+            ) != (
+                &entry.source_action,
+                &entry.service_name,
+                &entry.service_version,
+            ) || audit_event.service_manifest_hash != bundle.service_manifest_hash()
                 || audit_event.container_manifest_hash != bundle.container_manifest_hash()
                 || audit_event.governance_tx_hash != Some(entry.governance_tx_hash)
                 || audit_event.binding_name.as_ref() != Some(&entry.binding_name)
@@ -1513,7 +1521,8 @@ impl SoracloudInrouPersistedStateV1<'_> {
             });
             match source.kind {
                 iroha_data_model::soracloud::SoraModelProvenanceKindV1::TrainingJob => {
-                    if source.id != artifact.training_job_id
+                    let source_matches = source.id == artifact.training_job_id;
+                    if !source_matches
                         || artifact.training_job_id != artifact.artifact_id
                         || artifact.chunk_manifest_root.is_some()
                         || registered_event.consumed_by_version.is_some()
@@ -1642,11 +1651,19 @@ impl SoracloudInrouPersistedStateV1<'_> {
                     event.service_version.clone(),
                 ))
                 .is_none()
-                || event.sequence != artifact.registered_sequence
-                || event.service_version != artifact.service_version
-                || event.model_name != artifact.model_name
-                || event.training_job_id != artifact.artifact_id
-                || event.consumed_by_version != artifact.consumed_by_version
+                || (
+                    event.sequence,
+                    &event.service_version,
+                    &event.model_name,
+                    &event.training_job_id,
+                    &event.consumed_by_version,
+                ) != (
+                    artifact.registered_sequence,
+                    &artifact.service_version,
+                    &artifact.model_name,
+                    &artifact.artifact_id,
+                    &artifact.consumed_by_version,
+                )
             {
                 return Err(invalid_soracloud_state(
                     "soracloud_model_artifact_audit_events",
@@ -2603,7 +2620,7 @@ fn validate_soracloud_service_deployment_history(
                         ));
                     }
                     active_version = Some(event.to_version.clone());
-                    folded_rollout = event.rollout_state.clone();
+                    folded_rollout.clone_from(&event.rollout_state);
                     if event.action == ServiceAction::Upgrade {
                         let rollout = folded_rollout.as_ref().expect(
                             "Upgrade action field validation requires an exact rollout state",
@@ -2718,7 +2735,9 @@ fn validate_soracloud_service_deployment_history(
                             )
                         })?;
                     let mut prior_deployment = deployment.clone();
-                    prior_deployment.service_lease = folded_service_lease.clone();
+                    prior_deployment
+                        .service_lease
+                        .clone_from(&folded_service_lease);
                     let existing =
                         (event.action == ServiceAction::Upgrade).then_some(&prior_deployment);
                     let expected = crate::smartcontracts::isi::soracloud::build_http_service_lease_state(
@@ -2759,7 +2778,9 @@ fn validate_soracloud_service_deployment_history(
                             )
                         })?;
                     let mut prior_deployment = deployment.clone();
-                    prior_deployment.service_lease = folded_service_lease.clone();
+                    prior_deployment
+                        .service_lease
+                        .clone_from(&folded_service_lease);
                     let expected = crate::smartcontracts::isi::soracloud::build_http_service_lease_state(
                         event_bundle,
                         Some(&prior_deployment),
@@ -3747,8 +3768,9 @@ fn validate_soracloud_agent_apartment_history(
                                 "artifact-allowed audit hash is absent from the retained allowlist",
                             )
                         })?;
+                let same_sequence = current_rule.added_sequence == event.sequence;
                 if current_rule.added_sequence < event.sequence
-                    || (current_rule.added_sequence == event.sequence
+                    || (same_sequence
                         && current_rule.provenance_hash.as_deref()
                             != event.provenance_hash.as_deref())
                 {
@@ -4144,15 +4166,12 @@ fn replay_soracloud_service_lease_usage(
                         .to_owned(),
                 );
             }
-            if usage.replica_accounted_egress_bytes == checkpoint.accounted_egress_bytes
-                && usage.finalize_reporter == checkpoint.finalize_reporter
-            {
+            let unchanged_bytes =
+                usage.replica_accounted_egress_bytes == checkpoint.accounted_egress_bytes;
+            if unchanged_bytes && usage.finalize_reporter == checkpoint.finalize_reporter {
                 return Err("an exact reporter no-op must not consume an audit sequence".to_owned());
             }
-            if checkpoint.finalize_reporter
-                && !usage.finalize_reporter
-                && usage.replica_accounted_egress_bytes != checkpoint.accounted_egress_bytes
-            {
+            if checkpoint.finalize_reporter && !usage.finalize_reporter && !unchanged_bytes {
                 return Err(
                     "a finalized reporter checkpoint must reopen at its exact terminal byte value before increasing"
                         .to_owned(),
@@ -4167,8 +4186,7 @@ fn replay_soracloud_service_lease_usage(
             let delta = usage.replica_accounted_egress_bytes - checkpoint.accounted_egress_bytes;
             let elapsed_blocks = block_height.saturating_sub(checkpoint.last_updated_height);
             let maximum_delta = elapsed_blocks
-                .checked_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1);
             if delta > maximum_delta {
                 return Err("lease usage exceeds the elapsed-block egress bound".to_owned());
             }
@@ -4234,8 +4252,10 @@ fn replay_soracloud_service_lease_usage(
             .settled_egress_bytes
             .checked_add(settled_delta)
             .ok_or_else(|| "cumulative lease settlement overflows u128".to_owned())?;
-        if rollover.lease_started_height != prior.lease_started_height
-            || rollover.previous_reporting_epoch != prior.reporting_epoch
+        if (
+            rollover.lease_started_height,
+            rollover.previous_reporting_epoch,
+        ) != (prior.lease_started_height, prior.reporting_epoch)
             || rollover.new_reporting_epoch != successor
             || rollover.reporter_account_id != usage.assignment.placement.validator_account_id
             || rollover.active_service_version != usage.assignment.service_version
@@ -5709,22 +5729,6 @@ fn validate_global_beacon_persistence(world: &World) -> Result<(), json::Error> 
             ));
         }
     }
-    let unavailable_beacon_pulse_slots = world
-        .parliament_attempts
-        .view()
-        .iter()
-        .flat_map(|(_, attempt)| attempt.unavailable_beacon_pulse_slots_v1())
-        .collect::<BTreeSet<_>>();
-    for (_, pulse) in pulses.iter() {
-        let logical_session =
-            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&pulse.network_id);
-        if unavailable_beacon_pulse_slots.contains(&(logical_session, pulse.height)) {
-            return Err(invalid_global_beacon_persistence(
-                "finalized pulse conflicts with a Parliament slot terminally classified as unavailable",
-            ));
-        }
-    }
-
     let latest = latest_pulses
         .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
         .copied();
@@ -5766,7 +5770,7 @@ mod global_beacon_persistence_tests {
     use iroha_model_base::peer::PeerId;
 
     #[test]
-    fn restore_rejects_pulse_after_sortition_slot_was_terminally_unavailable() {
+    fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let network_id = iroha_data_model::NetworkId::from_genesis_hash(
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC1; 32])),
@@ -5780,7 +5784,7 @@ mod global_beacon_persistence_tests {
                     .expect("derive deterministic Parliament candidate")
             })
             .collect::<Vec<_>>();
-        let (governance_attempt_id, _, mut attempt) =
+        let (governance_attempt_id, _, attempt) =
             crate::beacon::tests::pending_batched_sortition_attempt(
                 &network_id,
                 &roster,
@@ -5791,14 +5795,17 @@ mod global_beacon_persistence_tests {
             ParliamentBody::RulesCommittee,
             0,
         );
-        attempt
-            .fail_body_election_no_roster(
-                governance_attempt_id,
-                election_attempt_id,
-                false,
-                pulse.height + 1,
-            )
-            .expect("terminally classify the missing sortition slot");
+        // The election still awaits exactly this slot; the pulse was committed but not
+        // consumed yet. Parliament state never contradicts a consensus pulse.
+        assert_eq!(
+            attempt
+                .election(&election_attempt_id)
+                .expect("pending election")
+                .attempt()
+                .request
+                .pulse_height,
+            pulse.height
+        );
 
         let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
             .expect("canonical persisted pulse link");
@@ -5826,11 +5833,257 @@ mod global_beacon_persistence_tests {
             .parliament_attempts
             .insert(governance_attempt_id, attempt);
 
-        let error = validate_global_beacon_persistence(&world)
-            .expect_err("restart must reject a pulse contradicting terminal Parliament state");
-        assert!(
-            error.to_string().contains("terminally classified"),
-            "unexpected restore rejection: {error}"
+        validate_global_beacon_persistence(&world)
+            .expect("no Parliament state vetoes a finalized pulse at restart");
+        let restored = world.parliament_attempts.view();
+        let election = restored
+            .get(&governance_attempt_id)
+            .expect("restored attempt")
+            .election(&election_attempt_id)
+            .expect("restored election")
+            .attempt();
+        assert_eq!(
+            election.status,
+            iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+        );
+        assert_eq!(election.request.pulse_height, pulse.height);
+    }
+
+    #[test]
+    fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(59),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x31; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x41; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(61), account(62), account(63)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        let pulse_height = pulse_slot.1;
+        assert!(!election_attempt_ids.is_empty());
+        // No pulse was ever committed for the slot and the chain is far past it.
+        attempt
+            .validate_restored_height_v1(pulse_height + 1_000_000)
+            .expect("a wait on an old slot is ordinary restorable state");
+
+        let mut world = World::new();
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(59),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &iroha_allocation::AllocationBudget::new(
+                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            ),
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World carrying a pulse wait without a pulse restores");
+
+        let view = restored.parliament_attempts.view();
+        let restored_attempt = view.get(&governance_attempt_id).expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        for election_attempt_id in &election_attempt_ids {
+            let election = restored_attempt
+                .election(election_attempt_id)
+                .expect("restored election")
+                .attempt();
+            assert_eq!(
+                election.status,
+                iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+            );
+            assert_eq!(election.request.pulse_height, pulse_height);
+        }
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))]
+        );
+    }
+
+    /// The chain is far past an unserved sortition slot and has since committed a consensus
+    /// pulse at a later height. The World snapshot restores, the later pulse is not attached
+    /// to the election, and the request is still pending on exactly its original slot.
+    #[test]
+    fn world_snapshot_roundtrip_past_an_unserved_slot_keeps_the_request_on_that_slot() {
+        const LATER_PULSE: u64 = 41;
+        let budget = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC4; 32])),
+        );
+        let (key_record, pulse) = crate::beacon::signed_persisted_pulse_fixture_for_world(
+            network_id,
+            LATER_PULSE,
+            &budget,
+        );
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        // Restore binds an attempt to its exact governance proposal, so the pending request is
+        // the proposal-bound fixture.
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(69),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x32; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x42; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(71), account(72), account(73)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        assert!(!election_attempt_ids.is_empty());
+        assert!(pulse_slot.1 + 12 < LATER_PULSE);
+        let pending = |attempt: &crate::governance::parliament::ParliamentAttemptStateV1| {
+            for election_attempt_id in &election_attempt_ids {
+                let election = attempt
+                    .election(election_attempt_id)
+                    .expect("pending election")
+                    .attempt();
+                assert_eq!(
+                    election.status,
+                    iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+                );
+                assert_eq!(
+                    (
+                        election.request.beacon_session_id,
+                        election.request.pulse_height
+                    ),
+                    pulse_slot
+                );
+            }
+        };
+        pending(&attempt);
+        // Every restored height past the slot accepts the wait.
+        for restored_height in [
+            pulse_slot.1,
+            pulse_slot.1 + 12,
+            LATER_PULSE,
+            LATER_PULSE + 1_000_000,
+        ] {
+            attempt
+                .validate_restored_height_v1(restored_height)
+                .expect("a wait on an unserved old slot is ordinary restorable state");
+        }
+
+        let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
+            .expect("canonical persisted pulse link");
+        let later_slot = (
+            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
+            pulse.height,
+        );
+        let mut world = World::new();
+        world
+            .global_beacon_key_sessions
+            .insert(pulse.session_id, key_record);
+        world
+            .global_beacon_active_session
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, pulse.session_id);
+        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
+        world
+            .global_beacon_pulse_slots
+            .insert(later_slot, pulse.pulse_id);
+        world
+            .global_beacon_latest_pulse
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(69),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        validate_global_beacon_persistence(&world)
+            .expect("a later pulse and an older unserved wait are consistent");
+
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &budget,
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World past an unserved sortition slot restores");
+
+        let attempts = restored.parliament_attempts.view();
+        let restored_attempt = attempts
+            .get(&governance_attempt_id)
+            .expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        pending(restored_attempt);
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))],
+            "the rebuilt index names the original slot and not the later pulse height"
+        );
+        assert_eq!(
+            restored
+                .global_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, id)| (*slot, *id))
+                .collect::<Vec<_>>(),
+            vec![(later_slot, pulse.pulse_id)]
         );
     }
 }
@@ -6957,8 +7210,8 @@ mod validation_fee_registry_restore_tests {
         };
         let policy = ValidationFeePolicyV1 {
             retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-            effective_from_ms: 1793451600000,
-            notice_published_at_ms: 1790859600000,
+            effective_from_ms: 1_793_451_600_000,
+            notice_published_at_ms: 1_790_859_600_000,
             schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
             network_id: policy_network_id,
             policy_version: 1,
@@ -7161,10 +7414,12 @@ mod validation_fee_registry_restore_tests {
             let mut parameters = world.parameters.block();
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         (world, registry)
@@ -7533,9 +7788,9 @@ fn validate_da_pin_persistence_cut(
         }
     }
     for (manifest, ticket) in by_manifest.iter() {
-        if !by_ticket
+        if by_ticket
             .get(ticket)
-            .is_some_and(|record| record.intent.manifest_hash == *manifest)
+            .is_none_or(|record| record.intent.manifest_hash != *manifest)
         {
             return Err(invalid(
                 "da_pin_intents_by_manifest",
@@ -7558,9 +7813,9 @@ fn validate_da_pin_persistence_cut(
         }
     }
     for (alias, ticket) in by_alias.iter() {
-        if !by_ticket
+        if by_ticket
             .get(ticket)
-            .is_some_and(|record| record.intent.alias.as_deref() == Some(alias.as_str()))
+            .is_none_or(|record| record.intent.alias.as_deref() != Some(alias.as_str()))
         {
             return Err(invalid(
                 "da_pin_intents_by_alias",
@@ -8910,7 +9165,6 @@ fn decode_world_fields(
         parliament_timed_ovn_casting_candidates: Storage::default(),
         parliament_required_beacon_pulse_slots: Storage::default(),
         parliament_certified_enactments: Storage::default(),
-        parliament_unavailable_beacon_pulse_slots: Storage::default(),
         parliament_tle_key_session_retention_deadlines: Storage::default(),
         tle_key_session_selection_intervals: Storage::default(),
         tle_key_sessions,
@@ -8931,32 +9185,52 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
-        sccp_bridge_keys: Storage::default(),
-        sccp_bridge_key_owners: Storage::default(),
-        sccp_rosters: Storage::default(),
-        sccp_roster_current: Cell::default(),
-        sccp_heartbeat_marker: Cell::default(),
+        sccp_forgery_offences: sccp_forgery_custody::OffenceStorage::try_new_admitted(
+            execution_budget.clone(),
+        )?,
+        sccp_forgery_max_generation: sccp_forgery_custody::initialize_max(
+            None,
+            sccp_forgery_custody::MaxGenerationPredecessor::Unchanged,
+            execution_budget,
+        )?,
+        sccp_committee_generations: initial_world_field!(
+            sccp_committee_generations,
+            execution_budget
+        ),
+        sccp_destination_pending_generations: Storage::default(),
+        sccp_committee_current: initial_world_field!(sccp_committee_current, execution_budget),
+        sccp_liability_clock: initial_world_field!(sccp_liability_clock, execution_budget),
+        sccp_degraded_run: initial_world_field!(sccp_degraded_run, execution_budget),
+        sccp_anchor_open: initial_world_field!(sccp_anchor_open, execution_budget),
+        sccp_anchor_chunks: initial_world_field!(sccp_anchor_chunks, execution_budget),
         sccp_block_leaves: Storage::default(),
         sccp_block_commitments: Storage::default(),
         sccp_history: Cell::default(),
         sccp_history_leaves: Storage::default(),
-        sccp_attestation_subjects: Storage::default(),
-        sccp_attestation_status: Storage::default(),
-        sccp_attestation_signatures: Storage::default(),
-        sccp_attestation_faults: Storage::default(),
-        sccp_member_last_signed: Storage::default(),
-        sccp_handoff_stalled: Storage::default(),
-        sccp_prune_cursor: Cell::default(),
         sccp_outbound_messages: Storage::default(),
         sccp_outbound_by_nonce: Storage::default(),
         sccp_control_messages: Storage::default(),
+        sccp_fast_pauses: Storage::default(),
+        sccp_fast_pause_suspended_until_ms: Storage::default(),
+        sccp_fast_pause_rounds: Storage::default(),
+        sccp_pause_panel: Cell::default(),
         sccp_routes: Storage::default(),
         sccp_destination_words: Storage::default(),
         sccp_governance_revisions: Storage::default(),
         sccp_inbound_messages: Storage::default(),
         sccp_pending_counts: Storage::default(),
+        sccp_reconciliations: initial_world_field!(sccp_reconciliations, execution_budget),
+        sccp_reconciliation_proven: initial_world_field!(
+            sccp_reconciliation_proven,
+            execution_budget
+        ),
+        sccp_pending_refund_amount: initial_world_field!(
+            sccp_pending_refund_amount,
+            execution_budget
+        ),
+        sccp_reconciliation_due: initial_world_field!(sccp_reconciliation_due, execution_budget),
         sccp_light_clients: Storage::default(),
-        sccp_light_client_sets: Storage::default(),
+        sccp_light_client_sets: initial_world_field!(sccp_light_client_sets, execution_budget),
         sccp_light_client_checkpoints: Storage::default(),
         sccp_light_client_stride_index: Storage::default(),
         sccp_light_client_profiles: Storage::default(),
@@ -9792,11 +10066,8 @@ fn build_state(
         *state.lane_manifests.get_mut() = projection.manifests;
         *state.lane_privacy_registry.get_mut() = projection.privacy;
     }
-    crate::sumeragi::evidence::validate_persisted_records(&state).map_err(|error| {
-        MergeLedgerCommitError::ExecutionStatePublication(format!(
-            "restored native evidence is invalid: {error}"
-        ))
-    })?;
+    crate::sumeragi::evidence::validate_persisted_records(&state)
+        .map_err(crate::sumeragi::evidence::restoration_failure)?;
     crate::validation_fee::validate_persisted_policy_registry_runtime_v1(
         &state.view(),
         restored_height,
@@ -11315,7 +11586,7 @@ mod decode_tests {
         let mut map = SnapshotJsonMap::from_owned(map);
         let parsed = take_parameters_cell(&mut map, "parameters")
             .expect("canonical parameters MV envelope must be accepted");
-        assert_eq!(parsed.view().get(), &expected);
+        assert_eq!(&**parsed.view().get(), &expected);
     }
     #[test]
     fn borrowed_snapshot_map_rejects_duplicates_and_noncanonical_order() {
@@ -12434,7 +12705,7 @@ mod decode_tests {
             validate_musubi_resolver_checkpoint_structure(&mismatched, 2).is_err(),
             "checkpoint keys must match embedded revisions"
         );
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_resolver_index_checkpoints = decoded;
         let canonical_hash =
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xA1; Hash::LENGTH]));
@@ -12460,7 +12731,7 @@ mod decode_tests {
             expected_revision: genesis.revision,
         });
         let decision_id = ProposalKind::MusubiRegistryGovernance(action.clone()).fingerprint();
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_registry_policy = Cell::new(successor.clone());
         retain_musubi_consumption(&mut world, action.clone(), 110, 120, 120);
         validate_musubi_governance_provenance(&world)
@@ -12483,7 +12754,7 @@ mod decode_tests {
         } else {
             [0xA5; 32]
         };
-        let mut mismatched = World::default();
+        let mut mismatched = World::new();
         mismatched.musubi_registry_policy = Cell::new(successor);
         retain_musubi_consumption_as(&mut mismatched, wrong_id, action, 110, 120, 120);
         let error = validate_musubi_governance_provenance(&mismatched)
@@ -12619,7 +12890,7 @@ mod decode_tests {
                 policy: third.clone(),
                 expected_revision: second.revision,
             });
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_registry_policy = Cell::new(third);
         retain_musubi_consumption(&mut world, first_action, 110, 120, 121);
         retain_musubi_consumption(&mut world, second_action, 111, 121, 121);

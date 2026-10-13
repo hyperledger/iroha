@@ -11,6 +11,18 @@ const APP_ROUTED_READ_MAX_URL_PARAMETERS_V1: usize = 2;
 const APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1: usize = 4;
 const APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1: usize = 64;
 fn app_routed_read_url_parameter_fixed_bytes() -> Option<usize> {
+    routed_read_url_parameter_fixed_bytes(
+        APP_ROUTED_READ_MAX_URL_PARAMETERS_V1,
+        APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1,
+    )
+}
+// Keep the original application catalog allowance; SCCP supplies its actual
+// three-key control route geometry without increasing the working-set limit.
+fn routed_read_url_parameter_fixed_bytes(parameters: usize, key_bytes: usize) -> Option<usize> {
+    if parameters > APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1 {
+        return None;
+    }
+
     let arc_handle_bytes = core::mem::size_of::<std::sync::Arc<str>>();
     let arc_control_and_padding = core::mem::size_of::<usize>()
         .checked_mul(2)?
@@ -18,18 +30,20 @@ fn app_routed_read_url_parameter_fixed_bytes() -> Option<usize> {
     APP_ROUTED_READ_URL_PARAMETER_VEC_CAPACITY_V1
         .checked_mul(arc_handle_bytes.checked_mul(2)?)?
         .checked_add(
-            APP_ROUTED_READ_MAX_URL_PARAMETERS_V1
+            parameters
                 .checked_mul(2)?
                 .checked_mul(arc_control_and_padding)?,
         )?
-        .checked_add(APP_ROUTED_READ_URL_PARAMETER_KEY_BYTES_V1)
+        .checked_add(key_bytes)
 }
 #[derive(Clone, Copy, Debug)]
+#[cfg(feature = "app_api")]
 struct ToriiRoutedReadDecodePlan {
     limits: norito::DecodeLimits,
     canonical_limit_bytes: usize,
 }
 #[derive(Debug)]
+#[cfg(feature = "app_api")]
 struct ToriiBoundedNoritoPayload<T> {
     value: T,
     canonical_bytes: Vec<u8>,
@@ -44,11 +58,18 @@ struct ToriiBoundedNoritoPayload<T> {
 struct ToriiRoutedReadMemoryBudget {
     envelope: QueryFanoutMemoryEnvelope,
     configured_body_limit_bytes: usize,
+    #[cfg(feature = "app_api")]
     retained_decoded_bytes: usize,
+    #[cfg(feature = "app_api")]
     retained_canonical_bytes: usize,
+    #[cfg(feature = "app_api")]
     merge_allocated_bytes: usize,
 }
 impl ToriiRoutedReadMemoryBudget {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn new(working_set_bytes: usize, configured_body_limit_bytes: usize) -> Result<Self, Response> {
         Ok(Self::from_envelope(
             QueryFanoutMemoryEnvelope::for_body_admission(working_set_bytes)?,
@@ -63,12 +84,20 @@ impl ToriiRoutedReadMemoryBudget {
         Self {
             envelope,
             configured_body_limit_bytes,
+            #[cfg(feature = "app_api")]
             retained_decoded_bytes: 0,
+            #[cfg(feature = "app_api")]
             retained_canonical_bytes: 0,
+            #[cfg(feature = "app_api")]
             merge_allocated_bytes: 0,
         }
     }
     /// Bound the complete routed request retained across transport retries.
+    #[cfg(feature = "app_api")]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_request_bytes(&self, bytes: usize) -> Result<(), Response> {
         torii_routed_read_ensure(
             "request representation",
@@ -85,6 +114,7 @@ impl ToriiRoutedReadMemoryBudget {
         Ok(())
     }
     /// Prove every App request representation fits beside each fanout phase.
+    #[cfg(feature = "app_api")]
     fn app_request_phases_fit(&self, bytes: usize) -> bool {
         self.app_request_high_water_bytes(bytes)
             .is_some_and(|total| total <= self.envelope.working_set_bytes)
@@ -161,10 +191,17 @@ impl ToriiRoutedReadMemoryBudget {
         self.configured_body_limit_bytes
             .min(self.envelope.route_body_bytes)
     }
+}
+#[cfg(feature = "app_api")]
+impl ToriiRoutedReadMemoryBudget {
     fn final_body_limit(&self) -> usize {
         self.configured_body_limit_bytes
             .min(self.envelope.final_body_bytes)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn canonical_remaining(&self) -> Result<usize, Response> {
         let remaining = self
             .envelope
@@ -180,6 +217,10 @@ impl ToriiRoutedReadMemoryBudget {
         }
         Ok(remaining)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn decode_plan(&self, raw_body_bytes: usize) -> Result<ToriiRoutedReadDecodePlan, Response> {
         torii_routed_read_ensure("raw route body", raw_body_bytes, self.route_body_limit())?;
         let phase_bytes = self.envelope.decode_allocated_bytes;
@@ -204,6 +245,10 @@ impl ToriiRoutedReadMemoryBudget {
             canonical_limit_bytes: self.canonical_remaining()?,
         })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn json_profile(
         &self,
         body: &[u8],
@@ -218,6 +263,10 @@ impl ToriiRoutedReadMemoryBudget {
         )
         .map_err(torii_routed_read_json_preflight_response)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn retain_decode_usage(
         &mut self,
         usage: norito::core::DecodeAllocationUsage,
@@ -230,6 +279,10 @@ impl ToriiRoutedReadMemoryBudget {
         )?;
         self.admit_retained_allocation(decoded_bytes)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_retained_allocation(&mut self, bytes: usize) -> Result<(), Response> {
         let retained = self
             .retained_decoded_bytes
@@ -244,6 +297,10 @@ impl ToriiRoutedReadMemoryBudget {
         Ok(())
     }
     /// Allocate a retained payload vector inside the accumulator phase.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn try_retained_vec<T>(&mut self, capacity: usize) -> Result<Vec<T>, Response> {
         let mut values = Vec::new();
         self.ensure_retained_vec_capacity(&mut values, capacity)?;
@@ -254,6 +311,10 @@ impl ToriiRoutedReadMemoryBudget {
     /// releases the old layout. The old allocation during that transfer fits in the second
     /// accumulator phase because it is no larger than the newly admitted allocation.
     #[allow(unsafe_code)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn ensure_retained_vec_capacity<T>(
         &mut self,
         values: &mut Vec<T>,
@@ -295,11 +356,19 @@ impl ToriiRoutedReadMemoryBudget {
         *values = replacement;
         Ok(())
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn push_retained<T>(&mut self, values: &mut Vec<T>, value: T) -> Result<(), Response> {
         self.ensure_retained_vec_capacity(values, 1)?;
         values.push(value);
         Ok(())
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn retain_canonical_bytes(&mut self, bytes: usize) -> Result<(), Response> {
         let retained = self
             .retained_canonical_bytes
@@ -314,6 +383,10 @@ impl ToriiRoutedReadMemoryBudget {
         Ok(())
     }
     /// Retain the allocator-visible capacity of a canonical byte vector.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn retain_canonical_capacity(&mut self, capacity: usize) -> Result<(), Response> {
         self.retain_canonical_bytes(capacity)
     }
@@ -326,6 +399,10 @@ impl ToriiRoutedReadMemoryBudget {
     fn begin_typed_merge(&mut self) {
         self.merge_allocated_bytes = 0;
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_merge_allocation(&mut self, bytes: usize) -> Result<(), Response> {
         let total = self
             .merge_allocated_bytes
@@ -340,6 +417,10 @@ impl ToriiRoutedReadMemoryBudget {
         Ok(())
     }
     /// Pre-admit standard-library B-tree nodes used by a merge index.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_merge_btree<K, V>(&mut self, maps: usize, entries: usize) -> Result<(), Response> {
         let bytes = norito::core::owned_btree_maps_allocation_bytes::<K, V>(maps, entries)
             .map_err(|_| torii_routed_read_accounting_response())?;
@@ -347,6 +428,10 @@ impl ToriiRoutedReadMemoryBudget {
     }
     /// Allocate a merge vector only after its complete Rust-layout request is
     /// admitted by the existing candidate-allocation phase.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn try_merge_vec<T>(&mut self, capacity: usize) -> Result<Vec<T>, Response> {
         let bytes = capacity
             .checked_mul(core::mem::size_of::<T>())
@@ -356,6 +441,10 @@ impl ToriiRoutedReadMemoryBudget {
     }
     /// Encode one transient canonical key inside the space left beside keys that the merge has
     /// actually retained. Callers commit its byte length only if they keep the returned allocation.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn canonical_json_candidate(&self, value: &Value) -> Result<Vec<u8>, Response> {
         let limit = self.canonical_remaining()?;
         norito::json::to_json_bounded_boxed(value, limit)
@@ -367,6 +456,11 @@ impl ToriiRoutedReadMemoryBudget {
     /// The borrowed `Value` remains the canonical row representation. Its temporary JSON bytes and
     /// typed value occupy the candidate-encoding and transient decode phases respectively, and both
     /// are dropped before this method returns.
+    #[cfg(test)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn inspect_typed_json_candidate<T, D, F>(
         &self,
         value: &Value,
@@ -411,6 +505,10 @@ impl ToriiRoutedReadMemoryBudget {
         )?;
         inspect(&typed)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn json_response<T: norito::json::JsonSerialize + ?Sized>(
         &self,
         value: &T,
@@ -425,6 +523,10 @@ impl ToriiRoutedReadMemoryBudget {
             .body(Body::from(Bytes::from(body)))
             .expect("build preflighted routed-read JSON response"))
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn json_body<T: norito::json::JsonSerialize + ?Sized>(
         &self,
         value: &T,
@@ -434,6 +536,10 @@ impl ToriiRoutedReadMemoryBudget {
             .map_err(|_| torii_routed_read_json_encode_response())
     }
     /// Verify that native `Value` parser charges cover every owned graph node.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn verify_json_value_usage(
         &self,
         profile: norito::json::JsonPreflightProfile,
@@ -461,6 +567,11 @@ impl ToriiRoutedReadMemoryBudget {
 /// excess after allocation is too late for a strict peak proof, so routed-read retained and merge
 /// vectors use the allocator directly after their complete byte request has been admitted.
 #[allow(unsafe_code)]
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_exact_vec<T>(
     capacity: usize,
     label: &'static str,
@@ -488,6 +599,11 @@ fn torii_routed_read_exact_vec<T>(
 /// boundary, so empty and differently sized objects cannot inflate one another's topology charge.
 /// The parser separately charges any
 /// allocator capacity returned above an exact-reserve request.
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_json_value_graph_bytes(
     profile: norito::json::JsonPreflightProfile,
 ) -> Result<usize, Response> {
@@ -502,6 +618,11 @@ fn torii_routed_read_json_value_graph_bytes(
         .and_then(|bytes| bytes.checked_add(object_bytes))
         .ok_or_else(torii_routed_read_accounting_response)
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_request_bytes(
     path_args: &[String],
     path_arg_capacity: usize,
@@ -522,6 +643,11 @@ fn torii_routed_read_request_bytes(
         .and_then(|bytes| bytes.checked_add(query_string.map_or(0, String::capacity)))
         .ok_or_else(torii_routed_read_accounting_response)
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_ensure(
     phase: &'static str,
     attempted: usize,
@@ -532,6 +658,7 @@ fn torii_routed_read_ensure(
     }
     Ok(())
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_capacity_response(
     phase: &'static str,
     attempted: usize,
@@ -545,6 +672,7 @@ fn torii_routed_read_capacity_response(
         ),
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_accounting_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -552,6 +680,7 @@ fn torii_routed_read_accounting_response() -> Response {
         "proxied application response memory accounting overflowed",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_allocation_response(phase: &'static str, bytes: usize) -> Response {
     torii_proxy_error_response(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -559,6 +688,7 @@ fn torii_routed_read_allocation_response(phase: &'static str, bytes: usize) -> R
         format!("failed to reserve the admitted {bytes}-byte {phase}"),
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_preflight_response(error: norito::json::JsonPreflightError) -> Response {
     if error.resource_kind().is_some() {
         return torii_routed_read_capacity_response(
@@ -574,6 +704,7 @@ fn torii_routed_read_json_preflight_response(error: norito::json::JsonPreflightE
     )
 }
 /// Consume a hostile parser error without reflecting payload-derived text.
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_decode_response(_: norito::json::Error) -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -582,6 +713,7 @@ fn torii_routed_read_json_decode_response(_: norito::json::Error) -> Response {
     )
 }
 /// Consume a hostile binary decoder error without reflecting payload bytes.
+#[cfg(feature = "app_api")]
 fn torii_routed_read_norito_decode_response(_: norito::Error) -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -589,6 +721,7 @@ fn torii_routed_read_norito_decode_response(_: norito::Error) -> Response {
         "proxied Norito response failed bounded decoding",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_body_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -596,6 +729,7 @@ fn torii_routed_read_body_response() -> Response {
         "proxied application response body exceeded its admitted bound",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_norito_encode_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -603,6 +737,7 @@ fn torii_routed_read_norito_encode_response() -> Response {
         "proxied Norito response exceeded its bounded canonical representation",
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_json_encode_response() -> Response {
     torii_proxy_error_response(
         StatusCode::BAD_GATEWAY,
@@ -610,5 +745,5 @@ fn torii_routed_read_json_encode_response() -> Response {
         "proxied JSON response exceeded its bounded canonical representation",
     )
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "app_api"))]
 include!("tests/lib_routed_reads/routed_read_memory_bounds.rs");

@@ -87,6 +87,23 @@ mod tests {
                     .validate_native_pristine_control_owner(&state, generation, &header)
                     .is_err()
             );
+            overlay.sumeragi_lanes_step = crate::sumeragi::lanes::step::LaneStep::FailedOwnerMoved;
+            assert!(
+                overlay
+                    .validate_native_pristine_control_owner(&state, generation, &header)
+                    .is_err()
+            );
+            overlay.request_sumeragi_lanes(crate::sumeragi::lanes::merge::LaneStepInput::default());
+            assert!(matches!(
+                overlay.sumeragi_lanes_step,
+                crate::sumeragi::lanes::step::LaneStep::FailedOwnerMoved
+            ));
+            assert!(
+                overlay
+                    .validate_native_pristine_control_owner(&state, generation, &header)
+                    .is_err()
+            );
+            // Begin an independent negative source-write probe in this test only.
             overlay.sumeragi_lanes_step = crate::sumeragi::lanes::step::LaneStep::Off;
             overlay
                 .world

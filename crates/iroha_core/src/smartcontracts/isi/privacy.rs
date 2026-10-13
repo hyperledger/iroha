@@ -3,6 +3,11 @@
 //! Governance checks and all deterministic validation precede storage writes.
 //! Proof admission is added only through the exhaustive native verifier
 //! boundary; there is deliberately no generic or opaque fallback verifier.
+//!
+//! `SubmitPrivacyProofV1` is the one instruction of every Exact12 role and its
+//! handler is the one state executor. The handler resolves the single role of
+//! the envelope once, loads trusted state for that role, calls the single
+//! verifier dispatch and applies exactly the effect sealed for that role.
 use super::Execute;
 #[cfg(test)]
 use crate::privacy_verifier::VerifiedProofManagedPoolLedgerEffectTestPartsV1;
@@ -87,9 +92,9 @@ use iroha_data_model::{
         BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1, BootleLanternIssuerPolicyLifecycleV1,
         BootleLanternIssuerPolicyV1, IrohaBootleLanternAnoncredStatementV1,
         IrohaIvmPrivateNoteStarkStatementV1, PRIVACY_ZK_ACE_MAX_POLICIES_V1,
-        PqMaspStarkStatementV1, PrivacyCommitmentV1, PrivacyConsensusPolicyTighteningV1,
-        PrivacyFcmpInputPublicV1, PrivacyFcmpOutputTupleV1, PrivacyFcmpTreeRootV1,
-        PrivacyNamespaceV1, PrivacyNullifierV1, PrivacyProofEnvelopeV1,
+        PqMaspStarkStatementV1, PrivacyActionRoleV1, PrivacyCommitmentV1,
+        PrivacyConsensusPolicyTighteningV1, PrivacyFcmpInputPublicV1, PrivacyFcmpOutputTupleV1,
+        PrivacyFcmpTreeRootV1, PrivacyNamespaceV1, PrivacyNullifierV1, PrivacyProofEnvelopeV1,
         PrivacyProtocolActivationRecordV1, PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1,
         PrivacyProtocolLimitsTighteningV1, PrivacyRootManagementV1, PrivacyRootPublicationV1,
         PrivacyRootRoleV1, PrivacyStatementDigestV1, PrivacyStatementV1,
@@ -134,6 +139,15 @@ fn prepare_privacy_public_reserve_custody_v1(
     let record = PrivacyStateItemRecordV1::public_reserve_custody(reserve_asset_id, owner)
         .map_err(invalid_privacy_parameter)?;
     Ok((key, record))
+}
+/// Internal fault: the resolved action role and the typed statement disagree.
+///
+/// The role is derived from the statement, so this cannot follow from any
+/// submitted bytes.
+fn role_statement_invariant_v1(role: PrivacyActionRoleV1) -> Error {
+    Error::InvariantViolation(
+        format!("resolved action role {role} disagrees with its typed statement").into(),
+    )
 }
 fn privacy_verification_error(error: PrivacyVerificationErrorV1) -> Error {
     let message = format!("privacy proof admission rejected: {error}");
@@ -190,9 +204,10 @@ fn privacy_verification_error(error: PrivacyVerificationErrorV1) -> Error {
         PrivacyVerificationErrorV1::ZkX509State(detail) => {
             detail.code == PrivacyZkX509StateFailureCodeV1::MissingTrustedState
         }
-        #[cfg(not(feature = "zk-stark"))]
-        PrivacyVerificationErrorV1::EngineUnavailable(_) => false,
-        PrivacyVerificationErrorV1::Envelope(_)
+        // A native verifier that returns the effect of another role is an internal fault.
+        PrivacyVerificationErrorV1::EffectRoleMismatch(_) => true,
+        PrivacyVerificationErrorV1::UnsupportedOperation(_)
+        | PrivacyVerificationErrorV1::Envelope(_)
         | PrivacyVerificationErrorV1::NativeVeRange(_)
         | PrivacyVerificationErrorV1::NativeVega(_)
         | PrivacyVerificationErrorV1::NativeJindo(_)
@@ -781,9 +796,9 @@ impl Execute for BootstrapPrivacyOrchardPoolV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Orchard pool bootstrap canonical encoding failed".into())
             })?;
@@ -961,10 +976,12 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
         authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        const INITIAL_EPOCH: u64 = 1;
+
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "proof-managed pool bootstrap canonical encoding failed".into(),
@@ -1219,7 +1236,6 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
                 "proof-managed bootstrap has no canonical output set".into(),
             ));
         }
-        const INITIAL_EPOCH: u64 = 1;
         let root_provenance = PrivacyRootProvenanceV1::proof_managed_pool_bootstrap(
             bootstrap_digest,
             protocol_id,
@@ -1285,9 +1301,9 @@ impl Execute for BootstrapPrivacyZkAmsRegistryV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-AMS registry bootstrap canonical encoding failed".into(),
@@ -1461,9 +1477,9 @@ impl Execute for BootstrapPrivacyPgcAccountsV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("privacy PGC bootstrap canonical encoding failed".into())
             })?;
@@ -1583,11 +1599,12 @@ impl Execute for BootstrapPrivacyPgcAccountsV1 {
                 format!("privacy PGC bootstrap canonical encoding failed: {error}").into(),
             )
         })?;
-        let namespace_encoding = norito::to_bytes(&self.bootstrap.namespace).map_err(|error| {
-            Error::InvariantViolation(
-                format!("privacy PGC namespace canonical encoding failed: {error}").into(),
-            )
-        })?;
+        let namespace_encoding =
+            norito::encode_canonical(&self.bootstrap.namespace).map_err(|error| {
+                Error::InvariantViolation(
+                    format!("privacy PGC namespace canonical encoding failed: {error}").into(),
+                )
+            })?;
         let native_public_keys = self
             .bootstrap
             .accounts
@@ -1783,6 +1800,10 @@ struct PlannedZkX509RootAppendV1 {
     next_head: PrivacyRootHeadRecordV1,
     removals: Vec<PrivacyRootKeyV1>,
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the validated provenance becomes the owned root-head record"
+)]
 fn plan_zk_x509_root_append_v1(
     publication: PrivacyRootPublicationV1,
     provenance: PrivacyRootProvenanceV1,
@@ -1961,8 +1982,7 @@ fn validate_zk_x509_crl_freshness_v1(
         .ok_or_else(|| invalid_privacy_parameter("X.509 signed CRL begins in the future"))?;
     if age > ZK_X509_MAX_CRL_AGE_SECONDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "X.509 signed CRL age {age}s exceeds the {}s freshness limit",
-            ZK_X509_MAX_CRL_AGE_SECONDS_V1
+            "X.509 signed CRL age {age}s exceeds the {ZK_X509_MAX_CRL_AGE_SECONDS_V1}s freshness limit"
         )));
     }
     Ok(())
@@ -1992,9 +2012,9 @@ fn preflight_x509_governance_action_v1<T: norito::NoritoSerialize>(
     label: &str,
     state_transaction: &StateTransaction<'_, '_>,
 ) -> Result<(u32, u64), Error> {
-    let encoded_action_bytes = norito::to_bytes(instruction)
+    let encoded_action_bytes = norito::canonical_frame_len(instruction)
         .ok()
-        .and_then(|bytes| u64::try_from(bytes.len()).ok())
+        .and_then(|length| u64::try_from(length).ok())
         .ok_or_else(|| {
             Error::InvariantViolation(format!("{label} canonical encoding failed").into())
         })?;
@@ -2139,8 +2159,7 @@ impl Execute for RegisterPrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         if x509_trust_anchor_lineage_revision_count_v1(
@@ -2199,8 +2218,7 @@ impl Execute for RotatePrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         let lineage_count = x509_trust_anchor_lineage_revision_count_v1(
@@ -2209,8 +2227,7 @@ impl Execute for RotatePrivacyZkX509TrustAnchorV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 trust-anchor lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_trust_anchor_v1(
@@ -2285,8 +2302,7 @@ impl Execute for RevokePrivacyZkX509TrustAnchorV1 {
         })?;
         if trust_anchor_count >= ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor registry is full at {} revisions",
-                ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1
+                "X.509 trust-anchor registry is full at {ZK_X509_MAX_TRUST_ANCHOR_RECORDS_V1} revisions"
             )));
         }
         let lineage_count = x509_trust_anchor_lineage_revision_count_v1(
@@ -2295,8 +2311,7 @@ impl Execute for RevokePrivacyZkX509TrustAnchorV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 trust-anchor lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 trust-anchor lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_trust_anchor_v1(
@@ -2380,8 +2395,7 @@ impl Execute for RegisterPrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2455,8 +2469,7 @@ impl Execute for RotatePrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2481,8 +2494,7 @@ impl Execute for RotatePrivacyZkX509CertificatePolicyV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 certificate-policy lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_certificate_policy_v1(
@@ -2563,8 +2575,7 @@ impl Execute for RevokePrivacyZkX509CertificatePolicyV1 {
         })?;
         if policy_count >= ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy registry is full at {} revisions",
-                ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1
+                "X.509 certificate-policy registry is full at {ZK_X509_MAX_CERTIFICATE_POLICY_RECORDS_V1} revisions"
             )));
         }
         load_privacy_zk_x509_trust_anchor_v1(
@@ -2583,8 +2594,7 @@ impl Execute for RevokePrivacyZkX509CertificatePolicyV1 {
         )?;
         if lineage_count >= ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 certificate-policy lineage is full at {} revisions",
-                ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1
+                "X.509 certificate-policy lineage is full at {ZK_X509_MAX_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
             )));
         }
         let current = load_privacy_zk_x509_certificate_policy_v1(
@@ -2672,8 +2682,7 @@ impl Execute for RegisterPrivacyZkX509CrlV1 {
                 })?;
         if crl_lineage_count >= ZK_X509_MAX_CRL_LINEAGES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "X.509 signed-CRL registry is full at {} lineages",
-                ZK_X509_MAX_CRL_LINEAGES_V1
+                "X.509 signed-CRL registry is full at {ZK_X509_MAX_CRL_LINEAGES_V1} lineages"
             )));
         }
         let trust_anchor = load_privacy_zk_x509_trust_anchor_v1(
@@ -2869,9 +2878,9 @@ impl Execute for RegisterPrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-ACE policy registration canonical encoding failed".into(),
@@ -2894,8 +2903,7 @@ impl Execute for RegisterPrivacyZkAcePolicyV1 {
         })?;
         if policy_count >= PRIVACY_ZK_ACE_MAX_POLICIES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "ZK-ACE policy registry is full at {} policies",
-                PRIVACY_ZK_ACE_MAX_POLICIES_V1
+                "ZK-ACE policy registry is full at {PRIVACY_ZK_ACE_MAX_POLICIES_V1} policies"
             )));
         }
         let key = PrivacyCommitmentKeyV1::zk_ace_policy(self.policy.policy_id)
@@ -2930,9 +2938,9 @@ impl Execute for RotatePrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("ZK-ACE policy rotation canonical encoding failed".into())
             })?;
@@ -2984,9 +2992,9 @@ impl Execute for RevokePrivacyZkAcePolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "ZK-ACE policy revocation canonical encoding failed".into(),
@@ -3044,9 +3052,9 @@ impl Execute for RegisterPrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy registration canonical encoding failed".into(),
@@ -3071,8 +3079,7 @@ impl Execute for RegisterPrivacyBootleLanternIssuerPolicyV1 {
         })?;
         if policy_count >= BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1 {
             return Err(invalid_privacy_parameter(format!(
-                "Bootle/Lantern issuer-policy registry is full at {} policies",
-                BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1
+                "Bootle/Lantern issuer-policy registry is full at {BOOTLE_LANTERN_MAX_ISSUER_POLICIES_V1} policies"
             )));
         }
         let key = PrivacyCommitmentKeyV1::bootle_lantern_issuer_policy(
@@ -3110,9 +3117,9 @@ impl Execute for RotatePrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy rotation canonical encoding failed".into(),
@@ -3184,9 +3191,9 @@ impl Execute for RevokePrivacyBootleLanternIssuerPolicyV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Bootle/Lantern issuer-policy revocation canonical encoding failed".into(),
@@ -3307,9 +3314,9 @@ impl Execute for RegisterPrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation(
                     "Vega issuer registration canonical encoding failed".into(),
@@ -3340,8 +3347,7 @@ fn execute_register_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     if vega_issuer_lineage_revision_count_v1(instruction.record.issuer_id, state_transaction)? != 0
@@ -3374,9 +3380,9 @@ impl Execute for RotatePrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Vega issuer rotation canonical encoding failed".into())
             })?;
@@ -3407,8 +3413,7 @@ fn execute_rotate_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     let lineage_count =
@@ -3420,8 +3425,7 @@ fn execute_rotate_privacy_vega_issuer_after_admission_v1(
     }
     if lineage_count >= VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer lineage is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1
+            "Vega issuer lineage is full at {VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
         )));
     }
     let current = load_privacy_vega_issuer_v1(
@@ -3482,9 +3486,9 @@ impl Execute for RevokePrivacyVegaIssuerV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         ensure_privacy_governance(authority, state_transaction)?;
-        let encoded_action_bytes = norito::to_bytes(&self)
+        let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("Vega issuer revocation canonical encoding failed".into())
             })?;
@@ -3515,8 +3519,7 @@ fn execute_revoke_privacy_vega_issuer_after_admission_v1(
     let record_count = registry_facts.record_count();
     if record_count >= VEGA_MAX_ISSUER_RECORDS_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer registry is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORDS_V1
+            "Vega issuer registry is full at {VEGA_MAX_ISSUER_RECORDS_V1} revisions"
         )));
     }
     let lineage_count =
@@ -3528,8 +3531,7 @@ fn execute_revoke_privacy_vega_issuer_after_admission_v1(
     }
     if lineage_count >= VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1 {
         return Err(invalid_privacy_parameter(format!(
-            "Vega issuer lineage is full at {} revisions",
-            VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1
+            "Vega issuer lineage is full at {VEGA_MAX_ISSUER_RECORD_REVISIONS_PER_LINEAGE_V1} revisions"
         )));
     }
     let current = load_privacy_vega_issuer_v1(
@@ -3605,13 +3607,21 @@ fn load_active_bootle_lantern_policy_v1(
             "Bootle/Lantern authoritative issuer policy is revoked",
         ));
     }
-    if policy.issuer_id != statement.issuer_id
-        || policy.policy_id != statement.policy_id
-        || policy.epoch != statement.issuer_policy_epoch
-        || policy.record_digest != statement.issuer_policy_record_digest
-        || policy.issuer_parameter_id != statement.issuer_parameter_id
-        || policy.issuer_parameter_digest != statement.issuer_parameter_digest
-    {
+    if (
+        &policy.issuer_id,
+        &policy.policy_id,
+        policy.epoch,
+        &policy.record_digest,
+        &policy.issuer_parameter_id,
+        &policy.issuer_parameter_digest,
+    ) != (
+        &statement.issuer_id,
+        &statement.policy_id,
+        statement.issuer_policy_epoch,
+        &statement.issuer_policy_record_digest,
+        &statement.issuer_parameter_id,
+        &statement.issuer_parameter_digest,
+    ) {
         return Err(invalid_privacy_parameter(
             "Bootle/Lantern statement does not exactly match authoritative issuer-policy state",
         ));
@@ -3703,9 +3713,9 @@ impl PreparedPrivacySubmissionV1 {
                     "privacy transaction-intent binding rejected: {error}"
                 ))
             })?;
-        let encoded_action_bytes = norito::to_bytes(&instruction.envelope)
+        let encoded_action_bytes = norito::canonical_frame_len(&instruction.envelope)
             .ok()
-            .and_then(|bytes| u64::try_from(bytes.len()).ok())
+            .and_then(|length| u64::try_from(length).ok())
             .ok_or_else(|| {
                 Error::InvariantViolation("privacy proof envelope canonical encoding failed".into())
             })?;
@@ -3736,42 +3746,43 @@ impl PreparedPrivacySubmissionV1 {
                     "privacy proof admission requires a committed genesis block".into(),
                 )
             })?;
-        let pgc_snapshot =
-            if self.envelope.protocol_id == PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1 {
-                let namespace = PrivacyNamespaceV1::from_statement(&self.envelope.statement);
-                Some(
-                    load_privacy_pgc_pool_snapshot_v1(
-                        namespace,
-                        state_transaction
-                            .world
-                            .privacy_consensus_policy
-                            .get()
-                            .current_limits
-                            .retained_root_count,
-                        &state_transaction.world.privacy_pgc_accounts,
-                        &state_transaction.world.privacy_pgc_pool_invariants,
-                        &state_transaction.world.privacy_roots,
-                        &state_transaction.world.privacy_root_heads,
-                    )
-                    .map_err(|error| {
-                        Error::InvariantViolation(
-                            format!("trusted Anonymous PGC pool state failed validation: {error}")
-                                .into(),
-                        )
-                    })?,
+        // The single resolver names the one role of this envelope. Trusted-state loading, the
+        // verifier dispatch and the effect executor below all follow it; an envelope whose
+        // protocol, statement and proof do not name one role is refused before any state is read.
+        let role = self.envelope.action_role_v1().map_err(|error| {
+            invalid_privacy_parameter(format!(
+                "privacy envelope does not select one action role: {error}"
+            ))
+        })?;
+        let pgc_snapshot = if role == PrivacyActionRoleV1::AnonymousPgcPayment {
+            let namespace = PrivacyNamespaceV1::from_statement(&self.envelope.statement);
+            Some(
+                load_privacy_pgc_pool_snapshot_v1(
+                    namespace,
+                    state_transaction
+                        .world
+                        .privacy_consensus_policy
+                        .get()
+                        .current_limits
+                        .retained_root_count,
+                    &state_transaction.world.privacy_pgc_accounts,
+                    &state_transaction.world.privacy_pgc_pool_invariants,
+                    &state_transaction.world.privacy_roots,
+                    &state_transaction.world.privacy_root_heads,
                 )
-            } else {
-                None
-            };
-        let orchard_snapshot = if self.envelope.protocol_id
-            == PrivacyProtocolIdV1::OrchardHalo2ActionsV1
+                .map_err(|error| {
+                    Error::InvariantViolation(
+                        format!("trusted Anonymous PGC pool state failed validation: {error}")
+                            .into(),
+                    )
+                })?,
+            )
+        } else {
+            None
+        };
+        let orchard_snapshot = if let PrivacyStatementV1::OrchardHalo2ActionsV1(statement) =
+            &self.envelope.statement
         {
-            let PrivacyStatementV1::OrchardHalo2ActionsV1(statement) = &self.envelope.statement
-            else {
-                return Err(invalid_privacy_parameter(
-                    "Orchard protocol envelope carries a different statement type",
-                ));
-            };
             let namespace = PrivacyNamespaceV1::from_statement(&self.envelope.statement);
             let snapshot = load_privacy_orchard_pool_snapshot_v1(
                 namespace,
@@ -3851,10 +3862,10 @@ impl PreparedPrivacySubmissionV1 {
             None
         };
         let proof_managed_snapshot = if matches!(
-            self.envelope.protocol_id,
-            PrivacyProtocolIdV1::MoneroFcmpPlusPlusV1
-                | PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1
-                | PrivacyProtocolIdV1::PqMaspStarkV1
+            role,
+            PrivacyActionRoleV1::FcmpTransfer
+                | PrivacyActionRoleV1::IvmPrivateNoteTransition
+                | PrivacyActionRoleV1::PqMaspTransition
         ) {
             let (
                 asset_definition_id,
@@ -3911,11 +3922,7 @@ impl PreparedPrivacySubmissionV1 {
                         None,
                         Some(statement.authorization_epoch),
                     ),
-                    _ => {
-                        return Err(invalid_privacy_parameter(
-                            "proof-managed protocol envelope carries a different statement type",
-                        ));
-                    }
+                    _ => return Err(role_statement_invariant_v1(role)),
                 }
             };
             let namespace = PrivacyNamespaceV1::from_statement(&self.envelope.statement);
@@ -4146,12 +4153,9 @@ impl PreparedPrivacySubmissionV1 {
         } else {
             None
         };
-        let zk_ams_snapshot = if self.envelope.protocol_id == PrivacyProtocolIdV1::IrohaZkAmsV1 {
-            let PrivacyStatementV1::IrohaZkAmsV1(statement) = &self.envelope.statement else {
-                return Err(invalid_privacy_parameter(
-                    "ZK-AMS protocol envelope carries a different statement type",
-                ));
-            };
+        let zk_ams_snapshot = if let PrivacyStatementV1::IrohaZkAmsV1(statement) =
+            &self.envelope.statement
+        {
             let namespace = PrivacyNamespaceV1::from_statement(&self.envelope.statement);
             let snapshot = load_privacy_zk_ams_registry_snapshot_v1(
                 namespace,
@@ -4389,92 +4393,81 @@ impl PreparedPrivacySubmissionV1 {
         } else {
             None
         };
-        let (zk_x509_snapshot, zk_x509_nullifier_key, zk_x509_nullifier_consumed) = if self
-            .envelope
-            .protocol_id
-            == PrivacyProtocolIdV1::IrohaZkX509StarkP256V1
-        {
-            let PrivacyStatementV1::IrohaZkX509StarkP256V1(statement) = &self.envelope.statement
-            else {
-                return Err(invalid_privacy_parameter(
-                    "X.509 protocol envelope carries a different statement type",
-                ));
-            };
-            if authority != &statement.wallet_account {
-                return Err(invalid_privacy_parameter(
-                    "X.509 certificate proof must be submitted by its bound wallet account",
-                ));
-            }
-            if state_transaction
-                .world
-                .accounts
-                .get(&statement.wallet_account)
-                .is_none()
+        let (zk_x509_snapshot, zk_x509_nullifier_key, zk_x509_nullifier_consumed) =
+            if let PrivacyStatementV1::IrohaZkX509StarkP256V1(statement) = &self.envelope.statement
             {
-                return Err(invalid_privacy_parameter(
-                    "X.509 statement wallet account does not exist",
-                ));
-            }
-            let snapshot = load_privacy_zk_x509_authoritative_state_v1(
-                statement.trust_anchor_id,
-                statement.certificate_policy_id,
-                state_transaction
+                if authority != &statement.wallet_account {
+                    return Err(invalid_privacy_parameter(
+                        "X.509 certificate proof must be submitted by its bound wallet account",
+                    ));
+                }
+                if state_transaction
                     .world
-                    .privacy_consensus_policy
-                    .get()
-                    .admission_retained_root_count(),
-                &state_transaction.world.privacy_commitments,
-                &state_transaction.world.privacy_roots,
-                &state_transaction.world.privacy_root_heads,
-            )
-            .map_err(|error| {
-                Error::InvariantViolation(
-                    format!("trusted X.509 authoritative state failed validation: {error}").into(),
+                    .accounts
+                    .get(&statement.wallet_account)
+                    .is_none()
+                {
+                    return Err(invalid_privacy_parameter(
+                        "X.509 statement wallet account does not exist",
+                    ));
+                }
+                let snapshot = load_privacy_zk_x509_authoritative_state_v1(
+                    statement.trust_anchor_id,
+                    statement.certificate_policy_id,
+                    state_transaction
+                        .world
+                        .privacy_consensus_policy
+                        .get()
+                        .admission_retained_root_count(),
+                    &state_transaction.world.privacy_commitments,
+                    &state_transaction.world.privacy_roots,
+                    &state_transaction.world.privacy_root_heads,
                 )
-            })?;
-            let nullifier_key = PrivacyNullifierKeyV1::zk_x509_certificate_nullifier(
-                snapshot.namespace(),
-                statement.certificate_nullifier,
-            )
-            .map_err(invalid_privacy_parameter)?;
-            let consumed = if let Some(record) = state_transaction
-                .world
-                .privacy_nullifiers
-                .get(&nullifier_key)
-            {
-                record.validate().map_err(|error| {
+                .map_err(|error| {
                     Error::InvariantViolation(
+                        format!("trusted X.509 authoritative state failed validation: {error}")
+                            .into(),
+                    )
+                })?;
+                let nullifier_key = PrivacyNullifierKeyV1::zk_x509_certificate_nullifier(
+                    snapshot.namespace(),
+                    statement.certificate_nullifier,
+                )
+                .map_err(invalid_privacy_parameter)?;
+                let consumed = if let Some(record) = state_transaction
+                    .world
+                    .privacy_nullifiers
+                    .get(&nullifier_key)
+                {
+                    record.validate().map_err(|error| {
+                        Error::InvariantViolation(
                         format!(
                             "persisted X.509 certificate-nullifier provenance is invalid: {error}"
                         )
                         .into(),
                     )
-                })?;
-                if !matches!(
-                    record,
-                    PrivacyStateItemRecordV1::ZkX509VerifiedCertificateNullifier { .. }
-                ) {
-                    return Err(Error::InvariantViolation(
-                        "persisted X.509 certificate nullifier has wrong-role provenance".into(),
-                    ));
-                }
-                true
-            } else {
-                false
-            };
-            (Some(snapshot), Some(nullifier_key), consumed)
-        } else {
-            (None, None, false)
-        };
-        let bootle_lantern_policy =
-            if self.envelope.protocol_id == PrivacyProtocolIdV1::IrohaBootleLanternAnoncredV1 {
-                let PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement) =
-                    &self.envelope.statement
-                else {
-                    return Err(invalid_privacy_parameter(
-                        "Bootle/Lantern protocol envelope carries a different statement type",
-                    ));
+                    })?;
+                    if !matches!(
+                        record,
+                        PrivacyStateItemRecordV1::ZkX509VerifiedCertificateNullifier { .. }
+                    ) {
+                        return Err(Error::InvariantViolation(
+                            "persisted X.509 certificate nullifier has wrong-role provenance"
+                                .into(),
+                        ));
+                    }
+                    true
+                } else {
+                    false
                 };
+                (Some(snapshot), Some(nullifier_key), consumed)
+            } else {
+                (None, None, false)
+            };
+        let bootle_lantern_policy =
+            if let PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement) =
+                &self.envelope.statement
+            {
                 Some(load_active_bootle_lantern_policy_v1(
                     statement,
                     &state_transaction.world.privacy_commitments,
@@ -4482,130 +4475,119 @@ impl PreparedPrivacySubmissionV1 {
             } else {
                 None
             };
-        let vega_issuer_record =
-            if self.envelope.protocol_id == PrivacyProtocolIdV1::VegaExistingCredentialZkV1 {
-                let PrivacyStatementV1::VegaExistingCredentialZkV1(statement) =
-                    &self.envelope.statement
-                else {
-                    return Err(invalid_privacy_parameter(
-                        "Vega protocol envelope carries a different statement type",
-                    ));
-                };
-                load_vega_issuer_for_statement_v1(
-                    statement,
-                    &state_transaction.world.privacy_commitments,
-                )?
-            } else {
-                None
-            };
-        let (zk_ace_policy, zk_ace_replay_key) = if self.envelope.protocol_id
-            == PrivacyProtocolIdV1::ZkAcePqAuthorizationV1
+        let vega_issuer_record = if let PrivacyStatementV1::VegaExistingCredentialZkV1(statement) =
+            &self.envelope.statement
         {
-            let PrivacyStatementV1::ZkAcePqAuthorizationV1(statement) = &self.envelope.statement
-            else {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE protocol envelope carries a different statement type",
-                ));
-            };
-            let policy_key = PrivacyCommitmentKeyV1::zk_ace_policy(statement.policy_id)
-                .map_err(invalid_privacy_parameter)?;
-            if state_transaction
-                .world
-                .privacy_commitments
-                .get(&policy_key)
-                .is_none()
-            {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE authoritative policy is not registered",
-                ));
-            }
-            let policy = load_privacy_zk_ace_policy_v1(
-                statement.policy_id,
+            load_vega_issuer_for_statement_v1(
+                statement,
                 &state_transaction.world.privacy_commitments,
-            )
-            .map_err(|error| {
-                Error::InvariantViolation(
-                    format!("trusted ZK-ACE policy state failed validation: {error}").into(),
-                )
-            })?;
-            if policy.lifecycle != PrivacyZkAcePolicyLifecycleV1::Active {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE authoritative policy is revoked",
-                ));
-            }
-            if policy.policy_id != statement.policy_id
-                || policy.policy_digest != statement.policy_digest
-                || policy.identity_commitment != statement.identity_commitment
-                || policy.authorization_epoch != statement.authorization_epoch
-                || policy.asset_definition_id != statement.asset_definition_id
+            )?
+        } else {
+            None
+        };
+        let (zk_ace_policy, zk_ace_replay_key) =
+            if let PrivacyStatementV1::ZkAcePqAuthorizationV1(statement) = &self.envelope.statement
             {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE statement does not exactly match authoritative policy state",
-                ));
-            }
-            if policy
-                .source_allowlist
-                .binary_search(&statement.source)
-                .is_err()
-            {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE source account is not authorized by policy",
-                ));
-            }
-            if state_transaction
-                .world
-                .accounts
-                .get(&statement.source)
-                .is_none()
-            {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE source account does not exist",
-                ));
-            }
-            if state_transaction
-                .world
-                .accounts
-                .get(&statement.destination)
-                .is_none()
-            {
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE destination account does not exist",
-                ));
-            }
-            state_transaction
-                .world
-                .asset_definition(&statement.asset_definition_id)
-                .map_err(Error::from)?;
-            let replay_key = PrivacyNullifierKeyV1::zk_ace_replay(
-                statement.policy_id,
-                statement.replay_nullifier,
-            )
-            .map_err(invalid_privacy_parameter)?;
-            if let Some(record) = state_transaction.world.privacy_nullifiers.get(&replay_key) {
-                record.validate().map_err(|error| {
-                    Error::InvariantViolation(
-                        format!("persisted ZK-ACE replay provenance is invalid: {error}").into(),
-                    )
-                })?;
-                if !matches!(
-                    record,
-                    PrivacyStateItemRecordV1::ZkAceVerifiedAuthorization {
-                        policy_id,
-                        ..
-                    } if *policy_id == statement.policy_id
-                ) {
-                    return Err(Error::InvariantViolation(
-                        "persisted ZK-ACE replay marker has wrong-policy provenance".into(),
+                let policy_key = PrivacyCommitmentKeyV1::zk_ace_policy(statement.policy_id)
+                    .map_err(invalid_privacy_parameter)?;
+                if state_transaction
+                    .world
+                    .privacy_commitments
+                    .get(&policy_key)
+                    .is_none()
+                {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE authoritative policy is not registered",
                     ));
                 }
-                return Err(invalid_privacy_parameter(
-                    "ZK-ACE replay nullifier was already consumed",
-                ));
-            }
-            (Some(policy), Some(replay_key))
-        } else {
-            (None, None)
-        };
+                let policy = load_privacy_zk_ace_policy_v1(
+                    statement.policy_id,
+                    &state_transaction.world.privacy_commitments,
+                )
+                .map_err(|error| {
+                    Error::InvariantViolation(
+                        format!("trusted ZK-ACE policy state failed validation: {error}").into(),
+                    )
+                })?;
+                if policy.lifecycle != PrivacyZkAcePolicyLifecycleV1::Active {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE authoritative policy is revoked",
+                    ));
+                }
+                if policy.policy_id != statement.policy_id
+                    || policy.policy_digest != statement.policy_digest
+                    || policy.identity_commitment != statement.identity_commitment
+                    || policy.authorization_epoch != statement.authorization_epoch
+                    || policy.asset_definition_id != statement.asset_definition_id
+                {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE statement does not exactly match authoritative policy state",
+                    ));
+                }
+                if policy
+                    .source_allowlist
+                    .binary_search(&statement.source)
+                    .is_err()
+                {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE source account is not authorized by policy",
+                    ));
+                }
+                if state_transaction
+                    .world
+                    .accounts
+                    .get(&statement.source)
+                    .is_none()
+                {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE source account does not exist",
+                    ));
+                }
+                if state_transaction
+                    .world
+                    .accounts
+                    .get(&statement.destination)
+                    .is_none()
+                {
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE destination account does not exist",
+                    ));
+                }
+                state_transaction
+                    .world
+                    .asset_definition(&statement.asset_definition_id)
+                    .map_err(Error::from)?;
+                let replay_key = PrivacyNullifierKeyV1::zk_ace_replay(
+                    statement.policy_id,
+                    statement.replay_nullifier,
+                )
+                .map_err(invalid_privacy_parameter)?;
+                if let Some(record) = state_transaction.world.privacy_nullifiers.get(&replay_key) {
+                    record.validate().map_err(|error| {
+                        Error::InvariantViolation(
+                            format!("persisted ZK-ACE replay provenance is invalid: {error}")
+                                .into(),
+                        )
+                    })?;
+                    if !matches!(
+                        record,
+                        PrivacyStateItemRecordV1::ZkAceVerifiedAuthorization {
+                            policy_id,
+                            ..
+                        } if *policy_id == statement.policy_id
+                    ) {
+                        return Err(Error::InvariantViolation(
+                            "persisted ZK-ACE replay marker has wrong-policy provenance".into(),
+                        ));
+                    }
+                    return Err(invalid_privacy_parameter(
+                        "ZK-ACE replay nullifier was already consumed",
+                    ));
+                }
+                (Some(policy), Some(replay_key))
+            } else {
+                (None, None)
+            };
         match &self.envelope.statement {
             PrivacyStatementV1::ZkAcePqAuthorizationV1(statement) => {
                 super::asset::isi::validate_committed_public_balance_scope(
@@ -4674,7 +4656,8 @@ impl PreparedPrivacySubmissionV1 {
             },
         )
         .map_err(privacy_verification_error)?;
-        if effects.protocol_id() != self.envelope.protocol_id
+        if effects.role() != role
+            || effects.protocol_id() != self.envelope.protocol_id
             || effects.statement_digest() != self.envelope.statement_digest
             || effects.action_index() != expected_action_index
             || effects.encoded_action_bytes() != encoded_action_bytes
@@ -4917,7 +4900,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.successor_state().epoch(),
                     effect.successor_state().root(),
@@ -5331,7 +5314,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
@@ -5653,7 +5636,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     expected_next_epoch,
                     computed_next_root,
@@ -5935,7 +5918,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
@@ -6534,8 +6517,9 @@ mod tests {
                         .expect("native payment proof")
                         .encode();
                 SubmitPrivacyProofV1::new(PrivacyProofEnvelopeV1 {
-                    wire_magic: Default::default(),
-                    catalog_commitment: Default::default(),
+                    wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                    catalog_commitment:
+                        iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                     protocol_id: compiled.protocol_id,
                     proof_system_id: compiled.proof_system_id,
                     engine_id: compiled.engine_id,
@@ -7125,6 +7109,7 @@ mod tests {
         );
     }
     include!("privacy/core_state_tests.rs");
+    include!("privacy/role_dispatch_tests.rs");
     #[test]
     fn private_note_apply_rejections_preserve_every_proof_managed_record() {
         let (mut statement, input_commitment) = private_note_statement_fixture_v1();

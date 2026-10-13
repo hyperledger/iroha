@@ -1,8 +1,8 @@
-//! A CowCell with linear drop behaviour
+//! A copy-on-write cell with ordered generation reclamation.
 //!
-//! YOU SHOULD NOT USE THIS TYPE! Normally concurrent cells do NOT require the linear dropping
-//! behaviour that this implements, and it will only make your application
-//! worse for it. Consider `CowCell` and `EbrCell` instead.
+//! The synchronous B+tree uses this cell to retain successor generations until
+//! their earlier readers release them. The retained reader chain protects nodes
+//! shared across generations.
 
 /*
  * The reason this exists is for protecting the major concurrently readable structures
@@ -2588,9 +2588,9 @@ mod identity_preparation_tests {
 #[cfg(test)]
 mod commit_slot_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 mod retained_mutex_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "reader_release_tests.rs"]
 mod reader_release_tests;

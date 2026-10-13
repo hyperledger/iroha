@@ -2,10 +2,7 @@
 
 use super::*;
 use crate::sccp::{
-    deployment::{
-        SCCP_TRON_ADDRESS_PREFIX_V1, SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1,
-        SccpTronDeploymentV1,
-    },
+    deployment::{SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1},
     light_client::SccpLightClientParamsError,
     params::SccpParametersError,
     test_support::{assert_rejects_unknown_field, roundtrip},
@@ -15,7 +12,6 @@ use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 const JSON_MAX: u64 = SCCP_JSON_SAFE_U64_MAX_V1;
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const BSC: SccpNetworkV1 = SccpNetworkV1::BscMainnet;
-const TRON: SccpNetworkV1 = SccpNetworkV1::TronMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 const TAIRA: SccpNetworkV1 = SccpNetworkV1::SoraTaira;
 
@@ -23,12 +19,6 @@ fn network_id(seed: u8) -> NetworkId {
     NetworkId::from_genesis_hash(HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
         Hash::new([seed; Hash::LENGTH]),
     ))
-}
-
-fn peer(seed: u8) -> PeerId {
-    let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-        .expect("deterministic Ed25519 seed");
-    PeerId::new(key_pair.public_key().clone())
 }
 
 fn account(seed: u8) -> AccountId {
@@ -41,16 +31,6 @@ fn evm(address: [u8; 20]) -> SccpDeploymentV1 {
     SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
         address,
         runtime_code_hash: [0xc0; 32],
-    })
-}
-
-fn tron(body: [u8; 20]) -> SccpDeploymentV1 {
-    let mut address = [0_u8; 21];
-    address[0] = SCCP_TRON_ADDRESS_PREFIX_V1;
-    address[1..].copy_from_slice(&body);
-    SccpDeploymentV1::Tron(SccpTronDeploymentV1 {
-        address,
-        runtime_code_hash: [0xc1; 32],
     })
 }
 
@@ -67,13 +47,22 @@ fn ton(master_account: [u8; 32]) -> SccpDeploymentV1 {
     })
 }
 
+fn pin() -> SccpCommitteePinV1 {
+    SccpCommitteePinV1 {
+        generation: 7,
+        committee_root: [0xa5; 32],
+        start_height: 11,
+        until_ms: 90_000,
+    }
+}
+
 fn register(network: SccpNetworkV1, deployment: SccpDeploymentV1) -> SccpGovernanceActionV1 {
     SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
         network,
         revision: 1,
         deployment,
+        initial_committee: pin(),
         max_wrapped_supply: 21_000_000_000_000_000,
-        initial_roster_generation: 7,
     })
 }
 
@@ -112,18 +101,9 @@ fn checkpoint() -> SccpLcCheckpointDataV1 {
     }
 }
 
-fn fault(height: u64) -> SccpClearBridgeKeyFaultActionV1 {
-    SccpClearBridgeKeyFaultActionV1 {
-        peer: peer(3),
-        fault: SccpFaultRefV1 {
-            address: [0x5a; 20],
-            height,
-        },
-    }
-}
-
-/// One valid action of every kind, in variant order, with pairwise distinct destination words.
-fn every_action() -> Vec<SccpGovernanceActionV1> {
+/// Route, control, light-client and parameter actions in variant order.
+/// Native hold/reconciliation actions have separate fixtures to respect the 16-action limit.
+fn lifecycle_actions() -> Vec<SccpGovernanceActionV1> {
     vec![
         register(ETH, evm([0x22; 20])),
         SccpGovernanceActionV1::ActivateRevision(revision(ETH, 1)),
@@ -132,8 +112,8 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
             from: 1,
             to: 2,
         }),
-        SccpGovernanceActionV1::DeactivateOutbound(revision(TRON, 2)),
-        SccpGovernanceActionV1::RetireRevision(revision(TRON, 1)),
+        SccpGovernanceActionV1::DeactivateOutbound(revision(TON, 2)),
+        SccpGovernanceActionV1::RetireRevision(revision(TON, 1)),
         SccpGovernanceActionV1::RemoveStaged(revision(TON, 3)),
         release(5_000_000_000, "stranded refund, reviewed in session 12"),
         SccpGovernanceActionV1::SetTairaPaused(SccpSetTairaPausedActionV1 {
@@ -150,13 +130,117 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
             network: ETH,
             checkpoint: checkpoint(),
         }),
-        SccpGovernanceActionV1::FreezeLightClient(SccpFreezeLightClientActionV1 { network: TRON }),
+        SccpGovernanceActionV1::FreezeLightClient(SccpFreezeLightClientActionV1 { network: BSC }),
         SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 {
             next: SccpParametersV1::taira_default(),
         }),
-        SccpGovernanceActionV1::ClearBridgeKeyFault(fault(1_000)),
         activate_profile(BSC, 2),
     ]
+}
+
+#[test]
+fn reconciliation_opening_has_a_nonempty_exact_json_window() {
+    let opening = |revision, window_ms| {
+        SccpGovernanceActionV1::OpenSccpReconciliation(SccpOpenReconciliationActionV1 {
+            network: ETH,
+            revision,
+            window_ms,
+        })
+    };
+    for window in [1, JSON_MAX] {
+        let action = opening(1, window);
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&17_u32.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    assert!(matches!(
+        validate(vec![opening(1, 0)]),
+        Err(SccpGovernanceStaticError::ZeroReconciliationWindow { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(0, 1)]),
+        Err(SccpGovernanceStaticError::ZeroRevision { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(1, JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+}
+
+#[test]
+fn native_hold_actions_bind_subjects_wire_shapes_and_exact_json_generations() {
+    let progress = |generation, committee_root| {
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Generation {
+                generation,
+                committee_root,
+            },
+        })
+    };
+    let frozen = SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+        SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Frozen,
+        },
+    );
+    let quarantine = SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 1));
+    for (action, index) in [
+        (progress(JSON_MAX, [3; 32]), 15_u32),
+        (frozen, 15),
+        (quarantine, 16),
+    ] {
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&index.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    roundtrip(&SccpGovernanceSubjectV1::ForgeryHold(ETH));
+    assert!(
+        SccpGovernanceSubjectV1::ForgeryHold(ETH)
+            .encode()
+            .starts_with(&5_u32.encode())
+    );
+    for bad in [progress(0, [3; 32]), progress(1, [0; 32])] {
+        assert!(matches!(
+            validate(vec![bad]),
+            Err(SccpGovernanceStaticError::InvalidDeploymentProgress { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![progress(JSON_MAX + 1, [3; 32])]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+    for action in [
+        SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 0)),
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+            SccpAttestDeploymentProgressActionV1 {
+                network: ETH,
+                revision: 0,
+                at: SccpDeploymentProgressV1::Frozen,
+            },
+        ),
+    ] {
+        assert!(matches!(
+            validate(vec![action]),
+            Err(SccpGovernanceStaticError::ZeroRevision { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![SccpGovernanceActionV1::QuarantineSccpRevision(
+            revision(TAIRA, 1)
+        )]),
+        Err(SccpGovernanceStaticError::TairaNetwork { .. })
+    ));
 }
 
 fn activate_profile(network: SccpNetworkV1, version: u32) -> SccpGovernanceActionV1 {
@@ -202,25 +286,24 @@ fn constants_match_the_spec() {
 }
 
 #[test]
-fn every_action_maps_to_its_spec_subject() {
+fn lifecycle_actions_map_to_their_spec_subject() {
     let expected = [
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(BSC),
-        SccpGovernanceSubjectV1::Route(TRON),
-        SccpGovernanceSubjectV1::Route(TRON),
+        SccpGovernanceSubjectV1::Route(TON),
+        SccpGovernanceSubjectV1::Route(TON),
         SccpGovernanceSubjectV1::Route(TON),
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(BSC),
         SccpGovernanceSubjectV1::RouteControl(BSC),
         SccpGovernanceSubjectV1::LightClient(TON),
         SccpGovernanceSubjectV1::LightClient(ETH),
-        SccpGovernanceSubjectV1::LightClient(TRON),
+        SccpGovernanceSubjectV1::LightClient(BSC),
         SccpGovernanceSubjectV1::Parameters,
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         SccpGovernanceSubjectV1::LightClient(BSC),
     ];
-    let actions = every_action();
+    let actions = lifecycle_actions();
     assert_eq!(actions.len(), expected.len());
     for (action, subject) in actions.iter().zip(expected) {
         assert_eq!(action.subject(), subject, "{action:?}");
@@ -229,7 +312,7 @@ fn every_action_maps_to_its_spec_subject() {
 
 #[test]
 fn action_network_is_the_subject_network() {
-    let networks: Vec<_> = every_action()
+    let networks: Vec<_> = lifecycle_actions()
         .iter()
         .map(SccpGovernanceActionV1::network)
         .collect();
@@ -239,16 +322,15 @@ fn action_network_is_the_subject_network() {
             Some(ETH),
             Some(ETH),
             Some(BSC),
-            Some(TRON),
-            Some(TRON),
+            Some(TON),
+            Some(TON),
             Some(TON),
             Some(ETH),
             Some(BSC),
             Some(BSC),
             Some(TON),
             Some(ETH),
-            Some(TRON),
-            None,
+            Some(BSC),
             None,
             Some(BSC),
         ]
@@ -258,13 +340,11 @@ fn action_network_is_the_subject_network() {
 #[test]
 fn subject_order_is_variant_then_value() {
     let mut subjects = vec![
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         SccpGovernanceSubjectV1::Parameters,
         SccpGovernanceSubjectV1::LightClient(ETH),
         SccpGovernanceSubjectV1::RouteControl(TON),
         SccpGovernanceSubjectV1::RouteControl(ETH),
         SccpGovernanceSubjectV1::Route(TON),
-        SccpGovernanceSubjectV1::Route(TRON),
         SccpGovernanceSubjectV1::Route(BSC),
         SccpGovernanceSubjectV1::Route(ETH),
     ];
@@ -274,43 +354,29 @@ fn subject_order_is_variant_then_value() {
         vec![
             SccpGovernanceSubjectV1::Route(ETH),
             SccpGovernanceSubjectV1::Route(BSC),
-            SccpGovernanceSubjectV1::Route(TRON),
             SccpGovernanceSubjectV1::Route(TON),
             SccpGovernanceSubjectV1::RouteControl(ETH),
             SccpGovernanceSubjectV1::RouteControl(TON),
             SccpGovernanceSubjectV1::LightClient(ETH),
             SccpGovernanceSubjectV1::Parameters,
-            SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         ]
-    );
-    let (low, high) = if peer(3) < peer(4) {
-        (peer(3), peer(4))
-    } else {
-        (peer(4), peer(3))
-    };
-    assert!(
-        SccpGovernanceSubjectV1::BridgeKeyFault(low)
-            < SccpGovernanceSubjectV1::BridgeKeyFault(high)
     );
 }
 
 #[test]
 fn subjects_are_sorted_and_deduplicated() {
-    let full = proposal(every_action());
+    let full = proposal(lifecycle_actions());
     assert_eq!(
         full.subjects(),
         vec![
             SccpGovernanceSubjectV1::Route(ETH),
             SccpGovernanceSubjectV1::Route(BSC),
-            SccpGovernanceSubjectV1::Route(TRON),
             SccpGovernanceSubjectV1::Route(TON),
             SccpGovernanceSubjectV1::RouteControl(BSC),
             SccpGovernanceSubjectV1::LightClient(ETH),
             SccpGovernanceSubjectV1::LightClient(BSC),
-            SccpGovernanceSubjectV1::LightClient(TRON),
             SccpGovernanceSubjectV1::LightClient(TON),
             SccpGovernanceSubjectV1::Parameters,
-            SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         ]
     );
     // A pause spans exactly Route{n} and RouteControl{n}.
@@ -352,7 +418,7 @@ fn base_revision_from_pair() {
 
 #[test]
 fn valid_proposals_pass_static_validation() {
-    assert_eq!(validate(every_action()), Ok(()));
+    assert_eq!(validate(lifecycle_actions()), Ok(()));
     let full: Vec<_> = (0..16)
         .map(|index| {
             SccpGovernanceActionV1::SetTairaPaused(SccpSetTairaPausedActionV1 {
@@ -362,7 +428,7 @@ fn valid_proposals_pass_static_validation() {
         })
         .collect();
     assert_eq!(validate(full), Ok(()));
-    let mut with_revisions = proposal(every_action());
+    let mut with_revisions = proposal(lifecycle_actions());
     for (index, entry) in with_revisions.base_revisions.iter_mut().enumerate() {
         entry.revision = u64::try_from(index).expect("small index") * 3;
     }
@@ -372,7 +438,7 @@ fn valid_proposals_pass_static_validation() {
 #[test]
 fn network_id_and_action_count_are_checked() {
     assert_eq!(
-        proposal(every_action()).validate_static(&network_id(2)),
+        proposal(lifecycle_actions()).validate_static(&network_id(2)),
         Err(SccpGovernanceStaticError::NetworkIdMismatch)
     );
     assert_eq!(
@@ -499,8 +565,8 @@ fn register_route_cap_and_deployment_are_checked() {
             network,
             revision: 1,
             deployment,
+            initial_committee: pin(),
             max_wrapped_supply: cap,
-            initial_roster_generation: 0,
         })
     };
     assert_eq!(
@@ -513,7 +579,7 @@ fn register_route_cap_and_deployment_are_checked() {
         Ok(())
     );
     assert_eq!(
-        validate(vec![with_cap(TRON, tron([0x22; 20]), u128::MAX)]),
+        validate(vec![with_cap(BSC, evm([0x22; 20]), u128::MAX)]),
         Ok(())
     );
     assert_eq!(
@@ -525,12 +591,11 @@ fn register_route_cap_and_deployment_are_checked() {
         Err(SccpGovernanceStaticError::TonMaxWrappedSupplyTooLarge { action: 0 })
     );
     for (network, deployment) in [
-        (TRON, evm([0x22; 20])),
-        (ETH, tron([0x22; 20])),
+        (ETH, ton([0x33; 32])),
         (BSC, ton([0x33; 32])),
         (TON, evm([0x22; 20])),
         (ETH, evm([0; 20])),
-        (TRON, tron([0; 20])),
+        (BSC, evm([0; 20])),
         (TON, ton([0; 32])),
     ] {
         assert_eq!(
@@ -557,17 +622,6 @@ fn duplicate_destination_words_are_rejected_within_one_proposal() {
             first: 0,
         })
     );
-    // A TRON address without its prefix equals the EVM word of the same 20 bytes.
-    assert_eq!(
-        validate(vec![
-            register(TRON, tron([0x22; 20])),
-            register(ETH, evm([0x22; 20])),
-        ]),
-        Err(SccpGovernanceStaticError::DuplicateDestinationWord {
-            action: 1,
-            first: 0,
-        })
-    );
     let mut word = [0_u8; 32];
     word[12..].copy_from_slice(&[0x22; 20]);
     assert_eq!(
@@ -584,7 +638,6 @@ fn duplicate_destination_words_are_rejected_within_one_proposal() {
         validate(vec![
             register(ETH, evm([0x22; 20])),
             register(BSC, evm([0x23; 20])),
-            register(TRON, tron([0x24; 20])),
             register(TON, ton([0x25; 32])),
         ]),
         Ok(())
@@ -643,7 +696,7 @@ fn initialize_light_client_is_checked() {
     );
 
     let mut bootstrap_mismatch = initialize(ETH);
-    bootstrap_mismatch.bootstrap.network = TRON;
+    bootstrap_mismatch.bootstrap.network = BSC;
     assert_eq!(
         validate(vec![SccpGovernanceActionV1::InitializeLightClient(
             bootstrap_mismatch
@@ -676,7 +729,7 @@ fn initialize_light_client_is_checked() {
         })
     );
 
-    let mut unusable = initialize(TRON);
+    let mut unusable = initialize(BSC);
     unusable.expected = SccpLcInitExpectationV1::Unusable;
     assert_eq!(
         validate(vec![SccpGovernanceActionV1::InitializeLightClient(
@@ -696,7 +749,7 @@ fn activate_light_client_profile_is_checked() {
             Err(SccpGovernanceStaticError::GenesisLightClientProfileVersion { action: 0, version })
         );
     }
-    let mut zero_hash = activate_profile(TRON, 3);
+    let mut zero_hash = activate_profile(BSC, 3);
     if let SccpGovernanceActionV1::ActivateLightClientProfile(action) = &mut zero_hash {
         action.profile_hash = [0; 32];
     }
@@ -705,9 +758,9 @@ fn activate_light_client_profile_is_checked() {
         Err(SccpGovernanceStaticError::ZeroLightClientProfileHash { action: 0 })
     );
     // It shares the light-client lane subject with initialization, checkpoints and freezes.
-    let action = activate_profile(TRON, 2);
-    assert_eq!(action.subject(), SccpGovernanceSubjectV1::LightClient(TRON));
-    assert_eq!(action.network(), Some(TRON));
+    let action = activate_profile(BSC, 2);
+    assert_eq!(action.subject(), SccpGovernanceSubjectV1::LightClient(BSC));
+    assert_eq!(action.network(), Some(BSC));
     assert_eq!(action.first_json_u64_violation(), None);
     let error = SccpGovernanceStaticError::GenesisLightClientProfileVersion {
         action: 3,
@@ -751,7 +804,7 @@ fn activate_light_client_profile_has_a_fixed_layout() {
 #[test]
 fn set_parameters_is_checked() {
     let mut next = SccpParametersV1::taira_default();
-    next.max_exempt_transactions_per_block = 93;
+    next.max_exempt_transactions_per_block = 7;
     assert_eq!(
         validate(vec![SccpGovernanceActionV1::SetParameters(
             SccpSetParametersActionV1 { next }
@@ -762,7 +815,7 @@ fn set_parameters_is_checked() {
         })
     );
     next.enabled = false;
-    next.max_exempt_transactions_per_block = 94;
+    next.max_exempt_transactions_per_block = 8;
     assert_eq!(
         validate(vec![SccpGovernanceActionV1::SetParameters(
             SccpSetParametersActionV1 { next }
@@ -774,20 +827,28 @@ fn set_parameters_is_checked() {
 #[test]
 fn base_revisions_must_equal_the_sorted_subject_list() {
     let live = network_id(1);
-    let valid = proposal(every_action());
+    let valid = proposal(lifecycle_actions());
     assert_eq!(valid.validate_static(&live), Ok(()));
 
     let mut missing = valid.clone();
     missing.base_revisions.pop();
+    // A subject no action names, at its sorted position.
     let mut extra = valid.clone();
-    extra.base_revisions.push(SccpGovernanceBaseRevisionV1 {
-        subject: SccpGovernanceSubjectV1::BridgeKeyFault(peer(4)),
-        revision: 0,
-    });
+    assert_eq!(
+        extra.base_revisions[3].subject,
+        SccpGovernanceSubjectV1::RouteControl(BSC)
+    );
+    extra.base_revisions.insert(
+        4,
+        SccpGovernanceBaseRevisionV1 {
+            subject: SccpGovernanceSubjectV1::RouteControl(TON),
+            revision: 0,
+        },
+    );
     let mut unsorted = valid.clone();
     unsorted.base_revisions.swap(0, 1);
     let mut duplicated = valid.clone();
-    let first = duplicated.base_revisions[0].clone();
+    let first = duplicated.base_revisions[0];
     duplicated.base_revisions.insert(0, first);
     let mut wrong_subject = valid.clone();
     wrong_subject.base_revisions[0].subject = SccpGovernanceSubjectV1::RouteControl(ETH);
@@ -812,7 +873,7 @@ fn base_revisions_must_equal_the_sorted_subject_list() {
 #[test]
 fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
     let live = network_id(1);
-    let mut at = proposal(every_action());
+    let mut at = proposal(lifecycle_actions());
     for entry in &mut at.base_revisions {
         entry.revision = JSON_MAX;
     }
@@ -830,15 +891,6 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
     );
 
-    let generation = |value| {
-        SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
-            network: ETH,
-            revision: 1,
-            deployment: evm([0x22; 20]),
-            max_wrapped_supply: 1,
-            initial_roster_generation: value,
-        })
-    };
     let light_client = |value| {
         let mut action = initialize(ETH);
         action.params.set_retention_ms = value;
@@ -862,17 +914,14 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
     };
     let parameters = |value| {
         let mut next = SccpParametersV1::taira_default();
-        next.roster_validity_ms = value;
+        next.committee_validity_ms = value;
         SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 { next })
     };
-    let fault_height = |value| SccpGovernanceActionV1::ClearBridgeKeyFault(fault(value));
-    let builders: [(&str, &dyn Fn(u64) -> SccpGovernanceActionV1); 6] = [
-        ("initial_roster_generation", &generation),
+    let builders: [(&str, &dyn Fn(u64) -> SccpGovernanceActionV1); 4] = [
         ("set_retention_ms", &light_client),
         ("source_height", &checkpoint_height),
         ("source_time_ms", &checkpoint_time),
-        ("roster_validity_ms", &parameters),
-        ("fault height", &fault_height),
+        ("committee_validity_ms", &parameters),
     ];
     for (field, build) in builders {
         let within = proposal(vec![build(JSON_MAX)]);
@@ -888,27 +937,35 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
         );
     }
     // Actions without u64 fields never report a violation.
-    for action in every_action() {
+    for action in lifecycle_actions() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }
     // Validation reports the JSON bound when no earlier rule catches the value.
     assert_eq!(
-        proposal(vec![generation(JSON_MAX + 1)]).validate_static(&live),
+        proposal(vec![checkpoint_height(JSON_MAX + 1)]).validate_static(&live),
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger {
-            detail: "SCCP proposal initial_roster_generation exceeds the exact JSON integer maximum",
+            detail: "SCCP checkpoint source_height exceeds the exact JSON integer maximum",
         })
     );
     assert_eq!(
-        proposal(vec![fault_height(JSON_MAX + 1)]).validate_static(&live),
+        proposal(vec![checkpoint_time(JSON_MAX + 1)]).validate_static(&live),
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger {
-            detail: "SCCP bridge-key fault height exceeds the exact JSON integer maximum",
+            detail: "SCCP checkpoint source_time_ms exceeds the exact JSON integer maximum",
+        })
+    );
+    // A parameter above the bound breaks its own table rule first.
+    assert_eq!(
+        proposal(vec![parameters(JSON_MAX + 1)]).validate_static(&live),
+        Err(SccpGovernanceStaticError::InvalidParameters {
+            action: 0,
+            error: SccpParametersError::CommitteeValidityTooLong,
         })
     );
 }
 
 #[test]
 fn every_type_roundtrips_through_binary_and_json() {
-    for action in every_action() {
+    for action in lifecycle_actions() {
         roundtrip(&action);
         roundtrip(&action.subject());
     }
@@ -918,9 +975,9 @@ fn every_type_roundtrips_through_binary_and_json() {
         revision: JSON_MAX,
     });
     roundtrip(&register(TON, ton([0x33; 32])));
-    roundtrip(&register(TRON, tron([0x34; 20])));
+    roundtrip(&register(BSC, evm([0x34; 20])));
     roundtrip(&release(u128::MAX, "\u{3042} memo"));
-    let mut proposal = proposal(every_action());
+    let mut proposal = proposal(lifecycle_actions());
     proposal.base_revisions[0].revision = 11;
     roundtrip(&proposal);
     roundtrip(&SccpGovernanceProposalV1 {
@@ -952,7 +1009,8 @@ fn proposal_json_is_closed_and_amounts_are_decimal_strings() {
 
 #[test]
 fn unknown_action_and_subject_tags_are_rejected() {
-    for unsupported_tag in [15_u32, 16, u32::MAX] {
+    // 13 was the bridge-key fault clearing; it stays unassigned.
+    for unsupported_tag in [13_u32, 19, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -963,7 +1021,8 @@ fn unknown_action_and_subject_tags_are_rejected() {
             "action tag {unsupported_tag} unexpectedly decoded"
         );
     }
-    for unsupported_tag in [5_u32, u32::MAX] {
+    // 4 was the bridge-key fault subject; it stays unassigned.
+    for unsupported_tag in [4_u32, 8, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -974,6 +1033,85 @@ fn unknown_action_and_subject_tags_are_rejected() {
             "subject tag {unsupported_tag} unexpectedly decoded"
         );
     }
+}
+
+#[test]
+fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
+    // The JSON tags of the retired action and subject are refused, with any payload.
+    let subject = norito::json::to_json(&SccpGovernanceSubjectV1::Route(ETH)).expect("json");
+    assert!(subject.contains(r#""subject":"route""#), "{subject}");
+    let retired_subject =
+        subject.replace(r#""subject":"route""#, r#""subject":"bridge_key_fault""#);
+    assert!(norito::json::from_json::<SccpGovernanceSubjectV1>(&retired_subject).is_err());
+    let action = norito::json::to_json(&SccpGovernanceActionV1::FreezeLightClient(
+        SccpFreezeLightClientActionV1 { network: ETH },
+    ))
+    .expect("json");
+    assert!(
+        action.contains(r#""action":"freeze_light_client""#),
+        "{action}"
+    );
+    let retired_action = action.replace(
+        r#""action":"freeze_light_client""#,
+        r#""action":"clear_bridge_key_fault""#,
+    );
+    assert!(norito::json::from_json::<SccpGovernanceActionV1>(&retired_action).is_err());
+    for payload in ["{}", r#"{"peer":"x","fault":{"address":"00","height":1}}"#] {
+        let json = format!(r#"{{"action":"clear_bridge_key_fault","payload":{payload}}}"#);
+        assert!(
+            norito::json::from_json::<SccpGovernanceActionV1>(&json).is_err(),
+            "{json}"
+        );
+    }
+    // Every action that survives keeps its codec index: the freed 13 is a hole, not a shift.
+    let actions = lifecycle_actions();
+    let indices: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
+    assert_eq!(actions.len(), indices.len());
+    for (action, index) in actions.iter().zip(indices) {
+        assert!(action.encode().starts_with(&index.encode()), "{action:?}");
+    }
+    for (subject, index) in [
+        SccpGovernanceSubjectV1::Route(ETH),
+        SccpGovernanceSubjectV1::RouteControl(ETH),
+        SccpGovernanceSubjectV1::LightClient(ETH),
+        SccpGovernanceSubjectV1::Parameters,
+    ]
+    .iter()
+    .zip(0_u32..)
+    {
+        assert!(subject.encode().starts_with(&index.encode()), "{subject:?}");
+    }
+}
+
+#[test]
+fn register_route_requires_the_native_pin_and_rejects_retired_roster_fields() {
+    let action = register(ETH, evm([0x22; 20]));
+    let mut value = norito::json::to_value(&action).expect("value");
+    let payload = value
+        .as_object_mut()
+        .expect("action object")
+        .get_mut("payload")
+        .and_then(norito::json::Value::as_object_mut)
+        .expect("payload object");
+    let fields: Vec<&str> = payload.keys().map(String::as_str).collect();
+    assert_eq!(
+        fields,
+        [
+            "deployment",
+            "initial_committee",
+            "max_wrapped_supply",
+            "network",
+            "revision"
+        ]
+    );
+    assert_eq!(action.first_json_u64_violation(), None);
+    // The retired roster pin is not a field of the action.
+    payload.insert(
+        "initial_roster_generation".to_owned(),
+        norito::json::Value::from(7_u64),
+    );
+    let hostile = norito::json::to_json(&value).expect("json");
+    assert!(norito::json::from_json::<SccpGovernanceActionV1>(&hostile).is_err());
 }
 
 #[test]
@@ -988,9 +1126,9 @@ fn static_errors_render_their_context() {
     );
     let nested = SccpGovernanceStaticError::InvalidParameters {
         action: 0,
-        error: SccpParametersError::RosterMaxAgeTooShort,
+        error: SccpParametersError::CommitteeHeartbeatTooShort,
     };
-    assert!(nested.to_string().contains("roster_max_age_ms"));
+    assert!(nested.to_string().contains("committee_heartbeat_ms"));
 }
 
 #[test]
@@ -1001,7 +1139,7 @@ fn trusted_checkpoints_are_refused_for_ton() {
             checkpoint: checkpoint(),
         })
     };
-    for network in [ETH, TRON, SccpNetworkV1::BscMainnet] {
+    for network in [ETH, BSC] {
         assert_eq!(validate(vec![install(network)]), Ok(()));
     }
     assert_eq!(
@@ -1017,5 +1155,147 @@ fn trusted_checkpoints_are_refused_for_ton() {
         SccpGovernanceStaticError::TonTrustedCheckpoint { action: 1 }
             .to_string()
             .contains("reads none")
+    );
+}
+
+#[test]
+fn register_route_native_pin_is_required_and_shape_checked() {
+    let valid = register(ETH, evm([0x22; 20]));
+    assert_eq!(validate(vec![valid.clone()]), Ok(()));
+    let mut missing = norito::json::to_value(&valid).expect("JSON");
+    missing
+        .as_object_mut()
+        .unwrap()
+        .get_mut("payload")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("initial_committee");
+    assert!(
+        norito::json::from_json::<SccpGovernanceActionV1>(
+            &norito::json::to_json(&missing).unwrap()
+        )
+        .is_err()
+    );
+    for (bad_pin, error) in [
+        (
+            SccpCommitteePinV1 {
+                generation: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                start_height: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                until_ms: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                committee_root: [0; 32],
+                ..pin()
+            },
+            SccpNativeDataError::ZeroCommitteeRoot,
+        ),
+    ] {
+        let mut action = valid.clone();
+        let SccpGovernanceActionV1::RegisterRoute(ref mut value) = action else {
+            unreachable!()
+        };
+        value.initial_committee = bad_pin;
+        assert_eq!(
+            validate(vec![action]),
+            Err(SccpGovernanceStaticError::InvalidCommitteePin { action: 0, error })
+        );
+    }
+    assert_rejects_unknown_field(&valid, &["payload", "initial_committee"]);
+}
+
+#[test]
+fn register_route_native_pin_checks_each_exact_json_u64_boundary() {
+    for coordinate in 0..3 {
+        for at_bound in [true, false] {
+            let mut action = register(ETH, evm([0x22; 20]));
+            let SccpGovernanceActionV1::RegisterRoute(ref mut value) = action else {
+                unreachable!()
+            };
+            let field = match coordinate {
+                0 => &mut value.initial_committee.generation,
+                1 => &mut value.initial_committee.start_height,
+                _ => &mut value.initial_committee.until_ms,
+            };
+            *field = JSON_MAX + u64::from(!at_bound);
+            assert_eq!(action.first_json_u64_violation().is_none(), at_bound);
+            if at_bound {
+                assert_eq!(validate(vec![action]), Ok(()));
+            } else {
+                assert!(matches!(
+                    validate(vec![action]),
+                    Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn fast_pause_suspension_subjects_duration_bound_and_json_precision() {
+    let maximum = 3 * super::super::params::SCCP_MAX_FAST_PAUSE_MS_V1;
+    for duration in [0, maximum] {
+        let action =
+            SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+                network: ETH,
+                duration_ms: duration,
+            });
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &["payload"]);
+        assert_eq!(
+            action.subject(),
+            SccpGovernanceSubjectV1::FastPauseControl(ETH)
+        );
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(validate(vec![action.clone()]), Ok(()));
+        assert!(action.encode().starts_with(&18_u32.encode()));
+    }
+    let action = |duration_ms| {
+        SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+            network: ETH,
+            duration_ms,
+        })
+    };
+    assert_eq!(
+        validate(vec![action(maximum + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    assert!(action(JSON_MAX).first_json_u64_violation().is_none());
+    assert!(action(JSON_MAX + 1).first_json_u64_violation().is_some());
+    assert_eq!(
+        validate(vec![action(JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    for (subject, index) in [
+        (SccpGovernanceSubjectV1::FastHold(ETH), 6_u32),
+        (SccpGovernanceSubjectV1::FastPauseControl(ETH), 7),
+    ] {
+        roundtrip(&subject);
+        assert!(subject.encode().starts_with(&index.encode()));
+    }
+    let mut wrong_network = action(0);
+    let SccpGovernanceActionV1::SetFastPauseSuspended(ref mut payload) = wrong_network else {
+        unreachable!()
+    };
+    payload.network = TAIRA;
+    assert_eq!(
+        validate(vec![wrong_network]),
+        Err(SccpGovernanceStaticError::TairaNetwork { action: 0 })
     );
 }

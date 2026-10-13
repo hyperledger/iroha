@@ -1,4 +1,4 @@
-//! Hardened launcher and offline administrator CLI for the SoraFS software signer.
+//! Hardened launcher and offline administrator CLI for the `SoraFS` software signer.
 #[cfg(not(unix))]
 fn main() {
     eprintln!("SoraFS external software signer requires authenticated Unix peer credentials");
@@ -73,7 +73,7 @@ mod unix_main {
         /// Inherited descriptor containing exactly 32 wrapping-key bytes.
         #[arg(long, value_name = "FD", conflicts_with = "systemd_credential")]
         wrapping_key_fd: Option<i32>,
-        /// Name beneath systemd's CREDENTIALS_DIRECTORY; never a path or key value.
+        /// Name beneath systemd's `CREDENTIALS_DIRECTORY`; never a path or key value.
         #[arg(long, value_name = "NAME", conflicts_with = "wrapping_key_fd")]
         systemd_credential: Option<String>,
     }
@@ -138,16 +138,16 @@ mod unix_main {
         /// Lowercase-hex Governance DAG publisher peer ID (Governance only).
         #[arg(long, value_name = "LOWER_HEX")]
         governance_publisher_peer_id_hex: Option<String>,
-        /// Lowercase-hex 32-byte PoTR signer identity (PoTR only).
+        /// Lowercase-hex 32-byte `PoTR` signer identity (`PoTR` only).
         #[arg(long, value_name = "LOWER_HEX_64")]
         potr_signer_id_hex: Option<String>,
-        /// Lowercase-hex 32-byte PoTR provider identity (provider role only).
+        /// Lowercase-hex 32-byte `PoTR` provider identity (provider role only).
         #[arg(long, value_name = "LOWER_HEX_64")]
         potr_provider_id_hex: Option<String>,
         /// Governed textual billing signer identity (billing only).
         #[arg(long)]
         billing_signer_id: Option<String>,
-        /// Governed textual PoP issuer identity (PoP only).
+        /// Governed textual `PoP` issuer identity (`PoP` only).
         #[arg(long)]
         pop_issuer_id: Option<String>,
         /// Ed25519 or ML-DSA-65; promotion permits Ed25519 only.
@@ -418,12 +418,12 @@ mod unix_main {
         match cli.command {
             Command::Provision(args) => provision(args),
             Command::Serve(args) => serve(args),
-            Command::Qualify(args) => qualify(args),
-            Command::Sign(args) => sign(args),
-            Command::VerifyReceipt(args) => verify_receipt(args),
-            Command::Status(args) => status(args),
-            Command::Rotate(args) => rotate(args),
-            Command::Revoke(args) => revoke(args),
+            Command::Qualify(args) => qualify(&args),
+            Command::Sign(args) => sign(&args),
+            Command::VerifyReceipt(args) => verify_receipt(&args),
+            Command::Status(args) => status(&args),
+            Command::Rotate(args) => rotate(&args),
+            Command::Revoke(args) => revoke(&args),
         }
     }
     fn provision(args: ProvisionArgs) -> Result<(), CliError> {
@@ -543,12 +543,12 @@ mod unix_main {
             .and_then(SoftwareSignerServerV1::serve)
             .map_err(|_| CliError::Service)
     }
-    fn qualify(args: QualifyArgs) -> Result<(), CliError> {
+    fn qualify(args: &QualifyArgs) -> Result<(), CliError> {
         let client = SoftwareSignerClientV1::new(args.endpoint.load_policy()?);
         let provenance = client.qualify().map_err(|_| CliError::Client)?;
         write_canonical_new(&args.provenance_out, &provenance, 0o644)
     }
-    fn sign(args: SignArgs) -> Result<(), CliError> {
+    fn sign(args: &SignArgs) -> Result<(), CliError> {
         let operation_id = parse_digest(&args.operation_id)?;
         let payload = read_bounded_regular(&args.payload, MAX_SIGNING_PAYLOAD_BYTES_V1)?;
         let client = SoftwareSignerClientV1::new(args.endpoint.load_policy()?);
@@ -558,7 +558,7 @@ mod unix_main {
         write_signature_receipt_json_new(&args.receipt_out, &receipt)?;
         write_new(&args.signature_out, &receipt.signature, 0o644)
     }
-    fn verify_receipt(args: VerifyReceiptArgs) -> Result<(), CliError> {
+    fn verify_receipt(args: &VerifyReceiptArgs) -> Result<(), CliError> {
         let binding: SoftwareSignerPublicBindingV1 =
             read_canonical(&args.binding, MAX_PUBLIC_ARTIFACT_BYTES_V1)?;
         let payload = read_bounded_regular(&args.payload, MAX_SIGNING_PAYLOAD_BYTES_V1)?;
@@ -570,12 +570,12 @@ mod unix_main {
             .map_err(|_| CliError::Client)?;
         write_receipt_validation_json_new(&args.validation_out, &receipt, &signature, &binding)
     }
-    fn status(args: AdminStatusArgs) -> Result<(), CliError> {
+    fn status(args: &AdminStatusArgs) -> Result<(), CliError> {
         let client = SoftwareSignerAdministratorClientV1::new(args.endpoint.load_policy()?);
         let provenance = client.status().map_err(|_| CliError::Client)?;
         write_canonical_new(&args.provenance_out, &provenance, 0o644)
     }
-    fn rotate(args: RotateArgs) -> Result<(), CliError> {
+    fn rotate(args: &RotateArgs) -> Result<(), CliError> {
         let client = SoftwareSignerAdministratorClientV1::new(args.endpoint.load_policy()?);
         let provenance = client
             .rotate(SoftwareSignerRotationRequestV1 {
@@ -591,7 +591,7 @@ mod unix_main {
         write_canonical_new(&args.binding_out, &provenance.binding, 0o644)?;
         write_canonical_new(&args.provenance_out, &provenance, 0o644)
     }
-    fn revoke(args: RevokeArgs) -> Result<(), CliError> {
+    fn revoke(args: &RevokeArgs) -> Result<(), CliError> {
         let client = SoftwareSignerAdministratorClientV1::new(args.endpoint.load_policy()?);
         let provenance = client
             .revoke(
@@ -626,8 +626,8 @@ mod unix_main {
         use std::os::fd::AsFd as _;
 
         let metadata = rustix::fs::fstat(stdin.as_fd()).map_err(|_| CliError::Credential)?;
-        let owner_uid = u32::try_from(metadata.st_uid).map_err(|_| CliError::Credential)?;
-        let link_count = u64::try_from(metadata.st_nlink).map_err(|_| CliError::Credential)?;
+        let owner_uid = metadata.st_uid;
+        let link_count = u64::from(metadata.st_nlink);
         if !launchd_threshold_bundle_fifo_metadata_is_exact_v1(
             rustix::fs::FileType::from_raw_mode(metadata.st_mode),
             owner_uid,
@@ -864,7 +864,7 @@ mod unix_main {
     }
     fn parse_lower_hex_bytes(value: &str, maximum: usize) -> Result<Vec<u8>, CliError> {
         if value.is_empty()
-            || value.len() % 2 != 0
+            || !value.len().is_multiple_of(2)
             || value.len() > maximum.checked_mul(2).ok_or(CliError::Input)?
             || value
                 .bytes()
@@ -1724,7 +1724,7 @@ mod unix_main {
             assert_eq!(
                 restored
                     .iter()
-                    .map(|binding| binding.slot())
+                    .map(irohad::IrohaRuntimeProviderBindingV1::slot)
                     .collect::<Vec<_>>(),
                 vec![
                     IrohaRuntimeProviderSlotV1::GovernanceDagIpfsAuthenticator,

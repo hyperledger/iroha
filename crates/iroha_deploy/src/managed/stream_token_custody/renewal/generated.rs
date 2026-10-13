@@ -10,9 +10,18 @@ use iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCu
 use iroha_data_model::sumeragi_finality::EpochValidationScope;
 use std::sync::{Arc, atomic::AtomicBool};
 
+/// Original transaction carrier and the authenticated bounds used for its replay.
+#[derive(Clone, Copy)]
+pub(in crate::managed::stream_token_custody) struct CarrierReplay<'a> {
+    pub(in crate::managed::stream_token_custody) checkpoint: &'a [u8],
+    pub(in crate::managed::stream_token_custody) transaction: &'a SignedTransaction,
+    pub(in crate::managed::stream_token_custody) height: u64,
+    pub(in crate::managed::stream_token_custody) observed_height: u64,
+}
+
 /// Closed I/O boundary only; successful inputs still come from the sole native proof owners.
-/// Production always uses NativeReads. Genuine component fixtures supply the existing native
-/// FinalitySource without installing a runtime override or a parallel proof verifier.
+/// Production always uses `NativeReads`. Genuine component fixtures supply the existing native
+/// `FinalitySource` without installing a runtime override or a parallel proof verifier.
 pub(in crate::managed::stream_token_custody) trait RenewalReads {
     fn observe(
         &self,
@@ -24,10 +33,7 @@ pub(in crate::managed::stream_token_custody) trait RenewalReads {
         &self,
         authority: &ServiceAuthority,
         directory: &PrivateDirectory,
-        checkpoint: &[u8],
-        transaction: &SignedTransaction,
-        height: u64,
-        observed_height: u64,
+        carrier: CarrierReplay<'_>,
         deadline: Instant,
     ) -> Result<()>;
 }
@@ -45,18 +51,15 @@ impl RenewalReads for NativeReads {
         &self,
         authority: &ServiceAuthority,
         directory: &PrivateDirectory,
-        checkpoint: &[u8],
-        transaction: &SignedTransaction,
-        height: u64,
-        observed_height: u64,
+        carrier: CarrierReplay<'_>,
         deadline: Instant,
     ) -> Result<()> {
         authority.advance_carrier_at(
             directory,
-            checkpoint,
-            transaction,
-            height,
-            observed_height,
+            carrier.checkpoint,
+            carrier.transaction,
+            carrier.height,
+            carrier.observed_height,
             deadline,
         )?;
         Ok(())
@@ -90,12 +93,20 @@ impl DispatchAuthorization for GeneratedRenewalAuthorization {
 }
 /// Current means the exact original head passed the existing current-use verifier at this cut.
 /// It remains an observation; the renderer and daemon must independently requalify their use.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Generated renewal returns its existing enrolled head without allocating after the bounded read"
+)]
 pub(in crate::managed) enum Reconciliation {
     Current(RetainedCustodyEnrollment),
     Pending(ManagedCustodyProgress),
 }
 // Sequential local phases borrow the same authenticated cut and move the same body graph.
 // This is control flow within one call, not a new authorization or retained observation.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "The sequential renewal phase moves the same retained body graph without an extra allocation during admission"
+)]
 enum RenewalMaterial<'a> {
     Current(RetainedCustodyEnrollment),
     Pending(PendingRenewal<'a>),
@@ -118,7 +129,7 @@ impl GeneratedRenewalTurn {
     ) -> Result<Self> {
         let mut validation = EpochValidationScope::new();
         let mut imports = CheckpointImports::new(&owner.authority, Some(&mut validation));
-        let result = Self::begin_with_imports(
+        Self::begin_with_imports(
             owner,
             policy,
             fees,
@@ -126,10 +137,7 @@ impl GeneratedRenewalTurn {
             deadline,
             cancelled,
             &mut imports,
-        );
-        drop(imports);
-        drop(validation);
-        result
+        )
     }
 
     fn begin_with_imports(
@@ -346,10 +354,12 @@ impl ManagedStreamTokenCustody {
             reads.retain_carrier(
                 &self.authority,
                 selected.directory(),
-                &original.checkpoint,
-                &transaction,
-                native.record().execution_height,
-                current.height(),
+                CarrierReplay {
+                    checkpoint: &original.checkpoint,
+                    transaction: &transaction,
+                    height: native.record().execution_height,
+                    observed_height: current.height(),
+                },
                 deadline,
             )?;
         }
@@ -523,14 +533,13 @@ impl ManagedStreamTokenCustody {
                 now,
             )?;
         }
-        if let Some(authorization) = &turn.authorization {
-            if matches!(authorization.purpose, Purpose::CustodyRenewal { sequence, .. } if head.sequence == sequence)
-            {
-                if !usable {
-                    return Err(ManagedBootstrapFailure::EnrollmentExpired.into());
-                }
-                return Ok(RenewalMaterial::Current(retained));
+        if let Some(authorization) = &turn.authorization
+            && matches!(authorization.purpose, Purpose::CustodyRenewal { sequence, .. } if head.sequence == sequence)
+        {
+            if !usable {
+                return Err(ManagedBootstrapFailure::EnrollmentExpired.into());
             }
+            return Ok(RenewalMaterial::Current(retained));
         }
         if head.sequence == 64 {
             return if usable {
@@ -603,20 +612,19 @@ impl ManagedStreamTokenCustody {
                 deadline,
             )
         };
-        let history = match existing {
-            Some(history) => history,
-            None => {
-                let unsigned = select_fresh(self, &turn.fees)?;
-                turn.check(self, deadline)?;
-                BodyHistory::initialize(
-                    self,
-                    CustodyPurpose::Renewal(next),
-                    unsigned,
-                    &turn.fees,
-                    &SigningTurn::RenewalSelection(turn),
-                    deadline,
-                )?
-            }
+        let history = if let Some(history) = existing {
+            history
+        } else {
+            let unsigned = select_fresh(self, &turn.fees)?;
+            turn.check(self, deadline)?;
+            BodyHistory::initialize(
+                self,
+                CustodyPurpose::Renewal(next),
+                unsigned,
+                &turn.fees,
+                &SigningTurn::RenewalSelection(turn),
+                deadline,
+            )?
         };
         let authorization = turn.authorize_retained(self, &history, deadline)?;
         let history = if history.preserve_paid_body(self)? {
@@ -628,7 +636,8 @@ impl ManagedStreamTokenCustody {
                 &SigningTurn::Generated(authorization),
                 deadline,
             )?;
-            let history = if history.body_expired()? {
+
+            if history.body_expired()? {
                 let unsigned = select_fresh(self, authorization.fees())?;
                 history
                     .reserve_successor(self, unsigned, current, authorization, deadline)?
@@ -640,11 +649,10 @@ impl ManagedStreamTokenCustody {
                     )?
             } else {
                 history
-            };
-            history
+            }
         };
         let (operation, original, scope) = history.dispatch()?;
-        self.select_generated_attempt(operation, original, scope, authorization, deadline)?;
+        self.select_generated_attempt(operation, original, scope, authorization, deadline, None)?;
         let selected = history.into_reparsed_selected(self)?;
         let result = self.advance_selected(
             CustodyPurpose::Renewal(next),

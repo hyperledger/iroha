@@ -251,16 +251,21 @@ class _Reader:
         self.deadline.received(len(data))
         return data
 
-    def line(self) -> bytes:
+    def line(self, *, maximum: int = MAX_LINE_BYTES,
+             exceeded: str = "http_line_exceeded") -> bytes:
+        # Only the last byte of the previous prefix can begin a new CRLF pair.
+        # Rescanning the complete prefix per byte makes bounded framing quadratic.
+        search_from = 0
         while True:
-            boundary = self.buffer.find(b"\r\n")
+            boundary = self.buffer.find(b"\r\n", search_from)
             if boundary >= 0:
-                _require(boundary <= MAX_LINE_BYTES, "http_line_exceeded")
+                _require(boundary <= maximum, exceeded)
                 line = bytes(self.buffer[:boundary])
                 del self.buffer[:boundary + 2]
                 _require(b"\n" not in line and b"\r" not in line, "http_framing_invalid")
                 return line
-            _require(len(self.buffer) <= MAX_LINE_BYTES + 1, "http_line_exceeded")
+            _require(len(self.buffer) <= maximum + 1, exceeded)
+            search_from = max(0, len(self.buffer) - 1)
             # Read only framing until the advertised body/chunk length has
             # passed the policy check. TLS may buffer encrypted records below
             # this plaintext interface; no excess plaintext body is retained.
@@ -284,7 +289,14 @@ def _response(reader: _Reader, route: str, cap: int) -> tuple[bytes, str]:
              "http_status_invalid")
     total, rows, headers = len(status) + 2, 0, {}
     while True:
-        line = reader.line()
+        # Admit the next line, including its CRLF, against the remaining header
+        # capacity before consuming it. A long final field cannot borrow another
+        # full line of input after the aggregate framing budget is exhausted.
+        remaining = MAX_HEADER_BYTES - total - 2
+        _require(remaining >= 0, "http_headers_exceeded")
+        line = reader.line(maximum=min(MAX_LINE_BYTES, remaining),
+                           exceeded="http_headers_exceeded" if remaining < MAX_LINE_BYTES
+                           else "http_line_exceeded")
         total += len(line) + 2
         _require(total <= MAX_HEADER_BYTES, "http_headers_exceeded")
         if not line:

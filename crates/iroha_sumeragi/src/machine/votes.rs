@@ -166,17 +166,77 @@ impl Core {
                 return;
             }
         }
-        let votes = self.votes.matching(x);
-        if votes.len() != self.cfg.committee.q() {
+        self.try_form_qc(x);
+    }
+
+    /// Retry only verified custody, selecting an exact quorum even if more votes arrived.
+    fn try_form_qc(&mut self, x: &Vote) {
+        if x.kind == VoteKind::Prepare && self.high_pqc.as_ref().is_some_and(|qc| qc.view >= x.view)
+        {
             return;
         }
-        let Ok(qc) = form_qc(&*self.crypto, self.n(), &votes) else {
+        let mut votes = self.votes.matching(x);
+        let q = self.cfg.committee.q();
+        if votes.len() < q {
             return;
+        }
+        votes.truncate(q);
+        let qc = match form_qc(&*self.crypto, self.n(), &votes) {
+            Ok(qc) => qc,
+            Err(crate::crypto::FormError::AggregationFailed(error)) => {
+                self.local_fault(crate::api::LocalFault::AggregationFailed {
+                    kind: match x.kind {
+                        VoteKind::Prepare => crate::api::CertificateKind::Prepare,
+                        VoteKind::Commit => crate::api::CertificateKind::Commit,
+                    },
+                    height: x.height,
+                    view: x.view,
+                    error,
+                });
+                return;
+            }
+            Err(_) => return,
         };
         self.cache_cert_qc(&qc);
         match qc.kind {
             VoteKind::Prepare => self.on_qc(qc, PqcVia::Formed),
             VoteKind::Commit => self.commit_height(qc, Via::Formed),
+        }
+    }
+
+    /// Retry retained certificate inputs at the existing rebroadcast cadence after local refusal.
+    pub(super) fn retry_certificates(&mut self) {
+        let height = self.height;
+        let q = self.cfg.committee.q();
+        // At most one value in each bounded phase/view pool can have an exact quorum.
+        let candidates: Vec<Vote> = self
+            .votes
+            .slots
+            .values()
+            .filter_map(|slots| {
+                let mut values = BTreeMap::new();
+                for vote in slots.iter().flatten() {
+                    let entry = values.entry(vote.value()).or_insert((0, *vote));
+                    entry.0 += 1;
+                }
+                values
+                    .into_values()
+                    .find_map(|(count, vote)| (count >= q).then_some(vote))
+            })
+            .collect();
+        for vote in candidates {
+            self.try_form_qc(&vote);
+            if !self.same_height(height) {
+                return;
+            }
+        }
+        let views: std::collections::BTreeSet<u64> =
+            self.timeouts.iter().flatten().map(|t| t.view).collect();
+        for view in views {
+            self.try_form_tc(view);
+            if !self.same_height(height) {
+                return;
+            }
         }
     }
 
@@ -308,7 +368,84 @@ impl Core {
         kind: VoteKind,
         (bh, result): (Hash32, Hash32),
     ) -> Option<Vote> {
-        let mut vote = Vote {
+        let signing_kind = match kind {
+            VoteKind::Prepare => crate::api::SigningKind::Prepare,
+            VoteKind::Commit => crate::api::SigningKind::Commit,
+        };
+        let preimage = crate::preimage::vote_preimage(
+            kind,
+            &self.instance,
+            &self.cfg.epoch.id,
+            self.height,
+            self.view,
+            &bh,
+            &result,
+        );
+        let sig = if kind == VoteKind::Prepare {
+            let retained = self
+                .safety
+                .as_ref()
+                .filter(|record| {
+                    record.prepare.is_some_and(|vote| {
+                        vote.view == self.view && vote.block_hash == bh && vote.result == result
+                    })
+                })
+                .and_then(|record| record.prepare_signature);
+            if let Some(signature) = retained {
+                signature
+            } else {
+                // The execution owner survives cached Valid, delayed stage raises and
+                // resource refusals. Check it at this actual first signing attempt.
+                let super::ExecState::Valid { admission } = self.exec.get(&bh)?.clone() else {
+                    return None;
+                };
+                if admission.result() != result {
+                    return None;
+                }
+                let request = crate::prepare_admission::PrepareSigningRequest {
+                    instance: self.instance,
+                    epoch: self.cfg.epoch.id,
+                    height: self.height,
+                    view: self.view,
+                    block_hash: bh,
+                    result,
+                    certified: self.certified_results(bh).contains(&result)
+                        || (cfg!(sumeragi_mutation = "MS67")
+                            && self
+                                .safety
+                                .as_ref()
+                                .and_then(|record| record.prepare)
+                                .is_some()),
+                };
+                let signer = self.keys.get(me.slot)?.signer.as_ref()?;
+                let signature = match signer.sign_prepare(&request, &admission) {
+                    Ok(signature) => signature,
+                    Err(error) => {
+                        self.local_fault(crate::api::LocalFault::SigningFailed {
+                            kind: signing_kind,
+                            height: self.height,
+                            view: self.view,
+                            error,
+                        });
+                        #[cfg(sumeragi_mutation = "MS54")]
+                        {
+                            Signature([0; crate::types::SIGNATURE_LEN])
+                        }
+                        #[cfg(not(sumeragi_mutation = "MS54"))]
+                        return None;
+                    }
+                };
+                self.safety.as_mut()?.prepare_signature = Some(signature);
+                // The existing safety barrier must make the actual successful bytes
+                // durable before this vote can be routed or enter a certificate pool.
+                #[cfg(not(sumeragi_mutation = "MS23"))]
+                self.persist();
+                signature
+            }
+        } else {
+            self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?
+        };
+        let vote = Vote {
             kind,
             instance: self.instance,
             epoch: self.cfg.epoch.id,
@@ -317,10 +454,8 @@ impl Core {
             block_hash: bh,
             result,
             signer: me.index,
-            sig: crate::types::Signature([0; crate::types::SIGNATURE_LEN]),
+            sig,
         };
-        // Only the fully signed object enters custody below; failure retains no vote.
-        vote.sig = self.sign(me, &vote.preimage())?;
         match kind {
             VoteKind::Prepare => self.mine.prepare = Some(vote),
             VoteKind::Commit => self.mine.commit = Some(vote),

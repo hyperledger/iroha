@@ -11,7 +11,7 @@ use super::recipe::InstalledSourceSealV1;
 use super::*;
 
 /// Bootstrap source qualification failed before any wallet capability was granted.
-#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum BootstrapQualificationErrorV1 {
     /// Installation, canonical metadata or bounded original read mismatch.
     #[error(transparent)]

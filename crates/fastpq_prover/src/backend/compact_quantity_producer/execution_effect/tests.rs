@@ -43,7 +43,7 @@ fn borrowed_artifact_and_carrier_match_the_only_owned_model_frames() {
         let borrowed = artifact(&view, &source, &framed);
         let owned = FastpqOrdinaryCompactArtifactV1 {
             profile_id: execution_effect_profile_id(),
-            source: source.clone(),
+            source,
             statement: statement.clone(),
             bundle_frame: framed.clone(),
         };
@@ -240,7 +240,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
     drop(reservation);
     assert_eq!(budget.reserved_bytes(), 0);
     // Same genuine proof cannot be replayed at another authenticated position.
-    let mut other = source.clone();
+    let mut other = source;
     other.entry_index += 1;
     let mut credit = budget.try_reserve_bytes(verify_credit).unwrap();
     assert!(matches!(

@@ -89,8 +89,8 @@ struct WritableFile {
 #[derive(Clone, Debug)]
 struct Request {
     platform: Platform,
-    expected_uid: u32,
-    expected_gid: u32,
+    expected_user: u32,
+    expected_group: u32,
     working_directory: PathBuf,
     readable_files: Vec<PathBuf>,
     readable_directories: Vec<PathBuf>,
@@ -132,7 +132,7 @@ struct ReaderResult {
 }
 
 fn main() -> ExitCode {
-    match entrypoint(env::args_os().collect()) {
+    match entrypoint(&env::args_os().collect::<Vec<_>>()) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
             eprintln!("authenticated-tool-controller: {}", error.message);
@@ -141,12 +141,12 @@ fn main() -> ExitCode {
     }
 }
 
-fn entrypoint(arguments: Vec<OsString>) -> Result<u8> {
+fn entrypoint(arguments: &[OsString]) -> Result<u8> {
     if arguments.len() < 2 {
         return Err(ControllerError::policy("missing subcommand"));
     }
     match arguments[1].to_str() {
-        Some("run-v1") => run(parse_request(&arguments[2..])?),
+        Some("run-v1") => run(&parse_request(&arguments[2..])?),
         Some("qualify-host-v1") => qualify_host(&arguments[2..]),
         Some("qualification-probe-v1") => qualification_probe(&arguments[2..]),
         _ => Err(ControllerError::policy("unsupported subcommand")),
@@ -322,11 +322,11 @@ fn parse_request(arguments: &[OsString]) -> Result<Request> {
         "linux" => Platform::Linux,
         _ => return Err(ControllerError::policy("unsupported request platform")),
     };
-    let expected_uid = parse_u32(
+    let expected_user = parse_u32(
         required_value(&values, "--expected-runtime-uid")?,
         "--expected-runtime-uid",
     )?;
-    let expected_gid = parse_u32(
+    let expected_group = parse_u32(
         required_value(&values, "--expected-runtime-gid")?,
         "--expected-runtime-gid",
     )?;
@@ -456,8 +456,8 @@ fn parse_request(arguments: &[OsString]) -> Result<Request> {
     validate_tool_arguments(&tool)?;
     Ok(Request {
         platform,
-        expected_uid,
-        expected_gid,
+        expected_user,
+        expected_group,
         working_directory,
         readable_files,
         readable_directories,
@@ -590,10 +590,10 @@ fn validate_tool_arguments(tool: &[OsString]) -> Result<()> {
     Ok(())
 }
 
-fn run(request: Request) -> Result<u8> {
-    validate_environment(&request)?;
+fn run(request: &Request) -> Result<u8> {
+    validate_environment(request)?;
     validate_no_inherited_fds()?;
-    validate_runtime_identity(&request)?;
+    validate_runtime_identity(request)?;
     match request.platform {
         Platform::Macos => {
             #[cfg(target_os = "macos")]
@@ -659,8 +659,8 @@ impl QualificationRoot {
         let metadata = fs::symlink_metadata(&path)
             .map_err(|_| ControllerError::policy("host qualification root is unavailable"))?;
         if !metadata.is_dir()
-            || metadata.uid() != effective_uid()
-            || metadata.gid() != effective_gid()
+            || metadata.uid() != effective_user()
+            || metadata.gid() != effective_group()
             || metadata.permissions().mode() & 0o077 != 0
         {
             let _ = fs::remove_dir_all(&path);
@@ -703,9 +703,11 @@ fn qualify_macos_host() -> Result<()> {
     let success_root = root.case("success")?;
     let allowed = success_root.join("allowed");
     let success = run_qualification_request(
-        &executable,
-        &root.path,
-        &success_root,
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: &success_root,
+        },
         Some(("allowed", 128)),
         &[],
         "2",
@@ -726,9 +728,11 @@ fn qualify_macos_host() -> Result<()> {
     }
 
     let create_new = run_qualification_request(
-        &executable,
-        &root.path,
-        &success_root,
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: &success_root,
+        },
         Some(("allowed", 128)),
         &[],
         "2",
@@ -748,9 +752,11 @@ fn qualify_macos_host() -> Result<()> {
     let cumulative_root = root.case("cumulative-quota")?;
     let cumulative_output = cumulative_root.join("allowed");
     let cumulative = run_qualification_request_with_quotas(
-        &executable,
-        &root.path,
-        &cumulative_root,
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: &cumulative_root,
+        },
         ("allowed", 128),
         (32, 128),
         &[],
@@ -773,9 +779,11 @@ fn qualify_macos_host() -> Result<()> {
     write_qualification_file(&live_root.join("protected"), &[b'p'; 100])?;
     let live_output = live_root.join("allowed");
     let live = run_qualification_request_with_quotas(
-        &executable,
-        &root.path,
-        &live_root,
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: &live_root,
+        },
         ("allowed", 128),
         (128, 128),
         &[],
@@ -800,9 +808,11 @@ fn qualify_macos_host() -> Result<()> {
     write_qualification_file(&readable, b"qualified readable bytes\n")?;
     write_qualification_file(&secret, b"qualified secret bytes\n")?;
     let read = run_qualification_request(
-        &executable,
-        &root.path,
-        Path::new("/"),
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: Path::new("/"),
+        },
         None,
         &[readable.as_path()],
         "2",
@@ -821,9 +831,11 @@ fn qualify_macos_host() -> Result<()> {
         (Path::new("/etc/passwd"), "ambient system read"),
     ] {
         let denied = run_qualification_request(
-            &executable,
-            &root.path,
-            Path::new("/"),
+            QualificationTarget {
+                executable: &executable,
+                temporary: &root.path,
+                working_directory: Path::new("/"),
+            },
             None,
             &[readable.as_path()],
             "2",
@@ -855,9 +867,11 @@ fn qualify_macos_host() -> Result<()> {
         ("ambient-sysctl", "qualification ambient sysctl denied"),
     ] {
         let denied = run_qualification_request(
-            &executable,
-            &root.path,
-            Path::new("/"),
+            QualificationTarget {
+                executable: &executable,
+                temporary: &root.path,
+                working_directory: Path::new("/"),
+            },
             None,
             &[],
             "2",
@@ -912,14 +926,16 @@ fn qualify_macos_host() -> Result<()> {
         let rendered = probe
             .into_iter()
             .map(|argument| match argument.to_str() {
-                Some("allowed") | Some("other") => case.join(argument).into_os_string(),
+                Some("allowed" | "other") => case.join(argument).into_os_string(),
                 _ => argument,
             })
             .collect::<Vec<_>>();
         let denied = run_qualification_request(
-            &executable,
-            &root.path,
-            &case,
+            QualificationTarget {
+                executable: &executable,
+                temporary: &root.path,
+                working_directory: &case,
+            },
             Some(("allowed", 128)),
             &[],
             "2",
@@ -940,9 +956,11 @@ fn qualify_macos_host() -> Result<()> {
     }
 
     let overflow = run_qualification_request(
-        &executable,
-        &root.path,
-        Path::new("/"),
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: Path::new("/"),
+        },
         None,
         &[],
         "2",
@@ -956,9 +974,11 @@ fn qualify_macos_host() -> Result<()> {
         "output bound",
     )?;
     let timeout = run_qualification_request(
-        &executable,
-        &root.path,
-        Path::new("/"),
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: Path::new("/"),
+        },
         None,
         &[],
         "0.1",
@@ -972,9 +992,11 @@ fn qualify_macos_host() -> Result<()> {
         "wall-time bound",
     )?;
     let exact_status = run_qualification_request(
-        &executable,
-        &root.path,
-        Path::new("/"),
+        QualificationTarget {
+            executable: &executable,
+            temporary: &root.path,
+            working_directory: Path::new("/"),
+        },
         None,
         &[],
         "2",
@@ -995,15 +1017,21 @@ fn qualify_macos_host() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn write_qualification_file(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::write(path, bytes)
-        .and_then(|_| fs::set_permissions(path, fs::Permissions::from_mode(0o600)))
+        .and_then(|()| fs::set_permissions(path, fs::Permissions::from_mode(0o600)))
         .map_err(|_| ControllerError::policy("host qualification input could not be created"))
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct QualificationTarget<'a> {
+    executable: &'a Path,
+    temporary: &'a Path,
+    working_directory: &'a Path,
+}
+
+#[cfg(target_os = "macos")]
 fn qualification_command(
-    executable: &Path,
-    temporary: &Path,
-    working_directory: &Path,
+    target: QualificationTarget<'_>,
     writable: Option<(&str, u64)>,
     write_quotas: Option<(u64, u64)>,
     readable_files: &[&Path],
@@ -1011,6 +1039,11 @@ fn qualification_command(
     stdout_limit: u64,
     probe: &[OsString],
 ) -> Command {
+    let QualificationTarget {
+        executable,
+        temporary,
+        working_directory,
+    } = target;
     let mut arguments = vec![
         OsString::from("run-v1"),
         OsString::from("--contract"),
@@ -1018,9 +1051,9 @@ fn qualification_command(
         OsString::from("--platform"),
         OsString::from("macos"),
         OsString::from("--expected-runtime-uid"),
-        OsString::from(effective_uid().to_string()),
+        OsString::from(effective_user().to_string()),
         OsString::from("--expected-runtime-gid"),
-        OsString::from(effective_gid().to_string()),
+        OsString::from(effective_group().to_string()),
         OsString::from("--working-directory"),
         working_directory.as_os_str().to_owned(),
         OsString::from("--use-attested-runtime-identity"),
@@ -1093,19 +1126,24 @@ fn qualification_command(
 
 #[cfg(target_os = "macos")]
 fn run_qualification_request(
-    executable: &Path,
-    temporary: &Path,
-    working_directory: &Path,
+    target: QualificationTarget<'_>,
     writable: Option<(&str, u64)>,
     readable_files: &[&Path],
     wall_seconds: &str,
     stdout_limit: u64,
     probe: &[OsString],
 ) -> Result<Output> {
-    qualification_command(
+    let QualificationTarget {
         executable,
         temporary,
         working_directory,
+    } = target;
+    qualification_command(
+        QualificationTarget {
+            executable,
+            temporary,
+            working_directory,
+        },
         writable,
         None,
         readable_files,
@@ -1118,11 +1156,8 @@ fn run_qualification_request(
 }
 
 #[cfg(target_os = "macos")]
-#[allow(clippy::too_many_arguments)]
 fn run_qualification_request_with_quotas(
-    executable: &Path,
-    temporary: &Path,
-    working_directory: &Path,
+    target: QualificationTarget<'_>,
     writable: (&str, u64),
     write_quotas: (u64, u64),
     readable_files: &[&Path],
@@ -1130,10 +1165,17 @@ fn run_qualification_request_with_quotas(
     stdout_limit: u64,
     probe: &[OsString],
 ) -> Result<Output> {
-    qualification_command(
+    let QualificationTarget {
         executable,
         temporary,
         working_directory,
+    } = target;
+    qualification_command(
+        QualificationTarget {
+            executable,
+            temporary,
+            working_directory,
+        },
         Some(writable),
         Some(write_quotas),
         readable_files,
@@ -1187,9 +1229,11 @@ fn require_qualification_stderr(
 #[cfg(target_os = "macos")]
 fn qualify_watchdog(executable: &Path, temporary: &Path) -> Result<()> {
     let mut command = qualification_command(
-        executable,
-        temporary,
-        Path::new("/"),
+        QualificationTarget {
+            executable,
+            temporary,
+            working_directory: Path::new("/"),
+        },
         None,
         None,
         &[],
@@ -1218,7 +1262,7 @@ fn qualify_watchdog(executable: &Path, temporary: &Path) -> Result<()> {
     };
     controller
         .kill()
-        .and_then(|_| controller.wait().map(|_| ()))
+        .and_then(|()| controller.wait().map(|_| ()))
         .map_err(|_| ControllerError::policy("host watchdog controller could not be killed"))?;
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
@@ -1266,7 +1310,7 @@ fn qualification_child_pids(parent: u32) -> Result<Vec<u32>> {
             .ok_or_else(|| ControllerError::policy("host watchdog process inventory is invalid"))?
             .parse::<u32>()
             .map_err(|_| ControllerError::policy("host watchdog process inventory is invalid"))?;
-        let ppid = fields
+        let parent_id = fields
             .next()
             .ok_or_else(|| ControllerError::policy("host watchdog process inventory is invalid"))?
             .parse::<u32>()
@@ -1276,7 +1320,7 @@ fn qualification_child_pids(parent: u32) -> Result<Vec<u32>> {
                 "host watchdog process inventory is invalid",
             ));
         }
-        if ppid == parent {
+        if parent_id == parent {
             children.push(pid);
         }
     }
@@ -1392,7 +1436,7 @@ fn validate_environment_directory(path: &Path, name: &str) -> Result<()> {
             "environment {name} is not canonical and symlink-free"
         )));
     }
-    let runtime_uid = effective_uid();
+    let runtime_uid = effective_user();
     for directory in path.ancestors() {
         let metadata = fs::symlink_metadata(directory).map_err(|_| {
             ControllerError::policy(format!("environment {name} custody is unavailable"))
@@ -1473,12 +1517,12 @@ fn validate_runtime_identity(request: &Request) -> Result<()> {
         fn getgid() -> u32;
         fn getegid() -> u32;
     }
-    let (real_uid, effective_uid, real_gid, effective_gid) =
+    let (real_user, effective_user, real_group, effective_group) =
         unsafe { (getuid(), geteuid(), getgid(), getegid()) };
-    if real_uid != effective_uid
-        || real_gid != effective_gid
-        || effective_uid != request.expected_uid
-        || effective_gid != request.expected_gid
+    if real_user != effective_user
+        || real_group != effective_group
+        || effective_user != request.expected_user
+        || effective_group != request.expected_group
     {
         return Err(ControllerError::policy(
             "runtime identity differs from its exact attested credentials",
@@ -1499,28 +1543,28 @@ fn validate_runtime_identity(request: &Request) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos(request: Request) -> Result<u8> {
+fn run_macos(request: &Request) -> Result<u8> {
     let executable = PathBuf::from(&request.tool[0]);
     let executable = fs::canonicalize(&executable)
         .map_err(|_| ControllerError::policy("tool executable is unavailable"))?;
-    if executable != PathBuf::from(&request.tool[0]) {
+    if executable.as_os_str() != request.tool[0].as_os_str() {
         return Err(ControllerError::policy(
             "tool executable must be canonical and symlink-free",
         ));
     }
     validate_trusted_path(&executable, false)?;
     validate_trusted_path(Path::new(SANDBOX_EXEC), true)?;
-    validate_working_directory(&request)?;
-    prepare_writable_files(&request)?;
-    let readable_snapshots = validate_readable_inputs(&request)?;
+    validate_working_directory(request)?;
+    prepare_writable_files(request)?;
+    let readable_snapshots = validate_readable_inputs(request)?;
     let executable_identity = file_identity(&executable, true, true)?;
     let initial_root = if request.deny_all_writes {
         None
     } else {
         Some(root_snapshot(&request.working_directory)?)
     };
-    validate_write_state(&request, initial_root.as_ref())?;
-    let profile = macos_profile(&request, &executable)?;
+    validate_write_state(request, initial_root.as_ref())?;
+    let profile = macos_profile(request, &executable)?;
     validate_sandbox_profile(&profile)?;
 
     let environment: Vec<(OsString, OsString)> = env::vars_os().collect();
@@ -1547,7 +1591,8 @@ fn run_macos(request: Request) -> Result<u8> {
     let mut child = command
         .spawn()
         .map_err(|_| ControllerError::policy("failed to execute macOS Seatbelt controller"))?;
-    let process_group = child.id() as i32;
+    let process_group =
+        i32::try_from(child.id()).expect("a macOS child process identifier fits signed pid_t");
     let watchdog = match Watchdog::start(process_group) {
         Ok(watchdog) => watchdog,
         Err(error) => {
@@ -1603,7 +1648,7 @@ fn run_macos(request: Request) -> Result<u8> {
                 .map_err(|_| ControllerError::policy("failed to reap isolated tool"))?;
         }
         if !request.deny_all_writes
-            && let Err(error) = validate_write_state(&request, initial_root.as_ref())
+            && let Err(error) = validate_write_state(request, initial_root.as_ref())
         {
             failure = Some(error);
             terminate_process_group(&mut job.child, process_group)?;
@@ -1636,11 +1681,11 @@ fn run_macos(request: Request) -> Result<u8> {
     }
     io::stdout()
         .write_all(&stdout_result.bytes)
-        .and_then(|_| io::stdout().flush())
+        .and_then(|()| io::stdout().flush())
         .map_err(|_| ControllerError::policy("failed to forward tool stdout"))?;
     io::stderr()
         .write_all(&stderr_result.bytes)
-        .and_then(|_| io::stderr().flush())
+        .and_then(|()| io::stderr().flush())
         .map_err(|_| ControllerError::policy("failed to forward tool stderr"))?;
 
     ensure_empty_process_group(process_group)?;
@@ -1652,7 +1697,7 @@ fn run_macos(request: Request) -> Result<u8> {
     }
     validate_readable_snapshots(&readable_snapshots)?;
     if !request.deny_all_writes {
-        validate_write_state(&request, initial_root.as_ref())?;
+        validate_write_state(request, initial_root.as_ref())?;
     }
     if let Some(error) = failure {
         return Err(error);
@@ -1936,7 +1981,7 @@ fn validate_working_directory(request: &Request) -> Result<()> {
     let metadata = fs::metadata(&request.working_directory)
         .map_err(|_| ControllerError::policy("working directory is unavailable"))?;
     if !metadata.is_dir()
-        || metadata.uid() != effective_uid()
+        || metadata.uid() != effective_user()
         || metadata.permissions().mode() & 0o077 != 0
     {
         return Err(ControllerError::policy(
@@ -1965,7 +2010,7 @@ fn validate_readable_inputs(request: &Request) -> Result<Vec<(PathBuf, FileIdent
 fn validate_readable_path(path: &Path, require_directory: bool) -> Result<()> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|_| ControllerError::policy("readable input metadata is unavailable"))?;
-    let runtime_uid = effective_uid();
+    let runtime_uid = effective_user();
     let type_is_safe = if require_directory {
         metadata.is_dir()
     } else {
@@ -1985,7 +2030,7 @@ fn validate_readable_path(path: &Path, require_directory: bool) -> Result<()> {
 
 fn validate_readable_snapshots(snapshots: &[(PathBuf, FileIdentity)]) -> Result<()> {
     for (path, expected) in snapshots {
-        let require_regular = expected.mode & 0o170000 == 0o100000;
+        let require_regular = expected.mode & 0o170_000 == 0o100_000;
         if file_identity(path, require_regular, false)? != *expected {
             return Err(ControllerError::policy(format!(
                 "readable input changed during execution: {}",
@@ -2008,11 +2053,11 @@ fn prepare_writable_files(request: &Request) -> Result<()> {
                 validate_trusted_path_acl(&writable.path)?;
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let mut options = fs::OpenOptions::new();
                 #[cfg(target_os = "macos")]
                 const SAFE_CREATE_FLAGS: i32 = 0x0000_0100 | 0x0100_0000; // O_NOFOLLOW | O_CLOEXEC.
                 #[cfg(target_os = "linux")]
                 const SAFE_CREATE_FLAGS: i32 = 0x0002_0000 | 0x0008_0000; // O_NOFOLLOW | O_CLOEXEC.
+                let mut options = fs::OpenOptions::new();
                 options
                     .write(true)
                     .create_new(true)
@@ -2056,14 +2101,14 @@ fn validate_trusted_path(path: &Path, require_root_owner: bool) -> Result<()> {
     }
     let metadata = fs::symlink_metadata(path)
         .map_err(|_| ControllerError::policy("trusted executable metadata is unavailable"))?;
-    let expected_uid = if require_root_owner {
+    let expected_user = if require_root_owner {
         0
     } else {
-        effective_uid()
+        effective_user()
     };
     if !metadata.is_file()
         || metadata.nlink() != 1
-        || metadata.uid() != expected_uid
+        || metadata.uid() != expected_user
         || !trusted_executable_mode_is_safe(metadata.permissions().mode())
     {
         return Err(ControllerError::policy(
@@ -2080,7 +2125,7 @@ fn trusted_executable_mode_is_safe(mode: u32) -> bool {
 }
 
 fn validate_trusted_parent_chain(path: &Path) -> Result<()> {
-    let runtime_uid = effective_uid();
+    let runtime_uid = effective_user();
     for parent in path.ancestors().skip(1) {
         let metadata = fs::symlink_metadata(parent).map_err(|_| {
             ControllerError::policy("trusted executable parent metadata is unavailable")
@@ -2250,9 +2295,9 @@ fn directory_stable_fields(identity: &FileIdentity) -> (u64, u64, u32, u32, u32)
 }
 
 fn validate_writable_identity(name: &str, identity: &FileIdentity, limit: u64) -> Result<()> {
-    if identity.mode & 0o170000 != 0o100000
+    if identity.mode & 0o170_000 != 0o100_000
         || identity.links != 1
-        || identity.uid != effective_uid()
+        || identity.uid != effective_user()
         || identity.mode & 0o077 != 0
     {
         return Err(ControllerError::limit(format!(
@@ -2297,11 +2342,11 @@ fn file_identity(path: &Path, require_regular: bool, hash_contents: bool) -> Res
 }
 
 fn sha256_file(path: &Path) -> Result<[u8; 32]> {
-    let mut options = fs::OpenOptions::new();
     #[cfg(target_os = "macos")]
     const SAFE_OPEN_FLAGS: i32 = 0x0000_0100 | 0x0100_0000; // O_NOFOLLOW | O_CLOEXEC.
     #[cfg(target_os = "linux")]
     const SAFE_OPEN_FLAGS: i32 = 0x0002_0000 | 0x0008_0000; // O_NOFOLLOW | O_CLOEXEC.
+    let mut options = fs::OpenOptions::new();
     options.read(true).custom_flags(SAFE_OPEN_FLAGS);
     let mut file = options
         .open(path)
@@ -2315,7 +2360,7 @@ fn sha256_file(path: &Path) -> Result<[u8; 32]> {
         ));
     }
     let mut hash = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let count = file
             .read(&mut buffer)
@@ -2577,7 +2622,7 @@ impl Drop for Watchdog {
 }
 
 #[allow(unsafe_code, reason = "geteuid has no safe standard-library wrapper")]
-fn effective_uid() -> u32 {
+fn effective_user() -> u32 {
     unsafe extern "C" {
         fn geteuid() -> u32;
     }
@@ -2585,7 +2630,7 @@ fn effective_uid() -> u32 {
 }
 
 #[allow(unsafe_code, reason = "getegid has no safe standard-library wrapper")]
-fn effective_gid() -> u32 {
+fn effective_group() -> u32 {
     unsafe extern "C" {
         fn getegid() -> u32;
     }
@@ -2606,8 +2651,8 @@ fn qualification_probe(arguments: &[OsString]) -> Result<u8> {
             let path = probe_path(arguments, 1)?;
             fs::write(path, b"qualified\n")
                 .map_err(|_| ControllerError::policy("qualification write failed"))?;
-            print!("qualified stdout\n");
-            eprint!("qualified stderr\n");
+            println!("qualified stdout");
+            eprintln!("qualified stderr");
             Ok(0)
         }
         "write" => {
@@ -2812,23 +2857,83 @@ struct Sha256 {
 
 impl Sha256 {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
+        0x428a_2f98,
+        0x7137_4491,
+        0xb5c0_fbcf,
+        0xe9b5_dba5,
+        0x3956_c25b,
+        0x59f1_11f1,
+        0x923f_82a4,
+        0xab1c_5ed5,
+        0xd807_aa98,
+        0x1283_5b01,
+        0x2431_85be,
+        0x550c_7dc3,
+        0x72be_5d74,
+        0x80de_b1fe,
+        0x9bdc_06a7,
+        0xc19b_f174,
+        0xe49b_69c1,
+        0xefbe_4786,
+        0x0fc1_9dc6,
+        0x240c_a1cc,
+        0x2de9_2c6f,
+        0x4a74_84aa,
+        0x5cb0_a9dc,
+        0x76f9_88da,
+        0x983e_5152,
+        0xa831_c66d,
+        0xb003_27c8,
+        0xbf59_7fc7,
+        0xc6e0_0bf3,
+        0xd5a7_9147,
+        0x06ca_6351,
+        0x1429_2967,
+        0x27b7_0a85,
+        0x2e1b_2138,
+        0x4d2c_6dfc,
+        0x5338_0d13,
+        0x650a_7354,
+        0x766a_0abb,
+        0x81c2_c92e,
+        0x9272_2c85,
+        0xa2bf_e8a1,
+        0xa81a_664b,
+        0xc24b_8b70,
+        0xc76c_51a3,
+        0xd192_e819,
+        0xd699_0624,
+        0xf40e_3585,
+        0x106a_a070,
+        0x19a4_c116,
+        0x1e37_6c08,
+        0x2748_774c,
+        0x34b0_bcb5,
+        0x391c_0cb3,
+        0x4ed8_aa4a,
+        0x5b9c_ca4f,
+        0x682e_6ff3,
+        0x748f_82ee,
+        0x78a5_636f,
+        0x84c8_7814,
+        0x8cc7_0208,
+        0x90be_fffa,
+        0xa450_6ceb,
+        0xbef9_a3f7,
+        0xc671_78f2,
     ];
 
     const fn new() -> Self {
         Self {
             state: [
-                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-                0x5be0cd19,
+                0x6a09_e667,
+                0xbb67_ae85,
+                0x3c6e_f372,
+                0xa54f_f53a,
+                0x510e_527f,
+                0x9b05_688c,
+                0x1f83_d9ab,
+                0x5be0_cd19,
             ],
             block: [0; 64],
             buffered: 0,
@@ -2847,6 +2952,9 @@ impl Sha256 {
                 let block = self.block;
                 self.compress(&block);
                 self.buffered = 0;
+            } else {
+                // Preserve the incomplete block until a later update fills it.
+                return;
             }
         }
         while bytes.len() >= 64 {
@@ -2898,28 +3006,28 @@ impl Sha256 {
                 .wrapping_add(schedule[index - 7])
                 .wrapping_add(s1);
         }
-        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = self.state;
-        for index in 0..64 {
-            let sum1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-            let choose = (e & f) ^ ((!e) & g);
-            let temporary1 = h
+        let mut working = self.state;
+        for (&constant, &word) in Self::K.iter().zip(&schedule) {
+            let sum1 = working[4].rotate_right(6)
+                ^ working[4].rotate_right(11)
+                ^ working[4].rotate_right(25);
+            let choose = (working[4] & working[5]) ^ ((!working[4]) & working[6]);
+            let temporary1 = working[7]
                 .wrapping_add(sum1)
                 .wrapping_add(choose)
-                .wrapping_add(Self::K[index])
-                .wrapping_add(schedule[index]);
-            let sum0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-            let majority = (a & b) ^ (a & c) ^ (b & c);
+                .wrapping_add(constant)
+                .wrapping_add(word);
+            let sum0 = working[0].rotate_right(2)
+                ^ working[0].rotate_right(13)
+                ^ working[0].rotate_right(22);
+            let majority =
+                (working[0] & working[1]) ^ (working[0] & working[2]) ^ (working[1] & working[2]);
             let temporary2 = sum0.wrapping_add(majority);
-            h = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(temporary1);
-            d = c;
-            c = b;
-            b = a;
-            a = temporary1.wrapping_add(temporary2);
+            working.rotate_right(1);
+            working[4] = working[4].wrapping_add(temporary1);
+            working[0] = temporary1.wrapping_add(temporary2);
         }
-        for (state, value) in self.state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
+        for (state, value) in self.state.iter_mut().zip(working) {
             *state = state.wrapping_add(value);
         }
     }
@@ -2989,11 +3097,54 @@ mod tests {
     }
 
     #[test]
+    fn sha256_streaming_matches_reference_across_padding_and_chunk_boundaries() {
+        for (message, expected) in [
+            (
+                b"".to_vec(),
+                [
+                    0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99,
+                    0x6f, 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95,
+                    0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+                ],
+            ),
+            (
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".to_vec(),
+                [
+                    0x24, 0x8d, 0x6a, 0x61, 0xd2, 0x06, 0x38, 0xb8, 0xe5, 0xc0, 0x26, 0x93, 0x0c,
+                    0x3e, 0x60, 0x39, 0xa3, 0x3c, 0xe4, 0x59, 0x64, 0xff, 0x21, 0x67, 0xf6, 0xec,
+                    0xed, 0xd4, 0x19, 0xdb, 0x06, 0xc1,
+                ],
+            ),
+            (
+                (0_u8..=255).cycle().take(1280).collect::<Vec<_>>(),
+                [
+                    0xd4, 0x14, 0xb0, 0x85, 0x82, 0x6e, 0xb0, 0x67, 0x78, 0x48, 0x3b, 0xa3, 0x55,
+                    0x64, 0xdc, 0x84, 0x9e, 0x64, 0x33, 0x59, 0xf6, 0x9e, 0xd9, 0x74, 0x78, 0x78,
+                    0xba, 0x6e, 0x54, 0x98, 0x5b, 0xed,
+                ],
+            ),
+        ] {
+            for width in [1, 7, 63, 64, 65, 129] {
+                let mut hash = Sha256::new();
+                for chunk in message.chunks(width) {
+                    hash.update(chunk);
+                }
+                assert_eq!(
+                    hash.finish(),
+                    expected,
+                    "length {} chunk {width}",
+                    message.len()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parser_accepts_exact_deny_all_contract() {
         let request = parse_request(&base_request()).expect("parse exact request");
         assert!(request.deny_all_writes);
-        assert_eq!(request.expected_uid, 0);
-        assert_eq!(request.expected_gid, 0);
+        assert_eq!(request.expected_user, 0);
+        assert_eq!(request.expected_group, 0);
         assert_eq!(request.working_directory, Path::new("/"));
         assert!(request.readable_files.is_empty());
         assert!(request.readable_directories.is_empty());
@@ -3029,8 +3180,8 @@ mod tests {
 
     #[test]
     fn no_new_privileges_requires_a_non_setid_exact_image() {
-        assert!(trusted_executable_mode_is_safe(0o100755));
-        for unsafe_mode in [0o104755, 0o102755, 0o100775, 0o100644] {
+        assert!(trusted_executable_mode_is_safe(0o100_755));
+        for unsafe_mode in [0o104_755, 0o102_755, 0o100_775, 0o100_644] {
             assert!(
                 !trusted_executable_mode_is_safe(unsafe_mode),
                 "unsafe executable mode {unsafe_mode:o}"

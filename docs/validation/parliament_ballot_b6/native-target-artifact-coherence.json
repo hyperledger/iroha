@@ -1,0 +1,49 @@
+{
+  "schema": "parliament-native-target-coherence-v1",
+  "previous_artifact_manifest_sha256": "2767f471aa5d5f0c1677651da9f35c3ea1a9ebde245de90d2d1f7b68211920ef",
+  "previous_entries": 374,
+  "updated_document_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "before": "55ac25a2ef9f1617e2b37dea8de98945fc73cdefead0649c595f96e7c6c435ef",
+      "after": "ca57967c80b61a531d8841ab0aa43ead3eaf891e54757ae8f9d726cbd185b924"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "before": "ae7d46a4b6ced4528d7830154fe07f9c4aa6bcb7773add4196c57c704837233b",
+      "after": "2aefff9895fc370f2e6e72d49a0de4c5bb13e0f1a02b713bcb81513b418a954f"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "before": "654271ed6d14acaf334522df98a66db449a3d15856e61e2ac2c8e6bd2e3a6fe9",
+      "after": "e4e8133d3b1a770fb1833e26d22897f0c506c1ea7423b99b0b571733c7cb1e66"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "before": "61343b5cf82f5e7bce8ed545c6042a50476dfb61df0a1506c0da26e2627c431e",
+      "after": "a287ed68180156319c0517a5af7c84ae9bfa33d660b8684fe77e913cda96b4e0"
+    },
+    "specs/parliament_ballot_resource_contract.md": {
+      "before": "ef7c7abf5c41e1c8b45de8f506d29bb2220d48c9baca85eae83eab9606eeee2a",
+      "after": "bf8bbf20d073472b7e1f162911003abfa60eddd4008b3c94917f44f4e6d82a32"
+    }
+  },
+  "frozen_manifests": {
+    "docs/validation/parliament_ballot_indirect_targets/SHA256SUMS": {
+      "sha256": "f6f40750ef8ce232549a4a338d36d476966987ba1dff9afd78cb72b749aa2b85",
+      "entries": 8,
+      "mismatches": []
+    },
+    "docs/validation/parliament_ballot_compiled_stack/SHA256SUMS": {
+      "sha256": "2391e094d9d8ef33d246815280906e36c295bce1c8a6703e834140c3e526f1ca",
+      "entries": 17,
+      "mismatches": []
+    }
+  },
+  "native_campaign_sha256": "83b5b73d586234951fe2194fd6136f1bb149351d7eb0e82979dade19ed36b1b5",
+  "native_guarded_inputs": 2040,
+  "native_guard_mismatches": [],
+  "focused_checks_sha256": "eaa67dfb18102bc9a6c10bda0d03e544f8f5b259c584f1d40df87bfb977085c6",
+  "local_document_links_checked": 131,
+  "broken_links": [],
+  "scoped_diff_check_exit": 0,
+  "scope_note": "Historical measured inputs and frozen stack/catalog evidence are unchanged. Five current documentation entries are refreshed in the encompassing artifact manifest; the previous manifest is archived without claiming it matches updated documents. Source guards and finite native observations do not establish complete resource coverage.",
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

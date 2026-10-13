@@ -7,19 +7,23 @@ the linked specifications. Routine repair receipts belong in PRs and CI.
 
 ## Current priorities
 
-1. Complete remaining Nexus fault/restart qualification and restricted lane isolation
+1. Deliver the recoverable payment contract below, starting with included-but-rejected
+   ISO settlement and withheld AMX decisions across committee changes. Reuse native
+   settlement, receipt, finality and workflow owners; complete each running flow
+   before extending it. First-release changes replace superseded designs directly.
+2. Complete remaining Nexus fault/restart qualification and restricted lane isolation
    after the paid settlement, serial restart and disjoint-lane recovery controls;
    preserve original funded execution through publication and replay, qualify lane
    retirement ownership, and reclaim physical storage only after retained global
    history releases its certified dependencies.
-2. Complete original funded execution through State/World acquisition,
+3. Complete original funded execution through State/World acquisition,
    certification, Kura publication and restart; finish DS-local State and AMX.
-3. Qualify Sumeragi and authenticated Linux artifacts; Taira's deployment
+4. Qualify Sumeragi and authenticated Linux artifacts; Taira's deployment
    owner manages cutover, live four-validator readiness, paid writes and restart
    evidence, including DPN/contracts. This coding task owns H1–H5 in the
    [Sumeragi handoff goals](specs/sumeragi_goals.md#active-handoff-completion-gates)
    and works only in `/Users/takemiyamakoto/dev/iroha` on `optimizations`.
-4. Validate the combined fixture/runtime repairs through fresh workspace,
+5. Validate the combined fixture/runtime repairs through fresh workspace,
    genuine fixture and native SDK artifacts on one source candidate. Qualify the
    joint X509 relation and transcript privacy, and resolve its proving-time and
    hardware-specific address-space failures;
@@ -29,6 +33,78 @@ The [first-release goals](specs/first_release_completion_goals.md),
 [IVM goals](specs/kotodama_ivm_completion.md) and [ZK goals](specs/zk_first_release_goals.md)
 coordinate this work. Remove retired interfaces directly; production behavior
 remains deterministic and configuration-owned, with mandatory protocol semantics.
+
+### SORA Nexus payment acceptance
+
+The delivery contract is **payment intent → authorized effects → verified receipt
+→ durable recovery**. These milestones extend the owners below and the existing
+[Sumeragi S6](specs/sumeragi_goals.md) and [ZK task graph](specs/zk_delivery_graph.json);
+they do not introduce another monetary executor, proof stack or status database.
+All remain open until their complete behavior is demonstrated on the same source
+candidate. Local test networks are in scope; live deployment and value movement
+require a separate request.
+
+| Order / existing owner | Gap and dependency | Runnable completion evidence |
+| --- | --- | --- |
+| 1 — N5, N12; Torii/model/Core | Correctness: resolve ISO settlement from authenticated successful execution, and preserve authenticated decision verification for every unresolved Yes escrow through rotation, pruning and restart. | Torii ISO lifecycle regressions with an included Rejected transfer, authenticated pacs.002 before reconciliation, missing/conflicting evidence and an Applied final payment with no later block; model/native AMX tests with delayed Commit and Abort through multiple handoffs, replay, wrong history, pruning and restart; named mutation regression. |
+| 2 — N5, A3, S4; settlement/SDK/ISO | Integration: support one payment in the existing `SettleAtomic` owner; bind payer, stable intent and exact terms to its consensus receipt. Compose native successful-outcome/finality verification with durable SDK resume. Preserve original settlement and give returns a separate authorized reverse-payment lifecycle. Depends on milestone 1. | A 250,000-unit shared-asset payment with independently verified asset/scope, quantity, recipient, intent and fee outcome; insufficient funds; two gateways, changed terms, controller rotation, TTL expiry, dropped acknowledgement and restart produce one monetary effect. A durable bank inbox/outbox credits once from the verified receipt; a return has its own finality evidence. |
+| 3 — N12 / S6; native AMX/service/SDK | Missing implementation: connect retained Begin/Prepared/handoff/Decision proofs to an authorized, funded, supervised relay with a bounded durable outbound journal. Recover exact signed identities before retry, with explicit escrow limits and quorum-loss blocking. Depends on milestones 1–2. | One four-validator global root and two independent four-validator bank roots complete PvP, refusal, deadline abort, multiple rotations and crash/restart at every relay boundary. Deterministic loss/delay/duplicate/partition tests plus real-peer recovery; the final payment progresses with no unrelated traffic, no empty blocks and no local-time escrow release. |
+| 4 — N4, N6, N8, C4 / F.4, G.3–G.5, A.1, X.2; State/Core/Kura/proofs | Missing implementation and validation: complete the selected keyed authoritative State commitment and authenticated restore, committed validity policy, finalized-source proof dispatch and coherent resource admission. Shared State/Core/Kura changes have one integration owner. | Full replay equals accelerated restore at the exact native tip; omitted, substituted and extra State refuse. Identical signed inputs under different local caches, budgets and scalar/accelerated paths yield identical outcomes, fees and roots. Actual maximum and one-byte-over transactions/proofs/receipts traverse SDK, Torii, queue, signed RS16, verification and replay under unchanged fixed caps. |
+| 5 — N11, C5 / B.2–B.3, S.1–S.6; private settlement/provers/SDKs | Integration: deliver genuine confidential settlement through one asynchronous operation and its prepared form, using authoritative context, encrypted audit material and durable recovery. Consolidate existing STARK consumers under the shared backend. Depends on the authority/resource work actually consumed. | Genuine proofs and money movement, nullifier/capsule/auditor/source/fee/replay negatives and crash recovery; private-settlement N=3 topology with sixteen validators and N=2/3/4/8/16 fault coverage. Measure the unchanged five-second proof-preparation-to-verified-receipt target, p50/p95/p99, throughput, memory and leakage across payload/query/storage/log/transport. |
+
+Native payments do not wait for general proofs of arbitrary IVM invocations.
+An authenticated Global Begin is a request, not authority to debit a private bank
+account. Qualify the exact owner-issued `CanPrepareAmx` permission under the
+participant's current committed direct grants, including distinct funded relay
+keys, revocation before signing/dispatch and native execution, changed terms,
+and recovery after a Yes vote. Historical permission proofs authenticate only
+the selected cut; they cannot defeat later revocation or replace the final native
+permission check. The same canonical payment identities and asset terms must be
+explicit in ISO instructions; local gateway mappings validate them rather than
+choose a new payer namespace.
+The AMX relay must qualify the current idle deadline candidate: mandatory signed
+time expiry, an original-Begin-authenticated funded `ExpireAmxV1` carrier, and
+bounded local Decision recovery before submission. Polling alone never changes
+escrow; participants need the actual certified Abort. The existing exact-carrier
+journal resumes after restart and remains independent of a Decision produced by
+another carrier. Qualify this path with its consensus/resource controls without
+empty blocks, unrelated transactions or local-time escrow release. It depends on
+the application clock guards in [Sumeragi §4.5](specs/sumeragi.md). Full State roots now forward the certified
+flag into a local vote guard; Global proposal pacing retains future-only work
+for timed retry and rechecks canonical time on original output reuse. Committed
+drift bounds are checked in genesis, parameter changes and lane policy. Current
+source also guards routing-lane execution and retains its selected batch, existing
+Queue admission lease and funded encoding across clock waits. Current-source
+qualification of expiry, withdrawal and readmission during retained lending remains open.
+The Queue candidate now binds each retained input to its exact non-reusable admission
+incarnation in the existing funded owner. Unrelated arrivals preserve completed Global and
+lane payloads; removal and same-hash readmission retire them. Qualify the reproduced
+sustained-ingress controls and actual queue overflow/refund behavior on the combined candidate.
+Hash equality alone cannot authenticate a retained admission after removal and readmission. Complete
+those controls, including certified re-proposal/replay exemptions, before
+claiming timed abort guarantees.
+Specify the committed-time expiry semantics and clock-skew margin explicitly;
+an upper clock bound alone also does not prevent stale-time Commit decisions.
+Any required freshness guard belongs at Prepare admission, with the same certified
+exemptions, never in monetary validity or replay.
+Cached execution and a durable but unsigned Prepare reservation do not establish
+that a first vote was signed while fresh. Qualify the exact source/result-bound
+signing gate and the existing safety-record persistence barrier across stage waits,
+signer refusal, rebroadcast and restart. Only a genuinely held matching PrepareQC
+or an authenticated already-produced signature supplies the corresponding exemption.
+The native proposer-time candidate lets a fresh view retain the exact still-admissible
+signed inputs while authenticating a timestamp above the deterministic parent/input floor.
+Retained payload retries and certified re-proposals preserve their original timestamp;
+followers and cold replay use that authenticated value. Qualify this after an idle partition
+without replacing an unknown carrier or manufacturing unrelated work. Transaction TTL,
+Queue expiry, native AMX time deadlines and CT5 remain separate required controls; the
+simulator's wall-stamped payloads alone do not establish final-payment restart progress.
+External customer credits use durable application inbox/outbox handling; their
+database effects are not claimed to be atomic with ledger settlement. The current
+resource contract's carrier/block inequality holds numerically; X.2 still needs
+actual maximum-proof network and recovery evidence, and F.4 owns committed policy
+coherence. No compatibility aliases, dummy movements or relaxed fixed proof caps
+close these milestones.
 
 ## Architecture and build
 
@@ -99,8 +175,8 @@ and [verification checklist](specs/kagemusha_evidence_gate.md).
 | S4 | Shared wire/activity | SDKs/Torii | Canonical signing/executable/account fixtures, multisig witnesses and snapshot-bound activity with bounded cursors and expiry. |
 | S5 | Kotlin closure | Kotlin/Android | Finish Java/JNI/publication retirement; release transport/attestation/Nearby and CUDA hardware qualification with separate host/device evidence. |
 | S6 | Native release matrix | Bridge/platform owners | Signed same-source current-bridge AAR/XCFramework/JNI/wheel/host packages; all SDK checkpoint/wire/alias/SNS and OS/architecture matrices; retired layouts fail closed. Swift framework construction, installation and native suite qualification follow the [completion goals](specs/sdk/swift/native_framework_completion_goals.md). |
-| S7 | Recursive KAGEMUSHA | Core/coordinator/proofs | G3/G4 (G1 objects and vectors exist in `kagemusha_wallet_v1`, the native σ step relations in `iroha_kagemusha_proof`; G6 deleted the superseded refund paths and duplicate monetary engines): implement and qualify the accepted Q → A → Ω construction within the 10,000-byte bounds, re-keying and qualifying every staged producer under the fixed-stage immutable context and acyclic carried-scheme authorization, completing [native BLS finality goals NF1–NF6](specs/kagemusha_native_finality_goals.md), qualifying the approved direct signed-genesis/epoch receipt admission before Advance, four A_Load/three W stages and compact Load/Send/Receive/Archive catalogs under rebuilt keys and signed inventories, without transferring retired recursive-finality evidence; bind the tested native/circuit proof components into every operation relation and wrap consuming the G1 objects; qualify the concrete native startup/account-admission owner and typed SDK lifecycle against the complete installed graph; complete proof/receipt lineage, irreversible Send, exact Payment replay, permanent receive deduplication and offline onward spending through real A→B→C→unload. |
-| S8 | Durable money | Native/platform/reserves | G2/G5: complete native background fold execution with cooperative payment preemption, canonical delivery receipts and durable CloseLoads signing; qualify the Rust stock-OS journal/marker `Advance` provider, retained collection, owner-bound custody deletion and typed Kotlin/Swift bridge against rebuilt artifacts and devices; qualify the node-owned E1/worker/signing journal and connect authenticated private platform verification, current account eligibility and the scheme-rooted Enrollment signer with exact E5/E6 recovery and Torii routes; qualify any universal-dataspace token through authenticated release/enrollment templates and finalized exact Global registration, without Parliament approval or a token allowlist; reserve-backed loads, one-use redemption/fee claims, optional controls default off. |
+| S7 | Recursive KAGEMUSHA | Core/coordinator/proofs | G3/G4 (G1 objects and vectors exist in `kagemusha_wallet_v1`, the native σ step relations in `iroha_kagemusha_proof`; G6 deleted the superseded refund paths and duplicate monetary engines): implement and qualify the accepted Q → A → Ω construction within the 10,000-byte bounds, re-keying and qualifying every staged producer under the fixed-stage immutable context and acyclic carried-scheme authorization, completing [native BLS finality goals NF1–NF6](specs/kagemusha_native_finality_goals.md), qualifying the approved direct signed-genesis/epoch receipt admission before Advance, four A_Load/three W stages and compact Load/Send/Receive/Archive catalogs under rebuilt keys and signed inventories, without transferring retired recursive-finality evidence; bind the tested native/circuit proof components into every operation relation and wrap consuming the G1 objects; qualify the concrete native startup/account-admission owner and typed SDK lifecycle against the complete installed graph; complete proof/receipt lineage, irreversible Send, exact Payment replay, permanent receive deduplication and offline onward spending through real A→B→C→unload. Finish combined runtime validation of the applied SCCP certified-result and native consumer migrations, including production consensus signing/proof verification under the specified native transcript; current model and retirement fixtures are regenerated. Qualify TON deployment using the rebuilt native contracts and regenerated StateInit; all 145 emulator cases now pass within unchanged storage/gas limits. Complete forgery/hold authority before rebuilding the node/network candidate. Bind the catalog to the current executed setup’s signed genesis/network identity before monetary acceptance. The full 52-route engineering catalog passes for its captured pre-migration source; genuine receipt, native wallet-open and monetary exchange still require qualification. |
+| S8 | Durable money | Native/platform/reserves | G2/G5: complete native background fold execution with cooperative payment preemption, canonical delivery receipts and durable CloseLoads signing; complete and qualify the recovery-body commitment/opening migration, authenticated private/public custody joins and bounded exact retries after collection; qualify the Rust stock-OS journal/marker `Advance` provider, retained collection, owner-bound custody deletion and typed Kotlin/Swift bridge against rebuilt artifacts and devices; qualify the node-owned E1/worker/signing journal and connect authenticated private platform verification, current account eligibility and the scheme-rooted Enrollment signer with exact E5/E6 recovery and Torii routes; qualify any universal-dataspace token through authenticated release/enrollment templates and finalized exact Global registration, without Parliament approval or a token allowlist; reserve-backed loads, one-use redemption/fee claims, optional controls default off. |
 | S9 | Mobile/Nearby/NFC | SDKs/device providers | G4/G7: shared Rust core with Swift/Kotlin adapters and one envelope over NFC/radio/QR/Petal; record device recovery, replay/restore, memory/thermal, size and latency results while integrating and using the POC. |
 | S10 | Private-file/ZK-ACE SDK | JS/privacy/native | Governed two-pass intent signing, nonserializable private witnesses/erasure; Windows secure storage and authenticated native packages. |
 | S11 | Petal Stream devices | Petal/SDKs/device providers | [Device protocol](specs/petal_stream.md#8-qualification): 20 timed runs per device and distance on governed profiles including a low-end 480p–720p Android phone, a modern iPhone and a webcam; `ScanStats` lane rates filed per device with exposure compensation at 0, −1 and −2 EV, and the Swift/Kotlin/JS/Python/C# readers re-run against the same recorded camera captures. Field results tune the inferred-corner search and the 500 ms tracking window, and measure tracking on hand-held phones. |
@@ -121,10 +197,13 @@ and the graph holds the tasks, their status and their evidence. Three criteria
 come from the [resource contract](specs/zk_resource_contract.json). For C5, the
 maximum-proof transport (plan task X.2) closes the contract relations it owns,
 including `private_settlement_carrier_within_includable_transaction`. For N5,
-the signed attachment list frame, 8 MiB today, admits a ceiling-sized proof
-(I.1). For N4 and N8, the 74 node-local validity bounds of the three
-node-configuration policy catalogs, including the eight bound into a digest but
-compared by no state transition, become committed State (F.4).
+the canonical signed attachment occurrence and aggregate frame carry a
+ceiling-sized proof through every SDK and native admission path (I.1); the
+separate 8 MiB staging list is not a signed-transaction limit. For N4 and N8, the 10 remaining node-local validity bounds, all of the
+`[nexus]` catalog, become committed State, and the eight bounds that no state
+transition compares with anything are enforced or removed (F.4); 45 bounds are
+committed as `zk_validity_policy_v1` and 15 as `pipeline_validity_policy_v1`,
+with no node-schema key.
 
 | ID | Outcome | Owner | Completion criteria |
 | --- | --- | --- | --- |
@@ -136,20 +215,20 @@ compared by no state transition, become committed State (F.4).
 | C6 | FHE/MKHE/Figure 9 | Crypto/model/proofs | Complete native40 correspondence/full-size eight-party replay; qPCS redesign within fixed work bounds, governed Figure 9 keys and independent measured ordinary-stack proofs. |
 | C7 | Acceleration | Native backends | Automatic target-appropriate daemon defaults, ten reproducible signed embedded CUDA PTX families, driverless daemon startup, actual CPU/Metal/CUDA KAT/root parity, authenticated library/device/calibration, fault quarantine, side-channel and RSS/throughput; unqualified T256/MKHE stay scalar. |
 | C8 | Kaigi sessions | Model/crypto/Core/SDKs | Complete authorization/usage circuits and account lifecycle/undo; keys/fixtures, suite-tagged HPKE, bounded accounting and authenticated relay recovery. |
-| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify the implemented source-bound VK-to-PK reconstruction and wallet admission records across real operation stages, releasing proving buffers between stages; captured engine/proof-consumer correctness, strict library lint, ordinary shared-wallet controls and historical Result1 proof parity pass. Requalify the current native-finality graph and whole wallet; the interrupted native9 recursive-history attempt has no terminal success. Qualify the implemented bounded public-table lookup commitments, retaining full-width random padding and exact proof bytes; ordinary library and compiled ARM/x86 correctness checks pass. The completed FFT-candidate M3 audit has seven passes and one borderline real-Q one-worker margin; preserve all15 invalid attempts and requalify the merged source closure under both worker counts. The first bounded-lookup campaign stopped on dependency drift; the second has seven passing configurations and incomplete real-Q one-worker coverage after a final Cargo-metadata change, with a missed time margin in block2. Preserve all invalid attempts. The applied eight-gate quotient grouping passes the serial oracle, native/x86 checks and proof-byte goldens. Complete all three M3 blocks with source and Cargo inventory held stable; the first real-Q diagnostic meets hard limits but misses the 27 s margin. Qualify owned-witness M3 with the process-wide 64 MiB MSM budget and fixed shared-host method; finish PIPA-R/PIPA-AS, KAGEMUSHA operation/lineage/transport/CreditStatus relations and soundness tests. Qualify current native artifacts for the migrated and re-keyed [inventoried consumers](specs/native_prover_migration_inventory.md); superseded vendor trees and the temporary oracle are deleted and focused retirement guards pass. Qualify rebuilt consumers and the final authenticated catalog, retaining independent vectors and mutation coverage. First release: no compatibility decoder, old-key fallback or parallel legacy production engine. |
+| C9 | Native PLONK/IPA prover | ZK/prover owners | Qualify source-bound VK-to-PK reconstruction, wallet admission and proving-buffer release across current native-finality operation stages. Resolve the streaming-MSM candidate's valid four-thread real-Q failure at 10.22 seconds against the 10-second hard limit, then qualify all eight configurations under the unchanged margins, owned-witness method and process-wide 64 MiB MSM budget. Its thirteen selected heavy gadget cases pass; correctness does not establish timing qualification. Retain earlier failures, borderline margins and invalid attempts. Qualify PIPA-R/PIPA-AS operation relations, corrected-claim branches, lineage, transport and CreditStatus through the complete authenticated catalog and real offline exchange; finish the soundness and joint privacy obligations under the explicitly accepted recursive Fiat–Shamir assumption, without treating that design decision as C12 closure. Rebuild and qualify the migrated, re-keyed [native consumers](specs/native_prover_migration_inventory.md) and SDK delivery. Retired vendor trees and the temporary oracle are deleted; source guards pass. First release has one production engine, with no compatibility decoder or old-key fallback. |
 
 ## Services and deployment
 
 | ID | Outcome | Owner | Completion criteria |
 | --- | --- | --- | --- |
-| P1 | Parliament | Governance/crypto/Torii | [Anonymous on-chain ballots](specs/parliament_private_ballot_design.md): seat-acceptance credentials frozen into a committee root; signerless, proof-authorized public ballots with nullifiers and a qualified PQ membership proof verified in ordinary execution; public tally and independently verifiable outcome evidence, no ballot custodian; actual small electorates, independent epoch-seated pause panel and Parliament availability isolation; retire timed-OVN/Parliament TLE as the canonical V1 replacement; atomic policy/confirmation, bounded sortition and governance-attempt retries with no ballot retry, and four-peer replay/rollback; independent proof review/signed API before binding-governance mainnet launch. |
+| P1 | Parliament | Governance/crypto/Torii | [Anonymous on-chain ballots](specs/parliament_private_ballot_design.md): seat-acceptance credentials frozen into a sealed credential list published at seal; signerless, proof-authorized public ballots with nullifiers and a qualified PQ membership proof verified in ordinary execution; public tally and independently verifiable outcome evidence, no ballot custodian; actual small electorates and an independent epoch-seated pause panel; real-peer qualification of the implemented Parliament availability isolation (governance-local exact-pulse wait on consensus-native slots): a working test-network beacon fixture so the mandatory-NPoS, key-session and committee-rotation corridors run, and the governance-clock requirements of ballot design section 9 (bounded native-slot progress, casting-clock due work, a finite qualified attempt latency for the SCCP hold rule); retire timed-OVN/Parliament TLE as the canonical V1 replacement; atomic policy/confirmation, bounded sortition and governance-attempt retries with no ballot retry, and four-peer replay/rollback; the sealed-list construction under development in the [proof-profile record](specs/parliament_ballot_proof_profile.md), standalone work only until a profile is selected: qualify the [implemented standalone construction](specs/parliament_ballot_implementation_goals.md) (final strengthened relations and salted, affine-checked backend), whose vectors, bounded parser campaigns, direct upstream CRT comparison, cold-input/late-invalid measurements and supplementary device evidence are [recorded in B6](docs/validation/parliament_ballot_b6.md); complete envelope accounting, physical-cost calibration and full runtime/workspace certificates beyond the implemented whole-call/byte reservation and conditional source-model arena proof; establish universal compiled allocation/provenance correspondence beyond the 132 matched instrumented traces, 14 controls and conditional ownership/free-routing checks; qualify the separately built borrowed-input entry that moves retrieval outside charged work, retaining the older worker I/O frontier under its original scope; discharge the seven-site target-catalog premises and remaining native/failure/exceptional stack bounds after failure-entry separation, and close native-memory coverage beyond the finite endpoint observations; complete physical x86/ARM and named-baseline qualification (Intel run deferred to the owner), battery/thermal and named-phone cancellation coverage beyond the standalone finish-and-discard tests, plus independent implementation review; obtain independent review of the written conditional [arguments](specs/parliament_ballot_proof_arguments.md) (adaptive relation soundness, authorization, nullifier uniqueness, unlinkability, joint zero knowledge and anonymity, registration origin) and establish or have accepted, with recorded bounds, their unproved premises (credential pseudorandomness with public leakage, selected-context existential uniqueness, frame-collision terms, generator terms and the backend oracle model), so every section 5 gate has a complete written argument; a complete concrete-security ledger and independent attack-cost assessment under the recalibrated contract (proven bound below 1/2 at 2^64 quantum queries, attack cost at least 2^128 gates), whose weakening of the earlier 2^128-query floor the owner's qualification record must restate, together with the weakening of gate 1 from knowledge extraction to soundness; only then can a profile be selected and schemas, Core integration or timed-OVN retirement start; validator and phone measurements on the named baselines and the owner's qualification record before activation; independent proof review/signed API before binding-governance mainnet launch. |
 | P13 | Standalone elections | Governance/circuits/SDKs | [Full statement](specs/zk_audit_matrix.md#election-statement-completion): credentials/nullifiers, weight/re-vote, encryption/custody and sound ballot/tally; V1 keys/fixtures and restore/finality. |
 | P2 | SoraFS promotion | SoraFS/operators | [Reliability](specs/sorafs/first_release_reliability_goals.md), [V1 goals](specs/sorafs/v1_implementation_goals.md) and [closure](specs/sorafs/v1_closure_ledger.md); software signer, live multi-provider/dual-gateway L1, 17 summaries and authenticated L2. Load/resilience observations are optional diagnostics without a fixed deployment duration. |
 | P3 | Governance DAG | DAG/broker | [Two services](specs/sorafs_governance_dag_plan.md), authenticated ingress/signing/CAS, failover/recovery/corruption and five-target SBOM/L1/L2 artifacts. |
 | P4 | QUIC/relay/VPN | P2P/SoraNet/Linux | [Handshake](specs/soranet_handshake.md), bounded DATAGRAM/pre-auth/NAT and paid leases; real TUN/pidfd/DNS rollback, hostile peers/rotation/loss, fuzz/review. |
 | P5 | Musubi/contracts | Service/Core/Torii/deploy | [Publication](specs/musubi.md): lock/retention, atomic no-follow cache/recovery, memory/soak/four-peer. [Paid Taira workflow](specs/musubi_taira_workflow_goals.md): wallet/funding, immutable code, alias, Applied/readback, quote/video. |
 | P6 | DA/Taikai | Spool/publishers/CLI | [Transactional ingest](specs/taikai_ingest_plan.md), intent-before-effects, recovery/quarantine, immutable retry, shared builders, file-backed CAR/atomic summary and path-race/consumer closure. |
-| P7 | SCCP | Core/attestor/contracts/CLI | [Corridors](specs/sccp.md): governance timing/re-anchoring, pending work without empty blocks, aged proofs and TRON energy; audited real-deployment proofs/value canaries per chain. |
+| P7 | SCCP | Core/native finality/Torii/contracts/CLI | [Corridors](specs/sccp.md): finish all current Core mutation checks and combined workspace validation. Pinned TON registration and CLI authenticated terminal-state recovery, including concurrent journal selection, pass their component regressions. Core/Torii/daemon components, genesis/reset profiles, certified-clock simulation and genuine four-peer native-certificate replay on local EVM pass their scoped checks. Integrate the Parliament owner’s qualified ballot, eligibility/draw, due positions, casting-open anchor and attempt latency; keep both launch gates closed until complete. Obtain independent audits and deployment proofs/value canaries per chain, with live RPC/fork evidence. |
 | P8 | Inrou | Guest/runtime/deploy | Real Linux/AArch64/KVM escape/resource tests, authenticated bridge and four-replica canary; generated HF storage-only, governed guest compute. |
 | P9 | Taira/DPN/BPNG | CLI/daemon/operators | Signed observer join, disposable four-peer convergence/guest tests; current reset/readiness/write/restart, beacon custody and paid physical DPN. BPNG retained-history/catch-up, anchored quorum reads, additive catalog and API22/FE17 commissioning. |
 | P10 | Native Torii MCP | Routes/SDK/CLI | One protocol/listener, exact authority/mutation/retry registry, bounded prepare/external signing and scratch simulation; four-peer auth/cache/cancellation. |

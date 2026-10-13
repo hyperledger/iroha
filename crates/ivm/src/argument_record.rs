@@ -658,14 +658,9 @@ where
     for<'de> T: norito::NoritoDeserialize<'de>,
 {
     norito::decode_canonical_for_admission(payload, norito::canonical_decode_limits(payload.len()))
-        .map_err(|error| match error.kind() {
-            norito::core::DecodeAttemptErrorKind::Allocator => {
-                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable)
-            }
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::ActiveMemoryCapacity)
-            }
-            norito::core::DecodeAttemptErrorKind::Invalid => VMError::DecodeError,
+        .map_err(|error| match error.into_local_refusal() {
+            Ok(original) => VMError::DecodeDeferred(original),
+            Err(_) => VMError::DecodeError,
         })
 }
 fn decode_schema(payload: &[u8]) -> Result<EntrypointArgumentSchemaV1, VMError> {
@@ -1561,7 +1556,7 @@ mod tests {
         prepared.precharge_vm(&mut vm).unwrap();
         prepared.install_call_arguments(&mut vm, 1).unwrap();
         let table = vm.register(10);
-        assert_eq!(vm.load_u64(table), Ok(0));
+        assert!(matches!(vm.load_u64(table), Ok(0)));
         let list = vm.load_u64(table + 8).unwrap();
         assert_eq!(
             crate::list::read_words(&vm, list, ListLayoutV1::try_new(2, 1).unwrap()).unwrap(),
@@ -1598,10 +1593,10 @@ mod tests {
         assert!(vm.register(12) >= vm.register(10) + 8);
         assert_eq!(vm.register(10) % 8, 0);
         assert_eq!(vm.register(12) % 8, 0);
-        assert_eq!(
+        assert!(matches!(
             prepared.install_call_arguments(&mut vm, 32),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn default_root_preparation_uses_the_metered_public_input_route() {
@@ -1708,9 +1703,11 @@ mod tests {
             std::collections::BTreeMap::from([("trigger_event_json".parse().unwrap(), record_tlv)]),
         );
         let mut denied = IVM::new(u64::MAX);
-        assert_eq!(
-            prepare_default_call_arguments(&mut event_only, &mut denied, &schema, 1),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                prepare_default_call_arguments(&mut event_only, &mut denied, &schema, 1),
+                Err(VMError::PermissionDenied)
+            ),
             "default preparation must not fall back to the firing-event key"
         );
         assert_eq!(
@@ -1727,14 +1724,14 @@ mod tests {
     #[test]
     fn empty_root_arguments_use_zero_descriptor_and_bounded_result_reservation() {
         let mut vm = IVM::new(u64::MAX);
-        assert_eq!(
+        assert!(matches!(
             install_empty_call_arguments(&mut vm, 0),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             install_empty_call_arguments(&mut vm, ivm_abi::call::MAX_CALL_WORDS_V1 + 1),
             Err(VMError::DecodeError)
-        );
+        ));
         assert_eq!(vm.gas_remaining, u64::MAX);
         install_empty_call_arguments(&mut vm, ivm_abi::call::MAX_CALL_WORDS_V1)
             .expect("full result table");
@@ -1869,7 +1866,7 @@ mod tests {
         ] {
             let mut node = 0;
             let mut value = 0;
-            assert_eq!(
+            assert!(matches!(
                 validate_argument_atoms(
                     ivm_abi::SyscallPolicy::AbiV1,
                     &schema.fields[0].ty.nodes,
@@ -1878,7 +1875,7 @@ mod tests {
                     &mut value
                 ),
                 Err(VMError::DecodeError)
-            );
+            ));
         }
     }
     #[test]
@@ -2182,9 +2179,11 @@ mod tests {
             record,
             "the alternate bytes must represent the same semantic record"
         );
-        assert_eq!(
-            validate_argument_record(&schema, &alternate),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                validate_argument_record(&schema, &alternate),
+                Err(VMError::DecodeError)
+            ),
             "the V1 boundary must reject noncanonical bytes even when Norito can decode them"
         );
     }
@@ -2312,10 +2311,10 @@ mod tests {
             .set_heap_limit(crate::memory::Memory::INPUT_SIZE)
             .expect("constrain test heap");
         let mut allocation_control = vm.try_clone_snapshot().expect("fund VM snapshot");
-        assert_eq!(
+        assert!(matches!(
             prepared.install_call_arguments(&mut vm, 1),
             Err(VMError::OutOfMemory)
-        );
+        ));
         assert_eq!(
             vm.memory.heap_allocated_len(),
             0,
@@ -2391,10 +2390,10 @@ mod tests {
             .precharge_vm(&mut vm)
             .expect("precharge constrained VM");
         let mut allocation_control = vm.try_clone_snapshot().expect("fund VM snapshot");
-        assert_eq!(
+        assert!(matches!(
             prepared.install_call_arguments(&mut vm, 1),
             Err(VMError::OutOfMemory)
-        );
+        ));
         assert_eq!(vm.memory.heap_allocated_len(), baseline);
         assert_eq!((vm.register(10), vm.register(11)), (0, 0));
         let sentinel =
@@ -2525,12 +2524,17 @@ mod tests {
                 .memory
                 .try_write_log_snapshot()
                 .expect("allocate write-log snapshot");
-            assert_eq!(
-                decode_argument_record_gas_quote(&vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    decode_argument_record_gas_quote(&vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "{label} must fail during header-only preparation"
             );
-            assert_eq!(decode_argument_record(&mut vm), Err(VMError::NoritoInvalid));
+            assert!(matches!(
+                decode_argument_record(&mut vm),
+                Err(VMError::NoritoInvalid)
+            ));
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
             assert_eq!(
                 vm.memory
@@ -2555,10 +2559,10 @@ mod tests {
             .expect("allocate partial-case schema");
         partial_vm.set_register(10, partial_pointer);
         partial_vm.set_register(11, schema_pointer);
-        assert_eq!(
+        assert!(matches!(
             decode_argument_record(&mut partial_vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let mut corrupted_vm = IVM::new(u64::MAX);
         let mut corrupted = record_envelope;
         let last = corrupted.len() - 1;
@@ -2573,10 +2577,10 @@ mod tests {
         corrupted_vm.set_register(11, schema_pointer);
         decode_argument_record_gas_quote(&corrupted_vm)
             .expect("hash corruption is intentionally checked after bounded preparation");
-        assert_eq!(
+        assert!(matches!(
             decode_argument_record(&mut corrupted_vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn canonical_v1_scalars_and_typed_ids_roundtrip() {
@@ -2800,10 +2804,10 @@ mod tests {
         let overflow = Json::from(norito::json!({
             "amounts": [[], [], []],
         }));
-        assert_eq!(
+        assert!(matches!(
             argument_record_from_json(&schema, &overflow),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn maximum_flat_list_depth_decodes_validates_and_materializes_on_the_test_thread() {
@@ -2826,8 +2830,9 @@ mod tests {
         };
         let encoded = canonical_norito_frame(&record).expect("encode maximum-depth flat tape");
         assert_eq!(
-            validate_argument_record(&schema, &encoded),
-            Ok(record.clone())
+            (validate_argument_record(&schema, &encoded))
+                .expect("expected successful fixture result"),
+            record.clone()
         );
         let mut vm = install_raw_record(&schema, &record);
         decode_argument_record(&mut vm).expect("materialize the exact V1 nesting boundary");
@@ -2848,14 +2853,14 @@ mod tests {
             }],
         };
         assert!(!over_limit.validate());
-        assert_eq!(
+        assert!(matches!(
             validate_argument_record(&over_limit, &encoded),
-            Err(VMError::DecodeError),
-        );
-        assert_eq!(
+            Err(VMError::DecodeError)
+        ));
+        assert!(matches!(
             argument_record_from_json(&over_limit, &Json::from(norito::json!({ "value": [] }))),
-            Err(VMError::DecodeError),
-        );
+            Err(VMError::DecodeError)
+        ));
     }
     #[test]
     fn json_list_nesting_boundary_produces_a_flat_record_and_rejects_one_more_level() {
@@ -2883,7 +2888,11 @@ mod tests {
         );
         assert_eq!(record.atoms.last(), Some(&int_atom(7)));
         let encoded = canonical_norito_frame(&record).expect("encode converted flat record");
-        assert_eq!(validate_argument_record(&schema, &encoded), Ok(record));
+        assert_eq!(
+            (validate_argument_record(&schema, &encoded))
+                .expect("expected successful fixture result"),
+            record
+        );
 
         let too_deep = format!(
             r#"{{"value":{}"7"{}}}"#,
@@ -2994,10 +3003,12 @@ mod tests {
         ] {
             let record = EntrypointArgumentRecordV1 { schema_hash, atoms };
             let encoded = to_bytes(&record).expect("encode adversarial pair-list record");
-            assert_eq!(
-                validate_argument_record(&schema, &encoded),
-                Err(VMError::DecodeError),
-                "{label} must fail closed",
+            assert!(
+                matches!(
+                    validate_argument_record(&schema, &encoded),
+                    Err(VMError::DecodeError)
+                ),
+                "{label} must fail closed"
             );
         }
     }
@@ -3030,9 +3041,10 @@ mod tests {
         };
         let canonical = to_bytes(&canonical_record).expect("encode flat list record");
         assert_eq!(
-            validate_argument_record(&schema, &canonical),
-            Ok(canonical_record),
-            "the corresponding flat list is accepted",
+            (validate_argument_record(&schema, &canonical))
+                .expect("expected successful fixture result"),
+            canonical_record,
+            "the corresponding flat list is accepted"
         );
         let legacy = LegacyRecord {
             schema_hash,
@@ -3051,10 +3063,12 @@ mod tests {
             norito::schema::identity::frame_hash::<EntrypointArgumentRecordV1>(),
         );
         assert_eq!(view.as_bytes(), payload);
-        assert_eq!(
-            validate_argument_record(&schema, &encoded),
-            Err(VMError::DecodeError),
-            "the first release accepts only the flat list-count tape",
+        assert!(
+            matches!(
+                validate_argument_record(&schema, &encoded),
+                Err(VMError::DecodeError)
+            ),
+            "the first release accepts only the flat list-count tape"
         );
         // Keep every retired discriminant represented so this test continues
         // to encode the exact former enum ordering instead of a lookalike.
@@ -3170,10 +3184,10 @@ mod tests {
         assert!(none_payload.is_empty());
         vm.store_u64(list[2][0] + 8, 99)
             .expect("forge inactive Option payload");
-        assert_eq!(
+        assert!(matches!(
             crate::sum::read_words(&vm, list[2][0], option_layout),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn runtime_rejects_schema_mismatch_hidden_payload_and_malformed_pointer() {
@@ -3194,13 +3208,19 @@ mod tests {
             atoms: vec![EntrypointValueAtomV1::Tag(false), int_atom(99)],
         };
         let mut vm = install_raw_record(&option_schema, &hidden);
-        assert_eq!(decode_argument_record(&mut vm), Err(VMError::DecodeError));
+        assert!(matches!(
+            decode_argument_record(&mut vm),
+            Err(VMError::DecodeError)
+        ));
         let wrong_hash = EntrypointArgumentRecordV1 {
             schema_hash: [7; 32],
             atoms: vec![EntrypointValueAtomV1::Tag(false)],
         };
         let mut vm = install_raw_record(&option_schema, &wrong_hash);
-        assert_eq!(decode_argument_record(&mut vm), Err(VMError::DecodeError));
+        assert!(matches!(
+            decode_argument_record(&mut vm),
+            Err(VMError::DecodeError)
+        ));
         let name_schema = EntrypointArgumentSchemaV1 {
             fields: vec![EntrypointArgumentFieldV1 {
                 name: "value".into(),
@@ -3216,7 +3236,10 @@ mod tests {
             )],
         };
         let mut vm = install_raw_record(&name_schema, &malformed_name);
-        assert_eq!(decode_argument_record(&mut vm), Err(VMError::DecodeError));
+        assert!(matches!(
+            decode_argument_record(&mut vm),
+            Err(VMError::DecodeError)
+        ));
     }
     #[test]
     fn canonical_record_rejects_trailing_truncated_and_adversarial_counts() {
@@ -3232,14 +3255,16 @@ mod tests {
         validate_argument_record(&schema, &canonical).expect("valid record");
         let mut trailing = canonical.clone();
         trailing.push(0);
-        assert_eq!(
+        assert!(matches!(
             validate_argument_record(&schema, &trailing),
             Err(VMError::DecodeError)
-        );
+        ));
         for end in 0..canonical.len() {
-            assert_eq!(
-                validate_argument_record(&schema, &canonical[..end]),
-                Err(VMError::DecodeError),
+            assert!(
+                matches!(
+                    validate_argument_record(&schema, &canonical[..end]),
+                    Err(VMError::DecodeError)
+                ),
                 "truncation at byte {end} must fail closed"
             );
         }
@@ -3254,9 +3279,11 @@ mod tests {
             .expect("empty atom sequence count");
         forged_count[count_offset..count_offset + size_of::<u64>()]
             .copy_from_slice(&u64::MAX.to_le_bytes());
-        assert_eq!(
-            validate_argument_record(&schema, &forged_count),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                validate_argument_record(&schema, &forged_count),
+                Err(VMError::DecodeError)
+            ),
             "adversarial atom counts must not allocate or panic"
         );
     }
@@ -3311,10 +3338,10 @@ mod tests {
                 }],
             };
             let payload = Json::from(norito::json!({ "value": value }));
-            assert_eq!(
+            assert!(matches!(
                 argument_record_from_json(&schema, &payload),
                 Err(VMError::DecodeError)
-            );
+            ));
             RECORD_DECODE_COUNT.with(|count| assert_eq!(count.get(), 0));
         }
     }
@@ -3683,10 +3710,10 @@ mod tests {
                 },
             }],
         };
-        assert_eq!(
+        assert!(matches!(
             schema_materialization_bound(&malformed),
             Err(VMError::DecodeError)
-        );
+        ));
         reset_argument_record_decode_count();
         assert!(matches!(
             prepare_argument_record_with_gas_limit(&malformed, Arc::from([]), 0),
@@ -3800,7 +3827,7 @@ mod tests {
         vm.set_register(11, input_registers.1);
         vm.set_host(crate::host::DefaultHost::new());
         vm.set_gas_limit(5_u64.saturating_add(quote).saturating_sub(1));
-        assert_eq!(vm.run(), Err(VMError::OutOfGas));
+        assert!(matches!(vm.run(), Err(VMError::OutOfGas)));
         RECORD_DECODE_COUNT
             .with(|count| assert_eq!(count.get(), 0, "unaffordable calls must not deserialize"));
         assert_eq!((vm.register(10), vm.register(11)), input_registers);
@@ -3850,9 +3877,8 @@ mod tests {
         vm.set_register(11, schema_ptr);
         vm.set_host(crate::host::DefaultHost::new());
         vm.set_gas_limit(5_u64.saturating_add(quote).saturating_sub(1));
-        assert_eq!(
-            vm.run(),
-            Err(VMError::OutOfGas),
+        assert!(
+            matches!(vm.run(), Err(VMError::OutOfGas)),
             "gas debit must reject the call before envelope authentication"
         );
         RECORD_DECODE_COUNT.with(|count| {
@@ -3901,9 +3927,8 @@ mod tests {
             .expect("bounded envelope lengths are sufficient to quote");
         assert!(quote > 0);
         assert_eq!((vm.register(10), vm.register(11)), before);
-        assert_eq!(
-            decode_argument_record(&mut vm),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(decode_argument_record(&mut vm), Err(VMError::DecodeError)),
             "schema validation belongs to post-debit execution"
         );
     }
@@ -3936,9 +3961,8 @@ mod tests {
             decode_argument_record_gas_quote(&vm).is_ok(),
             "header and bounded lengths are sufficient for pre-debit quoting"
         );
-        assert_eq!(
-            decode_argument_record(&mut vm),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(decode_argument_record(&mut vm), Err(VMError::NoritoInvalid)),
             "digest authentication belongs to post-debit execution"
         );
     }
@@ -4007,9 +4031,16 @@ mod tests {
             )
             .expect_err("the actual canonical record cannot decode under zero caller allocation");
             assert_eq!(
-                error,
-                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                error.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity),
                 "canonical prepared record must retain its original enclosing decoder deferral"
+            );
+            let VMError::DecodeDeferred(original_refusal) = error else {
+                panic!("prepared record lost its captured decoder owner");
+            };
+            assert_eq!(
+                original_refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
             assert_eq!(
                 (
@@ -4029,7 +4060,7 @@ mod tests {
             assert_eq!(prepared.canonical_bytes(), original_bytes);
             prepared.precharge_vm(&mut vm).unwrap();
             prepared.install_call_arguments(&mut vm, 1).unwrap();
-            assert_eq!(vm.load_u64(vm.register(10)), Ok(1));
+            assert!(matches!(vm.load_u64(vm.register(10)), Ok(1)));
             assert!(vm.allocation_budget().unwrap().same_pool(&pool));
         });
         let mut malformed = original_bytes.clone();
@@ -4048,9 +4079,8 @@ mod tests {
                 )
             })
             .unwrap_err();
-        assert_eq!(
-            invalid,
-            VMError::DecodeError,
+        assert!(
+            matches!(invalid, VMError::DecodeError),
             "invalid framing remains a protocol rejection"
         );
         assert_eq!(canonical.as_ref(), original_bytes);
@@ -4085,9 +4115,16 @@ mod tests {
             )
             .unwrap_err();
             assert_eq!(
-                error,
-                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                error.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity),
                 "canonical argument schema must retain its original enclosing decoder deferral"
+            );
+            let VMError::DecodeDeferred(original_refusal) = error else {
+                panic!("argument syscall lost its captured decoder owner");
+            };
+            assert_eq!(
+                original_refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
             assert_eq!(
                 (vm.register(10), vm.register(11), vm.remaining_gas()),
@@ -4095,7 +4132,7 @@ mod tests {
             );
             decode_argument_record(&mut vm)
                 .expect("same schema and record retry under the original context");
-            assert_eq!(vm.load_u64(vm.register(10)), Ok(1));
+            assert!(matches!(vm.load_u64(vm.register(10)), Ok(1)));
             assert_eq!(vm.register(11), 1);
         });
     }

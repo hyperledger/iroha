@@ -1209,7 +1209,7 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(validate_descriptor(&valid), Ok(()));
+        assert!(matches!(validate_descriptor(&valid), Ok(())));
         let mut cases = Vec::new();
         let mut descriptor = valid.clone();
         descriptor.dsids.swap(0, 1);
@@ -1228,9 +1228,11 @@ mod tests {
             cases.push(descriptor);
         }
         for descriptor in cases {
-            assert_eq!(
-                validate_descriptor(&descriptor),
-                Err(VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    validate_descriptor(&descriptor),
+                    Err(VMError::PermissionDenied)
+                ),
                 "noncanonical descriptor must fail: {descriptor:?}"
             );
         }
@@ -1243,13 +1245,18 @@ mod tests {
     }
     #[test]
     fn touch_manifest_rejects_empty_whitespace_duplicate_and_unsorted_keys() {
-        assert_eq!(validate_touch_manifest(&sample_touch_manifest()), Ok(()));
-        assert_eq!(
-            validate_touch_manifest(&TouchManifest {
-                read: Vec::new(),
-                write: Vec::new(),
-            }),
-            Ok(()),
+        assert!(matches!(
+            validate_touch_manifest(&sample_touch_manifest()),
+            Ok(())
+        ));
+        assert!(
+            matches!(
+                validate_touch_manifest(&TouchManifest {
+                    read: Vec::new(),
+                    write: Vec::new(),
+                }),
+                Ok(())
+            ),
             "an explicitly empty runtime manifest is valid"
         );
         for keys in [
@@ -1258,13 +1265,13 @@ mod tests {
             vec!["key".to_owned(), "key".to_owned()],
             vec!["z".to_owned(), "a".to_owned()],
         ] {
-            assert_eq!(
+            assert!(matches!(
                 validate_touch_manifest(&TouchManifest {
                     read: keys,
                     write: Vec::new(),
                 }),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
         }
     }
     fn sample_handle(
@@ -1306,31 +1313,31 @@ mod tests {
     fn standalone_handle_validation_rejects_every_context_free_fault() {
         let dsid = DataSpaceId::new(7);
         let valid = sample_handle(dsid, [0x11; 32], 10, Some(5));
-        assert_eq!(validate_model_asset_handle(&valid), Ok(()));
+        assert!(matches!(validate_model_asset_handle(&valid), Ok(())));
         let mut malformed = valid.clone();
         malformed.group_binding.composability_group_id.clear();
-        assert_eq!(
+        assert!(matches!(
             validate_model_asset_handle(&malformed),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let mut unusable = valid.clone();
         unusable.scope.clear();
-        assert_eq!(
+        assert!(matches!(
             validate_model_asset_handle(&unusable),
             Err(VMError::PermissionDenied)
-        );
+        ));
         let mut unusable = valid.clone();
         unusable.budget.remaining = Quantity::zero();
-        assert_eq!(
+        assert!(matches!(
             validate_model_asset_handle(&unusable),
             Err(VMError::PermissionDenied)
-        );
+        ));
         let mut unusable = valid.clone();
         unusable.budget.per_use = Some(Quantity::zero());
-        assert_eq!(
+        assert!(matches!(
             validate_model_asset_handle(&unusable),
             Err(VMError::PermissionDenied)
-        );
+        ));
         for field in ["handle era", "sub nonce", "group epoch", "expiry slot"] {
             let mut unusable = valid.clone();
             match field {
@@ -1340,9 +1347,11 @@ mod tests {
                 "expiry slot" => unusable.expiry_slot = 0,
                 _ => unreachable!(),
             }
-            assert_eq!(
-                validate_model_asset_handle(&unusable),
-                Err(VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    validate_model_asset_handle(&unusable),
+                    Err(VMError::PermissionDenied)
+                ),
                 "zero {field} must fail validation"
             );
         }
@@ -1357,23 +1366,23 @@ mod tests {
         for mutate in malformed_mutations {
             let mut malformed = valid.clone();
             mutate(&mut malformed);
-            assert_eq!(
+            assert!(matches!(
                 validate_model_asset_handle(&malformed),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
         }
         let mut unusable = valid;
         unusable.subject.account.clear();
-        assert_eq!(
+        assert!(matches!(
             validate_model_asset_handle(&unusable),
             Err(VMError::PermissionDenied)
-        );
+        ));
     }
     #[test]
     fn asset_handle_subject_requires_canonical_account_id() {
         let dsid = DataSpaceId::new(7);
         let valid = sample_handle(dsid, [0x11; 32], 10, Some(5));
-        assert_eq!(validate_model_asset_handle(&valid), Ok(()));
+        assert!(matches!(validate_model_asset_handle(&valid), Ok(())));
 
         let mut malformed = ACCOUNT_FROM_LITERAL.to_owned();
         malformed.pop();
@@ -1389,9 +1398,11 @@ mod tests {
         for (case, account) in invalid_accounts {
             let mut invalid = valid.clone();
             invalid.subject.account = account;
-            assert_eq!(
-                validate_model_asset_handle(&invalid),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    validate_model_asset_handle(&invalid),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "{case} subject account must fail"
             );
         }
@@ -1402,28 +1413,28 @@ mod tests {
             payload: vec![1],
             expiry_slot: Some(1),
         };
-        assert_eq!(validate_proof_blob(&valid), Ok(()));
-        assert_eq!(
+        assert!(matches!(validate_proof_blob(&valid), Ok(())));
+        assert!(matches!(
             validate_proof_blob(&ProofBlob {
                 payload: Vec::new(),
                 expiry_slot: None,
             }),
             Err(VMError::NoritoInvalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_proof_blob(&ProofBlob {
                 payload: vec![1],
                 expiry_slot: Some(0),
             }),
             Err(VMError::NoritoInvalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_proof_blob(&ProofBlob {
                 payload: vec![0; MAX_AXT_PROOF_BLOB_PAYLOAD_BYTES + 1],
                 expiry_slot: None,
             }),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn proof_blob_requires_explicit_nullable_expiry_slot() {
@@ -1440,9 +1451,11 @@ mod tests {
 
         let omitted = encode_canonical_norito(&ProofBlobWithoutExpiry { payload: vec![1] })
             .expect("encode pre-release proof blob without expiry slot");
-        assert_eq!(
-            decode_canonical_norito::<ProofBlob>(&omitted),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                decode_canonical_norito::<ProofBlob>(&omitted),
+                Err(VMError::NoritoInvalid)
+            ),
             "V1 must reject a proof blob that omits its nullable expiry slot"
         );
 
@@ -1453,8 +1466,9 @@ mod tests {
         let encoded =
             encode_canonical_norito(&explicit_none).expect("encode explicit no-expiry proof blob");
         assert_eq!(
-            decode_canonical_norito::<ProofBlob>(&encoded),
-            Ok(explicit_none),
+            (decode_canonical_norito::<ProofBlob>(&encoded))
+                .expect("expected successful fixture result"),
+            explicit_none,
             "an explicit None remains the authenticated no-expiry value"
         );
     }
@@ -1479,7 +1493,7 @@ mod tests {
     fn remote_spend_intent_rejects_empty_whitespace_and_zero_values() {
         let dsid = DataSpaceId::new(7);
         let valid = sample_intent(dsid, Some(1));
-        assert_eq!(validate_model_remote_spend_intent(&valid), Ok(()));
+        assert!(matches!(validate_model_remote_spend_intent(&valid), Ok(())));
         for field in ["kind", "from", "to"] {
             let mut invalid = valid.clone();
             match field {
@@ -1488,27 +1502,33 @@ mod tests {
                 "to" => invalid.op.to.clear(),
                 _ => unreachable!(),
             }
-            assert_eq!(
-                validate_model_remote_spend_intent(&invalid),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    validate_model_remote_spend_intent(&invalid),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "invalid {field} must fail"
             );
         }
-        assert_eq!(
+        assert!(matches!(
             validate_model_remote_spend_intent(&sample_intent(dsid, Some(0))),
             Err(VMError::PermissionDenied)
-        );
-        assert_eq!(
-            validate_model_remote_spend_intent(&sample_intent(dsid, None)),
-            Err(VMError::PermissionDenied),
+        ));
+        assert!(
+            matches!(
+                validate_model_remote_spend_intent(&sample_intent(dsid, None)),
+                Err(VMError::PermissionDenied)
+            ),
             "a redacted intent cannot be authorized by a public proof scalar"
         );
         for kind in ["mint", "Transfer", " transfer", "transfer "] {
             let mut invalid = valid.clone();
             invalid.op.kind = kind.to_owned();
-            assert_eq!(
-                validate_model_remote_spend_intent(&invalid),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    validate_model_remote_spend_intent(&invalid),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "non-transfer operation {kind:?} must fail closed"
             );
         }
@@ -1517,31 +1537,31 @@ mod tests {
     #[test]
     fn remote_spend_asset_scope_requires_exact_authoritative_dataspace() {
         let dsid = DataSpaceId::new(7);
-        assert_eq!(
+        assert!(matches!(
             validate_remote_spend_asset_scope(dsid, AssetBalanceScope::Dataspace(dsid)),
             Ok(())
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_remote_spend_asset_scope(DataSpaceId::UNIVERSAL, AssetBalanceScope::Global,),
             Ok(())
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_remote_spend_asset_scope(
                 dsid,
                 AssetBalanceScope::Dataspace(DataSpaceId::new(8)),
             ),
             Err(VMError::PermissionDenied)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_remote_spend_asset_scope(dsid, AssetBalanceScope::Global),
             Err(VMError::PermissionDenied)
-        );
+        ));
     }
     #[test]
     fn remote_spend_intent_from_and_to_require_canonical_account_ids() {
         let dsid = DataSpaceId::new(7);
         let valid = sample_intent(dsid, Some(1));
-        assert_eq!(validate_model_remote_spend_intent(&valid), Ok(()));
+        assert!(matches!(validate_model_remote_spend_intent(&valid), Ok(())));
 
         let mut malformed = ACCOUNT_FROM_LITERAL.to_owned();
         malformed.pop();
@@ -1562,9 +1582,11 @@ mod tests {
                     "to" => invalid.op.to.clone_from(account),
                     _ => unreachable!(),
                 }
-                assert_eq!(
-                    validate_model_remote_spend_intent(&invalid),
-                    Err(VMError::NoritoInvalid),
+                assert!(
+                    matches!(
+                        validate_model_remote_spend_intent(&invalid),
+                        Err(VMError::NoritoInvalid)
+                    ),
                     "{case} {field} account must fail"
                 );
             }
@@ -1701,15 +1723,18 @@ mod tests {
             expiry_slot: Some(10),
         };
 
-        assert_eq!(validate_proof_blob(&oversized), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            validate_proof_blob(&oversized),
+            Err(VMError::NoritoInvalid)
+        ));
         assert_eq!(
             resolve_test_amount(&intent, Some(&oversized)),
             Err(HandleAmountResolutionError::InvalidProofEnvelope)
         );
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&handle, &intent, &amount, &oversized),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let expected_raw = derive_amount_commitment_from_normalized_payload(
             dsid,
             &amount,
@@ -1737,19 +1762,21 @@ mod tests {
             (&clear_handle, &clear, clear_amount.clone()),
             (&second_handle, &second, second_amount.clone()),
         ]);
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&clear_handle, &clear, &clear_amount, &proof,),
             Ok(())
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_model_claim_for_test(&second_handle, &second, &second_amount, &proof),
             Ok(())
-        );
+        ));
         let mut redacted = second.clone();
         redacted.op.amount = None;
-        assert_eq!(
-            validate_model_claim_for_test(&second_handle, &redacted, &second_amount, &proof,),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                validate_model_claim_for_test(&second_handle, &redacted, &second_amount, &proof,),
+                Err(VMError::PermissionDenied)
+            ),
             "semantic membership cannot admit a public-scalar hidden route"
         );
         let envelope = decode_canonical_norito::<AxtProofEnvelope>(&proof.payload)
@@ -1763,17 +1790,19 @@ mod tests {
             payload: proof.payload.clone(),
             expiry_slot: proof.expiry_slot,
         };
-        assert_eq!(
-            validate_model_remote_spend_intent_commitment(
-                &clear_handle,
-                &model_redacted,
-                &clear_amount,
-                &model_proof,
+        assert!(
+            matches!(
+                validate_model_remote_spend_intent_commitment(
+                    &clear_handle,
+                    &model_redacted,
+                    &clear_amount,
+                    &model_proof,
+                ),
+                Err(VMError::PermissionDenied)
             ),
-            Err(VMError::PermissionDenied),
-            "a redacted intent cannot use a public proof scalar",
+            "a redacted intent cannot use a public proof scalar"
         );
-        assert_eq!(
+        assert!(matches!(
             validate_model_remote_spend_intent_commitment_from_proof_facts(
                 &model_handle,
                 &model_clear,
@@ -1781,7 +1810,7 @@ mod tests {
                 &facts,
             ),
             Ok(())
-        );
+        ));
         let mut reincarnated_model_handle = model_handle.clone();
         reincarnated_model_handle
             .issuer_context
@@ -1794,19 +1823,21 @@ mod tests {
             &Hash::new(b"ivm-abi-reincarnated-remote-spend-execution"),
             1,
         );
-        assert_eq!(
-            validate_model_remote_spend_intent_commitment_from_proof_facts(
-                &reincarnated_model_handle,
-                &model_clear,
-                &clear_amount,
-                &facts,
+        assert!(
+            matches!(
+                validate_model_remote_spend_intent_commitment_from_proof_facts(
+                    &reincarnated_model_handle,
+                    &model_clear,
+                    &clear_amount,
+                    &facts,
+                ),
+                Err(VMError::PermissionDenied)
             ),
-            Err(VMError::PermissionDenied),
             "a claim for a retired asset incarnation must not authorize the current handle"
         );
         let mut substituted_model = model_clear.clone();
         substituted_model.op.to = ACCOUNT_FROM_LITERAL.to_owned();
-        assert_eq!(
+        assert!(matches!(
             validate_model_remote_spend_intent_commitment_from_proof_facts(
                 &model_handle,
                 &substituted_model,
@@ -1814,7 +1845,7 @@ mod tests {
                 &facts,
             ),
             Err(VMError::PermissionDenied)
-        );
+        ));
         for field in ["kind", "from", "to"] {
             let mut substituted = clear.clone();
             match field {
@@ -1823,39 +1854,60 @@ mod tests {
                 "to" => substituted.op.to = ACCOUNT_FROM_LITERAL.to_owned(),
                 _ => unreachable!(),
             }
-            assert_eq!(
-                validate_model_claim_for_test(&clear_handle, &substituted, &clear_amount, &proof,),
-                Err(VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    validate_model_claim_for_test(
+                        &clear_handle,
+                        &substituted,
+                        &clear_amount,
+                        &proof,
+                    ),
+                    Err(VMError::PermissionDenied)
+                ),
                 "substituted {field} must not reuse the proof"
             );
         }
         let mut substituted_dsid = clear.clone();
         substituted_dsid.asset_dsid = DataSpaceId::new(94);
-        assert_eq!(
-            validate_model_claim_for_test(&clear_handle, &substituted_dsid, &clear_amount, &proof,),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                validate_model_claim_for_test(
+                    &clear_handle,
+                    &substituted_dsid,
+                    &clear_amount,
+                    &proof,
+                ),
+                Err(VMError::PermissionDenied)
+            ),
             "substituted asset dataspace must not reuse the proof"
         );
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&clear_handle, &clear, &quantity(6), &proof,),
             Err(VMError::PermissionDenied)
-        );
+        ));
         let mut substituted_asset = clear.clone();
         substituted_asset.op.asset_definition_id = AssetDefinitionId::derive_from_components(
             DomainId::try_new("axt", "universal").expect("test asset domain"),
             "iris".parse().expect("test asset name"),
         );
-        assert_eq!(
-            validate_model_claim_for_test(&clear_handle, &substituted_asset, &clear_amount, &proof,),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                validate_model_claim_for_test(
+                    &clear_handle,
+                    &substituted_asset,
+                    &clear_amount,
+                    &proof,
+                ),
+                Err(VMError::PermissionDenied)
+            ),
             "substituted asset definition must not reuse the proof"
         );
         let mut substituted_handle = clear_handle.clone();
         substituted_handle.axt_binding = AxtBinding::new([0x94; 32]);
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&substituted_handle, &clear, &clear_amount, &proof,),
             Err(VMError::PermissionDenied)
-        );
+        ));
         let mut reincarnated_handle = clear_handle.clone();
         reincarnated_handle
             .issuer_context
@@ -1868,16 +1920,20 @@ mod tests {
             &Hash::new(b"ivm-abi-reincarnated-remote-spend-execution"),
             1,
         );
-        assert_eq!(
-            validate_model_claim_for_test(&reincarnated_handle, &clear, &clear_amount, &proof,),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                validate_model_claim_for_test(&reincarnated_handle, &clear, &clear_amount, &proof,),
+                Err(VMError::PermissionDenied)
+            ),
             "a proof for the retired incarnation must not authorize a current-incarnation handle"
         );
         let mut second_handle = clear_handle.clone();
         second_handle.sub_nonce += 1;
-        assert_eq!(
-            validate_model_claim_for_test(&second_handle, &clear, &clear_amount, &proof,),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                validate_model_claim_for_test(&second_handle, &clear, &clear_amount, &proof,),
+                Err(VMError::PermissionDenied)
+            ),
             "a proof for one handle must not authorize a new handle identity"
         );
 
@@ -1888,18 +1944,22 @@ mod tests {
             &second,
             &second_amount,
         );
-        assert_eq!(
+        assert!(matches!(
             facts.validate_remote_spend_consumption(&[second_commitment, clear_commitment]),
             Ok(())
-        );
-        assert_eq!(
-            facts.validate_remote_spend_consumption(&[clear_commitment, clear_commitment]),
-            Err(VMError::PermissionDenied),
+        ));
+        assert!(
+            matches!(
+                facts.validate_remote_spend_consumption(&[clear_commitment, clear_commitment]),
+                Err(VMError::PermissionDenied)
+            ),
             "one proof claim cannot be consumed twice"
         );
-        assert_eq!(
-            facts.validate_remote_spend_consumption(&[clear_commitment]),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                facts.validate_remote_spend_consumption(&[clear_commitment]),
+                Err(VMError::PermissionDenied)
+            ),
             "an unconsumed proof claim must fail closed"
         );
 
@@ -1915,20 +1975,20 @@ mod tests {
             empty_envelope.manifest_root,
         )
         .expect("generic FastPQ proof accepts an empty remote-spend binding");
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&clear_handle, &clear, &clear_amount, &empty_proof,),
             Err(VMError::PermissionDenied)
-        );
+        ));
 
         empty_envelope.fastpq_binding = None;
         let unbound_proof = ProofBlob {
             payload: norito::to_bytes(&empty_envelope).expect("encode unbound proof envelope"),
             expiry_slot: empty_proof.expiry_slot,
         };
-        assert_eq!(
+        assert!(matches!(
             validate_model_claim_for_test(&clear_handle, &clear, &clear_amount, &unbound_proof,),
             Err(VMError::PermissionDenied)
-        );
+        ));
     }
     #[test]
     fn preflight_fastpq_v1_proof_envelope_rejects_mislabeled_binding() {
@@ -2033,10 +2093,10 @@ mod tests {
                 committed_amount: None,
                 amount_commitment: None,
             };
-            assert_eq!(
+            assert!(matches!(
                 preflight_fastpq_v1_proof_envelope_for_manifest(&envelope, dsid, manifest_root),
                 Err(VMError::PermissionDenied)
-            );
+            ));
         }
     }
     #[test]
@@ -2187,12 +2247,13 @@ mod tests {
             .expect("decode canonical proof once");
         let facts = AxtProofUseFacts::from_verified_envelope(envelope);
         assert_eq!(
-            resolve_handle_amount_components_from_proof_facts(
+            (resolve_handle_amount_components_from_proof_facts(
                 dsid,
                 intent.op.amount.as_ref(),
                 &facts,
-            ),
-            Ok(expected)
+            ))
+            .expect("expected successful fixture result"),
+            expected
         );
         assert_eq!(
             resolve_handle_amount_components_from_proof_facts(
@@ -2229,12 +2290,13 @@ mod tests {
             .expect("decode canonical proof once");
         let facts = AxtProofUseFacts::from_verified_envelope(envelope);
         assert_eq!(
-            resolve_handle_amount_components_from_proof_facts(
+            (resolve_handle_amount_components_from_proof_facts(
                 dsid,
                 intent.op.amount.as_ref(),
                 &facts,
-            ),
-            Ok(expected)
+            ))
+            .expect("expected successful fixture result"),
+            expected
         );
         assert_eq!(
             resolve_handle_amount_components_from_proof_facts(dsid, Some(&quantity(24)), &facts,),
@@ -2318,11 +2380,14 @@ mod tests {
         };
         let binding = compute_binding(&descriptor).expect("canonical binding");
         let mut state = HostAxtState::new(descriptor, binding);
-        assert_eq!(state.validate_commit(), Err(VMError::PermissionDenied));
+        assert!(matches!(
+            state.validate_commit(),
+            Err(VMError::PermissionDenied)
+        ));
         state
             .record_proof(dsid, Some(proof_with_amount(dsid, Some(5), None)), None)
             .expect("valid public proof record");
-        assert_eq!(state.validate_commit(), Ok(()));
+        assert!(matches!(state.validate_commit(), Ok(())));
     }
     #[test]
     fn signed_spends_stage_in_order_and_reject_inconsistent_binding() {
@@ -2351,31 +2416,31 @@ mod tests {
         let mut state = HostAxtState::new(descriptor, binding);
         let mut wrong_binding = spends[0].clone();
         wrong_binding.draft.handle.axt_binding = AxtBinding::new([0xFF; 32]);
-        assert_eq!(
+        assert!(matches!(
             state.record_spend(wrong_binding),
             Err(VMError::PermissionDenied)
-        );
+        ));
         assert!(state.spends().is_empty());
         let mut wrong_amount = spends[0].clone();
         wrong_amount.draft.amount = Some(Quantity::from(99_u64));
-        assert_eq!(
+        assert!(matches!(
             state.record_spend(wrong_amount),
             Err(VMError::PermissionDenied)
-        );
+        ));
         assert!(state.spends().is_empty());
         let mut wrong_scope = spends[0].clone();
         wrong_scope.draft.handle.scope.clear();
-        assert_eq!(
+        assert!(matches!(
             state.record_spend(wrong_scope),
             Err(VMError::PermissionDenied)
-        );
+        ));
         assert!(state.spends().is_empty());
         let mut wrong_operation = spends[0].clone();
         wrong_operation.draft.intent.op.kind = "mint".to_owned();
-        assert_eq!(
+        assert!(matches!(
             state.record_spend(wrong_operation),
             Err(VMError::PermissionDenied)
-        );
+        ));
         assert!(state.spends().is_empty());
         for spend in &spends {
             state
@@ -2383,7 +2448,7 @@ mod tests {
                 .expect("stage signed spend");
         }
         assert_eq!(state.spends(), spends);
-        assert_eq!(state.validate_commit(), Ok(()));
+        assert!(matches!(state.validate_commit(), Ok(())));
     }
     #[test]
     fn signed_spend_commit_rejects_reused_nonce_or_source_transfer_coordinate() {
@@ -2425,10 +2490,10 @@ mod tests {
                 issuer.private_key(),
             )
             .expect("issuer signs a distinct claimed coordinate");
-        assert_eq!(
+        assert!(matches!(
             repeated_nonce.verify_issuer_signatures_v1(context, anchor, issuer.public_key()),
             Ok(())
-        );
+        ));
         let mut state = new_state();
         state
             .record_spend(first.clone())
@@ -2436,7 +2501,10 @@ mod tests {
         state
             .record_spend(repeated_nonce)
             .expect("stage second signed claim");
-        assert_eq!(state.validate_commit(), Err(VMError::PermissionDenied));
+        assert!(matches!(
+            state.validate_commit(),
+            Err(VMError::PermissionDenied)
+        ));
         assert_eq!(state.spends().len(), 2);
 
         // A fresh nonce cannot authorize the same source transfer again.
@@ -2450,16 +2518,19 @@ mod tests {
                 issuer.private_key(),
             )
             .expect("issuer signs the same claimed transfer with a fresh nonce");
-        assert_eq!(
+        assert!(matches!(
             repeated_transfer.verify_issuer_signatures_v1(context, anchor, issuer.public_key()),
             Ok(())
-        );
+        ));
         let mut state = new_state();
         state.record_spend(first).expect("stage first spend");
         state
             .record_spend(repeated_transfer)
             .expect("stage second signed claim");
-        assert_eq!(state.validate_commit(), Err(VMError::PermissionDenied));
+        assert!(matches!(
+            state.validate_commit(),
+            Err(VMError::PermissionDenied)
+        ));
         assert_eq!(state.spends().len(), 2);
     }
     #[test]

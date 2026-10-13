@@ -15,8 +15,8 @@ use iroha_data_model::{
         },
     },
     sumeragi_finality::{
-        MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint, SumeragiFinalityProof,
-        SumeragiFinalityVerifier,
+        FinalityReadError, MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint,
+        SumeragiFinalityProof, SumeragiFinalityVerifier,
     },
     transaction::signed::TransactionEntrypoint,
 };
@@ -86,6 +86,7 @@ enum VerificationErrorCode {
     NonCanonicalBlockProofs,
     NonCanonicalBlockWire,
     FinalityRejected,
+    LocalUnavailable,
     AnchorRejected,
 }
 impl VerificationErrorCode {
@@ -101,31 +102,67 @@ impl VerificationErrorCode {
             Self::NonCanonicalBlockProofs => "noncanonical_block_proofs",
             Self::NonCanonicalBlockWire => "noncanonical_block_wire",
             Self::FinalityRejected => "finality_rejected",
+            Self::LocalUnavailable => "local_unavailable",
             Self::AnchorRejected => "anchor_rejected",
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 struct VerificationError {
     code: VerificationErrorCode,
-    message: String,
+    payload: VerificationErrorPayload,
+}
+#[derive(Debug)]
+enum VerificationErrorPayload {
+    Message(String),
+    // Retain the actual unfinished finality attempt until the terminal N-API projection.
+    Original(FinalityReadError),
 }
 impl VerificationError {
     fn new(code: VerificationErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
-            message: message.into(),
+            payload: VerificationErrorPayload::Message(message.into()),
         }
+    }
+    fn from_finality(error: FinalityReadError) -> Self {
+        match error {
+            original @ (FinalityReadError::DecodeResource(_)
+            | FinalityReadError::ScratchLimit(_)
+            | FinalityReadError::Allocator(_)) => Self {
+                code: VerificationErrorCode::LocalUnavailable,
+                payload: VerificationErrorPayload::Original(original),
+            },
+            // TODO: migrate the earlier original genesis JSON and archive reads to
+            // captured typed attempts too; this repair closes the new finality owner API.
+            completed => Self::new(
+                VerificationErrorCode::FinalityRejected,
+                completed.to_string(),
+            ),
+        }
+    }
+    fn into_napi(self) -> napi::Error {
+        let status = if matches!(&self.payload, VerificationErrorPayload::Original(_)) {
+            napi::Status::GenericFailure
+        } else {
+            napi::Status::InvalidArg
+        };
+        napi::Error::new(status, self.to_string())
     }
 }
 impl fmt::Display for VerificationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "authenticated_block_proofs_v1/{}: {}",
-            self.code.as_str(),
-            self.message
-        )
+        match &self.payload {
+            VerificationErrorPayload::Original(original) => write!(
+                formatter,
+                "authenticated_block_proofs_v1/local_unavailable: {original}"
+            ),
+            VerificationErrorPayload::Message(message) => write!(
+                formatter,
+                "authenticated_block_proofs_v1/{}: {message}",
+                self.code.as_str()
+            ),
+        }
     }
 }
 struct RawVerificationInputV1<'a> {
@@ -195,7 +232,7 @@ pub async fn block_proofs_verify_authenticated_v1(
             format!("authenticated BlockProofs verifier task failed: {error}"),
         )
     })?
-    .map_err(|error| napi::Error::new(napi::Status::InvalidArg, error.to_string()))
+    .map_err(VerificationError::into_napi)
 }
 fn verify_raw_v1(
     input: RawVerificationInputV1<'_>,
@@ -237,17 +274,13 @@ fn verify_raw_v1(
         &network_id,
         checkpoint.chain_id(),
     )
-    .map_err(|error| {
-        VerificationError::new(VerificationErrorCode::FinalityRejected, error.to_string())
-    })?;
+    .map_err(VerificationError::from_finality)?;
     let verified = if finality.height() == checkpoint.height() {
         finality_verifier.verify_same_decision(checkpoint.tip(), &finality)
     } else {
         finality_verifier.verify(&finality)
     }
-    .map_err(|error| {
-        VerificationError::new(VerificationErrorCode::FinalityRejected, error.to_string())
-    })?;
+    .map_err(VerificationError::from_finality)?;
     // Authenticate bounded checkpoint/finality inputs before decoding the execution
     // and Merkle carriers. An invalid QC cannot reach those decoders. Bind the block before
     // touching the proof archive so a wrong wire cannot amplify through it.
@@ -267,7 +300,8 @@ fn verify_raw_v1(
         Some(
             finality_verifier
                 .export_checkpoint(&finality)
-                .and_then(|checkpoint| checkpoint.encode_canonical())
+                .map_err(VerificationError::from_finality)?
+                .encode_canonical()
                 .map_err(|error| {
                     VerificationError::new(
                         VerificationErrorCode::FinalityRejected,
@@ -427,6 +461,53 @@ mod tests {
         checkpoint: Vec<u8>,
         network: String,
     }
+    #[test]
+    fn captured_finality_reader_owner_stays_local_until_terminal_js_projection() {
+        let frame = norito::encode_canonical(&vec![1_u8; 32]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let attempt = norito::with_decode_limits_scope(limits, || {
+            norito::core::classify_decode_attempt(|| norito::decode_canonical::<Vec<u8>>(&frame))
+        })
+        .unwrap_err();
+        let original = attempt.local_refusal().unwrap();
+        let error = VerificationError::from_finality(attempt.into());
+        assert!(std::mem::size_of_val(&error) <= 128);
+        assert_eq!(error.code, VerificationErrorCode::LocalUnavailable);
+        let VerificationErrorPayload::Original(FinalityReadError::DecodeResource(retained)) =
+            &error.payload
+        else {
+            panic!("actual finality decoder owner must be retained")
+        };
+        assert_eq!(retained.local_refusal(), Some(original));
+        let terminal = error.into_napi();
+        assert_eq!(terminal.status, napi::Status::GenericFailure);
+        assert!(
+            terminal
+                .reason
+                .starts_with("authenticated_block_proofs_v1/local_unavailable:")
+        );
+        assert_eq!(
+            norito::decode_canonical::<Vec<u8>>(&frame).unwrap(),
+            vec![1_u8; 32]
+        );
+        let invalid = VerificationError::from_finality(
+            iroha_data_model::sumeragi_finality::FinalityError("original completed failure".into())
+                .into(),
+        );
+        assert!(matches!(
+            &invalid.payload,
+            VerificationErrorPayload::Message(message)
+                if message == "current finality: original completed failure"
+        ));
+        assert_eq!(invalid.code, VerificationErrorCode::FinalityRejected);
+        let invalid = invalid.into_napi();
+        assert_eq!(invalid.status, napi::Status::InvalidArg);
+        assert_eq!(
+            invalid.reason,
+            "authenticated_block_proofs_v1/finality_rejected: current finality: original completed failure"
+        );
+    }
+
     fn make_fixture() -> Fixture {
         extend(NativeFinalityFixture::start("js-native-block-proofs"))
     }
@@ -659,6 +740,11 @@ mod tests {
         .unwrap();
         assert!(verified.valid);
         assert_eq!(
+            verified.checkpoint_norito.as_deref(),
+            Some(second.checkpoint.as_slice()),
+            "checkpoint promotion must retain the exact verified successor"
+        );
+        assert_eq!(
             SumeragiFinalityCheckpoint::decode_canonical(
                 verified.checkpoint_norito.as_ref().unwrap()
             )
@@ -824,14 +910,14 @@ mod tests {
             ),
             VerificationErrorCode::NonCanonicalBlockProofs
         );
-        let deframed =
-            iroha_data_model::block::deframe_versioned_signed_block_bytes(&wire).unwrap();
+        let mut headerless = vec![wire[0]];
+        headerless.extend_from_slice(&wire[1 + norito::core::Header::SIZE..]);
         assert_eq!(
             run(
                 &fixture.checkpoint,
                 fixture.block_proofs.entry_hash.as_ref(),
                 &finality,
-                deframed.bare_versioned.as_ref(),
+                &headerless,
                 &proofs
             ),
             VerificationErrorCode::NonCanonicalBlockWire

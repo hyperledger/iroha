@@ -3,6 +3,15 @@
 //! complete HTTP bootstrap, native per-use eligibility, catalog admission or Serving readiness.
 
 use super::*;
+
+type EnrollmentRootSnapshot = (
+    PrivateDirectory,
+    PrivateDirectory,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+);
+
 use crate::{
     managed::{
         native_operation::{
@@ -114,7 +123,7 @@ impl NativeFixture {
         deadline: Option<Instant>,
     ) -> Result<VerifiedStreamTokenCustodyStateV1> {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        let budget = self.chain.state().ivm_execution_budget();
         let capture = || {
             self.chain
                 .state()
@@ -134,9 +143,9 @@ impl NativeFixture {
             Some(deadline) => bounded_native_snapshot(&budget, deadline, capture)?,
             None => capture().map_err(|error| crate::managed::Error::Invalid(error.to_string()))?,
         };
-        if deadline.is_none() {
-            assert_eq!(budget.reserved_bytes(), 0);
-        }
+        // Shared executed State generations may retire concurrently. Exact operation
+        // refunds belong to reader_busy_tests' pre-construction-pinned custody control,
+        // not an assertion about this shared State's global reservation total.
         let current = StreamTokenCustodyProofV1::decode_frame(&bytes).unwrap().verify(
             authority.config.network_id,
             authority.provider_id().unwrap(),
@@ -162,7 +171,7 @@ impl NativeFixture {
         self.account_proof(&operator.account, authority.provider_id().unwrap())
             .verify(
                 &ReserveAccountProofExpectedV1 {
-                    chain: &authority.config.chain.to_string(),
+                    chain: authority.config.chain.as_ref(),
                     network_id: authority.config.network_id,
                     operator: &operator.account,
                     provider_id: authority.provider_id().unwrap(),
@@ -191,12 +200,13 @@ fn bounded_native_snapshot<T>(
                 require_deadline(deadline)?;
                 return Ok(value);
             }
-            Err(WorldStateSnapshotError::Acquisition(
-                mv::storage::AdmittedStorageError::Busy { release, .. },
-            ))
-            | Err(WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(
-                release,
-            ))) => wait_native_snapshot_release(budget, release, deadline)?,
+            Err(
+                WorldStateSnapshotError::Acquisition(mv::storage::AdmittedStorageError::Busy {
+                    release,
+                    ..
+                })
+                | WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(release)),
+            ) => wait_native_snapshot_release(budget, release, deadline)?,
             Err(error) => return Err(crate::managed::Error::Invalid(error.to_string())),
         }
     }
@@ -245,18 +255,12 @@ fn wait_native_snapshot_release(
     }
 }
 
-#[test]
-fn native_snapshot_retry_waits_for_original_world_release_and_preserves_refusals() {
-    use iroha_core::{
-        state::World,
-        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
-    };
+fn assert_native_snapshot_waits_for_original_release(state: &State) {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 10_000)).unwrap();
-    let state = chain.state();
-    let held_budget = AllocationBudget::new(32 * 1024 * 1024);
-    let read_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let held_budget = state.ivm_execution_budget();
+    let read_budget = state.ivm_execution_budget();
+    assert!(held_budget.same_pool(&read_budget));
     let held = state.world.try_block(&held_budget).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let attempts = AtomicUsize::new(0);
@@ -287,10 +291,57 @@ fn native_snapshot_retry_waits_for_original_world_release_and_preserves_refusals
     // another role's release, so later Busy results must neither block this observer nor
     // fabricate atomic release of the complete World.
     assert!(attempts.load(Ordering::SeqCst) >= 2);
-    assert_eq!(read_budget.reserved_bytes(), 0);
-    assert_eq!(held_budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn native_snapshot_retry_waits_for_executed_world_release() {
+    use iroha_core::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 10_000)).unwrap();
+    // Keep real executed-chain contention separate from exact accounting: its retired
+    // EBR generations can legitimately refund when a later pin advances collection.
+    assert_native_snapshot_waits_for_original_release(chain.state());
+}
+
+#[test]
+fn native_snapshot_retry_waits_for_original_world_release_and_preserves_refusals() {
+    use iroha_core::{kura::Kura, query::store::LiveQueryStore, state::World};
+
+    // These accounting controls need no certificate or published generation. Construct
+    // real pristine World/State owners on one explicit pool so prior genesis retirement
+    // cannot change the baseline while the timeout observer is waiting.
+    let original = AllocationBudget::new(
+        iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+    );
+    let world = World::try_with_execution_budget([], [], [], &original).unwrap();
+    let state = State::try_new_with_chain_and_network_id_with_default_telemetry(
+        original.clone(),
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+        "pristine-native-snapshot".into(),
+        iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+                b"pristine-native-snapshot",
+            )),
+        ),
+    )
+    .unwrap();
+    let held_budget = state.ivm_execution_budget();
+    let read_budget = state.ivm_execution_budget();
+    assert!(original.same_pool(&held_budget));
+    assert!(original.same_pool(&read_budget));
+    assert_eq!(state.view().height(), 0);
+    let retained_bytes = original.reserved_bytes();
+    assert_native_snapshot_waits_for_original_release(&state);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+    assert_eq!(held_budget.reserved_bytes(), retained_bytes);
 
     let held = state.world.try_block(&held_budget).unwrap();
+    let held_bytes = read_budget.reserved_bytes();
     let mut attempts = 0;
     let refused = bounded_native_snapshot(
         &read_budget,
@@ -309,8 +360,33 @@ fn native_snapshot_retry_waits_for_original_world_release_and_preserves_refusals
         Err(crate::managed::Error::NativeDeadline)
     ));
     assert_eq!(attempts, 1);
-    assert_eq!(read_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), held_bytes);
     drop(held);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+
+    // Equal capacity on a different pool cannot authorize this World's storage or
+    // turn a terminal identity refusal into a release-wait retry.
+    let foreign_budget = AllocationBudget::new(read_budget.limit_bytes());
+    let mut attempts = 0;
+    let refused = bounded_native_snapshot(
+        &foreign_budget,
+        Instant::now() + Duration::from_secs(5),
+        || {
+            attempts += 1;
+            let result = state.world.try_block(&foreign_budget);
+            assert!(matches!(
+                result,
+                Err(mv::storage::AdmittedStorageError::ScopeIdentity)
+            ));
+            result
+                .map(drop)
+                .map_err(WorldStateSnapshotError::Acquisition)
+        },
+    );
+    assert!(matches!(refused, Err(crate::managed::Error::Invalid(_))));
+    assert_eq!(attempts, 1, "foreign custody cannot become a retry");
+    assert_eq!(foreign_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
 
     let mut attempts = 0;
     let refused: Result<()> = bounded_native_snapshot(
@@ -327,7 +403,7 @@ fn native_snapshot_retry_waits_for_original_world_release_and_preserves_refusals
         matches!(refused, Err(crate::managed::Error::Invalid(message)) if message == "changed certified cut")
     );
     assert_eq!(attempts, 1, "ordinary source refusal cannot become a retry");
-    assert_eq!(read_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
 }
 
 fn funding_finalities(report: ProviderFundingProgress) -> [ManagedTransactionFinality; 4] {
@@ -517,13 +593,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         requested_utc: u64,
         previous_terms: &crate::managed::native_operation::Terms,
         expected: &[ManagedTransactionFinality],
-        enrollment_roots: &[(
-            PrivateDirectory,
-            PrivateDirectory,
-            Vec<u8>,
-            Vec<u8>,
-            Vec<u8>,
-        )],
+        enrollment_roots: &[EnrollmentRootSnapshot],
         retained: &[(PrivateDirectory, Vec<u8>, Vec<u8>)],
         temporary: &tempfile::TempDir,
         peers: &mut UnavailablePeers,
@@ -556,7 +626,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
                     .as_millis(),
             );
             let advance_started = Instant::now();
-            let (_, passes) = phases::test_passes::count(|| {
+            let ((), passes) = phases::test_passes::count(|| {
                 assert_eq!(
                     finalities(owner.advance(authorization, fresh.deadline).unwrap()),
                     expected
@@ -769,7 +839,12 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
             panic!("bootstrap must execute its exact native instruction vector");
         };
         assert_eq!(instructions.len(), instruction_count);
-        assert_eq!(iroha_core::gas::meter_instructions(instructions), gas);
+        let view = native.chain.state().view();
+        assert_eq!(
+            iroha_core::gas::meter_instructions(instructions, &view.zk.gas)
+                .expect("native instruction metering completes without a local refusal"),
+            gas
+        );
         assert_eq!(
             signed.fee_payment_intent().gas_limit(),
             options.fee_payment.gas_limit()
@@ -783,7 +858,6 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         assert_eq!(receipt.schedule.instruction_count, instruction_count as u64);
         assert_eq!(receipt.schedule.gas_used, gas);
         assert!(receipt.fee_amount <= *options.max_total_fees.get(&receipt.fee_asset_id).unwrap());
-        let view = native.chain.state().view();
         assert_eq!(
             receipt.schedule.per_instruction_fee,
             view.nexus().fees.per_instruction_fee
@@ -927,7 +1001,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         let scope = runtime
             .open_child("providers")
             .unwrap()
-            .open_child(&slot.to_string())
+            .open_child(slot.to_string())
             .unwrap();
         for (owner, purpose) in [
             ("stream-token-custody", "configure"),

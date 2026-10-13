@@ -202,6 +202,65 @@ impl OriginalSinkV1 for Disk {
 }
 
 #[test]
+fn monetary_descriptor_classes_keep_complete_routes_within_terminal_capacity() {
+    // Use the compiler's actual monetary recipe and compressed descriptors, without
+    // generating any keys. Equal dimensions alone would not establish a Q class.
+    let descriptors: BTreeMap<_, _> = (2_u8..12)
+        .map(|selector| {
+            let shape = sigma::monetary_shape(usize::from(selector)).unwrap();
+            (selector, shape.descriptor::<Eq>().unwrap())
+        })
+        .collect();
+    let groups = |selectors: std::ops::RangeInclusive<u8>| {
+        let mut groups: Vec<Vec<u8>> = Vec::new();
+        for selector in selectors {
+            if let Some(group) = groups
+                .iter_mut()
+                .find(|group| descriptors[&group[0]] == descriptors[&selector])
+            {
+                group.push(selector);
+            } else {
+                groups.push(vec![selector]);
+            }
+        }
+        groups
+    };
+    let send = groups(2..=9);
+    let receive = groups(10..=11);
+    assert_eq!(send, [vec![2, 6], vec![3, 7], vec![4, 8], vec![5, 9]]);
+    assert_eq!(receive, [vec![10], vec![11]]);
+
+    let representative = |selector| {
+        send.iter()
+            .chain(&receive)
+            .find(|group| group.contains(&selector))
+            .map_or(selector, |group| group[0])
+    };
+    let routes = compiled_routes();
+    assert_eq!(routes.len(), 52);
+    let mut classes = Vec::new();
+    for route in routes {
+        let class = (
+            route.variant,
+            representative(route.own),
+            route.incoming.map(representative),
+        );
+        if !classes.contains(&class) {
+            classes.push(class);
+        }
+    }
+    // A fixed variant/Q class shares its blank A/W sources. Send's route mask
+    // selects native witness checks, but is absent from those source circuits.
+    // Thus one terminal per class is an upper bound, not a count of proven keys.
+    // Receive and ReceiveRenewed remain separate variants in the actual product.
+    assert_eq!(
+        classes.len(),
+        10 + send.len() + 2 * receive.len() * send.len() + receive.len()
+    );
+    assert!(classes.len() <= 32, "complete routes exceed Omega capacity");
+}
+
+#[test]
 #[ignore = "real16 sigma +Q +Bootstrap A/W +Omega original construction; optimized explicit component run"]
 fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_marker() {
     let mut disk = Disk(tempfile::tempdir().unwrap());

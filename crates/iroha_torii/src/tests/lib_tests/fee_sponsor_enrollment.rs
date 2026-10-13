@@ -212,7 +212,7 @@ async fn fee_enrollment_point_read_observes_native_revocation_and_exact_registra
             malformed.into_bytes().into(),
         )
         .await
-        .map_or_else(IntoResponse::into_response, |response| response);
+        .unwrap_or_else(IntoResponse::into_response);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
@@ -270,7 +270,7 @@ async fn fee_enrollment_point_read_rejects_expired_replayed_and_substituted_auth
         body.clone().into(),
     )
     .await
-    .map_or_else(IntoResponse::into_response, |response| response);
+    .unwrap_or_else(IntoResponse::into_response);
     assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
 
     let mut expired = signed_app_headers(&sponsor, &sponsor_key, &method, &uri, &body);
@@ -305,7 +305,7 @@ async fn fee_enrollment_point_read_rejects_expired_replayed_and_substituted_auth
         body.clone().into(),
     )
     .await
-    .map_or_else(IntoResponse::into_response, |response| response);
+    .unwrap_or_else(IntoResponse::into_response);
     assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
 
     let headers = signed_app_headers(&sponsor, &sponsor_key, &method, &uri, &body);
@@ -319,7 +319,7 @@ async fn fee_enrollment_point_read_rejects_expired_replayed_and_substituted_auth
         substituted.into(),
     )
     .await
-    .map_or_else(IntoResponse::into_response, |response| response);
+    .unwrap_or_else(IntoResponse::into_response);
     assert_eq!(substituted.status(), StatusCode::UNAUTHORIZED);
     assert!(app.state.world_view().fee_sponsor_enrollments().is_empty());
 }

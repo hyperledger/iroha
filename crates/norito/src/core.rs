@@ -67,7 +67,10 @@ pub use prepared_sequence::{
 pub use prepared_string::{StringDestinationError, borrow_canonical_string, decode_string_into};
 mod decode_attempt;
 pub use decode_attempt::classify_decode_attempt;
-pub use decode_attempt::{DecodeAttemptError, DecodeAttemptErrorKind, ScopedDecodeResourceError};
+pub use decode_attempt::{
+    DecodeAttemptError, DecodeAttemptErrorKind, DecodeLocalRefusal, DecodeLocalRefusalKind,
+    ScopedDecodeResourceError,
+};
 mod byte_sequence;
 #[doc(hidden)]
 pub use byte_sequence::{decode_byte_element_sequence_into, visit_binary_sequence_with_count};
@@ -83,6 +86,8 @@ mod counting_tests;
 mod element_sequence_tests;
 pub mod heuristics;
 pub mod hw;
+#[cfg(test)]
+mod ordered_map_projection_tests;
 #[cfg(test)]
 #[path = "core/payload_decode_tests.rs"]
 mod payload_decode_tests;
@@ -2143,13 +2148,23 @@ where
     }
     Some(total)
 }
-fn encode_map_payloads<'a, K, V, I>(
+/// Write the canonical map layout directly from borrowed entries in strict key order.
+///
+/// This is the same kernel used by `BTreeMap` and sorted `HashMap` serialization. It owns no
+/// staging map or entry buffer. Every key/value keeps its source custody while it is measured
+/// and emitted, and a counting destination preserves the normal one-pass leaf measurement.
+///
+/// # Errors
+///
+/// Rejects missing/extra entries, duplicate or descending keys, and propagates the original
+/// field measurement or destination error. The caller must discard partial output on error.
+pub fn write_ordered_map_entries<'a, K, V, I>(
     writer: &mut Encoder<'_>,
     len: usize,
     entries: I,
 ) -> Result<(), Error>
 where
-    K: SerializePayload + 'a,
+    K: SerializePayload + Ord + 'a,
     V: SerializePayload + 'a,
     I: IntoIterator<Item = (&'a K, &'a V)>,
 {
@@ -2159,8 +2174,9 @@ where
     )?;
     let flags = effective_layout_flags();
     let mut count = 0usize;
+    let mut previous: Option<&K> = None;
     for (key, value) in entries {
-        if count == len {
+        if count == len || previous.is_some_and(|previous| previous >= key) {
             return Err(Error::LengthMismatch);
         }
         for item in [key as &dyn SerializePayload, value as &dyn SerializePayload] {
@@ -2172,6 +2188,7 @@ where
             )?;
             write_counted_payload(item, writer, encoded_len)?;
         }
+        previous = Some(key);
         count += 1;
     }
     (count == len).then_some(()).ok_or(Error::LengthMismatch)
@@ -2900,7 +2917,7 @@ where
     V: SerializePayload,
 {
     fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
-        encode_map_payloads(writer, self.len(), self.iter())
+        write_ordered_map_entries(writer, self.len(), self.iter())
     }
     fn encoded_len_hint(&self) -> Option<usize> {
         map_encoded_len_hint(self.iter())
@@ -2953,7 +2970,7 @@ where
             })?;
         entries.extend(self.iter());
         entries.sort_unstable_by(|(ka, _), (kb, _)| ka.cmp(kb));
-        encode_map_payloads(writer, entries.len(), entries.iter().copied())
+        write_ordered_map_entries(writer, entries.len(), entries.iter().copied())
     }
     fn encoded_len_hint(&self) -> Option<usize> {
         map_encoded_len_hint(self.iter())
@@ -7353,15 +7370,21 @@ fn match_canonical_payload(
     }
     Ok(exact.matched_len())
 }
-struct TypedFieldSlot<T> {
+pub(crate) struct TypedFieldSlot<T> {
     value: Option<T>,
 }
 impl<T> TypedFieldSlot<T> {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { value: None }
     }
-    fn into_value(mut self) -> Result<T, Error> {
+    pub(crate) fn into_value(mut self) -> Result<T, Error> {
+        self.take_value()
+    }
+    pub(crate) fn take_value(&mut self) -> Result<T, Error> {
         self.value.take().ok_or(Error::LengthMismatch)
+    }
+    pub(crate) fn value(&self) -> Result<&T, Error> {
+        self.value.as_ref().ok_or(Error::LengthMismatch)
     }
 }
 impl<T> ErasedFieldSlot for TypedFieldSlot<T>
@@ -7507,6 +7530,21 @@ fn decode_field_erased(
     // canonical consumption against the original field in both cases.
     note_payload_access(bytes, used);
     Ok(used)
+}
+/// Decode into one caller-retained value slot, returning no large owned temporary through
+/// the framing and resource-scope stack. The slot owns cleanup on every failure or unwind.
+pub(crate) fn decode_field_canonical_into_slot<T>(
+    bytes: &[u8],
+    slot: &mut TypedFieldSlot<T>,
+) -> Result<(), Error>
+where
+    T: for<'de> crate::DeserializePayload<'de> + crate::SerializePayload,
+{
+    let used = decode_field_erased(bytes, FieldDecodeBoundary::Canonical, slot)?;
+    if used != bytes.len() {
+        return Err(Error::LengthMismatch);
+    }
+    Ok(())
 }
 /// Decode a field payload using the canonical codec implementation without
 /// requiring a specialized `DecodeFromSlice` implementation.

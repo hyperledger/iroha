@@ -158,7 +158,7 @@ fn assert_paid_lane_source(dataspace: DataSpaceId) {
     let network_id = fixture.chain.network_id();
     let mut execution = fixture
         .chain
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .unwrap_or_else(|error| panic!("original paid lane output must execute: {error}"));
     let committed = execution.publish(Signers::Quorum).unwrap();
     let block = committed.block();

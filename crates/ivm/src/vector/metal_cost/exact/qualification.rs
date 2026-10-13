@@ -40,10 +40,10 @@ fn required_metal_aes_exact_geometry_keeps_original_samples_and_receipts() {
         metal_runtime::with_device_for_qualification(slot, || {
             let health = metal_runtime::current_health().unwrap();
             for (work, blocks, kernel) in [
-                (MetalBatchWork::AesEnc, 33, MetalKernel::AesEncBatch),
-                (MetalBatchWork::AesDec, 129, MetalKernel::AesDecBatch),
-                (MetalBatchWork::AesEncRounds(9), 513, MetalKernel::AesEncRounds),
-                (MetalBatchWork::AesDecRounds(64), 2_047, MetalKernel::AesDecRounds),
+                (MetalBatchWork::Encrypt, 33, MetalKernel::AesEncBatch),
+                (MetalBatchWork::Decrypt, 129, MetalKernel::AesDecBatch),
+                (MetalBatchWork::EncryptRounds(9), 513, MetalKernel::AesEncRounds),
+                (MetalBatchWork::DecryptRounds(64), 2_047, MetalKernel::AesDecRounds),
             ] {
                 let geometry = Geometry::new(work, blocks).unwrap();
                 let baseline = AesCpuBaseline::capture(work);

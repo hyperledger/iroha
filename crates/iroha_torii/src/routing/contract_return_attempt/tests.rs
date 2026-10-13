@@ -58,7 +58,11 @@ fn assert_transport_refusal<E>(
     let Err(ExecutionAttemptError::Deferred(owner)) = &attempt else {
         panic!("return resource refusal cannot complete an execution attempt");
     };
-    assert_eq!(owner.clone().into_vm_error(), *expected);
+    assert_eq!(Some(owner.reason()), expected.execution_deferral());
+    let VMError::AllocationDeferred(expected) = expected else {
+        panic!("actual return read must retain its original allocation refusal");
+    };
+    assert_eq!(owner.allocation_refusal(), Some(expected));
     match contract_transport_attempt(attempt) {
         Err(error) => assert_eq!(
             error.into_response().status(),
@@ -142,21 +146,106 @@ fn nested_metered_trace_and_allocation_refusals_keep_their_original_owners() {
         VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
     ];
     for expected in failures {
+        let expected_reason = expected.execution_deferral().unwrap();
+        let expected_allocation = match &expected {
+            VMError::AllocationDeferred(original) => Some(original.clone()),
+            _ => None,
+        };
         let refusal = classify(EntrypointReturnDecodeError::ExecutionDeferred {
             word_index: 0,
             reason: VMError::Metered {
                 gas: 31,
                 source: Box::new(VMError::Metered {
                     gas: 17,
-                    source: Box::new(expected.clone()),
+                    source: Box::new(expected),
                 }),
             },
         });
         let ExecutionAttemptError::Deferred(owner) = refusal else {
             panic!("wrapped local refusal must not become a contract result");
         };
-        assert_eq!(owner.into_vm_error(), expected);
+        assert_eq!(owner.reason(), expected_reason);
+        assert_eq!(owner.allocation_refusal(), expected_allocation.as_ref());
+        let moved = owner.into_vm_error();
+        assert_eq!(moved.execution_deferral(), Some(expected_reason));
+        assert_eq!(moved.metered_gas(), None);
     }
     drop(held);
     assert_eq!(original.reserved_bytes(), 0);
+}
+
+#[test]
+fn nonlocal_error_in_return_wrapper_keeps_completed_payload_and_word_index() {
+    let error = classify(EntrypointReturnDecodeError::ExecutionDeferred {
+        word_index: 19,
+        reason: VMError::Metered {
+            gas: 41,
+            source: Box::new(VMError::PermissionDenied),
+        },
+    });
+    let ExecutionAttemptError::Rejected(EntrypointReturnDecodeError::ExecutionDeferred {
+        word_index,
+        reason,
+    }) = error
+    else {
+        panic!("a completed nonlocal error must retain its complete unmatched wrapper");
+    };
+    assert_eq!(word_index, 19);
+    assert_eq!(reason.metered_gas(), Some(41));
+    assert!(matches!(reason.into_unmetered(), VMError::PermissionDenied));
+}
+
+#[test]
+fn captured_decoder_and_shared_verifier_owners_survive_both_route_classifiers() {
+    for shared in [false, true] {
+        let captured = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
+            || {
+                norito::core::classify_decode_attempt(|| {
+                    norito::core::reserve_decode_allocation(11)
+                })
+            },
+        )
+        .unwrap_err();
+        let expected = captured.local_refusal().unwrap();
+        let original = captured.into_local_refusal().unwrap();
+        let reason = if shared {
+            VMError::VerificationDeferred(ivm::error::VerificationRefusal::from_decode_refusal(
+                original,
+            ))
+        } else {
+            VMError::DecodeDeferred(original)
+        };
+        let returned = classify(EntrypointReturnDecodeError::ExecutionDeferred {
+            word_index: 0,
+            reason: VMError::Metered {
+                gas: 17,
+                source: Box::new(reason),
+            },
+        });
+        let ExecutionAttemptError::Deferred(original) = returned else {
+            panic!("original local owner cannot become a public result");
+        };
+        assert_eq!(original.decode_refusal(), Some(&expected));
+        assert!(original.allocation_refusal().is_none());
+        assert_eq!(original.verification_refusal().is_some(), shared);
+        let converted: ExecutionAttemptError<()> =
+            crate::routing::contract_vm_attempt_error(original.into_vm_error(), |_| {
+                panic!("unfinished VM error cannot enter a completed renderer")
+            });
+        let ExecutionAttemptError::Deferred(original) = converted else {
+            panic!("route classifier must consume the same local owner");
+        };
+        assert_eq!(original.decode_refusal(), Some(&expected));
+        let result: Result<Value, ExecutionAttemptError<()>> =
+            Err(ExecutionAttemptError::Deferred(original));
+        assert_eq!(
+            contract_transport_attempt(result)
+                .unwrap_err()
+                .into_response()
+                .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        norito::core::reserve_decode_allocation(11).unwrap();
+    }
 }

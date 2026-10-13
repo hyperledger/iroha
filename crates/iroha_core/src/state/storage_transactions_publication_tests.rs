@@ -77,7 +77,7 @@ fn repeat_does_not_promote_the_tip_and_replacement_recovers_older_membership() {
         MembershipPredecessorStatus::Current
     );
     let mut replacement = storage.block_and_revert();
-    replacement.insert_block(HashSet::from([key(4)]), NonZeroUsize::new(2).unwrap());
+    replacement.insert_block(BTreeSet::from([key(4)]), NonZeroUsize::new(2).unwrap());
     let replacement = replacement.prepare_commit().unwrap();
     let expected = norito::json::to_json(&replacement).unwrap();
     prepare(replacement.detach(), &storage).publish();
@@ -200,7 +200,7 @@ fn foreign_owner_and_an_admission_race_cannot_rebind_the_journal() {
             for value in [3, 1] {
                 let mut replacement = target.block_and_revert();
                 replacement
-                    .insert_block(HashSet::from([key(value)]), NonZeroUsize::new(1).unwrap());
+                    .insert_block(BTreeSet::from([key(value)]), NonZeroUsize::new(1).unwrap());
                 replacement.commit().unwrap();
             }
             Ok::<_, &str>(())

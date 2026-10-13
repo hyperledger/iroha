@@ -127,7 +127,7 @@ fn inventory_tree_retains_original_identities_names_order_and_empty_prefix() {
         .iter()
         .map(|branch| branch.directory.entries(MAX_BRANCH_NAMES).unwrap())
         .collect::<Vec<_>>();
-    let lock = iroha_fs::FileIdentity::of(&parent._lock).unwrap();
+    let lock = iroha_fs::FileIdentity::of(&parent.lock).unwrap();
     let (result, observed) = observations(|| inventory.revalidate());
     result.unwrap();
     assert_eq!(observed, expected_order(&inventory, true));
@@ -147,7 +147,7 @@ fn inventory_tree_retains_original_identities_names_order_and_empty_prefix() {
             .collect::<Vec<_>>(),
         names
     );
-    assert_eq!(iroha_fs::FileIdentity::of(&parent._lock).unwrap(), lock);
+    assert_eq!(iroha_fs::FileIdentity::of(&parent.lock).unwrap(), lock);
     assert!(prefix.entries(1).unwrap().is_empty());
     let appeared = prefix.ensure_child("appeared-prefix-content").unwrap();
     let refused = inventory.revalidate();
@@ -237,7 +237,7 @@ fn inventory_tree_closes_branch_and_root_on_success_and_semantic_error() {
                 .unwrap()
         });
         for target in [&selected, &runtime] {
-            let target = target.to_path_buf();
+            let target = target.clone();
             let saved_permissions = std::fs::metadata(&target).unwrap().permissions();
             let changed = target.clone();
             let selected = selected.clone();

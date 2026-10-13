@@ -195,13 +195,17 @@ pub fn account_address_parse_encoded(
     input: &str,
     expected_prefix: Option<u16>,
 ) -> CodecResult<ParsedAccountAddress> {
-    let address =
-        AccountAddress::parse_encoded(input, expected_prefix).map_err(account_address_err)?;
+    let address = AccountAddress::parse_encoded(input, expected_prefix)
+        .map_err(|error| account_address_err(&error))?;
     let network_prefix = match expected_prefix {
         Some(prefix) => prefix,
-        None => AccountAddress::i105_discriminant(input).map_err(account_address_err)?,
+        None => {
+            AccountAddress::i105_discriminant(input).map_err(|error| account_address_err(&error))?
+        }
     };
-    let canonical_hex = address.canonical_hex().map_err(account_address_err)?;
+    let canonical_hex = address
+        .canonical_hex()
+        .map_err(|error| account_address_err(&error))?;
     let hex_body = canonical_hex
         .strip_prefix("0x")
         .unwrap_or(canonical_hex.as_str());
@@ -223,11 +227,14 @@ pub fn account_address_render(
     bytes: &[u8],
     network_prefix: u16,
 ) -> CodecResult<RenderedAccountAddress> {
-    let address = AccountAddress::from_canonical_bytes(bytes).map_err(account_address_err)?;
-    let canonical_hex = address.canonical_hex().map_err(account_address_err)?;
+    let address =
+        AccountAddress::from_canonical_bytes(bytes).map_err(|error| account_address_err(&error))?;
+    let canonical_hex = address
+        .canonical_hex()
+        .map_err(|error| account_address_err(&error))?;
     let i105 = address
         .to_i105_for_discriminant(network_prefix)
-        .map_err(account_address_err)?;
+        .map_err(|error| account_address_err(&error))?;
     Ok(RenderedAccountAddress {
         canonical_hex,
         i105,
@@ -341,7 +348,7 @@ pub fn decode_instruction_aligned(bytes: &[u8]) -> Result<InstructionBox, norito
 }
 
 /// Preserve the canonical account error code and diagnostic for platform adapters.
-pub fn account_address_err(err: AccountAddressError) -> CodecError {
+pub fn account_address_err(err: &AccountAddressError) -> CodecError {
     CodecError::new(
         CodecErrorKind::InvalidArgument,
         format!("{}: {err}", err.code_str()),
@@ -1326,7 +1333,7 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
             "direct-dataspace asset registration envelope",
         )?;
         return register_dataspace_asset_definition_from_json(
-            fields["RegisterDataspaceAssetDefinition"].clone(),
+            &fields["RegisterDataspaceAssetDefinition"],
         );
     }
     // Check the complete artifact envelope before a generic parser can consume
@@ -1969,10 +1976,10 @@ fn cancel_smart_contract_code_upload_from_json(
 
 /// Admit the exact native fields of a direct-dataspace registration.
 fn register_dataspace_asset_definition_from_json(
-    value: json::Value,
+    value: &json::Value,
 ) -> CodecResult<InstructionBox> {
     let instruction: RegisterDataspaceAssetDefinition =
-        strict_typed_instruction(&value, "RegisterDataspaceAssetDefinition")?;
+        strict_typed_instruction(value, "RegisterDataspaceAssetDefinition")?;
     instruction
         .validate()
         .map_err(|error| CodecError::new(CodecErrorKind::InvalidArgument, error.to_string()))?;

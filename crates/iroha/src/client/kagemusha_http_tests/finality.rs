@@ -183,7 +183,7 @@ async fn epoch_read_refuses_wrong_height_trailing_oversized_and_proof_job_replie
                     field: "boundary_height",
                     ..
                 } | Error::ResponseTooLarge { .. }
-                    | Error::CanonicalDecode { .. }
+                    | Error::CanonicalDecode(_)
                     | Error::Decode { .. }
             ));
         }

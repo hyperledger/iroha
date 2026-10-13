@@ -115,10 +115,13 @@ fn compact(stx: &mut StateTransaction<'_, '_>) -> Attempt<bool> {
     }
     next.validate_history_source(height, original)
         .map_err(|error| error.to_string())?;
+    let next = next.into_custom_parameter().map_err(|error| {
+        crate::execution_attempt::norito_decode_attempt_error(error, |error| error.to_string())
+    })?;
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(next.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(next));
     Ok(true)
 }
 
@@ -127,9 +130,8 @@ pub(crate) fn process(block: &mut StateBlock<'_>) -> Result<(), ExecutionOutputA
     let mut stx = block.try_transaction()?;
     let result = compact(&mut stx);
     stx.require_storage_admission()?;
-    if let Some(reason) = stx.execution_deferral() {
-        return Err(ExecutionOutputAttemptError::Deferred(reason));
-    }
+    stx.ensure_execution_ready()
+        .map_err(ExecutionOutputAttemptError::Deferred)?;
     let changed = result.map_err(|error| match error {
         ExecutionAttemptError::Deferred(reason) => ExecutionOutputAttemptError::Deferred(reason),
         ExecutionAttemptError::Rejected(error) => ExecutionOutputAttemptError::Owner(error),

@@ -1,6 +1,6 @@
 //! Query fixture writes publish World records without inventing finalized history.
 
-use iroha_crypto::{Algorithm, Hash, KeyPair, Signature};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     block::consensus::{
         Evidence, EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
@@ -90,15 +90,16 @@ fn verifying_key_fixture_publishes_record_and_circuit_index_without_finality() {
 #[test]
 fn evidence_fixture_publishes_signed_record_without_finality() {
     let mut state = state();
+    let proof = phase_vote_evidence();
+    let key = crate::sumeragi::evidence::evidence_key(&proof);
     let record = EvidenceRecord {
-        evidence: phase_vote_evidence(),
+        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(proof),
         attribution: fixture_attribution(),
         recorded_at_height: 1,
         recorded_at_view: 0,
         recorded_at_ms: 10,
         penalty_status: EvidencePenaltyStatus::Pending,
     };
-    let key = crate::sumeragi::evidence::evidence_key(&record.evidence);
     insert_evidence_record_for_test(&mut state, record.clone());
     assert_no_finality(&state);
     let view = state.view();
@@ -303,10 +304,8 @@ fn phase_vote_evidence() -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .expect("signature width"),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };

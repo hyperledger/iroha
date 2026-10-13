@@ -26,7 +26,28 @@ fn fixture_with_fee_asset(
     callback_bytes: Option<usize>,
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
 ) -> State {
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, |_| {})
+}
+
+/// Sign the tested execution limits into genesis before acquiring any successor.
+fn fixture_with_policy(
+    row_bytes: u64,
+    callback_bytes: Option<usize>,
+    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
+    configure: impl FnOnce(&mut crate::pipeline_validity_policy::PipelineValidityPolicyV1),
+) -> State {
     let mut state = state(row_bytes);
+    let mut expected_policy = state
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    configure(&mut expected_policy);
+    expected_policy
+        .validate()
+        .expect("valid fixture execution limits");
     if let Some(asset) = &fee_asset {
         use iroha_primitives::numeric::Quantity;
         let fees = &mut state.nexus.get_mut().fees;
@@ -37,7 +58,19 @@ fn fixture_with_fee_asset(
         fees.fee_asset_id = asset.to_string();
         fees.fee_sink_account_id = iroha_test_samples::BOB_ID.to_string();
     }
-    let state = authenticate_output_state(state);
+    // Genesis executes under its original predecessor's policy. Its signed
+    // parameter writes install these limits for the successor being tested.
+    let state = authenticate_output_state_with_policy(state, expected_policy.clone());
+    assert_eq!(
+        state.world.parameters.view().get().pipeline_policy(),
+        &expected_policy,
+        "the signed genesis must commit the exact tested execution limits"
+    );
+    assert_eq!(
+        crate::pipeline_validity_policy::committed(state.view().world.parameters.get()).unwrap(),
+        Some(expected_policy),
+        "the exact policy must be present in signed State, including protocol-default values"
+    );
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();
@@ -284,7 +317,9 @@ fn actual_signed_sources_apply_once_in_original_output_positions() {
         let key: Name = format!("network_{index}").parse().unwrap();
         assert_eq!(
             block.world.account(&ALICE_ID).unwrap().metadata().get(&key),
-            Some(&Json::new(index as i32))
+            Some(&Json::new(
+                i32::try_from(index).expect("fixture value fits i32")
+            ))
         );
     }
     let (ordinary, mandatory) = block.fastpq_source_usage_for_testing();
@@ -641,13 +676,22 @@ mod effects;
 mod quarantine;
 
 #[test]
-fn frozen_fraud_admission_refuses_before_business_work_and_grace_preserves_execution() {
-    for grace in [Duration::ZERO, Duration::from_secs(1)] {
-        let mut state = fixture(65_536, None);
-        state.fraud_monitoring.enabled = true;
-        state.fraud_monitoring.required_minimum_band =
-            Some(iroha_config::parameters::actual::FraudRiskBand::Low);
-        state.fraud_monitoring.missing_assessment_grace = grace;
+fn frozen_fraud_admission_refuses_before_business_work_and_permission_preserves_execution() {
+    for missing_assessment_permitted in [false, true] {
+        let state = fixture(65_536, None);
+        let policy = iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Low),
+            missing_assessment_permitted,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        };
+        let mut parameters = state.world.block();
+        parameters
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .unwrap();
+        parameters.commit();
         let source = carrier(
             &state,
             vec![input(
@@ -668,7 +712,7 @@ fn frozen_fraud_admission_refuses_before_business_work_and_grace_preserves_execu
         let before = block.committed_fragment_count();
         execute(&mut block, &source).unwrap();
         let result = network_row(&block, 0);
-        if grace.is_zero() {
+        if !missing_assessment_permitted {
             assert!(
                 matches!(result.result.as_ref(), Err(iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
                 iroha_data_model::ValidationFail::NotPermitted(reason))) if reason == "fraud monitoring requires an attached assessment")
@@ -792,7 +836,8 @@ fn intrinsic_source_rejection_rolls_back_movements_and_witness_but_keeps_e_and_f
     .unwrap();
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     let alice = AssetId::of(asset.clone(), ALICE_ID.clone());
     let bob = AssetId::of(asset.clone(), iroha_test_samples::BOB_ID.clone());
@@ -913,9 +958,8 @@ fn local_refusal_after_native_work_restores_direct_transaction_and_witness() {
     cache_owner.set_checkout_refusal_for_test(Some(reason));
     let (mut block, _recording) = recorded_network_block(&state, &source);
     let before = exec_witness::snapshot_exec_witness();
-    assert_eq!(
-        execute(&mut block, &source),
-        Err(ExecutionOutputAttemptError::Deferred(reason.into()))
+    assert!(
+        matches!(&(execute(&mut block, &source)), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == reason && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
     );
     assert_eq!(exec_witness::snapshot_exec_witness(), before);
     assert_eq!(block.gas_used_in_block, 0);

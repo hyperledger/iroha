@@ -13,7 +13,7 @@ mod reconciliation;
 pub use pending::pending_fee_reward;
 mod settlement;
 use crate::execution_attempt::{
-    ExecutionAttemptError, json_decode_attempt_error, norito_decode_attempt_error,
+    ExecutionAttemptError, canonical_decode_attempt_error, norito_decode_attempt_error,
 };
 use crate::smartcontracts::Execute;
 use crate::{
@@ -110,11 +110,13 @@ fn read_from_world<T: NoritoSerialize + for<'de> NoritoDeserialize<'de>>(
         .smart_contract_state()
         .get(key)
         .map(|bytes| {
-            norito::decode_from_bytes(bytes).map_err(|error| {
-                norito_decode_attempt_error(error, |error| {
-                    fail(format!("malformed protected rewards state: {error}"))
-                })
-            })
+            norito::core::classify_decode_attempt(|| norito::decode_from_bytes(bytes)).map_err(
+                |error| {
+                    canonical_decode_attempt_error(error, |error| {
+                        fail(format!("malformed protected rewards state: {error}"))
+                    })
+                },
+            )
         })
         .transpose()
 }
@@ -330,11 +332,18 @@ fn collect_pending_fee_evidence_records(
                 "protected fee registry parameter identity differs".into(),
             ));
         }
-        let registry = norito::json::from_str::<
-            iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1,
-        >(custom.payload().get())
+        let registry = norito::core::classify_decode_attempt(|| {
+            norito::json::from_str::<
+                iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1,
+            >(custom.payload().get())
+            .map_err(norito::json::Error::into_core_error)
+        })
         .map_err(|error| {
-            json_decode_attempt_error(error, |error| {
+            canonical_decode_attempt_error(error, |error| {
+                let error = match error.into_error() {
+                    norito::Error::Json(original) => original.to_string(),
+                    original => original.to_string(),
+                };
                 format!("protected fee registry preimage is malformed: {error}")
             })
         })?;
@@ -347,12 +356,7 @@ fn collect_pending_fee_evidence_records(
         });
     }
     let mut records = custody;
-    for key in stx
-        .world
-        .smart_contract_state
-        .changed_keys_in_block()
-        .collect::<BTreeSet<_>>()
-    {
+    for key in stx.world.smart_contract_state.changed_keys_in_block() {
         let text = key.as_ref();
         let receipt = text.starts_with("retail_fee_receipts_v1/");
         let head = text.starts_with("retail_fee_heads_v1/");
@@ -395,44 +399,26 @@ fn collect_pending_fee_evidence_records(
             .smart_contract_state
             .get(key)
             .ok_or_else(|| "immutable native fee record was removed".to_owned())?;
-        let payload =
-            if head {
-                FeeEvidencePayloadV1::RetailReceiptHead(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
+        let payload = norito::core::classify_decode_attempt(|| {
+            Ok(if head {
+                FeeEvidencePayloadV1::RetailReceiptHead(norito::decode_canonical(bytes)?)
             } else if receipt {
-                FeeEvidencePayloadV1::RetailReceipt(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
+                FeeEvidencePayloadV1::RetailReceipt(norito::decode_canonical(bytes)?)
             } else if allocation {
-                FeeEvidencePayloadV1::RewardAllocation(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
+                FeeEvidencePayloadV1::RewardAllocation(norito::decode_canonical(bytes)?)
             } else if entitlement {
-                FeeEvidencePayloadV1::RewardEntitlement(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
+                FeeEvidencePayloadV1::RewardEntitlement(norito::decode_canonical(bytes)?)
             } else if beneficiary_alias {
-                FeeEvidencePayloadV1::RewardBeneficiaryAlias(
-                    norito::decode_canonical(bytes).map_err(|error| {
-                        norito_decode_attempt_error(error, |error| error.to_string())
-                    })?,
-                )
+                FeeEvidencePayloadV1::RewardBeneficiaryAlias(norito::decode_canonical(bytes)?)
             } else if beneficiary_revision {
-                FeeEvidencePayloadV1::RewardBeneficiaryRevision(
-                    norito::decode_canonical(bytes).map_err(|error| {
-                        norito_decode_attempt_error(error, |error| error.to_string())
-                    })?,
-                )
+                FeeEvidencePayloadV1::RewardBeneficiaryRevision(norito::decode_canonical(bytes)?)
             } else if attempt {
-                FeeEvidencePayloadV1::RewardAttempt(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
+                FeeEvidencePayloadV1::RewardAttempt(norito::decode_canonical(bytes)?)
             } else {
-                FeeEvidencePayloadV1::RewardClaim(norito::decode_canonical(bytes).map_err(
-                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
-                )?)
-            };
+                FeeEvidencePayloadV1::RewardClaim(norito::decode_canonical(bytes)?)
+            })
+        })
+        .map_err(|error| canonical_decode_attempt_error(error, |error| error.to_string()))?;
         records.push(FeeEvidenceRecordV1 {
             key: key.clone(),
             recorded_at_height: height,
@@ -1420,9 +1406,8 @@ pub(crate) fn publish_conversion_offers(
     }
     let fits = pending_fee_evidence_fits(&stx);
     stx.require_storage_admission()?;
-    if let Some(reason) = stx.execution_deferral() {
-        return Err(crate::state::ExecutionOutputAttemptError::Deferred(reason));
-    }
+    stx.ensure_execution_ready()
+        .map_err(crate::state::ExecutionOutputAttemptError::Deferred)?;
     match fits {
         Ok(true) => finish_reward_maintenance(stx, Ok(())),
         Err(error) => {
@@ -1501,13 +1486,12 @@ fn prepare_conversion_projections(
 /// Observe the actual disposable journal before its sole successful apply.
 /// Return original local owners before projecting a completed preparation failure.
 fn finish_reward_maintenance(
-    stx: StateTransaction<'_, '_>,
+    mut stx: StateTransaction<'_, '_>,
     result: Result<(), Error>,
 ) -> Result<(), crate::state::ExecutionOutputAttemptError> {
     stx.require_storage_admission()?;
-    if let Some(reason) = stx.execution_deferral() {
-        return Err(crate::state::ExecutionOutputAttemptError::Deferred(reason));
-    }
+    stx.ensure_execution_ready()
+        .map_err(crate::state::ExecutionOutputAttemptError::Deferred)?;
     result.map_err(|error| {
         crate::state::ExecutionOutputAttemptError::Owner(format!(
             "validation fee reward maintenance failed: {error}"
@@ -1650,9 +1634,9 @@ mod tests {
             reference_feed_config_version: 1,
             reference_provider_accounts: (10..15).map(account).collect(),
             max_sbd_per_attempt_minor: 1000,
-            max_sbd_per_day_minor: 100000,
+            max_sbd_per_day_minor: 100_000,
             min_interval_ms: 60000,
-            max_source_age_ms: 300000,
+            max_source_age_ms: 300_000,
             max_slippage_bps: 100,
             validator_lane_id: LaneId::new(0),
             min_reward_claim_xor_minor: 1,
@@ -1688,7 +1672,7 @@ mod tests {
         let b = binding();
         let now = 1_000_000;
         let records: Vec<_> = (10..13)
-            .map(|seed| observation(seed, now - 300000, now - 1, 8))
+            .map(|seed| observation(seed, now - 300_000, now - 1, 8))
             .collect();
         assert_eq!(
             reference_minimum(&b, &records, now, 9, 1000, 2).expect("quote"),
@@ -1966,13 +1950,15 @@ mod tests {
             key: [vec![FEE_EVIDENCE_RECORD_TAG_V1], vec![0x41; 32]].concat(),
             value: vec![0x72],
         };
-        let mut witness = ExecWitness::default();
-        witness.writes = vec![
-            sccp.clone(),
-            amx.clone(),
-            stale_snapshot.clone(),
-            stale_record.clone(),
-        ];
+        let mut witness = ExecWitness {
+            writes: vec![
+                sccp.clone(),
+                amx.clone(),
+                stale_snapshot.clone(),
+                stale_record.clone(),
+            ],
+            ..Default::default()
+        };
         capture_fee_evidence(&mut block, &mut witness).unwrap();
         assert!(witness.writes.contains(&sccp));
         assert!(witness.writes.contains(&amx));
@@ -1993,6 +1979,78 @@ mod tests {
                 .filter(|entry| entry.key.first() == Some(&FEE_EVIDENCE_RECORD_TAG_V1))
                 .all(|entry| entry.key.len() == 33)
         );
+    }
+
+    #[test]
+    fn pending_fee_evidence_retains_its_original_registry_decode_after_custody_reads() {
+        crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, _| {
+            let registry_id =
+                iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1::parameter_id();
+            let original_json = stx
+                .world
+                .parameters()
+                .custom()
+                .get(&registry_id)
+                .unwrap()
+                .payload()
+                .get()
+                .to_owned();
+            let original_registry = norito::json::from_str::<
+                iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1,
+            >(&original_json)
+            .unwrap();
+            let prefix = || {
+                let binding =
+                    crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
+                        .unwrap()
+                        .unwrap();
+                let _: Option<ValidationFeeRewardsState> =
+                    read_attempt(stx, &state_key(&binding, "State").unwrap()).unwrap();
+            };
+            // Fund exactly the collector's preceding binding and rewards-state reads;
+            // the following original registry JSON parse has no remaining allocation.
+            let prefix_bytes = allocation_used(prefix);
+            assert!(prefix_bytes > 0);
+            norito::with_decode_limits_scope(limits(prefix_bytes), prefix);
+            let error = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+                collect_pending_fee_evidence_records(stx)
+            })
+            .unwrap_err();
+            let ExecutionAttemptError::Deferred(original) = error else {
+                panic!(
+                    "the evidence collector's actual registry parse must remain local: {error:?}"
+                );
+            };
+            let observed = original
+                .decode_refusal()
+                .expect("the original JSON observer survives the collector's return")
+                .clone();
+            assert_eq!(
+                original.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            assert!(original.allocation_refusal().is_none());
+            let restored = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                original.into_vm_error(),
+            )
+            .unwrap();
+            assert_eq!(restored.decode_refusal(), Some(&observed));
+            assert!(!stx.is_execution_deferred());
+            assert_eq!(
+                stx.world
+                    .parameters()
+                    .custom()
+                    .get(&registry_id)
+                    .unwrap()
+                    .payload()
+                    .get(),
+                &original_json
+            );
+            let retry = collect_pending_fee_evidence_records(stx).unwrap();
+            assert!(retry.iter().any(|record| matches!(&record.payload,
+                iroha_data_model::fee_evidence::FeeEvidencePayloadV1::PolicyRegistry(registry)
+                if registry == &original_registry)));
+        });
     }
 
     #[test]
@@ -2046,6 +2104,63 @@ mod tests {
                 &r,
             )
             .unwrap();
+            let key = retail_fee_receipt_state_key_v1(&r).unwrap();
+            let original_bytes = applied
+                .world
+                .smart_contract_state
+                .get(&key)
+                .unwrap()
+                .clone();
+            let original_pointer = applied
+                .world
+                .smart_contract_state
+                .get(&key)
+                .unwrap()
+                .as_ptr();
+            let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let error = norito::with_decode_limits_scope(zero, || {
+                collect_pending_fee_evidence_records(&applied)
+            })
+            .unwrap_err();
+            let ExecutionAttemptError::Deferred(original) = error else {
+                panic!("the actual original receipt reader must remain local: {error:?}");
+            };
+            let observed = original
+                .decode_refusal()
+                .expect("evidence capture retains the original receipt decoder scope")
+                .clone();
+            assert_eq!(
+                original.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            assert!(original.allocation_refusal().is_none());
+            let restored = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                original.into_vm_error(),
+            )
+            .unwrap();
+            assert_eq!(restored.decode_refusal(), Some(&observed));
+            assert!(
+                !applied.is_execution_deferred(),
+                "capture returns its own refusal"
+            );
+            assert_eq!(
+                applied.world.smart_contract_state.get(&key),
+                Some(&original_bytes)
+            );
+            assert_eq!(
+                applied
+                    .world
+                    .smart_contract_state
+                    .get(&key)
+                    .unwrap()
+                    .as_ptr(),
+                original_pointer
+            );
+            let retry = collect_pending_fee_evidence_records(&applied).unwrap();
+            assert_eq!(retry.len(), 1);
+            assert!(matches!(&retry[0].payload,
+                iroha_data_model::fee_evidence::FeeEvidencePayloadV1::RetailReceipt(actual)
+                if actual == &r));
             validate_pending_fee_evidence_budget(&applied).unwrap();
             applied.apply();
         }
@@ -2186,8 +2301,8 @@ mod tests {
                 .unwrap();
             revised.pool_vault_account_id = revised.pool_contract_address.subject_id();
             let mut registry = crate::validation_fee::tests::policy_registry(
-                &[policy.clone()],
-                &[original.clone()],
+                std::slice::from_ref(&policy),
+                std::slice::from_ref(&original),
             );
             let enactment = stx.block_height();
             registry.payout_policies.entries.push(
@@ -2499,12 +2614,19 @@ mod protected_original_retry_controls {
         let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, 0, usize::MAX, usize::MAX);
         let result =
             norito::with_decode_limits_scope(limits, || read::<Vec<u64>>(&stx, &key).map(|_| ()));
-        let original_refusal = stx.execution_deferral().expect("genuine decoder refusal");
+        let original_refusal = stx
+            .borrow_execution_deferral()
+            .expect("genuine decoder refusal")
+            .decode_refusal()
+            .expect("the actual reward reader retains its retired original scope")
+            .clone();
         assert_eq!(stx.world.smart_contract_state.touched_entries().len(), 0);
-        assert_eq!(
-            finish_reward_maintenance(stx, result),
-            Err(ExecutionOutputAttemptError::Deferred(original_refusal))
-        );
+        let Err(ExecutionOutputAttemptError::Deferred(returned)) =
+            finish_reward_maintenance(stx, result)
+        else {
+            panic!("maintenance must return its original decoder refusal");
+        };
+        assert_eq!(returned.decode_refusal(), Some(&original_refusal));
         assert_eq!(block.committed_fragment_count(), fragments);
         assert_eq!(block.world.smart_contract_state.get(&key), Some(&original));
     }
@@ -2547,14 +2669,22 @@ mod protected_original_retry_controls {
                 read::<Vec<u64>>(&stx, &original).map(|_| ())
             });
             assert!(result.is_err());
-            let owner = stx.execution_deferral().expect("genuine decoder refusal");
+            let original_decode = stx
+                .borrow_execution_deferral()
+                .expect("genuine decoder refusal")
+                .decode_refusal()
+                .expect("the actual reward reader retains its retired original scope")
+                .clone();
             let error = finish_reward_maintenance(stx, result).unwrap_err();
-            assert_eq!(error, ExecutionOutputAttemptError::Deferred(owner.clone()));
+            assert!(
+                matches!(&error, ExecutionOutputAttemptError::Deferred(owner)
+                if owner.decode_refusal() == Some(&original_decode))
+            );
             let sealed: ExecutionOutputSealError<()> = error.into();
             let ExecutionOutputSealError::Deferred(observed) = sealed else {
                 panic!("discarding the maintenance journal must not erase its original owner");
             };
-            assert_eq!(observed, owner);
+            assert_eq!(observed.decode_refusal(), Some(&original_decode));
             observed
         };
         assert!(returned.allocation_refusal().is_none());
@@ -2628,7 +2758,22 @@ mod protected_original_retry_controls {
                 norito::with_decode_limits_scope(limits, || read::<Vec<u64>>(&stx, &original_key))
                     .unwrap_err();
             assert!(matches!(error, Error::InvariantViolation(_)));
-            assert!(stx.execution_deferral().is_some());
+            assert!(stx.is_execution_deferred());
+            let original_decode = stx
+                .borrow_execution_deferral()
+                .expect("the failed read owns the transaction refusal")
+                .decode_refusal()
+                .expect("the original retired decoder scope remains available")
+                .clone();
+            let next_error =
+                norito::with_decode_limits_scope(limits, || read::<Vec<u64>>(&stx, &original_key))
+                    .unwrap_err();
+            assert!(matches!(next_error, Error::InvariantViolation(_)));
+            assert_eq!(
+                stx.borrow_execution_deferral().unwrap().decode_refusal(),
+                Some(&original_decode),
+                "later refused reads cannot replace the first retained owner"
+            );
             assert_eq!(
                 read_attempt::<Vec<u64>>(&stx, &original_key).unwrap(),
                 Some(vec![7, 11, 13])
@@ -2646,5 +2791,38 @@ mod protected_original_retry_controls {
             block.world.smart_contract_state.get(&original_key),
             Some(&bytes)
         );
+    }
+    #[test]
+    fn protected_reward_reader_keeps_absence_and_completed_malformed_state_distinct() {
+        let state = crate::state::State::new_for_testing(
+            crate::state::World::default(),
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        let mut block = state.block(iroha_data_model::block::BlockHeader::new(
+            std::num::NonZeroU64::MIN,
+            None,
+            None,
+            0,
+            0,
+        ));
+        let key: StatePath = "malformed_reward_original_TESTDATA".parse().unwrap();
+        let mut stx = block.transaction();
+        assert_eq!(read_from_world::<Vec<u64>>(&stx.world, &key).unwrap(), None);
+        let malformed = vec![0_u8, 1, 2];
+        stx.world
+            .smart_contract_state
+            .insert(key.clone(), malformed.clone());
+        let expected = norito::decode_from_bytes::<Vec<u64>>(&malformed).unwrap_err();
+        let result = read_from_world::<Vec<u64>>(&stx.world, &key);
+        let Err(ExecutionAttemptError::Rejected(error)) = result else {
+            panic!("malformed rewards bytes must remain a completed rejection: {result:?}");
+        };
+        assert_eq!(
+            error,
+            fail(format!("malformed protected rewards state: {expected}"))
+        );
+        assert_eq!(stx.world.smart_contract_state.get(&key), Some(&malformed));
+        assert!(!stx.is_execution_deferred());
     }
 }

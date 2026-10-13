@@ -191,6 +191,8 @@ mod tests {
 
     #[test]
     fn transitions_follow_the_table_and_keep_one_live_revision() {
+        use SccpRouteActivationV1 as A;
+
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
@@ -201,7 +203,6 @@ mod tests {
         route.revisions.insert(2, second);
         store::routes::insert(&mut stx, network, route).expect("route");
 
-        use SccpRouteActivationV1 as A;
         set_activation(&mut stx, network, 1, A::Retired).expect_err("Staged → Retired");
         set_activation(&mut stx, network, 1, A::Bidirectional).expect("activate");
         assert!(
@@ -226,7 +227,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let network = SccpNetworkV1::TronMainnet;
+        let network = SccpNetworkV1::BscMainnet;
         apply_frozen_void(&mut stx, network, 1).expect_err("no route");
         store::routes::insert(&mut stx, network, sample_route(network)).expect("route");
         assert_eq!(

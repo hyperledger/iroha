@@ -27,14 +27,22 @@ fn execute(prepared: &PreparedTestChainConfig) -> (ValidBlock, Box<StateBlock<'_
     let epoch = crate::sumeragi::epoch::authenticated_genesis(prepared.genesis.block())
         .map(|genesis| genesis.into_parts().0)
         .unwrap();
-    ValidBlock::validate_signed_genesis(
-        prepared.genesis.block().clone(),
-        &topology,
-        &account,
-        &TimeSource::new_system(),
-        &prepared.state,
-        epoch.mode,
-    )
+    {
+        let selected_genesis = prepared.genesis.block().clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &account,
+            &TimeSource::new_system(),
+            &prepared.state,
+            epoch.mode,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .unwrap_or_else(|(_, error)| panic!("actual native genesis execution: {error}"))
 }

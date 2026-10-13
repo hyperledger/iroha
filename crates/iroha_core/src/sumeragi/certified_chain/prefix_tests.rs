@@ -151,7 +151,7 @@ fn unsigned_changed_genesis_result_cannot_be_exported_by_streamed_reader() {
     let id = ChainId::from("sumeragi-certified-test-chain");
     let original = frame(&chain, 1);
     let certificate = original.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (original_x, mut result) = fixture_result_parts(certificate.result_preimage());
     // Preserve the authenticated lane-write opening's structural consistency. This
     // attack changes a well-formed execution result which only the successor can bind.
     result.execution.world_state_root = Hash::new(b"unsigned genesis result replacement");
@@ -160,7 +160,7 @@ fn unsigned_changed_genesis_result_cannot_be_exported_by_streamed_reader() {
             CommitCertificate::from_untrusted_parts(
                 Vec::new(),
                 Vec::new(),
-                result.preimage().unwrap(),
+                fixture_result_preimage(&original_x, &result),
                 Vec::new(),
             ),
         )),
@@ -249,11 +249,13 @@ fn assert_streamed_prefix_checks_exact_native_quorum_at_retained_empty_epoch_bou
         let invalid = chain.commit_qc(10, qc.block_hash, qc.result, signers);
         let tampered = with_parts(&original, |_, qc, _| *qc = invalid);
         assert_eq!(
-            prefix.push(tampered).unwrap_err(),
-            ExecutionAttemptError::Rejected(ChainReadError::Certificate {
+            crate::execution_attempt::expect_completed_rejection(
+                prefix.push(tampered).unwrap_err()
+            ),
+            ChainReadError::Certificate {
                 height: 10,
                 error: expected,
-            }),
+            }
         );
         assert_eq!(prefix.prefix.tip.height(), 9);
     }
@@ -282,7 +284,7 @@ fn warmed_epoch_shape_rejects_substituted_context_and_still_checks_each_qc() {
     let original = frame(&chain, 3);
     for mutate_keys in [false, true] {
         let changed = with_parts(&original, |_, _, preimage| {
-            let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+            let (original_x, mut commitment) = fixture_result_parts(preimage);
             if mutate_keys {
                 commitment.schedule.current.committee[0].proof_of_possession[0] ^= 1;
             } else {
@@ -300,7 +302,7 @@ fn warmed_epoch_shape_rejects_substituted_context_and_still_checks_each_qc() {
                 };
                 config.epoch = epoch.clone();
             }
-            *preimage = commitment.preimage().unwrap();
+            *preimage = fixture_result_preimage(&original_x, &commitment);
         });
         assert!(matches!(
             prefix.push(changed),
@@ -358,19 +360,27 @@ fn standalone_and_scoped_frame_reads_agree_without_skipping_shape_checks() {
     let (chain, _) = chain();
     let original = frame(&chain, 3);
     let mut validation = EpochValidationScope::new();
-    read_frame_with_validation(frame(&chain, 2), 2, &mut validation).unwrap();
-    let fresh = read_frame(original.clone(), 3).unwrap();
-    let reused = read_frame_with_validation(original.clone(), 3, &mut validation).unwrap();
+    read_frame_with_validation(frame(&chain, 2), 2, chain.root_scope(), &mut validation).unwrap();
+    let fresh = read_frame(original.clone(), 3, chain.root_scope()).unwrap();
+    let reused =
+        read_frame_with_validation(original.clone(), 3, chain.root_scope(), &mut validation)
+            .unwrap();
     assert_eq!(fresh.commitment(), reused.commitment());
     assert_eq!(fresh.id(), reused.id());
     let changed = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (original_x, mut commitment) = fixture_result_parts(preimage);
         commitment.schedule.height += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = fixture_result_preimage(&original_x, &commitment);
     });
-    let fresh_error = read_frame(changed.clone(), 3).unwrap_err();
-    let reused_error = read_frame_with_validation(changed, 3, &mut validation).unwrap_err();
-    assert_eq!(fresh_error, reused_error);
+    let fresh_error = read_frame(changed.clone(), 3, chain.root_scope()).unwrap_err();
+    let reused_error =
+        read_frame_with_validation(changed, 3, chain.root_scope(), &mut validation).unwrap_err();
+    match (&fresh_error, &reused_error) {
+        (ExecutionAttemptError::Rejected(actual), ExecutionAttemptError::Rejected(expected)) => {
+            assert_eq!(actual, expected)
+        }
+        (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
+    }
     assert!(matches!(
         fresh_error,
         ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, .. })
@@ -396,8 +406,12 @@ fn scoped_reverse_walk_reads_all_original_frames_and_rechecks_corrupt_ancestors(
                 Ok(())
             },
             |receipt| {
-                let original =
-                    read_frame(frame(&chain, receipt.height()), receipt.height()).unwrap();
+                let original = read_frame(
+                    frame(&chain, receipt.height()),
+                    receipt.height(),
+                    chain.root_scope(),
+                )
+                .unwrap();
                 assert_eq!(receipt.id(), original.id());
                 assert_eq!(receipt.commitment(), original.commitment());
                 assert_eq!(
@@ -488,6 +502,21 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
     let mut projected = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let retained = projected.prefix.tip.id();
     let successor = frame(&chain, 2);
+    // The first successor read is the actual consensus-header decoder. Prove the
+    // same field-byte refusal separately instead of reconstructing numeric errors.
+    let header_refusal = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
+        || {
+            norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical::<BlockHeader>(
+                    successor.commit_certificate().unwrap().consensus_header(),
+                )
+            })
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .expect("actual original consensus-header decoder cause");
     let mut calls = 0;
     let refusal = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
@@ -504,7 +533,30 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
         || original.push(successor.clone()),
     )
     .unwrap_err();
-    assert_eq!(refusal, original_refusal);
+    let (ExecutionAttemptError::Deferred(actual), ExecutionAttemptError::Deferred(expected)) =
+        (&refusal, &original_refusal)
+    else {
+        panic!("both original reads must retain decoder refusals");
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(actual.allocation_refusal().is_none() && expected.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none() && expected.verification_refusal().is_none());
+    let actual = actual.decode_refusal().expect("original decoder owner");
+    let expected = expected
+        .decode_refusal()
+        .expect("independent decoder owner");
+    assert_eq!(actual.kind(), expected.kind());
+    assert_eq!(actual.resource_error(), expected.resource_error());
+    assert_eq!(actual.kind(), header_refusal.kind());
+    assert_eq!(actual.resource_error(), header_refusal.resource_error());
+    assert_ne!(actual, &header_refusal);
+    assert_ne!(expected, &header_refusal);
+    assert_eq!(actual.allocation_bytes(), expected.allocation_bytes());
+    assert_ne!(
+        actual, expected,
+        "independently entered budget scopes have distinct original owners"
+    );
     assert!(matches!(refusal, ExecutionAttemptError::Deferred(_)));
     assert_eq!(calls, 0);
     assert_eq!(projected.prefix.tip.id(), retained);
@@ -520,7 +572,15 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
                 false
             })
             .unwrap_err();
-        assert_eq!(actual, expected);
+        match (&actual, &expected) {
+            (
+                ExecutionAttemptError::Rejected(actual),
+                ExecutionAttemptError::Rejected(expected),
+            ) => assert_eq!(actual, expected),
+            (actual, expected) => {
+                panic!("expected completed rejections: {actual:?} != {expected:?}")
+            }
+        }
         assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
         assert_eq!(calls, 0);
         assert_eq!(projected.prefix.tip.id(), retained);
@@ -552,13 +612,14 @@ fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
     let budget = iroha_allocation::AllocationBudget::new(
         prefix_bytes
             + std::mem::size_of::<CommittedBlock>()
-            + std::mem::size_of::<ExecutionResultCommitment>(),
+            + std::mem::size_of::<CertifiedResultV1>(),
     );
     let mut slot =
         CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(&chain, 1), &budget).unwrap();
     assert_eq!(budget.reserved_bytes(), prefix_bytes);
     let admitted = &mut slot.as_mut_slice()[0];
     assert_eq!(admitted.instance(), owned.instance());
+    assert_eq!(admitted.root_scope, owned.root_scope);
     assert_eq!(
         admitted.current_epoch_context(),
         owned.current_epoch_context()
@@ -585,7 +646,7 @@ fn admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_
     let frame_bytes = std::alloc::Layout::array::<CommittedBlock>(1)
         .unwrap()
         .size();
-    let result_bytes = std::alloc::Layout::array::<ExecutionResultCommitment>(1)
+    let result_bytes = std::alloc::Layout::array::<CertifiedResultV1>(1)
         .unwrap()
         .size();
     let budget = iroha_allocation::AllocationBudget::new(frame_bytes + result_bytes);
@@ -631,13 +692,28 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
     let mut original = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let mut admitted = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let frame_layout = std::alloc::Layout::array::<CommittedBlock>(1).unwrap();
-    let result_layout = std::alloc::Layout::array::<ExecutionResultCommitment>(1).unwrap();
+    let result_layout = std::alloc::Layout::array::<CertifiedResultV1>(1).unwrap();
     let bytes = frame_layout.size() + result_layout.size();
     let budget = iroha_allocation::AllocationBudget::new(bytes);
     let blocker = budget
         .try_reserve_layouts([frame_layout, result_layout])
         .unwrap();
     let successor = frame(&chain, 2);
+    // The first successor read is the actual consensus-header decoder. Prove the
+    // same field-byte refusal separately instead of reconstructing numeric errors.
+    let header_refusal = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
+        || {
+            norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical::<BlockHeader>(
+                    successor.commit_certificate().unwrap().consensus_header(),
+                )
+            })
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .expect("actual original consensus-header decoder cause");
     let retained = admitted.prefix.tip.id();
     let mut calls = 0;
     let refusal = admitted
@@ -679,7 +755,30 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
         || original.push(successor.clone()),
     )
     .unwrap_err();
-    assert_eq!(refusal, expected);
+    let (ExecutionAttemptError::Deferred(actual), ExecutionAttemptError::Deferred(expected)) =
+        (&refusal, &expected)
+    else {
+        panic!("both original reads must retain decoder refusals");
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(actual.allocation_refusal().is_none() && expected.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none() && expected.verification_refusal().is_none());
+    let actual = actual.decode_refusal().expect("original decoder owner");
+    let expected = expected
+        .decode_refusal()
+        .expect("independent decoder owner");
+    assert_eq!(actual.kind(), expected.kind());
+    assert_eq!(actual.resource_error(), expected.resource_error());
+    assert_eq!(actual.kind(), header_refusal.kind());
+    assert_eq!(actual.resource_error(), header_refusal.resource_error());
+    assert_ne!(actual, &header_refusal);
+    assert_ne!(expected, &header_refusal);
+    assert_eq!(actual.allocation_bytes(), expected.allocation_bytes());
+    assert_ne!(
+        actual, expected,
+        "independently entered budget scopes have distinct original owners"
+    );
     assert!(matches!(refusal, ExecutionAttemptError::Deferred(_)));
     assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(admitted.prefix.tip.id(), retained);
@@ -692,7 +791,12 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
             false
         })
         .unwrap_err();
-    assert_eq!(actual, expected);
+    match (&actual, &expected) {
+        (ExecutionAttemptError::Rejected(actual), ExecutionAttemptError::Rejected(expected)) => {
+            assert_eq!(actual, expected)
+        }
+        (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
+    }
     assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
     assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(admitted.prefix.tip.id(), retained);
@@ -731,8 +835,8 @@ fn assert_walk_parent_link_retains_original_body(
         .unwrap()
         .initialize(source.as_ref().clone());
     drop(source);
-    let parent = read_frame(original.clone(), 2).unwrap();
-    let child = read_frame(frame(chain, 3), 3).unwrap();
+    let parent = read_frame(original.clone(), 2, chain.root_scope()).unwrap();
+    let child = read_frame(frame(chain, 3), 3, chain.root_scope()).unwrap();
     let mut link = WalkParentLink::from_committed(&parent);
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
         &link.block,
@@ -741,11 +845,14 @@ fn assert_walk_parent_link_retains_original_body(
     assert!(link.block.belongs_to(&budget));
     assert_eq!(link.is_extended_by(&child), child.extends(&parent));
     assert!(link.is_extended_by(&child));
-    let original_pointer: *const SignedBlock = &*original;
+    let original_pointer: *const SignedBlock = &raw const *original;
     drop(parent);
     drop(original);
     assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
-    assert!(std::ptr::eq::<SignedBlock>(&*link.block, original_pointer));
+    assert!(std::ptr::eq::<SignedBlock>(
+        &raw const *link.block,
+        original_pointer
+    ));
     assert!(link.is_extended_by(&child));
 
     link.height = u64::MAX;
@@ -780,7 +887,7 @@ fn assert_walk_parent_link_retains_original_body(
     );
     link.block = block;
     assert!(link.is_extended_by(&child));
-    assert!(!link.is_extended_by(&read_frame(frame(chain, 4), 4).unwrap()));
+    assert!(!link.is_extended_by(&read_frame(frame(chain, 4), 4, chain.root_scope()).unwrap()));
     drop(link);
     assert_eq!(budget.reserved_bytes(), 0);
 }

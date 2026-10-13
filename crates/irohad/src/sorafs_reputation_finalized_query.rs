@@ -1703,7 +1703,7 @@ mod tests {
             por_recorder_authority: account(1),
             dispute_recorder_authority: account(2),
             token_recorder_authority: account(3),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: 86_400_000,
         }
     }

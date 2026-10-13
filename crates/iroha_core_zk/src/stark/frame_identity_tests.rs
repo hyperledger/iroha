@@ -126,7 +126,9 @@ fn captured_stark_envelope_frame_identity() {
         GoldilocksDigest384V1::new([0x42; 6]).unwrap(),
     )
     .expect("existing populated AIR proof fixture");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let value: StarkVerifyEnvelopeV1 = norito::decode_from_bytes(&bytes).unwrap();
     assert!(value.proof.air.is_some());
     assert!(!value.proof.queries.is_empty());

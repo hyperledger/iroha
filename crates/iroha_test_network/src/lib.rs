@@ -33,7 +33,9 @@ use iroha::data_model::block::consensus::{
     MAX_VALIDATORS_PER_HEIGHT, MIN_VALIDATORS_PER_HEIGHT, is_valid_committee_size,
 };
 use iroha::data_model::sumeragi::SumeragiStatus;
-use iroha::{blocking::Client, client::Client as AsyncClient, data_model::prelude::*};
+use iroha::{
+    blocking::Client, client::Client as AsyncClient, data_model::prelude::*, secrecy::SecretString,
+};
 use iroha_config::base::{
     ParameterOrigin,
     env::MockEnv,
@@ -94,7 +96,6 @@ use iroha_test_samples::{
     SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
 };
 use iroha_torii_shared::status::Status;
-use iroha_version::codec::EncodeVersioned;
 use nonzero_ext::nonzero;
 use norito::json::{self, Value as JsonValue};
 pub use private_settlement_route_control::{
@@ -3270,6 +3271,7 @@ set {NETWORK_PERMIT_WAIT_TIMEOUT_ENV}=0 to disable timeout or provide an isolate
 #[derive(Clone)]
 struct PreparedPeerGenesis {
     bytes: Arc<[u8]>,
+    #[cfg(test)]
     network_id: NetworkId,
 }
 impl PreparedPeerGenesis {
@@ -3293,9 +3295,11 @@ impl PreparedPeerGenesis {
     ) -> Result<Self> {
         spawn_blocking(move || {
             init_instruction_registry();
+            #[cfg(test)]
             let network_id = NetworkId::from_genesis_hash(block.0.hash());
             encode(&block).map(|bytes| Self {
                 bytes: bytes.into(),
+                #[cfg(test)]
                 network_id,
             })
         })
@@ -4328,10 +4332,9 @@ impl Network {
         let pipeline_config = actual_config.as_ref().map(|config| config.pipeline.clone());
         let nexus_config = actual_config.as_ref().map(|config| config.nexus.clone());
         let zk_config = actual_config.as_ref().map(|config| config.zk.clone());
-        let confidential_policy_hash = Some(actual_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let consensus_handshake_meta = consensus_handshake_parameter(&self.consensus_profile);
         let genesis_account_id = AccountId::new(self.genesis_key_pair.public_key().clone());
         let recompute_staged_hashes = |block: &GenesisBlock| {
@@ -5865,6 +5868,7 @@ pub struct NetworkBuilder {
     observer_p2p_bootstrap: Option<ObserverP2pBootstrap>,
     observer_slow_reader_relays: Option<ObserverSlowReaderRelayConfig>,
     config_layers: Vec<Table>,
+    client_api_token: Option<SecretString>,
     block_cadence: Option<Duration>,
     sync_timeout: Option<Duration>,
     peer_startup_timeout: Option<Duration>,
@@ -5882,6 +5886,7 @@ pub struct NetworkBuilder {
     private_settlement_route_control: bool,
     parliament_test_signers: Option<ParliamentTestSignerSelection>,
     topology_genesis_isi: Vec<Arc<TopologyGenesisIsi>>,
+    genesis_post_bootstrap_isi: Vec<Vec<InstructionBox>>,
 }
 /// Post-topology genesis instructions derived from the signed voting topology (peer ids and
 /// proofs of possession, in topology order).
@@ -6747,6 +6752,7 @@ impl NetworkBuilder {
             observer_p2p_bootstrap: None,
             observer_slow_reader_relays: None,
             config_layers: vec![],
+            client_api_token: None,
             block_cadence: Some(LOCALNET_BLOCK_CADENCE),
             sync_timeout: None,
             peer_startup_timeout: None,
@@ -6766,6 +6772,7 @@ impl NetworkBuilder {
             private_settlement_route_control: false,
             parliament_test_signers: None,
             topology_genesis_isi: Vec::new(),
+            genesis_post_bootstrap_isi: Vec::new(),
         };
         let mut default_layer = Table::new();
         let mut writer = TomlWriter::new(&mut default_layer);
@@ -7269,6 +7276,25 @@ impl NetworkBuilder {
         self.config_layers.push(table);
         self
     }
+    /// Provision one explicit listener credential for all peers and their clients.
+    ///
+    /// This authors `torii.require_api_token` and `torii.api_tokens` through the
+    /// normal node configuration and carries the same owner-held credential into
+    /// readiness probes, event streams and account clients. Later configuration
+    /// layers still take precedence, so an intentionally mismatched listener
+    /// remains an authentication failure. It grants no ledger or debit permission.
+    pub fn with_api_token(mut self, token: SecretString) -> Self {
+        self.config_layers.push(
+            Table::new()
+                .write(["torii", "require_api_token"], true)
+                .write(
+                    ["torii", "api_tokens"],
+                    vec![token.expose_secret().to_owned()],
+                ),
+        );
+        self.client_api_token = Some(token);
+        self
+    }
     /// Push a pre-built TOML configuration layer.
     pub fn with_config_table(mut self, table: Table) -> Self {
         self.config_layers.push(table);
@@ -7288,6 +7314,22 @@ impl NetworkBuilder {
     pub fn with_genesis_post_topology_isi(mut self, isi: Vec<InstructionBox>) -> Self {
         if !isi.is_empty() {
             self.genesis_post_topology_isi.push(isi);
+        }
+        self
+    }
+    /// Append ordinary genesis instructions after generated validator bootstrap.
+    ///
+    /// Use this for instructions which capture the active, funded validator registrations,
+    /// such as SCCP initialization. Parameters belong in the earlier genesis carrier; custom
+    /// genesis builders own their complete instruction order and cannot use this hook.
+    pub fn with_genesis_post_bootstrap_isi(mut self, isi: Vec<InstructionBox>) -> Self {
+        assert!(
+            isi.iter()
+                .all(|instruction| !instruction.as_any().is::<SetParameter>()),
+            "post-bootstrap genesis accepts ordinary instructions, not parameters"
+        );
+        if !isi.is_empty() {
+            self.genesis_post_bootstrap_isi.push(isi);
         }
         self
     }
@@ -7430,6 +7472,7 @@ impl NetworkBuilder {
             observer_p2p_bootstrap,
             observer_slow_reader_relays,
             mut config_layers,
+            client_api_token,
             block_cadence,
             sync_timeout,
             peer_startup_timeout,
@@ -7447,6 +7490,7 @@ impl NetworkBuilder {
             private_settlement_route_control,
             parliament_test_signers,
             topology_genesis_isi,
+            genesis_post_bootstrap_isi,
         } = self;
         let chain_discriminant = materialize_profile_account_defaults(&mut config_layers)
             .unwrap_or_else(|error| panic!("invalid test-network profile defaults: {error:#}"));
@@ -7981,6 +8025,11 @@ impl NetworkBuilder {
                 genesis_post_topology_isi.push(soracloud_validator_bootstrap);
             }
         }
+        assert!(
+            custom_genesis.is_none() || genesis_post_bootstrap_isi.is_empty(),
+            "custom genesis owns its post-bootstrap instruction order"
+        );
+        genesis_post_topology_isi.extend(genesis_post_bootstrap_isi);
         let gossip_ms = i64::try_from(block_sync_gossip_period.as_millis())
             .expect("block gossip period fits in i64 milliseconds");
         let participant_fanout = i64::try_from(participant_count)
@@ -8068,10 +8117,9 @@ impl NetworkBuilder {
         let da_proof_policies = resolved_genesis_config
             .as_ref()
             .map(|config| iroha_core::da::proof_policy_bundle(&config.nexus.lane_config));
-        let confidential_policy_hash = Some(resolved_genesis_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let genesis_crypto = resolved_genesis_config
             .as_ref()
             .map(|config| config::manifest_crypto_from_actual(&config.crypto));
@@ -8311,6 +8359,7 @@ impl NetworkBuilder {
             network_id,
             chain_discriminant,
             policy: PeerClientPolicy::from_env(),
+            api_token: client_api_token,
         };
         for peer in network.all_peers() {
             peer.client_config
@@ -8494,6 +8543,7 @@ struct PeerClientConfig {
     network_id: NetworkId,
     chain_discriminant: u16,
     policy: PeerClientPolicy,
+    api_token: Option<SecretString>,
 }
 
 /// Immutable request and transaction deadlines for one attached peer.
@@ -9715,6 +9765,10 @@ impl NetworkPeer {
             .expect("peer client config should be valid")
             .parse()
             .expect("peer client config should be valid");
+        let config = iroha::config::Config {
+            api_token: identity.api_token.clone(),
+            ..config
+        };
         let mut builder = AsyncClient::builder(config);
         builder.operator_key_pair = Some(self.key_pair.clone());
         builder
@@ -9893,11 +9947,11 @@ impl NetworkPeer {
     }
     fn write_base_config(&self) {
         let cfg = self.base_config_table();
-        std::fs::write(
-            self.dir.join("config.base.toml"),
-            toml::to_string(&cfg).unwrap(),
+        write_private_peer_config(
+            &self.dir.join("config.base.toml"),
+            toml::to_string(&cfg).unwrap().as_bytes(),
         )
-        .unwrap();
+        .expect("write owner-private peer base configuration");
         self.ensure_rans_tables();
     }
     fn base_config_table(&self) -> Table {
@@ -10007,12 +10061,9 @@ impl NetworkPeer {
             .encode_wire()
             .map_err(color_eyre::Report::new)
             .wrap_err("encode genesis block with Norito header")?;
-        let deframed =
-            iroha_data_model::block::deframe_versioned_signed_block_bytes(framed.as_slice())
-                .map_err(color_eyre::Report::new)
-                .wrap_err("deframe genesis sanity check")?;
-        let versioned = block.0.encode_versioned();
-        assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
+        iroha_data_model::block::decode_framed_signed_block(&framed)
+            .map_err(color_eyre::Report::new)
+            .wrap_err("validate canonical genesis wire")?;
         Ok(framed)
     }
     fn restart_genesis_file(&self, has_genesis: bool) -> Option<PathBuf> {
@@ -10058,7 +10109,7 @@ impl NetworkPeer {
             })
             .collect();
         for (path, table) in &extra_layers {
-            tokio::fs::write(self.dir.join(path), toml::to_string(table)?).await?;
+            write_private_peer_config(&self.dir.join(path), toml::to_string(table)?.as_bytes())?;
         }
         let mut final_config = Table::new().write(
             "extends",
@@ -10077,10 +10128,25 @@ impl NetworkPeer {
                 final_config.write(["genesis", "file"], path.to_string_lossy().to_string());
         }
         let path = self.dir.join(format!("run-{run}-config.toml"));
-        tokio::fs::write(&path, toml::to_string(&final_config)?).await?;
+        write_private_peer_config(&path, toml::to_string(&final_config)?.as_bytes())?;
         Ok(path)
     }
 }
+// Configurations contain signing keys and may contain listener credentials.
+// On Unix, NamedTempFile creates the original bytes with mode 0600 and atomically
+// replaces any prior run-owned file without publishing a world-readable file.
+// The mode assertion below is Unix-only; Windows ACL custody is not qualified here.
+fn write_private_peer_config(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| eyre!("peer config has no parent"))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    staged.write_all(bytes)?;
+    staged.as_file().sync_all()?;
+    staged.persist(path)?;
+    Ok(())
+}
+
 /// Retry an async operation with exponential backoff.
 ///
 /// - Starts at 50ms and doubles up to a 1s cap.
@@ -10631,12 +10697,11 @@ mod tests {
     use iroha_core::sumeragi::consensus::compute_consensus_parameters_fingerprint;
     use iroha_crypto::Algorithm;
     use iroha_data_model::{
-        block::{decode_framed_signed_block, deframe_versioned_signed_block_bytes},
+        block::decode_framed_signed_block,
         isi::{Instruction, SetParameter},
         parameter::{Parameter, system::consensus_metadata},
         transaction::{Executable, ExecutableBatchItem},
     };
-    use iroha_version::{Version, codec::EncodeVersioned};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::{
@@ -11173,6 +11238,7 @@ mod tests {
                     )),
                     chain_discriminant: defaults::common::chain_discriminant(),
                     policy: PeerClientPolicy::from_env(),
+                    api_token: None,
                 })
                 .is_ok()
         );
@@ -11551,6 +11617,92 @@ mod tests {
         assert!(!torii_request_error_is_transient(&report));
     }
     #[test]
+    fn explicit_listener_token_is_shared_by_readiness_and_account_clients_without_debug_leak() {
+        let token = "test-owner-listener-token-which-is-never-a-production-credential";
+        let builder = NetworkBuilder::new().with_api_token(SecretString::new(token.to_owned()));
+        let mut listener = Table::new();
+        for layer in &builder.config_layers {
+            merge_tables(&mut listener, layer);
+        }
+        let torii = listener.get("torii").unwrap().as_table().unwrap();
+        assert_eq!(
+            torii.get("require_api_token").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            torii.get("api_tokens").unwrap().as_array().unwrap(),
+            &vec![Value::String(token.to_owned())]
+        );
+        let dir = tempdir().unwrap();
+        let env = Environment {
+            dir: dir.path().to_path_buf(),
+        };
+        let peer = NetworkPeer::builder().build(&env);
+        let identity = PeerClientConfig {
+            chain: config::chain_id(),
+            network_id: NetworkId::from_genesis_hash(
+                HashOf::<iroha_data_model::block::BlockHeader>::from_untyped_unchecked(
+                    CryptoHash::prehashed([0xA8; CryptoHash::LENGTH]),
+                ),
+            ),
+            chain_discriminant: defaults::common::chain_discriminant(),
+            policy: PeerClientPolicy::from_env(),
+            api_token: builder.client_api_token,
+        };
+        assert!(!format!("{identity:?}").contains(token));
+        assert!(peer.client_config.set(identity).is_ok());
+        let readiness = peer.client();
+        let explicit = peer.client_for(&*ALICE_ID, ALICE_KEYPAIR.private_key().clone());
+        for client in [readiness, explicit] {
+            assert_eq!(
+                client
+                    .client()
+                    .headers()
+                    .get("x-api-token")
+                    .map(String::as_str),
+                Some(token)
+            );
+            assert!(!format!("{:?}", client.client()).contains(token));
+        }
+        assert!(!format!("{peer:?}").contains(token));
+    }
+
+    #[tokio::test]
+    async fn peer_run_configs_keep_listener_credentials_owner_private_on_restart() {
+        let dir = tempdir().unwrap();
+        let env = Environment {
+            dir: dir.path().to_path_buf(),
+        };
+        let peer = NetworkPeer::builder().build(&env);
+        let token = "test-owner-listener-token-which-is-never-a-production-credential";
+        let layer = Table::new()
+            .write(["torii", "require_api_token"], true)
+            .write(["torii", "api_tokens"], vec![token.to_owned()]);
+        for run in 1..=2 {
+            peer.write_run_config(std::iter::once(Arc::new(layer.clone())), None, None, run)
+                .await
+                .unwrap();
+            for name in [
+                "config.base.toml".to_owned(),
+                format!("run-{run}-config.layer-0.toml"),
+                format!("run-{run}-config.toml"),
+            ] {
+                let path = peer.dir.join(name);
+                assert!(fs::symlink_metadata(&path).unwrap().file_type().is_file());
+                #[cfg(unix)]
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            let retained =
+                fs::read_to_string(peer.dir.join(format!("run-{run}-config.layer-0.toml")))
+                    .unwrap();
+            assert_eq!(toml::from_str::<Table>(&retained).unwrap(), layer);
+        }
+    }
+
+    #[test]
     fn peer_client_ignores_ambient_identity_and_endpoint_overrides() {
         let _guard = lock_env_guard(&CONFIG_ENV_GUARD);
         let dir = tempdir().expect("peer client fixture directory");
@@ -11570,6 +11722,7 @@ mod tests {
                     network_id,
                     chain_discriminant: defaults::common::chain_discriminant(),
                     policy: PeerClientPolicy::from_env(),
+                    api_token: None,
                 })
                 .is_ok()
         );
@@ -12808,19 +12961,14 @@ mod tests {
         );
     }
     #[test]
-    fn genesis_embeds_confidential_policy_hash_from_config_layers() {
+    fn genesis_embeds_default_confidential_policy_hash() {
         init_instruction_registry();
-        let network =
-            build_with_isolated_permit(NetworkBuilder::new().with_peers(4).with_config_layer(
-                |layer| {
-                    layer.write(["zk", "pipa_r", "enabled"], true);
-                },
-            ));
+        let network = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
         let config_layers: Vec<Table> = network.config_layers().map(Cow::into_owned).collect();
         let peer = network.peers().first().expect("network should have peers");
-        let actual = resolve_actual_config(peer, &config_layers)
+        resolve_actual_config(peer, &config_layers)
             .expect("should resolve full config for genesis");
-        let expected = iroha_core::state::compute_genesis_confidential_policy_hash(&actual.zk);
+        let expected = iroha_core::state::default_genesis_confidential_policy_hash();
         let genesis = network.genesis();
         assert_eq!(
             genesis
@@ -12829,7 +12977,7 @@ mod tests {
                 .confidential_features()
                 .and_then(|digest| digest.zk_policy_hash),
             Some(expected),
-            "genesis should commit to the confidential policy resolved from config layers"
+            "genesis should commit to the default confidential policy"
         );
     }
     #[test]
@@ -14990,6 +15138,54 @@ mod tests {
         );
     }
     #[test]
+    fn post_bootstrap_instructions_follow_every_active_validator_registration() {
+        let domain = DomainId::try_new("post_bootstrap_test", "universal").unwrap();
+        let network = build_with_isolated_permit(
+            NetworkBuilder::new()
+                .with_peers(4)
+                .with_npos_genesis_bootstrap(1_000_u64.into())
+                .with_genesis_post_bootstrap_isi(vec![
+                    Register::domain(Domain::new(domain.clone())).into(),
+                ]),
+        );
+        let instructions = genesis_instructions(&network);
+        let capture = instructions
+            .iter()
+            .position(|instruction| {
+                instruction.as_any().downcast_ref::<RegisterBox>().is_some_and(|register| {
+                matches!(register, RegisterBox::Domain(value) if value.object.id == domain)
+            })
+            })
+            .expect("post-bootstrap instruction must be retained");
+        let activations = instructions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, instruction)| {
+                instruction
+                    .as_any()
+                    .is::<ActivatePublicLaneValidator>()
+                    .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(activations.len(), 4);
+        assert!(activations.into_iter().all(|index| index < capture));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "post-bootstrap genesis accepts ordinary instructions, not parameters"
+    )]
+    fn post_bootstrap_rejects_parameters_that_would_bypass_earlier_capacity_derivation() {
+        let _ = NetworkBuilder::new().with_genesis_post_bootstrap_isi(vec![
+            SetParameter::new(Parameter::Sumeragi(
+                iroha_data_model::parameter::SumeragiParameter::EpochLengthBlocks(
+                    NonZero::new(3_600_u64).unwrap(),
+                ),
+            ))
+            .into(),
+        ]);
+    }
+    #[test]
     fn npos_bootstrap_clamps_to_min_self_bond() {
         init_instruction_registry();
         let mut npos_params = SumeragiNposParameters::default();
@@ -16096,10 +16292,7 @@ mod tests {
         let network = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
         let g1 = network.genesis();
         let g2 = network.genesis();
-        // Compare encoded bytes to be strict about byte-for-byte equality
-        let b1 = g1.0.encode_versioned();
-        let b2 = g2.0.encode_versioned();
-        assert_eq!(b1, b2, "genesis must be identical across calls");
+        // Compare the complete stored frame, including the declared layout.
         let f1 = g1.0.encode_wire().expect("encode genesis wire");
         let f2 = g2.0.encode_wire().expect("encode genesis wire");
         assert_eq!(f1, f2, "framed genesis must be identical across calls");
@@ -16141,7 +16334,6 @@ mod tests {
         init_instruction_registry();
         let network = NetworkBuilder::new().build();
         let block = network.genesis();
-        let versioned = block.0.encode_versioned();
         let framed = block.0.encode_wire().expect("encode versioned genesis");
         if let Ok(dump_path) = env::var("IROHA_TEST_DUMP_GENESIS") {
             let dump_path = std::path::PathBuf::from(dump_path);
@@ -16167,14 +16359,10 @@ mod tests {
             norito::core::default_encode_flags(),
             "framed genesis must use canonical header flags",
         );
-        let deframed =
-            deframe_versioned_signed_block_bytes(&framed).expect("deframe framed genesis");
-        assert_eq!(deframed.bytes.as_ref(), framed.as_slice());
-        assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
         let decoded = decode_framed_signed_block(framed.as_slice()).expect("decode framed genesis");
         assert_eq!(
-            decoded.version(),
-            1,
+            decoded.canonical_wire().expect("decoded wire").version(),
+            iroha_data_model::block::SignedBlock::WIRE_VERSION,
             "decoded genesis must be a version 1 signed block"
         );
         assert_eq!(

@@ -1,19 +1,23 @@
 // Message and cell layouts of the SCCP v1 TON contracts (§5.3.2, §5.3.3).
 //
 // Field order is serialization order; every struct is the exact TL-B of the
-// spec. The certificate cells (`TairaCert`, `QcFixed`, `XHead`, `XTail`) and
-// the variable-shape cells (`SnakeBytes`, `HashChunk`, `KeyChunk`) are parsed
-// by `sccp-verify.tolk` and `sccp-cells.tolk`, which check that every cell
-// taken from a message is ordinary and has exactly the bit and reference
-// counts of its layout.
+// spec. The minter never reads a referenced cell of a message through these
+// types: the automatic parser resolves library cells and throws exit code 9
+// on a shape mismatch. The certificate cells (`TairaCert`, `QcFixed`,
+// `XHead`, `XTail`, `CheckpointRef`) are opened by `sccp-finality.tolk`, the
+// proof cells (`BlockRef`, `MessageProof`, `ControlProof`) by
+// `sccp-verify.tolk` and the variable-shape cells (`SnakeBytes`, `HashChunk`,
+// `KeyChunk`), burn wrappers and consumption tails by `sccp-cells.tolk`.
+// Each of them checks that the cell is
+// ordinary and has exactly the bit and reference counts of its layout, with
+// the exit codes listed in `sccp-errors.tolk`.
 
-/// `qc_fixed#_` — `QC_FIXED` without its trailing `signers` word (904 bits).
+/// `qc_fixed#_` — `QC_FIXED` without its trailing `signers` word (896 bits).
 struct QcFixed {
     epoch: uint64
     epochContext: uint256
     view: uint64
     blockHash: uint256
-    attest: uint8
     resultBody: uint256
 }
 
@@ -43,7 +47,7 @@ struct CheckpointRef {
     x: Cell<XHead>
 }
 
-/// `block_ref#_` (`BlockRefV1`, §5.1.5).
+/// `block_ref#_` (`BlockRefV1`, §5.1.5; 425 data bits).
 struct BlockRef {
     height: uint64
     sccpRoot: uint256
@@ -54,7 +58,7 @@ struct BlockRef {
     path: cell?
 }
 
-/// `message_proof#_` (`MessageProofV1`, §5.1.5).
+/// `message_proof#_` (`MessageProofV1`, §5.1.5; 41 data bits).
 struct MessageProof {
     leafIndex: uint32
     pathLen: uint8
@@ -104,7 +108,8 @@ struct (0x53434930) SccpInit {
 }
 
 /// One certificate of `submitCheckpoints` (§5.1.2–§5.1.3). `nextKeys` is
-/// required iff a rotation applies with `X.next_committee_root ≠ cur.root`.
+/// required iff a rotation applies with `X.next_committee_root ≠ cur.root`;
+/// otherwise it is ignored and not read.
 struct (0x53434b31) SccpCheckpoint {
     queryId: uint64
     response: address
@@ -170,50 +175,52 @@ struct (0x53434431) SccpDeployBuckets {
     count: uint8
 }
 
-/// Bucket reply: the nonce was unset and is now consumed (bounceable).
-struct (0x53434332) SccpConsumed {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-/// Bucket reply: the nonce was already consumed (bounceable).
-struct (0x53434336) SccpAlreadyConsumed {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-/// Bucket reply: the whole range is now consumed (bounceable).
-struct (0x53434334) SccpRangeConsumed {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-/// Bucket reply: some nonce of the range was already consumed.
-struct (0x53434337) SccpRangeRejected {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-/// Bucket report: the minter bounced `sccp_consumed` or
-/// `sccp_already_consumed` for `nonce`, so its pending `amount` is released
-/// (bounceable; the bucket ignores its bounce).
-struct (0x53434339) SccpConsumeReverted {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-}
-
-/// Re-runs the recorded asynchronous step keyed by `nonce` (§5.3.4).
+/// Recovers one reserved asynchronous operation by immutable id (§5.3.4).
 struct (0x53435931) SccpRetry {
     queryId: uint64
     response: address
+    operationId: uint64
+}
+
+/// One reserved original operation. Its first 168 bits bind every bounce to
+/// an immutable operation, stage and attempt before any optional data is read.
+struct (0x53435241) SccpRecoveryDispatch {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
     nonce: uint64
+    count: uint16
+    amount: uint96
+    queryId: uint64
+    response: address
+}
+
+/// Queries an existing receipt; never repeats the original effect.
+struct (0x53435242) SccpRecoveryConfirm {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+    queryId: uint64
+    response: address
+}
+
+/// Deletes exactly one completed stage's receipt, including on retry.
+struct (0x53435243) SccpRecoveryDrop {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+    queryId: uint64
+    response: address
+}
+
+/// Authenticated result: missing, applied, rejected, or deletion confirmed.
+struct (0x53435244) SccpRecoveryAck {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+    result: uint8
+    queryId: uint64
+    response: address
 }
 
 /// TEP-74 burn notification extended with the SCCP recipient (§5.3.3).
@@ -242,35 +249,6 @@ struct (0xd1735400) ResponseWalletAddress {
     queryId: uint64
     jettonWalletAddress: address?
     ownerAddress: Cell<address>?
-}
-
-// ---------------------------------------------------------------------------
-// Messages to a consumption bucket (sender MUST be the minter).
-
-/// Sent with the canonical `StateInit`; the only way a bucket becomes
-/// active (§5.3.4 step 2).
-struct (0x53434338) SccpActivateBucket {
-    queryId: uint64
-    index: uint64
-}
-
-/// The first 256 body bits are `op ‖ query_id ‖ nonce ‖ amount`, so a bounce
-/// returns the nonce and amount to the minter.
-struct (0x53434331) SccpConsume {
-    queryId: uint64
-    nonce: uint64
-    amount: uint96
-    tail: Cell<ConsumeTail>
-}
-
-struct (0x53434333) SccpConsumeRange {
-    queryId: uint64
-    first: uint64
-    count: uint16
-}
-
-struct (0x53434335) SccpUnconsume {
-    nonce: uint64
 }
 
 // ---------------------------------------------------------------------------

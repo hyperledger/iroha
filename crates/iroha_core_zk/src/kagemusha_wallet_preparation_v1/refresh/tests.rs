@@ -73,7 +73,7 @@ struct Source {
     current: KagemushaWalletCredentialV1,
     successor: KagemushaWalletCredentialV1,
     state: KagemushaWalletStateV1,
-    capsule: KagemushaWalletRecoveryCapsuleV1,
+    capsule: KagemushaWalletRecoveryBodyV1,
     certificate: KagemushaWalletSignerCertificateV1,
     signing: SigningKey,
     complete_blacklist: Option<Vec<u8>>,
@@ -147,8 +147,10 @@ impl Source {
             sign(&root(), &body.signing_message()),
         )
         .unwrap();
-        let mut capsule: KagemushaWalletRecoveryCapsuleV1 =
-            fixture("KagemushaWalletRecoveryCapsuleV1");
+        let mut capsule: KagemushaWalletRecoveryBodyV1 =
+            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+                .body()
+                .clone();
         capsule.kind = KagemushaWalletOperationKindV1::RefreshPolicy;
         capsule.map_openings.clear();
         let set = KagemushaWalletCertificateSetV1::new(vec![certificate]).unwrap();
@@ -539,6 +541,18 @@ fn all_available_updates_have_exact_typed_projections_and_preserve_other_fields(
         Source::quota(),
     ] {
         let decoded = source.decode().unwrap();
+        let original_update = source.complete_original().to_vec();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || source.decode())
+            .err()
+            .expect("real retained refresh read refusal");
+        assert!(matches!(refused, Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        assert_eq!(source.complete_original(), original_update);
+        let retried = source.decode().unwrap();
+        assert_eq!(retried.core, decoded.core);
+        assert_eq!(retried.rest, decoded.rest);
+        assert_eq!(retried.effect, decoded.effect);
         assert_eq!(decoded.effect, source.capsule.statement.effect);
         let mut successor = KagemushaWalletStateV1 {
             version: source.state.version,

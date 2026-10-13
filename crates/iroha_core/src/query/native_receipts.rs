@@ -7,10 +7,33 @@
 //! remaining native proof graph and
 //! receipt/tree scratch before allocation; this scoped write owner does not fund those graphs.
 
+mod amx_begins;
+pub use amx_begins::{
+    NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
+    begin_amx_relay, expire_amx_relay,
+};
+mod amx_decisions;
+mod amx_discovery;
+mod amx_expiry_read;
+pub use amx_discovery::{
+    NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1,
+    amx_relays, amx_relays_to,
+};
+pub use amx_expiry_read::{
+    NativeAmxExpiryDecisionCursorV1, NativeAmxExpiryDecisionErrorV1, NativeAmxExpiryDecisionPollV1,
+    NativeAmxExpiryDecisionReadV1, VerifiedNativeAmxExpiryDecisionV1, expiry_amx_decision,
+};
+mod amx_handoffs;
 mod amx_intents;
+pub use amx_decisions::{
+    NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,
+    decision_amx_relay,
+};
+pub use amx_handoffs::NativeAmxHandoffRelayErrorV1;
 mod amx_read;
 pub use amx_intents::{
     NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, NativeAmxRelaySourceV1,
     prepared_amx_relays,
 };
 mod ordinary_writes;
@@ -38,6 +61,7 @@ type CastingBinding =
     iroha_data_model::parliament_casting::ParliamentTimedOvnCastingContextBindingV1;
 
 struct OriginalReceiptSource {
+    scope: iroha_data_model::sumeragi_finality::CertifiedResultScope,
     finality: SumeragiFinalityProof,
     witness: iroha_allocation::RetainedPayload<ExecWitness>,
     casting_bindings: ordinary_writes::CastingOwner,
@@ -52,9 +76,14 @@ fn original_source(
     if height < 2 {
         return Err("historical receipt requires a certified non-genesis execution".into());
     }
+    let scope = view
+        .native_execution_tip()
+        .ok_or("native execution scope is unavailable")?
+        .root_scope()
+        .into();
     let finality = build_proof(view, height).map_err(|error| error.to_string())?;
     let decoded = finality
-        .decode_checked()
+        .decode_checked(scope)
         .map_err(|error| error.to_string())?;
     let budget = view.prepared_contract_cache().execution_budget().clone();
     let archive = NativeContextArchive::open_existing(
@@ -93,6 +122,7 @@ fn original_source(
         .recheck_namespace()
         .map_err(|error| error.to_string())?;
     Ok(OriginalReceiptSource {
+        scope,
         finality,
         witness,
         casting_bindings: projection.casting_bindings,
@@ -107,12 +137,12 @@ fn original_source(
 ///
 /// Acquisition is lazy. Call `poll` or `complete` on the returned job; either retains the
 /// original descriptor, partial prefix and completed fields when a typed refusal is returned.
-pub fn amx_record_proof<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_record_proof<V: StateReadOnly>(
+    view: &V,
     height: u64,
     kind: AmxRecordKind,
     transaction: [u8; 32],
-) -> NativeAmxRecordProofReadV1<'v, V> {
+) -> NativeAmxRecordProofReadV1<'_, V> {
     NativeAmxRecordProofReadV1::new(view, height, kind, transaction)
 }
 
@@ -157,7 +187,7 @@ pub fn private_dataspace_record_proof(
     }
     let decoded = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     let block = norito::core::with_decode_limits_scope(
         norito::canonical_decode_limits(source.finality.block_wire.len()),
@@ -168,7 +198,8 @@ pub fn private_dataspace_record_proof(
         .commit_certificate()
         .ok_or("private-root record carrier lacks a native certificate")?;
     let result =
-        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage());
+        iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage())
+            .ok_or("private-root carrier has a malformed native result preimage")?;
     let proof = PrivateDataspaceRecordProof::from_writes(
         *view.network_id(),
         height,
@@ -207,7 +238,7 @@ pub fn validation_fee_policy_witness(
         crate::receiver_snapshot::validation_fee_policy_witness_proof_v1(source.witness.get())?;
     let execution = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     if root != execution.execution().ordinary_writes_root || !proof.verify(root) {
         return Err("fee policy opening differs from the certified ordinary-write root".into());
@@ -235,7 +266,7 @@ fn fee_evidence_from_source(
         crate::receiver_snapshot::fee_evidence_block_proof_v1(source.witness.get())?;
     let execution = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     if root != execution.execution().ordinary_writes_root
         || !proof.verify(root)
@@ -322,7 +353,7 @@ pub fn parliament_casting_proof(
         )?;
     let decoded = source
         .finality
-        .decode_checked()
+        .decode_checked(source.scope)
         .map_err(|error| error.to_string())?;
     let expected = ParliamentTimedOvnCastingSnapshotCommitmentV1::from_ordered_bindings(
         height,
@@ -346,9 +377,12 @@ pub fn parliament_casting_proof(
     else {
         return Ok(None);
     };
-    let tree = MerkleTree::<CastingBinding>::from_iter(
-        source.casting_bindings.as_slice().iter().map(HashOf::new),
-    );
+    let tree = source
+        .casting_bindings
+        .as_slice()
+        .iter()
+        .map(HashOf::new)
+        .collect::<MerkleTree<CastingBinding>>();
     let leaf_index = u32::try_from(index).map_err(|_| "casting leaf index exceeds u32")?;
     let membership_proof = ParliamentTimedOvnCastingContextMembershipProofV1::new(
         tree.get_proof(leaf_index)

@@ -19,6 +19,9 @@ pub struct NativeExecutionProjectionV1 {
     /// Complete original casting leaves, authenticated by the snapshot in ordinary writes.
     pub casting_bindings:
         Vec<iroha_data_model::parliament_casting::ParliamentTimedOvnCastingContextBindingV1>,
+    /// Exact canonical SCCP write delta; empty iff its synthetic write is absent.
+    /// Values remain DATA until their hash joins the certified ordinary-write root.
+    pub sccp_delta: Vec<u8>,
 }
 
 impl norito::NoritoSchema for NativeExecutionProjectionV1 {
@@ -42,6 +45,7 @@ mod tests {
             )),
             lanes: SumeragiLaneState::default(),
             casting_bindings: vec![],
+            sccp_delta: vec![1, 2, 3],
             ordinary_writes: vec![iroha_data_model::block::consensus::ExecKv {
                 key: vec![1],
                 value: vec![2, 3],
@@ -58,6 +62,7 @@ mod tests {
         assert_eq!(decoded.lanes, projection.lanes);
         assert_eq!(decoded.ordinary_writes, projection.ordinary_writes);
         assert_eq!(decoded.casting_bindings, projection.casting_bindings);
+        assert_eq!(decoded.sccp_delta, projection.sccp_delta);
         assert_eq!(norito::encode_canonical(&decoded).unwrap(), bytes);
         let mut suffix = bytes;
         suffix.push(0);

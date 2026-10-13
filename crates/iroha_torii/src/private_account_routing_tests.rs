@@ -74,7 +74,6 @@ async fn private_unlabeled_account_routes_to_exact_signed_root_without_universal
             .world()
             .account_scope_entry(&owner)
             .unwrap()
-            .unwrap()
             .iter()
             .any(|(id, _)| *id == DataSpaceId::UNIVERSAL),
         "fixture must retain the domainless account's logical scope that exposed the bug"
@@ -136,21 +135,21 @@ async fn account_routes_require_valid_root_metadata_and_preserve_explicit_global
         let mut block = app.state.world.block();
         block
             .parameters
-            .custom
-            .remove(&consensus_metadata::handshake_meta_id());
+            .remove_custom_parameter(&consensus_metadata::handshake_meta_id());
         if malformed {
             block
                 .parameters
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     consensus_metadata::handshake_meta_id(),
                     iroha_primitives::json::Json::new(false),
-                )));
+                )))
+                .expect("unparsed root metadata fixture");
         }
         block.commit();
-        assert_eq!(
+        assert!(matches!(
             resolve_torii_target_account_routes(&app, &owner),
             Err(queue::RoutingResolveError::UnauthenticatedRootScope)
-        );
+        ));
     }
 }
 
@@ -304,11 +303,11 @@ async fn private_account_route_never_falls_back_to_global_physical_materializati
     // A Global physical catalog is not authority to host this signed private root.
     let app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(world);
     set_read_permission(&app, &owner, dataspace, true);
-    assert_eq!(
+    assert!(matches!(
         resolve_torii_target_account_routes(&app, &owner),
         Err(queue::RoutingResolveError::NoLaneForDataspace {
-            dataspace_id: dataspace
-        })
-    );
+            dataspace_id
+        }) if dataspace_id == dataspace
+    ));
     assert!(torii_visible_account_read_routes(&app, Some(&owner)).is_empty());
 }

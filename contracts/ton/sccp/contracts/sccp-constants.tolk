@@ -1,7 +1,9 @@
 // SCCP v1 TON constants (specs/sccp.md revision 5, §3 and §5.3).
 //
-// Every value here is pinned by a golden test in
-// `tests/unit/sccp-vectors.test.tolk`.
+// The Acton suite pins these values against the shared fixtures and the
+// specification: `tests/unit/sccp-vectors.test.tolk` compares the constants
+// themselves, and the fixture replays of the other suites pin what they
+// encode (payloads, control leaves, certificates, opcodes and exit codes).
 
 /// All SCCP TON contracts live in the basechain.
 const SCCP_WORKCHAIN = BASECHAIN
@@ -55,8 +57,17 @@ const SCCP_MAX_COMMITTEE_SIZE = 31
 /// Compressed BLS12-381 G1 keys per `KeyChunk` (§5.3.1); 2 × 384 + 1 bits.
 const SCCP_KEYS_PER_CHUNK = 2
 const SCCP_KEY_BITS = 384
+/// `KeyChunk`s of the largest committee: 15 chunks of two keys and one of one.
+const SCCP_MAX_KEY_CHUNKS = 16
 /// Compressed BLS12-381 G2 signature (§3.7).
 const SCCP_SIGNATURE_BITS = 768
+/// First 32 bytes of the compressed identity signature, `0xc0` followed by
+/// 95 zero bytes (§5.1.3 step 6); its other 64 bytes are zero.
+const SCCP_IDENTITY_SIGNATURE_HEAD = 0xc000000000000000000000000000000000000000000000000000000000000000
+
+/// The largest `u64`. `op_count` and the two time sums saturate at it, and a
+/// stored `outbound_nonce` of this value is exhausted (§5.1.1, §5.1.2, §5.1.7).
+const SCCP_MAX_U64 = 0xffffffffffffffff
 
 /// Contract constants of §3.9.
 const SCCP_MAX_VALIDITY_MS = 2592000000
@@ -75,11 +86,23 @@ const SCCP_X_TAIL_BITS = 896
 const SCCP_X_MAGIC = 0x534343502f46494e414c4954592f5631
 const SCCP_X_FLAG_ACTIVE = 1
 const SCCP_X_FLAG_ROTATION = 2
+/// Flag bits 2–7, which X1 requires to be zero.
+const SCCP_X_FLAGS_RESERVED = 0xfc
+/// Bit offset of `height` in `XHead` (byte 48 of `X`).
+const SCCP_X_HEIGHT_OFFSET_BITS = 384
+/// X6: a `ROTATION` header has `height` and `generation` of at most 2^64 − 2,
+/// so the successor's start and generation are `u64` values.
+const SCCP_MAX_ROTATION_FIELD = 0xfffffffffffffffe
 
-/// `QC_FIXED` without its trailing `signers` word (§3.7, §5.3.2): 113 bytes.
-const SCCP_QC_FIXED_CELL_BITS = 904
+/// `QC_FIXED` without its trailing `signers` word (§3.7, §5.3.2): 112 bytes.
+const SCCP_QC_FIXED_CELL_BITS = 896
 /// `TairaCert` root: `signature:bits768 signers:uint32` (§5.3.2).
 const SCCP_TAIRA_CERT_BITS = 800
+/// Data bits of the proof cells of §5.3.2; the Maybe bit of each path is its
+/// last bit.
+const SCCP_BLOCK_REF_BITS = 425
+const SCCP_MESSAGE_PROOF_BITS = 41
+const SCCP_CONTROL_PROOF_BITS = 690
 
 /// `RESULT_TAG = ASCII("iroha/sumeragi/result/v1")` (§3.6), 24 bytes.
 const SCCP_RESULT_TAG = 0x69726f68612f73756d65726167692f726573756c742f7631
@@ -127,11 +150,6 @@ const SCCP_MAX_DEPLOY_BUCKETS_PER_CALL = 16
 /// Consume kinds carried by `ConsumeTail.kind` (§5.3.3).
 const SCCP_CONSUME_KIND_MINT = 0
 const SCCP_CONSUME_KIND_VOID = 1
-
-/// Kinds of the minter's `retries` entries (§5.3.4): an `sccp_unconsume` of
-/// the key nonce, or the activation of the bucket whose first nonce is the key.
-const SCCP_RETRY_UNCONSUME = 1
-const SCCP_RETRY_ACTIVATE = 2
 
 /// Jetton metadata (§5.3.1): 9 decimals everywhere.
 const SCCP_JETTON_DECIMALS = 9

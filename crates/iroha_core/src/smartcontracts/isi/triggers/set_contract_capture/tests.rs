@@ -7,8 +7,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 8,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn fixture() -> (Set, HashOf<IvmBytecode>) {
@@ -331,10 +331,8 @@ fn all_five_independent_capture_literals_admit_exactly_and_refuse_one_below() {
                     snapshot.row_count(),
                     if current_rows == 3 {
                         3
-                    } else if current_rows == 0 {
-                        0
                     } else {
-                        1
+                        usize::from(current_rows != 0)
                     }
                 );
                 drop(snapshot);

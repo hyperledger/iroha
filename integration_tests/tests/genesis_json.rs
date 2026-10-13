@@ -184,10 +184,13 @@ fn genesis_norito_bytes_roundtrip_network() -> Result<()> {
     };
     let genesis = network.genesis();
     let framed = genesis.0.encode_wire().map_err(|err| eyre!(err))?;
-    let deframed = iroha::data_model::block::deframe_versioned_signed_block_bytes(&framed)
-        .map_err(|err| eyre!(err))?;
-    assert_eq!(deframed.bytes.as_ref(), framed.as_slice());
-    assert_eq!(deframed.bare_versioned.as_ref().first().copied(), Some(1));
+    let decoded =
+        iroha::data_model::block::decode_framed_signed_block(&framed).map_err(|err| eyre!(err))?;
+    assert_eq!(decoded, genesis.0);
+    assert_eq!(
+        framed.first().copied(),
+        Some(iroha::data_model::block::SignedBlock::WIRE_VERSION)
+    );
     let sync_timeout = network.sync_timeout();
     let roundtrip_result: Result<()> = rt.block_on(async {
         if let Err(err) = network.start_all().await {

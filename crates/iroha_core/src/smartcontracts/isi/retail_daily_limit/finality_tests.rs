@@ -309,10 +309,12 @@ fn start_chain(
         ],
     )
     .expect("baseline catalog");
-    let mut nexus = actual::Nexus::default();
-    nexus.configured_lane_catalog = baseline.clone();
-    nexus.lane_catalog = baseline.clone();
-    nexus.lane_config = actual::LaneConfig::from_catalog(&baseline);
+    let nexus = actual::Nexus {
+        configured_lane_catalog: baseline.clone(),
+        lane_catalog: baseline.clone(),
+        lane_config: actual::LaneConfig::from_catalog(&baseline),
+        ..Default::default()
+    };
     config.nexus = Some(nexus);
     CertifiedTestChain::start(config).expect("certified genesis")
 }
@@ -513,7 +515,7 @@ fn lane_certificate(
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
             };
-            vote.sig = signer.sign(&vote.preimage());
+            vote.sig = signer.sign(&vote.preimage()).unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -549,7 +551,9 @@ fn store_lane_block(
     let lane_payload = LaneBatch {
         anchor_height,
         anchor_hash: anchor,
-        transactions: vec![transaction],
+        transactions: vec![
+            iroha_data_model::transaction::TransactionEntrypoint::External(transaction),
+        ],
     }
     .to_payload();
     let config = lane_height_config(record).expect("native lane configuration");
@@ -640,6 +644,7 @@ fn merge_lane(chain: &mut CertifiedTestChain, stores: &LaneStores) {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &merges,
@@ -779,7 +784,7 @@ fn genesis_verifier(chain: &CertifiedTestChain) -> SumeragiFinalityVerifier {
         .collect();
     SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &chain.state().view().chain_id().to_string(),
+        chain.state().view().chain_id().as_ref(),
         committee,
     )
     .expect("independently selected signed genesis")
@@ -794,8 +799,8 @@ fn verified_prefix(
     (1..=chain.height())
         .map(|height| {
             let proof = build_proof(&view, height).expect("served native proof");
-            let verified = verifier.verify(&proof).expect("contiguous native finality");
-            (proof, verified)
+            let authenticated = verifier.verify(&proof).expect("contiguous native finality");
+            (proof, authenticated)
         })
         .collect()
 }
@@ -834,10 +839,10 @@ fn finalized_activation_evidence_is_anchored_on_native_certified_finality() {
         .expect("native activation marker");
 
     let prefix = verified_prefix(chain);
-    let (_, verified) = &prefix[at(ACTIVATION_HEIGHT)];
+    let (_, authenticated) = &prefix[at(ACTIVATION_HEIGHT)];
     let receipt = verify_finalized_retail_activation_v1(
-        verified.block(),
-        verified,
+        authenticated.block(),
+        authenticated,
         fixture.activation_entry,
         &fixture.owner,
         &fixture.policy,
@@ -865,8 +870,8 @@ fn finalized_activation_evidence_is_anchored_on_native_certified_finality() {
             .entry_anchor(&fixture.activation_entry)
             .expect("certified entry anchor"),
         TrustedBlockProofAnchor::from_verified_finality(
-            verified.block(),
-            verified,
+            authenticated.block(),
+            authenticated,
             &fixture.activation_entry
         )
         .expect("portable entry anchor")
@@ -878,14 +883,14 @@ fn activation_evidence_refuses_substituted_coordinates_entries_and_carriers() {
     let fixture = activated_chain();
     let chain = &fixture.chain;
     let prefix = verified_prefix(chain);
-    let verify = |verified: &VerifiedSumeragiBlock,
+    let verify = |authenticated: &VerifiedSumeragiBlock,
                   entry: HashOf<TransactionEntrypoint>,
                   owner: &AccountId,
                   policy: &RetailDailyLimitPolicyV1,
                   domain: &DomainId| {
         verify_finalized_retail_activation_v1(
-            verified.block(),
-            verified,
+            authenticated.block(),
+            authenticated,
             entry,
             owner,
             policy,
@@ -995,8 +1000,8 @@ fn activation_evidence_refuses_substituted_coordinates_entries_and_carriers() {
 fn capture_merged_lane_finality_proof_fixture() {
     let fixture = activated_chain();
     let prefix = verified_prefix(&fixture.chain);
-    let (proof, verified) = &prefix[at(ACTIVATION_HEIGHT)];
-    assert_eq!(verified.height(), ACTIVATION_HEIGHT);
+    let (proof, authenticated) = &prefix[at(ACTIVATION_HEIGHT)];
+    assert_eq!(authenticated.height(), ACTIVATION_HEIGHT);
     assert_eq!(fixture.chain.height(), ACTIVATION_HEIGHT);
     let compact = |value: norito::json::Value| {
         norito::json::to_string(&value).expect("compact finality JSON")
@@ -1041,7 +1046,9 @@ fn capture_merged_lane_finality_proof_fixture() {
         &signer,
     )
     .expect("challenge-bound durable-tip attestation");
-    attestation.verify().expect("the node's own signature");
+    attestation
+        .verify(fixture.chain.root_scope().into())
+        .expect("the node's own signature under the original signed root");
     assert_eq!(&attestation.body.finality_proof, proof);
     let attestation_json =
         compact(norito::json::to_value(&attestation).expect("attestation JSON value"));

@@ -123,14 +123,6 @@ impl<F: PastaField, const BITS: usize> Uint<F, BITS> {
     }
 }
 
-/// The low 64 bits of an unsigned double-width integer, with exact modulo semantics.
-pub(crate) const fn low_word(value: u128) -> u64 {
-    let bytes = value.to_le_bytes();
-    u64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ])
-}
-
 /// The low 128 bits of the canonical integer value of `value`.
 pub fn low_u128<F: PastaField>(value: &F) -> u128 {
     let limbs = value.to_canonical_limbs();
@@ -333,22 +325,6 @@ mod tests {
         assert_eq!(second.next_row(), 16);
         let independent = SharedRows::new(RowCursor::starting_at(0));
         assert_eq!(independent.next_row(), 0);
-    }
-
-    #[test]
-    fn double_width_low_word_preserves_every_bit_and_discards_the_high_half() {
-        for low in [0, 1, u64::MAX, 0x0123_4567_89ab_cdef] {
-            for high in [0, 1, u64::MAX, 0xfedc_ba98_7654_3210] {
-                let combined = u128::from(low) | (u128::from(high) << 64);
-                assert_eq!(low_word(combined), low);
-            }
-        }
-        for bit in 0..128 {
-            assert_eq!(
-                low_word(1_u128 << bit),
-                if bit < 64 { 1_u64 << bit } else { 0 }
-            );
-        }
     }
 
     #[test]

@@ -20,6 +20,8 @@
 //! decisions): no valid `Prepare` of such a transaction can follow, because the global chain
 //! decided it by `d + 1` and `d` is at most the window after its `Begin`. A decision proof of a
 //! dropped entry is then only held.
+//! Authenticated epoch contexts intersecting an unresolved `Yes` decision's bounded global
+//! height interval survive committee eviction and restart until that obligation is closed.
 
 use iroha_model_base::topology::DataSpaceId;
 use iroha_schema::IntoSchema;
@@ -30,7 +32,10 @@ use super::{
     AmxOutcomeV1, AmxPreparedV1, AmxRecordProofV1, AmxRecordV1, AmxTransactionV1, AmxVoteV1,
     MAX_AMX_DEADLINE_WINDOW, MAX_AMX_PENDING,
 };
-use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
+use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, sumeragi::epoch::ValidatorEpochContextV1};
+
+// Each obligation intersects at most one distinct epoch per admissible decision height.
+const MAX_DECISION_CONTEXTS: u64 = MAX_AMX_PENDING as u64 * (MAX_AMX_DEADLINE_WINDOW + 2);
 
 /// The dataspace executor's side of AMX: escrow, apply and release a leg's effects.
 ///
@@ -61,14 +66,14 @@ pub trait AmxEscrow {
 
 /// A rejected AMX proof/transition or an unchanged escrow operation to retry at the host.
 /// This runtime error is not a wire value and does not change the AMX record layout.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum AmxParticipantError<E> {
     /// The protocol input or participant state rejected the requested transition.
     #[error(transparent)]
     Protocol(AmxError),
     /// A local proof decoder refused before changing escrow or participant state.
     #[error("local AMX participant decoder resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
     /// The host refused without changing escrow or participant state.
     #[error("AMX escrow operation failed: {0}")]
     Escrow(E),
@@ -107,8 +112,14 @@ pub struct AmxPreparedEntryV1 {
         bounded_with = "crate::json_helpers::fixed_bytes_hex::serialize_bounded"
     )]
     pub tx: [u8; 32],
+    /// Authenticated global height `b` of this transaction's `Begin`.
+    pub begun_at: u64,
+    /// Authenticated Global timestamp of the original Begin.
+    pub begun_time_ms: u64,
     /// Global deadline height `d`.
     pub deadline: u64,
+    /// Exclusive Global ledger-time expiry authenticated by Begin.
+    pub expires_at_ms: u64,
     /// This participant's recorded vote.
     pub vote: AmxVoteV1,
     /// The applied global decision, once settled.
@@ -178,6 +189,9 @@ pub struct AmxParticipantStateV1 {
     pub prepared: Vec<AmxPreparedEntryV1>,
     /// Decisions held for transactions not prepared here, ascending by transaction.
     pub held: Vec<AmxHeldDecisionV1>,
+    /// Authenticated evicted global contexts needed by unresolved `Yes` decisions, in epoch
+    /// order. These are authority only as part of authenticated participant State recovery.
+    pub decision_contexts: Vec<ValidatorEpochContextV1>,
 }
 
 fn rejected(reason: &'static str) -> AmxError {
@@ -194,6 +208,7 @@ impl AmxParticipantStateV1 {
             global_height: 0,
             prepared: Vec::new(),
             held: Vec::new(),
+            decision_contexts: Vec::new(),
         }
     }
 
@@ -206,13 +221,24 @@ impl AmxParticipantStateV1 {
             .map(|index| &self.prepared[index])
     }
 
-    /// Check the stored invariants.
+    /// Check the stored invariants and complete retained decision intervals.
+    ///
+    /// This checks structure, not the historical authentication of serialized authority.
+    /// Restored values require authenticated enclosing State or replay of the original
+    /// certified handoffs; an individually valid committee or sparse archive is not a proof.
     ///
     /// # Errors
     /// The first violated invariant.
     pub fn validate(&self) -> Result<(), AmxError> {
         self.global.validate()?;
-        if self.prepared.len() > MAX_AMX_PENDING || self.held.len() > MAX_AMX_PENDING {
+        if self.global.result_scope != crate::sumeragi_finality::CertifiedResultScope::TairaGlobal {
+            return Err(rejected("coordinator tracker must name the global root"));
+        }
+        if self.prepared.len() > MAX_AMX_PENDING
+            || self.held.len() > MAX_AMX_PENDING
+            || u64::try_from(self.decision_contexts.len())
+                .map_or(true, |count| count > MAX_DECISION_CONTEXTS)
+        {
             return Err(rejected("participant state exceeds its bounds"));
         }
         if self
@@ -230,7 +256,117 @@ impl AmxParticipantStateV1 {
         {
             return Err(rejected("participant entries are not strictly ascending"));
         }
+        for entry in &self.prepared {
+            if entry.begun_at >= entry.deadline
+                || entry.deadline - entry.begun_at > MAX_AMX_DEADLINE_WINDOW
+                || entry.expires_at_ms <= entry.begun_time_ms
+            {
+                return Err(rejected("prepared decision interval exceeds its bounds"));
+            }
+        }
+        let oldest_live = self
+            .global
+            .previous
+            .as_ref()
+            .unwrap_or(&self.global.current);
+        let mut prior: Option<&ValidatorEpochContextV1> = None;
+        for context in &self.decision_contexts {
+            context.validate().map_err(AmxError::Anchor)?;
+            let overlaps_live_height_range =
+                context.authorization.last_height >= oldest_live.authorization.first_height;
+            if context.authorization.epoch >= oldest_live.authorization.epoch
+                || overlaps_live_height_range
+                || context.network_id != self.global.current.network_id
+                || context.mode != self.global.current.mode
+                || context.da_layout != self.global.current.da_layout
+                || !self.needs_decision_context(context)
+            {
+                return Err(rejected(
+                    "retained decision context is outside its obligations",
+                ));
+            }
+            if let Some(previous) = prior {
+                let overlaps_previous_height_range =
+                    previous.authorization.last_height >= context.authorization.first_height;
+                if previous.authorization.epoch >= context.authorization.epoch
+                    || overlaps_previous_height_range
+                {
+                    return Err(rejected("decision contexts are not strictly ascending"));
+                }
+                if previous.authorization.epoch.checked_add(1) == Some(context.authorization.epoch)
+                {
+                    context
+                        .validate_successor(previous)
+                        .map_err(AmxError::Anchor)?;
+                }
+            }
+            prior = Some(context);
+        }
+        if let Some(previous) = prior
+            && previous.authorization.epoch.checked_add(1) == Some(oldest_live.authorization.epoch)
+        {
+            oldest_live
+                .validate_successor(previous)
+                .map_err(AmxError::Anchor)?;
+        }
+        // Every already authenticated epoch in an unresolved obligation's decision interval
+        // remains available. A missing archive member must fail restoration, not strand escrow.
+        for entry in self.prepared.iter().filter(|entry| unresolved_yes(entry)) {
+            let end = entry
+                .deadline
+                .saturating_add(1)
+                .min(self.global.current.authorization.last_height);
+            let mut next_height = entry.begun_at;
+            let mut covered = false;
+            for context in self
+                .decision_contexts
+                .iter()
+                .chain(self.global.previous.iter())
+                .chain(std::iter::once(&self.global.current))
+            {
+                if context.authorization.last_height < next_height {
+                    continue;
+                }
+                if context.authorization.first_height > next_height {
+                    break;
+                }
+                if context.authorization.last_height >= end {
+                    covered = true;
+                    break;
+                }
+                next_height = context.authorization.last_height + 1;
+            }
+            if !covered {
+                return Err(rejected(
+                    "unresolved Yes is missing authenticated decision context",
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// Whether an authenticated context intersects any unresolved `Yes` decision interval.
+    /// Native executors use this before admitting the evicted context into their original pool.
+    #[must_use]
+    pub fn needs_decision_context(&self, context: &ValidatorEpochContextV1) -> bool {
+        self.prepared.iter().any(|entry| {
+            unresolved_yes(entry)
+                && entry.begun_at <= context.authorization.last_height
+                && context.authorization.first_height <= entry.deadline.saturating_add(1)
+        })
+    }
+
+    /// Reclaim archived authority once no unresolved `Yes` can need it. This never changes
+    /// escrow or discards the authority of an unresolved obligation because time elapsed.
+    pub fn prune_decision_contexts(&mut self) {
+        let prepared = &self.prepared;
+        self.decision_contexts.retain(|context| {
+            prepared.iter().any(|entry| {
+                unresolved_yes(entry)
+                    && entry.begun_at <= context.authorization.last_height
+                    && context.authorization.first_height <= entry.deadline.saturating_add(1)
+            })
+        });
     }
 
     /// Prepare `transaction` with the proof of its `Begin` (§11.3); the returned `Prepared`
@@ -256,6 +392,15 @@ impl AmxParticipantStateV1 {
             .leg(self.dataspace)
             .ok_or_else(|| rejected("this dataspace is not a participant"))?;
         let verified = self.global.verify_record(begin)?;
+        let begun_time_ms = verified.certified_result().header().timestamp_ms();
+        if record.expires_at_ms <= begun_time_ms {
+            return Err(rejected("the expiry does not follow its authenticated Begin").into());
+        }
+        if record.deadline <= verified.height
+            || record.deadline - verified.height > MAX_AMX_DEADLINE_WINDOW
+        {
+            return Err(rejected("the deadline is not within the admitted window").into());
+        }
         let Err(index) = self
             .prepared
             .binary_search_by(|entry| entry.tx.cmp(&record.tx))
@@ -288,7 +433,10 @@ impl AmxParticipantStateV1 {
             index,
             AmxPreparedEntryV1 {
                 tx: record.tx,
+                begun_at: verified.height,
+                begun_time_ms,
                 deadline: record.deadline,
+                expires_at_ms: record.expires_at_ms,
                 vote,
                 settled: held.map(|held| held.decision.outcome),
             },
@@ -316,11 +464,36 @@ impl AmxParticipantStateV1 {
         let AmxRecordV1::Decision(record) = &decision.record else {
             return Err(AmxError::Record("a settlement needs a Decision proof").into());
         };
-        let verified = self.global.verify_record(decision)?;
-        let outcome = match self
+        let slot = self
             .prepared
-            .binary_search_by(|entry| entry.tx.cmp(&record.tx))
-        {
+            .binary_search_by(|entry| entry.tx.cmp(&record.tx));
+        let contexts = if slot.is_ok_and(|index| unresolved_yes(&self.prepared[index])) {
+            self.decision_contexts.as_slice()
+        } else {
+            &[]
+        };
+        let verified = self
+            .global
+            .verify_record_with_contexts(decision, contexts)?;
+        if let Ok(index) = slot {
+            let entry = &self.prepared[index];
+            let last = match record.outcome {
+                AmxOutcomeV1::Commit => entry.deadline,
+                AmxOutcomeV1::Abort => entry.deadline.saturating_add(1),
+            };
+            let decision_time_ms = verified.certified_result().header().timestamp_ms();
+            if verified.height < entry.begun_at
+                || verified.height > last
+                || decision_time_ms < entry.begun_time_ms
+                || (record.outcome == AmxOutcomeV1::Commit
+                    && decision_time_ms >= entry.expires_at_ms)
+            {
+                return Err(
+                    rejected("the decision is outside its authenticated obligation").into(),
+                );
+            }
+        }
+        let outcome = match slot {
             Ok(index) => self.settle_prepared(escrow, index, record)?,
             Err(_) => self.hold(*record, verified.height)?,
         };
@@ -379,7 +552,14 @@ impl AmxParticipantStateV1 {
     /// # Errors
     /// The proof does not verify.
     pub fn handoff(&mut self, proof: &AmxHandoffProofV1) -> Result<AmxHandoffOutcome, AmxError> {
-        let outcome = self.global.apply_handoff(proof)?;
+        let (outcome, evicted) = self.global.apply_handoff_retaining_evicted(proof)?;
+        if let Some(context) = evicted.filter(|context| self.needs_decision_context(context)) {
+            // DM35 restores the old two-epoch retention rule and strands this obligation.
+            #[cfg(not(all(test, sumeragi_model_mutation = "DM35")))]
+            self.decision_contexts.push(context);
+            #[cfg(all(test, sumeragi_model_mutation = "DM35"))]
+            drop(context);
+        }
         if let Some(previous) = &self.global.previous {
             self.observe(previous.authorization.last_height);
         }
@@ -396,5 +576,10 @@ impl AmxParticipantStateV1 {
         });
         self.held
             .retain(|held| held.height.saturating_add(MAX_AMX_DEADLINE_WINDOW) >= global_height);
+        self.prune_decision_contexts();
     }
+}
+
+fn unresolved_yes(entry: &AmxPreparedEntryV1) -> bool {
+    entry.settled.is_none() && matches!(entry.vote, AmxVoteV1::Yes(_))
 }

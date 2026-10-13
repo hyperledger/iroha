@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 
 /// Output format of `koto explain`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
-pub(crate) enum ExplainFormat {
+pub enum ExplainFormat {
     /// Terminal text.
     #[default]
     Human,
@@ -76,25 +76,20 @@ fn resolve(topic: &str) -> Option<Topic<'_>> {
 }
 
 /// Run `koto explain`.
-pub(crate) fn run(
-    topic: &Option<String>,
-    list: bool,
-    format: ExplainFormat,
-) -> Result<(), KotoError> {
+pub fn run(topic: Option<&str>, list: bool, format: ExplainFormat) -> Result<(), KotoError> {
     if list {
         print!("{}", render_list(format));
         return Ok(());
     }
-    let topic = topic
-        .as_deref()
-        .ok_or_else(|| KotoError::Usage("explain expects a topic or --list".to_owned()))?;
+    let topic =
+        topic.ok_or_else(|| KotoError::Usage("explain expects a topic or --list".to_owned()))?;
     let rendered = render_topic(topic, format).map_err(KotoError::Usage)?;
     print!("{rendered}");
     Ok(())
 }
 
 /// Render one topic, or a not-found message that echoes the input unchanged with suggestions.
-pub(crate) fn render_topic(topic: &str, format: ExplainFormat) -> Result<String, String> {
+pub fn render_topic(topic: &str, format: ExplainFormat) -> Result<String, String> {
     match resolve(topic) {
         Some(Topic::Diagnostic { explanation, lint }) => {
             Ok(render_diagnostic(explanation, lint, format))
@@ -325,11 +320,11 @@ fn suggestions(topic: &str) -> Vec<String> {
         .chain(
             glossary::BRANDED_KEYWORDS
                 .iter()
-                .flat_map(|keyword| keyword.spellings()),
+                .flat_map(BrandedKeyword::spellings),
         )
         .filter_map(|candidate| distance(candidate).map(|distance| (distance, candidate)))
         .collect::<Vec<_>>();
-    candidates.sort();
+    candidates.sort_unstable();
     candidates
         .into_iter()
         .take(3)
@@ -369,6 +364,25 @@ mod tests {
             heading_anchor("Secrets and ZK seiyaku"),
             "secrets-and-zk-seiyaku"
         );
+    }
+
+    #[test]
+    fn run_rejects_missing_and_unknown_topics_as_usage_errors() {
+        let missing = run(None, false, ExplainFormat::Human).expect_err("topic is required");
+        assert!(matches!(
+            missing,
+            KotoError::Usage(message) if message == "explain expects a topic or --list"
+        ));
+        let topic = String::from("unused-paramter");
+        let unknown = run(Some(topic.as_str()), false, ExplainFormat::Human)
+            .expect_err("unknown topic is a usage error");
+        assert!(matches!(
+            unknown,
+            KotoError::Usage(message)
+                if message.contains("no explanation is registered for `unused-paramter`")
+                    && message.contains("`unused-parameter`")
+        ));
+        assert_eq!(topic, "unused-paramter");
     }
 
     #[test]
@@ -437,10 +451,11 @@ mod tests {
     #[test]
     fn lint_names_match_the_codes_the_compiler_reports() {
         let session = CompilerSession::default();
-        for (source, lint) in [(
-            "seiyaku Lint { fn helper(int unused) -> int { return 1; } view fn value() authorize(anyone) -> int { return helper(unused: 0); } }",
-            "unused-parameter",
-        )] {
+        {
+            let (source, lint) = (
+                "seiyaku Lint { fn helper(int unused) -> int { return 1; } view fn value() authorize(anyone) -> int { return helper(unused: 0); } }",
+                "unused-parameter",
+            );
             let warnings = session
                 .check_with_lints(CompileRequest {
                     source,

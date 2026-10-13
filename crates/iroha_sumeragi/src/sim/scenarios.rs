@@ -743,8 +743,7 @@ pub fn f18(seed: u64) -> Scenario {
     // One mandatory canonical certificate-bearing frame must fit. Flood inputs
     // above this exact bound still exercise the same rejection and progress checks.
     sc.local.sync_max_bytes = sc.params.max_block_bytes + crate::pacemaker::FRAME_OVERHEAD;
-    sc.net.frame_limit =
-        u64::from(sc.params.max_block_bytes) + u64::from(crate::pacemaker::FRAME_OVERHEAD);
+    sc.net.frame_limit = crate::pacemaker::minimum_transport_frame_bytes(sc.params.max_block_bytes);
     let count = 1 + rng.index(f_of(n).max(1));
     sc.byz = distinct(&mut rng, n, count)
         .into_iter()
@@ -1246,7 +1245,7 @@ pub fn f30(seed: u64) -> Scenario {
     let max = if cfg!(debug_assertions) { 64 } else { 256 } * 1024;
     sc.params.max_block_bytes = max;
     sc.local.sync_max_bytes = max + crate::pacemaker::FRAME_OVERHEAD;
-    sc.net.frame_limit = u64::from(max) + u64::from(crate::pacemaker::FRAME_OVERHEAD);
+    sc.net.frame_limit = crate::pacemaker::minimum_transport_frame_bytes(max);
     sc.net.bandwidth = 20_000;
     sc.workload = Some(Workload {
         every_min: 10,
@@ -1279,6 +1278,11 @@ pub fn f31(seed: u64) -> Scenario {
     let n = pick(seed, &[4, 7, 5]);
     let mut sc = sized("F31", seed, n);
     sc.instances = if seed.is_multiple_of(2) { 3 } else { 4 };
+    sc.clock_guard = Some(crate::sim::scenario::ClockGuard {
+        max_clock_drift_ms: 500,
+        due_work_max_lag_ms: 5_000,
+        ..Default::default()
+    });
     sc.amx = Some(super::amx::AmxConfig {
         forger: Some(n - 1),
         relayer_down: vec![(0, 20_000, 45_000), (1, 35_000, 55_000)],

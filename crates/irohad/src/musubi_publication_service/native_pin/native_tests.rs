@@ -8,7 +8,7 @@ use super::*;
 use iroha_config::parameters::actual::{Nexus, Queue as QueueConfig};
 use iroha_core::{
     executor::quote_nexus_fee_admission_draft,
-    state::{World, WorldStateSnapshot as _},
+    state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::Algorithm;
@@ -73,7 +73,11 @@ impl Fixture {
             ],
             [],
         );
-        let asset = authorization::test_asset(7);
+        // Global fee admission binds the canonical XOR identity of this signed root.
+        let asset = iroha_data_model::asset::AssetDefinitionId::parse_address_literal(
+            &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
+        )
+        .expect("canonical global XOR fee asset");
         let mut configuration = TestChainConfig::new(world, now().saturating_sub(10_000));
         let mut nexus = Nexus::default();
         nexus.fees.base_fee = Quantity::from(1u32);
@@ -179,7 +183,11 @@ impl Fixture {
             .all_transactions(&self.chain.state().view())
             .collect::<Vec<_>>();
         assert_eq!(queued.len(), 1, "one ordinary queued original");
-        let signed = SignedTransaction::from(queued.into_iter().next().unwrap());
+        let iroha_data_model::transaction::TransactionEntrypoint::External(signed) =
+            queued.into_iter().next().unwrap().into_entrypoint()
+        else {
+            panic!("the original pin queue fixture authors an external input");
+        };
         let wire = signed.encode_wire_v1().unwrap();
         assert_eq!(self.chain.commit(vec![signed]), [true]);
         assert_eq!(
@@ -216,8 +224,11 @@ fn quoted(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         builder.payload(),
         view.authenticated_query_ledger_time_ms().unwrap(),
+        iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original native quote time"),
         chain.height() + 1,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -505,7 +516,7 @@ fn actual_paid_check_queue_original_and_initial_advance_preserve_exact_custody_o
             .perform_goal(
                 &f.original,
                 Goal::Initialize,
-                readback,
+                &readback,
                 &mut Clock,
                 deadline
             )
@@ -796,6 +807,24 @@ impl MusubiPublicationServiceClockV1 for BoundaryClock {
 
 #[test]
 fn actual_native_check_expiry_after_payload_preparation_preserves_unsigned_original() {
+    struct DelayedClock {
+        end: Instant,
+        value: u64,
+        called: bool,
+    }
+    impl MusubiPublicationServiceClockV1 for DelayedClock {
+        fn current_time_ms(
+            &mut self,
+        ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
+        {
+            self.called = true;
+            std::thread::sleep(
+                self.end.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+            );
+            Ok(self.value)
+        }
+    }
+
     let mut f = Fixture::new();
     let owner = AccountId::new(f.key.public_key().clone());
     let before = f.balance(&owner);
@@ -823,23 +852,6 @@ fn actual_native_check_expiry_after_payload_preparation_preserves_unsigned_origi
 
     // Even a live UTC sample cannot extend the original monotonic boundary while the durable
     // clock is being read. This is a refusal test over the actual original authorization.
-    struct DelayedClock {
-        end: Instant,
-        value: u64,
-        called: bool,
-    }
-    impl MusubiPublicationServiceClockV1 for DelayedClock {
-        fn current_time_ms(
-            &mut self,
-        ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
-        {
-            self.called = true;
-            std::thread::sleep(
-                self.end.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
-            );
-            Ok(self.value)
-        }
-    }
     let end = Instant::now() + Duration::from_millis(100);
     let mut delayed = DelayedClock {
         end,
@@ -898,7 +910,7 @@ fn actual_native_check_finality_cannot_authorize_advance_signature_after_origina
     let result = f.coordinator.perform_goal(
         &f.original,
         Goal::Initialize,
-        readback,
+        &readback,
         &mut clock,
         deadline,
     );

@@ -563,6 +563,17 @@ impl Directory {
     }
 
     // Consume the original census while its directory metadata and native owner remain live.
+    pub(super) fn visit_entries_native(
+        &self,
+        mut visit: impl FnMut(&OsStr) -> io::Result<()>,
+    ) -> io::Result<()> {
+        for entry in std::fs::read_dir(self.path())? {
+            let name = entry?.file_name();
+            visit(checked_name(&name)?)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn entries_native<T>(
         &self,
         maximum: usize,
@@ -570,14 +581,13 @@ impl Directory {
     ) -> io::Result<T> {
         let before = snapshot(&self.current().file, self.current().private, true)?;
         let mut names = Vec::new();
-        for entry in std::fs::read_dir(self.path())? {
-            let name = entry?.file_name();
-            checked_name(&name)?;
+        self.visit_entries_native(|name| {
             if names.len() >= maximum {
                 return Err(invalid("directory entry count exceeds the bound"));
             }
-            names.push(name);
-        }
+            names.push(name.to_owned());
+            Ok(())
+        })?;
         if before != snapshot(&self.current().file, self.current().private, true)? {
             return Err(changed());
         }
@@ -788,7 +798,15 @@ impl Directory {
     }
 
     pub(super) fn child_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
-        let result = match self.child_admission(name, false, false, true) {
+        self.child_optional_policy(name, true)
+    }
+
+    pub(super) fn child_owned_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        self.child_optional_policy(name, false)
+    }
+
+    fn child_optional_policy(&self, name: &OsStr, private: bool) -> io::Result<Option<Self>> {
+        let result = match self.child_admission(name, false, false, private) {
             // The admitted child already closed its complete retained ancestry.
             Ok(NativeChildOutcome::Present(child)) => return Ok(Some(child)),
             Ok(NativeChildOutcome::InitialAbsence(_)) => Ok(None),
@@ -1000,12 +1018,82 @@ impl Directory {
         consume(bytes).map(NativeReadOutcome::Present)
     }
 
+    pub(super) fn open_regular_native(&self, name: &OsStr) -> io::Result<Option<File>> {
+        let path = self.path().join(name);
+        let file = match open_file(
+            &path,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            OPEN_EXISTING,
+            false,
+            false,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "artifact is not a regular file",
+            ));
+        }
+        let before = snapshot(&file, false, false)?;
+        let named = open_file(
+            &path,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            OPEN_EXISTING,
+            false,
+            false,
+        )?;
+        if before != snapshot(&named, false, false)? {
+            return Err(changed());
+        }
+        Ok(Some(file))
+    }
+
+    pub(super) fn sync_parent(&self) -> io::Result<()> {
+        self.revalidate()?;
+        if let Some(parent) = self.links.iter().rev().nth(1) {
+            // Retained non-delete-sharing ancestors make this named open stable; join its
+            // identity before the metadata write-through operation needs write access.
+            let writable = open_file(
+                &parent.path,
+                FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                OPEN_EXISTING,
+                true,
+                false,
+            )?;
+            if identity(&writable)? != identity(&parent.file)? {
+                return Err(changed());
+            }
+            sync_directory_metadata(&writable)?;
+        }
+        self.revalidate()
+    }
+
     pub(super) fn write_atomic(
         &self,
         name: &OsStr,
         bytes: &[u8],
         mode: PublishMode,
         private_destination: bool,
+    ) -> io::Result<()> {
+        self.write_atomic_observed(name, bytes, mode, private_destination, 128, &mut |_, _| {
+            Ok(())
+        })
+    }
+
+    pub(super) fn write_atomic_observed(
+        &self,
+        name: &OsStr,
+        bytes: &[u8],
+        mode: PublishMode,
+        private_destination: bool,
+        temporary_attempts: u32,
+        before: &mut impl FnMut(AtomicWriteStep, &Path) -> io::Result<()>,
     ) -> io::Result<()> {
         self.revalidate()?;
         let destination = self.path().join(name);
@@ -1026,9 +1114,14 @@ impl Directory {
                 Err(error) => return Err(error),
             }
         }
-        let (temporary, mut file) = (0..128)
+        let (temporary, mut file) = (0..temporary_attempts)
             .find_map(|_| {
                 let path = self.path().join(temporary_name());
+                if let Err(error) =
+                    before(AtomicWriteStep::CreateTemp, &path).and_then(|()| self.revalidate())
+                {
+                    return Some(Err(error));
+                }
                 match open_file(
                     &path,
                     GENERIC_READ | GENERIC_WRITE | DELETE,
@@ -1049,15 +1142,26 @@ impl Directory {
                 ))
             })?;
         let result = (|| {
-            file.write_all(bytes)?;
+            let (head, tail) = bytes.split_at(bytes.len() / 2);
+            before(AtomicWriteStep::WriteHead, &temporary)?;
+            self.revalidate()?;
+            file.write_all(head)?;
+            before(AtomicWriteStep::WriteTail, &temporary)?;
+            self.revalidate()?;
+            file.write_all(tail)?;
+            before(AtomicWriteStep::SyncFile, &temporary)?;
+            self.revalidate()?;
             file.sync_all()?;
             let staged = snapshot(&file, true, false)?;
+            self.revalidate()?;
+            before(AtomicWriteStep::Publish, &destination)?;
             self.revalidate()?;
             rename_handle(&file, &destination, mode)?;
             file.sync_all()?;
             if staged.id != snapshot(&file, true, false)?.id {
                 return Err(changed());
             }
+            before(AtomicWriteStep::SyncDirectory, self.path())?;
             self.sync()
         })();
         if result.is_err() {
@@ -1077,9 +1181,10 @@ impl Directory {
             .ok()
             .zip(identity(&file).ok())
             .is_some_and(|(named, retained)| named == retained);
-            drop(file);
             if same {
-                let _ = std::fs::remove_file(&temporary);
+                // Dispose the still-held original; closing it before pathname removal would
+                // release its no-delete-sharing fence and permit a substituted leaf to race.
+                let _ = custody_io::dispose(&file);
             }
         }
         result
@@ -1305,6 +1410,21 @@ impl Directory {
 
     // The public removal bracket owns full entry and every-result exit custody.
     pub(super) fn remove_private_native(&self, name: &OsStr) -> io::Result<bool> {
+        self.remove_file_native(name, true)
+    }
+
+    pub(super) fn remove_regular_native(&self, name: &OsStr) -> io::Result<bool> {
+        self.remove_file_native(name, false)
+    }
+
+    fn remove_file_native(&self, name: &OsStr, private: bool) -> io::Result<bool> {
+        let snapshot = |file: &File| {
+            if private {
+                journal_snapshot(file)
+            } else {
+                snapshot_file(file, false)
+            }
+        };
         let path = self.path().join(name);
         let file = match open_file(
             &path,
@@ -1318,7 +1438,7 @@ impl Directory {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error),
         };
-        let before = journal_snapshot(&file)?;
+        let before = snapshot(&file)?;
         self.revalidate()?;
         // This observer permits the original handle's DELETE access, without acquiring
         // write or delete authority itself. The original excludes replacement sharing.
@@ -1330,7 +1450,7 @@ impl Directory {
             false,
             false,
         )?;
-        if journal_snapshot(&file)? != before || journal_snapshot(&named)? != before {
+        if snapshot(&file)? != before || snapshot(&named)? != before {
             return Err(changed());
         }
         drop(named);

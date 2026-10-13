@@ -11,7 +11,14 @@ use norito::core::DecodeBudgetContext;
 pub(crate) struct ManifestSigningFixture {
     context: DecodeBudgetContext,
     _scratch: AllocationReservation,
-    _pool: AllocationBudget,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "The fixture retains its original signing pool through consumption; custody tests inspect the retained refund balance"
+        )
+    )]
+    pool: AllocationBudget,
     max_frame_bytes: usize,
 }
 
@@ -51,7 +58,7 @@ impl ManifestSigningFixture {
         Self {
             context,
             _scratch: scratch,
-            _pool: pool,
+            pool,
             max_frame_bytes,
         }
     }
@@ -116,7 +123,7 @@ mod tests {
             .verify(key.public_key(), &payload)
             .unwrap();
         assert!(signing.context().consumed_allocated_bytes() > 0);
-        assert!(signing._pool.reserved_bytes() > signing.max_frame_bytes());
+        assert!(signing.pool.reserved_bytes() > signing.max_frame_bytes());
         signed.seiyaku_name = Some("altered fixture".to_owned());
         let altered_payload = signed
             .signature_payload_bytes(signing.context(), signing.max_frame_bytes())
@@ -151,7 +158,7 @@ mod tests {
     #[test]
     fn funded_fixture_retains_and_releases_its_original_physical_grant() {
         let signing = ManifestSigningFixture::new();
-        let original_pool = signing._pool.clone();
+        let original_pool = signing.pool.clone();
         let funded_bytes = original_pool.reserved_bytes();
         let shared_context = signing.context().clone();
         assert!(funded_bytes > signing.max_frame_bytes());

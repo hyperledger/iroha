@@ -38,7 +38,9 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
         let FinalityAttestation::Raw(actual) = actual.unwrap() else {
             panic!("the native fixture must not claim SDK authentication provenance");
         };
-        actual.verify().unwrap();
+        actual
+            .verify(fixture.native.chain.root_scope().into())
+            .unwrap();
         assert_eq!(&actual.body.node_id, peer);
         assert_eq!(actual.body.challenge, challenge);
         assert_eq!(actual.body.network_id, fixture.native.chain.network_id());
@@ -52,7 +54,10 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
         );
         assert!((started..=finished).contains(&actual.body.observed_at_unix_ms));
         let expected = source.latest_attestation(peer, &challenge).unwrap();
-        expected.attestation().verify().unwrap();
+        expected
+            .attestation()
+            .verify(fixture.native.chain.root_scope().into())
+            .unwrap();
         // Each producer reads its real clock. All other signed fields match the serial call.
         let mut expected_body = expected.attestation().body.clone();
         expected_body.observed_at_unix_ms = actual.body.observed_at_unix_ms;
@@ -77,7 +82,10 @@ fn native_renewal_batch_keeps_original_order_fresh_binding_and_per_peer_refusal(
             );
         } else {
             let actual = result.unwrap();
-            actual.attestation().verify().unwrap();
+            actual
+                .attestation()
+                .verify(fixture.native.chain.root_scope().into())
+                .unwrap();
             assert_eq!(&actual.attestation().body.node_id, peer);
             assert_eq!(actual.attestation().body.challenge, next_challenge);
         }
@@ -138,7 +146,10 @@ fn native_renewal_batch_preserves_original_caller_decode_refusals_and_retry() {
         .zip(source.latest_attestations(&selected, &retry))
     {
         let actual = result.unwrap();
-        actual.attestation().verify().unwrap();
+        actual
+            .attestation()
+            .verify(fixture.native.chain.root_scope().into())
+            .unwrap();
         assert_eq!(&actual.attestation().body.node_id, peer);
         assert_eq!(actual.attestation().body.challenge, retry);
     }

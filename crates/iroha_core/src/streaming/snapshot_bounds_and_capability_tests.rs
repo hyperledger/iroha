@@ -368,8 +368,10 @@ fn apply_crypto_config_sets_sm_feature_bit_from_build() {
     );
     #[cfg(feature = "sm")]
     {
-        let mut cfg_enabled = actual::Crypto::default();
-        cfg_enabled.allowed_signing = vec![Algorithm::Ed25519, Algorithm::Sm2];
+        let cfg_enabled = actual::Crypto {
+            allowed_signing: vec![Algorithm::Ed25519, Algorithm::Sm2],
+            ..Default::default()
+        };
         handle.apply_crypto_config(&cfg_enabled);
     }
     #[cfg(feature = "sm")]

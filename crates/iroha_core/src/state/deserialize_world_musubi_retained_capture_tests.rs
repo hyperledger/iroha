@@ -77,7 +77,6 @@ fn actual_three_validated_semantic_producers_retry_in_the_original_pool() {
     check!(MusubiSemanticTable::Resolver, retain_resolver_capture);
     check!(MusubiSemanticTable::Directory, retain_directory_capture);
     drop(scope);
-    drop(source);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -132,9 +131,7 @@ fn actual_retained_semantic_source_remains_the_original_snapshot_after_new_commi
     assert_ne!(newer.root(), root);
     assert_eq!(original.progress(), progress);
     drop(newer);
-    drop(changed);
     drop(original);
     drop(scope);
-    drop(source);
     assert_eq!(budget.reserved_bytes(), 0);
 }

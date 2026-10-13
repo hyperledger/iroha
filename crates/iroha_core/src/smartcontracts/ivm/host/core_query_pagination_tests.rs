@@ -83,7 +83,7 @@ fn every_core_query_page_family_uses_canonical_id_order_and_next_offset() {
     host.set_query_state(&view);
     host.enable_core_query_page_metrics();
     let mut vm = IVM::new(2_000_000);
-    let mut account_ids = vec![authority, second_account];
+    let mut account_ids = [authority, second_account];
     account_ids.sort();
     let mut sorted_domain_ids = domain_ids.to_vec();
     sorted_domain_ids.sort();
@@ -216,8 +216,9 @@ fn block_height_sysvar_uses_attached_transaction_context() {
     host.set_query_state(&tx);
     let mut vm = IVM::new(10_000);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm),
-        Ok(CoreHost::sysvar_gas(0))
+        (host.syscall(ivm_sys::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm))
+            .expect("expected successful VM operation"),
+        CoreHost::sysvar_gas(0)
     );
     assert_eq!(vm.register(10), 9);
 }
@@ -449,7 +450,13 @@ fn dispatched_failed_query_consumes_its_fail_closed_reserve() {
     let error = vm
         .run_with_host(&mut host)
         .expect_err("continuation queries are rejected");
-    assert_eq!(error, ivm::VMError::PermissionDenied);
+    assert!(matches!(
+        (&(error), &(ivm::VMError::PermissionDenied)),
+        (
+            ivm::VMError::PermissionDenied,
+            ivm::VMError::PermissionDenied
+        )
+    ));
     assert_eq!(
         vm.remaining_gas(),
         0,

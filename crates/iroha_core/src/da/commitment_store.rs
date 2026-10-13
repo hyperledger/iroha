@@ -236,6 +236,11 @@ impl DaCommitmentStore {
     pub fn len(&self) -> usize {
         self.by_lane_epoch.len()
     }
+    /// Whether the store has no currently queryable commitment records.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.by_lane_epoch.is_empty()
+    }
     /// Retrieve the stored bundle for a given block height.
     #[must_use]
     pub fn bundle_at(&self, block_height: u64) -> Option<&DaCommitmentBundle> {
@@ -304,6 +309,7 @@ mod tests {
     #[test]
     fn inserts_and_deduplicates() {
         let mut store = DaCommitmentStore::default();
+        assert!(store.is_empty());
         let record = sample_record(1, 2, 3);
         let loc = DaCommitmentLocation {
             block_height: 7,
@@ -315,6 +321,7 @@ mod tests {
         assert!(store.insert(&record, loc));
         assert!(!store.insert(&dup, loc));
         assert_eq!(store.all_sorted().count(), 1);
+        assert!(!store.is_empty());
         assert_eq!(store.len(), 1);
         let stored = store.get_by_manifest(&record.manifest_hash).unwrap();
         assert_eq!(stored.commitment, record);

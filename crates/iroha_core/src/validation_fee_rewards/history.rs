@@ -760,12 +760,23 @@ mod tests {
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
             let result = norito::with_decode_limits_scope(limits, || compact(&mut stx, &binding));
             let refusal = stx
-                .execution_deferral()
+                .borrow_execution_deferral()
                 .expect("original journal decode resource refusal");
-            assert_eq!(
-                finish_reward_maintenance(stx, result),
-                Err(crate::state::ExecutionOutputAttemptError::Deferred(refusal)),
-            );
+            let original_reason = refusal.reason();
+            let original_decode = refusal
+                .decode_refusal()
+                .expect("the actual journal reader retains its original retired scope")
+                .clone();
+            let original_allocation = refusal.allocation_refusal().cloned();
+            drop(refusal);
+            let Err(crate::state::ExecutionOutputAttemptError::Deferred(refusal)) =
+                finish_reward_maintenance(stx, result)
+            else {
+                panic!("maintenance must transfer the original refusal")
+            };
+            assert_eq!(refusal.reason(), original_reason);
+            assert_eq!(refusal.decode_refusal(), Some(&original_decode));
+            assert_eq!(refusal.allocation_refusal(), original_allocation.as_ref());
             assert_eq!(block.committed_fragment_count(), fragments);
             let after = block
                 .world

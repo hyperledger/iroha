@@ -337,6 +337,14 @@ class ParliamentApiV1Test {
             },
             { it.putAll(subject("sora_taira", bscMainnet())) },
             { it.putAll(subject("parameters", bscMainnet())) },
+            {
+                it.putAll(
+                    subject(
+                        "light_client",
+                        linkedMapOf("network" to "tron_mainnet", "profile" to null),
+                    ),
+                )
+            },
             { it.putAll(subject("bridge_key_fault", "ea0130" + "ab".repeat(48))) },
             {
                 it.putAll(

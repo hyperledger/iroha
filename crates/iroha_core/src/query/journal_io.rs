@@ -101,7 +101,7 @@ fn open_directory_after_admission(
             | rustix::fs::OFlags::NOFOLLOW
             | rustix::fs::OFlags::NONBLOCK
             | rustix::fs::OFlags::CLOEXEC;
-        options.custom_flags(flags.bits() as i32);
+        options.custom_flags(flags.bits().cast_signed());
     }
     #[cfg(windows)]
     {

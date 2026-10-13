@@ -1,0 +1,41 @@
+{
+  "complete_workspace_certificate": false,
+  "findings_resolved": [
+    "exact0600 including specialbits",
+    "ordinary-result state/debit contradictions",
+    "timeout racing a fatal result",
+    "raw supervisor evidence lost before failed-case validation",
+    "output helper now shares strict compiled-input/command validation"
+  ],
+  "independent_implementation_review": false,
+  "observed_at_utc": "2026-10-13T10:40:07.993530+00:00",
+  "profile_qualified": false,
+  "reviewers": [
+    "root",
+    "ownership",
+    "free_predicates"
+  ],
+  "schema": "parliament-fatal-control-local-review-v1",
+  "scope": [
+    "fresh native control page and setup fd validation",
+    "admission publication before ACTIVE, no-output fatal exit",
+    "post-exit supervisor debit/state/exit agreement",
+    "timeout-race discard and durable raw failed-case evidence",
+    "actual compiled full/broken-pipe regressions",
+    "exact mapping page accounting and frozen-image separation"
+  ],
+  "source_sha256": {
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md": "e29704a2316efe85f79e556c6855f78fa4f82c2faacc518b60a5ffa24899b13b",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs": "b3d770a4d44c15069e8cf80bd4685c5a71d565c369e42ce40daaf4b5efda953a",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/fatal.rs": "c9974b88d8c3f1a6b66088898131af41a8146ada50bf4920571ee17ecf9c3f51",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "scripts/check_parliament_ballot_fatal_output.py": "c21327451c5f1789b5acb35ee124181ccd20ff9a62332fa6e72fb95146d98a32",
+    "scripts/check_parliament_ballot_memory_entry.py": "fca0dade57bc12c218b49fd2117da10d8a2c0fd21c3011bba094d43e54780bca",
+    "scripts/parliament_ballot_memory_supervisor.py": "cc09a3a66be58ef179d363da90ce920044f634791e132a036417bddc379ce0a5",
+    "scripts/prepare_parliament_ballot_memory_entry.py": "23e10da0074b04d9b650e9c4195f037dc7f45cd7607b6a8ed2b7e527d99be222",
+    "scripts/tests/parliament_ballot_fatal_output_test.py": "af5caa221184d191124d8d2da8ac335cdd4a3ca97318a42b397dbe8cdd149c21",
+    "scripts/tests/parliament_ballot_memory_entry_test.py": "92085b766987605de1f982609c1a8bcf5eaf2fd4dc7b95f7adc04d88f082f410",
+    "scripts/tests/parliament_ballot_memory_prepare_test.py": "4a487ca400851cf44b72d82562a0c5745efa5348ced60fdc5e445185b71f7aed",
+    "scripts/tests/parliament_ballot_memory_supervisor_test.py": "a1dd6fcaaf92562e87ff9ba7a8d8149f2a8a21b631052107e4d4d1168b266ca2"
+  }
+}

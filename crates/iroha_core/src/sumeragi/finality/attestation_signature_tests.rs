@@ -42,11 +42,14 @@ fn original_finish_attestation(
         status,
         finality_proof: proofs.tip,
     };
-    body.validate_consistency().map_err(Error::InvalidBody)?;
+    body.validate_consistency(chain.root_scope().into())
+        .map_err(attestation_body_read_error)?;
     let signature = SignatureOf::try_from_hash(signer.private_key(), body.signing_hash())
         .map_err(|error| Error::Signing(error.to_string()))?;
     let attestation = SumeragiFinalityAttestation { body, signature };
-    attestation.verify().map_err(Error::InvalidBody)?;
+    attestation
+        .verify(chain.root_scope().into())
+        .map_err(attestation_body_read_error)?;
     Ok(attestation)
 }
 
@@ -97,6 +100,60 @@ fn limits(allocation: usize) -> norito::DecodeLimits {
 }
 
 #[test]
+fn attestation_body_refusal_keeps_original_origin_after_scope_retirement() {
+    with_chain_at(2, check_retired_body_refusal);
+}
+
+#[inline(never)]
+fn check_retired_body_refusal(chain: &CertifiedTestChain) {
+    use ivm::error::ExecutionDeferral;
+    use norito::core::DecodeAttemptErrorKind;
+
+    let view = chain.state().view();
+    let original = capture(&view, chain, [62; 32], status(chain)).unwrap();
+    let before = original.clone();
+    let refused = {
+        let budget = DecodeBudgetContext::new(limits(0));
+        budget
+            .with(|| {
+                original
+                    .body
+                    .validate_consistency(chain.root_scope().into())
+            })
+            .unwrap_err()
+    };
+    assert!(matches!(
+        &refused,
+        FinalityReadError::DecodeResource(error)
+            if error.kind() == DecodeAttemptErrorKind::EnclosingLimit
+    ));
+    // Equal diagnostic numbers from an unrelated owner cannot replace the captured origin.
+    let unrelated = DecodeBudgetContext::new(limits(0));
+    let mapped = unrelated.with(|| attestation_body_read_error(refused));
+    assert!(matches!(
+        mapped,
+        AttestationBuildError::FinalityProof(ProofError::Deferred(local))
+            if local.reason() == ExecutionDeferral::ActiveMemoryCapacity
+                && local.decode_refusal().is_some()
+    ));
+    assert_eq!(unrelated.consumed_allocated_bytes(), 0);
+    assert_eq!(original, before);
+    original.verify(chain.root_scope().into()).unwrap();
+
+    let mut invalid = original;
+    invalid.body.challenge = [0; 32];
+    let completed = invalid
+        .body
+        .validate_consistency(chain.root_scope().into())
+        .unwrap_err();
+    assert!(matches!(completed, FinalityReadError::Invalid(_)));
+    assert!(matches!(
+        attestation_body_read_error(completed),
+        AttestationBuildError::InvalidBody(_)
+    ));
+}
+
+#[test]
 fn attestation_tail_retains_fresh_signature_and_body_before_signature_refusals() {
     with_chain_at(2, check_signature_and_order);
 }
@@ -114,7 +171,9 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     assert_eq!(fresh.body.finality_proof, original.body.finality_proof);
     assert_eq!(fresh.body.challenge, [52; 32]);
     assert_ne!(fresh.signature, original.signature);
-    fresh.verify().unwrap();
+    fresh
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     let wrong_signer = KeyPair::from_seed(vec![0xD1; 32], Algorithm::BlsNormal);
     assert_ne!(wrong_signer.public_key(), signer.public_key());
     for challenge in [[53; 32], [0; 32]] {
@@ -133,7 +192,7 @@ fn check_signature_and_order(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [54; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
 }
 
@@ -166,7 +225,9 @@ fn check_body_witness_refusals(chain: &CertifiedTestChain) {
         original.body.genesis_finality_proof
     );
     assert_eq!(restored.body.finality_proof, original.body.finality_proof);
-    restored.verify().unwrap();
+    restored
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
 }
 
 #[test]
@@ -176,12 +237,12 @@ fn attestation_tail_active_owner_keeps_original_recipe_and_finite_resource_refus
 
 #[inline(never)]
 fn check_active_original_recipe(chain: &CertifiedTestChain) {
+    const CEILING: usize = 64 * 1024 * 1024;
     let view = chain.state().view();
     let original = capture(&view, chain, [58; 32], status(chain)).unwrap();
     let signer = installed_signer();
     let pool = view.execution_budget();
     let reserved = pool.reserved_bytes();
-    const CEILING: usize = 64 * 1024 * 1024;
     let expected_budget = DecodeBudgetContext::new(limits(CEILING));
     let expected = expected_budget
         .with(|| finish_selected(&view, chain, &original, [59; 32], &signer, true))
@@ -190,8 +251,12 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     let actual = actual_budget
         .with(|| finish_selected(&view, chain, &original, [59; 32], &signer, false))
         .unwrap();
-    expected.verify().unwrap();
-    actual.verify().unwrap();
+    expected
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
+    actual
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     for budget in [&expected_budget, &actual_budget] {
         assert!(budget.consumed_allocated_bytes() > 1);
         assert!(budget.consumed_allocated_bytes() <= CEILING as u64);
@@ -225,7 +290,7 @@ fn check_active_original_recipe(chain: &CertifiedTestChain) {
     }
     finish_selected(&view, chain, &original, [61; 32], &signer, false)
         .unwrap()
-        .verify()
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
         .unwrap();
     assert_eq!(pool.reserved_bytes(), reserved);
 }

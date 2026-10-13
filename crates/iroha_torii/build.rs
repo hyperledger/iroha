@@ -8,7 +8,7 @@ use std::{env, fs, path::Path};
 
 const CFG: &str = "sumeragi_torii_mutation";
 const ENV: &str = "SUMERAGI_TORII_MUTATION";
-const IDS: &[&str] = &["TOR1", "TOR2", "TOR3"];
+const IDS: &[&str] = &["TOR1", "TOR2", "TOR3", "TOR4", "TOR5"];
 
 fn main() {
     let values = IDS

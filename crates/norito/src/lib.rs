@@ -9247,6 +9247,13 @@ fn checked_uncompressed_payload<'a, T: NoritoSerialize>(
     header: &core::Header,
 ) -> Result<&'a [u8], Error> {
     core::prepare_header_decode(header.flags, false)?;
+    checked_frame_payload::<T>(bytes, header)
+}
+
+fn checked_frame_payload<'a, T: NoritoSerialize>(
+    bytes: &'a [u8],
+    header: &core::Header,
+) -> Result<&'a [u8], Error> {
     if header.compression != Compression::None {
         return Err(Error::unsupported_compression_with(
             header.compression as u8,
@@ -9469,6 +9476,34 @@ where
     core::classify_decode_attempt(|| decode_canonical_with_limits(bytes, limits))
 }
 
+/// Decode and validate one canonical frame, then transfer the decoded value to its consumer.
+///
+/// The exact implementation, limits and original error provenance are shared with
+/// [`decode_canonical_for_admission`]. The consumer runs once after all canonical checks and
+/// after the decoder's own resource/layout scopes retire. It never runs for a refused frame.
+/// Returning a small output avoids carrying a large decoded value through every framing and
+/// resource-scope return slot. This does not allocate a destination or grant source authority.
+/// A consumer's own result is returned unchanged, separately from the decoder's classification.
+///
+/// # Errors
+/// Returns the same original decoder failure as [`decode_canonical_for_admission`].
+pub fn decode_canonical_for_admission_into<T, Output>(
+    bytes: &[u8],
+    limits: DecodeLimits,
+    finish: impl FnOnce(T) -> Output,
+) -> Result<Output, core::DecodeAttemptError>
+where
+    T: NoritoSerialize,
+    for<'de> T: NoritoDeserialize<'de>,
+{
+    let mut slot = core::TypedFieldSlot::<T>::new();
+    core::classify_decode_attempt(|| {
+        decode_canonical_with_limits_into_slot(bytes, limits, &mut slot)?;
+        slot.take_value()
+    })
+    .map(finish)
+}
+
 fn checked_canonical_header(bytes: &[u8]) -> Result<core::Header, Error> {
     let header = core::Header::read(std::io::Cursor::new(bytes))?;
     if header.compression != Compression::None || core::validate_header_flags(header.flags).is_err()
@@ -9476,6 +9511,57 @@ fn checked_canonical_header(bytes: &[u8]) -> Result<core::Header, Error> {
         return Err(Error::NonCanonicalEncoding);
     }
     Ok(header)
+}
+
+/// Borrow the payload of one uncompressed canonical-layout frame without decoding its graph.
+///
+/// This authenticates only the version, flags, schema, exact padding, length and checksum.
+/// The caller must validate every payload field and canonical encoding before interpreting it.
+/// No decoder budget controls or payload storage are allocated.
+///
+/// # Errors
+/// Rejects an invalid envelope or flags different from the caller's closed payload layout.
+pub fn canonical_frame_payload<T: NoritoSerialize>(
+    bytes: &[u8],
+    expected_flags: u8,
+) -> Result<&[u8], Error> {
+    let header = checked_canonical_header(bytes)?;
+    if header.flags != expected_flags {
+        return Err(Error::NonCanonicalEncoding);
+    }
+    checked_frame_payload::<T>(bytes, &header)
+}
+
+#[cfg(test)]
+mod canonical_frame_payload_tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_envelope_preserves_source_and_checks_exact_schema_padding_and_flags() {
+        let value = 0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10_u128;
+        let bytes = encode_canonical(&value).unwrap();
+        let payload = canonical_frame_payload::<u128>(&bytes, 0).unwrap();
+        let offset = bytes.len() - payload.len();
+        assert_eq!(payload, value.to_le_bytes());
+        assert_eq!(payload.as_ptr(), bytes[offset..].as_ptr());
+        assert!(canonical_frame_payload::<u64>(&bytes, 0).is_err());
+        for index in core::Header::SIZE..offset {
+            let mut changed = bytes.clone();
+            changed[index] = 1;
+            assert!(canonical_frame_payload::<u128>(&changed, 0).is_err());
+        }
+        for index in 0..core::Header::SIZE {
+            let mut changed = bytes.clone();
+            changed[index] ^= 0x80;
+            assert!(canonical_frame_payload::<u128>(&changed, 0).is_err());
+        }
+        let mut suffix = bytes.clone();
+        suffix.push(0);
+        assert!(canonical_frame_payload::<u128>(&suffix, 0).is_err());
+        for end in 0..bytes.len() {
+            assert!(canonical_frame_payload::<u128>(&bytes[..end], 0).is_err());
+        }
+    }
 }
 
 /// Decode one exact canonical V1 frame under default and schema-specific limits.
@@ -9487,13 +9573,71 @@ where
     T: NoritoSerialize,
     for<'de> T: NoritoDeserialize<'de>,
 {
-    checked_canonical_header(bytes)?;
+    let mut slot = core::TypedFieldSlot::<T>::new();
+    decode_canonical_with_limits_into_slot(bytes, limits, &mut slot)?;
+    slot.into_value()
+}
+
+// One retained output slot prevents every header, limit and classification wrapper from owning
+// another T-sized Result temporary. The consumer runs only after canonical validation and after
+// the decoder's own scopes retire, just like consumption after the ordinary returning API.
+fn decode_canonical_with_limits_into_slot<T>(
+    bytes: &[u8],
+    limits: DecodeLimits,
+    slot: &mut core::TypedFieldSlot<T>,
+) -> Result<(), Error>
+where
+    T: NoritoSerialize,
+    for<'de> T: NoritoDeserialize<'de>,
+{
+    let header = checked_canonical_header(bytes)?;
     let defaults = canonical_decode_limits(bytes.len());
-    with_decode_limits(defaults, || {
+    decode_canonical_with_scopes_into_slot(
+        bytes,
+        header,
+        slot,
+        CanonicalDecodeScope::Ordinary(defaults),
+        CanonicalDecodeScope::Ordinary(limits),
+    )
+}
+
+mod prepared_canonical;
+pub use prepared_canonical::PreparedCanonicalDecode;
+
+enum CanonicalDecodeScope<'a> {
+    Ordinary(DecodeLimits),
+    Prepared(&'a core::DecodeBudgetContext),
+}
+impl CanonicalDecodeScope<'_> {
+    fn with<T>(self, body: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
+        match self {
+            Self::Ordinary(limits) => with_decode_limits(limits, body),
+            Self::Prepared(context) => context.with(body),
+        }
+    }
+}
+
+fn decode_canonical_with_scopes_into_slot<T>(
+    bytes: &[u8],
+    header: core::Header,
+    slot: &mut core::TypedFieldSlot<T>,
+    defaults: CanonicalDecodeScope<'_>,
+    schema: CanonicalDecodeScope<'_>,
+) -> Result<(), Error>
+where
+    T: NoritoSerialize,
+    for<'de> T: NoritoDeserialize<'de>,
+{
+    defaults.with(|| {
         let _canonical_flags = core::DecodeFlagsGuard::enter(core::default_encode_flags());
         let _payload_context = core::PayloadCtxGuard::enter(bytes);
-        let value = match decode_from_bytes_with_limits(bytes, limits) {
-            Ok(value) => value,
+        let decoded = schema.with(|| {
+            let payload = checked_uncompressed_payload::<T>(bytes, &header)?;
+            let _flags = core::DecodeFlagsGuard::enter(header.flags);
+            core::decode_field_canonical_into_slot(payload, slot)
+        });
+        match decoded {
+            Ok(()) => {}
             Err(Error::DecodeFlagsMismatch { .. }) => {
                 return Err(Error::NonCanonicalEncoding);
             }
@@ -9503,19 +9647,11 @@ where
                 return Err(Error::NonCanonicalEncoding);
             }
             Err(error) => return Err(error),
-        };
-        let mut exact = core::ExactSliceWriter::new(bytes);
-        let canonical_result = core::write_canonical_to_writer(&value, &mut exact);
-        if exact.mismatched() {
-            return Err(Error::NonCanonicalEncoding);
         }
-        canonical_result?;
-        if !exact.is_complete() {
-            return Err(Error::NonCanonicalEncoding);
-        }
-        Ok(value)
+        verify_exact_canonical_frame(slot.value()?, bytes)
     })
 }
+
 include!("canonical_codec_tests.rs");
 /// Convenience helper identical to `decode_from_bytes`.
 /// Accepts either compressed or uncompressed Norito payloads and returns `T`.

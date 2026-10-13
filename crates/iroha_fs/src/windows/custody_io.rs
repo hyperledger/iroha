@@ -17,7 +17,7 @@ fn validate_destination(directory: &Directory, name: &OsStr, mode: PublishMode) 
     }
     Ok(())
 }
-fn dispose(file: &File) -> io::Result<()> {
+pub(super) fn dispose(file: &File) -> io::Result<()> {
     let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
     // SAFETY: the caller retains the admitted original no-reparse object with DELETE access.
     unsafe {

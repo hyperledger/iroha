@@ -189,8 +189,11 @@ impl Generated {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             header.creation_time_ms,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             header.height().get() + 1,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -588,15 +591,14 @@ fn generated_stock_callback_and_tls_seed_ingress_use_original_native_owners() {
     // A request refusal or panic must still signal and join this test's owned listener.
     shutdown.send();
     let joined = runtime.block_on(async {
-        match tokio::time::timeout(Duration::from_secs(15), &mut task).await {
-            Ok(result) => Some(result),
-            Err(_) => {
-                // Only this test's supervisor is cancelled. Its cancellation guard withdraws
-                // and cancels its own children; no process or unrelated task is signalled.
-                task.abort();
-                let _terminated = task.await;
-                None
-            }
+        if let Ok(result) = tokio::time::timeout(Duration::from_secs(15), &mut task).await {
+            Some(result)
+        } else {
+            // Only this test's supervisor is cancelled. Its cancellation guard withdraws
+            // and cancels its own children; no process or unrelated task is signalled.
+            task.abort();
+            let _terminated = task.await;
+            None
         }
     });
     joined

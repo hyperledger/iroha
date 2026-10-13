@@ -34,25 +34,6 @@ impl Kura {
             .first()
             .copied())
     }
-    fn ensure_durable_block_at_height(&self, height: u64, hash: HashOf<BlockHeader>) -> Result<()> {
-        let mut block_store = self.block_store.lock();
-        match Self::read_durable_hash_at_height(&mut block_store, height)? {
-            Some(existing) if existing == hash => Ok(()),
-            Some(expected) => Err(Error::BlockHeightConflict {
-                height,
-                expected,
-                actual: hash,
-            }),
-            None => {
-                let expected_next_height =
-                    block_store.read_durable_index_count()?.saturating_add(1);
-                Err(Error::BlockHeightGap {
-                    expected_next_height,
-                    actual_height: height,
-                })
-            }
-        }
-    }
     /// Append a debug dump while the caller holds prune and canonical-chain
     /// locks. Pending canonical bytes are captured before the lower-order
     /// geometry/sidecar capacity locks.
@@ -482,16 +463,6 @@ impl Kura {
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(0),
             Err(err) => Err(Error::IO(err, path.to_path_buf())),
         }
-    }
-    fn read_block_data_from_file(
-        file: &mut FileWrap,
-        start_location_in_data_file: u64,
-        dest_buffer: &mut [u8],
-    ) -> Result<()> {
-        file.try_io(|file| {
-            file.seek(SeekFrom::Start(start_location_in_data_file))?;
-            file.read_exact(dest_buffer)
-        })
     }
     fn write_atomic_synced_noclobber(&self, path: &Path, bytes: &[u8]) -> Result<bool> {
         self.write_atomic_synced_impl(path, bytes, false)

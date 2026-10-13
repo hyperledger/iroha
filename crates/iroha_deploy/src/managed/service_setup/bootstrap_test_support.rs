@@ -1,6 +1,7 @@
 //! Test-only exact setup preparation through the original closed intent and wallet owners.
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::{
     test_support::native_fixture::{NativeFixture, NativeReadHttp},
     verify_carrier,
@@ -117,7 +118,7 @@ impl Setup {
             checkpoint: checkpoint_bytes(&verifier).unwrap(),
         };
         self.validate_original(&original).unwrap();
-        let directory = self.authority.directory.ensure_child("setup").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "setup").unwrap();
         let original =
             super::tests::retain_explicit_request(self, &directory, &original, || utc, options);
         let path = original.directory().path().join("transaction");

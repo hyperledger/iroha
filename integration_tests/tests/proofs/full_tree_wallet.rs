@@ -172,9 +172,6 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
         .with_genesis_instruction(verifying_keys::RegisterVerifyingKey {
             id: transfer_id.clone(),
             record: transfer_record.clone(),
-        })
-        .with_config_layer(|layer| {
-            layer.write(["zk", "pipa_r", "enabled"], true);
         });
     let network = sandbox::start_network_async_or_skip(builder, "full_tree_wallet_proof_records")
         .await?
@@ -192,12 +189,14 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
     }
     let result = tokio::task::spawn_blocking(move || full_tree_wallet_proof(network_id)).await??;
     ensure!(
-        zk::verify_backend(&full_key.backend, &result.proof, Some(&full_key)),
+        zk::verify_backend(&full_key.backend, &result.proof, Some(&full_key))
+            .expect("full proof verification must be admitted"),
         "full proof must verify locally"
     );
     let corrupt = corrupt_native_proof(&result.proof);
     ensure!(
-        !zk::verify_backend(&full_key.backend, &corrupt, Some(&full_key)),
+        !zk::verify_backend(&full_key.backend, &corrupt, Some(&full_key))
+            .expect("corrupted proof verification must be admitted"),
         "corrupted native proof must fail"
     );
     let mut wrong_role: OpenVerifyEnvelope = norito::decode_canonical(&result.proof.bytes)?;
@@ -210,7 +209,8 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
         norito::encode_canonical(&wrong_role)?,
     );
     ensure!(
-        !zk::verify_backend(&transfer_key.backend, &wrong_role, Some(&transfer_key)),
+        !zk::verify_backend(&transfer_key.backend, &wrong_role, Some(&transfer_key))
+            .expect("wrong-role proof verification must be admitted"),
         "full-unshield proof cannot attest a confidential transfer"
     );
     for (proof, key, status) in [

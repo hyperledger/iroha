@@ -255,7 +255,10 @@ fn foreign_vm_modules_cannot_enter_native_ivm_admission() {
     for artifact in [minimal_foreign_module.as_slice(), substituted.as_slice()] {
         let error = verify_contract_artifact(artifact)
             .expect_err("only canonical IVM artifacts may enter contract admission");
-        assert_eq!(error.into_vm_error(), ivm_abi::VMError::InvalidMetadata);
+        assert!(matches!(
+            error.into_vm_error(),
+            ivm_abi::VMError::InvalidMetadata
+        ));
     }
 }
 
@@ -415,7 +418,7 @@ fn malformed_numeric_pointer_envelopes_are_rejected() {
 
 #[test]
 fn canonical_durable_numeric_state_is_admitted() {
-    let source = r#"
+    let source = r"
         seiyaku DurableNumericState { permission WriteState;
             state int Whole;
             state decimal Rate;
@@ -437,7 +440,7 @@ fn canonical_durable_numeric_state_is_admitted() {
                 return 1;
             }
         }
-    "#;
+    ";
     let (artifact, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(source)
         .expect("compile exact durable numeric-state artifact");

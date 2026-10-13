@@ -126,11 +126,17 @@ pub fn authorize_repair_lease_v1(
         .map_err(|_| rejected)?
         .task;
     let lease = task.lease.as_ref().ok_or(rejected)?;
-    if task.task_id != request.task_id
-        || task.manifest_digest != request.manifest_digest
-        || task.provider_id != request.target_provider
-        || task.revision != request.task_revision
-        || task.terminal_outcome.is_some()
+    if (
+        task.task_id,
+        task.manifest_digest,
+        task.provider_id,
+        task.revision,
+    ) != (
+        request.task_id,
+        request.manifest_digest,
+        request.target_provider,
+        request.task_revision,
+    ) || task.terminal_outcome.is_some()
         || &lease.owner != authority
         || lease.generation != request.lease_generation
         || now_unix_ms < lease.acquired_at_unix_ms

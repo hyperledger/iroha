@@ -1,21 +1,16 @@
-//! Fraud monitoring admission tests ensure configuration knobs gate transaction acceptance.
+//! Fraud monitoring admission tests consume the committed parameter projection.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use iroha_config::parameters::actual::{FraudAttester, FraudMonitoring, FraudRiskBand};
+use iroha_config::parameters::actual::FraudMonitoring;
 use iroha_core::{
-    block::BlockBuilder,
-    governance::manifest::LaneManifestRegistry,
-    kura::Kura,
-    query::store::LiveQueryStore,
-    smartcontracts::ivm::cache::IvmCache,
-    state::{State, World},
-    tx::AcceptedTransaction,
+    state::World,
+    sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey, Signature, SignatureOf};
+use iroha_data_model::fraud::{FraudAdmissionAttesterV1, FraudRiskBandV1};
 use iroha_data_model::{
     ValidationFail,
     asset::AssetDefinition,
-    block::{BlockHeader, SignedBlock},
     fraud::types::{AssessmentDecision, FraudAssessment, FraudAssessmentParts},
     prelude::*,
     transaction::error::TransactionRejectionReason,
@@ -25,9 +20,8 @@ use iroha_model_base::domain::DomainId;
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::name::Name;
 use iroha_primitives::json::Json;
-use nonzero_ext::nonzero;
 use norito::codec::Encode;
-use std::{borrow::Cow, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, time::Duration};
 fn checked_random_fraud_monitoring_keypair() -> KeyPair {
     KeyPair::try_random().expect("generate checked fraud monitoring keypair")
 }
@@ -36,44 +30,60 @@ fn fraud_monitoring_fixture_uses_checked_randomness() {
     let key_pair = checked_random_fraud_monitoring_keypair();
     assert_eq!(key_pair.public_key().algorithm(), Algorithm::Ed25519);
 }
-fn build_state() -> (State, NetworkId, AccountId, KeyPair) {
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
+fn build_state(settings: FraudMonitoring) -> (CertifiedTestChain, NetworkId, AccountId, KeyPair) {
     let key_pair = checked_random_fraud_monitoring_keypair();
-    let (public_key, _) = key_pair.clone().into_parts();
-    let domain_id: DomainId =
-        DomainId::try_new("wonderland", "universal").expect("static domain id");
-    let account_id = AccountId::of(public_key);
-    let domain = Domain::new(domain_id.clone()).build(&account_id);
+    let account_id = AccountId::new(key_pair.public_key().clone());
+    let domain_id = DomainId::try_new("wonderland", "universal").expect("static domain id");
+    let domain = Domain::new(domain_id).build(&account_id);
     let account = Account::new(account_id.clone()).build(&account_id);
     let world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
-    let chain_id = ChainId::from("fraud-monitor-chain");
-    let state = State::new_with_chain_for_testing(world, kura, query_handle, chain_id.clone());
-    let network_id = *state.network_id_ref();
-    let nexus = state.nexus_snapshot();
-    state.install_lane_manifests_for_testing(&Arc::new(
-        LaneManifestRegistry::empty().rebind(&nexus.lane_catalog, &nexus.governance),
+    let mut config = TestChainConfig::new(world, 1_000);
+    config.chain_id = ChainId::from("fraud-monitor-chain");
+    config.genesis_parameters.push(Parameter::Custom(
+        iroha_core::fraud_admission_policy::policy_of(&settings).into_custom_parameter(),
     ));
-    (state, network_id, account_id, key_pair)
-}
-fn build_header() -> BlockHeader {
-    BlockHeader::new(nonzero!(1_u64), None, None, 0, 0)
+    config.fraud_monitoring = settings;
+    let chain = CertifiedTestChain::start(config).expect("authenticated fraud-policy genesis");
+    let network_id = chain.network_id();
+    (chain, network_id, account_id, key_pair)
 }
 fn make_transaction(
     network_id: &NetworkId,
     authority: &AccountId,
     key_pair: &KeyPair,
     metadata: Metadata,
-) -> AcceptedTransaction<'static> {
-    let tx = TransactionBuilder::new(
+) -> SignedTransaction {
+    let mut builder = TransactionBuilder::new(
         *network_id,
         authority.clone(),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-    )
-    .with_instructions([Log::new(Level::INFO, "noop".to_string())])
-    .with_metadata(metadata)
-    .sign(key_pair.private_key());
-    AcceptedTransaction::new_unchecked(Cow::Owned(tx))
+    );
+    builder.set_creation_time(Duration::from_millis(1_001));
+    builder
+        .with_instructions([Log::new(Level::INFO, "noop".to_string())])
+        .with_metadata(metadata)
+        .sign(key_pair.private_key())
+}
+fn execute(
+    chain: &mut CertifiedTestChain,
+    transaction: SignedTransaction,
+) -> Result<(), TransactionRejectionReason> {
+    let exact_hash = transaction.hash_as_entrypoint();
+    let accepted = chain.commit(vec![transaction]);
+    let committed = chain.committed(chain.height());
+    assert_eq!(committed.block().network_input_hashes().count(), 1);
+    assert_eq!(
+        committed.block().network_input_hashes().next(),
+        Some(exact_hash)
+    );
+    let (input, output) = committed
+        .block()
+        .network_output_at(0)
+        .expect("original carrier output");
+    assert_eq!(input, 0);
+    let result = output.result.as_ref().map(|_| ()).map_err(Clone::clone);
+    assert_eq!(accepted, vec![result.is_ok()]);
+    result
 }
 fn metadata_key(key: &str) -> Name {
     Name::from_str(key).expect("static metadata key")
@@ -147,19 +157,17 @@ fn build_attested_metadata(
 }
 #[test]
 fn admission_allows_when_fraud_disabled() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let cfg = FraudMonitoring {
-        enabled: false,
-        required_minimum_band: Some(FraudRiskBand::Medium),
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: false,
+            required_minimum_band: Some(FraudRiskBandV1::Medium),
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let tx = make_transaction(&chain_id, &authority, &key_pair, Metadata::default());
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     assert!(
         result.is_ok(),
         "disabled fraud monitoring should permit tx: {result:?}"
@@ -167,20 +175,18 @@ fn admission_allows_when_fraud_disabled() {
 }
 #[test]
 fn admission_rejects_missing_assessment_when_required() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::High),
-        missing_assessment_grace: Duration::from_secs(0),
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::High),
+            missing_assessment_permitted: false,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let tx = make_transaction(&chain_id, &authority, &key_pair, Metadata::default());
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     let err = result.expect_err("missing assessment must reject");
     match err {
         TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
@@ -194,41 +200,20 @@ fn admission_rejects_missing_assessment_when_required() {
 }
 #[test]
 fn block_pipeline_rejects_missing_assessment() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::High),
-        missing_assessment_grace: Duration::from_secs(0),
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::High),
+            missing_assessment_permitted: false,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let tx = make_transaction(&chain_id, &authority, &key_pair, Metadata::default());
-    let genesis_block = SignedBlock::genesis(
-        vec![tx.as_ref().clone()],
-        key_pair.private_key(),
-        None,
-        None,
-    );
-    let block_builder = BlockBuilder::new(vec![tx]);
-    let new_block = block_builder
-        .chain(0, Some(&genesis_block))
-        .sign(key_pair.private_key())
-        .unpack(|_| {});
-    let (mut state_block, state_block_recorder) =
-        iroha_core::block::ValidBlock::start_component_execution(&new_block.clone().into(), &state)
-            .expect("original writer-first component execution");
-    let valid_block = new_block
-        .validate_and_record_transactions(&mut state_block, state_block_recorder)
-        .unpack(|_| {});
-    let signed_block: SignedBlock = valid_block.into();
-    let err = signed_block
-        .network_output_at(0)
-        .expect("validated transaction has an output")
-        .1
-        .result
-        .as_ref()
-        .err()
-        .expect("fraud monitoring should reject missing assessment");
+    let err = execute(&mut state, tx)
+        .expect_err("certified native fraud admission should reject missing assessment");
+    assert_eq!(state.height(), 2, "the original carrier is the final tip");
     match err {
         TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
             assert!(
@@ -241,22 +226,20 @@ fn block_pipeline_rejects_missing_assessment() {
 }
 #[test]
 fn admission_rejects_when_band_insufficient() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::High),
-        missing_assessment_grace: Duration::from_secs(0),
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::High),
+            missing_assessment_permitted: false,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let mut metadata = Metadata::default();
     insert_base_metadata(&mut metadata, "medium", 450, "tenant-eu", 85);
     let tx = make_transaction(&chain_id, &authority, &key_pair, metadata);
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     let err = result.expect_err("insufficient band must reject");
     match err {
         TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
@@ -270,22 +253,20 @@ fn admission_rejects_when_band_insufficient() {
 }
 #[test]
 fn admission_allows_when_band_sufficient() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::Medium),
-        missing_assessment_grace: Duration::from_secs(0),
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::Medium),
+            missing_assessment_permitted: false,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let mut metadata = Metadata::default();
     insert_base_metadata(&mut metadata, "high", 6_800, "tenant-eu", 92);
     let tx = make_transaction(&chain_id, &authority, &key_pair, metadata);
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     assert!(
         result.is_ok(),
         "sufficient band should permit tx: {result:?}"
@@ -293,28 +274,26 @@ fn admission_allows_when_band_sufficient() {
 }
 #[test]
 fn admission_rejects_missing_attestation_when_required() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let attester = checked_random_fraud_monitoring_keypair();
     let (public_key, _) = attester.clone().into_parts();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::Medium),
-        missing_assessment_grace: Duration::from_secs(0),
-        attesters: vec![FraudAttester {
-            engine_id: "risk-engine-eu1".to_string(),
-            public_key,
-        }],
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::Medium),
+            missing_assessment_permitted: false,
+            attesters: vec![FraudAdmissionAttesterV1 {
+                engine_id: "risk-engine-eu1".to_string(),
+                public_key,
+            }],
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let mut metadata = Metadata::default();
     insert_base_metadata(&mut metadata, "high", 6_800, "tenant-eu", 64);
     let tx = make_transaction(&chain_id, &authority, &key_pair, metadata);
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     let err = result.expect_err("attestation metadata must be required");
     match err {
         TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
@@ -328,20 +307,22 @@ fn admission_rejects_missing_attestation_when_required() {
 }
 #[test]
 fn admission_rejects_attestation_signature_mismatch() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let attester = checked_random_fraud_monitoring_keypair();
     let (public_key, _) = attester.clone().into_parts();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::Medium),
-        missing_assessment_grace: Duration::from_secs(0),
-        attesters: vec![FraudAttester {
-            engine_id: "risk-engine-eu1".to_string(),
-            public_key,
-        }],
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::Medium),
+            missing_assessment_permitted: false,
+            attesters: vec![FraudAdmissionAttesterV1 {
+                engine_id: "risk-engine-eu1".to_string(),
+                public_key,
+            }],
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let mut metadata = build_attested_metadata(
         "high",
         6_600,
@@ -370,11 +351,7 @@ fn admission_rejects_attestation_signature_mismatch() {
     let tampered_b64 = BASE64_STANDARD.encode(tampered_bytes);
     metadata.insert(envelope_key, Json::new(tampered_b64));
     let tx = make_transaction(&chain_id, &authority, &key_pair, metadata);
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
+    let result = execute(&mut state, tx);
     let err = result.expect_err("tampered signature must reject");
     match err {
         TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
@@ -385,20 +362,22 @@ fn admission_rejects_attestation_signature_mismatch() {
 }
 #[test]
 fn admission_allows_with_valid_attestation() {
-    let (mut state, chain_id, authority, key_pair) = build_state();
     let attester = checked_random_fraud_monitoring_keypair();
     let (public_key, _) = attester.clone().into_parts();
     let cfg = FraudMonitoring {
-        enabled: true,
-        required_minimum_band: Some(FraudRiskBand::Medium),
-        missing_assessment_grace: Duration::from_secs(0),
-        attesters: vec![FraudAttester {
-            engine_id: "risk-engine-eu1".to_string(),
-            public_key,
-        }],
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(FraudRiskBandV1::Medium),
+            missing_assessment_permitted: false,
+            attesters: vec![FraudAdmissionAttesterV1 {
+                engine_id: "risk-engine-eu1".to_string(),
+                public_key,
+            }],
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         ..Default::default()
     };
-    state.set_fraud_monitoring(cfg);
+    let (mut state, chain_id, authority, key_pair) = build_state(cfg);
     let metadata = build_attested_metadata(
         "critical",
         9_100,
@@ -408,10 +387,9 @@ fn admission_allows_with_valid_attestation() {
         &attester,
     );
     let tx = make_transaction(&chain_id, &authority, &key_pair, metadata);
-    let header = build_header();
-    let mut block = state.block(header);
-    let mut cache = IvmCache::new();
-    let result =
-        iroha_core::tx::execute_component_transaction_for_testing(&mut block, tx, &mut cache, None);
-    assert!(result.is_ok(), "valid attestation must be accepted");
+    let result = execute(&mut state, tx);
+    assert!(
+        result.is_ok(),
+        "valid attestation must be accepted: {result:?}"
+    );
 }

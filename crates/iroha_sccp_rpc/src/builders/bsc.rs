@@ -41,7 +41,7 @@ use iroha_sccp::{
             BscVoteV1, activation_offset, header_announced_set, header_attestation, header_summary,
         },
         ethereum::EthereumEventSelectorV1,
-        profile::{BSC_MAX_SEGMENT_HEADERS, BscChainProfileV1, SccpChainProfilesV1},
+        profile::{BSC_MAX_SEGMENT_HEADERS, BscChainProfileV1},
         proof::{SccpLcAdvanceV1, SccpLcBootstrapDataV1, SccpLcSegmentV1, SccpSourceProofV1},
     },
     v1::hashes::keccak256,
@@ -138,7 +138,11 @@ pub trait BscSource {
     /// # Errors
     ///
     /// Any endpoint failure, a transaction that is not mined, or an inconsistent response.
-    fn event_block(&self, tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError>;
+    fn event_block(
+        &self,
+        tx_hash: &[u8; 32],
+        max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError>;
 
     /// The first vote attestation, carried by one of the [`MAX_ATTESTATION_SCAN`] headers after
     /// `from`, that finalizes a block in `from..=until`, with its vote.
@@ -146,10 +150,12 @@ pub trait BscSource {
     /// # Errors
     ///
     /// Any endpoint failure, a malformed header, or no such attestation yet.
-    fn finalizing_vote(&self, from: u64, until: u64) -> Result<(Vec<u8>, BscVoteV1), BuildError> {
-        // TODO(B11): parse under the profile version active on the target Taira (Torii
-        // capabilities) rather than the newest compiled one.
-        let profile = SccpChainProfilesV1::latest().bsc;
+    fn finalizing_vote(
+        &self,
+        profile: &BscChainProfileV1,
+        from: u64,
+        until: u64,
+    ) -> Result<(Vec<u8>, BscVoteV1), BuildError> {
         let end = from
             .saturating_add(MAX_ATTESTATION_SCAN)
             .min(self.latest_number()?);
@@ -159,7 +165,7 @@ pub trait BscSource {
             )));
         }
         for header in headers(self, from + 1..=end)? {
-            let vote = header_attestation(&profile, &header)
+            let vote = header_attestation(profile, &header)
                 .map_err(|error| BuildError::Inconsistent(format!("BSC header: {error}")))?;
             if let Some((attestation, vote)) = vote
                 && vote.finalizes_source()
@@ -268,7 +274,7 @@ pub fn build_advance<S: BscSource + ?Sized>(
             .saturating_add(BSC_MAX_SEGMENT_HEADERS as u64 - 1)
             .min(next_valid_from.saturating_sub(2))
             .min(finalized);
-        let (attestation, vote) = source.finalizing_vote(*height, until)?;
+        let (attestation, vote) = source.finalizing_vote(profile, *height, until)?;
         steps.push(BscAdvanceStepV1 {
             headers: headers(source, *height..=vote.source_number)?,
             finality: BscFinalityV1 {
@@ -287,7 +293,7 @@ pub fn build_advance<S: BscSource + ?Sized>(
         .saturating_add(BSC_MAX_SEGMENT_HEADERS as u64 - 1)
         .min(finalized);
     if steps.len() < max_steps && checkpoint > newest && from <= until {
-        let (attestation, vote) = source.finalizing_vote(from, until)?;
+        let (attestation, vote) = source.finalizing_vote(profile, from, until)?;
         steps.push(BscAdvanceStepV1 {
             headers: headers(source, checkpoint..=vote.source_number)?,
             finality: BscFinalityV1 {
@@ -329,13 +335,13 @@ fn proof_bytes(
 }
 
 /// A proof under a vote attestation finalizing the event block or a descendant within
-/// `max_headers` headers, signed by a stored set that is still fresh.
+/// the light client's bounded ancestry window, signed by a stored set that is still fresh.
 fn finality_proof<S: BscSource + ?Sized>(
+    profile: &BscChainProfileV1,
     source: &S,
     block: &EvmEventBlockV1,
     light_client: &SccpLightClientV1,
     sets: &[SccpLcConsensusSetV1],
-    max_headers: u64,
     event: EthereumEventSelectorV1,
     now_ms: u64,
 ) -> Result<SccpSourceProofBytesV1, BuildError> {
@@ -349,8 +355,10 @@ fn finality_proof<S: BscSource + ?Sized>(
     if !set_fresh_with_margin(sets, first_set, light_client, now_ms) {
         return Err(stale(first_set));
     }
+    let max_headers =
+        u64::from(light_client.params.max_ancestry_headers).min(BSC_MAX_SEGMENT_HEADERS as u64);
     let until = block.number.saturating_add(max_headers.saturating_sub(1));
-    let (attestation, vote) = source.finalizing_vote(block.number, until)?;
+    let (attestation, vote) = source.finalizing_vote(profile, block.number, until)?;
     let chain = headers(source, block.number..=vote.source_number)?;
     if check_chain(&block.header, &chain)? != vote.source_hash {
         return Err(BuildError::Inconsistent(
@@ -427,6 +435,7 @@ fn checkpoint_evidence<S: BscSource + ?Sized>(
 /// Any source failure, or a block that neither a fresh set nor a retained checkpoint (with at
 /// most [`super::MAX_BACKFILL_SEGMENTS`] backfills) reaches.
 pub fn build_evidence<S: BscSource + ?Sized>(
+    profile: &BscChainProfileV1,
     source: &S,
     tx_hash: &[u8; 32],
     event: EthereumEventV1,
@@ -437,15 +446,15 @@ pub fn build_evidence<S: BscSource + ?Sized>(
     let bound = |param: u32| u64::from(param).min(BSC_MAX_SEGMENT_HEADERS as u64);
     let max_headers = bound(light_client.params.max_ancestry_headers);
     let max_backfill = bound(light_client.params.max_backfill_headers);
-    let block = source.event_block(tx_hash)?;
+    let block = source.event_block(tx_hash, light_client.params.max_proof_bytes as usize)?;
     let selector = event.selector();
     let sets = taira.sets()?;
     let finality_error = match finality_proof(
+        profile,
         source,
         &block,
         &light_client,
         &sets,
-        max_headers,
         selector,
         now_ms,
     ) {
@@ -484,16 +493,15 @@ pub struct BscBuilder {
 }
 
 impl BscBuilder {
-    /// A builder over `rpc` under the newest compiled BSC profile version.
-    ///
-    /// TODO(B11): build under the version active on the target Taira (Torii capabilities)
-    /// rather than the newest compiled one.
+    /// A builder over `rpc` under the profile selected by committed Taira state.
     #[must_use]
-    pub fn new(rpc: EvmClient) -> Self {
-        Self {
-            rpc,
-            profile: SccpChainProfilesV1::latest().bsc,
-        }
+    pub fn new(profile: BscChainProfileV1, rpc: EvmClient) -> Self {
+        Self { rpc, profile }
+    }
+
+    /// Select the profile resolved from the current committed Taira cut before building.
+    pub fn set_profile(&mut self, profile: BscChainProfileV1) {
+        self.profile = profile;
     }
 
     /// Moves the JSON-RPC client to its next endpoint, for a caller whose build failed on the
@@ -521,12 +529,24 @@ impl BscSource for BscBuilder {
         evm_headers_at(&self.rpc, numbers)
     }
 
-    fn event_block(&self, tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError> {
-        evm_event_block(&self.rpc, tx_hash)
+    fn event_block(
+        &self,
+        tx_hash: &[u8; 32],
+        max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError> {
+        evm_event_block(&self.rpc, tx_hash, max_proof_bytes)
     }
 }
 
 impl SourceChainBuilder for BscBuilder {
+    fn source_attempts(&self) -> usize {
+        self.rpc.transport().endpoints().len()
+    }
+
+    fn rotate_endpoints(&self) {
+        BscBuilder::rotate_endpoints(self);
+    }
+
     fn network(&self) -> SccpNetworkV1 {
         SccpNetworkV1::BscMainnet
     }
@@ -565,11 +585,9 @@ impl SourceChainBuilder for BscBuilder {
     ) -> Result<SourceEvidenceV1, BuildError> {
         match event {
             SourceEventRefV1::Evm { tx_hash, event } => {
-                build_evidence(self, tx_hash, *event, light_client, now_ms)
+                build_evidence(&self.profile, self, tx_hash, *event, light_client, now_ms)
             }
-            SourceEventRefV1::Tron { .. } | SourceEventRefV1::Ton { .. } => {
-                Err(BuildError::Inconsistent("not a BSC event".into()))
-            }
+            SourceEventRefV1::Ton { .. } => Err(BuildError::Inconsistent("not a BSC event".into())),
         }
     }
 }
@@ -666,9 +684,15 @@ mod tests {
 
     #[test]
     fn rotating_moves_the_client_to_its_next_endpoint() {
-        let builder = BscBuilder::new(EvmClient::new(
-            crate::builders::test_support::two_endpoint_transport(),
-        ));
+        let mut builder = BscBuilder::new(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
+            EvmClient::new(crate::builders::test_support::two_endpoint_transport()),
+        );
+        let mut selected = builder.profile;
+        selected.supported_until_ms = 1;
+        builder.set_profile(selected);
+        assert_eq!(builder.profile, selected);
+        assert_eq!(builder.source_attempts(), 2);
         assert_eq!(builder.rpc.transport().endpoints().preferred(), 0);
         builder.rotate_endpoints();
         assert_eq!(builder.rpc.transport().endpoints().preferred(), 1);

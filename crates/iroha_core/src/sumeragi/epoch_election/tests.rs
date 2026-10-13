@@ -24,7 +24,12 @@ use std::{collections::BTreeMap, num::NonZeroU64};
 
 fn keys(count: usize) -> Vec<KeyPair> {
     let mut keys = (1..=count)
-        .map(|index| KeyPair::from_seed(vec![index as u8; 32], Algorithm::BlsNormal))
+        .map(|index| {
+            KeyPair::from_seed(
+                vec![u8::try_from(index).expect("fixture value fits u8"); 32],
+                Algorithm::BlsNormal,
+            )
+        })
         .collect::<Vec<_>>();
     keys.sort_by(|a, b| a.public_key().cmp(b.public_key()));
     keys
@@ -49,7 +54,8 @@ fn custody_pool(count: usize) -> (World, ValidatorElectionPolicyV1, Vec<KeyPair>
         let mut entry = world.parameters.block();
         entry
             .get_mut()
-            .set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+            .expect("valid fixture parameters");
         entry.commit();
     }
     let escrow = AccountId::new(keys[0].public_key().clone());
@@ -184,11 +190,14 @@ fn frozen_floors_and_exit_obligations_do_not_follow_mutable_configuration() {
         .insert((LaneId::SINGLE, owner), record);
     {
         let mut entry = world.parameters.block();
-        let mut changed = SumeragiNposParameters::default();
-        changed.min_self_bond = Quantity::from(1000_u64);
+        let changed = SumeragiNposParameters {
+            min_self_bond: Quantity::from(1000_u64),
+            ..Default::default()
+        };
         entry
             .get_mut()
-            .set_parameter(Parameter::Custom(changed.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(changed.into_custom_parameter()))
+            .expect("valid fixture parameters");
         entry.commit();
     }
     let view = world.view();
@@ -424,6 +433,10 @@ pub(super) fn boundary_fixture(
     ValidatorEpochContextV1,
     Vec<HashOf<BlockHeader>>,
 ) {
+    use crate::sumeragi::schedule::{
+        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule, ScheduledConfig,
+        ScheduledSlot,
+    };
     let (mut world, policy, _, _) = custody_pool(pool);
     let (beacon_world, current, hashes) = pulse_fixture();
     let view = beacon_world.view();
@@ -439,10 +452,6 @@ pub(super) fn boundary_fixture(
     for (id, value) in view.global_beacon_latest_pulse().iter() {
         world.global_beacon_latest_pulse.insert(*id, value.clone());
     }
-    use crate::sumeragi::schedule::{
-        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule, ScheduledConfig,
-        ScheduledSlot,
-    };
     let params = ChainParamsRecord::from_parameters(world.view().parameters().sumeragi());
     let graph = ConsensusSchedule::from_owned_entries(vec![
         ScheduledSlot::Ready(ScheduledConfig {
@@ -717,14 +726,14 @@ fn native_control_capture_verifies_transported_threshold_pulse_without_local_agg
 
 #[test]
 fn restore_installs_exact_current_and_undo_graph_owners_without_deep_cloning() {
+    use crate::sumeragi::schedule::{
+        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule,
+    };
     if crate::unit_test_support::run_in_isolated_harness(
         "sumeragi::epoch_election::tests::restore_installs_exact_current_and_undo_graph_owners_without_deep_cloning",
     ) {
         return;
     }
-    use crate::sumeragi::schedule::{
-        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule,
-    };
     let (_, epoch, _) = pulse_fixture();
     let params = ChainParamsRecord::from_parameters(
         &iroha_data_model::parameter::system::SumeragiParameters::default(),

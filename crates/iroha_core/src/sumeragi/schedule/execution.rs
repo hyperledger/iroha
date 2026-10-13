@@ -36,6 +36,10 @@ impl CapturedExecution {
         unsafe_code,
         reason = "moves the unchanged retained canonical graph and assigns only fixed-size fields"
     )]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the pulse is transferred into the retained native execution inputs"
+    )]
     fn finish(
         self,
         params: ChainParamsRecord,
@@ -77,6 +81,8 @@ pub(crate) enum ScheduleStep {
     Requested {
         /// Original complete context, guards and same-pool nested allocations.
         captured: CapturedExecution,
+        /// Original root scope authenticated before transaction effects, retained on retry.
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
         /// Fixed-width transported proof authenticated against that same original cut.
         pulse: epoch_beacon::VerifiedEpochPulse,
     },
@@ -99,6 +105,53 @@ impl fmt::Debug for ScheduleStep {
     }
 }
 impl ScheduleStep {
+    /// Borrow the scope authenticated for this exact uncompleted native execution.
+    /// An absent or completed request cannot grant block-start lifecycle authority.
+    pub(crate) fn original_root_scope(
+        &self,
+    ) -> Option<iroha_data_model::block::consensus::SumeragiRootScope> {
+        match self {
+            Self::Requested { root_scope, .. } => Some(*root_scope),
+            Self::Off | Self::Done(_) => None,
+        }
+    }
+    /// Fixed authenticated pulse from this original global execution, before finalization.
+    /// Consensus verifies it at the pre-boundary carrying height; the committee
+    /// boundary itself is one block later. Lanes and absent/completed captures
+    /// cannot grant a panel draw, and ordinary heights carry no verified pulse.
+    pub(crate) fn original_native_pulse(&self) -> Option<FinalizedGlobalThresholdBeaconPulseV1> {
+        match self {
+            Self::Requested {
+                captured,
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                pulse,
+            } => {
+                if cfg!(all(test, sumeragi_core_mutation = "HC303"))
+                    && !matches!(captured, CapturedExecution::Boundary(_))
+                {
+                    return None;
+                }
+                pulse.pulse()
+            }
+            _ => None,
+        }
+    }
+    /// Borrow the original signed genesis authority before any transaction effects.
+    /// The completed or absent lifecycle cannot grant initialization authority.
+    pub(crate) fn original_genesis_context(
+        &self,
+    ) -> Option<&iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1> {
+        match self {
+            Self::Requested {
+                captured,
+                root_scope: iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ..
+            } if captured.inputs().schedule.height == 1 => {
+                Some(&captured.inputs().schedule.current)
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn frozen_boundary(&self) -> Option<&FrozenEpochBoundary> {
         match self {
             Self::Requested {
@@ -176,6 +229,10 @@ impl StateBlock<'_> {
     /// Capture the exact authenticated source in the pristine constructor callback, after
     /// source-generation/header validation and before any schedule or execution effect.
     /// Missing mandatory transported beacon work is refused; local aggregation is irrelevant.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the supplied pulse is validated and transferred into the retained native schedule result"
+    )]
     pub(crate) fn request_sumeragi_schedule(
         &mut self,
         genesis_height: u64,
@@ -327,8 +384,9 @@ impl StateBlock<'_> {
             (captured, pulse)
         };
         // All source/proof/custody and complete retained allocation checks preceded any write.
-        // This pulse is a mandatory original block-start effect, usable by Parliament in this
-        // same transaction overlay; failure/drop discards its original journal with the block.
+        // This consensus-native pulse is a mandatory original block-start effect. Stored here, it
+        // is readable by later transactions of this same block (governance consumes it by its
+        // own transition and never demands it); failure/drop discards its journal with the block.
         if let (Some(value), Some(link)) = (pulse.pulse(), pulse.link()) {
             let slot = (
                 iroha_data_model::governance::types::BeaconSessionId::for_network_v1(
@@ -346,7 +404,11 @@ impl StateBlock<'_> {
                 .global_beacon_latest_pulse
                 .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
         }
-        self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+        self.sumeragi_schedule = ScheduleStep::Requested {
+            captured,
+            pulse,
+            root_scope,
+        };
         Ok(())
     }
 
@@ -356,7 +418,12 @@ impl StateBlock<'_> {
         &mut self,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
         let step = std::mem::take(&mut self.sumeragi_schedule);
-        let ScheduleStep::Requested { captured, pulse } = step else {
+        let ScheduleStep::Requested {
+            captured,
+            pulse,
+            root_scope,
+        } = step
+        else {
             self.sumeragi_schedule = step;
             return Ok(());
         };
@@ -368,6 +435,8 @@ impl StateBlock<'_> {
                 validate_executed_genesis(&self.world, &source.current)?;
                 params
             } else {
+                crate::resource_coherence::validate_final_policy(&self.world, source.height)
+                    .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
                 self.world.consensus_schedule().ready(source.height)?.params
             };
             let graph = epoch_election::retain_outcome_schedule(
@@ -385,7 +454,11 @@ impl StateBlock<'_> {
         })();
         match prepare {
             Err(error) => {
-                self.sumeragi_schedule = ScheduleStep::Requested { captured, pulse };
+                self.sumeragi_schedule = ScheduleStep::Requested {
+                    captured,
+                    pulse,
+                    root_scope,
+                };
                 Err(error)
             }
             Ok((graph, params)) => {
@@ -444,6 +517,19 @@ pub(crate) fn validate_executed_genesis(
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
     use iroha_data_model::{consensus::ConsensusKeyRole, parameter::system::ConsensusMode};
     context.validate().map_err(ScheduleError::Epoch)?;
+    world
+        .parameters()
+        .sumeragi()
+        .validate_clock_policy()
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    iroha_data_model::sumeragi_amx::amx_max_time_window_ms(
+        world.parameters().sumeragi().block_cadence_ms().get(),
+    )
+    .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    crate::smartcontracts::isi::sccp::keepalive::clock_parameters(world)
+        .map_err(|error| ScheduleError::Epoch(error.into()))?;
+    crate::resource_coherence::validate_final_policy(world, 1)
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     crate::executor::private_fees::policy(world).map_err(|error| {
         error.map_rejection(|error| {
             ScheduleError::Epoch(format!(

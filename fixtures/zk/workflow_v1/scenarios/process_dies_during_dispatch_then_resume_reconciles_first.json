@@ -1,0 +1,167 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "process_dies_during_dispatch_then_resume_reconciles_first",
+  "category": "interruption_after_ambiguous_submission",
+  "rules": [
+    "reconcile_before_decide",
+    "persist_before_effect",
+    "no_replacement_while_unresolved"
+  ],
+  "description": "The process stops inside the dispatch call. The persisted dispatch ordinal has no recorded result, so the resumed run treats the outcome as unknown and only reads. When the ledger later reports the transaction rejected, the workflow fails; no replacement transaction is ever built.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "process-dies-during-dispatch-then-resume-reconciles-first",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "submitting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "statuses": [
+          "absent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "SubmissionOutcomeUnknown",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": true
+        },
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "outcome_unknown",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "statuses": [
+          "rejected"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "failed",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "ledger_rejected"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

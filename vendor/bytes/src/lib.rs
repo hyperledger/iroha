@@ -142,7 +142,7 @@ impl std::error::Error for TryGetError {}
 
 impl From<TryGetError> for std::io::Error {
     fn from(error: TryGetError) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, error)
+        std::io::Error::other(error)
     }
 }
 

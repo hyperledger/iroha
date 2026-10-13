@@ -402,12 +402,31 @@ pub fn root_instance(
     genesis: &SignedBlock,
     chain_id: &str,
 ) -> Result<Hash32, crate::execution_attempt::ExecutionAttemptError<String>> {
-    iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(genesis)
-        .map_err(|error| {
-            crate::execution_attempt::genesis_read_attempt_error(error, |error| error.to_string())
-        })?
-        .sumeragi_context
-        .root_scope
+    root_identity(genesis, chain_id).map(|(instance, _)| instance)
+}
+
+// Retain the same signed scalar used to derive the instance. No mutable World or local
+// configuration can turn a private root into the global result scope.
+fn root_identity(
+    genesis: &SignedBlock,
+    chain_id: &str,
+) -> Result<
+    (
+        Hash32,
+        iroha_data_model::block::consensus::SumeragiRootScope,
+    ),
+    crate::execution_attempt::ExecutionAttemptError<String>,
+> {
+    let root_scope =
+        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(genesis)
+            .map_err(|error| {
+                crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                    error.to_string()
+                })
+            })?
+            .sumeragi_context
+            .root_scope;
+    let instance = root_scope
         .instance_id(
             &BlsCrypto::new(),
             iroha_data_model::NetworkId::from_genesis_hash(genesis.hash()),
@@ -415,7 +434,8 @@ pub fn root_instance(
         )
         .map_err(|error| {
             crate::execution_attempt::ExecutionAttemptError::Rejected(error.to_string())
-        })
+        })?;
+    Ok((instance, root_scope))
 }
 
 /// The original failed startup replay operation, retaining local refusal ownership.
@@ -591,49 +611,51 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         ));
     }
     // Genesis: re-execute the stored one, or apply the supplied one.
-    let (tip, config_fingerprint, instance): (GenesisTip, iroha_crypto::Hash, Hash32) =
-        match startup::stored_genesis(&state)? {
-            Some((block, certificate, stored)) => {
-                if let Some(supplied) = &genesis
-                    && startup::core_hash_of(supplied) != stored.block_hash
-                {
-                    return Err(NodeError::Input(
-                        "the supplied genesis differs from the one Kura holds".into(),
-                    ));
-                }
-                let fingerprint =
-                    consensus_configuration_fingerprint(&block).map_err(node_policy_error)?;
-                let instance = root_instance(&block, &chain_id).map_err(node_policy_error)?;
-                (
-                    startup::apply_genesis(
-                        &state,
-                        block,
-                        &genesis_account,
-                        consensus_mode,
-                        Some(&certificate),
-                    )?,
-                    fingerprint,
-                    instance,
-                )
+    let (tip, config_fingerprint, instance, root_scope): (
+        GenesisTip,
+        iroha_crypto::Hash,
+        Hash32,
+        iroha_data_model::block::consensus::SumeragiRootScope,
+    ) = match startup::stored_genesis(&state)? {
+        Some((block, certificate, stored)) => {
+            if let Some(supplied) = &genesis
+                && startup::core_hash_of(supplied) != stored.block_hash
+            {
+                return Err(NodeError::Input(
+                    "the supplied genesis differs from the one Kura holds".into(),
+                ));
             }
-            None => {
-                let genesis = genesis.ok_or(NodeError::NoGenesis)?;
-                let fingerprint =
-                    consensus_configuration_fingerprint(&genesis).map_err(node_policy_error)?;
-                let instance = root_instance(&genesis, &chain_id).map_err(node_policy_error)?;
-                (
-                    startup::apply_genesis(
-                        &state,
-                        genesis,
-                        &genesis_account,
-                        consensus_mode,
-                        None,
-                    )?,
-                    fingerprint,
-                    instance,
-                )
-            }
-        };
+            let fingerprint =
+                consensus_configuration_fingerprint(&block).map_err(node_policy_error)?;
+            let (instance, root_scope) =
+                root_identity(&block, &chain_id).map_err(node_policy_error)?;
+            (
+                startup::apply_genesis(
+                    &state,
+                    block,
+                    &genesis_account,
+                    consensus_mode,
+                    Some(&certificate),
+                )?,
+                fingerprint,
+                instance,
+                root_scope,
+            )
+        }
+        None => {
+            let genesis = genesis.ok_or(NodeError::NoGenesis)?;
+            let fingerprint =
+                consensus_configuration_fingerprint(&genesis).map_err(node_policy_error)?;
+            let (instance, root_scope) =
+                root_identity(&genesis, &chain_id).map_err(node_policy_error)?;
+            (
+                startup::apply_genesis(&state, genesis, &genesis_account, consensus_mode, None)?,
+                fingerprint,
+                instance,
+                root_scope,
+            )
+        }
+    };
     let genesis_epoch = {
         let view = state.view();
         let config = view
@@ -673,6 +695,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         Arc::clone(&kura),
         Arc::clone(&shared),
         GENESIS_HEIGHT,
+        root_scope,
         staging.clone(),
         state.ivm_execution_budget(),
         availability,
@@ -691,6 +714,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         lane_authorities,
     ));
     let mut executor = StateExecutor::spawn(ExecutorContext {
+        time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(&state),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -705,6 +729,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         events,
         genesis_account,
         consensus_mode,
+        root_scope,
         applied: (GENESIS_HEIGHT, tip.block_hash),
         crypto: Some(Arc::clone(&crypto)),
         applied_watch: Arc::clone(&applied_watch),
@@ -1271,7 +1296,7 @@ mod tests {
                 .clone();
         assert_ne!(
             original,
-            configuration_fingerprint(4, &local, &driver, &[first.clone()])
+            configuration_fingerprint(4, &local, &driver, std::slice::from_ref(&first))
         );
         assert_eq!(
             configuration_fingerprint(4, &local, &driver, &[first.clone(), second.clone()]),
@@ -1279,7 +1304,7 @@ mod tests {
         );
     }
 
-    use std::{collections::HashMap, num::NonZeroU64, time::Duration};
+    use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 
     use iroha_crypto::HashOf;
     use iroha_crypto::{Algorithm, bls_normal_pop_prove};
@@ -1313,7 +1338,7 @@ mod tests {
     /// The in-memory transport: every node's handle, filled once the nodes start.
     /// Missing routes and temporary ingress refusals retain their original send occurrence.
     #[derive(Default)]
-    struct Registry(parking_lot::Mutex<HashMap<CoreKey, Arc<SumeragiIngress>>>);
+    struct Registry(parking_lot::Mutex<BTreeMap<CoreKey, Arc<SumeragiIngress>>>);
 
     struct MemNet {
         from: CoreKey,
@@ -1891,7 +1916,7 @@ mod tests {
     /// The key of an account whose default route is the second of two shards (an elastic lane
     /// next to lane 0).
     fn second_shard_key() -> KeyPair {
-        (1u8..)
+        (1_u8..=u8::MAX)
             .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519))
             .find(|key| {
                 crate::sumeragi::lanes::routing::default_shard(
@@ -2481,6 +2506,7 @@ mod tests {
     /// whose result differs from re-execution stops the replay.
     #[test]
     fn replay_rejects_a_block_whose_certified_result_differs() {
+        use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);
@@ -2523,15 +2549,21 @@ mod tests {
             .expect("availability authority bound to original applied genesis"),
         );
         let staging = Staging::new();
+        let root_scope = super::super::epoch::authenticated_genesis(&chain.genesis)
+            .expect("original signed genesis scope")
+            .into_parts()
+            .1;
         let blocks = KuraBlockStore::new(
             kura,
             shared,
             GENESIS_HEIGHT,
+            root_scope,
             staging.clone(),
             state.ivm_execution_budget(),
             availability,
         );
         let mut executor = StateExecutor::spawn(ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -2546,6 +2578,7 @@ mod tests {
             events: tokio::sync::broadcast::channel(16).0,
             genesis_account: SAMPLE_GENESIS_ACCOUNT_ID.clone(),
             consensus_mode: ConsensusMode::Permissioned,
+            root_scope,
             applied: (GENESIS_HEIGHT, tip.block_hash),
             crypto: Some(Arc::clone(&crypto)),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
@@ -2568,7 +2601,6 @@ mod tests {
         forged.result = Hash32([0xAB; 32]);
         // This negative must reach execution comparison, not fail earlier on a stale
         // signature. The original committee signs the wrong result over the real block.
-        use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
         let committee = schedule::scheduled_committee(state.view().world(), 2)
             .expect("authenticated original committee");
         let preimage = forged.preimage();
@@ -2585,9 +2617,10 @@ mod tests {
                 KeyPairSigner::new(key)
                     .expect("original BLS signer")
                     .sign(&preimage)
+                    .unwrap()
             })
             .collect::<Vec<_>>();
-        forged.agg_sig = crypto.aggregate(&signatures);
+        forged.agg_sig = crypto.aggregate(&signatures).unwrap();
         let error = executor
             .replay(&body, &forged)
             .expect_err("a differing certified result");

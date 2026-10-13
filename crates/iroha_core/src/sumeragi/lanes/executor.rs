@@ -12,20 +12,21 @@ use std::{
 
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::BlockHeader,
-    sumeragi_lanes::SumeragiLaneRecord,
-    transaction::{SignedTransaction, TransactionEntrypoint},
+    block::BlockHeader, sumeragi_lanes::SumeragiLaneRecord, transaction::TransactionEntrypoint,
 };
 use iroha_sumeragi::{
     api::ExecOutcome,
     availability::{AvailableBody, PayloadBytes},
     message::Qc,
-    types::{AppliedConfig, ConfigSlot, Hash32, HeightConfig},
+    prepare_admission::{ExecutionAdmission, PrepareAdmission, PrepareSigningRequest},
+    types::{AppliedConfig, ConfigSlot, EpochId, Hash32, HeightConfig},
 };
 
+#[cfg(test)]
+use super::{Admission, admit};
 use super::{
-    Admission, AdmissionAttemptError, AnchorView, LANE_DEDUP_WINDOW, LaneBatch, LaneChainView,
-    TransactionCheck, admit,
+    AdmissionAttemptError, AnchorView, LANE_DEDUP_WINDOW, LaneBatch, LaneChainView,
+    TransactionCheck, admit_decoded,
 };
 use crate::sumeragi::driver::{
     SharedCrypto,
@@ -33,7 +34,7 @@ use crate::sumeragi::driver::{
     payload_build::PayloadBuild,
     traits::{BlockStore, Executor, PublicationError},
 };
-use iroha_allocation::AllocationBudget;
+use iroha_allocation::{AllocationBudget, ChargedShared};
 
 /// The global chain as a lane executor sees it: anchors, and a way to wait for one.
 pub trait AnchorSource: AnchorView + Send + Sync {
@@ -44,20 +45,58 @@ pub trait AnchorSource: AnchorView + Send + Sync {
     fn tip(&self) -> (u64, HashOf<BlockHeader>);
 }
 
+/// Local reasons why a lane must retry selection instead of reporting an empty queue.
+#[derive(Debug, thiserror::Error)]
+pub enum LaneSelectionError {
+    /// An original State/routing resource remains unavailable, with its release source.
+    #[error(transparent)]
+    Deferred(#[from] crate::execution_attempt::ExecutionDeferred),
+    /// Pending signed inputs become eligible after the injected proposer clock advances.
+    #[error("ClockAhead")]
+    ClockAhead,
+    /// Selection lost its original Queue or State cut and must be retried.
+    #[error("lane Queue admission changed during selection")]
+    Changed,
+    /// Original State publication or read refusal; never an empty selection.
+    #[error(transparent)]
+    Publication(#[from] PublicationError),
+}
+
 /// Transactions the lane's payload builder may propose.
 pub trait LaneTransactions: Send + Sync {
+    /// Move-only original admission retained beside the selected payload.
+    type Lease: Send;
+
     /// Observe only the completed actual EMPTY selection in native unit controls.
     #[cfg(test)]
     fn empty_payload_answer(&self) {}
 
     /// Queued transactions routed to the lane at global height `height`, oldest first, at most
-    /// `max_bytes` of encoded transactions, skipping `skip`.
+    /// `max_bytes` of encoded transactions, skipping `skip`. Future-only work returns
+    /// [`LaneSelectionError::ClockAhead`] so the driver retries without unrelated traffic.
+    ///
+    /// # Errors
+    ///
+    /// Returns a selection error when candidate routing or source access cannot
+    /// complete, including future-only work that requires the clock to advance.
     fn candidates(
         &self,
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred>;
+        budget: &AllocationBudget,
+    ) -> Result<(Vec<TransactionEntrypoint>, Self::Lease), LaneSelectionError>;
+
+    /// Retain only the prefix selected by canonical payload sizing.
+    fn retain_prefix(&self, lease: &mut Self::Lease, count: usize);
+
+    /// Recheck the original admission before encoding and every completed output lend.
+    /// A false result withdraws this selected source; a local refusal retains it for retry.
+    fn lease_is_current(
+        &self,
+        lease: &Self::Lease,
+        budget: &AllocationBudget,
+    ) -> Result<bool, PublicationError>;
 }
 
 /// The chain facts after a lane block: its anchor and the anchored transactions of the last
@@ -98,7 +137,41 @@ struct Executed {
     height: u64,
     parent: Hash32,
     result: Hash32,
+    admission: ExecutionAdmission,
     state: ChainState,
+}
+
+// A routing lane admits a batch; it does not execute Global AMX due-work effects.
+// Only successful native lane admission constructs these immutable source facts.
+// The concrete owner itself remains charged to that original lane's execution pool.
+#[derive(Debug)]
+struct LanePrepareAdmission {
+    instance: Hash32,
+    epoch: EpochId,
+    height: u64,
+    block_hash: Hash32,
+    result: Hash32,
+}
+
+impl PrepareAdmission for LanePrepareAdmission {
+    fn result(&self) -> Hash32 {
+        self.result
+    }
+    fn check(
+        &self,
+        request: &PrepareSigningRequest,
+    ) -> Result<(), iroha_sumeragi::crypto::SigningError> {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC333"))
+            && (request.instance() != self.instance
+                || request.epoch() != self.epoch
+                || request.height() != self.height
+                || request.block_hash() != self.block_hash
+                || request.result() != self.result)
+        {
+            return Err(iroha_sumeragi::crypto::SigningError::InvalidInput);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -109,7 +182,7 @@ struct Applied {
 }
 
 /// The executor of one lane instance.
-pub struct LaneExecutor<A, C, T> {
+pub struct LaneExecutor<A, C, T: LaneTransactions> {
     record: SumeragiLaneRecord,
     instance: Hash32,
     config: HeightConfig,
@@ -120,23 +193,32 @@ pub struct LaneExecutor<A, C, T> {
     applied: Applied,
     cache: BTreeMap<Hash32, Executed>,
     budget: AllocationBudget,
-    payload_build: Option<LanePayloadBuild>,
-    /// Exact latest local routing refusal, retained by the original lane builder.
-    routing_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
-    /// The exact original anchor history refusal while the driver retains the lane body.
-    anchor_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
+    time_source: iroha_primitives::time::TimeSource,
+    admission: Option<LaneAdmission>,
+    payload_build: Option<LanePayloadBuild<T::Lease>>,
 }
 
-struct LanePayloadBuild {
+/// Keep the exact authenticated source and its one canonical decoded graph across local waits.
+struct LaneAdmission {
+    block_hash: Hash32,
+    body: AvailableBody,
+    batch: LaneBatch,
+    admitted: Option<super::AdmittedLane>,
+}
+
+/// The selected source, original admission and funded encoding remain one local owner.
+/// The lease grants no monetary validity: Global merge still checks expiry and duplicates.
+struct LanePayloadBuild<L> {
     height: u64,
     view: u64,
     max_bytes: u32,
     job: PayloadBuild<LaneBatch>,
+    lease: L,
 }
 
 /// Retained lane startup. A local refusal returns this exact prefix/read/restoration owner.
 /// Only verified available bodies supply the recovered deduplication facts.
-pub struct LaneRecovery<A, C, T> {
+pub struct LaneRecovery<A, C, T: LaneTransactions> {
     executor: LaneExecutor<A, C, T>,
     store: Arc<dyn BlockStore>,
     crypto: SharedCrypto,
@@ -151,7 +233,7 @@ enum RecoveryRead {
     Decoding(Qc, AvailableBody),
 }
 
-impl<A, C, T> core::fmt::Debug for LaneExecutor<A, C, T> {
+impl<A, C, T: LaneTransactions> core::fmt::Debug for LaneExecutor<A, C, T> {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
             .debug_struct("LaneExecutor")
@@ -179,6 +261,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         store: Arc<dyn BlockStore>,
         crypto: SharedCrypto,
         budget: AllocationBudget,
+        time_source: iroha_primitives::time::TimeSource,
     ) -> LaneRecovery<A, C, T> {
         let tip = store.height();
         let next = tip
@@ -201,9 +284,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
                 },
                 cache: BTreeMap::new(),
                 budget,
+                time_source,
+                admission: None,
                 payload_build: None,
-                routing_refusal: None,
-                anchor_refusal: None,
             },
             store,
             crypto,
@@ -215,39 +298,95 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
     }
 
     fn finish_payload(&mut self) -> Result<Option<PayloadBytes>, PublicationError> {
+        self.finish_payload_with_encoder(|batch, mut writer| {
+            norito::codec::encode_adaptive_into(batch, &mut writer).map(|_| ())
+        })
+    }
+
+    fn retained_payload_is_current(&self) -> Result<bool, PublicationError> {
+        if cfg!(all(test, sumeragi_core_mutation = "HC327")) {
+            return Ok(true);
+        }
+        match (&self.payload_build, &self.transactions) {
+            (Some(build), Some(transactions)) => {
+                transactions.lease_is_current(&build.lease, &self.budget)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn finish_payload_with_encoder(
+        &mut self,
+        encode: impl FnOnce(&LaneBatch, &mut dyn io::Write) -> Result<(), norito::Error>,
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
+        if !self.retained_payload_is_current()? {
+            self.payload_build = None;
+            return Err(PublicationError::Retryable(
+                "lane Queue admission retired".into(),
+            ));
+        }
         let build = self
             .payload_build
-            .take()
+            .as_mut()
             .expect("retained lane payload source");
-        let LanePayloadBuild {
-            height,
-            view,
-            max_bytes,
-            job,
-        } = build;
-        match job.finish(
-            |batch| norito::codec::encode_adaptive_into(batch, &mut io::sink()),
-            |batch, mut writer| norito::codec::encode_adaptive_into(batch, &mut writer).map(|_| ()),
-        ) {
-            Ok((_, payload)) => Ok(Some(payload)),
-            Err((job, error)) => {
-                let local = error.is_local_refusal();
-                self.payload_build = Some(LanePayloadBuild {
-                    height,
-                    view,
-                    max_bytes,
-                    job,
-                });
-                if local {
-                    Err(PublicationError::Retryable(format!(
-                        "lane payload admission: {error:?}"
-                    )))
-                } else {
-                    Err(PublicationError::RecoveryRequired(format!(
-                        "lane payload encoding: {error:?}"
-                    )))
-                }
+        let batch = build.job.source();
+        match self.anchors.applied_hash(batch.anchor_height) {
+            Some(hash) if hash == batch.anchor_hash => {}
+            None => {
+                return Err(PublicationError::Retryable(
+                    "lane payload anchor is unavailable".into(),
+                ));
             }
+            Some(_) => {
+                return Err(PublicationError::RecoveryRequired(
+                    "lane payload anchor changed its original identity".into(),
+                ));
+            }
+        }
+        let anchor_time = self
+            .anchors
+            .creation_time_ms(batch.anchor_height)
+            .map_err(|error| match error {
+                Attempt::Deferred(original) => PublicationError::Deferred(original.into()),
+                Attempt::Rejected(error) => PublicationError::RecoveryRequired(error.to_string()),
+            })?
+            .ok_or_else(|| {
+                PublicationError::Retryable("lane payload anchor is unavailable".into())
+            })?;
+        let effective_time = batch.effective_time(anchor_time);
+        if !cfg!(all(test, sumeragi_core_mutation = "HC269"))
+            && effective_time > self.time_source.now()
+        {
+            return Err(PublicationError::Retryable("ClockAhead".into()));
+        }
+        let encoded = build.job.finish_retained(
+            |batch| norito::codec::encode_adaptive_into(batch, &mut io::sink()),
+            encode,
+        );
+        // Queue removal, expiry or publication can occur during encoding too. Recheck
+        // the same original lease before returning any shared output bytes.
+        if encoded.is_ok() && !self.retained_payload_is_current()? {
+            self.payload_build = None;
+            return Err(PublicationError::Retryable(
+                "lane Queue admission retired".into(),
+            ));
+        }
+        match encoded {
+            Ok(_)
+                if !cfg!(all(test, sumeragi_core_mutation = "HC269"))
+                    && effective_time > self.time_source.now() =>
+            {
+                // Encoding may run across a local clock adjustment. Keep the completed
+                // original output and withhold publication until its clock boundary returns.
+                Err(PublicationError::Retryable("ClockAhead".into()))
+            }
+            Ok(payload) => Ok(Some(payload)),
+            Err(error) if error.is_local_refusal() => Err(PublicationError::Retryable(format!(
+                "lane payload admission: {error:?}"
+            ))),
+            Err(error) => Err(PublicationError::RecoveryRequired(format!(
+                "lane payload encoding: {error:?}"
+            ))),
         }
     }
 
@@ -267,72 +406,151 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         block: &AvailableBody,
         block_hash: &Hash32,
         parent: ChainState,
+        certified: bool,
     ) -> Result<ExecOutcome, AdmissionAttemptError> {
-        self.anchor_refusal = None;
         if !block.admitted_to(&self.budget)
             || block.source().instance() != self.instance
             || block.source().config() != &self.config
+            || !block.header().control_witness.is_empty()
         {
             return Ok(ExecOutcome::Invalid);
         }
-        // Lane instances admit batches; only G executes beacon/Parliament control.
-        // Match the independent lane evidence verifier before caching any admission.
-        if !block.header().control_witness.is_empty() {
-            return Ok(ExecOutcome::Invalid);
-        }
-        let admission = |executor: &Self| {
-            admit(
-                &executor.record,
-                &*executor.anchors,
-                &parent.view(),
-                &executor.checks,
-                &executor.config,
-                block.payload().as_slice(),
-            )
-        };
-        let mut outcome = admission(self);
-        if let Ok(Admission::Pending) = outcome {
+        if !self
+            .admission
+            .as_ref()
+            .is_some_and(|original| original.block_hash == *block_hash && original.body == *block)
+        {
+            self.admission = None;
             let batch = match LaneBatch::from_payload(block.payload().as_slice()) {
                 Ok(batch) => batch,
-                Err(error @ AdmissionAttemptError::Deferred(_)) => return Err(error),
-                Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                    self.anchor_refusal = Some(reason.clone());
-                    return Err(AdmissionAttemptError::AnchorDeferred(reason));
-                }
                 Err(AdmissionAttemptError::Rejected(_)) => return Ok(ExecOutcome::Invalid),
+                Err(error) => return Err(error),
             };
-            if self.anchors.wait_for(batch.anchor_height, self.anchor_wait) {
-                outcome = admission(self);
+            self.admission = Some(LaneAdmission {
+                block_hash: *block_hash,
+                body: block.clone(),
+                batch,
+                admitted: None,
+            });
+        }
+        let original = self.admission.as_mut().expect("original lane admission");
+        // Applied anchor identity is permanent protocol state. Rejoin it even after an
+        // earlier successful history read; local clock waits grant no new source authority.
+        if original.admitted.is_some() {
+            match self.anchors.applied_hash(original.batch.anchor_height) {
+                Some(hash) if hash == original.batch.anchor_hash => {}
+                None => {
+                    return Ok(ExecOutcome::Failed(
+                        "the lane block's anchor is not applied yet".into(),
+                    ));
+                }
+                Some(_) => {
+                    self.admission = None;
+                    return Ok(ExecOutcome::Invalid);
+                }
             }
         }
-        match outcome {
-            Ok(Admission::Valid(result)) => {
-                let r = result.hash();
-                let state = parent.after(result.anchor_height, result.tx_hashes);
-                self.cache.insert(
-                    *block_hash,
-                    Executed {
-                        height: block.header().height,
-                        parent: block.header().parent_hash,
-                        result: r,
-                        state,
-                    },
-                );
-                Ok(ExecOutcome::Valid(r))
+        if original.admitted.is_none() {
+            let admit_original = || {
+                admit_decoded(
+                    &self.record,
+                    &*self.anchors,
+                    &parent.view(),
+                    &self.checks,
+                    &self.config,
+                    &original.batch,
+                    original.body.payload().as_slice().len(),
+                )
+            };
+            let mut outcome = admit_original();
+            if matches!(outcome, Ok(None))
+                && self
+                    .anchors
+                    .wait_for(original.batch.anchor_height, self.anchor_wait)
+            {
+                outcome = admit_original();
             }
-            Ok(Admission::Pending) => Ok(ExecOutcome::Failed(
-                "the lane block's anchor is not applied yet".into(),
-            )),
-            Err(AdmissionAttemptError::Rejected(error)) => {
-                iroha_logger::debug!(lane = %self.record.lane, %error, "lane block is not admissible");
-                Ok(ExecOutcome::Invalid)
-            }
-            Err(error @ AdmissionAttemptError::Deferred(_)) => Err(error),
-            Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                self.anchor_refusal = Some(reason.clone());
-                Err(AdmissionAttemptError::AnchorDeferred(reason))
+            match outcome {
+                Ok(Some(admitted)) => original.admitted = Some(admitted),
+                Ok(None) => {
+                    return Ok(ExecOutcome::Failed(
+                        "the lane block's anchor is not applied yet".into(),
+                    ));
+                }
+                Err(AdmissionAttemptError::Rejected(error)) => {
+                    iroha_logger::debug!(lane = %self.record.lane, %error, "lane block is not admissible");
+                    self.admission = None;
+                    return Ok(ExecOutcome::Invalid);
+                }
+                Err(error) => return Err(error),
             }
         }
+        if !certified
+            && !cfg!(all(test, sumeragi_core_mutation = "HC268"))
+            && original
+                .admitted
+                .as_ref()
+                .expect("original admitted lane")
+                .effective_time
+                .saturating_sub(self.time_source.now())
+                > self.record.params.max_clock_drift()
+        {
+            return Ok(ExecOutcome::Failed("ClockAhead".into()));
+        }
+        // Reserve before consuming the retained decoded admission. A local shortage
+        // leaves the same original available body and admitted batch ready to retry.
+        let mut reservation = self
+            .budget
+            .try_reserve_bytes(ChargedShared::<LanePrepareAdmission>::allocation_layout().size())
+            .map_err(|error| {
+                let reason = crate::execution_attempt::ExecutionDeferred::from(error);
+                AdmissionAttemptError::ResourceDeferred(reason)
+            })?;
+        let shell = ChargedShared::<LanePrepareAdmission>::reserve_from(&mut reservation).map_err(
+            |error| {
+                let reason: crate::execution_attempt::ExecutionDeferred = match error {
+                    iroha_allocation::PrepaidSharedError::Allocator { .. } => {
+                        ivm::ExecutionDeferral::AllocationUnavailable.into()
+                    }
+                    iroha_allocation::PrepaidSharedError::Reservation(_) => {
+                        ivm::ExecutionDeferral::ActiveMemoryCapacity.into()
+                    }
+                };
+                AdmissionAttemptError::ResourceDeferred(reason)
+            },
+        )?;
+        let original = self
+            .admission
+            .take()
+            .expect("original completed lane admission");
+        let result = original.admitted.expect("original admitted lane").result;
+        let r = result.hash();
+        let admission = ExecutionAdmission::from_owner(
+            shell
+                .initialize(LanePrepareAdmission {
+                    instance: self.instance,
+                    epoch: self.config.epoch.id,
+                    height: block.header().height,
+                    block_hash: *block_hash,
+                    result: r,
+                })
+                .project::<dyn PrepareAdmission>(|value| value),
+        );
+        let state = parent.after(result.anchor_height, result.tx_hashes);
+        self.cache.insert(
+            *block_hash,
+            Executed {
+                height: block.header().height,
+                parent: block.header().parent_hash,
+                result: r,
+                admission: admission.clone(),
+                state,
+            },
+        );
+        Ok(ExecOutcome::Valid {
+            result: r,
+            admission,
+        })
     }
 }
 
@@ -411,7 +629,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecov
                 Err(AdmissionAttemptError::Deferred(_)) => {
                     return Err(io::Error::from(io::ErrorKind::WouldBlock).into());
                 }
-                Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
+                Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
                     return Err(Attempt::Deferred(reason));
                 }
                 Err(AdmissionAttemptError::Rejected(error)) => {
@@ -423,7 +641,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecov
                 batch
                     .transactions
                     .iter()
-                    .map(SignedTransaction::hash_as_entrypoint)
+                    .map(TransactionEntrypoint::hash)
                     .collect(),
             );
             self.executor.applied.block_hash = qc.block_hash;
@@ -475,24 +693,48 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+        certified: bool,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         if !block.admitted_to(&self.budget)
             || block.source().instance() != self.instance
             || block.source().config() != &self.config
         {
-            return Some(ExecOutcome::Invalid);
+            return Ok(Some(ExecOutcome::Invalid));
         }
         if let Some(executed) = self.cache.get(block_hash) {
-            return Some(ExecOutcome::Valid(executed.result));
+            return Ok(Some(ExecOutcome::Valid {
+                result: executed.result,
+                admission: executed.admission.clone(),
+            }));
         }
-        let parent = self.parent_state(block)?;
-        match self.run(block, block_hash, parent) {
-            Ok(outcome) => Some(outcome),
-            Err(_) => None,
+        let Some(parent) = self.parent_state(block) else {
+            return Ok(None);
+        };
+        match self.run(block, block_hash, parent, certified) {
+            Ok(ExecOutcome::Failed(reason)) => Err(PublicationError::Retryable(reason)),
+            Ok(outcome) => Ok(Some(outcome)),
+            Err(AdmissionAttemptError::ResourceDeferred(original)) => {
+                Err(PublicationError::Deferred(original.into()))
+            }
+            Err(AdmissionAttemptError::Deferred(original)) => Err(PublicationError::Deferred(
+                crate::execution_attempt::ExecutionDeferred::from(original).into(),
+            )),
+            Err(AdmissionAttemptError::Rejected(_)) => {
+                unreachable!("completed rejection is Invalid")
+            }
         }
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
+        if self.admission.as_ref().is_some_and(|original| {
+            original.body.header().height == height && !keep.contains(&original.block_hash)
+        }) {
+            self.admission = None;
+        }
         self.cache
             .retain(|hash, executed| executed.height != height || keep.contains(hash));
     }
@@ -521,17 +763,18 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
                 "the committed lane block's parent is not applied".into(),
             ));
         };
-        match self.run(block, &hash, parent) {
-            Ok(ExecOutcome::Valid(result)) => Ok((result == commit_qc.result).then_some(result)),
+        match self.run(block, &hash, parent, true) {
+            Ok(ExecOutcome::Valid { result, .. }) => {
+                Ok((result == commit_qc.result).then_some(result))
+            }
             Ok(ExecOutcome::Invalid | ExecOutcome::Cancelled) => Ok(None),
             Ok(ExecOutcome::Failed(reason)) => Err(PublicationError::Retryable(reason)),
-            Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
+            Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
                 Err(PublicationError::Deferred(reason.into()))
             }
-            // Allocate no diagnostic while the driver retains its original body for retry.
-            Err(AdmissionAttemptError::Deferred(_)) => {
-                Err(PublicationError::Retryable(String::new()))
-            }
+            Err(AdmissionAttemptError::Deferred(original)) => Err(PublicationError::Deferred(
+                crate::execution_attempt::ExecutionDeferred::from(original).into(),
+            )),
             Err(AdmissionAttemptError::Rejected(_)) => {
                 unreachable!("completed rejection is Invalid")
             }
@@ -577,6 +820,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             .payload_build
             .as_ref()
             .is_some_and(|p| p.height == height && p.view == view && p.max_bytes == max_bytes)
+            && self.retained_payload_is_current()?
         {
             return self.finish_payload();
         }
@@ -610,16 +854,29 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
                 iroha_data_model::parameter::system::LANE_BATCH_FRAMING_RESERVE_BYTES as usize,
             );
         // The batch merges after the anchor: route as of the next global height.
-        let selected = match transactions.candidates(anchor_height.saturating_add(1), budget, &skip)
-        {
-            Ok(selected) => {
-                self.routing_refusal = None;
-                selected
+        let (selected, mut lease) = match transactions.candidates(
+            anchor_height.saturating_add(1),
+            budget,
+            &skip,
+            &self.budget,
+        ) {
+            Ok(selected) => selected,
+            Err(LaneSelectionError::Deferred(reason)) => {
+                return Err(PublicationError::Deferred(reason.into()));
             }
-            Err(reason) => {
-                let message = reason.to_string();
-                self.routing_refusal = Some(reason);
-                return Err(PublicationError::Retryable(message));
+            Err(LaneSelectionError::ClockAhead) => {
+                if cfg!(all(test, sumeragi_core_mutation = "HC264")) {
+                    return Ok(None);
+                }
+                return Err(PublicationError::Retryable("ClockAhead".into()));
+            }
+            Err(LaneSelectionError::Changed) => {
+                return Err(PublicationError::Retryable(
+                    "lane Queue admission changed".into(),
+                ));
+            }
+            Err(LaneSelectionError::Publication(error)) => {
+                return Err(error);
             }
         };
         if selected.is_empty() {
@@ -647,11 +904,13 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
                 return Ok(None);
             }
         }
+        transactions.retain_prefix(&mut lease, batch.transactions.len());
         self.payload_build = Some(LanePayloadBuild {
             height,
             view,
             max_bytes,
             job: PayloadBuild::new(batch, self.budget.clone(), max_bytes as usize),
+            lease,
         });
         self.finish_payload()
     }
@@ -678,7 +937,7 @@ mod tests {
         isi::{InstructionBox, Log},
         parameter::system::SumeragiParameters,
         sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember},
-        transaction::{FeePaymentIntent, TransactionBuilder},
+        transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
     };
     use iroha_model_base::{
         peer::PeerId,
@@ -704,8 +963,8 @@ mod tests {
     }
 
     /// The global chain: applied up to `applied`.
-    struct Global {
-        applied: AtomicU64,
+    pub(super) struct Global {
+        pub(super) applied: AtomicU64,
     }
 
     impl AnchorView for Global {
@@ -727,28 +986,46 @@ mod tests {
         }
     }
 
-    struct Accept;
+    pub(super) struct Accept;
     impl TransactionCheck for Accept {
-        fn check(&self, _tx: &SignedTransaction, _time: u64) -> Result<(), String> {
+        fn check(&self, _tx: &TransactionEntrypoint, _time: u64) -> Result<(), String> {
             Ok(())
         }
     }
 
     struct Queue(Mutex<Vec<SignedTransaction>>);
     impl LaneTransactions for Queue {
+        type Lease = ();
+
         fn candidates(
             &self,
             _height: u64,
             _max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
-            Ok(self
-                .0
-                .lock()
-                .iter()
-                .filter(|tx| !skip.contains(&tx.hash_as_entrypoint()))
-                .cloned()
-                .collect())
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<
+            (Vec<TransactionEntrypoint>, Self::Lease),
+            crate::sumeragi::lanes::executor::LaneSelectionError,
+        > {
+            Ok((
+                self.0
+                    .lock()
+                    .iter()
+                    .filter(|tx| !skip.contains(&tx.hash_as_entrypoint()))
+                    .cloned()
+                    .map(TransactionEntrypoint::External)
+                    .collect(),
+                (),
+            ))
+        }
+
+        fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+        fn lease_is_current(
+            &self,
+            _: &Self::Lease,
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+            Ok(true)
         }
     }
 
@@ -813,8 +1090,12 @@ mod tests {
     }
 
     fn tx(seed: u8) -> SignedTransaction {
+        tx_at(seed, 1_000)
+    }
+
+    fn tx_at(seed: u8, created_ms: u64) -> SignedTransaction {
         let pair = KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519);
-        TransactionBuilder::new(
+        let mut builder = TransactionBuilder::new(
             NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"lane"))),
             AccountId::new(pair.public_key().clone()),
             FeePaymentIntent::authority(Vec::new(), None),
@@ -822,8 +1103,9 @@ mod tests {
         .with_instructions([InstructionBox::from(Log::new(
             iroha_data_model::Level::INFO,
             format!("{seed}"),
-        ))])
-        .sign(pair.private_key())
+        ))]);
+        builder.set_creation_time(Duration::from_millis(created_ms));
+        builder.sign(pair.private_key())
     }
 
     fn funded(lane: &LaneExecutor<Global, Accept, Queue>, bytes: Vec<u8>) -> PayloadBytes {
@@ -869,7 +1151,7 @@ mod tests {
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         authored(lane, header, payload)
     }
@@ -899,6 +1181,18 @@ mod tests {
         global: &Arc<Global>,
         queue: Option<Arc<T>>,
     ) -> LaneExecutor<Global, Accept, T> {
+        executor_with_clock(
+            global,
+            queue,
+            iroha_primitives::time::TimeSource::new_system(),
+        )
+    }
+
+    pub(super) fn executor_with_clock<T: LaneTransactions>(
+        global: &Arc<Global>,
+        queue: Option<Arc<T>>,
+        time_source: iroha_primitives::time::TimeSource,
+    ) -> LaneExecutor<Global, Accept, T> {
         let record = record();
         let config = lane_height_config(&record).expect("config");
         LaneExecutor::begin_recover(
@@ -912,9 +1206,174 @@ mod tests {
             Arc::new(NoStore),
             Arc::new(BlsCrypto::new()),
             AllocationBudget::new(1 << 20),
+            time_source,
         )
         .complete()
         .unwrap_or_else(|_| panic!("empty lane store recovery"))
+    }
+
+    #[test]
+    fn lane_effective_timestamp_saturates_native_milliseconds() {
+        for (created, expected) in [(0, 1), (1, 2), (u64::MAX, u64::MAX)] {
+            let batch = LaneBatch {
+                anchor_height: 5,
+                anchor_hash: anchor_hash(5),
+                transactions: vec![TransactionEntrypoint::External(tx_at(25, created))],
+            };
+            assert_eq!(batch.effective_time(0), Duration::from_millis(expected));
+            assert_eq!(
+                batch.effective_time(u64::MAX),
+                Duration::from_millis(u64::MAX)
+            );
+        }
+    }
+
+    #[test]
+    fn lane_builder_effective_clock_retains_original_payload_across_clock_rewind() {
+        for created_ms in [1_000, 6_500] {
+            let global = Arc::new(Global {
+                applied: AtomicU64::new(5),
+            });
+            let transaction = tx_at(24, created_ms);
+            let effective = Duration::from_millis(5_000.max(created_ms + 1));
+            let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+                effective
+                    .checked_sub(Duration::from_millis(1))
+                    .expect("fixture time has the original one-millisecond predecessor"),
+            );
+            let queue = Arc::new(Queue(Mutex::new(vec![transaction.clone()])));
+            let mut lane = executor_with_clock(&global, Some(queue.clone()), time);
+            assert!(
+                matches!(lane.build(1, 0, 1 << 20, 1_000),
+                Err(PublicationError::Retryable(reason)) if reason == "ClockAhead"),
+                "lane builder must retain its original effective timestamp before publication"
+            );
+            let source = lane
+                .payload_build
+                .as_ref()
+                .unwrap()
+                .job
+                .source()
+                .transactions
+                .as_ptr();
+            assert!(lane.cache.is_empty());
+            assert_eq!(queue.0.lock().len(), 1);
+            clock.set(effective);
+            assert!(
+                matches!(lane.finish_payload_with_encoder(|batch, mut writer| {
+                norito::codec::encode_adaptive_into(batch, &mut writer)?;
+                clock.rewind(Duration::from_millis(1));
+                Ok(())
+            }), Err(PublicationError::Retryable(reason)) if reason == "ClockAhead"),
+                "lane encoding must recheck its clock before lending completed bytes"
+            );
+            assert!(lane.payload_build.as_ref().unwrap().job.is_completed());
+            clock.set(effective);
+            let payload = lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+            assert_eq!(
+                LaneBatch::from_payload(payload.as_slice())
+                    .unwrap()
+                    .transactions,
+                vec![TransactionEntrypoint::External(transaction)]
+            );
+            let original = payload.as_slice().as_ptr();
+            clock.rewind(Duration::from_millis(1));
+            assert!(
+                matches!(lane.build(1, 0, 1 << 20, 1_000), Err(PublicationError::Retryable(reason)) if reason == "ClockAhead")
+            );
+            assert_eq!(
+                lane.payload_build
+                    .as_ref()
+                    .unwrap()
+                    .job
+                    .source()
+                    .transactions
+                    .as_ptr(),
+                source
+            );
+            assert!(lane.payload_build.as_ref().unwrap().job.is_completed());
+            clock.set(effective);
+            assert_eq!(
+                lane.build(1, 0, 1 << 20, 1_000)
+                    .unwrap()
+                    .unwrap()
+                    .as_slice()
+                    .as_ptr(),
+                original
+            );
+            assert_eq!(queue.0.lock().len(), 1);
+        }
+    }
+
+    #[test]
+    fn future_only_lane_work_retries_without_an_empty_answer_or_new_traffic() {
+        struct FutureQueue {
+            time: iroha_primitives::time::TimeSource,
+            due: Duration,
+            transaction: SignedTransaction,
+            empty: AtomicU64,
+        }
+        impl LaneTransactions for FutureQueue {
+            type Lease = ();
+
+            fn empty_payload_answer(&self) {
+                self.empty.fetch_add(1, Ordering::SeqCst);
+            }
+            fn candidates(
+                &self,
+                _: u64,
+                _: usize,
+                _: &BTreeSet<HashOf<TransactionEntrypoint>>,
+                _: &iroha_allocation::AllocationBudget,
+            ) -> Result<(Vec<TransactionEntrypoint>, Self::Lease), LaneSelectionError> {
+                if self.time.now() < self.due {
+                    Err(LaneSelectionError::ClockAhead)
+                } else {
+                    Ok((
+                        vec![TransactionEntrypoint::External(self.transaction.clone())],
+                        (),
+                    ))
+                }
+            }
+
+            fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+            fn lease_is_current(
+                &self,
+                _: &Self::Lease,
+                _: &iroha_allocation::AllocationBudget,
+            ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+                Ok(true)
+            }
+        }
+        let global = Arc::new(Global {
+            applied: AtomicU64::new(5),
+        });
+        let (clock, time) = iroha_primitives::time::TimeSource::new_mock(Duration::ZERO);
+        let source = Arc::new(FutureQueue {
+            time,
+            due: Duration::from_millis(1),
+            transaction: tx(23),
+            empty: AtomicU64::new(0),
+        });
+        let original = source.transaction.hash_as_entrypoint();
+        let mut lane = executor_with(&global, Some(source.clone()));
+        assert!(
+            matches!(
+                lane.build(1, 0, 1 << 20, 1_000),
+                Err(PublicationError::Retryable(reason)) if reason == "ClockAhead"
+            ),
+            "future-only lane work must retry instead of reporting an empty payload"
+        );
+        assert_eq!(source.empty.load(Ordering::SeqCst), 0);
+        clock.advance(Duration::from_millis(1));
+        let payload = lane
+            .build(1, 0, 1 << 20, 1_000)
+            .unwrap()
+            .expect("same queued work wakes on retry");
+        let batch = LaneBatch::from_payload(payload.as_slice()).unwrap();
+        assert_eq!(batch.transactions.len(), 1);
+        assert_eq!(batch.transactions[0].hash(), original);
+        assert_eq!(source.empty.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -944,10 +1403,10 @@ mod tests {
             parent_result: context.parent_result,
         };
         assert_eq!(
-            lane.build_control_witness(&witness),
-            Ok(ControlWitness::empty())
+            lane.build_control_witness(&witness).unwrap(),
+            ControlWitness::empty()
         );
-        assert_eq!(lane.drive_control(&context), Ok(None));
+        assert!(lane.drive_control(&context).unwrap().is_none());
         let control = ControlWitness::try_from_slice(b"unsolicited global control").unwrap();
         let sender = PublicKey::new(
             record().committee[0]
@@ -958,15 +1417,15 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        assert_eq!(
+        assert!(
             lane.receive_application_control(
                 &sender,
                 &ApplicationControl {
                     context,
                     bytes: control
                 }
-            ),
-            Ok(())
+            )
+            .is_ok()
         );
         assert!(lane.cache.is_empty());
         assert_eq!(lane.applied.height, 0);
@@ -977,17 +1436,18 @@ mod tests {
         let foreign = authored(&lane, header, valid.payload().clone());
         let foreign_hash = foreign.hash(&BlsCrypto::new());
         assert_eq!(
-            lane.execute(&foreign, &foreign_hash),
+            lane.execute(&foreign, &foreign_hash, false).unwrap(),
             Some(ExecOutcome::Invalid)
         );
         assert_eq!(
-            lane.prepare(&foreign, &qc(&foreign, Hash32([0; 32]))),
-            Ok(None)
+            lane.prepare(&foreign, &qc(&foreign, Hash32([0; 32])))
+                .unwrap(),
+            None
         );
         assert!(lane.cache.is_empty());
         assert!(matches!(
-            lane.execute(&valid, &valid.hash(&BlsCrypto::new())),
-            Some(ExecOutcome::Valid(_))
+            lane.execute(&valid, &valid.hash(&BlsCrypto::new()), false),
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
     }
 
@@ -1004,36 +1464,44 @@ mod tests {
 
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
         assert_eq!(batch.anchor_height, 5);
-        assert_eq!(batch.transactions, vec![first.clone()]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(first.clone())]
+        );
         let b1 = block(&lane, 1, Hash32::ZERO, payload);
         let h1 = b1.hash(&BlsCrypto::new());
-        let Some(ExecOutcome::Valid(r1)) = lane.execute(&b1, &h1) else {
+        let Ok(Some(ExecOutcome::Valid { result: r1, .. })) = lane.execute(&b1, &h1, false) else {
             panic!("valid");
         };
-        assert_eq!(lane.prepare(&b1, &qc(&b1, r1)), Ok(Some(r1)));
+        assert_eq!(lane.prepare(&b1, &qc(&b1, r1)).unwrap(), Some(r1));
         lane.commit(&b1, &qc(&b1, r1)).expect("commit");
         // The committed transaction is not proposed again, and a block repeating it is invalid.
         assert!(lane.build(2, 0, 1 << 20, 100).unwrap().is_none());
         let repeat = LaneBatch {
             anchor_height: 5,
             anchor_hash: anchor_hash(5),
-            transactions: vec![first],
+            transactions: vec![TransactionEntrypoint::External(first)],
         }
         .to_payload();
         let b2 = block(&lane, 2, h1, funded(&lane, repeat));
         assert_eq!(
-            lane.execute(&b2, &b2.hash(&BlsCrypto::new())),
+            lane.execute(&b2, &b2.hash(&BlsCrypto::new()), false)
+                .unwrap(),
             Some(ExecOutcome::Invalid)
         );
         // A block whose parent is neither applied nor executed is parked.
         let orphan = block(&lane, 3, Hash32([9; 32]), b1.payload().clone());
-        assert_eq!(lane.execute(&orphan, &Hash32([8; 32])), None);
+        assert!(matches!(
+            lane.execute(&orphan, &Hash32([8; 32]), false),
+            Ok(None)
+        ));
     }
 
-    /// The framed length queue admission and the queue-backed source measure.
+    /// The complete carrier frame the queue-backed lane source measures.
     fn framed_len(transaction: &SignedTransaction) -> usize {
         crate::tx::AcceptedTransaction::new_unchecked(std::borrow::Cow::Borrowed(transaction))
-            .encoded_len()
+            .entrypoint_bytes()
+            .len()
     }
 
     /// A transaction source that applies the byte budget the builder passes, as the
@@ -1043,12 +1511,18 @@ mod tests {
         budgets: Mutex<Vec<usize>>,
     }
     impl LaneTransactions for Budgeted {
+        type Lease = ();
+
         fn candidates(
             &self,
             _height: u64,
             max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<
+            (Vec<TransactionEntrypoint>, Self::Lease),
+            crate::sumeragi::lanes::executor::LaneSelectionError,
+        > {
             self.budgets.lock().push(max_bytes);
             let mut bytes = 0usize;
             let mut selected = Vec::new();
@@ -1058,9 +1532,18 @@ mod tests {
                     continue;
                 }
                 bytes = next;
-                selected.push(transaction.clone());
+                selected.push(TransactionEntrypoint::External(transaction.clone()));
             }
-            Ok(selected)
+            Ok((selected, ()))
+        }
+
+        fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+        fn lease_is_current(
+            &self,
+            _: &Self::Lease,
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+            Ok(true)
         }
     }
 
@@ -1096,7 +1579,10 @@ mod tests {
             payload.as_slice().len()
         );
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
-        assert_eq!(batch.transactions, vec![transaction]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(transaction)]
+        );
         assert_eq!(*source.budgets.lock(), vec![length - 1, length]);
         // The same budget is what the data model grants the lane route at admission (the
         // global payload here leaves no room, so the lane budget alone decides).
@@ -1118,18 +1604,36 @@ mod tests {
     /// the encoded batch with the payload limit decides what is proposed.
     struct Unbudgeted(Vec<SignedTransaction>);
     impl LaneTransactions for Unbudgeted {
+        type Lease = ();
+
         fn candidates(
             &self,
             _height: u64,
             _max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
-            Ok(self
-                .0
-                .iter()
-                .filter(|transaction| !skip.contains(&transaction.hash_as_entrypoint()))
-                .cloned()
-                .collect())
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<
+            (Vec<TransactionEntrypoint>, Self::Lease),
+            crate::sumeragi::lanes::executor::LaneSelectionError,
+        > {
+            Ok((
+                self.0
+                    .iter()
+                    .filter(|transaction| !skip.contains(&transaction.hash_as_entrypoint()))
+                    .cloned()
+                    .map(TransactionEntrypoint::External)
+                    .collect(),
+                (),
+            ))
+        }
+
+        fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+        fn lease_is_current(
+            &self,
+            _: &Self::Lease,
+            _: &iroha_allocation::AllocationBudget,
+        ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+            Ok(true)
         }
     }
 
@@ -1149,7 +1653,10 @@ mod tests {
             let batch = LaneBatch {
                 anchor_height: 5,
                 anchor_hash: anchor_hash(5),
-                transactions,
+                transactions: transactions
+                    .into_iter()
+                    .map(TransactionEntrypoint::External)
+                    .collect(),
             };
             norito::codec::encode_adaptive_into(&batch, &mut io::sink()).expect("batch length")
         };
@@ -1166,14 +1673,23 @@ mod tests {
         let payload = payload.expect("a batch of exactly the limit is proposed");
 
         assert_eq!(payload.as_slice().len(), both);
-        assert_eq!(carried(&payload), vec![first.clone(), second]);
+        assert_eq!(
+            carried(&payload),
+            vec![
+                TransactionEntrypoint::External(first.clone()),
+                TransactionEntrypoint::External(second)
+            ]
+        );
         // One byte less: the last transaction is dropped, never an oversized payload.
         let payload = lane
             .build(1, 0, u32::try_from(both - 1).unwrap(), 100)
             .unwrap();
         let payload = payload.expect("the first transaction still fits");
         assert_eq!(payload.as_slice().len(), one);
-        assert_eq!(carried(&payload), vec![first]);
+        assert_eq!(
+            carried(&payload),
+            vec![TransactionEntrypoint::External(first)]
+        );
         // The batch of one transaction is itself exact at its own length and refused below it.
         let payload = lane.build(1, 0, u32::try_from(one).unwrap(), 100).unwrap();
         assert_eq!(payload.expect("exactly one batch").as_slice().len(), one);
@@ -1207,11 +1723,14 @@ mod tests {
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("retained batch");
         assert_eq!(batch.anchor_height, 5);
         assert_eq!(batch.anchor_hash, anchor_hash(5));
-        assert_eq!(batch.transactions, vec![first]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(first)]
+        );
         let body = block(&lane, 1, Hash32::ZERO, payload);
         assert!(matches!(
-            lane.execute(&body, &body.hash(&BlsCrypto::new())),
-            Some(ExecOutcome::Valid(_))
+            lane.execute(&body, &body.hash(&BlsCrypto::new()), false),
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
     }
 
@@ -1224,19 +1743,19 @@ mod tests {
         let ahead = LaneBatch {
             anchor_height: 6,
             anchor_hash: anchor_hash(6),
-            transactions: vec![tx(2)],
+            transactions: vec![TransactionEntrypoint::External(tx(2))],
         }
         .to_payload();
         let b1 = block(&lane, 1, Hash32::ZERO, funded(&lane, ahead));
         let h1 = b1.hash(&BlsCrypto::new());
         assert!(matches!(
-            lane.execute(&b1, &h1),
-            Some(ExecOutcome::Failed(_))
+            lane.execute(&b1, &h1, false),
+            Err(PublicationError::Retryable(_))
         ));
         global.applied.store(6, Ordering::SeqCst);
         assert!(matches!(
-            lane.execute(&b1, &h1),
-            Some(ExecOutcome::Valid(_))
+            lane.execute(&b1, &h1, false),
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
         // A lane without a transaction source builds nothing.
         assert!(lane.build(1, 0, 1 << 20, 100).unwrap().is_none());
@@ -1246,3 +1765,7 @@ mod tests {
 #[cfg(test)]
 #[path = "executor/native_decode_tests.rs"]
 mod native_decode_tests;
+
+#[cfg(test)]
+#[path = "executor/queue_lease_tests.rs"]
+mod queue_lease_tests;

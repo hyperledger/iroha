@@ -71,7 +71,7 @@ fn policy_projection_full_exit_refuses_persistent_sources_before_ordinary_result
         .directory
         .path()
         .join("saved-operation.lock");
-    let lock_identity = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap();
 
     #[cfg(unix)]
     let replacements = [false, true];
@@ -82,7 +82,7 @@ fn policy_projection_full_exit_refuses_persistent_sources_before_ordinary_result
             let intent = owner.authority.original_intent().unwrap();
             let result = intent.validate_policies(if ordinary_error { &wrong } else { &policies });
             assert_eq!(
-                result.as_ref().map(|_| ()).map_err(ToString::to_string),
+                result.as_ref().copied().map_err(ToString::to_string),
                 if ordinary_error {
                     Err(policy_error.into())
                 } else {
@@ -124,7 +124,7 @@ fn policy_projection_full_exit_refuses_persistent_sources_before_ordinary_result
             retry.validate_policies(&policies).unwrap();
             retry.finish().unwrap();
             assert_eq!(
-                iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+                iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
                 lock_identity
             );
         }
@@ -162,7 +162,7 @@ fn policy_projection_full_exit_refuses_persistent_sources_before_ordinary_result
         intent.validate_policies(&policies).unwrap();
         intent.finish().unwrap();
         assert_eq!(
-            iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
             lock_identity
         );
     }
@@ -208,7 +208,7 @@ fn policy_projection_refuses_foreign_intent_and_keeps_dynamic_active_admission()
             if allocated == 1 {
                 assert!(actual.0.is_err());
             }
-            if allocated == charge && std::ptr::eq(selected, &policies) {
+            if allocated == charge && std::ptr::eq(selected, &raw const policies) {
                 assert_eq!(actual.0, Ok(()));
                 assert_eq!((actual.1, actual.2), (2, 4));
             }

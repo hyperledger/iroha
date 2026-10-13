@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""Build, lock and verify the SCCP v1 EVM (ETH/BSC) and TVM (TRON) contract artifacts.
+"""Build, lock and verify the SCCP v1 EVM (Ethereum and BSC) contract artifact.
 
-`specs/sccp.md` §5.5: one Solidity source, `contracts/evm/sccp/SccpTairaXor.sol`,
-is compiled by the Ethereum `solc` 0.8.31+commit.fd3a2265 for ETH/BSC and by the
-tronprotocol `tv_0.8.31` compiler (0.8.31+commit.c2812a3d) for TRON, with the
-legacy pipeline, `evmVersion: cancun`, optimizer runs 200 and no metadata hash
-or CBOR trailer. Both compilers ship native macOS universal (arm64 + x86-64),
-Linux x86-64 and Linux arm64 binaries; the corridor runs them natively and
-refuses Rosetta translation. Docker is not involved.
+`specs/sccp.md` §5.2.5, §5.5: `contracts/evm/sccp/SccpTairaXor.sol` and the one
+library it imports, `contracts/evm/sccp/lib/BLS12_381.sol`, are compiled by the
+Ethereum `solc` 0.8.31+commit.fd3a2265 with the legacy pipeline, `evmVersion:
+cancun`, optimizer runs 200 and no metadata hash or CBOR trailer. The same
+creation code serves Ethereum and BSC, so there is one target, `evm`. The
+compiler ships native macOS universal (arm64 + x86-64), Linux x86-64 and Linux
+arm64 binaries; the corridor runs them natively and refuses Rosetta
+translation. Docker is not involved.
 
-Requires Python 3.9+ and HTTPS access to the pinned compiler URLs on the first
-run; verified compilers are cached by SHA-256 under
+Requires Python 3.9+ and HTTPS access to the pinned compiler URL on the first
+run; the verified compiler is cached by SHA-256 under
 `target/sccp-contract-tooling/compilers`. Every cached or downloaded executable
 is re-authenticated before each execution. No environment configuration or
 runtime secret is used.
 
 Commands:
 
-* `build`   compile both targets, verify them against `artifact-lock.json` and
+* `build`   compile, verify the result against `artifact-lock.json` and
             publish `sccp-contract-artifacts-v1.json` (default directory
             `target/sccp-contract-artifacts`).
 * `verify`  re-authenticate a published manifest against the compiler lock, the
             artifact lock and the checkout sources.
-* `lock`    compile and rewrite the reviewed artifact lock, which records each
-            contract's runtime template and named immutable references.
+* `lock`    compile and rewrite the reviewed artifact lock, which records the
+            creation code of `SccpTairaXor` (`SCCP_EVM_CREATION_CODE`), its
+            runtime template and its named immutable references.
 * `materialize`, `compile-input` serve the Node test harnesses.
 """
 
@@ -58,19 +60,27 @@ DEFAULT_MANIFEST = DEFAULT_OUTPUT_DIR / MANIFEST_NAME
 MANIFEST_SCHEMA = "iroha.sccp.contract-artifacts.v1"
 ARTIFACT_LOCK_SCHEMA = "iroha.sccp.contract-artifact-lock.v1"
 COMPILER_LOCK_SCHEMA = "iroha.sccp.contract-compiler-lock.v1"
-TARGETS = ("evm", "tron")
+TARGETS = ("evm",)
 PLATFORMS = ("linux-amd64", "linux-arm64", "macos-universal")
 SOLIDITY_VERSION_PRAGMA = "pragma solidity 0.8.31;"
 SCCP_SOURCE = "contracts/evm/sccp/SccpTairaXor.sol"
 SCCP_CONTRACT = SCCP_SOURCE + ":SccpTairaXor"
-# §5.2.3 immutables that `iroha sccp deployment verify` fills into the runtime template.
+# §5.2.4 hash-to-G2 library: the only file `SccpTairaXor.sol` may import. Its
+# functions are internal, so it is inlined and never linked or deployed.
+SCCP_LIBRARY_SOURCE = "contracts/evm/sccp/lib/BLS12_381.sol"
+SCCP_LIBRARY = SCCP_LIBRARY_SOURCE + ":BLS12_381"
+SCCP_LIBRARY_IMPORT = 'import {BLS12_381} from "./lib/BLS12_381.sol";'
+SCCP_SOURCES = (SCCP_SOURCE, SCCP_LIBRARY_SOURCE)
+# §5.2.1 constructor arguments, stored as the §5.2.3 immutables that
+# `iroha sccp deployment verify` fills into the runtime template.
 EXPECTED_IMMUTABLES = (
-    "DOMAIN_SEPARATOR",
+    "CONSENSUS_INSTANCE",
+    "INITIAL_COMMITTEE_ROOT",
     "INITIAL_GENERATION",
-    "INITIAL_ROSTER_DIGEST",
+    "INITIAL_START_HEIGHT",
+    "INITIAL_UNTIL_MS",
     "MAX_WRAPPED_SUPPLY",
     "NETWORK_TAG",
-    "REQUIRE_DIRECT_CALLER",
     "ROUTE_REVISION",
     "TAIRA_NETWORK_ID",
 )
@@ -95,8 +105,7 @@ EXPECTED_SETTINGS = {
     "outputSelection": OUTPUT_SELECTION,
     "viaIR": False,
 }
-# Reviewed SHA-256 pins. Ethereum values match binaries.soliditylang.org/<platform>/list.json;
-# TRON values match the tv_0.8.31 release `shasum.txt` and GitHub asset digests.
+# Reviewed SHA-256 pins; the values match binaries.soliditylang.org/<platform>/list.json.
 EXPECTED_COMPILERS = {
     "evm": {
         "identity": "solc-0.8.31+commit.fd3a2265",
@@ -120,31 +129,6 @@ EXPECTED_COMPILERS = {
                 "sha256": "f5a243d6b2dd8fba307e36c5fefa2d8eb3ae74ba81036d1c17c971b5d346ade9",
                 "format": "macho-universal-arm64-x86-64",
                 "reported_version": "0.8.31+commit.fd3a2265.Darwin.appleclang",
-            },
-        },
-    },
-    "tron": {
-        "identity": "tron-solc-tv_0.8.31+commit.c2812a3d",
-        "banner": "solc.tron, the solidity compiler commandline interface",
-        "reported_version": "0.8.31+commit.c2812a3d",
-        "artifacts": {
-            "linux-amd64": {
-                "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-static-linux",
-                "sha256": "fa664fe58fb300ead5fb7ffda7bf75bc0b0db03fcb6f1686a53edaa16b6a9a91",
-                "format": "elf-x86-64",
-                "reported_version": "0.8.31+commit.c2812a3d.Linux.g++",
-            },
-            "linux-arm64": {
-                "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-static-linux-arm",
-                "sha256": "8388ebaba91254f2be08c334fb0d853ec6f9745797fbd5db9f952cec18a88991",
-                "format": "elf-aarch64",
-                "reported_version": "0.8.31+commit.c2812a3d.Linux.g++",
-            },
-            "macos-universal": {
-                "url": "https://github.com/tronprotocol/solidity/releases/download/tv_0.8.31/solc-macos",
-                "sha256": "a29ada19f85fbcb42e910b797b6672f6e47add7320c5cd227a72aeb6d1d08061",
-                "format": "macho-universal-arm64-x86-64",
-                "reported_version": "0.8.31+commit.c2812a3d.Darwin.appleclang",
             },
         },
     },
@@ -180,7 +164,7 @@ class NativeCompilerArtifact:
 
 @dataclass(frozen=True)
 class CompilerSpec:
-    """One target-specific compiler identity with exact native platform pins."""
+    """One compiler identity with exact native platform pins."""
 
     target: str
     identity: str
@@ -198,21 +182,6 @@ def compiler_identity(spec: CompilerSpec) -> Mapping[str, object]:
         "reported_version": spec.reported_version,
         "artifacts": {name: asdict(value) for name, value in sorted(spec.artifacts.items())},
     }
-
-
-def validate_distinct_compilers(compilers: Mapping[str, CompilerSpec]) -> None:
-    """Reject an EVM/TRON compiler alias before any compiler is fetched or executed."""
-
-    if set(compilers) != set(TARGETS):
-        raise CorridorError("compilers must define exactly the EVM and TRON targets")
-    evm, tron = compilers["evm"], compilers["tron"]
-    if evm.target != "evm" or tron.target != "tron":
-        raise CorridorError("compiler target roles are reversed or missing")
-    if compiler_identity(evm) == compiler_identity(tron):
-        raise CorridorError("EVM and TRON compiler identities must be distinct")
-    for name in sorted(set(evm.artifacts) & set(tron.artifacts)):
-        if evm.artifacts[name].sha256 == tron.artifacts[name].sha256:
-            raise CorridorError("EVM and TRON native compiler executables must be distinct")
 
 
 def _darwin_translated() -> bool:
@@ -258,18 +227,7 @@ class CorridorConfig:
     settings: Mapping[str, object]
     sources: Mapping[str, Tuple[str, ...]]
     size_limits: Mapping[str, Mapping[str, int]]
-    tvm_runner: Mapping[str, str]
     canonical_sha256: str
-
-
-@dataclass
-class CompiledTarget:
-    """Internal compiler result retained for cross-target distinctness checks."""
-
-    target: str
-    compiler_sha256: str
-    raw_contracts: Mapping[str, object]
-    manifest: Mapping[str, object]
 
 
 def _reject_constant(value: str) -> object:
@@ -462,9 +420,7 @@ def load_corridor_config(path: Path = DEFAULT_COMPILER_LOCK) -> CorridorConfig:
     """Load and strictly validate the committed compiler lock."""
 
     parsed = _require_object(parse_json_bytes(path.read_bytes(), "compiler lock"), "compiler lock")
-    _require_exact_keys(
-        parsed, ("schema", "compilers", "settings", "sources", "size_limits", "tvm_runner"), "compiler lock"
-    )
+    _require_exact_keys(parsed, ("schema", "compilers", "settings", "sources", "size_limits"), "compiler lock")
     if parsed["schema"] != COMPILER_LOCK_SCHEMA:
         raise CorridorError("compiler lock schema is unsupported")
     compiler_values = _require_object(parsed["compilers"], "compiler lock compilers")
@@ -472,7 +428,7 @@ def load_corridor_config(path: Path = DEFAULT_COMPILER_LOCK) -> CorridorConfig:
     limit_values = _require_object(parsed["size_limits"], "compiler lock size limits")
     for label, values in (("compilers", compiler_values), ("sources", source_values), ("size limits", limit_values)):
         if set(values) != set(TARGETS):
-            raise CorridorError(f"compiler lock {label} must define exactly the EVM and TRON targets")
+            raise CorridorError(f"compiler lock {label} must define exactly the EVM target")
 
     compilers: Dict[str, CompilerSpec] = {}
     sources: Dict[str, Tuple[str, ...]] = {}
@@ -488,8 +444,8 @@ def load_corridor_config(path: Path = DEFAULT_COMPILER_LOCK) -> CorridorConfig:
         keys = [_collision_key(value) for value in paths]
         if len(keys) != len(set(keys)):
             raise CorridorError(f"{target} source paths contain a portable path collision")
-        if SCCP_SOURCE not in paths:
-            raise CorridorError(f"{target} sources must include {SCCP_SOURCE}")
+        if paths != SCCP_SOURCES:
+            raise CorridorError(f"{target} sources must be exactly {SCCP_SOURCE} and {SCCP_LIBRARY_SOURCE}")
         sources[target] = paths
         limits = _require_object(limit_values[target], f"{target} size limits")
         _require_exact_keys(limits, ("creation_bytecode_bytes", "runtime_bytecode_bytes"), f"{target} size limits")
@@ -500,22 +456,14 @@ def load_corridor_config(path: Path = DEFAULT_COMPILER_LOCK) -> CorridorConfig:
             checked_limits[name] = value
         size_limits[target] = checked_limits
 
-    validate_distinct_compilers(compilers)
-    settings =_require_object(parsed["settings"], "compiler settings")
+    settings = _require_object(parsed["settings"], "compiler settings")
     if settings != EXPECTED_SETTINGS:
         raise CorridorError("compiler settings must be the reviewed §5.5 cancun legacy-pipeline settings")
-    tvm_runner = _require_object(parsed["tvm_runner"], "TVM runner")
-    _require_exact_keys(tvm_runner, ("image", "platform"), "TVM runner")
-    image = _require_string(tvm_runner["image"], "TVM runner image")
-    if not re.fullmatch(r"[a-z0-9._/-]+@sha256:[0-9a-f]{64}", image):
-        raise CorridorError("TVM runner image must use an immutable SHA-256 digest")
-    runner_platform = _require_string(tvm_runner["platform"], "TVM runner platform")
     return CorridorConfig(
         compilers=compilers,
         settings=settings,
         sources=sources,
         size_limits=size_limits,
-        tvm_runner={"image": image, "platform": runner_platform},
         canonical_sha256=sha256_hex(canonical_json_bytes(parsed)),
     )
 
@@ -826,7 +774,11 @@ def _mask_solidity_comments_and_strings(source: str, relative: str) -> str:
 
 
 def validate_solidity_source_policy(source: str, relative: str) -> None:
-    """Require the exact 0.8.31 pragma and reject the §5.5 legacy-pipeline bug patterns."""
+    """Require the exact 0.8.31 pragma and reject the §5.5 legacy-pipeline bug patterns.
+
+    `SccpTairaXor.sol` contains exactly one import, the §5.2.4 library; every
+    other source is self-contained.
+    """
 
     masked = _mask_solidity_comments_and_strings(source, relative)
     if not source.startswith("// SPDX-License-Identifier: "):
@@ -844,7 +796,15 @@ def validate_solidity_source_policy(source: str, relative: str) -> None:
         raise CorridorError(f"contract source must not use `delete` (0.8.31 legacy-pipeline policy): {relative}")
     if re.search(r"\blayout\s+at\b", masked):
         raise CorridorError(f"contract source must not declare a custom storage layout: {relative}")
-    if re.search(r"\bimport\b", masked):
+    import_tokens = list(re.finditer(r"\bimport\b", masked))
+    imports = list(re.finditer(r"\bimport\b[^;]*;", masked))
+    if len(import_tokens) != len(imports):
+        raise CorridorError(f"contract source contains an incomplete or obfuscated import: {relative}")
+    rendered_imports = [source[match.start() : match.end()] for match in imports]
+    if relative == SCCP_SOURCE:
+        if rendered_imports != [SCCP_LIBRARY_IMPORT]:
+            raise CorridorError(f"contract source must import exactly {SCCP_LIBRARY_IMPORT!r}: {relative}")
+    elif rendered_imports:
         raise CorridorError(f"contract source must be self-contained without imports: {relative}")
 
 
@@ -1086,8 +1046,8 @@ def _build_contract_records(
                     "metadata_keccak256_hex": keccak256_hex(metadata_bytes),
                 }
             )
-    if SCCP_CONTRACT not in {record["fully_qualified_name"] for record in records}:
-        raise CorridorError(f"{target} compiler did not emit {SCCP_CONTRACT}")
+    if {record["fully_qualified_name"] for record in records} != {SCCP_CONTRACT, SCCP_LIBRARY}:
+        raise CorridorError(f"{target} compiler must emit exactly {SCCP_CONTRACT} and {SCCP_LIBRARY}")
     return records
 
 
@@ -1097,8 +1057,8 @@ def compile_target(
     target: str,
     compiler_path: Path,
     runner: CompilerRunner = run_native_solc,
-) -> CompiledTarget:
-    """Compile and normalize one target through its exact compiler."""
+) -> Mapping[str, object]:
+    """Compile one target through its exact compiler and return its normalized manifest."""
 
     standard_input, source_inventory = standard_json_input(repo_root, config, target)
     input_bytes = canonical_json_bytes(standard_input)
@@ -1107,7 +1067,7 @@ def compile_target(
     contracts = _build_contract_records(
         output, target, config.compilers[target], config.size_limits[target], config.sources[target]
     )
-    manifest: Mapping[str, object] = {
+    return {
         "target": target,
         "compiler": compiler_identity(config.compilers[target]),
         "settings": config.settings,
@@ -1116,32 +1076,6 @@ def compile_target(
         "sources": source_inventory,
         "contracts": contracts,
     }
-    return CompiledTarget(
-        target=target,
-        compiler_sha256=sha256_hex(canonical_json_bytes(compiler_identity(config.compilers[target]))),
-        raw_contracts=_require_object(output.get("contracts"), f"{target} compiler contracts"),
-        manifest=manifest,
-    )
-
-
-def validate_distinct_targets(evm: CompiledTarget, tron: CompiledTarget) -> None:
-    """Reject a TRON build that is indistinguishable from the EVM build.
-
-    Both targets compile the same source with the same settings (§5.2); the TVM
-    compiler inserts TRON-specific guards, so identical bytecode proves that the
-    TRON compiler did not run.
-    """
-
-    if evm.target != "evm" or tron.target != "tron":
-        raise CorridorError("compiled target roles are reversed or missing")
-    if evm.compiler_sha256 == tron.compiler_sha256:
-        raise CorridorError("EVM and TVM compiler identities must be distinct")
-    if evm.raw_contracts is tron.raw_contracts or evm.manifest is tron.manifest:
-        raise CorridorError("EVM and TVM compiler outputs are aliased")
-    evm_code = {c["fully_qualified_name"]: c["runtime_bytecode"]["hex"] for c in evm.manifest["contracts"]}
-    tron_code = {c["fully_qualified_name"]: c["runtime_bytecode"]["hex"] for c in tron.manifest["contracts"]}
-    if evm_code.get(SCCP_CONTRACT) == tron_code.get(SCCP_CONTRACT):
-        raise CorridorError("TVM runtime bytecode is indistinguishable from the EVM build")
 
 
 def compile_corridor(
@@ -1151,23 +1085,21 @@ def compile_corridor(
     runner: CompilerRunner = run_native_solc,
     cache_dir: Optional[Path] = DEFAULT_COMPILER_CACHE,
 ) -> Mapping[str, object]:
-    """Compile both targets using separate authenticated compiler processes."""
+    """Compile the EVM target with its authenticated native compiler."""
 
-    validate_distinct_compilers(config.compilers)
     with tempfile.TemporaryDirectory(prefix="iroha-sccp-authenticated-compilers-") as temporary:
         temp_root = Path(temporary)
         os.chmod(temp_root, 0o700)
-        compiled: Dict[str, CompiledTarget] = {}
+        compiled: Dict[str, Mapping[str, object]] = {}
         for target in TARGETS:
             compiler_path = materialize_verified_compiler(
                 config.compilers[target], temp_root / f"{target}-solc", fetcher, cache_dir
             )
             compiled[target] = compile_target(repo_root, config, target, compiler_path, runner)
-        validate_distinct_targets(compiled["evm"], compiled["tron"])
     return {
         "schema": MANIFEST_SCHEMA,
         "compiler_lock_sha256_hex": config.canonical_sha256,
-        "targets": {target: compiled[target].manifest for target in TARGETS},
+        "targets": compiled,
     }
 
 
@@ -1182,6 +1114,7 @@ def _locked_contract(contract: Mapping[str, object]) -> Mapping[str, object]:
     runtime = _require_object(contract.get("runtime_bytecode"), f"{fqn} runtime")
     return {
         "creation_bytecode_bytes": creation.get("byte_length"),
+        "creation_bytecode_hex": creation.get("hex"),
         "creation_bytecode_keccak256_hex": creation.get("keccak256_hex"),
         "runtime_bytecode_bytes": runtime.get("byte_length"),
         "runtime_template_hex": runtime.get("hex"),
@@ -1192,7 +1125,12 @@ def _locked_contract(contract: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def artifact_lock_from_manifest(manifest: Mapping[str, object]) -> Mapping[str, object]:
-    """Derive the reviewable lock: sizes, runtime templates, named immutables and digests."""
+    """Derive the reviewable lock of `SccpTairaXor`.
+
+    It records the creation code (`SCCP_EVM_CREATION_CODE`, §4.14.3 P4), the
+    runtime template, the named immutables and their digests. The inlined
+    library is bound through the compiler input and manifest digests.
+    """
 
     targets = _require_object(manifest.get("targets"), "corridor manifest targets")
     locked_targets: Dict[str, object] = {}
@@ -1204,8 +1142,9 @@ def artifact_lock_from_manifest(manifest: Mapping[str, object]) -> Mapping[str, 
         locked_targets[target] = {
             "standard_json_input_sha256_hex": target_manifest.get("standard_json_input_sha256_hex"),
             "contracts": {
-                _require_object(value, f"{target} contract")["fully_qualified_name"]: _locked_contract(value)
+                SCCP_CONTRACT: _locked_contract(value)
                 for value in contracts
+                if _require_object(value, f"{target} contract").get("fully_qualified_name") == SCCP_CONTRACT
             },
         }
     return {
@@ -1217,7 +1156,7 @@ def artifact_lock_from_manifest(manifest: Mapping[str, object]) -> Mapping[str, 
 
 
 def validate_artifact_lock(manifest: Mapping[str, object], artifact_lock: Mapping[str, object]) -> None:
-    """Fail closed on compiler, input, template, immutable, ABI or manifest digest drift."""
+    """Fail closed on compiler, input, creation code, template, immutable, ABI or manifest digest drift."""
 
     _require_exact_keys(
         artifact_lock, ("schema", "compiler_lock_sha256_hex", "targets", "corridor_manifest_sha256_hex"), "artifact lock"
@@ -1229,7 +1168,7 @@ def validate_artifact_lock(manifest: Mapping[str, object], artifact_lock: Mappin
         raise CorridorError("compiler lock digest drift")
     locked_targets = _require_object(artifact_lock["targets"], "artifact lock targets")
     if set(locked_targets) != set(TARGETS):
-        raise CorridorError("artifact lock must contain exactly the EVM and TRON targets")
+        raise CorridorError("artifact lock must contain exactly the EVM target")
     for target in TARGETS:
         locked = _require_object(locked_targets[target], f"{target} artifact lock")
         _require_exact_keys(locked, ("standard_json_input_sha256_hex", "contracts"), f"{target} artifact lock")
@@ -1282,8 +1221,7 @@ def validate_manifest_integrity(manifest: Mapping[str, object], config: Corridor
         raise CorridorError("contract artifact manifest compiler lock digest mismatch")
     targets = _require_object(manifest["targets"], "manifest targets")
     if set(targets) != set(TARGETS):
-        raise CorridorError("manifest must contain exactly the EVM and TRON targets")
-    runtime_code: Dict[str, bytes] = {}
+        raise CorridorError("manifest must contain exactly the EVM target")
     for target in TARGETS:
         value = _require_object(targets[target], f"{target} target manifest")
         _require_exact_keys(
@@ -1337,11 +1275,8 @@ def validate_manifest_integrity(manifest: Mapping[str, object], config: Corridor
                 named = tuple(sorted({entry["name"] for entry in artifact["runtime_immutable_references"]}))
                 if named != EXPECTED_IMMUTABLES:
                     raise CorridorError(f"{fqn} must reference exactly the §5.2.3 immutables")
-                runtime_code[target] = runtime
-        if SCCP_CONTRACT not in seen and _collision_key(SCCP_CONTRACT) not in seen:
-            raise CorridorError(f"{target} manifest lacks {SCCP_CONTRACT}")
-    if runtime_code["evm"] == runtime_code["tron"]:
-        raise CorridorError("TVM runtime bytecode is indistinguishable from the EVM build")
+        if seen != {_collision_key(SCCP_CONTRACT), _collision_key(SCCP_LIBRARY)}:
+            raise CorridorError(f"{target} manifest must hold exactly {SCCP_CONTRACT} and {SCCP_LIBRARY}")
 
 
 def validate_manifest_source_inputs(manifest: Mapping[str, object], config: CorridorConfig, repo_root: Path) -> None:
@@ -1437,7 +1372,7 @@ def build_and_validate(
     runner: CompilerRunner = run_native_solc,
     cache_dir: Optional[Path] = DEFAULT_COMPILER_CACHE,
 ) -> Tuple[Mapping[str, object], CorridorConfig]:
-    """Compile both targets and fail closed unless they match the reviewed artifact lock."""
+    """Compile and fail closed unless the result matches the reviewed artifact lock."""
 
     config = load_corridor_config(compiler_lock_path)
     manifest = compile_corridor(repo_root, config, fetcher, runner, cache_dir)
@@ -1499,13 +1434,13 @@ def parser() -> argparse.ArgumentParser:
     """Return the corridor command-line parser."""
 
     result = argparse.ArgumentParser(
-        description="Build, lock and verify SCCP EVM and TVM contracts with authenticated native Solidity compilers."
+        description="Build, lock and verify the SCCP EVM contract with the authenticated native Solidity compiler."
     )
     subcommands = result.add_subparsers(dest="command", required=True)
 
     def add_cache(command: argparse.ArgumentParser) -> None:
         command.add_argument("--compiler-cache", type=Path, default=DEFAULT_COMPILER_CACHE)
-        command.add_argument("--no-compiler-cache", action="store_true", help="always download the pinned compilers")
+        command.add_argument("--no-compiler-cache", action="store_true", help="always download the pinned compiler")
 
     build = subcommands.add_parser("build", help="compile, verify against the lock, and publish the manifest")
     build.add_argument("--repo-root", type=Path, default=ROOT)
@@ -1530,13 +1465,13 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument("--repo-root", type=Path, default=ROOT)
     verify.set_defaults(handler=_verify_command)
 
-    materialize = subcommands.add_parser("materialize", help="authenticate and publish one native compiler")
+    materialize = subcommands.add_parser("materialize", help="authenticate and publish the native compiler")
     materialize.add_argument("--target", choices=TARGETS, required=True)
     materialize.add_argument("--output", type=Path, required=True)
     add_cache(materialize)
     materialize.set_defaults(handler=_materialize_command)
 
-    compile_input = subcommands.add_parser("compile-input", help="compile bounded standard JSON with a pinned compiler")
+    compile_input = subcommands.add_parser("compile-input", help="compile bounded standard JSON with the pinned compiler")
     compile_input.add_argument("--target", choices=TARGETS, required=True)
     compile_input.add_argument("--compiler", type=Path, required=True)
     compile_input.set_defaults(handler=_compile_input_command)

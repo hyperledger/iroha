@@ -302,6 +302,7 @@
     "native/iroha_js_host.checksums.json",
     "dist",
     "recipes/iso_bridge_builder.mjs",
+    "recipes/iso_bridge_context.mjs",
     "recipes/nexus_app_transfer.mjs",
     "race.d.ts",
     "classed-race.d.ts",

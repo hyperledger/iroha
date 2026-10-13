@@ -147,10 +147,10 @@ fn apply(
         Action::Acknowledge(record) => transition::acknowledge(
             input,
             &rows,
-            *record,
+            record,
             ack_delivery.ok_or(TransitionError::Invalid)?,
         ),
-        Action::ReleaseLease(record) => transition::release_lease(input, &rows, record.clone()),
+        Action::ReleaseLease(record) => transition::release_lease(input, &rows, record),
         Action::Expire { max_items } => transition::expire(input, &rows, *max_items),
         Action::Configure(_) | Action::Check(_) | Action::CancelReputationDelivery { .. } => {
             return Err(TransitionError::Invalid);

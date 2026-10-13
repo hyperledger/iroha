@@ -1,0 +1,34 @@
+{
+  "checked_at_utc": "2026-10-13T11:18:28.224353+00:00",
+  "complete_workspace_certificate": false,
+  "current_source_identity_matches": false,
+  "guarded_inputs": 2081,
+  "historical_report_sha256": "90b67fba04a4c7f1c73ed067eb4a8c8d5478707e05f4b4d51ddc27235da7a471",
+  "historical_report_unchanged": true,
+  "input_changes": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "after": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "before": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/allocator_refusal.rs": {
+      "after": "43ea3efc6f544c554289bff180c0d23d9fc92ccd28619a672b4235f4c81a481a",
+      "before": "cedd388cb817eb0aaac9405f256032a654762101349df1f0c20bb04e86e76fae"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "after": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "before": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "after": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "before": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "after": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "before": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "pins_refreshed": false,
+  "profile_qualified": false,
+  "schema": "parliament-adapter-post-analysis-source-check-v1",
+  "unchanged_inputs": 2076
+}

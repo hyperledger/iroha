@@ -1543,3 +1543,79 @@ mod fixture {
             .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
     }
 }
+
+#[test]
+fn single_verifier_matches_vectors_and_rejects_malformed_points_without_allocations() {
+    for key_index in 0..3 {
+        let key = bytes::<48>(PUBLIC_KEYS[key_index]);
+        let wrong_key = bytes::<48>(PUBLIC_KEYS[(key_index + 1) % 3]);
+        let admitted = admitted_key(key_index);
+        for (message, encoded_signature) in SIGNATURES[key_index].iter().enumerate() {
+            let digest = standard_digest(message);
+            let signature = bytes::<96>(encoded_signature);
+            assert!(without_allocations(|| verify_public_key(
+                &key, &digest, &signature
+            )));
+            assert!(without_allocations(|| verify(
+                &admitted, &digest, &signature
+            )));
+            assert!(!without_allocations(|| verify_public_key(
+                &key,
+                &standard_digest((message + 1) % 3),
+                &signature
+            )));
+            assert!(!without_allocations(|| verify_public_key(
+                &wrong_key, &digest, &signature
+            )));
+            for (_, bad) in rejected_public_keys() {
+                assert!(!without_allocations(|| verify_public_key(
+                    &bad, &digest, &signature
+                )));
+            }
+            for (_, bad) in rejected_signatures() {
+                assert!(!without_allocations(|| verify_public_key(
+                    &key, &digest, &bad
+                )));
+                assert!(!without_allocations(|| verify(&admitted, &digest, &bad)));
+            }
+        }
+    }
+    for context in ConsensusContext::ALL {
+        let preimage = sample_preimage(context);
+        let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+        let signature = sign(&private_key(0), &digest).unwrap();
+        let key = bytes::<48>(PUBLIC_KEYS[0]);
+        assert!(without_allocations(|| verify_public_key(
+            &key, &digest, &signature
+        )));
+        let generic = crate::Signature::try_new(&private_key(0), &preimage).unwrap();
+        let generic = generic.payload().try_into().unwrap();
+        assert!(!without_allocations(|| verify_public_key(
+            &key, &digest, &generic
+        )));
+    }
+}
+
+#[test]
+fn single_key_verifier_uses_native_suite_without_pop_or_committee_authority() {
+    let secret = private_key(0);
+    let key = bytes::<48>(PUBLIC_KEYS[0]);
+    let preimage = sample_preimage(ConsensusContext::Commit);
+    let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+    let signature = sign(&secret, &digest).unwrap();
+    assert!(verify_public_key(&key, &digest, &signature));
+    assert!(!verify_public_key(
+        &bytes::<48>(PUBLIC_KEYS[1]),
+        &digest,
+        &signature
+    ));
+    let old = Signature::try_new(&secret, &preimage).unwrap();
+    let old: [u8; 96] = old.payload().try_into().unwrap();
+    assert!(!verify_public_key(&key, &digest, &old));
+    without_allocations(|| {
+        assert!(!verify_public_key(&[0; 48], &digest, &signature));
+        assert!(!verify_public_key(&key, &digest, &identity_signature()));
+        assert!(!verify_public_key(&key, &digest, &old));
+        assert!(verify_public_key(&key, &digest, &signature));
+    });
+}

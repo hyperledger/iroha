@@ -1,0 +1,32 @@
+{
+  "source_files": {
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs": "8cd6365e2df3bcf644ebb647b3fee3be31a57f3c4250137f6b96447e496d7b25",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/driver.rs": "480fe28dad8244fc3ec5ea24fbd51620112a6163883f2bcead287ecda2898125",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/observer.rs": "53a74e057e53b0c6ce82ad7a5366ebba4a9e87ea81bc629184a29bf727118c11",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/routed_control.rs": "e888e159b3dbc83cfeb81c0c00201d5159e3f8fc78f7dc3ad6b2a1f56f6726f7",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/runtime_identity.rs": "b367ba1714bbe00fa816d69e7c9a76ea7ac9a7e03cb907d25b476a122554c0a3",
+    "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+    "Cargo.lock": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "crates/iroha_parliament_ballot_proof/examples/native_probe/np_api.h": "229be37094bb175c64888b8aac2a23b7d9ffad0f15f6a4deac8a04bef3f2ad38",
+    "scripts/prepare_parliament_ballot_native_probe.py": "2d72006e474e606b3e91d8f26c7e6920a378ff3af2a4bdb4972a4bb123c392fc"
+  },
+  "generated_files": {
+    "Cargo.lock": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "Cargo.toml": "267f12211f56bf533b3b6234ccc36f03a83c40f112f6eeb911e19b3abb3c331d",
+    "driver.rs": "412a9426610790642f72c6d68125c1ef9f96f067994c8511307d4a781baef5d6",
+    "generated_workspace.rs": "71a7a99e2ce5509afcdce89f7f111ad408d6cb49a5dea7e2d6d6ee06270e4924",
+    "observer.rs": "53a74e057e53b0c6ce82ad7a5366ebba4a9e87ea81bc629184a29bf727118c11",
+    "root-Cargo.lock.template": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "routed_control.rs": "e888e159b3dbc83cfeb81c0c00201d5159e3f8fc78f7dc3ad6b2a1f56f6726f7",
+    "runtime_identity.rs": "b367ba1714bbe00fa816d69e7c9a76ea7ac9a7e03cb907d25b476a122554c0a3",
+    "workspace.diff": "a3a9c7dbb2afff8312e422568c846256ef65cb0ed087922f48243f6ba1736d3c"
+  },
+  "root": "/Users/mtakemiya/dev/iroha",
+  "output": "/private/tmp/parliament-native-probe/worker-src-4",
+  "frozen_sources_unchanged": true,
+  "profile_qualified": false,
+  "root_lock_modified": false
+}

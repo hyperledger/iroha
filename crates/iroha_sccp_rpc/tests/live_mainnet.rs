@@ -22,14 +22,14 @@ use iroha_data_model::{
 };
 use iroha_sccp::light_client::{
     self, SccpLcError, SccpLcStateView, bsc::BscLcError, ethereum::EthereumLcError,
-    state::SccpLcMemoryStateV1, tron::TronLcError,
+    state::SccpLcMemoryStateV1,
 };
 use iroha_sccp_rpc::{
-    BeaconClient, EndpointSet, EvmClient, FailoverPolicy, HttpConfig, HttpTransport, TronClient,
+    BeaconClient, EndpointSet, EvmClient, FailoverPolicy, HttpConfig, HttpTransport,
     builders::{
         AdvanceBudgetV1, BuildError, LightClientReplayV1, SourceChainBuilder, SourceEventRefV1,
         TairaLightClientView, bsc::BscBuilder, ethereum::EthereumBuilder,
-        ethereum::EthereumEventV1, ton::TonBuilder, tron::TronBuilder,
+        ethereum::EthereumEventV1, ton::TonBuilder,
     },
     evm::{BlockId, BlockTag},
     ton::{LiteClient, LiteClientConfig, LiteServerSet},
@@ -69,7 +69,11 @@ fn bootstrap_then_advance(
         now(),
     )
     .expect("the live bootstrap verifies");
-    let mut replay = LightClientReplayV1::installed(network, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        network,
+        &initial,
+    );
     let installed = replay.light_client().expect("installed");
     println!(
         "{}: bootstrap {} bytes, set {}, head {:?}",
@@ -121,6 +125,7 @@ fn receipt_with_log(client: &EvmClient, number: u64) -> [u8; 32] {
 fn ethereum_bootstrap_and_advance_verify() {
     let execution = EvmClient::new(transport(endpoints::ETHEREUM_EXECUTION));
     let builder = EthereumBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
         BeaconClient::new(transport(endpoints::ETHEREUM_BEACON)),
         execution,
     );
@@ -163,7 +168,10 @@ fn ethereum_bootstrap_and_advance_verify() {
 #[test]
 #[ignore = "reads public BNB Smart Chain mainnet endpoints"]
 fn bsc_bootstrap_and_advance_verify() {
-    let builder = BscBuilder::new(EvmClient::new(transport(endpoints::BSC)));
+    let builder = BscBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
+        EvmClient::new(transport(endpoints::BSC)),
+    );
     let bootstrap = builder.bootstrap().expect("bootstrap");
     let replay = bootstrap_then_advance(
         SccpNetworkV1::BscMainnet,
@@ -203,62 +211,16 @@ fn bsc_bootstrap_and_advance_verify() {
 }
 
 #[test]
-#[ignore = "reads public TRON mainnet endpoints"]
-fn tron_bootstrap_and_advance_verify() {
-    let builder = TronBuilder::new(TronClient::new(transport(endpoints::TRON)));
-    let bootstrap = builder.bootstrap().expect("bootstrap");
-    let replay = bootstrap_then_advance(
-        SccpNetworkV1::TronMainnet,
-        &bootstrap,
-        Duration::from_secs(10),
-        now_ms,
-        |latest, budget| builder.advance(latest, budget),
-    );
-    let api = TronClient::new(transport(endpoints::TRON));
-    let solid = api.solidity_now_block().expect("solid block").header.number;
-    let block = api
-        .block_by_num(solid - 10)
-        .expect("block")
-        .expect("served");
-    let tx = block
-        .transactions
-        .iter()
-        .find(|transaction| {
-            let contract = &transaction.raw_data["contract"][0];
-            contract["type"].as_str() == Some("TriggerSmartContract")
-                && contract["parameter"]["value"]["call_value"].is_null()
-                && transaction
-                    .ret
-                    .first()
-                    .and_then(|ret| ret["contractRet"].as_str())
-                    == Some("SUCCESS")
-        })
-        .expect("a successful contract call")
-        .tx_id;
-    let evidence = builder
-        .evidence(&SourceEventRefV1::Tron { tx_id: tx }, &replay, now_ms())
-        .expect("the proof builds");
-    let error = replay
-        .verify_evidence(&evidence, now_ms())
-        .expect_err("an ordinary call is not an SCCP call");
-    println!(
-        "tron-mainnet: proof {} bytes, {error}",
-        evidence.proof.len()
-    );
-    assert!(
-        matches!(error, SccpLcError::Tron(TronLcError::NotSccpCall(_))),
-        "the proof must fail only at the call: {error:?}"
-    );
-}
-
-#[test]
 #[ignore = "reads public TON mainnet liteservers"]
 fn ton_bootstrap_and_advance_verify() {
-    let builder = TonBuilder::new(LiteClient::new(
-        LiteServerSet::compiled_defaults(),
-        LiteClientConfig::default(),
-        FailoverPolicy::default(),
-    ));
+    let builder = TonBuilder::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ton,
+        LiteClient::new(
+            LiteServerSet::compiled_defaults(),
+            LiteClientConfig::default(),
+            FailoverPolicy::default(),
+        ),
+    );
     let newest = builder.newest_key_block().expect("newest key block");
     let _ = bootstrap_then_advance(
         SccpNetworkV1::TonMainnet,

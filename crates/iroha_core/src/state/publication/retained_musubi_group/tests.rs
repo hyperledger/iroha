@@ -21,6 +21,10 @@ use iroha_data_model::{
 };
 use std::alloc::Layout;
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the retained pending block takes ownership of the supplied header"
+)]
 fn pending(state: &State, header: BlockHeader, replacement: bool) -> Box<StateBlock<'_>> {
     let mut block = Box::new(staged_block(state, header, replacement, true));
     let budget = state.ivm_execution_budget();
@@ -726,6 +730,96 @@ fn original_musubi_group_work_and_callback_refusal_keep_cumulative_original_pref
         block.try_publish(),
         StatePublicationOutcome::Published
     ));
+}
+
+#[test]
+fn original_musubi_group_control_refusal_returns_original_scope_and_frozen_rows() {
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let mut block = pending(&state, proposal.header(), false);
+    let original_row = {
+        let images = block.world.musubi_archives.frozen_images().unwrap();
+        std::ptr::from_ref(images.current_entries().next().unwrap().1)
+    };
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let scope_credit = budget.reserved_bytes();
+    let layout = crate::state::publication::retained_musubi_group_control_layout_for_test();
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - scope_credit)
+        .unwrap();
+    let expected = budget.try_reserve(layout).unwrap_err();
+    let (scope, cause) = block.start_original_musubi_group_read(scope).unwrap_err();
+    let RetainedMusubiGroupReadError::Control(ChargedBufferError::Admission(actual)) = cause else {
+        panic!("the original group shell must preserve its typed capacity refusal");
+    };
+    assert_eq!(
+        actual, expected,
+        "the original shell pool and release cause survive"
+    );
+    assert!(scope.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    assert!(block.original_musubi_group_read_progress().is_none());
+    let mut original_scope = Some(scope);
+    let allocations = allocations_during(|| {
+        let (returned, cause) = block
+            .start_original_musubi_group_read(original_scope.take().unwrap())
+            .unwrap_err();
+        original_scope = Some(returned);
+        let RetainedMusubiGroupReadError::Control(ChargedBufferError::Admission(actual)) = cause
+        else {
+            panic!("a repeated original shell refusal must keep the same typed cause");
+        };
+        assert_eq!(actual, expected);
+        assert!(original_scope.as_ref().unwrap().belongs_to(&budget));
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+        assert!(block.original_musubi_group_read_progress().is_none());
+    });
+    assert_eq!(
+        allocations, 0,
+        "refusal must return the admitted scope without reacquisition"
+    );
+    assert_eq!(
+        std::ptr::from_ref(
+            block
+                .world
+                .musubi_archives
+                .frozen_images()
+                .unwrap()
+                .current_entries()
+                .next()
+                .unwrap()
+                .1
+        ),
+        original_row,
+        "shell refusal cannot move or replace an original frozen field"
+    );
+    drop(occupied);
+    assert_eq!(budget.reserved_bytes(), scope_credit);
+    block
+        .start_original_musubi_group_read(original_scope.take().unwrap())
+        .unwrap_or_else(|(_, cause)| panic!("retry exact original shell: {cause:?}"));
+    assert!(
+        block
+            .advance_original_musubi_group_read(usize::MAX)
+            .unwrap()
+            .complete
+    );
+    block
+        .with_original_musubi_rows(usize::MAX, |mut rows, _| {
+            assert_eq!(
+                std::ptr::from_ref(rows.musubi_archives_current_row(0).unwrap().1),
+                original_row
+            );
+        })
+        .unwrap();
+    block.retire_original_musubi_group_read().unwrap();
+    drop(block);
+    assert_eq!(
+        budget.reserved_bytes(),
+        baseline,
+        "original group and scope retire exactly once"
+    );
 }
 
 #[test]

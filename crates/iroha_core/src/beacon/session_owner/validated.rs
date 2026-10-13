@@ -150,6 +150,9 @@ impl ValidatedGlobalThresholdBeaconSessionV1 {
         &self.owner.get().record
     }
     /// Recheck the sealed typed protocol's cryptographic release gate.
+    ///
+    /// # Errors
+    /// Returns the underlying threshold-BLS refusal when the sealed protocol is not ready.
     pub fn ensure_adaptive_protocol_ready(&self) -> Result<(), ThresholdBlsError> {
         self.transcript().ensure_adaptive_protocol_ready()
     }
@@ -163,6 +166,9 @@ impl ValidatedGlobalThresholdBeaconSessionV1 {
         self.owner.get().retained_bytes
     }
     /// Check current external identity against this immutable authenticated graph.
+    ///
+    /// # Errors
+    /// Rejects a different network, session, ordered roster or transcript identity.
     pub fn check_binding(
         &self,
         expected: &GlobalThresholdBeaconSessionBindingV1,
@@ -220,7 +226,7 @@ impl ValidatedGlobalThresholdBeaconSessionV1 {
         let remainder = reservation
             .remaining_bytes()
             .checked_sub(plan.total)
-            .ok_or(InsufficientReservation {
+            .ok_or_else(|| InsufficientReservation {
                 requested_bytes: plan.total,
                 remaining_bytes: reservation.remaining_bytes(),
             })?;

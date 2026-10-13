@@ -2,27 +2,26 @@
 
 use super::TryReadSnapshotError;
 
-pub(super) fn snapshot_read_error_is_recoverable(error: &TryReadSnapshotError) -> bool {
-    match error {
+pub fn snapshot_read_error_is_recoverable(error: &TryReadSnapshotError) -> bool {
+    // Recoverable snapshot loss still requires the caller's Strict mode and complete
+    // genesis-backed prefix; node::prepare executes every original certified block.
+    !matches!(
+        error,
         TryReadSnapshotError::IO(_, _)
-        | TryReadSnapshotError::PayloadAllocation(_)
-        | TryReadSnapshotError::PayloadAllocatorFailure { .. }
-        | TryReadSnapshotError::StateVmInitialization(_)
-        | TryReadSnapshotError::StateRead(_)
-        | TryReadSnapshotError::StateAdmission(_)
-        | TryReadSnapshotError::StateExecutionDeferred(_)
-        | TryReadSnapshotError::StateNativeSchedule(_)
-        | TryReadSnapshotError::StateNativeLaneCustody(_)
-        | TryReadSnapshotError::StateBeaconSession(_)
-        | TryReadSnapshotError::ChainIdMismatch { .. }
-        | TryReadSnapshotError::NetworkIdMismatch { .. }
-        | TryReadSnapshotError::ZkConfigInstall(_) => false,
-        // The caller additionally requires Strict mode and a complete genesis-backed
-        // prefix, then node::prepare executes original signed genesis and every certified block.
-        TryReadSnapshotError::NativeExecutionReplayRequired => true,
-        TryReadSnapshotError::MismatchedHeight { .. } => false,
-        _ => true,
-    }
+            | TryReadSnapshotError::PayloadAllocation(_)
+            | TryReadSnapshotError::PayloadAllocatorFailure { .. }
+            | TryReadSnapshotError::StateVmInitialization(_)
+            | TryReadSnapshotError::StateRead(_)
+            | TryReadSnapshotError::StateAdmission(_)
+            | TryReadSnapshotError::StateExecutionDeferred(_)
+            | TryReadSnapshotError::StateNativeSchedule(_)
+            | TryReadSnapshotError::StateNativeLaneCustody(_)
+            | TryReadSnapshotError::StateBeaconSession(_)
+            | TryReadSnapshotError::ChainIdMismatch { .. }
+            | TryReadSnapshotError::NetworkIdMismatch { .. }
+            | TryReadSnapshotError::ZkConfigInstall(_)
+            | TryReadSnapshotError::MismatchedHeight { .. }
+    )
 }
 
 #[cfg(test)]
@@ -168,12 +167,12 @@ mod tests {
             assert!(!snapshot_failure_allows_empty_state_fallback(&error, false));
             let refusal = match &error {
                 TryReadSnapshotError::PayloadAllocation(refusal)
-                | TryReadSnapshotError::StateNativeLaneCustody(LaneStateAdmissionError::Signers(
-                    CustodySignersAdmissionError::ControlAdmission(refusal),
-                ))
-                | TryReadSnapshotError::StateNativeLaneCustody(LaneStateAdmissionError::Samples(
-                    LaneSamplesAdmissionError::Admission(refusal),
-                ))
+                | TryReadSnapshotError::StateNativeLaneCustody(
+                    LaneStateAdmissionError::Signers(
+                        CustodySignersAdmissionError::ControlAdmission(refusal),
+                    )
+                    | LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Admission(refusal)),
+                )
                 | TryReadSnapshotError::StateBeaconSession(
                     iroha_core::beacon::GlobalThresholdBeaconSessionError::Admission(refusal),
                 )

@@ -310,7 +310,7 @@ mod tests {
         let ports = crate::managed::LocalnetPorts::reserve().unwrap();
         let prepared = crate::localnet::prepare_private_root("amx-bootstrap", &root, &ports, &spec)
             .expect("generate the complete original private fee, SNS and validator policy");
-        let original = RawGenesisTransaction::from_path(&root.join("genesis.json")).unwrap();
+        let original = RawGenesisTransaction::from_path(root.join("genesis.json")).unwrap();
         let client = prepared.context.load_client_config().unwrap();
         let key = &client.key_pair;
         let config_path = &prepared.peers[0].config_path;
@@ -333,7 +333,7 @@ mod tests {
             Some(iroha_core::da::proof_policy_bundle(
                 &config.nexus.lane_config,
             )),
-            iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
+            iroha_core::state::default_genesis_confidential_policy_hash(),
             Some(1_700_000_000_000),
         )
         .expect("the original participant must execute in normal private genesis staging");

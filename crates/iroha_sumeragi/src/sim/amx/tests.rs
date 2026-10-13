@@ -105,7 +105,12 @@ impl Chain {
         let indices: Vec<ValidatorIndex> = (0..signers).collect();
         let signatures: Vec<_> = indices
             .iter()
-            .map(|index| validators.signer(*index).sign(&preimage))
+            .map(|index| {
+                validators
+                    .signer(*index)
+                    .sign(&preimage)
+                    .expect("fixture signing succeeds")
+            })
             .collect();
         let qc = Qc {
             kind: VoteKind::Commit,
@@ -117,7 +122,10 @@ impl Chain {
             result,
             signers: Bitmap::from_indices(validators.committee.n(), indices.iter().copied())
                 .expect("signer bitmap"),
-            agg_sig: validators.crypto.aggregate(&signatures),
+            agg_sig: validators
+                .crypto
+                .aggregate(&signatures)
+                .expect("fixture aggregation succeeds"),
         };
         RecordProof {
             header,
@@ -177,6 +185,7 @@ fn tx(participants: &[usize], deadline: u64, nonce: u64) -> AmxTx {
             })
             .collect(),
         deadline,
+        expires_at_ms: 50_000,
         nonce,
     }
 }
@@ -197,8 +206,86 @@ fn vote(dataspaces: &[Chain], participant: usize, x: Hash32, vote: Vote) -> Reco
 
 fn begun(state: &mut GlobalState, height: u64, tx: &AmxTx) {
     let mut records = Vec::new();
-    state.begin(height, tx, &mut records);
+    state.begin(height, 0, tx, &mut records);
     assert_eq!(records.len(), 1, "a Begin record");
+}
+
+#[test]
+fn det_amx_time_sensitive_carriers_refuse_stale_time_but_certified_replay_is_exempt() {
+    use crate::sim::{
+        driver::{encode_time, fixture_body, payload_due},
+        scenario::{ClockGuard, Scenario},
+    };
+
+    let mut scenario = Scenario::base("AMX-time-sensitive-carriers", 0, 4);
+    scenario.instances = 3;
+    scenario.clock_guard = Some(ClockGuard {
+        max_clock_drift_ms: 500,
+        due_work_max_lag_ms: 5_000,
+        ..Default::default()
+    });
+    scenario.amx = Some(AmxConfig {
+        submit_loss_ppm: 0,
+        ..Default::default()
+    });
+    let mut world = World::new(scenario);
+    world.now = 20_000;
+    let r = world.machines[0].replicas[GLOBAL].unwrap();
+    let wall = u64::try_from(world.wall_ms(0)).unwrap();
+    let (dataspaces, _) = global();
+    let transaction = tx(&[D1, D2], 50, 1);
+    let proof = vote(
+        &dataspaces,
+        D1,
+        transaction.id(),
+        Vote::Yes(Hash32([4; 32])),
+    );
+    // The generic fixture author uses TEST_EPOCH; the vote proof above belongs
+    // to its independent dataspace epoch and is only an input to this carrier.
+    let header = BlockHeader {
+        instance: Hash32::ZERO,
+        epoch: crate::testing::TEST_EPOCH.id,
+        height: 1,
+        origin_view: 0,
+        parent_hash: Hash32::ZERO,
+        parent_result: Hash32::ZERO,
+        payload_hash: Hash32::ZERO,
+        availability_digest: Hash32::ZERO,
+        payload_len: 0,
+        proposer: 0,
+        skipped_leaders: Vec::new(),
+        control_witness: ControlWitness::empty(),
+    };
+    let inputs = [
+        Input::Begin(transaction.clone()),
+        Input::Vote(Box::new(proof)),
+        Input::Expire(transaction.id()),
+    ];
+    for input in inputs {
+        let id = world.amx.as_mut().unwrap().register(GLOBAL, input);
+        world.amx_submit(GLOBAL, id);
+        let submitted = world.replicas[r].txs.get(&id).unwrap().clone();
+        assert!(
+            payload_due(&submitted),
+            "Begin and Vote carriers must enforce certified-time freshness alongside Expire"
+        );
+        for (lag, expected) in [(5_000, None), (5_001, Some("StaleDueWork"))] {
+            let bytes = encode_time(wall - lag)
+                .into_iter()
+                .chain(submitted.iter().copied())
+                .collect::<Vec<_>>();
+            let body = fixture_body(header.clone(), &bytes);
+            assert_eq!(
+                world.clock_guard_refusal(r, &body, &Hash32::ZERO, false),
+                expected.map(|cause| ExecOutcome::Failed(cause.to_owned()))
+            );
+            assert_eq!(
+                world.clock_guard_refusal(r, &body, &Hash32::ZERO, true),
+                None,
+                "time-sensitive application inputs cannot invalidate already certified replay"
+            );
+        }
+    }
 }
 
 #[test]
@@ -212,6 +299,7 @@ fn det_amx_commit_needs_every_yes() {
         state.vote(
             &crypto(),
             height,
+            0,
             &vote(&dataspaces, participant, x, Vote::Yes(Hash32([4; 32]))),
             &mut records,
         );
@@ -223,6 +311,7 @@ fn det_amx_commit_needs_every_yes() {
     state.vote(
         &crypto(),
         13,
+        0,
         &vote(&dataspaces, D3, x, Vote::Yes(Hash32([4; 32]))),
         &mut records,
     );
@@ -245,6 +334,7 @@ fn det_amx_no_commit_after_deadline() {
     state.vote(
         &crypto(),
         15,
+        0,
         &vote(&dataspaces, D1, x, Vote::Yes(Hash32([4; 32]))),
         &mut records,
     );
@@ -252,6 +342,7 @@ fn det_amx_no_commit_after_deadline() {
     state.vote(
         &crypto(),
         21,
+        0,
         &vote(&dataspaces, D2, x, Vote::Yes(Hash32([4; 32]))),
         &mut records,
     );
@@ -301,10 +392,11 @@ fn det_amx_second_begin_rejected() {
     state.vote(
         &crypto(),
         11,
+        0,
         &vote(&dataspaces, D1, x, Vote::Yes(Hash32([4; 32]))),
         &mut records,
     );
-    state.begin(12, &t, &mut records);
+    state.begin(12, 0, &t, &mut records);
     assert!(records.is_empty(), "a second Begin for x records nothing");
     assert!(state.txs[&x].yes.contains(&D1), "the recorded vote stays");
     // Begins outside the window or naming an unregistered participant are rejected too.
@@ -313,7 +405,7 @@ fn det_amx_second_begin_rejected() {
         tx(&[D1, D2], 13 + MAX_WINDOW, 6),
         tx(&[D1, 9], 40, 7),
     ] {
-        state.begin(12, &bad, &mut records);
+        state.begin(12, 0, &bad, &mut records);
     }
     assert!(records.is_empty());
 }
@@ -351,7 +443,7 @@ fn det_amx_forged_vote_rejected() {
         2,
     );
     for proof in [&foreign, &stolen, &short] {
-        state.vote(&crypto(), 11, proof, &mut records);
+        state.vote(&crypto(), 11, 0, proof, &mut records);
     }
     assert!(
         records.is_empty(),
@@ -378,7 +470,7 @@ fn det_amx_record_bound_to_result() {
         state.trackers[&D1].verify(&crypto(), &rewritten),
         Err(ProofError::Result)
     );
-    state.vote(&crypto(), 11, &rewritten, &mut records);
+    state.vote(&crypto(), 11, 0, &rewritten, &mut records);
     assert!(records.is_empty(), "the rewritten record is not certified");
     // An index outside the disclosed records proves nothing.
     let mut outside = vote(&dataspaces, D1, x, Vote::No);
@@ -410,6 +502,7 @@ fn begin_proof(global: &Chain, t: &AmxTx, height: u64) -> RecordProof {
             x: t.id(),
             participants: t.participants(),
             deadline: t.deadline,
+            expires_at_ms: t.expires_at_ms,
         }],
         0,
     )
@@ -695,4 +788,128 @@ fn amx_result_binds_every_record_in_order() {
     assert!(!tx(&[D1], 30, 1).well_formed());
     assert!(!tx(&[D2, D1], 30, 1).well_formed());
     assert!(!tx(&[GLOBAL, D1], 30, 1).well_formed());
+}
+
+#[test]
+fn det_amx_time_expiry_orders_last_yes_and_expire_identically() {
+    for (time, expire_first, expected) in [
+        (999, false, Outcome::Commit),
+        (999, true, Outcome::Commit),
+        (1_000, false, Outcome::Abort),
+        (1_000, true, Outcome::Abort),
+        (1_001, false, Outcome::Abort),
+        (1_001, true, Outcome::Abort),
+    ] {
+        let (dataspaces, mut state) = global();
+        let mut transaction = tx(&[D1, D2], 50, 201);
+        transaction.expires_at_ms = 1_000;
+        let x = transaction.id();
+        begun(&mut state, 10, &transaction);
+        let mut records = Vec::new();
+        state.vote(
+            &crypto(),
+            11,
+            500,
+            &vote(&dataspaces, D1, x, Vote::Yes(Hash32([4; 32]))),
+            &mut records,
+        );
+        assert!(records.is_empty());
+        if expire_first {
+            state.expire_transaction(x, 12, time, &mut records);
+        }
+        state.vote(
+            &crypto(),
+            12,
+            time,
+            &vote(&dataspaces, D2, x, Vote::Yes(Hash32([4; 32]))),
+            &mut records,
+        );
+        if !expire_first {
+            state.expire_transaction(x, 12, time, &mut records);
+        }
+        assert_eq!(
+            records,
+            vec![Record::Decision {
+                x,
+                outcome: expected
+            }],
+            "signed time expiry must dominate the last Yes at the exact boundary regardless of payload order"
+        );
+        records.clear();
+        state.expire_transaction(x, 13, 2_000, &mut records);
+        state.expire_transaction(Hash32([0xEE; 32]), 13, 2_000, &mut records);
+        assert!(
+            records.is_empty(),
+            "unknown and already-decided obligations emit no Abort"
+        );
+    }
+}
+
+#[test]
+fn det_amx_time_expiry_is_bound_and_already_due_begin_is_rejected() {
+    let (_, mut state) = global();
+    let mut transaction = tx(&[D1, D2], 50, 202);
+    transaction.expires_at_ms = 1_000;
+    let original = transaction.id();
+    let mut changed = transaction.clone();
+    changed.expires_at_ms += 1;
+    assert_ne!(
+        original,
+        changed.id(),
+        "exact expiry is part of authorized terms"
+    );
+    for time in [1_000, 1_001] {
+        let mut records = Vec::new();
+        state.begin(10, time, &transaction, &mut records);
+        assert!(
+            records.is_empty() && state.txs.is_empty(),
+            "already-due Begin cannot enter and prune in one block"
+        );
+    }
+    let mut records = Vec::new();
+    changed.expires_at_ms = MAX_TIME_WINDOW_MS + 1;
+    state.begin(10, 0, &changed, &mut records);
+    assert!(records.is_empty() && state.txs.is_empty());
+    state.begin(10, 999, &transaction, &mut records);
+    assert!(matches!(
+        records.as_slice(),
+        [Record::Begin {
+            expires_at_ms: 1_000,
+            ..
+        }]
+    ));
+    records.clear();
+    state.expire_transaction(original, 11, 999, &mut records);
+    assert!(
+        records.is_empty(),
+        "scheduler wakeup cannot authorize early expiry"
+    );
+    state.expire_transaction(original, 11, 1_000, &mut records);
+    assert_eq!(
+        records,
+        vec![Record::Decision {
+            x: original,
+            outcome: Outcome::Abort
+        }]
+    );
+
+    let global = chain(0, &[(1, 100)]);
+    let mut participant = dataspace(&global);
+    let changed_begin = global.certify(
+        0,
+        10,
+        vec![Record::Begin {
+            x: original,
+            participants: transaction.participants(),
+            deadline: transaction.deadline,
+            expires_at_ms: transaction.expires_at_ms + 1,
+        }],
+        0,
+    );
+    let mut prepared = Vec::new();
+    participant.prepare(&crypto(), &transaction, &changed_begin, &mut prepared);
+    assert!(
+        prepared.is_empty() && participant.escrows.is_empty(),
+        "even a certified Begin must bind the full exact expiry terms"
+    );
 }

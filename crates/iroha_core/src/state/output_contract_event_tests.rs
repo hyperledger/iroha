@@ -47,14 +47,14 @@ fn invocation(address: &ContractAddress, hash: Hash, name: &str) -> ContractInvo
     }
 }
 
-const SOURCE: &str = r#"
+const SOURCE: &str = r"
 seiyaku EmissionOutput {
     error enum Failure { Rejected = 1 }
   event Accepted { bool flag; }
   kotoage fn publish() authorize(anyone) { emit Accepted { flag: true }; }
   kotoage fn reject() authorize(anyone) { emit Accepted { flag: false }; require(false, Failure::Rejected); }
 }
-"#;
+";
 
 #[test]
 fn actual_network_output_retains_native_emissions_and_rejection_discards_them() {
@@ -146,7 +146,8 @@ fn actual_pipeline_output_owns_its_emissions_separately_from_network() {
             policy.max_pipeline_triggers = 1;
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+                .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         {

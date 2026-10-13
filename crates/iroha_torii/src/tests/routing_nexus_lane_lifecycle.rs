@@ -54,7 +54,8 @@ fn lane_lifecycle_status_exposes_native_runtime_root_and_propagates_invalid_stat
     world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(runtime.into_custom_parameter().unwrap()));
+        .set_parameter(Parameter::Custom(runtime.into_custom_parameter().unwrap()))
+        .expect("install the committed runtime catalog fixture");
     world.commit();
     let status = handle_get_nexus_lane_lifecycle(&state).unwrap();
     assert_eq!(status.runtime_catalog_hash, Some(expected));
@@ -67,7 +68,8 @@ fn lane_lifecycle_status_exposes_native_runtime_root_and_propagates_invalid_stat
         .set_parameter(Parameter::Custom(CustomParameter::new(
             NexusRuntimeCatalogV1::parameter_id(),
             iroha_primitives::json::Json::new(norito::json!({"version": 255})),
-        )));
+        )))
+        .expect("store the malformed catalog fixture for native decoder rejection");
     world.commit();
     let error = handle_get_nexus_lane_lifecycle(&state)
         .expect_err("malformed protected state must never become an absent runtime root");

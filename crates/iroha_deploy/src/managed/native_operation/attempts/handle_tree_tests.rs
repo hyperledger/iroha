@@ -10,10 +10,13 @@ fn handle_tree_keeps_genuine_rows_fresh_records_and_late_active_decode_refusal()
     let fixture = Fixture::new();
     canonical_rows(&fixture);
     let history = fixture.history().unwrap();
-    let original = history.attempts[0]
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(history.attempts[0].ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let identities: Vec<_> = history
         .attempts
         .iter()
@@ -32,10 +35,13 @@ fn handle_tree_keeps_genuine_rows_fresh_records_and_late_active_decode_refusal()
     assert_eq!(counts.requested, 0);
     assert_eq!(history.reserved_attempt_count(), 3);
     history.require_current().unwrap();
-    history.attempts[0]
-        .directory
-        .write_atomic("authorization.nrt", b"not canonical", PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(history.attempts[0].ordinal()),
+        "authorization.nrt",
+        Some(b"not canonical"),
+    )
+    .unwrap();
     // Handles authenticate custody only; the unchanged canonical currentness owner must
     // reject new bytes even immediately after a successful tree census.
     history.revalidate_retained_handles().unwrap();
@@ -44,10 +50,13 @@ fn handle_tree_keeps_genuine_rows_fresh_records_and_late_active_decode_refusal()
         Err(crate::managed::Error::Invalid(message))
             if message == "invalid canonical dispatch custody record"
     ));
-    history.attempts[0]
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(history.attempts[0].ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     for allocation in [0, 1] {
         let limits = norito::DecodeLimits::new(
             MAX_RECORD_BYTES,
@@ -71,10 +80,13 @@ fn handle_tree_keeps_genuine_rows_fresh_records_and_late_active_decode_refusal()
         identities
     );
     assert_eq!(
-        history.attempts[0]
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(history.attempts[0].ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
 }
@@ -87,10 +99,13 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
     let fixture = Fixture::new();
     let attempt = fixture.reserve();
     let mut history = fixture.history().unwrap();
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let root = history.root.as_ref().unwrap().retain().unwrap();
     let row = history.attempts[0].directory.retain().unwrap();
     for (directory, label) in [
@@ -107,7 +122,7 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
         std::fs::set_permissions(directory.path(), permissions).unwrap();
         history.revalidate_retained_handles().unwrap();
         let displaced = fixture
-            ._temporary
+            .temporary
             .path()
             .join(format!("held-handle-{label}"));
         std::fs::rename(directory.path(), &displaced).unwrap();
@@ -126,7 +141,7 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
         assert_eq!(directory.identity().unwrap(), identity);
     }
     // A separately opened same-path row cannot borrow the anchor's native prefix.
-    history.attempts[0].directory = PrivateDirectory::open(row.path()).unwrap();
+    replace_first_directory(&mut history, PrivateDirectory::open(row.path()).unwrap());
     let result = fixture.operation.read_tree_scope(|tree| {
         std::fs::set_permissions(
             fixture.operation.path(),
@@ -145,26 +160,38 @@ fn handle_tree_refuses_each_original_native_edge_and_reopened_foreign_fallbacks(
         matches!(result, Err(crate::managed::Error::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
     );
     history.revalidate_retained_handles().unwrap();
-    history.attempts[0].directory = row.retain().unwrap();
+    replace_first_directory(&mut history, row.retain().unwrap());
     let foreign =
-        PrivateDirectory::open_or_create(fixture._temporary.path().join("foreign-handles"))
-            .unwrap();
+        PrivateDirectory::open_or_create(fixture.temporary.path().join("foreign-handles")).unwrap();
     let foreign_row = foreign.create_child("row").unwrap();
-    history.attempts[0].directory = foreign_row.retain().unwrap();
+    replace_first_directory(&mut history, foreign_row.retain().unwrap());
     std::fs::set_permissions(foreign.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
         matches!(history.revalidate_retained_handles(), Err(crate::managed::Error::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
     );
     std::fs::set_permissions(foreign.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     history.revalidate_retained_handles().unwrap();
-    history.attempts[0].directory = row.retain().unwrap();
+    replace_first_directory(&mut history, row.retain().unwrap());
     history.require_current().unwrap();
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     assert!(!attempt.wallet_path().exists());
+}
+
+// Only the canonical owned fixture is mutated by these exact-native-owner controls. Shared
+// terminal records deliberately have no production or test DerefMut/Arc mutation path.
+#[cfg(unix)]
+fn replace_first_directory(history: &mut History, directory: PrivateDirectory) {
+    let HistoryRecordsOwner::Owned(records) = &mut history.records else {
+        panic!("native handle substitution fixture must keep canonical owned records");
+    };
+    records.attempts[0].directory = directory;
 }

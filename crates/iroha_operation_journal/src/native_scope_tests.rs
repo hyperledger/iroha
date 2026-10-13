@@ -8,6 +8,11 @@ fn limits(allocation: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(0, 0, 0, allocation, 0)
 }
 
+// A free function keeps both original scope lifetimes independently late-bound.
+fn scoped_dispatch_evidence(read: &mut NativeJournalReadScope<'_, '_>) -> Result<bool> {
+    read.has_dispatch_evidence()
+}
+
 #[test]
 fn native_scope_preserves_exact_cumulative_allocation_refusals_absence_and_retry() {
     let root = tempfile::tempdir().unwrap();
@@ -38,7 +43,7 @@ fn native_scope_preserves_exact_cumulative_allocation_refusals_absence_and_retry
                 format!("{:#}", expected.unwrap_err())
             );
             assert!(
-                matches!(actual.downcast_ref::<norito::Error>().and_then(|error| error.decode_resource_error()),
+                matches!(actual.downcast_ref::<norito::Error>().and_then(norito::Error::decode_resource_error),
                 Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit })
                     if attempted == u64::try_from(first.len()).unwrap() && limit == u64::try_from(allocation).unwrap())
             );
@@ -134,11 +139,7 @@ fn native_scope_preserves_lazy_canonical_failure_and_submission_short_circuit() 
         .unwrap()
         .set_len(u64::try_from(MAX_JOURNAL_BYTES + 1).unwrap())
         .unwrap();
-    assert!(
-        journal
-            .read_native_scope(|read| read.has_dispatch_evidence())
-            .unwrap()
-    );
+    assert!(journal.read_native_scope(scoped_dispatch_evidence).unwrap());
     assert!(
         journal
             .read_native_scope(|read| read.submission_recorded(&request))

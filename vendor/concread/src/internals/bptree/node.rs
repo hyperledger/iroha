@@ -2649,10 +2649,10 @@ mod tests {
 #[path = "clone_unwind_tests.rs"]
 mod clone_unwind_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "allocation_tests.rs"]
 pub(crate) mod allocation_tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "cloning_tests.rs"]
 mod cloning_tests;

@@ -307,6 +307,53 @@ test_dry_run_renders_and_checks_required_alias() {
   }
 }
 
+test_dry_run_forwards_explicit_public_bootstrap_directory() {
+  local root
+  root="$(canonical_test_root)"
+  cleanup_paths+=("$root")
+  make_fake_repo "$root"
+
+  run_fake_script "$root" \
+    --output "${root}/dist/taira-edge/taira.sora.org.conf" \
+    --target-conf "${root}/nginx/servers/taira.sora.org.conf" \
+    --bootstrap-publication-dir /srv/iroha-taira/public-bootstrap/release-1197 \
+    >"${root}/state/stdout"
+  python3 - "${root}/state/renderer.args" <<'PYTEST'
+import sys
+from pathlib import Path
+arguments = Path(sys.argv[1]).read_text().splitlines()
+assert arguments.count("--bootstrap-publication-dir") == 1
+index = arguments.index("--bootstrap-publication-dir")
+assert arguments[index + 1] == "/srv/iroha-taira/public-bootstrap/release-1197"
+PYTEST
+  assert_contains "${root}/state/stdout" "dry run only"
+  [[ ! -e "${root}/nginx/servers/taira.sora.org.conf" ]]
+}
+
+test_bootstrap_directory_requires_one_explicit_nonempty_value() {
+  local root
+  root="$(canonical_test_root)"
+  cleanup_paths+=("$root")
+  make_fake_repo "$root"
+  if run_fake_script "$root" --bootstrap-publication-dir >"${root}/state/stdout" 2>"${root}/state/stderr"; then
+    echo "accepted a missing public bootstrap directory" >&2
+    exit 1
+  fi
+  assert_contains "${root}/state/stderr" "missing value for --bootstrap-publication-dir"
+  if run_fake_script "$root" --bootstrap-publication-dir "" >"${root}/state/stdout" 2>"${root}/state/stderr"; then
+    echo "accepted an empty public bootstrap directory" >&2
+    exit 1
+  fi
+  assert_contains "${root}/state/stderr" "missing value for --bootstrap-publication-dir"
+  if run_fake_script "$root" --bootstrap-publication-dir /srv/public-a \
+    --bootstrap-publication-dir /srv/public-b >"${root}/state/stdout" 2>"${root}/state/stderr"; then
+    echo "accepted ambiguous public bootstrap directories" >&2
+    exit 1
+  fi
+  assert_contains "${root}/state/stderr" "must be supplied only once"
+  [[ ! -e "${root}/state/renderer.args" ]]
+}
+
 test_dry_run_rejects_invalid_rendered_nginx() {
   local root
   root="$(canonical_test_root)"
@@ -858,6 +905,8 @@ test_install_rejects_unsafe_existing_target_metadata() {
 }
 
 test_dry_run_renders_and_checks_required_alias
+test_dry_run_forwards_explicit_public_bootstrap_directory
+test_bootstrap_directory_requires_one_explicit_nonempty_value
 test_dry_run_rejects_invalid_rendered_nginx
 test_install_rejects_rendered_source_drift_after_validation
 test_install_reload_copies_and_reloads

@@ -190,7 +190,7 @@ pub fn prepare_private_root(
     prepare_private_root_at(name, directory, ports, spec, None)
 }
 
-pub(crate) fn prepare_private_root_at(
+pub fn prepare_private_root_at(
     name: &str,
     directory: &Path,
     ports: &LocalnetPorts,
@@ -200,7 +200,7 @@ pub(crate) fn prepare_private_root_at(
     prepare_private_root_selected(name, directory, ports, spec, publication_root, None)
 }
 
-pub(crate) fn prepare_private_root_with_amx_at(
+pub fn prepare_private_root_with_amx_at(
     name: &str,
     directory: &Path,
     ports: &LocalnetPorts,
@@ -231,29 +231,26 @@ fn prepare_private_root_selected(
     })?;
     if directory.exists() {
         let root = iroha_fs::PrivateDirectory::open(directory)?;
-        match root.read_optional(PREPARED, 1024 * 1024)? {
-            Some(bytes) => {
-                if publication_root.is_some() {
-                    return Err(Error::Invalid(
-                        "publication stage already contains a prepared identity".into(),
-                    ));
-                }
-                let retained: RetainedPrivateRoot = norito::json::from_slice(&bytes)
-                    .map_err(|_| Error::Invalid("retained private root is invalid".into()))?;
-                if retained.spec != *spec || retained.prepared.context.name != name {
-                    return Err(Error::Invalid(
-                        "retained private-root identity differs".into(),
-                    ));
-                }
-                verify_retained(root.path(), &retained.prepared, spec)?;
-                if let Some(sources) = amx {
-                    sources
-                        .require_signed_generation(&retained.prepared)
-                        .map_err(|error| Error::Invalid(error.to_string()))?;
-                }
-                return Ok(retained.prepared);
+        if let Some(bytes) = root.read_optional(PREPARED, 1024 * 1024)? {
+            if publication_root.is_some() {
+                return Err(Error::Invalid(
+                    "publication stage already contains a prepared identity".into(),
+                ));
             }
-            None => {}
+            let retained: RetainedPrivateRoot = norito::json::from_slice(&bytes)
+                .map_err(|_| Error::Invalid("retained private root is invalid".into()))?;
+            if retained.spec != *spec || retained.prepared.context.name != name {
+                return Err(Error::Invalid(
+                    "retained private-root identity differs".into(),
+                ));
+            }
+            verify_retained(root.path(), &retained.prepared, spec)?;
+            if let Some(sources) = amx {
+                sources
+                    .require_signed_generation(&retained.prepared)
+                    .map_err(|error| Error::Invalid(error.to_string()))?;
+            }
+            return Ok(retained.prepared);
         }
     }
     let mut prepared = prepare_fresh(name, directory, ports, spec, publication_root, amx)
@@ -280,7 +277,7 @@ fn prepare_private_root_selected(
     Ok(prepared)
 }
 
-pub(crate) fn verify_retained(
+pub fn verify_retained(
     root: &Path,
     prepared: &PreparedLocalnet,
     spec: &PrivateRootSpec,
@@ -305,10 +302,8 @@ pub(crate) fn verify_retained(
     let client = prepared.context.load_client_config()?;
     prepared.load_operator_key_pair()?;
     verify_private_credentials(prepared, spec)?;
-    let bytes = iroha_fs::read_private(
-        &root.join("genesis.signed.nrt"),
-        SIGNED_GENESIS_MAX_BYTES_V1,
-    )?;
+    let bytes =
+        iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)?;
     let block =
         iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| invalid())?;
     let metadata = iroha_data_model::sumeragi_finality::authenticated_genesis(&block)
@@ -323,12 +318,31 @@ pub(crate) fn verify_retained(
     let management = Permission::from(CanManageSmartContractCode);
     let mut found_owner = false;
     let mut found_fees = false;
+    let mut found_gas_custody = false;
+    // The signed child account literal belongs to its retained client profile, even when a
+    // parent-network caller carries a different ambient I105 discriminant.
+    let expected_gas = localnet_gas_account_id(client.key_pair.public_key())
+        .to_i105_for_discriminant(client.account_chain_discriminant)
+        .map_err(|_| invalid())?;
     let expected_fees = private_fee_policy(spec).map_err(|_| invalid())?;
     for transaction in block.external_transactions() {
         if transaction.authority() != &client.account {
             return Err(invalid());
         }
         for instruction in transaction.instructions().explicit_instructions() {
+            if let Some(set_parameter) = instruction.as_any().downcast_ref::<SetParameter>()
+                && let Parameter::Custom(parameter) = set_parameter.inner()
+                && parameter.id() == &localnet_custom_parameter_id("ivm_gas_tech_account_id")
+            {
+                let literal: String = parameter
+                    .payload()
+                    .try_into_any_norito()
+                    .map_err(|_| invalid())?;
+                if found_gas_custody || literal != expected_gas {
+                    return Err(invalid());
+                }
+                found_gas_custody = true;
+            }
             if let Some(set_parameter) = instruction.as_any().downcast_ref::<SetParameter>()
                 && let Parameter::Custom(parameter) = set_parameter.inner()
                 && parameter.id() == &PrivateRootFeePolicy::parameter_id()
@@ -351,7 +365,7 @@ pub(crate) fn verify_retained(
             }
         }
     }
-    if !found_owner || !found_fees {
+    if !found_owner || !found_fees || !found_gas_custody {
         return Err(invalid());
     }
     Ok(())
@@ -390,15 +404,21 @@ fn verify_private_credentials(
             )
             .map_err(|_| invalid())?,
         );
-        let gas_account = table
-            .get("pipeline")
-            .and_then(|value| value.get("gas"))
-            .and_then(|value| value.get("tech_account_id"))
+        let genesis_public: iroha_crypto::PublicKey = table
+            .get("genesis")
+            .and_then(|value| value.get("public_key"))
             .and_then(toml::Value::as_str)
-            .ok_or_else(invalid)?;
+            .ok_or_else(invalid)?
+            .parse()
+            .map_err(|_| invalid())?;
+        let gas_account = localnet_gas_account_id(&genesis_public)
+            .to_i105_for_discriminant(
+                iroha_config::parameters::defaults::common::chain_discriminant(),
+            )
+            .map_err(|_| invalid())?;
         let expected = private_fee_configuration(
             &private_fee_policy(spec).map_err(|_| invalid())?,
-            gas_account,
+            &gas_account,
         );
         if table.get("nexus").and_then(|value| value.get("fees"))
             != Some(&toml::Value::Table(expected))
@@ -445,15 +465,15 @@ fn prepare_fresh(
     OsRng
         .try_fill_bytes(token_bytes.as_mut())
         .map_err(|error| eyre!("private-root token generation failed: {error}"))?;
-    let api_token = Zeroizing::new(hex::encode(&*token_bytes));
+    let api_token = Zeroizing::new(hex::encode(*token_bytes));
     let runtime = root.join(LOCALNET_RUNTIME_DIRECTORY);
     custody::create_directory(&runtime)?;
     custody::write(
-        &runtime.join(LOCALNET_OPERATOR_SIGNER_KEY_FILE),
+        runtime.join(LOCALNET_OPERATOR_SIGNER_KEY_FILE),
         Zeroizing::new(format!("{}\n", operator.private_key.as_str())).as_bytes(),
     )?;
     custody::write(
-        &runtime.join(LOCALNET_LEDGER_SIGNER_KEY_FILE),
+        runtime.join(LOCALNET_LEDGER_SIGNER_KEY_FILE),
         Zeroizing::new(format!("{}\n", owner.private_key.as_str())).as_bytes(),
     )?;
     prepare_managed_node_directories(&root, peers.len())?;
@@ -543,7 +563,7 @@ fn prepare_fresh(
             None,
             LOCALNET_QUEUE_CAPACITY,
         );
-        let configured = private_peer_config(&raw, spec, &api_token)?;
+        let configured = private_peer_config(&raw, spec, &api_token, &gas_literal)?;
         managed_peer_config(&configured, &managed_node_dir(render_root, index))
     };
     let bootstrap = render(
@@ -565,9 +585,7 @@ fn prepare_fresh(
         signed_path: &signed_path,
         policies: GenesisConsensusPolicies {
             da_proof_policies: Some(resolve_localnet_da_proof_policies(&config)),
-            confidential_policy_hash: iroha_core::state::compute_genesis_confidential_policy_hash(
-                &config.zk,
-            ),
+            confidential_policy_hash: iroha_core::state::default_genesis_confidential_policy_hash(),
         },
     })?;
     write_and_validate_genesis_expected_hash(
@@ -598,7 +616,16 @@ fn prepare_fresh(
         };
         custody::write(&path, rendered.as_bytes())?;
     }
-    write_client_config(&root, ports.base_api, &hosts, &chain, None, &owner, None)?;
+    write_client_config(
+        &root,
+        ports.base_api,
+        &hosts,
+        &chain,
+        None,
+        &owner,
+        HttpTransportPolicy::DirectLoopback,
+        None,
+    )?;
     let client_path = root.join("client.toml");
     let client = iroha_fs::read_private(&client_path, 1024 * 1024)?;
     let mut table = crate::secret_toml::Table::new(crate::secret_toml::parse_table(
@@ -653,19 +680,13 @@ fn private_peer_config(
     raw: &str,
     spec: &PrivateRootSpec,
     api_token: &str,
+    gas_account: &str,
 ) -> Result<Zeroizing<String>> {
     use toml::{Table, Value};
     let mut root = crate::secret_toml::Table::new(crate::secret_toml::parse_table(
         raw,
         "private-root validator",
     )?);
-    let gas_account = root
-        .get("pipeline")
-        .and_then(|value| value.get("gas"))
-        .and_then(|value| value.get("tech_account_id"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| eyre!("private-root gas account is absent"))?
-        .to_owned();
     let nexus = root
         .get_mut("nexus")
         .and_then(Value::as_table_mut)
@@ -708,7 +729,7 @@ fn private_peer_config(
         "fees".into(),
         Value::Table(private_fee_configuration(
             &private_fee_policy(spec)?,
-            &gas_account,
+            gas_account,
         )),
     );
     let torii = root
@@ -724,7 +745,7 @@ fn private_peer_config(
     Ok(Zeroizing::new(toml::to_string(&*root)?))
 }
 
-pub(crate) fn private_fee_policy(spec: &PrivateRootSpec) -> Result<PrivateRootFeePolicy> {
+pub fn private_fee_policy(spec: &PrivateRootSpec) -> Result<PrivateRootFeePolicy> {
     let policy = PrivateRootFeePolicy {
         asset_definition_id: AssetDefinitionId::derive_from_components(
             DomainId::parse_fully_qualified(&format!("app.{}", spec.dataspace_alias))?,
@@ -780,6 +801,7 @@ fn private_genesis(
     let mut builder = GenesisBuilder::new_without_executor(chain.parse()?, PathBuf::from("."))
         .with_sumeragi_context_parameters(context);
     let mut parameters = Parameters::default();
+    parameters.set_parameter(localnet_gas_custody_parameter(gas));
     parameters.set_parameter(Parameter::Custom(
         private_fee_policy(spec)?.into_custom_parameter()?,
     ));
@@ -893,7 +915,7 @@ fn private_genesis(
         SumeragiConsensusMode::Permissioned,
     )?;
     let genesis = append_peer_pop(genesis, peers)?;
-    Ok(apply_localnet_crypto_overrides(genesis)?.with_consensus_meta()?)
+    apply_localnet_crypto_overrides(genesis)?.with_consensus_meta()
 }
 
 #[cfg(test)]
@@ -945,8 +967,9 @@ mod tests {
     fn private_config_has_one_restricted_lane_and_the_canonical_sns_name_hash() {
         let spec = spec();
         let gas_account = ALICE_ID.to_string();
-        let raw = format!("[pipeline.gas]\ntech_account_id = {gas_account:?}\n[nexus]\n");
-        let config = private_peer_config(&raw, &spec, "private-fixture-token").unwrap();
+        let raw = "[pipeline]\n[nexus]\n";
+        let config =
+            private_peer_config(raw, &spec, "private-fixture-token", &gas_account).unwrap();
         let parsed: toml::Table = config.parse().unwrap();
         let nexus = parsed["nexus"].as_table().unwrap();
         let policy = private_fee_policy(&spec).unwrap();
@@ -1019,6 +1042,11 @@ mod tests {
             iroha_config::parameters::defaults::common::chain_discriminant(),
             "parent address rendering cannot change the independently generated child profile"
         );
+        assert_ne!(
+            client.account_chain_discriminant,
+            iroha_data_model::account::address::chain_discriminant(),
+            "the retained child is verified while the original parent profile remains active",
+        );
         let owner = client.account;
         let mut expected_roster = Vec::new();
         for peer in &prepared.peers {
@@ -1031,14 +1059,33 @@ mod tests {
                 Some(&peer.config_path),
             )
             .unwrap();
-            assert_eq!(table["zk"]["pipa_r"]["enabled"].as_bool(), Some(true));
-            assert!(table["zk"].get("halo2").is_none());
+            // Proof validity is committed chain policy; generated node settings must
+            // neither select a backend nor preserve a retired compatibility setting.
+            let local_zk = table.get("zk").and_then(toml::Value::as_table);
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("pipa_r")));
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("halo2")));
             assert!(config.zk.pipa_r.enabled);
+            for enabled in [true, false] {
+                let node_validity = Zeroizing::new(format!(
+                    "{}\n[zk.pipa_r]\nenabled = {enabled}\n",
+                    std::str::from_utf8(&bytes).unwrap(),
+                ));
+                assert!(
+                    parse_private_peer_config(&node_validity, Some(&peer.config_path)).is_err()
+                );
+            }
             let retired = Zeroizing::new(format!(
                 "{}\n[zk.halo2]\nenabled = true\n",
                 std::str::from_utf8(&bytes).unwrap()
             ));
             assert!(parse_private_peer_config(&retired, Some(&peer.config_path)).is_err());
+            assert!(table["pipeline"].get("gas").is_none());
+            let retired_gas = Zeroizing::new(format!(
+                "{}\n[pipeline.gas]\ntech_account_id = {:?}\n",
+                std::str::from_utf8(&bytes).unwrap(),
+                owner.to_string(),
+            ));
+            assert!(parse_private_peer_config(&retired_gas, Some(&peer.config_path)).is_err());
             assert_eq!(
                 parse_private_peer_config(
                     std::str::from_utf8(&bytes).unwrap(),
@@ -1160,7 +1207,17 @@ mod tests {
                     .exists()
             );
         }
-        let manifest = RawGenesisTransaction::from_path(&directory.join("genesis.json")).unwrap();
+        let manifest = RawGenesisTransaction::from_path(directory.join("genesis.json")).unwrap();
+        let projected =
+            iroha_core::state::StateParameters::try_from(manifest.effective_parameters().unwrap())
+                .unwrap();
+        assert_eq!(
+            projected.gas().tech_account_id,
+            localnet_gas_account_id(client.key_pair.public_key())
+                .to_i105_for_discriminant(client.account_chain_discriminant)
+                .unwrap(),
+            "private genesis retains its original deterministic fee receiver in the child profile",
+        );
         assert_eq!(
             manifest.sumeragi_context_parameters().root_scope,
             spec.scope()
@@ -1247,17 +1304,13 @@ mod tests {
         assert!(!repeated.build_cache_root().exists());
         assert_eq!(repeated.load_private_registration().unwrap(), registration);
         let original_manifest = iroha_fs::read_private(
-            &directory.join("genesis.json"),
+            directory.join("genesis.json"),
             iroha_genesis::GENESIS_MANIFEST_JSON_MAX_BYTES_V1,
         )
         .unwrap();
-        custody::replace(&directory.join("genesis.json"), b"{}").unwrap();
+        custody::replace(directory.join("genesis.json"), b"{}").unwrap();
         assert!(prepared.load_private_registration().is_err());
-        custody::replace(
-            &directory.join("genesis.json"),
-            original_manifest.as_slice(),
-        )
-        .unwrap();
+        custody::replace(directory.join("genesis.json"), original_manifest.as_slice()).unwrap();
         let peer_path = &prepared.peers[0].config_path;
         let bytes = iroha_fs::read_private(peer_path, 1024 * 1024).unwrap();
         let mut table = crate::secret_toml::Table::new(

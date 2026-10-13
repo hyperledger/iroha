@@ -54,7 +54,7 @@ const DEFAULT_TUNNEL_ADDRESSES: [&str; 2] = ["10.208.0.2/32", "fd53:7261:6574::2
 // Ordered expiry indexes reclaim cached sessions without scanning.
 const VPN_RUNTIME_ACCOUNT_CAPACITY: usize = 4_096;
 /// Maximum request body accepted by any first-release VPN mutation route.
-pub(crate) const VPN_MUTATION_REQUEST_MAX_BYTES_V1: usize = 16 * 1_024;
+pub const VPN_MUTATION_REQUEST_MAX_BYTES_V1: usize = 16 * 1_024;
 const VPN_MAX_SIGNED_RELAY_RECEIPT_NORITO_BYTES_V1: usize = 2 * 1_024;
 const VPN_MAX_CLIENT_VOUCHER_NORITO_BYTES_V1: usize = 1_024;
 /// Immutable VPN relay trust derived from an authenticated guard-directory snapshot.
@@ -363,6 +363,10 @@ pub struct VpnReceiptResponseDto {
     Eq,
 )]
 #[norito(deny_unknown_fields)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Hex suffixes specify the wire encoding of each independent request field."
+)]
 pub struct VpnReceiptSubmitRequestDto {
     pub relay_receipt_hex: String,
     pub client_voucher_hex: String,
@@ -403,7 +407,7 @@ pub struct VpnReceiptListResponseDto {
     pub total: u64,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct VpnSessionRecord {
+pub struct VpnSessionRecord {
     pub session_id: String,
     pub lease_id: [u8; 32],
     pub account_id: AccountId,
@@ -443,7 +447,7 @@ pub(crate) struct VpnSessionRecord {
     pub bytes_out: u64,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct VpnReceiptRecord {
+pub struct VpnReceiptRecord {
     pub session_id: String,
     pub account_id: AccountId,
     pub exit_class: String,
@@ -468,7 +472,7 @@ pub(crate) struct VpnReceiptRecord {
     pub settle_lease_instruction: Option<VpnTxInstructionDto>,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct VpnQuoteRecord {
+pub struct VpnQuoteRecord {
     pub quote_id: String,
     pub lease_id: [u8; 32],
     pub session_id: [u8; 16],
@@ -510,7 +514,7 @@ pub(crate) struct VpnQuoteRecord {
 /// behind the same lock makes replacement, expiry, and exact removal atomic
 /// without requiring request-time scans of the record maps.
 #[derive(Debug)]
-pub(crate) struct VpnRuntimeState {
+pub struct VpnRuntimeState {
     session_ids_by_account: HashMap<AccountId, String>,
     session_expirations: BTreeSet<(u64, String)>,
     settling_session_ids: HashSet<String>,
@@ -687,7 +691,7 @@ fn require_signed_request(
     body: &[u8],
 ) -> Result<AccountId, Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -698,9 +702,7 @@ fn require_signed_request(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     )? {
@@ -1839,7 +1841,7 @@ fn revalidate_unchanged_paid_lease(
     current_ms: u64,
 ) -> Result<VpnLeaseRecordV1, Error> {
     let (lease, quote) = active_paid_lease_for_session(app, account_id, quote_id, current_ms)?;
-    if &lease != expected_lease || &quote.signed_quote != &expected_quote.signed_quote {
+    if &lease != expected_lease || quote.signed_quote != expected_quote.signed_quote {
         return Err(not_permitted_error(
             "vpn consensus lease changed during session admission",
         ));
@@ -1966,6 +1968,7 @@ fn ensure_lease_matches_authenticated_trust(
     trust: &VpnRelayTrust,
 ) -> Result<(), Error> {
     let policy = &record.quote_policy;
+    let trust_expiry_matches = policy.relay_trust_valid_until_ms == trust.valid_until_ms;
     if record.relay_id != trust.relay_id
         || policy.relay_id != trust.relay_id
         || policy.relay_mldsa65_public_key != trust.relay_mldsa65_public_key
@@ -1975,7 +1978,7 @@ fn ensure_lease_matches_authenticated_trust(
         || policy.relay_tls_spki_sha256 != trust.relay_tls_spki_sha256
         || policy.relay_certificate_sha256 != trust.relay_certificate_sha256
         || policy.directory_snapshot_digest != trust.directory_snapshot_digest
-        || policy.relay_trust_valid_until_ms != trust.valid_until_ms
+        || !trust_expiry_matches
         || record.expires_at_ms > trust.valid_until_ms
     {
         return Err(not_permitted_error(
@@ -2271,7 +2274,7 @@ fn session_earned_fee(
         )
         .map_err(|err| conversion_error(format!("vpn tariff arithmetic failed: {err}")))
 }
-pub(crate) async fn handle_get_vpn_profile(app: SharedAppState) -> Result<Response, Error> {
+pub async fn handle_get_vpn_profile(app: SharedAppState) -> Result<Response, Error> {
     let dto = app.kiso.get_dto().await?;
     Ok(crate::utils::JsonBody(build_profile_at(
         &dto,
@@ -2281,7 +2284,7 @@ pub(crate) async fn handle_get_vpn_profile(app: SharedAppState) -> Result<Respon
     ))
     .into_response())
 }
-pub(crate) async fn handle_create_vpn_quote(
+pub async fn handle_create_vpn_quote(
     app: SharedAppState,
     method: &Method,
     uri: &Uri,
@@ -2358,8 +2361,7 @@ pub(crate) async fn handle_create_vpn_quote(
         .checked_mul(1_000)
         .ok_or_else(|| conversion_error("vpn settlement grace overflows milliseconds"))?;
     let asset_definition = xor_asset_definition_id();
-    let escrow_account_id = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-        .map_err(|error| conversion_error(format!("cannot derive VPN custody account: {error}")))?;
+    let escrow_account_id = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
     if escrow_account_id == operator_account_id {
         return Err(not_permitted_error(
             "vpn protocol custody account must differ from the relay operator",
@@ -2447,7 +2449,7 @@ pub(crate) async fn handle_create_vpn_quote(
     let response = quote_response_from_record(&record, &network_id)?;
     Ok((StatusCode::CREATED, crate::utils::JsonBody(response)).into_response())
 }
-pub(crate) async fn handle_create_vpn_session(
+pub async fn handle_create_vpn_session(
     app: SharedAppState,
     method: &Method,
     uri: &Uri,
@@ -2505,7 +2507,7 @@ pub(crate) async fn handle_create_vpn_session(
     let _cached = insert_session_locked(&app, &mut vpn_state, record, admission_ms)?;
     Ok((StatusCode::CREATED, crate::utils::JsonBody(response)).into_response())
 }
-pub(crate) async fn handle_get_vpn_session(
+pub async fn handle_get_vpn_session(
     app: SharedAppState,
     method: &Method,
     uri: &Uri,
@@ -2547,7 +2549,7 @@ pub(crate) async fn handle_get_vpn_session(
     }
     Ok(crate::utils::JsonBody(response_from_record(&record)).into_response())
 }
-pub(crate) async fn handle_list_vpn_receipts(
+pub async fn handle_list_vpn_receipts(
     app: SharedAppState,
     method: &Method,
     uri: &Uri,
@@ -2564,7 +2566,7 @@ pub(crate) async fn handle_list_vpn_receipts(
     let total = u64::try_from(items.len()).unwrap_or(u64::MAX);
     Ok(crate::utils::JsonBody(VpnReceiptListResponseDto { items, total }).into_response())
 }
-pub(crate) async fn handle_submit_vpn_receipt(
+pub async fn handle_submit_vpn_receipt(
     app: SharedAppState,
     method: &Method,
     uri: &Uri,

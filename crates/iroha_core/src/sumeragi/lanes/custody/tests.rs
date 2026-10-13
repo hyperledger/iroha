@@ -94,14 +94,18 @@ fn malformed_original_deadline_cannot_release_retained_custody() {
 
 fn parameters(world: &mut WorldBlock<'_>, horizon: u64, delay: u64) {
     use iroha_data_model::parameter::{Parameter, system::SumeragiNposParameters};
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: horizon,
-            slashing_delay_blocks: delay,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: horizon,
+                slashing_delay_blocks: delay,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
 }
 
 fn lane(original: &PublicLaneValidatorRecord) -> SumeragiLaneRecord {
@@ -207,7 +211,7 @@ fn retirement_marks_exact_boundary_and_policy_extension_precedes_withdrawal() {
     state.lanes.push(lane);
     state.custody.push(obligation(&original, 1));
     prepare_retirement(&mut state, &world, 19).unwrap();
-    assert_eq!(state.custody[0].retired_at, None);
+    assert!(state.custody[0].retired_at.is_none());
     prepare_retirement(&mut state, &world, 20).unwrap();
     assert_eq!(state.custody[0].retired_at, Some(20));
     world.sumeragi_lanes.get_mut().custody = state.custody.clone();
@@ -328,7 +332,9 @@ fn pending_original_evidence_delays_reclamation_without_native_height_arithmetic
         key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence: Evidence { native: vec![] },
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                    Evidence { native: vec![] },
+                ),
                 attribution: EvidenceAttribution {
                     scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                     instance: row.instance,
@@ -440,10 +446,10 @@ fn an_existing_frontier_cannot_regress_or_switch_hash_or_result_at_the_same_nati
             ..SumeragiLaneState::default()
         };
         assert_eq!(
-            prepare_retirement(&mut state, &world, 20),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                CustodyViolation::Frontier
-            ))
+            crate::execution_attempt::expect_completed_rejection(
+                (prepare_retirement(&mut state, &world, 20)).expect_err("completed rejection")
+            ),
+            CustodyViolation::Frontier
         );
         assert_eq!(state.custody[0].merged, frontier);
     }
@@ -942,8 +948,11 @@ fn lane_admission_invariants_never_masquerade_as_allocator_or_semantic_failures(
             ExecutionDeferral::LocalInvariantViolation
         );
         assert!(original.allocation_refusal().is_none());
-        let step = super::super::step::LaneStepError::from(Attempt::Deferred(original.clone()));
-        assert_eq!(step, super::super::step::LaneStepError::Deferred(original));
+        let reason = original.reason();
+        let step = super::super::step::LaneStepError::from(Attempt::Deferred(original));
+        assert!(
+            matches!(step, super::super::step::LaneStepError::Deferred(retained) if retained.reason() == reason && retained.allocation_refusal().is_none())
+        );
     }
     for error in [
         LaneStateAdmissionError::Signers(CustodySignersAdmissionError::Backing(
@@ -973,16 +982,16 @@ fn lane_admission_invariants_never_masquerade_as_allocator_or_semantic_failures(
         assert_eq!(original.reason(), ExecutionDeferral::AllocationUnavailable);
         assert!(original.allocation_refusal().is_none());
     }
-    assert_eq!(
+    assert!(matches!(
         state_admission_attempt_error(LaneStateAdmissionError::Signers(
             CustodySignersAdmissionError::Invalid
         )),
         Attempt::Rejected(CustodyViolation::Signers)
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         super::super::step::LaneStepError::from(Attempt::Rejected(CustodyViolation::Signers)),
         super::super::step::LaneStepError::Custody(CustodyViolation::Signers)
-    );
+    ));
     drop(returned_rows);
     drop(empty);
     assert_eq!(pool.reserved_bytes(), 0);

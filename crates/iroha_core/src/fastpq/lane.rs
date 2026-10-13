@@ -135,6 +135,13 @@ impl std::fmt::Debug for FastpqWitnessJob {
     }
 }
 impl FastpqWitnessJob {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn from_finalized(
         source: FinalizedFastpqSource,
     ) -> Result<Self, (FinalizedFastpqSource, FinalizedFastpqWorkError)> {
@@ -146,6 +153,13 @@ impl FastpqWitnessJob {
     pub(crate) fn height(&self) -> u64 {
         self.source.native().committed().height()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn block_hash(&self) -> HashOf<BlockHeader> {
         self.source.native().block().hash()
     }
@@ -189,27 +203,69 @@ pub(crate) struct FastpqCompletedEntry {
 }
 impl FastpqCompletedEntry {
     /// Original worker generation. It is not a durable-storage acknowledgement.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
     /// A point-in-time lifecycle observation, never authority to persist after shutdown.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn generation_is_current(&self) -> bool {
         lock_global_lane().current.as_ref().is_some_and(|active| {
             active.generation == self.generation && !active.shutdown.is_sent()
         })
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn source(&self) -> &FinalizedFastpqSource {
         self.job.source.original()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn statement_index(&self) -> usize {
         self.job.next_statement
     }
     pub(crate) fn bytes(&self) -> &[u8] {
         self.output.bytes()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn identity(&self) -> &FastpqArtifactIdentityDescriptionV1 {
         self.output.identity()
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn verified(&self) -> Option<&offline_compact::VerifiedArtifact> {
         match &self.output {
             FastpqProofOutput::Produced(value) => Some(value.verified()),
@@ -218,6 +274,13 @@ impl FastpqCompletedEntry {
         }
     }
     /// Explicit retry preserves the original cursor/source; it grants no durable acknowledgement.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+        )
+    )]
     pub(crate) fn retry(self) -> FastpqWitnessJob {
         self.job
     }
@@ -227,6 +290,13 @@ pub(crate) enum FastpqJobOutcome {
     Complete(FastpqCompletedEntry),
     Deferred {
         job: FastpqWitnessJob,
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+            )
+        )]
         error: FastpqWorkRefusal,
     },
     Exhausted(FastpqWitnessJob),
@@ -403,6 +473,13 @@ fn start_with_builder(
     Some((handle, task))
 }
 /// Submit only an original native source job, preserving it on every queue refusal.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
+    )
+)]
 pub(crate) fn try_submit(
     job: FastpqWitnessJob,
 ) -> Result<oneshot::Receiver<FastpqJobOutcome>, (FastpqWitnessJob, FastpqQueueRefusal)> {

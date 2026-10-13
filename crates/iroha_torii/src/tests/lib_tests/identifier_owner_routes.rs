@@ -2,7 +2,6 @@ mod identifier_owner_routes {
     //! Mounted identifier-owner routes retain one exact signature and beneficiary binding.
 
     use super::*;
-    use tower::ServiceExt as _;
 
     const COMPUTE_ROUTES: &[route_catalog::RouteDescriptor] = &[
         route_catalog::application_api::SPACE_DIRECTORY_MANIFESTS_POST,

@@ -67,7 +67,7 @@ fn custody_creator_keeps_fresh_absence_exact_provider_lock_and_original_projecti
         assert_eq!(expected.directory.path(), path);
         let directory = expected.directory.retain().unwrap();
         let identity = directory.identity().unwrap();
-        let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+        let lock_identity = FileIdentity::of(&expected.lock).unwrap();
         let names = directory.entries(2).unwrap();
         let lock_bytes = directory.read("operation.lock", 4096).unwrap();
         let config = expected.config.clone();
@@ -91,7 +91,7 @@ fn custody_creator_keeps_fresh_absence_exact_provider_lock_and_original_projecti
         );
         assert_eq!(actual.provider_id().unwrap(), provider);
         assert_eq!(actual.directory.identity().unwrap(), identity);
-        assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+        assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
         assert_eq!(actual.config.chain, config.chain);
         assert_eq!(actual.config.network_id, config.network_id);
         assert_eq!(actual.config.account, config.account);
@@ -121,7 +121,7 @@ fn custody_creator_keeps_fresh_absence_exact_provider_lock_and_original_projecti
         parent.peers.reverse();
         let retry = ordinary(&parent, provider).unwrap();
         assert_eq!(retry.directory.identity().unwrap(), identity);
-        assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+        assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
         drop(retry);
         assert_eq!(directory.entries(2).unwrap(), names);
         assert_eq!(directory.read("operation.lock", 4096).unwrap(), lock_bytes);
@@ -186,7 +186,7 @@ fn custody_creator_closes_parent_on_native_errors_and_refuses_replacement_with_r
     let held = create(&parent, provider).unwrap();
     let directory = held.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&held._lock).unwrap();
+    let lock_identity = FileIdentity::of(&held.lock).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     let ((locked, parses), checks) =
         profile_validation_test_support::count(|| parsed(|| create(&parent, provider)));
@@ -268,7 +268,7 @@ fn custody_creator_closes_parent_on_native_errors_and_refuses_replacement_with_r
     }
     let retry = create(&parent, provider).unwrap();
     assert_eq!(retry.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
     drop(retry);
     assert_eq!(directory.read("operation.lock", 4096).unwrap(), lock_bytes);
     assert_eq!(
@@ -311,7 +311,7 @@ fn custody_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert_eq!(parses, 1);
     assert!(matches!(&expected.profile, AuthorityProfile::Owned(_)));
     let identity = expected.directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let charge = usize::try_from(baseline.consumed_allocated_bytes()).unwrap();
     assert!(charge > 0);
     drop(expected);
@@ -323,7 +323,7 @@ fn custody_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert!(actual.checkpoint_import_scope().is_none());
     assert_eq!(exact.consumed_allocated_bytes(), charge as u64);
     assert_eq!(actual.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
     drop(actual);
     for allocated in [0, charge - 1] {
         let expected_budget = DecodeBudgetContext::new(limits(allocated));
@@ -362,7 +362,7 @@ fn custody_creator_preserves_full_active_decode_and_owned_parent_fallback() {
     assert!(matches!(&actual.profile, AuthorityProfile::Shared(_)));
     assert!(actual.checkpoint_import_scope().is_none());
     assert_eq!(actual.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&actual._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&actual.lock).unwrap(), lock_identity);
     drop(actual);
     let (actual, parses) =
         parsed(|| ManagedStreamTokenCustody::open_existing_from_original(&parent, provider, None));

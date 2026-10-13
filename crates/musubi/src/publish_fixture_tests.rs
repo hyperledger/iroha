@@ -21,7 +21,7 @@ use iroha::{
             MusubiStorageAvailabilityV1, MusubiVerificationLockV1, MusubiVersionV1,
             musubi_provider_bundle_attestation_set_digest_v1, validate_musubi_account_id_v1,
         },
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         sorafs::pin_registry::{
             ChunkerProfileHandle, ManifestRootCid, ProviderIngestCompletionAuthorityV1,
             ProviderIngestCompletionSignerPolicyV1, ProviderIngestFinalizedAnchorV1,
@@ -829,11 +829,11 @@ fn compact_release_envelope_rejects_omitted_and_noncanonical_payload_fields() {
         ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
         VerifyingKeyId::new("halo2/ipa", "release-vk"),
     );
-    let attachments =
-        ProofAttachmentList::try_from(vec![attachment]).expect("bounded proof attachment");
+    let attachments = vec![attachment];
     let attachment_transaction = TransactionBuilder::from_payload(signed.payload().clone())
         .expect("attachment fixture payload")
-        .with_attachments(attachments)
+        .with_proof_attachments(attachments)
+        .expect("valid proof carriers")
         .sign(publisher_keypair.private_key());
     assert!(
         PublicationReleaseSignedEnvelopeV1::try_from_signed_transaction(

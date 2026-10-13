@@ -1,4 +1,5 @@
 // Instruction fixtures and committed-state routing regression tests.
+use ivm::ProgramMetadata;
 fn minimal_contract_bytes() -> (iroha_crypto::Hash, Vec<u8>) {
     let mut program = ivm::ProgramMetadata {
         version_major: 1,
@@ -78,7 +79,7 @@ fn accepted_tx_with_attachments(
     time_source: &TimeSource,
     instructions: Vec<InstructionBox>,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<Vec<ProofAttachment>>,
 ) -> AcceptedTransaction<'static> {
     let network_id = queue_test_network_id();
     let mut builder = TransactionBuilder::new_with_time_source(
@@ -90,7 +91,9 @@ fn accepted_tx_with_attachments(
     .with_instructions(instructions)
     .with_metadata(metadata);
     if let Some(att) = attachments {
-        builder = builder.with_attachments(att);
+        builder = builder
+            .with_proof_attachments(att)
+            .expect("valid proof carriers");
     }
     let tx = builder.sign(key_pair.private_key());
     let default_limits = TransactionParameters::default();
@@ -182,9 +185,11 @@ pub fn world_with_test_domains() -> World {
     // This component fixture needs explicit routing metadata; it has no signed
     // genesis, certified history or native publication authority.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     world
 }
@@ -213,9 +218,11 @@ fn nexus_routing_fixture_with_nexus(nexus: Nexus) -> NexusRoutingFixture {
     // This component fixture needs explicit routing metadata; it has no signed
     // genesis, certified history or native publication authority.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test());
     NexusRoutingFixture {
@@ -539,7 +546,7 @@ fn reconfiguration_does_not_consult_replacement_router_for_pending_work() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push");
     let expected_lane = LaneId::SINGLE;
     let expected_dataspace = DataSpaceId::UNIVERSAL;

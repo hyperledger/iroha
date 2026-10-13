@@ -492,7 +492,7 @@ mod tests {
     use iroha_data_model::{
         NetworkId,
         block::BlockHeader,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         soracloud::encode_soracloud_runtime_provenance_preimage_v1,
         transaction::signed::{MultisigSignature, MultisigSignatures},
         transaction::{FeePaymentIntent, TransactionBuilder},
@@ -539,14 +539,13 @@ mod tests {
             let mut builder = TransactionBuilder::from_payload(payload).expect("valid payload");
             if matches!(mutation, Some(TestTransactionMutation::Attachments)) {
                 let backend = "halo2/ipa".into();
-                builder = builder.with_attachments(
-                    ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                builder = builder
+                    .with_proof_attachments(vec![ProofAttachment::new_ref(
                         backend,
                         ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
                         VerifyingKeyId::new("halo2/ipa", "test-vk"),
                     )])
-                    .expect("one attachment is a valid bounded proof list"),
-                );
+                    .expect("valid proof carriers");
             }
             let mut signed = builder
                 .try_sign(self.key_pair.private_key())

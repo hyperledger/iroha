@@ -1784,10 +1784,10 @@ mod tests {
         let current = ivm_abi::syscalls::compute_abi_hash(ivm_abi::SyscallPolicy::AbiV1);
         assert_ne!(current, erased_schema_surface);
         bytes[17..49].copy_from_slice(&erased_schema_surface);
-        assert_eq!(
-            crate::verify_contract_artifact(&bytes).expect_err("retired surface must reject"),
-            ContractArtifactError::abi_hash_mismatch(current, erased_schema_surface)
-        );
+        assert!(matches!(
+            crate::verify_contract_artifact(&bytes).expect_err("retired surface must reject").into_vm_error(),
+            ivm_abi::VMError::ArtifactAbiHashMismatch { expected, actual } if expected == current && actual == erased_schema_surface
+        ));
     }
     #[test]
     fn callable_tables_bind_cursor_keys_at_public_and_private_boundaries() {
@@ -2239,10 +2239,10 @@ mod tests {
             );
         }
         let mut forged = page;
-        if let T::Struct { fields, .. } = &mut forged {
-            if let T::List { capacity, .. } = &mut fields[0].ty {
-                *capacity = 63;
-            }
+        if let T::Struct { fields, .. } = &mut forged
+            && let T::List { capacity, .. } = &mut fields[0].ty
+        {
+            *capacity = 63;
         }
         assert!(validate_declared_state_type(&forged).is_err());
     }

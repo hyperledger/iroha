@@ -23,7 +23,7 @@ use std::{
 
 /// A failure-safe gate: a bounded wait and a separately retained release guard.
 #[derive(Debug, Default)]
-pub(crate) struct BlockingGate {
+pub struct BlockingGate {
     open: Mutex<bool>,
     wake: Condvar,
     pub(crate) entered: AtomicUsize,
@@ -43,12 +43,15 @@ impl BlockingGate {
     }
     /// Release on success or during test unwinding so no physical provider worker is stranded.
     pub(crate) fn release(&self) {
-        *self.open.lock().unwrap_or_else(|error| error.into_inner()) = true;
+        *self
+            .open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
         self.wake.notify_all();
     }
 }
 /// Releases an intentionally blocked provider even when an assertion unwinds.
-pub(crate) struct GateRelease(pub(crate) Arc<BlockingGate>);
+pub struct GateRelease(pub(crate) Arc<BlockingGate>);
 impl Drop for GateRelease {
     fn drop(&mut self) {
         self.0.release();
@@ -56,7 +59,7 @@ impl Drop for GateRelease {
 }
 
 /// Delegates real quota/outbox semantics; only the selected call is delayed or fails.
-pub(crate) struct ProbeProvider {
+pub struct ProbeProvider {
     inner: Arc<dyn StreamTokenGatewayAdmissionProviderV1>,
     pub(crate) gate: Arc<BlockingGate>,
     /// Zero disables gating; one gates release, two gates admit, three gates qualification.
@@ -134,17 +137,17 @@ impl StreamTokenGatewayAdmissionProviderV1 for ProbeProvider {
     }
     fn acknowledge(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
         self.inner.acknowledge(record, deadline)
     }
     fn release_lease(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
-        self.release_calls.lock().unwrap().push(record);
+        self.release_calls.lock().unwrap().push(*record);
         if self.gate_point.load(Ordering::Acquire) == 1 {
             self.gate.block();
         }
@@ -157,7 +160,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for ProbeProvider {
     fn confirm_serving(
         &self,
         request: &StreamTokenGatewayAdmissionRequestV1,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionRecordV1, StreamTokenGatewayAdmissionErrorV1> {
         self.inner.confirm_serving(request, record, deadline)
@@ -165,7 +168,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for ProbeProvider {
 }
 
 /// A canonical body-independent quota request for cleanup-owner tests, not a hardware token.
-pub(crate) fn request(nonce: &str) -> StreamTokenGatewayAdmissionRequestV1 {
+pub fn request(nonce: &str) -> StreamTokenGatewayAdmissionRequestV1 {
     const NOW: u64 = 1_800_000_000_000;
     StreamTokenGatewayAdmissionRequestV1 {
         serving_attempt_id: [0x61; 32],
@@ -196,7 +199,7 @@ pub(crate) fn request(nonce: &str) -> StreamTokenGatewayAdmissionRequestV1 {
 }
 
 /// Wait a bounded duration for an actual physical call/state transition.
-pub(crate) async fn wait_until(ready: impl Fn() -> bool) {
+pub async fn wait_until(ready: impl Fn() -> bool + Send + Sync) {
     tokio::time::timeout(Duration::from_secs(5), async {
         while !ready() {
             tokio::time::sleep(Duration::from_millis(1)).await;
@@ -207,7 +210,7 @@ pub(crate) async fn wait_until(ready: impl Fn() -> bool) {
 }
 
 /// Construct the real durable fixture and an independently configured probed capture.
-pub(crate) fn fixture() -> (
+pub fn fixture() -> (
     ServingAdmissionFixture,
     Arc<ProbeProvider>,
     Arc<StreamTokenAdmissionCaptureV1>,

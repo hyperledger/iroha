@@ -240,7 +240,12 @@ fn with_native_state_sources<T>(
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let mut transaction = transaction.with_instructions(body);
         {
             let view = state.view();
@@ -254,8 +259,11 @@ fn with_native_state_sources<T>(
                     view.world(),
                     view.nexus(),
                     view.pipeline(),
+                    &view.zk().gas,
                     draft.payload(),
                     u64::try_from(draft.creation_time().as_millis()).unwrap(),
+                    crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                        .expect("original committed fixture time"),
                     header.height().get(),
                     Some(dataspace_id),
                 )
@@ -303,6 +311,13 @@ pub(crate) fn seal_native_source(
     block.seal_execution_outputs(source, |state, source, routes| {
         assert_eq!(routes.len(), source.network_entrypoint_count());
         Ok::<_, String>(crate::state::output_capacity::ExecutionOutputSealMetadata {
+            sccp_finality_header:
+                iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+                    *state.network_id().as_bytes(),
+                    source.header().height().get(),
+                    source.header().creation_time_ms,
+                )
+                .expect("nonzero fixture height"),
             committed_fragment_count: u64::try_from(state.committed_fragment_count()).unwrap(),
         })
     })?;
@@ -474,7 +489,9 @@ pub(crate) fn assert_native_publication_refuses(
     let tx = tx.with_instructions(body).sign(ALICE_KEYPAIR.private_key());
     // The actual assembler owns cadence and transaction/parent ordering.
     let proposal = chain.proposal(None, vec![tx]);
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let original_result = pending.result();
     pending.inspect(inspect).unwrap();
     assert!(pending.prepare(Signers::Quorum).is_err());

@@ -171,7 +171,8 @@ fn bench_isi(
                 let instr = mk_clone(&bench_state.ctx);
                 let mut block = bench_state.state.block(bench_block_header());
                 let mut tx = block.transaction();
-                let _ = isi_gas::meter_instruction(&instr);
+                let _ = isi_gas::meter_instruction(&instr, &iroha_core::gas::DEFAULT_ZK_GAS)
+                    .expect("gas quote must complete for this fixture");
                 executor
                     .execute_instruction_with_profile(
                         &mut tx,

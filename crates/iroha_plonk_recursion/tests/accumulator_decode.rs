@@ -257,10 +257,19 @@ fn run<C: PastaCurve>() {
             );
             assert_eq!(known.tables.fixed(), unknown.tables.fixed());
             let cells = assigned_advice_cells(&original, 16, &instances).unwrap();
-            let expected_cells = if C::CURVE_ID == "pallas" { 3849 } else { 3945 };
+            // The ordinary 15-bit range lane uses 1,058 rows: 34 for message
+            // decoding, four for length, 60 for the point, 320 for scalar
+            // decoding and 640 for selected output certificates. S6 retains
+            // its already-bounded limbs instead of range-checking them again.
+            // Vesta adds 32 native scalar recompositions, three cells each.
+            let expected_cells = if C::CURVE_ID == "pallas" {
+                3_529
+            } else {
+                3_625
+            };
             assert_eq!(
                 (cells.iter().map(|(_, r)| r + 1).max().unwrap(), cells.len()),
-                (1378, expected_cells)
+                (1_058, expected_cells)
             );
             for column in 0..known.tables.advice_assigned().len() {
                 if let Some((_, row)) = cells.iter().rev().find(|(c, _)| *c == column) {

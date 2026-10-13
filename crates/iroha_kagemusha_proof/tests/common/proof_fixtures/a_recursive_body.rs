@@ -1875,7 +1875,6 @@ fn authenticated_bootstrap_for_schemes(
         let native_first = session
             .first(&first_key, common::recovery(76), ProverConfig::default())
             .unwrap();
-        drop(first_key_seal);
         assert_eq!(native_first.proof(), a1.proof);
         let (wrapper_circuit, _, _) = prepared
             .wrapper_circuit(
@@ -1914,7 +1913,6 @@ fn authenticated_bootstrap_for_schemes(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(wrapper_key_seal);
         assert_eq!(native_wrapper.proof(), last.source.proof);
         let wrapper_public = vec![
             vec![Fq::from_repr(native_wrapper.context().to_repr()).unwrap()],
@@ -2003,7 +2001,6 @@ fn authenticated_bootstrap_for_schemes(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(terminal_key_seal);
         assert_eq!(terminal.proof, a2.proof);
         eprintln!(
             "NATIVE_BOOTSTRAP_PARITY metadata_only_producer=true temporary_source_bound_PK=true exact_original_proof_bytes=true"
@@ -2492,9 +2489,9 @@ fn install_native_bootstrap(
         originals[1].metadata()?,
         originals[2].metadata()?,
     )?;
-    drop(prover.import_first(&originals[0].pk, config)?);
-    drop(prover.import_wrapper(&originals[1].pk, config)?);
-    drop(prover.import_terminal(&originals[2].pk, config)?);
+    prover.import_first(&originals[0].pk, config)?;
+    prover.import_wrapper(&originals[1].pk, config)?;
+    prover.import_terminal(&originals[2].pk, config)?;
     Ok(prover)
 }
 fn native_bootstrap_read_config(

@@ -106,14 +106,14 @@ fn append_block_to_chain_roundtrip_decodes() {
     let len: usize = length.try_into().expect("block length fits in usize");
     let mut bytes = vec![0u8; len];
     block_store.read_block_data(start, &mut bytes).unwrap();
-    let versioned = block.encode_versioned();
-    let mut payload_cursor = std::io::Cursor::new(&versioned[1..]);
+    let wire = block.canonical_wire().expect("canonical stored wire");
+    let mut payload_cursor = std::io::Cursor::new(wire.payload());
     let decoded_inline =
         SignedBlock::decode(&mut payload_cursor).expect("decode adaptive payload for inline bytes");
     assert_eq!(decoded_inline.hash(), block.hash());
-    assert_eq!(bytes[0], versioned[0]);
+    assert_eq!(bytes[0], wire.version());
     assert!(bytes[1..].starts_with(MAGIC.as_slice()));
-    assert_eq!(&bytes[1 + Header::SIZE..], &versioned[1..]);
+    assert_eq!(&bytes[1 + Header::SIZE..], wire.payload());
     let decoded = decode_framed_signed_block(&bytes).expect("decode stored block");
     assert_eq!(decoded.hash(), block.hash());
 }
@@ -739,7 +739,9 @@ fn eviction_digest_is_independent_of_short_reads() {
         }
     }
     let bytes = (0_u32..200_000)
-        .map(|value| value.wrapping_mul(31) as u8)
+        .map(|value| {
+            u8::try_from((value.wrapping_mul(31)) & 0xff).expect("masked fixture byte fits u8")
+        })
         .collect::<Vec<_>>();
     let total = u64::try_from(bytes.len()).unwrap();
     let expected =
@@ -826,4 +828,45 @@ fn published_canonical_poison_already_closes_native_admission() {
         "no late binding can reopen the storage owner's gate"
     );
     assert!(late.enter().is_none());
+}
+
+#[test]
+fn eviction_streaming_digest_preserves_fixed_chunk_framing_and_exact_read_bounds() {
+    for length in [
+        0_usize, 1, 8191, 8192, 8193, 65_535, 65_536, 65_537, 200_003,
+    ] {
+        let source: Vec<_> = (0_u8..=u8::MAX).cycle().take(length).collect();
+        let total = u64::try_from(length).unwrap();
+        // Independent materialized framing is the durable file-digest contract.
+        let mut expected = Hash::new(EVICTION_FILE_DIGEST_DOMAIN);
+        for chunk in source.chunks(64 * 1024) {
+            let mut frame = EVICTION_FILE_DIGEST_DOMAIN.to_vec();
+            frame.extend_from_slice(expected.as_ref());
+            frame.extend_from_slice(&u64::try_from(chunk.len()).unwrap().to_le_bytes());
+            frame.extend_from_slice(chunk);
+            expected = Hash::new(frame);
+        }
+        expected = Hash::new_from_chunks(&[
+            EVICTION_FILE_DIGEST_DOMAIN,
+            expected.as_ref(),
+            &total.to_le_bytes(),
+        ]);
+        let mut with_tail = source.clone();
+        with_tail.push(255);
+        let mut reader = std::io::Cursor::new(with_tail);
+        assert_eq!(
+            BlockStore::eviction_reader_digest(&mut reader, total).unwrap(),
+            expected
+        );
+        assert_eq!(reader.position(), total);
+        if length > 0 {
+            let mut truncated = std::io::Cursor::new(&source[..length - 1]);
+            assert_eq!(
+                BlockStore::eviction_reader_digest(&mut truncated, total)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::UnexpectedEof,
+            );
+        }
+    }
 }

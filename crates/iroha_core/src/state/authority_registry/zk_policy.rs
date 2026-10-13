@@ -78,8 +78,6 @@ sccp_policy! {
     max_ethereum_light_client_updates_per_block: u32,
     max_native_header_bytes_per_transaction: u64,
     max_native_header_bytes_per_block: u64,
-    max_secp256k1_recoveries_per_transaction: u32,
-    max_secp256k1_recoveries_per_block: u32,
     max_ed25519_signature_checks_per_transaction: u32,
     max_ed25519_signature_checks_per_block: u32,
     max_bls_vote_attestations_per_transaction: u32,
@@ -167,9 +165,9 @@ fn count(value: usize) -> u64 {
 }
 
 fn key_ref(
-    value: &Option<iroha_config::parameters::actual::VerifyingKeyRef>,
+    value: Option<&iroha_config::parameters::actual::VerifyingKeyRef>,
 ) -> Option<ZkVerifyingKeyRefV1> {
-    value.as_ref().map(|key| ZkVerifyingKeyRefV1 {
+    value.map(|key| ZkVerifyingKeyRefV1 {
         backend: key.backend.clone(),
         name: key.name.clone(),
     })
@@ -203,8 +201,8 @@ impl ZkConsensusPolicyV1 {
                 bridge_proof_max_future_drift_blocks: config.bridge_proof_max_future_drift_blocks,
                 poseidon_params_id: config.poseidon_params_id,
                 pedersen_params_id: config.pedersen_params_id,
-                kaigi_authorization_vk: key_ref(&config.kaigi_authorization_vk),
-                kaigi_usage_vk: key_ref(&config.kaigi_usage_vk),
+                kaigi_authorization_vk: key_ref(config.kaigi_authorization_vk.as_ref()),
+                kaigi_usage_vk: key_ref(config.kaigi_usage_vk.as_ref()),
             },
             confidential: ZkConfidentialPolicyV1 {
                 max_proof_size_bytes: config.max_proof_size_bytes,

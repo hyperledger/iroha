@@ -1,0 +1,47 @@
+{
+  "checked_at_utc": "2026-10-13T04:33:27.261768+00:00",
+  "temporary_root": "/var/folders/n2/xxntlr312qbfdnp0j1xp52hw0000gn/T/parliament-b6-frozen-accounting-vr8904na",
+  "source_manifest": "frozen-accounting-source.sha256",
+  "source_files": 258,
+  "source_manifest_sha256": "5e19feb926065231221fc85415cec96ea008164187541be4490de81e7bfdf9a8",
+  "reconstruction": "Copied listed current source and fixture files, substituting only the hash-verified qualification-root-Cargo.lock.template for Cargo.lock. No live checkout changes.",
+  "source_scopes_reconstructed": {
+    "malformed-source.sha256": 225,
+    "nonminimal-counter-source.sha256": 92
+  },
+  "test_command": [
+    "python3.11",
+    "-m",
+    "pytest",
+    "scripts/tests/check_parliament_ballot_resource_accounting_test.py",
+    "scripts/tests/parliament_ballot_security_ledger_test.py",
+    "scripts/tests/parliament_ballot_frontend_accounting_test.py",
+    "-q"
+  ],
+  "test_exit": 0,
+  "test_transcript": "frozen-accounting-tests.txt",
+  "tests_passed": 38,
+  "subtests_passed": 6,
+  "checks": [
+    {
+      "script": "check_parliament_ballot_resource_accounting.py",
+      "actual_exit": 1,
+      "reproduced_artifact": "resource_accounting.json",
+      "sha256": "c781fd8c9e8c39d0849f58f080276b04c21d43f82d9fe416fa3178aea83f1d5e"
+    },
+    {
+      "script": "check_parliament_ballot_security_ledger.py",
+      "actual_exit": 2,
+      "reproduced_artifact": "security_ledger.json",
+      "sha256": "fa65a8efc34a3b534ffe53aa709e9c0637899484ce30f2d9b947d30eb92ca26e"
+    },
+    {
+      "script": "parliament_ballot_frontend_accounting.py",
+      "actual_exit": 1,
+      "reproduced_artifact": "frontend_accounting.json",
+      "sha256": "81fd56ec690f65d7bbb4e147e864b8cd9b84a436790dbf4a3ab2759a926d854b"
+    }
+  ],
+  "live_tree": "Frozen source guards reject the subsequently changed live root lock; this is a test of the reconstructed recorded source, not a passing current-tree qualification.",
+  "profile_qualified": false
+}

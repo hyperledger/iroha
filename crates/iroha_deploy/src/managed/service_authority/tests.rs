@@ -73,6 +73,7 @@ fn assert_only_signer_may_differ(original: &Config, selected: &Config) {
         basic_auth,
         api_token,
         torii_api_url,
+        http_transport_policy,
         torii_request_timeout,
         transaction_ttl,
         transaction_status_timeout,
@@ -88,6 +89,7 @@ fn assert_only_signer_may_differ(original: &Config, selected: &Config) {
         original.account_chain_discriminant
     );
     assert_eq!(*torii_api_url, original.torii_api_url);
+    assert_eq!(*http_transport_policy, original.http_transport_policy);
     assert_eq!(*torii_request_timeout, original.torii_request_timeout);
     assert_eq!(*transaction_ttl, original.transaction_ttl);
     assert_eq!(
@@ -107,11 +109,13 @@ fn assert_only_signer_may_differ(original: &Config, selected: &Config) {
         _ => panic!("HTTP authentication selection changed"),
     }
     assert!(
-        api_token.as_ref().map(|value| value.expose_secret())
+        api_token
+            .as_ref()
+            .map(iroha::secrecy::SecretString::expose_secret)
             == original
                 .api_token
                 .as_ref()
-                .map(|value| value.expose_secret())
+                .map(iroha::secrecy::SecretString::expose_secret)
     );
     let cache = &original.sorafs_alias_cache;
     assert_eq!(sorafs_alias_cache.positive_ttl(), cache.positive_ttl());

@@ -585,13 +585,14 @@ pub(crate) fn contract_upgrade_added_scalars(
         })?;
         let artifact =
             ivm::verify_contract_artifact_with_memory_budget(bytes, budget).map_err(|error| {
-                if let Some(local) = error.local_vm_error()
-                    && let Some(reason) =
-                        crate::execution_attempt::ExecutionDeferred::from_vm_error(&local)
-                {
-                    return ExecutionAttemptError::Deferred(reason);
+                match error.try_into_local_vm_error() {
+                    Ok(local) => crate::execution_attempt::vm_attempt_error(local, |error| {
+                        ValidationFail::InternalError(error.to_string())
+                    }),
+                    Err(error) => ExecutionAttemptError::Rejected(ValidationFail::InternalError(
+                        error.to_string(),
+                    )),
                 }
-                ExecutionAttemptError::Rejected(ValidationFail::InternalError(error.to_string()))
             })?;
         if artifact.code_hash != code_hash || !manifest.same_signed_content(&artifact.manifest) {
             return Err(ValidationFail::InternalError(
@@ -786,17 +787,16 @@ pub fn register_code_bytes(
         &code,
         &state_transaction.execution_budget(),
     )
-    .map_err(|error| {
-        if let Some(local) = error.local_vm_error()
-            && let Some(reason) = crate::execution_attempt::ExecutionDeferred::from_vm_error(&local)
-        {
-            return RegistryError::Instruction(
+    .map_err(|error| match error.try_into_local_vm_error() {
+        Ok(local) => match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(local) {
+            Ok(reason) => RegistryError::Instruction(
                 state_transaction.world.attempt_error_to_instruction_error(
                     crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
                 ),
-            );
-        }
-        RegistryError::InvalidCode(error.to_string())
+            ),
+            Err(error) => RegistryError::InvalidCode(error.to_string()),
+        },
+        Err(error) => RegistryError::InvalidCode(error.to_string()),
     })?;
     let code_hash = verified.code_hash;
     RegisterSmartContractBytes {
@@ -1339,9 +1339,11 @@ mod tests {
         let account = Account::new(auth.clone()).build(&auth);
         let mut world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         let mut permissions = permission::Permissions::new();
         assert!(
@@ -1371,14 +1373,16 @@ mod tests {
         let mut block = state.block(default_header(1));
         let mut transaction = block.transaction();
         let dataspace_id = iroha_model_base::topology::DataSpaceId::new(u64::MAX);
-        transaction.world.parameters.set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        transaction
+            .world
+            .parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
                     parent_network_id: state.network_id,
                     dataspace_id,
                 },
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let (bytes, manifest) = minimal_contract_artifact(1);
         let hash = ivm::contract_code_hash(&bytes);
         let owned = ContractArtifactId::new(dataspace_id, hash);
@@ -1657,13 +1661,13 @@ mod tests {
                 authority.clone(),
             );
         let (v1_code, v1_manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleOne { permission CanRunLifecycleOne;
   hajimari() {}
   kaizen() {}
   kotoage fn run() authorize(CanRunLifecycleOne) {}
 }
-"#,
+",
         );
         let v1_hash = register_code_bytes(
             &authority,
@@ -1765,13 +1769,13 @@ seiyaku LifecycleOne { permission CanRunLifecycleOne;
             "idempotent activation must not recreate a consumed hajimari"
         );
         let (v2_code, v2_manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleTwo { permission CanRunLifecycleTwo;
   hajimari() {}
   kaizen() {}
   kotoage fn run() authorize(CanRunLifecycleTwo) {}
 }
-"#,
+",
         );
         let v2_hash = register_code_bytes(
             &authority,
@@ -1893,7 +1897,6 @@ seiyaku LifecycleTwo { permission CanRunLifecycleTwo;
         let replacement = install(
             "seiyaku Upgrade { state bool enabled; hajimari() { enabled = false; } kaizen() { enabled = true; } kotoage fn run() authorize(anyone) {} }",
         );
-        drop(install);
         activate_instance(&authority, address.clone(), 1, original, &mut transaction).unwrap();
         let revision = transaction
             .world
@@ -2158,12 +2161,12 @@ seiyaku LifecycleTwo { permission CanRunLifecycleTwo;
         )
         .expect("contract address");
         let (code, manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleAba { permission CanRunLifecycleAba;
   hajimari() {}
   kotoage fn run() authorize(CanRunLifecycleAba) {}
 }
-"#,
+",
         );
         let mut first_block = state.block(default_header(1));
         let mut first_transaction = first_block.transaction();
@@ -2424,7 +2427,7 @@ seiyaku LifecycleAba { permission CanRunLifecycleAba;
     #[test]
     fn register_code_rejects_cycle_ceiling_above_node_policy() {
         let (mut state, authority, _kp) = test_state();
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             core::num::NonZeroU64::new(1).expect("test ceiling is non-zero");
         state.set_pipeline(pipeline);

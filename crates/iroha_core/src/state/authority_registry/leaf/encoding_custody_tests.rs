@@ -315,7 +315,6 @@ fn raw_digest_frame_rejections_allocate_nothing_and_overrun_is_sticky() {
             .kind(),
         io::ErrorKind::InvalidData
     );
-    drop(bounded);
     assert!(exceeded);
     assert_eq!(sink.position(), 0);
 }

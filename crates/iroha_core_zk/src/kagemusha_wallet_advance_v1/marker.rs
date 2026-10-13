@@ -822,7 +822,7 @@ impl KagemushaWalletSelectedCapabilityV1 {
         &self.operation_id
     }
 
-    /// Digest of the frozen capsule the receipt signs.
+    /// Private custody digest of the selected frozen capsule, distinct from its public receipt commitment.
     #[must_use]
     pub fn capsule_digest(&self) -> &[u8; 32] {
         &self.capsule_digest

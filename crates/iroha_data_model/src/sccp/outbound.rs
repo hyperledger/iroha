@@ -5,6 +5,8 @@
 //! stays [`SccpOutboundStatusV1::Recorded`]; a record leaves that state only through a proven
 //! void on the destination, after which its amount is refunded or stranded.
 
+use super::inbound::SccpPendingReasonV1;
+
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, bridge::SccpNetworkV1,
 };
@@ -96,10 +98,11 @@ pub struct SccpVoidStatusV1 {
     pub kind: SccpVoidKindV1,
     /// Taira height at which the void was proven.
     pub proven_at_height: u64,
-    /// Whether the refund waits for `SettleSccpV1::Refund` (SCCP disabled, the revision
+    /// Why the refund waits for `SettleSccpV1::Refund`, or `None` after completion (SCCP disabled, the revision
     /// paused, the credit refused by the release movement now, or the void's inline release
     /// budget spent, §4.16).
-    pub refund_pending: bool,
+    #[norito(required)]
+    pub refund_pending: Option<SccpPendingReasonV1>,
 }
 
 /// Lifecycle of one outbound record (§4.4, §4.16).
@@ -156,7 +159,7 @@ impl SccpOutboundStatusV1 {
         matches!(
             self,
             Self::Voided(SccpVoidStatusV1 {
-                refund_pending: true,
+                refund_pending: Some(_),
                 ..
             })
         )
@@ -228,12 +231,12 @@ mod tests {
             SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Expired,
                 proven_at_height: 10,
-                refund_pending: false,
+                refund_pending: None,
             }),
             SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 11,
-                refund_pending: true,
+                refund_pending: Some(SccpPendingReasonV1::Held),
             }),
             SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 12 }),
             SccpOutboundStatusV1::Stranded(SccpStatusHeightV1 { height: 13 }),

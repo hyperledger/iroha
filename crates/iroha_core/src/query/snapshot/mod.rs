@@ -487,6 +487,24 @@ mod tests {
         Arc,
         atomic::{AtomicU64, Ordering},
     };
+
+    /// Commit the query limit through the same typed parameter owner read by queries.
+    fn set_stored_query_minimum_for_fixture(state: &State, minimum: u64) {
+        let policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1 {
+            query_stored_min_gas_units: minimum,
+            ..crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default()
+        };
+        let mut world = state.world.block();
+        world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ))
+            .expect("valid committed query policy");
+        world.commit();
+        assert_eq!(state.view().pipeline().query_stored_min_gas_units, minimum);
+    }
     #[derive(Debug)]
     struct TestMemoryReservation {
         bytes: u64,
@@ -1254,8 +1272,8 @@ mod tests {
         let world = World::with([d1, d2, d3.clone()], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
-        let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
+        set_stored_query_minimum_for_fixture(&state, 10);
         let state = Arc::new(state);
         let params = QueryParams {
             pagination: Pagination::default(),
@@ -1321,8 +1339,8 @@ mod tests {
         let world = World::with([d1, d2, d3], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
-        let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
+        set_stored_query_minimum_for_fixture(&state, 10);
         let state = Arc::new(state);
         let params = QueryParams {
             pagination: Pagination::default(),
@@ -1686,8 +1704,8 @@ mod tests {
         let world = World::with([d], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
-        let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
+        set_stored_query_minimum_for_fixture(&state, 10);
         let state = Arc::new(state);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "missing".to_owned(),
@@ -1717,8 +1735,8 @@ mod tests {
         let world = World::with([d], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
-        let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
+        set_stored_query_minimum_for_fixture(&state, 10);
         let state = Arc::new(state);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "missing".to_owned(),
@@ -1817,8 +1835,8 @@ mod tests {
         let world = World::with([d], [account], []);
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
-        let mut state = State::new(world, kura, store.clone());
-        state.pipeline.query_stored_min_gas_units = 10;
+        let state = State::new(world, kura, store.clone());
+        set_stored_query_minimum_for_fixture(&state, 10);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "q".to_owned(),
             cursor: nonzero_ext::nonzero!(1_u64),

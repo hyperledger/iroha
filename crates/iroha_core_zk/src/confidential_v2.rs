@@ -407,33 +407,36 @@ pub fn is_confidential_unshield_v2_circuit_id(raw: &str) -> bool {
     raw == CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID
 }
 /// Return the exact compiled native transfer key carrier.
-pub fn confidential_transfer_v2_vk_box() -> Result<VerifyingKeyBox, String> {
+pub fn confidential_transfer_v2_vk_box()
+-> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Transfer)
 }
 /// Authenticate the exact compiled native transfer key carrier.
 pub fn ensure_confidential_transfer_v2_canonical_vk_box(
     key: &VerifyingKeyBox,
-) -> Result<(), String> {
+) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
     native::validate_key(native::Kind::Transfer, key)
 }
 /// Return the exact compiled native full-redemption key carrier.
-pub fn confidential_unshield_v2_vk_box() -> Result<VerifyingKeyBox, String> {
+pub fn confidential_unshield_v2_vk_box()
+-> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Full)
 }
 /// Authenticate the exact compiled native full-redemption key carrier.
 pub fn ensure_confidential_unshield_v2_canonical_vk_box(
     key: &VerifyingKeyBox,
-) -> Result<(), String> {
+) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
     native::validate_key(native::Kind::Full, key)
 }
 /// Return the exact compiled native redemption-with-change key carrier.
-pub fn confidential_unshield_v3_vk_box() -> Result<VerifyingKeyBox, String> {
+pub fn confidential_unshield_v3_vk_box()
+-> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Change)
 }
 /// Authenticate the exact compiled native redemption-with-change key carrier.
 pub fn ensure_confidential_unshield_v3_canonical_vk_box(
     key: &VerifyingKeyBox,
-) -> Result<(), String> {
+) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
     native::validate_key(native::Kind::Change, key)
 }
 fn confidential_v2_vk_record(
@@ -464,7 +467,7 @@ fn confidential_v2_vk_record(
 pub fn confidential_transfer_v2_vk_record(
     name: &str,
     version: u32,
-) -> Result<VerifyingKeyRecord, String> {
+) -> Result<VerifyingKeyRecord, ConfidentialProofProductionError> {
     confidential_v2_vk_record(
         name,
         version,
@@ -472,12 +475,13 @@ pub fn confidential_transfer_v2_vk_record(
         CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1,
         confidential_transfer_v2_vk_box()?,
     )
+    .map_err(Into::into)
 }
 /// Build an active verifier record for confidential unshield V2.
 pub fn confidential_unshield_v2_vk_record(
     name: &str,
     version: u32,
-) -> Result<VerifyingKeyRecord, String> {
+) -> Result<VerifyingKeyRecord, ConfidentialProofProductionError> {
     confidential_v2_vk_record(
         name,
         version,
@@ -485,12 +489,13 @@ pub fn confidential_unshield_v2_vk_record(
         CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUTS_SCHEMA_V1,
         confidential_unshield_v2_vk_box()?,
     )
+    .map_err(Into::into)
 }
 /// Build an active verifier record for confidential unshield V3.
 pub fn confidential_unshield_v3_vk_record(
     name: &str,
     version: u32,
-) -> Result<VerifyingKeyRecord, String> {
+) -> Result<VerifyingKeyRecord, ConfidentialProofProductionError> {
     confidential_v2_vk_record(
         name,
         version,
@@ -498,7 +503,252 @@ pub fn confidential_unshield_v3_vk_record(
         CONFIDENTIAL_UNSHIELD_V3_PUBLIC_INPUTS_SCHEMA_V1,
         confidential_unshield_v3_vk_box()?,
     )
+    .map_err(Into::into)
 }
+/// Original failure of native confidential proof construction, without a wire verdict.
+/// Pure statement errors remain distinguishable from actual codec/math/initialization failures.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct ConfidentialProofProductionError(ConfidentialProofProductionCause);
+
+#[derive(Debug, thiserror::Error)]
+enum ConfidentialProofProductionCause {
+    #[error("{0}")]
+    Input(String),
+    #[error(transparent)]
+    Init(iroha_plonk::verification_attempt::NativeVerifierInitError),
+    #[error(transparent)]
+    Native(native::NativeProverError),
+    #[error(transparent)]
+    Packaging(super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>),
+    #[error(transparent)]
+    Verification(super::VerificationAttemptError<super::ProofVerificationError>),
+    #[error(transparent)]
+    Codec(norito::core::DecodeAttemptError),
+}
+
+/// Diagnostic operation category; it is never a proof verdict or retry authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfidentialProofProductionKind {
+    /// Completed application input validation.
+    Input,
+    /// Trusted verifier material initialization.
+    Initialization,
+    /// Native proving-key construction.
+    NativeKey,
+    /// Native witness or proof computation; inspect its original typed error.
+    NativeProof,
+    /// Native self-verification; inspect its original typed error.
+    NativeVerification,
+    /// Compiled material violated a local invariant.
+    LocalInvariant,
+    /// A previous initializer panic poisoned the cache gate.
+    InitializationPoisoned,
+    /// Native envelope packaging or key matching.
+    Packaging,
+    /// Verification of the packaged proof relation.
+    Verification,
+    /// Captured canonical encoding operation.
+    Codec,
+}
+
+impl ConfidentialProofProductionError {
+    /// Borrow only the operation category; no original owner is copied.
+    #[must_use]
+    pub fn kind(&self) -> ConfidentialProofProductionKind {
+        use ConfidentialProofProductionCause as Cause;
+        use ConfidentialProofProductionKind as Kind;
+        use native::NativeProverError as Native;
+        match &self.0 {
+            Cause::Input(_) | Cause::Native(Native::Input(_)) => Kind::Input,
+            Cause::Init(_) | Cause::Native(Native::Init(_)) => Kind::Initialization,
+            Cause::Native(Native::Key(_)) => Kind::NativeKey,
+            Cause::Native(Native::Prove(_)) => Kind::NativeProof,
+            Cause::Native(Native::Verify(_)) => Kind::NativeVerification,
+            Cause::Native(Native::Invariant(_)) => Kind::LocalInvariant,
+            Cause::Native(Native::CachePoisoned) => Kind::InitializationPoisoned,
+            Cause::Packaging(_) => Kind::Packaging,
+            Cause::Verification(_) => Kind::Verification,
+            Cause::Codec(_) => Kind::Codec,
+        }
+    }
+
+    /// Borrow a completed input-validation diagnostic without parsing its display text.
+    #[must_use]
+    pub fn input_error(&self) -> Option<&str> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Input(original)
+            | ConfidentialProofProductionCause::Native(native::NativeProverError::Input(
+                original,
+            )) => Some(original),
+            _ => None,
+        }
+    }
+
+    /// Borrow the full original trusted initializer failure.
+    #[must_use]
+    pub fn initialization_error(
+        &self,
+    ) -> Option<&iroha_plonk::verification_attempt::NativeVerifierInitError> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Init(original)
+            | ConfidentialProofProductionCause::Native(native::NativeProverError::Init(original)) => {
+                Some(original)
+            }
+            _ => None,
+        }
+    }
+
+    /// Borrow the original key-generation failure, without exposing a private backend type.
+    #[must_use]
+    pub fn key_error(&self) -> Option<&iroha_plonk::keys::KeyError> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Native(native::NativeProverError::Key(original)) => {
+                Some(original)
+            }
+            _ => match self.initialization_error() {
+                Some(iroha_plonk::verification_attempt::NativeVerifierInitError::Key(original)) => {
+                    Some(original)
+                }
+                _ => None,
+            },
+        }
+    }
+
+    /// Borrow the original native witness/proof-computation error.
+    #[must_use]
+    pub fn prover_error(&self) -> Option<&iroha_plonk::prover::ProverError> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Native(native::NativeProverError::Prove(
+                original,
+            )) => Some(original),
+            _ => None,
+        }
+    }
+
+    /// Borrow an already-classified verification refusal carried by packaging or relation checks.
+    #[must_use]
+    pub fn verification_refusal(&self) -> Option<&super::VerificationRefusal> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Packaging(
+                super::VerificationAttemptError::Deferred(original),
+            )
+            | ConfidentialProofProductionCause::Verification(
+                super::VerificationAttemptError::Deferred(original),
+            ) => Some(original),
+            _ => None,
+        }
+    }
+
+    /// Borrow an original self-verification error or a classified unfinished native check.
+    #[must_use]
+    pub fn native_verification_error(&self) -> Option<&iroha_plonk::verifier::VerifyError> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Native(native::NativeProverError::Verify(
+                original,
+            )) => Some(original),
+            _ => self
+                .verification_refusal()
+                .and_then(super::VerificationRefusal::native_verification_error),
+        }
+    }
+
+    /// Borrow the captured canonical attempt, including its separate original scope evidence.
+    /// The ordinary `Error::source()` chain alone cannot expose that scoped evidence.
+    #[must_use]
+    pub fn codec_attempt_error(&self) -> Option<&norito::core::DecodeAttemptError> {
+        match &self.0 {
+            ConfidentialProofProductionCause::Codec(original) => Some(original),
+            _ => match self.initialization_error() {
+                Some(iroha_plonk::verification_attempt::NativeVerifierInitError::Codec(
+                    original,
+                )) => Some(original),
+                _ => None,
+            },
+        }
+    }
+
+    /// Move a supported unfinished verification/initialization cause into its shared owner.
+    ///
+    /// On mismatch, returns this entire original error unchanged. In particular, `Err` is
+    /// not a completed proof rejection: native proving errors have their own typed boundary.
+    /// No numerical cause, private backend enum, allocated wrapper or release signal is invented.
+    pub fn into_verification_refusal(self) -> Result<super::VerificationRefusal, Self> {
+        use ConfidentialProofProductionCause as Cause;
+        use iroha_plonk::verification_attempt::{
+            NativeVerifierInitError as Init, VerificationAttemptError as Attempt,
+            VerificationRefusal as Refusal, native_verification_error,
+        };
+        use native::NativeProverError as Native;
+        match self.0 {
+            Cause::Init(original) => Ok(Refusal::initialization(original)),
+            Cause::Native(original) => match original {
+                Native::Init(original) => Ok(Refusal::initialization(original)),
+                Native::Key(original) => Ok(Refusal::initialization(Init::Key(original))),
+                Native::Invariant(original) => {
+                    Ok(Refusal::initialization(Init::Invariant(original)))
+                }
+                Native::CachePoisoned => Ok(Refusal::initialization(Init::CachePoisoned)),
+                Native::Verify(original) => {
+                    match native_verification_error(original, core::convert::identity) {
+                        Attempt::Deferred(original) => Ok(original),
+                        Attempt::Rejected(original) => {
+                            Err(Self(Cause::Native(Native::Verify(original))))
+                        }
+                    }
+                }
+                original => Err(Self(Cause::Native(original))),
+            },
+            Cause::Codec(original) => match original.into_local_refusal() {
+                Ok(original) => Ok(Refusal::from_decode_refusal(original)),
+                Err(original) => Err(Self(Cause::Codec(original))),
+            },
+            Cause::Packaging(Attempt::Deferred(original))
+            | Cause::Verification(Attempt::Deferred(original)) => Ok(original),
+            original => Err(Self(original)),
+        }
+    }
+}
+
+impl From<String> for ConfidentialProofProductionError {
+    fn from(original: String) -> Self {
+        Self(ConfidentialProofProductionCause::Input(original))
+    }
+}
+impl From<iroha_plonk::verification_attempt::NativeVerifierInitError>
+    for ConfidentialProofProductionError
+{
+    fn from(original: iroha_plonk::verification_attempt::NativeVerifierInitError) -> Self {
+        Self(ConfidentialProofProductionCause::Init(original))
+    }
+}
+impl From<native::NativeProverError> for ConfidentialProofProductionError {
+    fn from(original: native::NativeProverError) -> Self {
+        Self(ConfidentialProofProductionCause::Native(original))
+    }
+}
+impl From<super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>>
+    for ConfidentialProofProductionError
+{
+    fn from(
+        original: super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>,
+    ) -> Self {
+        Self(ConfidentialProofProductionCause::Packaging(original))
+    }
+}
+impl From<super::VerificationAttemptError<super::ProofVerificationError>>
+    for ConfidentialProofProductionError
+{
+    fn from(original: super::VerificationAttemptError<super::ProofVerificationError>) -> Self {
+        Self(ConfidentialProofProductionCause::Verification(original))
+    }
+}
+impl From<norito::core::DecodeAttemptError> for ConfidentialProofProductionError {
+    fn from(original: norito::core::DecodeAttemptError) -> Self {
+        Self(ConfidentialProofProductionCause::Codec(original))
+    }
+}
+
 /// Return whether an identifier exactly selects the production change-unshield circuit.
 #[inline]
 pub fn is_confidential_unshield_v3_circuit_id(raw: &str) -> bool {
@@ -525,7 +775,9 @@ pub fn parse_transfer_public_inputs(
         return Err("not a native confidential transfer envelope".into());
     }
     let columns =
-        super::native_pipa_r::public_instances(super::ZK_BACKEND_NATIVE_PIPA_R, &envelope)?;
+        super::native_pipa_r::public_instances(super::ZK_BACKEND_NATIVE_PIPA_R, &envelope)
+            .map_err(crate::verification::expect_rejected)
+            .map_err(|error| error.to_string())?;
     let rows = &columns[0];
     Ok((
         [rows[0].to_repr(), rows[1].to_repr()],
@@ -1731,19 +1983,19 @@ fn encode_native_envelope(
     kind: native::Kind,
     vk_box: &VerifyingKeyBox,
     proved: iroha_data_model::zk::NativePipaRProofV1,
-) -> Result<ProofBox, String> {
+) -> Result<ProofBox, ConfidentialProofProductionError> {
     native::validate_key(kind, vk_box)?;
     let envelope = OpenVerifyEnvelope {
         backend: BackendTag::NativePipaRPasta,
         circuit_id: kind.circuit_id().to_owned(),
         vk_hash: super::hash_vk(vk_box),
         public_inputs: kind.schema().to_vec(),
-        proof_bytes: norito::encode_canonical(&proved).map_err(|error| error.to_string())?,
+        proof_bytes: norito::core::classify_decode_attempt(|| norito::encode_canonical(&proved))?,
         aux: Vec::new(),
     };
     let proof = ProofBox::new(
         super::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
-        norito::encode_canonical(&envelope).map_err(|error| error.to_string())?,
+        norito::core::classify_decode_attempt(|| norito::encode_canonical(&envelope))?,
     );
     let cap = CONFIDENTIAL_V2_MAX_PROOF_BYTES as usize;
     super::verify_for_relation(
@@ -1758,8 +2010,7 @@ fn encode_native_envelope(
             stark_max_envelope_bytes: 0,
             stark_max_proof_bytes: 0,
         },
-    )
-    .map_err(|error| format!("generated confidential proof failed local verification: {error}"))?;
+    )?;
     Ok(proof)
 }
 struct PreparedConfidentialTransferV3 {
@@ -1943,10 +2194,10 @@ fn build_confidential_transfer_proof_v2_resolved_paths(
         (ConfidentialMerklePathV2, ConfidentialMerklePathV2),
         String,
     >,
-) -> Result<ConfidentialTransferProofV2, String> {
+) -> Result<ConfidentialTransferProofV2, ConfidentialProofProductionError> {
     ensure_confidential_transfer_v2_canonical_vk_box(vk_box)?;
     if circuit_id != native::Kind::Transfer.circuit_id() {
-        return Err("unsupported native confidential circuit identifier".to_owned());
+        return Err(("unsupported native confidential circuit identifier".to_owned()).into());
     }
     native::validate_key(native::Kind::Transfer, vk_box)?;
     let prepared = prepare_confidential_transfer_v3_resolved_paths(
@@ -2000,17 +2251,17 @@ pub(super) fn build_confidential_transfer_proof_v2(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialTransferProofV2, String> {
+) -> Result<ConfidentialTransferProofV2, ConfidentialProofProductionError> {
     validate_confidential_tree_input_shape_v3(
         tree_commitments.len(),
         inputs.iter().map(|input| input.leaf_index),
     )?;
     if outputs.is_empty() || outputs.len() > 2 {
-        return Err("confidential transfer v2 supports one or two outputs".to_owned());
+        return Err(("confidential transfer v2 supports one or two outputs".to_owned()).into());
     }
     let computed_root = compute_confidential_root_v2(tree_commitments)?;
     if computed_root != root_hint {
-        return Err("tree commitments do not match the supplied root_hint".to_owned());
+        return Err(("tree commitments do not match the supplied root_hint".to_owned()).into());
     }
     build_confidential_transfer_proof_v2_resolved_paths(
         network_id,
@@ -2029,7 +2280,8 @@ pub(super) fn build_confidential_transfer_proof_v2(
                 != input_0_commitment
             {
                 return Err(
-                    "transfer input 0 does not match the current confidential tree".to_owned(),
+                    ("transfer input 0 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             if let Some(note) = input_1
@@ -2040,7 +2292,8 @@ pub(super) fn build_confidential_transfer_proof_v2(
                     != input_1_commitment
             {
                 return Err(
-                    "transfer input 1 does not match the current confidential tree".to_owned(),
+                    ("transfer input 1 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             let input_0_path =
@@ -2052,7 +2305,10 @@ pub(super) fn build_confidential_transfer_proof_v2(
             if input_0_path.root != root_hint
                 || (input_1.is_some() && input_1_path.root != root_hint)
             {
-                return Err("computed confidential Merkle path does not match root_hint".to_owned());
+                return Err(
+                    ("computed confidential Merkle path does not match root_hint".to_owned())
+                        .into(),
+                );
             }
             Ok((input_0_path, input_1_path))
         },
@@ -2111,7 +2367,7 @@ pub(super) fn build_confidential_transfer_proof_v2_with_paths(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialTransferProofV2, String> {
+) -> Result<ConfidentialTransferProofV2, ConfidentialProofProductionError> {
     build_confidential_transfer_proof_v2_resolved_paths(
         network_id,
         asset_definition_id,
@@ -2152,9 +2408,9 @@ fn build_confidential_unshield_proof_v2_resolved_paths(
         (ConfidentialMerklePathV2, ConfidentialMerklePathV2),
         String,
     >,
-) -> Result<ConfidentialUnshieldProofV2, String> {
+) -> Result<ConfidentialUnshieldProofV2, ConfidentialProofProductionError> {
     if inputs.is_empty() || inputs.len() > 2 {
-        return Err("confidential unshield v2 supports one or two inputs".to_owned());
+        return Err(("confidential unshield v2 supports one or two inputs".to_owned()).into());
     }
     let expected_public_amount = inputs.iter().try_fold(0u128, |sum, input| {
         sum.checked_add(input.amount)
@@ -2162,12 +2418,13 @@ fn build_confidential_unshield_proof_v2_resolved_paths(
     })?;
     if public_amount == 0 || public_amount != expected_public_amount {
         return Err(
-            "full-unshield public amount must equal the exact non-zero input sum".to_owned(),
+            ("full-unshield public amount must equal the exact non-zero input sum".to_owned())
+                .into(),
         );
     }
     ensure_confidential_unshield_v2_canonical_vk_box(vk_box)?;
     if circuit_id != native::Kind::Full.circuit_id() {
-        return Err("unsupported native confidential circuit identifier".to_owned());
+        return Err(("unsupported native confidential circuit identifier".to_owned()).into());
     }
     native::validate_key(native::Kind::Full, vk_box)?;
     let spend_scalar = hash_to_scalar(b"iroha.confidential.v3.spend_scalar", &[spend_key]);
@@ -2281,14 +2538,14 @@ pub(super) fn build_confidential_unshield_proof_v2(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialUnshieldProofV2, String> {
+) -> Result<ConfidentialUnshieldProofV2, ConfidentialProofProductionError> {
     validate_confidential_tree_input_shape_v3(
         tree_commitments.len(),
         inputs.iter().map(|input| input.leaf_index),
     )?;
     let computed_root = compute_confidential_root_v2(tree_commitments)?;
     if computed_root != root_hint {
-        return Err("tree commitments do not match the supplied root_hint".to_owned());
+        return Err(("tree commitments do not match the supplied root_hint".to_owned()).into());
     }
     build_confidential_unshield_proof_v2_resolved_paths(
         network_id,
@@ -2307,7 +2564,8 @@ pub(super) fn build_confidential_unshield_proof_v2(
                 != input_0_commitment
             {
                 return Err(
-                    "unshield input 0 does not match the current confidential tree".to_owned(),
+                    ("unshield input 0 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             if let Some(note) = input_1
@@ -2318,7 +2576,8 @@ pub(super) fn build_confidential_unshield_proof_v2(
                     != input_1_commitment
             {
                 return Err(
-                    "unshield input 1 does not match the current confidential tree".to_owned(),
+                    ("unshield input 1 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             let input_0_path =
@@ -2330,7 +2589,10 @@ pub(super) fn build_confidential_unshield_proof_v2(
             if input_0_path.root != root_hint
                 || (input_1.is_some() && input_1_path.root != root_hint)
             {
-                return Err("computed confidential Merkle path does not match root_hint".to_owned());
+                return Err(
+                    ("computed confidential Merkle path does not match root_hint".to_owned())
+                        .into(),
+                );
             }
             Ok((input_0_path, input_1_path))
         },
@@ -2391,7 +2653,7 @@ pub(super) fn build_confidential_unshield_proof_v2_with_paths(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialUnshieldProofV2, String> {
+) -> Result<ConfidentialUnshieldProofV2, ConfidentialProofProductionError> {
     build_confidential_unshield_proof_v2_resolved_paths(
         network_id,
         asset_definition_id,
@@ -2591,10 +2853,10 @@ fn build_confidential_unshield_proof_v3_resolved_paths(
         (ConfidentialMerklePathV2, ConfidentialMerklePathV2),
         String,
     >,
-) -> Result<ConfidentialUnshieldProofV3, String> {
+) -> Result<ConfidentialUnshieldProofV3, ConfidentialProofProductionError> {
     ensure_confidential_unshield_v3_canonical_vk_box(vk_box)?;
     if circuit_id != native::Kind::Change.circuit_id() {
-        return Err("unsupported native confidential circuit identifier".to_owned());
+        return Err(("unsupported native confidential circuit identifier".to_owned()).into());
     }
     native::validate_key(native::Kind::Change, vk_box)?;
     let prepared = prepare_confidential_unshield_change_v4_resolved_paths(
@@ -2652,19 +2914,20 @@ pub(super) fn build_confidential_unshield_proof_v3(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialUnshieldProofV3, String> {
+) -> Result<ConfidentialUnshieldProofV3, ConfidentialProofProductionError> {
     validate_confidential_tree_input_shape_v3(
         tree_commitments.len(),
         inputs.iter().map(|input| input.leaf_index),
     )?;
     if outputs.len() > 1 {
         return Err(
-            "confidential unshield v3 supports at most one private change output".to_owned(),
+            ("confidential unshield v3 supports at most one private change output".to_owned())
+                .into(),
         );
     }
     let computed_root = compute_confidential_root_v2(tree_commitments)?;
     if computed_root != root_hint {
-        return Err("tree commitments do not match the supplied root_hint".to_owned());
+        return Err(("tree commitments do not match the supplied root_hint".to_owned()).into());
     }
     build_confidential_unshield_proof_v3_resolved_paths(
         network_id,
@@ -2684,7 +2947,8 @@ pub(super) fn build_confidential_unshield_proof_v3(
                 != input_0_commitment
             {
                 return Err(
-                    "unshield input 0 does not match the current confidential tree".to_owned(),
+                    ("unshield input 0 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             if let Some(note) = input_1
@@ -2695,7 +2959,8 @@ pub(super) fn build_confidential_unshield_proof_v3(
                     != input_1_commitment
             {
                 return Err(
-                    "unshield input 1 does not match the current confidential tree".to_owned(),
+                    ("unshield input 1 does not match the current confidential tree".to_owned())
+                        .into(),
                 );
             }
             let input_0_path =
@@ -2707,7 +2972,10 @@ pub(super) fn build_confidential_unshield_proof_v3(
             if input_0_path.root != root_hint
                 || (input_1.is_some() && input_1_path.root != root_hint)
             {
-                return Err("computed confidential Merkle path does not match root_hint".to_owned());
+                return Err(
+                    ("computed confidential Merkle path does not match root_hint".to_owned())
+                        .into(),
+                );
             }
             Ok((input_0_path, input_1_path))
         },
@@ -2767,7 +3035,7 @@ pub(super) fn build_confidential_unshield_proof_v3_with_paths(
     root_hint: [u8; 32],
     circuit_id: &str,
     vk_box: &VerifyingKeyBox,
-) -> Result<ConfidentialUnshieldProofV3, String> {
+) -> Result<ConfidentialUnshieldProofV3, ConfidentialProofProductionError> {
     build_confidential_unshield_proof_v3_resolved_paths(
         network_id,
         asset_definition_id,
@@ -2798,3 +3066,149 @@ pub(crate) mod native;
 #[cfg(test)]
 #[path = "confidential_hash_tests.rs"]
 mod native_hash_tests;
+
+#[cfg(test)]
+mod production_error_owner_tests {
+    use super::*;
+    use crate::{VerificationRefusal, confidential::ConfidentialProverError};
+    use iroha_plonk::{
+        keys::KeyError,
+        pcs::ipa::IpaError,
+        verification_attempt::{NativeVerifierInitError, VerificationRefusalKind},
+        verifier::VerifyError,
+    };
+    use std::error::Error;
+
+    #[test]
+    fn original_decoder_scope_moves_from_producer_through_wallet_without_text_projection() {
+        let bytes = vec![59_u8; 16];
+        let encoded = norito::encode_canonical(&bytes).unwrap();
+        // Decoder limits do not fund the writer. This control proves the typed wrapper's
+        // custody of a genuine original reader refusal, not writer-allocation qualification.
+        // TODO: qualify actual native writer allocation refusal separately.
+        let captured = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::core::classify_decode_attempt(|| {
+                    norito::decode_canonical::<Vec<u8>>(&encoded)
+                })
+            },
+        )
+        .unwrap_err();
+        let expected = captured.local_refusal().unwrap();
+        let produced = ConfidentialProofProductionError::from(captured);
+        assert_eq!(produced.kind(), ConfidentialProofProductionKind::Codec);
+        assert_eq!(
+            produced.codec_attempt_error().unwrap().local_refusal(),
+            Some(expected.clone())
+        );
+        let wallet = ConfidentialProverError::Proving(produced);
+        let borrowed = wallet
+            .source()
+            .unwrap()
+            .downcast_ref::<ConfidentialProofProductionError>()
+            .unwrap();
+        assert_eq!(
+            borrowed.codec_attempt_error().unwrap().local_refusal(),
+            Some(expected.clone())
+        );
+        let ConfidentialProverError::Proving(produced) = wallet else {
+            panic!("lost producer wrapper");
+        };
+        let owner = produced.into_verification_refusal().unwrap();
+        assert_eq!(owner.decode_refusal(), Some(&expected));
+        assert_eq!(owner.into_decode_refusal().unwrap(), expected);
+        assert_eq!(
+            norito::decode_canonical::<Vec<u8>>(&encoded).unwrap(),
+            bytes
+        );
+        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        assert_eq!(
+            norito::with_decode_limits_scope(zero, || norito::encode_canonical(&bytes)).unwrap(),
+            encoded
+        );
+    }
+
+    #[test]
+    fn native_and_initializer_originals_remain_inspectable_and_mismatches_are_returned() {
+        let budget = iroha_pasta::msm::MemoryBudget::new(0)
+            .check(31)
+            .unwrap_err();
+        let original = Box::new(VerifyError::Ipa(IpaError::Msm(budget.into())));
+        let address: *const VerifyError = &*original;
+        let produced = ConfidentialProofProductionError::from(native::NativeProverError::Verify(
+            VerifyError::BatchItem {
+                index: 4,
+                error: original,
+            },
+        ));
+        assert_eq!(
+            produced.kind(),
+            ConfidentialProofProductionKind::NativeVerification
+        );
+        let owner = produced.into_verification_refusal().unwrap();
+        assert_eq!(owner.kind(), VerificationRefusalKind::NativeMemoryBudget);
+        let Some(VerifyError::BatchItem { index, error }) = owner.native_verification_error()
+        else {
+            panic!("lost exact native failure");
+        };
+        assert_eq!(*index, 4);
+        let retained_address: *const VerifyError = &**error;
+        assert_eq!(retained_address, address);
+        assert!(
+            matches!(&**error, VerifyError::Ipa(IpaError::Msm(actual)) if *actual == budget.into())
+        );
+        let init = NativeVerifierInitError::Key(KeyError::Msm(budget.into()));
+        let produced = ConfidentialProofProductionError::from(init);
+        assert!(produced.initialization_error().is_some());
+        assert!(produced.key_error().is_some());
+        assert_eq!(
+            produced.into_verification_refusal().unwrap().kind(),
+            VerificationRefusalKind::NativeMemoryBudget
+        );
+        let completed = VerifyError::ProofLength {
+            expected: 5,
+            actual: 4,
+        };
+        let produced =
+            ConfidentialProofProductionError::from(native::NativeProverError::Verify(completed));
+        let returned = produced.into_verification_refusal().unwrap_err();
+        assert!(matches!(
+            returned.native_verification_error(),
+            Some(VerifyError::ProofLength {
+                expected: 5,
+                actual: 4
+            })
+        ));
+        let malformed = norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::NonCanonicalEncoding)
+        })
+        .unwrap_err();
+        let returned = ConfidentialProofProductionError::from(malformed)
+            .into_verification_refusal()
+            .unwrap_err();
+        assert_eq!(returned.kind(), ConfidentialProofProductionKind::Codec);
+        assert!(
+            returned
+                .codec_attempt_error()
+                .unwrap()
+                .local_refusal()
+                .is_none()
+        );
+        let input = ConfidentialProofProductionError::from("completed input error".to_owned())
+            .into_verification_refusal()
+            .unwrap_err();
+        assert_eq!(input.kind(), ConfidentialProofProductionKind::Input);
+        assert_eq!(input.input_error(), Some("completed input error"));
+        let classified = ConfidentialProofProductionError::from(crate::VerificationAttemptError::<
+            crate::ProofVerificationError,
+        >::Deferred(
+            VerificationRefusal::initialization(NativeVerifierInitError::CachePoisoned),
+        ));
+        assert!(classified.verification_refusal().is_some());
+        assert_eq!(
+            classified.into_verification_refusal().unwrap().kind(),
+            VerificationRefusalKind::LocalInvariantViolation
+        );
+    }
+}

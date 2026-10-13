@@ -1,0 +1,282 @@
+["/private/tmp/parliament-faest-cross/rust-portable", "identity"]
+portable
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "identity"]
+accel
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_128s"]
+Corrections 0 1200
+MultCorrections 1200 390
+UTilde 1590 64
+MaskedWitness 1654 120
+Coefficients 1774 96
+Decommitment 1870 2160
+Challenge 4030 16
+IvPre 4046 16
+Counter 4062 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_128s", "/private/tmp/parliament-faest-cross/recovery/faest_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_128s", "/private/tmp/parliament-faest-cross/recovery/faest_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_128s", "/private/tmp/parliament-faest-cross/recovery/faest_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_128s", "/private/tmp/parliament-faest-cross/recovery/faest_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_128f"]
+Corrections 0 1920
+MultCorrections 1920 390
+UTilde 2310 64
+MaskedWitness 2374 120
+Coefficients 2494 96
+Decommitment 2590 2544
+Challenge 5134 16
+IvPre 5150 16
+Counter 5166 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_128f", "/private/tmp/parliament-faest-cross/recovery/faest_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_128f", "/private/tmp/parliament-faest-cross/recovery/faest_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_128f", "/private/tmp/parliament-faest-cross/recovery/faest_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_128f", "/private/tmp/parliament-faest-cross/recovery/faest_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_192s"]
+Corrections 0 3240
+MultCorrections 3240 630
+UTilde 3870 96
+MaskedWitness 3966 216
+Coefficients 4182 144
+Decommitment 4326 5040
+Challenge 9366 24
+IvPre 9390 16
+Counter 9406 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_192s", "/private/tmp/parliament-faest-cross/recovery/faest_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_192s", "/private/tmp/parliament-faest-cross/recovery/faest_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_192s", "/private/tmp/parliament-faest-cross/recovery/faest_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_192s", "/private/tmp/parliament-faest-cross/recovery/faest_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_192f"]
+Corrections 0 4968
+MultCorrections 4968 630
+UTilde 5598 96
+MaskedWitness 5694 216
+Coefficients 5910 144
+Decommitment 6054 5640
+Challenge 11694 24
+IvPre 11718 16
+Counter 11734 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_192f", "/private/tmp/parliament-faest-cross/recovery/faest_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_192f", "/private/tmp/parliament-faest-cross/recovery/faest_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_192f", "/private/tmp/parliament-faest-cross/recovery/faest_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_192f", "/private/tmp/parliament-faest-cross/recovery/faest_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_256s"]
+Corrections 0 5796
+MultCorrections 5796 870
+UTilde 6666 128
+MaskedWitness 6794 276
+Coefficients 7070 192
+Decommitment 7262 9312
+Challenge 16574 32
+IvPre 16606 16
+Counter 16622 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_256s", "/private/tmp/parliament-faest-cross/recovery/faest_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_256s", "/private/tmp/parliament-faest-cross/recovery/faest_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_256s", "/private/tmp/parliament-faest-cross/recovery/faest_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_256s", "/private/tmp/parliament-faest-cross/recovery/faest_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_256f"]
+Corrections 0 8832
+MultCorrections 8832 880
+UTilde 9712 128
+MaskedWitness 9840 276
+Coefficients 10116 192
+Decommitment 10308 10496
+Challenge 20804 32
+IvPre 20836 16
+Counter 20852 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_256f", "/private/tmp/parliament-faest-cross/recovery/faest_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_256f", "/private/tmp/parliament-faest-cross/recovery/faest_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_256f", "/private/tmp/parliament-faest-cross/recovery/faest_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_256f", "/private/tmp/parliament-faest-cross/recovery/faest_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_128s"]
+Corrections 0 800
+MultCorrections 800 390
+UTilde 1190 64
+MaskedWitness 1254 80
+Coefficients 1334 96
+Decommitment 1430 2000
+Challenge 3430 16
+IvPre 3446 16
+Counter 3462 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_128s", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_128s", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_128s", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_128s", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_128f"]
+Corrections 0 1280
+MultCorrections 1280 390
+UTilde 1670 64
+MaskedWitness 1734 80
+Coefficients 1814 96
+Decommitment 1910 2224
+Challenge 4134 16
+IvPre 4150 16
+Counter 4166 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_128f", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_128f", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_128f", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_128f", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_128f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_192s"]
+Corrections 0 2160
+MultCorrections 2160 630
+UTilde 2790 96
+MaskedWitness 2886 144
+Coefficients 3030 144
+Decommitment 3174 4656
+Challenge 7830 24
+IvPre 7854 16
+Counter 7870 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_192s", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_192s", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_192s", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_192s", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_192f"]
+Corrections 0 3456
+MultCorrections 3456 630
+UTilde 4086 96
+MaskedWitness 4182 144
+Coefficients 4326 144
+Decommitment 4470 5304
+Challenge 9774 24
+IvPre 9798 16
+Counter 9814 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_192f", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_192f", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_192f", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_192f", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_192f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_256s"]
+Corrections 0 4704
+MultCorrections 4704 870
+UTilde 5574 128
+MaskedWitness 5702 224
+Coefficients 5926 192
+Decommitment 6118 8384
+Challenge 14502 32
+IvPre 14534 16
+Counter 14550 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_256s", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_256s", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_256s", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_256s", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256s/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "layout", "faest_em_256f"]
+Corrections 0 7168
+MultCorrections 7168 880
+UTilde 8048 128
+MaskedWitness 8176 224
+Coefficients 8400 192
+Decommitment 8592 9440
+Challenge 18032 32
+IvPre 18064 16
+Counter 18080 4
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_256f", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_256f", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-portable", "verify", "faest_em_256f", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/signature"]
+accepted
+exit=0
+["/private/tmp/parliament-faest-cross/rust-accel", "verify", "faest_em_256f", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/pk", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/message", "/private/tmp/parliament-faest-cross/recovery/faest_em_256f/signature"]
+accepted
+exit=0

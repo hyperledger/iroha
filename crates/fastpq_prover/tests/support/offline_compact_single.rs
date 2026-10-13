@@ -20,7 +20,7 @@ fn verify_effect_public(
     // Ordering is committed by the complete independently expected statement
     // digest. Its offered-byte mutation is exercised separately below; the new
     // API does not pretend to accept a second independent ordering expectation.
-    fixture.verify_expected(bytes, expected, *limits)
+    fixture.verify_expected(bytes, expected, limits)
 }
 
 #[test]
@@ -212,12 +212,12 @@ fn assert_changed_statement_rejected(
             limits.transport,
         )
         .unwrap();
-        artifact.source = changed.source.clone();
+        artifact.source = changed.source;
         artifact.statement = changed.statement.clone();
         let changed_bytes = norito::encode_canonical(&artifact).unwrap();
         // Full source and statement mirrors plus independently recomputed digest
         // agree, leaving the genuine original child's context/DEEP binding to reject.
-        deep_context_rejected(&changed.verify(&changed_bytes, *limits).unwrap_err());
+        deep_context_rejected(&changed.verify(&changed_bytes, limits).unwrap_err());
     }
 }
 
@@ -292,7 +292,7 @@ fn assert_axt_context_changes_rejected(
         )
         .unwrap_err(),
     );
-    assert!(effect.verify(bytes, limits).is_err());
+    assert!(effect.verify(bytes, &limits).is_err());
 }
 
 pub fn verify_count(
@@ -434,7 +434,7 @@ fn produce_one(is_axt: bool) {
             limits,
         )
     } else {
-        effect.prove(proving, limits)
+        effect.prove(proving, &limits)
     }
     .unwrap();
     let elapsed = started.elapsed();

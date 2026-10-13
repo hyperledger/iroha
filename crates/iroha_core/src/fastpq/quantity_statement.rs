@@ -2,12 +2,15 @@
 
 use iroha_allocation::{AllocationBudget, AllocationReservation};
 
+#[cfg(test)]
+use fastpq_prover::gadgets::public_transfer_statement::{
+    prepare_quantity_public_transfers, quantity_rows_for_public_preparation,
+};
 use fastpq_prover::{
     ProofSemantics,
     gadgets::public_transfer_statement::{
         DerivedTransferSmtWitnesses, PublicTransferLimits, TransferSmtBuildLimits,
-        materialize_quantity_public_transfers, prepare_quantity_public_transfers,
-        public_claims_from_transcripts, quantity_rows_for_public_preparation,
+        materialize_quantity_public_transfers, public_claims_from_transcripts,
     },
 };
 use iroha_data_model::fastpq::{
@@ -154,6 +157,7 @@ pub(crate) fn quantity_materializer_invocations_for_testing() -> usize {
 /// # Errors
 /// Rejects the same public preparation failures as the strict full-domain producer,
 /// including invalid digest policy, arithmetic, chronology and explicit public bounds.
+#[cfg(test)]
 pub(crate) fn quantity_statement_frame_len_from_finalized_transcripts(
     transcripts: &[TransferTranscript],
     public_limits: PublicTransferLimits,

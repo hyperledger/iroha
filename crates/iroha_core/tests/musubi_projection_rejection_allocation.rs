@@ -172,7 +172,7 @@ fn allocator_observer_detects_backing_growth_and_recovers_after_unwind() {
     assert!(count >= 2);
     drop(value);
     let _ = std::panic::catch_unwind(|| allocations_during(|| panic!("observer unwind")));
-    let (_, count) = allocations_during(|| {
+    let (_rejection, count) = allocations_during(|| {
         std::hint::black_box(ProjectionRejection::new(
             ProjectionTable::Archives,
             "static",
@@ -320,7 +320,7 @@ fn provider_helpers_keep_static_model_error_order_and_outlive_the_source() {
 fn shared_source_contract_borrows_every_original_world_table_without_allocations() {
     let world = World::new();
     let view = world.view();
-    let (_, count) = allocations_during(|| {
+    let ((), count) = allocations_during(|| {
         macro_rules! same {
             ($source:ident, $world:ident) => {
                 assert!(std::ptr::eq(

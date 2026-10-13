@@ -173,6 +173,9 @@ mod fri_fold;
 #[path = "backend/fri_openings.rs"]
 #[cfg(any(test, feature = "dev-tools"))]
 mod fri_openings;
+#[cfg(test)]
+#[path = "backend/frozen_record.rs"]
+mod frozen_record;
 #[path = "backend/merkle_multiproof.rs"]
 mod merkle_multiproof;
 #[path = "backend/offline_compact.rs"]
@@ -182,6 +185,8 @@ pub mod offline_compact;
 mod phased_trace;
 #[path = "backend/public_table.rs"]
 mod public_table;
+#[path = "backend/transcript_profile.rs"]
+mod transcript_profile;
 const FIELD_ONE: u64 = 1;
 #[cfg(any(test, feature = "dev-tools"))]
 const TRACE_COMMITMENT_ROLE_V1: &[u8] = b"trace-commitment";

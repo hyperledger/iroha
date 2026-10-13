@@ -21,12 +21,14 @@ fn native_lane_merge_is_work_without_a_direct_network_execution_leaf() {
         2,
         0,
     ));
-    let mut context = BlockExecutionContextBundle::default();
-    context.lane_merge = Some(SumeragiLaneMergeSection {
-        merges: vec![merge],
-        time_floor_ms: 1,
-        merged_count: 0,
-    });
+    let context = BlockExecutionContextBundle {
+        lane_merge: Some(SumeragiLaneMergeSection {
+            merges: vec![merge],
+            time_floor_ms: 1,
+            merged_count: 0,
+        }),
+        ..Default::default()
+    };
     builder.set_execution_context(Some(context));
     let block = builder.build(iroha_data_model::block::BlockSignatures::default());
     assert_eq!(block.network_entrypoint_count(), 0);
@@ -53,7 +55,7 @@ fn outputs_and_empty_context_cannot_create_proposal_work() {
     builder.set_execution_context(Some(BlockExecutionContextBundle::default()));
     let block = builder.build(iroha_data_model::block::BlockSignatures::default());
     assert!(!block.has_consensus_work());
-    assert_eq!(encode(&block), Err(PayloadError::EmptyBlock));
+    assert!(matches!(encode(&block), Err(PayloadError::EmptyBlock)));
     assert!(matches!(
         decode(&block.encode_wire().unwrap()),
         Err(PayloadError::EmptyBlock)
@@ -131,12 +133,15 @@ fn previous_two_build_reference(
 ) -> SignedBlock {
     let parent_time = assembly.parent.header().creation_time();
     let minimum = parent_time.checked_add(assembly.cadence).unwrap();
-    let first = build_at(state, assembly, transactions, merges, minimum).unwrap();
-    let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence).unwrap();
+    // Match the standalone assembler, which acquires and authenticates its native
+    // parent service internally; the retained worker preparation is absent here.
+    let first = build_at(state, assembly, transactions, merges, minimum, None).unwrap();
+    let canonical =
+        ValidBlock::sumeragi_block_time_floor(&first, parent_time, assembly.cadence).unwrap();
     if canonical == first.header().creation_time() {
         first
     } else {
-        build_at(state, assembly, transactions, merges, canonical).unwrap()
+        build_at(state, assembly, transactions, merges, canonical, None).unwrap()
     }
 }
 
@@ -153,6 +158,7 @@ fn merge_floor_avoids_duplicate_original_parent_build_with_exact_wire_parity() {
         parent: &parent,
         view: 7,
         cadence: Duration::from_millis(1),
+        proposed_time: std::time::Duration::ZERO,
     };
     let base = u64::try_from(parent.header().creation_time().as_millis())
         .unwrap()
@@ -231,6 +237,7 @@ fn empty_work_and_cadence_overflow_refuse_before_any_parent_build() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1),
+        proposed_time: std::time::Duration::ZERO,
     };
     let (empty, calls) = counted(|| {
         assemble_with_merges(

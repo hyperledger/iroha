@@ -27,7 +27,8 @@ where
 {
     if let Some(argument) = arguments.into_iter().next() {
         return Err(invalid(format!(
-            "the Musubi fixture owner accepts no arguments; rejected {argument:?}"
+            "the Musubi fixture owner accepts no arguments; rejected {}",
+            argument.display()
         )));
     }
     Ok(())
@@ -66,11 +67,11 @@ fn reject_legacy_keys(value: &Value, location: &str) -> Result<(), AnyError> {
     }
     Ok(())
 }
-fn render_fixture(relative_path: &'static str, value: Value) -> Result<RenderedFixture, AnyError> {
-    reject_legacy_keys(&value, relative_path)?;
-    let contents = format!("{}\n", json::to_string_pretty(&value)?);
+fn render_fixture(relative_path: &'static str, value: &Value) -> Result<RenderedFixture, AnyError> {
+    reject_legacy_keys(value, relative_path)?;
+    let contents = format!("{}\n", json::to_string_pretty(value)?);
     let decoded: Value = json::from_str(&contents)?;
-    if decoded != value {
+    if &decoded != value {
         return Err(invalid(format!(
             "{relative_path} does not round-trip through canonical Norito JSON"
         )));
@@ -108,11 +109,11 @@ fn rendered_fixtures() -> Result<Vec<RenderedFixture>, AnyError> {
     Ok(vec![
         render_fixture(
             MUSUBI_FIXTURE_OUTPUTS[0],
-            musubi_fixture_values::instruction_document(),
+            &musubi_fixture_values::instruction_document(),
         )?,
         render_fixture(
             MUSUBI_FIXTURE_OUTPUTS[1],
-            musubi_sdk_fixture_values::sdk_document(),
+            &musubi_sdk_fixture_values::sdk_document(),
         )?,
     ])
 }

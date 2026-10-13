@@ -156,7 +156,7 @@ impl std::fmt::Debug for QuantityCandidateArchive {
                 "applied_world_transactions",
                 &self.applied_world_transactions,
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl QuantityCandidateArchive {
@@ -1081,7 +1081,7 @@ impl StateTransaction<'_, '_> {
         prepared: Result<PreparedQuantityCapture, QuantityCaptureIssue>,
         apply: impl FnOnce(&mut Self) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        if self.execution_deferral().is_some() {
+        if self.is_execution_deferred() {
             return Err(InstructionExecutionError::InvariantViolation(
                 "local execution attempt did not complete".into(),
             )
@@ -1232,7 +1232,7 @@ impl StateTransaction<'_, '_> {
         legs: &[(AssetId, AssetId, TransferDeltaTranscript)],
         apply: impl FnOnce(&mut Self) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let prepared = (|| {
+        let prepared = {
             let kinds = legs.iter().map(|(source, destination, delta)| {
                 if source.definition() != destination.definition()
                     || source.definition() != &delta.asset_definition
@@ -1257,7 +1257,7 @@ impl StateTransaction<'_, '_> {
                 authorization_context,
                 kinds,
             )
-        })();
+        };
         self.apply_with_quantity_candidate(prepared, apply)
     }
     /// Reserve the complete original retirement census from the existing execution

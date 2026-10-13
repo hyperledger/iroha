@@ -9,7 +9,7 @@ use super::*;
 use iroha_model_base::error::ParseError;
 
 /// Check the complete binding before borrowing its existing lifecycle.
-pub(crate) fn validate_replication_order_archive_binding<'world>(
+pub fn validate_replication_order_archive_binding<'world>(
     archive: &MusubiArchiveRecordV1,
     replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
     world: &'world impl MusubiSourceReadOnly,

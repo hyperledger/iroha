@@ -163,7 +163,9 @@ pub enum ParliamentReducerErrorV1 {
     CommitmentRootMismatch,
     /// A future pulse did not match the immutable request.
     PulseBindingMismatch,
-    /// A sortition request did not use the exact pulse delay frozen for the attempt.
+    /// A sortition schedule is invalid: a zero frozen delay, a frozen epoch length below
+    /// three, or a request slot that is not the first consensus-native pulse height derived
+    /// from the frozen delay, the frozen epoch length and the attempt's earlier generations.
     InvalidSortitionPulseSchedule,
     /// A beacon pulse identifier or session-height slot was already consumed.
     BeaconPulseAlreadyConsumed,
@@ -185,10 +187,6 @@ pub enum ParliamentReducerErrorV1 {
     InvitationWindowClosed,
     /// A roster or no-roster result was requested before the response window closed.
     InvitationWindowStillOpen,
-    /// A sortition election was failed before its immutable pulse height passed.
-    SortitionPulseStillPending,
-    /// An objectively available sortition pulse must be consumed, not retried.
-    SortitionPulseAvailable,
     /// A candidate snapshot was empty, noncanonical, too small for a hidden ballot, or mismatched.
     InvalidCandidateSnapshot,
     /// The Confirmation Jury reused a Policy Jury member.
@@ -336,12 +334,6 @@ impl fmt::Display for ParliamentReducerErrorV1 {
             }
             Self::InvitationWindowStillOpen => {
                 f.write_str("Parliament invitation response window is still open")
-            }
-            Self::SortitionPulseStillPending => {
-                f.write_str("Parliament sortition pulse height has not passed")
-            }
-            Self::SortitionPulseAvailable => {
-                f.write_str("Parliament sortition pulse is authoritatively available")
             }
             Self::InvalidCandidateSnapshot => {
                 f.write_str("invalid, undersized, or mismatched Parliament candidate snapshot")
@@ -653,8 +645,6 @@ impl norito::json::JsonObjectKeyOwned for ParliamentPulseSlotV1 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, JsonSerialize, JsonDeserialize)]
 #[norito(tag = "failure", content = "details", deny_unknown_fields)]
 pub enum ParliamentElectionFailureKindV1 {
-    /// The exact committed future pulse was objectively unavailable after its height.
-    PulseUnavailable,
     /// The invitation window closed without one accepted eligible assignment.
     EmptyAcceptedRoster,
     /// A hidden-ballot body retained only one accepted assignment at close.
@@ -1069,6 +1059,11 @@ pub struct ParliamentAttemptStateV1 {
     randomness_redraws_before_attempt: u32,
     policy_version: u64,
     sortition_pulse_delay_blocks: u64,
+    /// Consensus-native `NPoS` epoch length frozen at attempt creation.
+    ///
+    /// Native beacon pulse heights are exactly `{ h : (h + 1) % L == 0 }`. Every sortition
+    /// slot of this attempt is derived from this frozen value, never from live parameters.
+    sortition_pulse_epoch_length_blocks: u64,
     effect_preimage_hash: [u8; 32],
     expected_head: GovernanceExpectedHeadV1,
     required_bodies: Vec<RequiredParliamentBodyV1>,
@@ -1091,6 +1086,37 @@ pub struct ParliamentAttemptStateV1 {
     terminal_height: Option<u64>,
     superseding_head: Option<GovernanceExpectedHeadV1>,
     execution_failure_root: Option<[u8; 32]>,
+}
+
+/// Smallest consensus-native `NPoS` epoch length a sortition schedule can be frozen with.
+pub const MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1: u64 = 3;
+
+/// Return the first consensus-native beacon pulse height at or after `earliest`.
+///
+/// On an `NPoS` chain with epoch length `epoch_length_blocks` the native pulse heights are
+/// exactly `{ h : (h + 1) % epoch_length_blocks == 0 }`. The result is the least such
+/// `h >= earliest`.
+///
+/// Returns `None` when `earliest` is zero, when `epoch_length_blocks` is below the `NPoS`
+/// minimum of three blocks, or when the slot or its successor height does not fit `u64`.
+/// The arithmetic is checked and never saturates.
+#[must_use]
+pub const fn aligned_sortition_pulse_height_v1(
+    earliest: u64,
+    epoch_length_blocks: u64,
+) -> Option<u64> {
+    if earliest == 0 || epoch_length_blocks < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+    {
+        return None;
+    }
+    let lead = epoch_length_blocks - 1 - earliest % epoch_length_blocks;
+    let Some(height) = earliest.checked_add(lead) else {
+        return None;
+    };
+    if height.checked_add(1).is_none() {
+        return None;
+    }
+    Some(height)
 }
 
 fn root_is_zero(root: &[u8; 32]) -> bool {
@@ -1262,6 +1288,10 @@ fn classify_ballot_failure(
         {
             Some(ParliamentBallotFailureKindV1::OpeningDeadlineExpired)
         }
+        // Governance-local outcome: the release slot was never consensus demand, so a
+        // release height without a native pulse ends the ballot here and nowhere else.
+        // TODO: retire with the timed-OVN ballot path
+        // (specs/parliament_private_ballot_design.md 12.2 step 4).
         BallotAttemptStatusV1::AwaitingRelease
             if timed_commitment_completed_in_window(ballot)
                 && !release_pulse_available
@@ -1551,13 +1581,20 @@ impl ParliamentAttemptStateV1 {
     /// bodies must be strictly ordered by the V1 pipeline, end in a private
     /// Policy Jury, and omit the dynamically required Confirmation Jury.
     ///
+    /// `sortition_pulse_delay_blocks` (at least one) and
+    /// `sortition_pulse_epoch_length_blocks` (the consensus-native `NPoS` epoch length, at
+    /// least three) are frozen for the whole attempt: every sortition slot is the first
+    /// native pulse height derived from them and the attempt's own generation history.
+    ///
     /// # Errors
     /// Returns an error for zero immutable bindings, an unsupported policy
-    /// version, a noninitial attempt, or a noncanonical required-body pipeline.
+    /// version, an invalid sortition pulse schedule, a noninitial attempt, or a
+    /// noncanonical required-body pipeline.
     pub fn try_new(
         attempt: GovernanceAttemptV1,
         policy_version: u64,
         sortition_pulse_delay_blocks: u64,
+        sortition_pulse_epoch_length_blocks: u64,
         effect_preimage_hash: [u8; 32],
         expected_head: GovernanceExpectedHeadV1,
         required_bodies: Vec<RequiredParliamentBodyV1>,
@@ -1567,6 +1604,7 @@ impl ParliamentAttemptStateV1 {
             0,
             policy_version,
             sortition_pulse_delay_blocks,
+            sortition_pulse_epoch_length_blocks,
             effect_preimage_hash,
             expected_head,
             required_bodies,
@@ -1589,6 +1627,7 @@ impl ParliamentAttemptStateV1 {
         randomness_redraws_before_attempt: u32,
         policy_version: u64,
         sortition_pulse_delay_blocks: u64,
+        sortition_pulse_epoch_length_blocks: u64,
         effect_preimage_hash: [u8; 32],
         expected_head: GovernanceExpectedHeadV1,
         required_bodies: Vec<RequiredParliamentBodyV1>,
@@ -1623,7 +1662,10 @@ impl ParliamentAttemptStateV1 {
         if policy_version != PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1 {
             return Err(ParliamentReducerErrorV1::UnsupportedPolicyVersion);
         }
-        if sortition_pulse_delay_blocks == 0 {
+        if sortition_pulse_delay_blocks == 0
+            || sortition_pulse_epoch_length_blocks
+                < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+        {
             return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
         }
         if attempt.status != GovernanceAttemptStatusV1::Active
@@ -1639,6 +1681,7 @@ impl ParliamentAttemptStateV1 {
             randomness_redraws_before_attempt,
             policy_version,
             sortition_pulse_delay_blocks,
+            sortition_pulse_epoch_length_blocks,
             effect_preimage_hash,
             expected_head,
             required_bodies,
@@ -1682,6 +1725,171 @@ impl ParliamentAttemptStateV1 {
                 ParliamentPulseSlotV1::new(failure.beacon_session_id, failure.pulse_height)
             }))
             .collect()
+    }
+
+    /// Return every sortition generation as `(slot, request_height)`: one entry per
+    /// election and per capacity-failure record, exactly the records that
+    /// [`Self::sortition_generation_slots_v1`] covers.
+    fn sortition_generation_requests_v1(
+        &self,
+    ) -> impl Iterator<Item = (ParliamentPulseSlotV1, u64)> + '_ {
+        self.elections
+            .values()
+            .map(|election| {
+                let request = election.attempt.request;
+                (
+                    ParliamentPulseSlotV1::new(request.beacon_session_id, request.pulse_height),
+                    request.request_height,
+                )
+            })
+            .chain(self.sortition_capacity_failures.values().map(|failure| {
+                (
+                    ParliamentPulseSlotV1::new(failure.beacon_session_id, failure.pulse_height),
+                    failure.request_height,
+                )
+            }))
+    }
+
+    /// Derive one generation slot from frozen attempt fields: the first consensus-native
+    /// pulse height at or after both `request_height + sortition_pulse_delay_blocks` and
+    /// the height after `previous_generation_height`.
+    ///
+    /// Returns `None` only when a `u64` addition overflows: both frozen fields were
+    /// validated at construction.
+    fn derived_sortition_generation_pulse_height_v1(
+        &self,
+        request_height: u64,
+        previous_generation_height: Option<u64>,
+    ) -> Option<u64> {
+        let delayed = request_height.checked_add(self.sortition_pulse_delay_blocks)?;
+        let earliest = match previous_generation_height {
+            Some(previous) => delayed.max(previous.checked_add(1)?),
+            None => delayed,
+        };
+        aligned_sortition_pulse_height_v1(earliest, self.sortition_pulse_epoch_length_blocks)
+    }
+
+    /// Return the pulse slot height of a NEW sortition generation registered at
+    /// `request_height` on `beacon_session_id`.
+    ///
+    /// The slot is the first consensus-native pulse height (`(h + 1) % L == 0` for the
+    /// frozen epoch length `L`) that is at least `request_height` plus the frozen delay and
+    /// strictly above every slot an earlier generation of this attempt holds on that
+    /// beacon session, whether that generation is an election or a capacity-failure
+    /// record. A retry inside the epoch window of an unconsumed generation therefore
+    /// targets the next boundary instead of colliding with it. The derivation reads only
+    /// frozen attempt fields and the attempt's own generation history.
+    ///
+    /// Returns `None` only when a `u64` addition overflows.
+    #[must_use]
+    pub(crate) fn next_sortition_generation_pulse_height_v1(
+        &self,
+        request_height: u64,
+        beacon_session_id: BeaconSessionId,
+    ) -> Option<u64> {
+        let previous = self
+            .sortition_generation_requests_v1()
+            .filter_map(|(slot, _)| {
+                (slot.beacon_session_id == beacon_session_id).then_some(slot.height)
+            })
+            .max();
+        self.derived_sortition_generation_pulse_height_v1(request_height, previous)
+    }
+
+    /// Check that `pulse_height` is the exact slot of the generation registered at
+    /// `request_height`.
+    ///
+    /// One generation batch registers its requests one at a time, so the claimed slot may
+    /// already hold the batch's earlier requests. Those must share `request_height`; every
+    /// other generation slot of the beacon session must lie strictly below the claim, and
+    /// the claim must equal the slot derived from them.
+    fn ensure_sortition_generation_pulse_height_v1(
+        &self,
+        request_height: u64,
+        pulse_height: u64,
+        beacon_session_id: BeaconSessionId,
+    ) -> Result<(), ParliamentReducerErrorV1> {
+        let mut previous = None::<u64>;
+        for (slot, generation_request_height) in self.sortition_generation_requests_v1() {
+            if slot.beacon_session_id != beacon_session_id {
+                continue;
+            }
+            match slot.height.cmp(&pulse_height) {
+                core::cmp::Ordering::Less => {
+                    previous = Some(previous.map_or(slot.height, |max| max.max(slot.height)));
+                }
+                core::cmp::Ordering::Equal if generation_request_height == request_height => {}
+                core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+                    return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
+                }
+            }
+        }
+        if self.derived_sortition_generation_pulse_height_v1(request_height, previous)
+            != Some(pulse_height)
+        {
+            return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
+        }
+        Ok(())
+    }
+
+    /// Return every generation slot that persisted state cannot have reached.
+    ///
+    /// This is the exact recheck of the registration rule from frozen attempt fields only.
+    /// Elections and capacity-failure records are grouped by slot; one group is one
+    /// generation and shares one request height. With the groups of a beacon session in
+    /// ascending slot order, each slot must equal the first consensus-native pulse height
+    /// at or after `request_height + sortition_pulse_delay_blocks` and after the previous
+    /// group's slot. Registration order is also rechecked: a retry of one body holds a
+    /// strictly higher slot than every earlier sequence of that body on the same session.
+    fn invalid_sortition_generation_slots_v1(&self) -> BTreeSet<ParliamentPulseSlotV1> {
+        let mut generations = BTreeMap::<ParliamentPulseSlotV1, u64>::new();
+        let mut invalid = BTreeSet::new();
+        for (slot, request_height) in self.sortition_generation_requests_v1() {
+            if *generations.entry(slot).or_insert(request_height) != request_height {
+                invalid.insert(slot);
+            }
+        }
+        let mut previous = None::<ParliamentPulseSlotV1>;
+        for (slot, request_height) in &generations {
+            let previous_height = previous
+                .filter(|previous| previous.beacon_session_id == slot.beacon_session_id)
+                .map(|previous| previous.height);
+            if self.derived_sortition_generation_pulse_height_v1(*request_height, previous_height)
+                != Some(slot.height)
+            {
+                invalid.insert(*slot);
+            }
+            previous = Some(*slot);
+        }
+        let sequence_slots: BTreeMap<(ParliamentBody, u32), ParliamentPulseSlotV1> = self
+            .elections
+            .values()
+            .map(|election| {
+                let request = election.attempt.request;
+                (
+                    (request.body, election.attempt.sequence),
+                    ParliamentPulseSlotV1::new(request.beacon_session_id, request.pulse_height),
+                )
+            })
+            .chain(self.sortition_capacity_failures.values().map(|failure| {
+                (
+                    (failure.body, failure.sequence),
+                    ParliamentPulseSlotV1::new(failure.beacon_session_id, failure.pulse_height),
+                )
+            }))
+            .collect();
+        let mut previous = None::<(ParliamentBody, ParliamentPulseSlotV1)>;
+        for ((body, _), slot) in &sequence_slots {
+            if previous.is_some_and(|(previous_body, previous_slot)| {
+                previous_body == *body
+                    && previous_slot.beacon_session_id == slot.beacon_session_id
+                    && previous_slot.height >= slot.height
+            }) {
+                invalid.insert(*slot);
+            }
+            previous = Some((*body, *slot));
+        }
+        invalid
     }
 
     /// Return the cumulative proposal-wide count of adversarially selectable
@@ -1835,10 +2043,16 @@ impl ParliamentAttemptStateV1 {
         self.policy_version
     }
 
-    /// Return the exact future-beacon delay frozen for every sortition request.
+    /// Return the minimum future-beacon delay frozen for every sortition request.
     #[must_use]
     pub const fn sortition_pulse_delay_blocks(&self) -> u64 {
         self.sortition_pulse_delay_blocks
+    }
+
+    /// Return the consensus-native `NPoS` epoch length frozen for every sortition slot.
+    #[must_use]
+    pub const fn sortition_pulse_epoch_length_blocks(&self) -> u64 {
+        self.sortition_pulse_epoch_length_blocks
     }
 
     /// Return the ordered body requirements, including dynamic confirmation.
@@ -2155,12 +2369,12 @@ impl ParliamentAttemptStateV1 {
         contributions
     }
 
-    /// Return whether a live reducer object requests the exact beacon slot.
+    /// Return whether a live reducer object awaits the exact beacon slot.
     ///
-    /// Sortition requests remain live only while awaiting their future pulse.
-    /// Timed ballots request their frozen release slot from registration until
-    /// they either consume the pulse or become terminal, so an otherwise valid
-    /// arbitrary release height is visible to consensus before it arrives.
+    /// A sortition request awaits the pulse of its frozen slot for as long as it
+    /// takes: nothing else moves it out of `AwaitingPulse`. A timed ballot awaits
+    /// its frozen release slot from registration until it consumes the pulse or
+    /// becomes terminal. Neither wait creates a consensus obligation.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn requires_beacon_pulse_at(
@@ -2188,10 +2402,15 @@ impl ParliamentAttemptStateV1 {
         })
     }
 
-    /// Return every live beacon slot currently required by this attempt.
+    /// Return every beacon slot a live object of this attempt awaits.
     ///
-    /// The deduplicated set is used to maintain the world-level consensus
-    /// index used by point queries.
+    /// Sortition `AwaitingPulse` slots plus timed-OVN release slots. The
+    /// deduplicated set maintains the governance-local World read index
+    /// `parliament_required_beacon_pulse_slots`. It creates no consensus
+    /// obligation: a slot without a native pulse simply stays awaited
+    /// (sortition) or ends `ReleasePulseUnavailable` (timed-OVN ballot).
+    /// TODO: rename and re-scope with the governance due-item iterator when
+    /// timed-OVN is retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[must_use]
     pub(crate) fn required_beacon_pulse_slots_v1(&self) -> BTreeSet<(BeaconSessionId, u64)> {
         if self.attempt.status != GovernanceAttemptStatusV1::Active {
@@ -2221,49 +2440,40 @@ impl ParliamentAttemptStateV1 {
             .collect()
     }
 
-    /// Return every beacon slot the reducer has terminally classified as absent.
+    /// Return every timed-OVN release slot a ballot terminally classified as absent.
     ///
-    /// Historical superseded retries remain authoritative: admitting a late pulse for any slot
-    /// already closed as unavailable would make the persisted Parliament transcript internally
-    /// contradictory after restart.
+    /// Only the timed-OVN ballot path classifies a slot: it ends
+    /// `ReleasePulseUnavailable` through its governance-local path when no native
+    /// pulse sits at exactly `release_height`. A sortition election has no such
+    /// classification; it waits for the pulse of its exact frozen slot. The set
+    /// feeds one governance-internal integrity check on the attempt write and
+    /// never constrains a consensus pulse.
+    /// TODO: delete with the timed-OVN ballot path
+    /// (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[must_use]
-    pub(crate) fn unavailable_beacon_pulse_slots_v1(&self) -> BTreeSet<(BeaconSessionId, u64)> {
-        self.elections
+    pub(crate) fn unavailable_release_pulse_slots_v1(&self) -> BTreeSet<(BeaconSessionId, u64)> {
+        self.ballots
             .values()
-            .filter_map(|election| {
-                (election.failure_kind == Some(ParliamentElectionFailureKindV1::PulseUnavailable))
-                    .then_some((
-                        election.attempt.request.beacon_session_id,
-                        election.attempt.request.pulse_height,
-                    ))
-            })
-            .chain(self.ballots.values().filter_map(|ballot| {
+            .filter_map(|ballot| {
                 if ballot.failure_kind
                     != Some(ParliamentBallotFailureKindV1::ReleasePulseUnavailable)
                 {
                     return None;
                 }
                 Some((ballot.release_beacon_session_id?, ballot.release_height?))
-            }))
+            })
             .collect()
     }
 
-    /// Return whether the reducer has terminally classified an exact beacon slot as absent.
-    ///
-    /// This hot-path lookup short-circuits over the authoritative records rather
-    /// than allocating the deduplicated set used for index construction.
+    /// Return whether a timed-OVN ballot terminally classified an exact release slot as absent.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn classifies_beacon_pulse_unavailable_at(
+    pub(crate) fn classifies_release_pulse_unavailable_at(
         &self,
         beacon_session_id: BeaconSessionId,
         height: u64,
     ) -> bool {
-        self.elections.values().any(|election| {
-            election.failure_kind == Some(ParliamentElectionFailureKindV1::PulseUnavailable)
-                && election.attempt.request.beacon_session_id == beacon_session_id
-                && election.attempt.request.pulse_height == height
-        }) || self.ballots.values().any(|ballot| {
+        self.ballots.values().any(|ballot| {
             ballot.failure_kind == Some(ParliamentBallotFailureKindV1::ReleasePulseUnavailable)
                 && ballot.release_beacon_session_id == Some(beacon_session_id)
                 && ballot.release_height == Some(height)
@@ -2285,6 +2495,12 @@ impl ParliamentAttemptStateV1 {
         self.certificate
             .as_ref()
             .map(|certificate| certificate.enact_at_height)
+    }
+
+    /// Return the original compare-and-set head frozen into this attempt.
+    #[must_use]
+    pub(crate) const fn expected_head(&self) -> GovernanceExpectedHeadV1 {
+        self.expected_head
     }
 
     /// Return the committed height of a terminal enactment outcome.
@@ -2354,10 +2570,9 @@ impl ParliamentAttemptStateV1 {
                 BodyElectionAttemptStatusV1::Sealed
                     | BodyElectionAttemptStatusV1::NoRoster
                     | BodyElectionAttemptStatusV1::Superseded
-            ) && election.invitation_close_height.map_or_else(
-                || request.pulse_height >= restored_height,
-                |height| height >= restored_height,
-            );
+            ) && election
+                .invitation_close_height
+                .is_some_and(|height| height >= restored_height);
             request.request_height > restored_height
                 || (election.pulse_id.is_some() && request.pulse_height > restored_height)
                 || election
@@ -2674,6 +2889,7 @@ pub(crate) mod tests {
 
     include!("parliament/tests/fixtures.rs");
     include!("parliament/tests/sortition.rs");
+    include!("parliament/tests/sortition_slot.rs");
     include!("parliament/tests/ballot.rs");
     include!("parliament/tests/certificate.rs");
     include!("parliament/tests/planner.rs");

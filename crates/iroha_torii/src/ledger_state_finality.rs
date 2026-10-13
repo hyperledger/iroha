@@ -14,8 +14,7 @@ use super::*;
     norito::derive::NoritoDeserialize,
 )]
 #[norito(deny_unknown_fields)]
-
-pub(super) struct StateFinalityResponse {
+pub struct StateFinalityResponse {
     /// Requested certified non-genesis committed block height (at least two).
     pub(super) height: u64,
     /// Canonical header hash authenticated by State and native finality.
@@ -81,7 +80,12 @@ fn load(app: &AppState, height: u64) -> Result<StateFinalityResponse, Error> {
     // This decode extracts the root from the already authenticated exact proof;
     // candidate-committee decoding alone would not grant finality authority.
     let witnessed_post_state_root = finality_proof
-        .decode_checked()
+        .decode_checked(
+            view.native_execution_tip()
+                .ok_or_else(|| internal_error("native execution scope unavailable"))?
+                .root_scope()
+                .into(),
+        )
         .map_err(|error| internal_error(format!("invalid native proof framing: {error}")))?
         .execution()
         .post_state_root;
@@ -124,7 +128,7 @@ fn response(
 }
 
 /// Serve the authenticated ledger state-root route.
-pub(super) async fn handler_ledger_state_root(
+pub async fn handler_ledger_state_root(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<u64>,
     headers: axum::http::HeaderMap,
@@ -133,7 +137,7 @@ pub(super) async fn handler_ledger_state_root(
 }
 
 /// Serve the authenticated ledger state-proof route.
-pub(super) async fn handler_ledger_state_proof(
+pub async fn handler_ledger_state_proof(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<u64>,
     headers: axum::http::HeaderMap,

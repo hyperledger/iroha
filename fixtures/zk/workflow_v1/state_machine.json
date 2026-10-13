@@ -1,0 +1,588 @@
+{
+  "atomicity": "per_transaction_only",
+  "attempt_evidence": [
+    "applied",
+    "admission_refused",
+    "ledger_rejected",
+    "ledger_expired"
+  ],
+  "error_codes": [
+    {
+      "id": "InvalidInput",
+      "shared_operation_code": true
+    },
+    {
+      "id": "NonCanonicalEncoding",
+      "shared_operation_code": true
+    },
+    {
+      "id": "UnsupportedOperation",
+      "shared_operation_code": true
+    },
+    {
+      "id": "BindingMismatch",
+      "shared_operation_code": true
+    },
+    {
+      "id": "ResourceLimitExceeded",
+      "shared_operation_code": true
+    },
+    {
+      "id": "ProofInvalid",
+      "shared_operation_code": true
+    },
+    {
+      "id": "AuthorizationDenied",
+      "shared_operation_code": true
+    },
+    {
+      "id": "Expired",
+      "shared_operation_code": true
+    },
+    {
+      "id": "ReplayRejected",
+      "shared_operation_code": true
+    },
+    {
+      "id": "LocalResourceUnavailable",
+      "shared_operation_code": true
+    },
+    {
+      "id": "SubmissionOutcomeUnknown",
+      "shared_operation_code": true
+    },
+    {
+      "id": "FinalityPending",
+      "shared_operation_code": true
+    },
+    {
+      "id": "Rejected",
+      "shared_operation_code": true
+    },
+    {
+      "id": "CancelledBeforeSubmission",
+      "shared_operation_code": true
+    },
+    {
+      "id": "StorageCorrupted",
+      "shared_operation_code": false
+    },
+    {
+      "id": "JournalConflict",
+      "shared_operation_code": false
+    },
+    {
+      "id": "RoundPending",
+      "shared_operation_code": false
+    }
+  ],
+  "journal_bound_terms": {
+    "custody_handle_bytes": 224,
+    "identity_bytes": 768,
+    "journal_fixed_bytes": 2048,
+    "participant_bytes": 65,
+    "retained_transaction_bytes": 10485792,
+    "step_fixed_bytes": 512,
+    "transcript_framing_bytes": 32
+  },
+  "journal_version": 1,
+  "limits": {
+    "max_binding_bytes": 256,
+    "max_custody_handles_per_round": 64,
+    "max_custody_reference_bytes": 128,
+    "max_detail_bytes": 512,
+    "max_dispatches_per_identity": 8,
+    "max_journal_bytes": 16777216,
+    "max_label_bytes": 64,
+    "max_round_participants": 1024,
+    "max_round_transcript_bytes": 1048576,
+    "max_steps": 64,
+    "max_transaction_bytes": 10485760,
+    "max_transaction_identities_per_step": 8
+  },
+  "round_events": [
+    "round_intent",
+    "round_waiting",
+    "round_completed",
+    "round_failed",
+    "round_not_started",
+    "round_restart_intent"
+  ],
+  "round_guards": [
+    "always",
+    "not_cancelling",
+    "while_cancelling"
+  ],
+  "round_states": [
+    {
+      "id": "planned",
+      "unresolved": false
+    },
+    {
+      "id": "round_started",
+      "unresolved": true
+    },
+    {
+      "id": "round_waiting",
+      "unresolved": true
+    },
+    {
+      "id": "round_completed",
+      "unresolved": false
+    },
+    {
+      "id": "round_failed",
+      "unresolved": false
+    }
+  ],
+  "round_transitions": [
+    {
+      "event": "round_intent",
+      "from": "planned",
+      "guard": "not_cancelling",
+      "to": "round_started"
+    },
+    {
+      "event": "round_restart_intent",
+      "from": "round_started",
+      "guard": "not_cancelling",
+      "to": "round_started"
+    },
+    {
+      "event": "round_waiting",
+      "from": "round_started",
+      "guard": "always",
+      "to": "round_waiting"
+    },
+    {
+      "event": "round_waiting",
+      "from": "round_waiting",
+      "guard": "always",
+      "to": "round_waiting"
+    },
+    {
+      "event": "round_completed",
+      "from": "round_started",
+      "guard": "always",
+      "to": "round_completed"
+    },
+    {
+      "event": "round_completed",
+      "from": "round_waiting",
+      "guard": "always",
+      "to": "round_completed"
+    },
+    {
+      "event": "round_failed",
+      "from": "round_started",
+      "guard": "always",
+      "to": "round_failed"
+    },
+    {
+      "event": "round_failed",
+      "from": "round_waiting",
+      "guard": "always",
+      "to": "round_failed"
+    },
+    {
+      "event": "round_not_started",
+      "from": "round_started",
+      "guard": "while_cancelling",
+      "to": "planned"
+    }
+  ],
+  "rules": [
+    {
+      "id": "per_transaction_atomicity_only",
+      "statement": "Each transaction step is one atomic ledger transaction. A workflow is never atomic across steps: finalized steps and irreversible rounds are not rolled back by failure, cancellation or interruption, and every result reports them."
+    },
+    {
+      "id": "persist_before_effect",
+      "statement": "The dispatch ordinal (`submitting`), the round identity (`round_started`) and every restart of a round (`round_restart_intent`) are durably stored, by compare-and-swap, before the corresponding external effect starts. A runner that loses the compare-and-swap starts no effect."
+    },
+    {
+      "id": "reconcile_before_decide",
+      "statement": "A step found in `submitting`, `outcome_unknown` or `pending` is first reconciled by a read-only query on its persisted signed-transaction identity. Only then does the workflow continue, retry or stop."
+    },
+    {
+      "id": "authoritative_outcomes_only",
+      "statement": "Only state-resolved global `Applied`, `Rejected` or `Expired` closes a transaction identity. Exact absence, queue or cache hints, read failures and local deadlines never close it, and expiry is never inferred from a local clock."
+    },
+    {
+      "id": "no_replacement_while_unresolved",
+      "statement": "A replacement transaction identity is opened only after the previous identity is authoritatively rejected or expired, or was refused on its only counted dispatch, only when the caller explicitly asks and only while the step has identities remaining."
+    },
+    {
+      "id": "identical_bytes_only",
+      "statement": "The only permitted re-dispatch of an unresolved identity is the exact persisted bytes, explicitly authorized for the call, after a fresh exact-absence read, at most once per call and within the dispatch bound. A dispatch proven not to have admitted the bytes, while no earlier dispatch may have, does not count toward the bound: a never-admitted identity stays dispatchable."
+    },
+    {
+      "id": "definite_refusal_is_first_dispatch_only",
+      "statement": "A validated definite refusal closes an identity only when no earlier dispatch of the same bytes may have been admitted; otherwise the identity stays unknown."
+    },
+    {
+      "id": "cancellation_is_sticky_and_never_rolls_back",
+      "statement": "A cancellation that is stored before a dispatch or round intent prevents that dispatch or round start; an intent stored first may take effect afterwards and is reconciled. A build or signature under way when the cancellation is stored is discarded, never stored or sent. While a step may still have external effect the workflow is `cancelling` and only read-only reconciliation runs. When the cancellation takes effect the first unfinished transaction step that is not closed becomes `cancelled_before_submission` and holds no bytes."
+    },
+    {
+      "id": "rounds_recover_under_one_identity",
+      "statement": "A round found started or waiting is recovered under its persisted identity and bound context; a restart never creates a fresh round. Participants are strictly ascending and never shrink."
+    },
+    {
+      "id": "plan_fits_the_journal",
+      "statement": "A plan whose worst-case journal record over every reachable prefix of its steps exceeds the record bound is refused before any journal exists; a round never stores a transcript above the bound its step declares."
+    },
+    {
+      "id": "no_secret_in_journal",
+      "statement": "The journal holds step identity, transaction identities, signed bytes while they may be dispatched, public round transcripts and custody references. No interface accepts secret material, and a terminal workflow holds no transaction bytes."
+    },
+    {
+      "id": "corruption_is_reported_not_repaired",
+      "statement": "A journal that exceeds the record bound or fails its digest, canonical encoding or invariants yields `StorageCorrupted` without a progress snapshot. A valid journal of another workflow yields `BindingMismatch`."
+    }
+  ],
+  "schema": "iroha.durable_workflow.state_machine.v1",
+  "stages": [
+    "plan",
+    "load",
+    "store",
+    "prove",
+    "sign",
+    "submit",
+    "reconcile",
+    "round",
+    "cancel"
+  ],
+  "step_kinds": [
+    "transaction",
+    "offchain_round"
+  ],
+  "transaction_events": [
+    "open_attempt",
+    "build_started",
+    "build_failed",
+    "payload_built",
+    "signed",
+    "dispatch_intent",
+    "dispatch_accepted",
+    "dispatch_already_known",
+    "dispatch_ambiguous",
+    "dispatch_interrupted",
+    "dispatch_refused",
+    "dispatch_not_admitted",
+    "observed_in_pipeline",
+    "reconciled_applied",
+    "reconciled_rejected",
+    "reconciled_expired",
+    "cancel"
+  ],
+  "transaction_guards": [
+    "always",
+    "identities_remaining",
+    "retransmission_authorized_after_exact_absence",
+    "no_possible_admission",
+    "possible_admission"
+  ],
+  "transaction_states": [
+    {
+      "holds_signed_bytes": false,
+      "id": "planned",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "prepared",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "proving",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "ready_to_sign",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "signed",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "submitting",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "outcome_unknown",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": true,
+      "id": "pending",
+      "may_still_commit": true
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "finalized",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "rejected",
+      "may_still_commit": false
+    },
+    {
+      "holds_signed_bytes": false,
+      "id": "cancelled_before_submission",
+      "may_still_commit": false
+    }
+  ],
+  "transaction_transitions": [
+    {
+      "event": "open_attempt",
+      "from": "planned",
+      "guard": "always",
+      "to": "prepared"
+    },
+    {
+      "event": "open_attempt",
+      "from": "rejected",
+      "guard": "identities_remaining",
+      "to": "prepared"
+    },
+    {
+      "event": "build_started",
+      "from": "prepared",
+      "guard": "always",
+      "to": "proving"
+    },
+    {
+      "event": "build_failed",
+      "from": "proving",
+      "guard": "always",
+      "to": "prepared"
+    },
+    {
+      "event": "payload_built",
+      "from": "proving",
+      "guard": "always",
+      "to": "ready_to_sign"
+    },
+    {
+      "event": "signed",
+      "from": "ready_to_sign",
+      "guard": "always",
+      "to": "signed"
+    },
+    {
+      "event": "dispatch_intent",
+      "from": "signed",
+      "guard": "always",
+      "to": "submitting"
+    },
+    {
+      "event": "dispatch_intent",
+      "from": "outcome_unknown",
+      "guard": "retransmission_authorized_after_exact_absence",
+      "to": "submitting"
+    },
+    {
+      "event": "dispatch_intent",
+      "from": "pending",
+      "guard": "retransmission_authorized_after_exact_absence",
+      "to": "submitting"
+    },
+    {
+      "event": "dispatch_accepted",
+      "from": "submitting",
+      "guard": "always",
+      "to": "pending"
+    },
+    {
+      "event": "dispatch_already_known",
+      "from": "submitting",
+      "guard": "always",
+      "to": "pending"
+    },
+    {
+      "event": "dispatch_ambiguous",
+      "from": "submitting",
+      "guard": "always",
+      "to": "outcome_unknown"
+    },
+    {
+      "event": "dispatch_interrupted",
+      "from": "submitting",
+      "guard": "always",
+      "to": "outcome_unknown"
+    },
+    {
+      "event": "dispatch_refused",
+      "from": "submitting",
+      "guard": "no_possible_admission",
+      "to": "rejected"
+    },
+    {
+      "event": "dispatch_refused",
+      "from": "submitting",
+      "guard": "possible_admission",
+      "to": "outcome_unknown"
+    },
+    {
+      "event": "dispatch_not_admitted",
+      "from": "submitting",
+      "guard": "no_possible_admission",
+      "to": "signed"
+    },
+    {
+      "event": "dispatch_not_admitted",
+      "from": "submitting",
+      "guard": "possible_admission",
+      "to": "outcome_unknown"
+    },
+    {
+      "event": "observed_in_pipeline",
+      "from": "outcome_unknown",
+      "guard": "always",
+      "to": "pending"
+    },
+    {
+      "event": "reconciled_applied",
+      "from": "outcome_unknown",
+      "guard": "always",
+      "to": "finalized"
+    },
+    {
+      "event": "reconciled_applied",
+      "from": "pending",
+      "guard": "always",
+      "to": "finalized"
+    },
+    {
+      "event": "reconciled_rejected",
+      "from": "outcome_unknown",
+      "guard": "always",
+      "to": "rejected"
+    },
+    {
+      "event": "reconciled_rejected",
+      "from": "pending",
+      "guard": "always",
+      "to": "rejected"
+    },
+    {
+      "event": "reconciled_expired",
+      "from": "outcome_unknown",
+      "guard": "always",
+      "to": "rejected"
+    },
+    {
+      "event": "reconciled_expired",
+      "from": "pending",
+      "guard": "always",
+      "to": "rejected"
+    },
+    {
+      "event": "cancel",
+      "from": "planned",
+      "guard": "always",
+      "to": "cancelled_before_submission"
+    },
+    {
+      "event": "cancel",
+      "from": "prepared",
+      "guard": "always",
+      "to": "cancelled_before_submission"
+    },
+    {
+      "event": "cancel",
+      "from": "proving",
+      "guard": "always",
+      "to": "cancelled_before_submission"
+    },
+    {
+      "event": "cancel",
+      "from": "ready_to_sign",
+      "guard": "always",
+      "to": "cancelled_before_submission"
+    },
+    {
+      "event": "cancel",
+      "from": "signed",
+      "guard": "always",
+      "to": "cancelled_before_submission"
+    }
+  ],
+  "workflow_events": [
+    "all_steps_done",
+    "step_failed",
+    "cancel_without_unresolved_effect",
+    "cancel_with_unresolved_effect",
+    "unresolved_effect_resolved"
+  ],
+  "workflow_kinds": [
+    "issuer_bootstrap",
+    "dkg",
+    "threshold_opening",
+    "native_payment",
+    "amx_relay",
+    "private_settlement"
+  ],
+  "workflow_statuses": [
+    {
+      "id": "in_progress",
+      "terminal": false
+    },
+    {
+      "id": "completed",
+      "terminal": true
+    },
+    {
+      "id": "cancelling",
+      "terminal": false
+    },
+    {
+      "id": "cancelled",
+      "terminal": true
+    },
+    {
+      "id": "failed",
+      "terminal": true
+    }
+  ],
+  "workflow_transitions": [
+    {
+      "event": "all_steps_done",
+      "from": "in_progress",
+      "to": "completed"
+    },
+    {
+      "event": "step_failed",
+      "from": "in_progress",
+      "to": "failed"
+    },
+    {
+      "event": "cancel_without_unresolved_effect",
+      "from": "in_progress",
+      "to": "cancelled"
+    },
+    {
+      "event": "cancel_with_unresolved_effect",
+      "from": "in_progress",
+      "to": "cancelling"
+    },
+    {
+      "event": "unresolved_effect_resolved",
+      "from": "cancelling",
+      "to": "cancelled"
+    },
+    {
+      "event": "all_steps_done",
+      "from": "cancelling",
+      "to": "completed"
+    }
+  ]
+}

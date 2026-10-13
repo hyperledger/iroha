@@ -345,9 +345,8 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
   private static let accessGroup = "ABCDE12345.org.hyperledger.iroha.wallet-tests"
   private let slot = KagemushaWalletAppleSlotV1(Data((1...32).map { UInt8($0) }))!
   private let challenge = Data(repeating: 0xc4, count: 32)
-  /// The 32-byte Poseidon signing message `m = P_bytes(kgwrcpt1, transcript)` of the vectored
-  /// Send receipt (`fixtures/kagemusha/wallet_v1_vectors.json`): what the Rust receipt signer
-  /// hands to `key_sign`.
+  /// Fixed 32-byte signing DATA for the platform message-signing contract.
+  /// The exact bytes are preserved; this is not a current wallet receipt fixture.
   private let message = Data(
     [
       0xa5, 0xe8, 0xb3, 0x24, 0x21, 0xe1, 0x75, 0x95,

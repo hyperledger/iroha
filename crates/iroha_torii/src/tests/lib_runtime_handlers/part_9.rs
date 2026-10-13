@@ -216,7 +216,15 @@ async fn solo_finality_walk_fits_the_proof_egress_budget() {
     let proof = iroha_core::sumeragi::finality::build_proof(&node.app.state.view(), 2)
         .expect("current real-node embedded certificate proof");
     proof
-        .decode_checked()
+        .decode_checked(
+            node.app
+                .state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .root_scope()
+                .into(),
+        )
         .expect("current proof verifies before measuring egress");
     node.stop();
     let response_bytes = u64::try_from(
@@ -574,7 +582,7 @@ async fn soracloud_status_routing_counts_only_active_autoscale_capacity_lanes() 
         Some(2)
     );
     assert!(
-        routing.get("lane_count").is_none(),
+        !routing.contains_key("lane_count"),
         "first-release status must not expose the retired lane-count alias"
     );
     assert_eq!(
@@ -622,7 +630,7 @@ async fn soracloud_status_routing_reports_sparse_configured_lane_namespace() {
         "configured count must report the lane namespace size"
     );
     assert!(
-        routing.get("lane_count").is_none(),
+        !routing.contains_key("lane_count"),
         "first-release status must not expose the retired lane-count alias"
     );
     assert_eq!(
@@ -1311,9 +1319,11 @@ async fn app_api_get_by_id_not_found_returns_404() {
         &app.state,
         app.state.network_id_ref(),
         &headers,
-        &method,
-        &uri,
-        &[],
+        crate::app_auth::CanonicalRequestParts {
+            method: &method,
+            uri: &uri,
+            body: &[],
+        },
         Some(&caller),
         crate::history_producer::HistoryProducerOwner::for_test().allocation_context(),
     )
@@ -1333,7 +1343,7 @@ async fn app_api_get_by_id_not_found_returns_404() {
         axum::Extension(verified),
     )
     .await
-    .unwrap_or_else(|error| error.into_response());
+    .unwrap_or_else(axum::response::IntoResponse::into_response);
     assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
     // VK by backend/name (non-existent)
     let resp = super::handler_get_vk_by_backend_name(
@@ -1381,9 +1391,11 @@ async fn app_api_get_by_id_not_found_returns_404() {
             &app.state,
             app.state.network_id_ref(),
             &headers,
-            &method,
-            &uri,
-            &[],
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body: &[],
+            },
             Some(&caller),
             crate::history_producer::HistoryProducerOwner::for_test().allocation_context(),
         )
@@ -1397,7 +1409,7 @@ async fn app_api_get_by_id_not_found_returns_404() {
             axum::Extension(verified),
         )
         .await
-        .unwrap_or_else(|error| error.into_response());
+        .unwrap_or_else(axum::response::IntoResponse::into_response);
         assert_eq!(
             response.status(),
             expected,

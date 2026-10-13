@@ -109,8 +109,8 @@ mod tests {
     fn only_genuine_absence_admits_an_unreviewed_bundle() {
         assert_eq!(REVIEWED_CUDA_BUNDLE_PINS, None);
         assert_eq!(
-            bundle_presence(false, &[false; 13]),
-            Ok(BundlePresence::Absent)
+            (bundle_presence(false, &[false; 13])).expect("expected successful fixture result"),
+            BundlePresence::Absent
         );
         assert_eq!(
             bundle_presence(false, &[true; 13]),
@@ -128,8 +128,8 @@ mod tests {
     #[test]
     fn source_review_requires_complete_material_in_every_profile() {
         assert_eq!(
-            bundle_presence(true, &[true; 13]),
-            Ok(BundlePresence::Complete)
+            (bundle_presence(true, &[true; 13])).expect("expected successful fixture result"),
+            BundlePresence::Complete
         );
         assert_eq!(
             bundle_presence(true, &[false; 13]),

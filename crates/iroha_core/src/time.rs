@@ -442,7 +442,7 @@ impl Service {
     }
     fn record_sample(&mut self, peer: iroha_model_base::peer::PeerId, sample: Sample) {
         let cap = self.params.per_peer_buffer.max(1);
-        let samples = self.per_peer.entry(peer).or_insert_with(VecDeque::new);
+        let samples = self.per_peer.entry(peer).or_default();
         while samples.len() >= cap {
             let _ = samples.pop_front();
         }
@@ -761,7 +761,8 @@ impl MonotonicSystemClock {
         // mutable wall time again. Keep probe deadlines and Unix timestamps on
         // this same timeline; Instant alone pauses on supported Apple hosts.
         let continuous_elapsed = continuous_elapsed.filter(|elapsed| *elapsed >= self.last_elapsed);
-        let elapsed = continuous_elapsed.unwrap_or(monotonic_elapsed.max(self.last_elapsed));
+        let elapsed =
+            continuous_elapsed.unwrap_or_else(|| monotonic_elapsed.max(self.last_elapsed));
         let pair = self
             .monotonic_anchor
             .checked_add(elapsed)
@@ -1035,7 +1036,7 @@ fn sample_measurement(
     Some((offset_ms, rtt_ms))
 }
 /// Handle incoming time messages from the network relay.
-pub async fn handle_message(peer: Peer, msg: crate::NetworkMessage, network: &IrohaNetwork) {
+pub fn handle_message(peer: Peer, msg: crate::NetworkMessage, network: &IrohaNetwork) {
     match msg {
         crate::NetworkMessage::TimePing(p) => {
             let arrival = local_clock_sample();
@@ -1712,7 +1713,7 @@ mod tests {
         let newer_probe = start + Duration::from_secs(1);
         let newer_receipt = start + Duration::from_secs(10);
         assert!(svc.record_measurement(peer.clone(), 100, 1, newer_probe, newer_receipt,));
-        assert_eq!(svc.smoothed_offset_ms, 10.0);
+        assert_eq!(svc.smoothed_offset_ms.to_bits(), 10.0_f64.to_bits());
         assert!(!svc.record_measurement(
             peer.clone(),
             10_000,
@@ -1735,7 +1736,7 @@ mod tests {
             start + Duration::from_secs(2),
             start + Duration::from_secs(12),
         ));
-        assert_eq!(svc.smoothed_offset_ms, 12.0);
+        assert_eq!(svc.smoothed_offset_ms.to_bits(), 12.0_f64.to_bits());
     }
     #[test]
     fn rtt_histogram_buckets_are_cumulative_and_include_overflow() {
@@ -1807,7 +1808,7 @@ mod tests {
         let mut svc = service_for_tests(params);
         let start = svc.last_smooth_update;
         svc.apply_smoothing_step(10_000, start + Duration::from_secs(1));
-        assert_eq!(svc.smoothed_offset_ms, 1.0);
+        assert_eq!(svc.smoothed_offset_ms.to_bits(), 1.0_f64.to_bits());
     }
     #[test]
     fn smoothing_does_not_depend_on_reads_between_measurements() {
@@ -2243,7 +2244,7 @@ mod tests {
         assert!(svc.apply_configured_membership(8, 2, changed_at));
         assert!(svc.per_peer.is_empty());
         assert!(svc.outstanding.is_empty());
-        assert_eq!(svc.smoothed_offset_ms, 0.0);
+        assert_eq!(svc.smoothed_offset_ms.to_bits(), 0.0_f64.to_bits());
         assert_eq!(svc.last_smooth_update, changed_at);
     }
     #[test]
@@ -2325,7 +2326,7 @@ mod tests {
         assert!(svc.probe_timeout() > params.sample_interval);
         let interval_nanos = params.sample_interval.as_nanos();
         let active_rounds =
-            usize::try_from((svc.probe_timeout().as_nanos() + interval_nanos - 1) / interval_nanos)
+            usize::try_from(svc.probe_timeout().as_nanos().div_ceil(interval_nanos))
                 .expect("test round count fits");
         let maximum_live_probes = params.sample_cap_per_round * active_rounds;
         let mut saw_overlapping_rounds = false;

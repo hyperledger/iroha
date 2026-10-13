@@ -11,6 +11,8 @@ pub(crate) fn instruction_digest(
     instruction: &MutateSorafsStreamTokenGateway,
     authority: &AccountId,
 ) -> Result<[u8; 32], TransitionError> {
+    const DOMAIN: &[u8] = b"iroha.sorafs.stream-token.gateway-instruction.v1\0";
+
     let request_len =
         norito::canonical_frame_len(instruction).map_err(|_| TransitionError::Invalid)?;
     let authority_len =
@@ -19,7 +21,6 @@ pub(crate) fn instruction_digest(
         .checked_add(authority_len)
         .filter(|length| *length <= MAX_INSTRUCTION_COMMITMENT_BYTES)
         .ok_or(TransitionError::Invalid)?;
-    const DOMAIN: &[u8] = b"iroha.sorafs.stream-token.gateway-instruction.v1\0";
     let request = norito::encode_canonical(instruction).map_err(|_| TransitionError::Invalid)?;
     let account = norito::encode_canonical(authority).map_err(|_| TransitionError::Invalid)?;
     let mut bytes = Vec::with_capacity(DOMAIN.len() + length);

@@ -745,6 +745,7 @@ mod tests {
             transaction_add_nonce: false,
             sorafs_alias_cache: crate::client::default_alias_policy(),
             sorafs_anonymity_policy: AnonymityPolicy::GuardPq,
+            http_transport_policy: crate::config::HttpTransportPolicy::Ordinary,
             sorafs_rollout_phase: RolloutPhase::Canary,
         }
     }
@@ -1007,7 +1008,9 @@ mod tests {
         let repeated = bounded
             .with_request_deadline(deadline + Duration::from_secs(30))
             .unwrap();
-        let shortened_deadline = deadline - Duration::from_secs(10);
+        let shortened_deadline = deadline
+            .checked_sub(Duration::from_secs(10))
+            .expect("fixture deadline includes thirty seconds of headroom");
         let shortened = repeated.with_request_deadline(shortened_deadline).unwrap();
         for view in [&bounded, &repeated, &shortened] {
             assert!(Arc::ptr_eq(&source.runtime, &view.runtime));

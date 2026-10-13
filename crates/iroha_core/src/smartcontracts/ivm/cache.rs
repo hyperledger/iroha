@@ -326,6 +326,10 @@ impl PreparedContractCache {
     /// calls allocate another runtime when the matching pool is temporarily empty rather than
     /// aliasing mutable VM state. `heap_limit` is part of the runtime identity, so governance
     /// changes cannot reuse a VM carrying stale heap authority.
+    ///
+    /// # Errors
+    /// Returns the original VM error if runtime allocation, heap-limit installation,
+    /// prepared-program loading or funded runtime-template construction fails.
     pub fn checkout_runtime(
         &self,
         contract: &ivm::PreparedContract,
@@ -1733,7 +1737,11 @@ mod tests {
         let vm = cache
             .checkout_generic_runtime(&summary, 10_000, HEAP_LIMIT)
             .expect("next runtime");
-        assert_eq!(vm.memory.load_u64(ivm::Memory::HEAP_START), Ok(0));
+        assert_eq!(
+            (vm.memory.load_u64(ivm::Memory::HEAP_START))
+                .expect("expected successful VM operation"),
+            0
+        );
     }
 
     #[test]
@@ -1901,9 +1909,10 @@ mod tests {
     }
     #[test]
     fn generic_runtime_replacement_keeps_its_own_reset_baseline() {
-        let _retention = default_retention();
         const GAS_LIMIT: u64 = 10_000;
         const GOVERNED_HEAP_LIMIT: u64 = 64;
+
+        let _retention = default_retention();
         let program = minimal_generic_program();
         let mut cache = IvmCache::with_capacity(2);
         let summary = cache
@@ -1999,9 +2008,8 @@ mod tests {
             let error = IvmCache::new()
                 .summarize_generic_program(&program)
                 .expect_err("generic syscall profile must reject contract-only calls");
-            assert_eq!(
-                error,
-                ivm::VMError::GenericSyscallNotAllowed { syscall },
+            assert!(
+                matches!((&(error), &(ivm::VMError::GenericSyscallNotAllowed { syscall })), (ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}, ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
                 "generic syscall profile must reject 0x{syscall:02x}"
             );
         }
@@ -2028,9 +2036,10 @@ mod tests {
     }
     #[test]
     fn runtime_is_reused_across_transactions() {
-        let _retention = default_retention();
         const TEST_REGISTER: usize = 1;
         const GAS_LIMIT: u64 = 10_000;
+
+        let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
         // First transaction warms both summary and runtime template.
@@ -2093,8 +2102,9 @@ mod tests {
     }
     #[test]
     fn runtime_pool_discards_a_vm_with_mismatched_template_geometry() {
-        let _retention = default_retention();
         const GAS_LIMIT: u64 = 10_000;
+
+        let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
         let summary = cache.summarize_program(&program).expect("summary");
@@ -2155,10 +2165,11 @@ mod tests {
     }
     #[test]
     fn runtime_pool_never_reuses_stale_heap_authority() {
-        let _retention = default_retention();
         const GAS_LIMIT: u64 = 10_000;
         const SMALL_HEAP_LIMIT: u64 = 64;
         const LARGE_HEAP_LIMIT: u64 = 128;
+
+        let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
         let summary = cache.summarize_program(&program).expect("summary");
@@ -2199,8 +2210,9 @@ mod tests {
     }
     #[test]
     fn content_addressed_hit_skips_repreparation_and_reuses_dirty_reset_runtime() {
-        let _retention = default_retention();
         const GAS_LIMIT: u64 = 10_000;
+
+        let _retention = default_retention();
         let program = minimal_program();
         let code_hash = ivm::contract_code_hash(&program);
         let mut cache = IvmCache::with_capacity(2);
@@ -2348,25 +2360,25 @@ mod tests {
     }
     #[test]
     fn concurrent_workers_singleflight_contract_preparation() {
-        let _retention = default_retention();
         const WORKERS: usize = 8;
+
+        let _retention = default_retention();
         let program = Arc::new(minimal_program());
         let code_hash = ivm::contract_code_hash(program.as_slice());
         let cache = PreparedContractCache::with_capacity(4);
         let barrier = Arc::new(std::sync::Barrier::new(WORKERS));
-        let handles = (0..WORKERS)
-            .map(|_| {
-                let program = Arc::clone(&program);
-                let cache = cache.clone();
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    barrier.wait();
-                    cache
-                        .get_or_prepare(code_hash, program.as_slice())
-                        .expect("singleflight preparation")
-                })
+        // All workers must start before the first join because they share this barrier.
+        let handles: [_; WORKERS] = std::array::from_fn(|_| {
+            let program = Arc::clone(&program);
+            let cache = cache.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                cache
+                    .get_or_prepare(code_hash, program.as_slice())
+                    .expect("singleflight preparation")
             })
-            .collect::<Vec<_>>();
+        });
         let prepared = handles
             .into_iter()
             .map(|handle| handle.join().expect("worker must not panic"))
@@ -2384,9 +2396,10 @@ mod tests {
     }
     #[test]
     fn nested_runtime_pool_reuses_allocation_and_dirty_resets_memory() {
-        let _retention = default_retention();
         const GAS_LIMIT: u64 = 10_000;
         const GOVERNED_HEAP_LIMIT: u64 = 96;
+
+        let _retention = default_retention();
         let program = minimal_program();
         let code_hash = ivm::contract_code_hash(&program);
         let cache = PreparedContractCache::with_capacity(2);
@@ -2458,6 +2471,8 @@ mod tests {
 
     #[test]
     fn nested_runtime_and_template_charges_survive_final_baseline_owner() {
+        const GAS_LIMIT: u64 = 10_000;
+
         // This positive requires enabled retention for its whole owner lifetime.
         // Serialize the canonical configuration writers that may evict every pool.
         let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
@@ -2466,7 +2481,6 @@ mod tests {
             max_decoded_ops:
                 iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
         });
-        const GAS_LIMIT: u64 = 10_000;
         let program = minimal_program();
         let code_hash = ivm::contract_code_hash(&program);
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
@@ -2723,23 +2737,7 @@ mod tests {
     }
     #[test]
     fn program_summary_owned_lease_reuses_runtime_on_early_return() {
-        // This positive requires enabled retention for its whole owner lifetime.
-        // Serialize the canonical configuration writers that may evict every pool.
-        let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
-            capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
-            max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
-            max_decoded_ops:
-                iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
-        });
         const GAS_LIMIT: u64 = 10_000;
-        let program = minimal_program();
-        let mut cache = IvmCache::with_capacity(2);
-        let summary = cache.summarize_program(&program).expect("summary");
-        assert_eq!(
-            summary.prepared_contract().manifest().code_hash,
-            Some(summary.code_hash)
-        );
-        let prepared_cache = summary.prepared_contract_cache();
         fn dirty_then_return(summary: &ProgramSummary) -> Result<(), *const u8> {
             let mut runtime = summary
                 .checkout_runtime(GAS_LIMIT, HEAP_LIMIT)
@@ -2756,6 +2754,23 @@ mod tests {
                 .expect("dirty input page");
             Err(allocation)
         }
+
+        // This positive requires enabled retention for its whole owner lifetime.
+        // Serialize the canonical configuration writers that may evict every pool.
+        let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
+            capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
+            max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+            max_decoded_ops:
+                iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
+        });
+        let program = minimal_program();
+        let mut cache = IvmCache::with_capacity(2);
+        let summary = cache.summarize_program(&program).expect("summary");
+        assert_eq!(
+            summary.prepared_contract().manifest().code_hash,
+            Some(summary.code_hash)
+        );
+        let prepared_cache = summary.prepared_contract_cache();
         let allocation = dirty_then_return(&summary).expect_err("early return");
         let after_error = prepared_cache.stats();
         assert_eq!(after_error.runtime_dirty_resets, 1);

@@ -81,10 +81,13 @@ impl Layout {
         if bytes.len() != self.custody.payload_bytes as usize {
             return Err(Error::Proof("Q checkpoint length"));
         }
-        let payload = proof(norito::decode_canonical_with_limits(
+        let payload = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(bytes.len()),
-        ))?;
+        )
+        .map_err(|error| {
+            super::super::decode_attempt_error(error, Error::Proof("native fold source or proof"))
+        })?;
         self.check(&payload, source)?;
         Ok(payload)
     }
@@ -440,5 +443,38 @@ mod tests {
                     .is_err()
             );
         }
+    }
+    #[test]
+    fn q_checkpoint_read_refusal_preserves_original_and_exact_retry() {
+        let (layout, payload) = specimen();
+        let bytes = norito::encode_canonical(&payload).unwrap();
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let error = norito::with_decode_limits_scope(limits, || layout.decode(&bytes, [3; 32]))
+                .err()
+                .expect("actual enclosing decoder refusal");
+            assert!(matches!(error, Error::DecodeResource(ref original)
+                if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            let restored = layout.decode(&bytes, [3; 32]).unwrap();
+            assert_eq!(norito::encode_canonical(&restored).unwrap(), bytes);
+            assert!(matches!(
+                norito::with_decode_limits_scope(limits, || {
+                    layout.decode(&bytes[..bytes.len() - 1], [3; 32])
+                }),
+                Err(Error::Proof("Q checkpoint length"))
+            ));
+        }
+        assert!(matches!(
+            layout.decode(&bytes, [4; 32]),
+            Err(Error::Proof("Q checkpoint binding"))
+        ));
+        let mut bad_header = bytes;
+        bad_header[0] ^= 1;
+        assert!(matches!(
+            layout.decode(&bad_header, [3; 32]),
+            Err(Error::Proof("native fold source or proof"))
+        ));
     }
 }

@@ -198,7 +198,7 @@ fn ordinary_results() -> OrdinaryResults {
         signature: key.sign(message).to_bytes(),
         public_key: key.verifying_key().to_bytes(),
     };
-    let mut invalid = valid.clone();
+    let mut invalid = valid;
     invalid.signature[40] ^= 1;
     let mut signatures = [false; 2];
     assert!(ivm::signature::verify_ed25519_batch_items_into(

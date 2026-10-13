@@ -114,6 +114,7 @@ pub(super) fn reader_builder(base_url: impl AsRef<str>) -> iroha::client::Client
         key_pair: ALICE_KEYPAIR.clone(),
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: base_url.as_ref().parse().expect("reader endpoint"),
         torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
         transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,

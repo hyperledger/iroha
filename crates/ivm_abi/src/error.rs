@@ -4,8 +4,10 @@
 use crate::numeric::{NumericFaultV1, PointerAbiFaultV1};
 /// Original local allocation refusal carried by [`VMError::AllocationDeferred`].
 /// This is the allocation owner's type; re-exporting it does not copy its custody.
-pub use iroha_allocation::AllocationRefusal;
+pub use iroha_allocation::{AllocationRefusal, AllocatorRefusal};
 use iroha_data_model::executor::fault::{IvmFaultKindV1, IvmFaultV1};
+/// Original move-only native verification refusal owned by the shared proof layer.
+pub use iroha_plonk::verification_attempt::VerificationRefusal;
 use std::{error::Error as StdError, fmt};
 /// Memory region permissions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +131,12 @@ pub enum ExecutionDeferral {
     /// Governed verifier artifacts are not loaded or require an authenticated reload.
     /// This local availability condition cannot become a transaction rejection.
     VerifierArtifactsUnavailable,
+    /// Native verification was cooperatively cancelled before a verdict.
+    VerificationCancelled,
+    /// Native verification exceeded its own scratch budget; no allocation-pool wait is implied.
+    NativeVerificationMemoryUnavailable,
+    /// Trusted verifier initialization failed before an incoming-proof verdict was available.
+    VerifierInitializationUnavailable,
     /// Original local committed execution history is missing, corrupt, or not readable.
     /// This is never evidence that the signed transaction was rejected.
     CanonicalHistoryUnavailable,
@@ -146,6 +154,13 @@ impl fmt::Display for ExecutionDeferral {
             Self::AllocationUnavailable => "local allocation unavailable",
             Self::ActiveMemoryCapacity => "local active execution memory capacity unavailable",
             Self::VerifierArtifactsUnavailable => "local governed verifier artifacts unavailable",
+            Self::VerificationCancelled => "native verification cancelled before completion",
+            Self::NativeVerificationMemoryUnavailable => {
+                "native verification scratch budget unavailable"
+            }
+            Self::VerifierInitializationUnavailable => {
+                "trusted verifier initialization unavailable"
+            }
             Self::CanonicalHistoryUnavailable => "local canonical execution history unavailable",
             Self::CanonicalHistoryCapacity => {
                 "local canonical execution history read capacity unavailable"
@@ -156,7 +171,7 @@ impl fmt::Display for ExecutionDeferral {
 }
 impl StdError for ExecutionDeferral {}
 /// VM errors.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug)]
 pub enum VMError {
     /// Abandon this local attempt without retaining a transaction result; the
     /// native host distinguishes retryable local pressure from recovery-only custody failure.
@@ -164,6 +179,13 @@ pub enum VMError {
     /// Original active allocation refusal, including its exact pool's release observation.
     /// This local owner is never a metered guest fault or a wire rejection.
     AllocationDeferred(AllocationRefusal),
+    /// Original canonical decoder refusal captured before its admission scope retired.
+    /// This opaque non-wire owner grants no allocation-pool wakeup or guest fault.
+    DecodeDeferred(norito::core::DecodeLocalRefusal),
+    /// Original physical allocator refusal; grants no finite-pool release observation.
+    AllocatorDeferred(AllocatorRefusal),
+    /// Original native verification failure, moved without allocating or producing a verdict.
+    VerificationDeferred(VerificationRefusal),
     /// Host work failed after consuming a deterministic amount of syscall gas.
     ///
     /// The VM executor debits `gas` and then returns `source` so trap
@@ -346,6 +368,34 @@ impl VMError {
         match self.as_unmetered() {
             Self::ExecutionDeferred(reason) => Some(*reason),
             Self::AllocationDeferred(_) => Some(ExecutionDeferral::ActiveMemoryCapacity),
+            Self::AllocatorDeferred(_) => Some(ExecutionDeferral::AllocationUnavailable),
+            Self::DecodeDeferred(original) => Some(match original.kind() {
+                norito::core::DecodeLocalRefusalKind::Allocator => {
+                    ExecutionDeferral::AllocationUnavailable
+                }
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit => {
+                    ExecutionDeferral::ActiveMemoryCapacity
+                }
+            }),
+            Self::VerificationDeferred(original) => {
+                use iroha_plonk::verification_attempt::VerificationRefusalKind as Kind;
+                Some(match original.kind() {
+                    Kind::Decode(norito::core::DecodeLocalRefusalKind::Allocator) => {
+                        ExecutionDeferral::AllocationUnavailable
+                    }
+                    Kind::Decode(norito::core::DecodeLocalRefusalKind::EnclosingLimit) => {
+                        ExecutionDeferral::ActiveMemoryCapacity
+                    }
+                    Kind::NativeCancelled => ExecutionDeferral::VerificationCancelled,
+                    Kind::NativeMemoryBudget => {
+                        ExecutionDeferral::NativeVerificationMemoryUnavailable
+                    }
+                    Kind::InitializationUnavailable => {
+                        ExecutionDeferral::VerifierInitializationUnavailable
+                    }
+                    Kind::LocalInvariantViolation => ExecutionDeferral::LocalInvariantViolation,
+                })
+            }
             Self::HostUnavailable
             | Self::SyscallGasQuoteExceeded { .. }
             | Self::SyscallMeteringModeMismatch { .. } => {
@@ -401,6 +451,9 @@ impl VMError {
             Self::AmxBudgetExceeded { .. } => F::AmxBudgetExceeded,
             Self::ExecutionDeferred(_)
             | Self::AllocationDeferred(_)
+            | Self::AllocatorDeferred(_)
+            | Self::DecodeDeferred(_)
+            | Self::VerificationDeferred(_)
             | Self::HostUnavailable
             | Self::SyscallGasQuoteExceeded { .. }
             | Self::SyscallMeteringModeMismatch { .. }
@@ -467,6 +520,15 @@ impl fmt::Display for VMError {
             VMError::ExecutionDeferred(reason) => write!(f, "execution deferred: {reason}"),
             VMError::AllocationDeferred(refusal) => {
                 write!(f, "execution allocation deferred: {refusal}")
+            }
+            VMError::AllocatorDeferred(original) => {
+                write!(f, "physical allocation deferred: {original}")
+            }
+            VMError::DecodeDeferred(original) => {
+                write!(f, "execution decode deferred: {original}")
+            }
+            VMError::VerificationDeferred(original) => {
+                write!(f, "native verification deferred: {original}")
             }
             VMError::OutOfGas => write!(f, "out of gas"),
             VMError::OutOfMemory => write!(f, "out of memory"),
@@ -604,6 +666,9 @@ impl StdError for VMError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             VMError::Metered { source, .. } => Some(source.as_ref()),
+            VMError::DecodeDeferred(original) => Some(original),
+            VMError::AllocatorDeferred(original) => Some(original),
+            VMError::VerificationDeferred(original) => Some(original),
             _ => None,
         }
     }
@@ -611,7 +676,8 @@ impl StdError for VMError {
 
 /// Preserve a local operational refusal when mapping a deterministic decode fault.
 ///
-/// The complete original error carries its finite pool/release observation.
+/// The complete original error retains its cause and any existing pool/release
+/// observation; a decoder scope never invents an allocation-pool wakeup.
 /// Converting it to malformed input would make transaction validity depend on
 /// local resource pressure. Semantic failures retain the caller's existing map.
 pub fn preserve_execution_deferral(error: VMError, malformed: VMError) -> VMError {
@@ -671,9 +737,9 @@ mod numeric_abi_error_tests {
             (Norito("invalid checksum".into()), MalformedFrame),
         ];
         for (error, expected) in cases {
-            assert_eq!(
-                VMError::from(error.clone()),
-                VMError::PointerAbiFault(expected),
+            let actual = VMError::from(error.clone());
+            assert!(
+                matches!(actual, VMError::PointerAbiFault(found) if found == expected),
                 "numeric frame error {error:?} changed its pointer fault"
             );
         }
@@ -682,49 +748,97 @@ mod numeric_abi_error_tests {
 
 #[cfg(test)]
 mod execution_deferral_tests {
+    #[test]
+    fn physical_allocator_transport_is_unmetered_and_not_a_fault() {
+        use iroha_allocation::{AllocatorRefusal, ChargedBufferError};
+        use std::error::Error;
+        // Transport-only control. Core tests obtain this variant from a real null allocation.
+        let original = AllocatorRefusal::try_from(ChargedBufferError::Allocator {
+            requested_bytes: 97,
+        })
+        .unwrap();
+        let error = VMError::AllocatorDeferred(original);
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ExecutionDeferral::AllocationUnavailable)
+        );
+        assert!(error.fault_kind().is_none());
+        assert!(error.source().unwrap().is::<AllocatorRefusal>());
+        let error =
+            preserve_execution_deferral(VMError::metered(99, error), VMError::NoritoInvalid);
+        assert!(error.metered_gas().is_none());
+        let VMError::AllocatorDeferred(original) = error.into_unmetered() else {
+            panic!("retain exact physical owner")
+        };
+        assert!(matches!(
+            original.into_buffer_error().unwrap(),
+            ChargedBufferError::Allocator {
+                requested_bytes: 97
+            }
+        ));
+        assert!(
+            core::mem::size_of::<VMError>() < 128,
+            "the error remains inline"
+        );
+    }
+
     use super::{ExecutionDeferral, VMError, preserve_execution_deferral};
+
+    fn assert_reason(error: &VMError, reason: ExecutionDeferral) {
+        assert!(
+            matches!(error.as_unmetered(), VMError::ExecutionDeferred(found) if *found == reason)
+        );
+        assert_eq!(error.execution_deferral(), Some(reason));
+    }
 
     #[test]
     fn decode_mapping_keeps_complete_operational_errors_and_existing_semantic_faults() {
         let budget = iroha_allocation::AllocationBudget::new(1);
         let occupied = budget.try_reserve_bytes(1).unwrap();
         let refusal = budget.try_reserve_bytes(1).unwrap_err();
-        let error = VMError::AllocationDeferred(refusal);
-        assert_eq!(
-            preserve_execution_deferral(error.clone(), VMError::NoritoInvalid),
-            error
+        let error = preserve_execution_deferral(
+            VMError::AllocationDeferred(refusal.clone()),
+            VMError::NoritoInvalid,
         );
+        assert!(matches!(error, VMError::AllocationDeferred(ref found) if *found == refusal));
         for reason in [
             ExecutionDeferral::LocalInvariantViolation,
             ExecutionDeferral::AllocationUnavailable,
             ExecutionDeferral::ActiveMemoryCapacity,
             ExecutionDeferral::VerifierArtifactsUnavailable,
+            ExecutionDeferral::VerificationCancelled,
+            ExecutionDeferral::NativeVerificationMemoryUnavailable,
+            ExecutionDeferral::VerifierInitializationUnavailable,
             ExecutionDeferral::TraceOwnerUnavailable,
         ] {
-            let error = VMError::ExecutionDeferred(reason);
-            assert_eq!(
-                preserve_execution_deferral(error.clone(), VMError::DecodeError),
-                error
+            assert_reason(
+                &preserve_execution_deferral(
+                    VMError::ExecutionDeferred(reason),
+                    VMError::DecodeError,
+                ),
+                reason,
             );
         }
         let wrapped = VMError::Metered {
             gas: 17,
             source: Box::new(error),
         };
-        assert_eq!(
-            preserve_execution_deferral(wrapped.clone(), VMError::DecodeError),
-            wrapped
-        );
-        assert_eq!(
+        let mapped = preserve_execution_deferral(wrapped, VMError::DecodeError);
+        let VMError::Metered { gas, source } = mapped else {
+            panic!("mapping changed original wrapper");
+        };
+        assert_eq!(gas, 17);
+        assert!(matches!(*source, VMError::AllocationDeferred(found) if found == refusal));
+        assert!(matches!(
             preserve_execution_deferral(VMError::MemoryOutOfBounds, VMError::NoritoInvalid),
             VMError::NoritoInvalid
-        );
+        ));
         drop(occupied);
     }
 
     #[test]
     fn contract_abort_preserves_authenticated_text_and_identity_through_metering() {
-        // Every VM operation carries this result type, including ordinary small failures.
+        // Retain the existing size guard pending measured review of the new inline owner.
         assert!(core::mem::size_of::<VMError>() < 128);
         let rejection = VMError::ContractAbort {
             contract: "Treasury".into(),
@@ -734,36 +848,59 @@ mod execution_deferral_tests {
             code: 18,
             message: Some("残高が不足しています".into()),
         };
-        let metered = VMError::metered(123, rejection.clone());
-        assert_eq!(metered.as_unmetered(), &rejection);
         assert_eq!(
             rejection.to_string(),
             "seiyaku aborted with treasury::Error code 18: 残高が不足しています"
         );
-        assert_eq!(metered.split_metered(), (Some(123), rejection));
+        fn assert_abort(error: &VMError) {
+            let VMError::ContractAbort {
+                contract,
+                name,
+                error_type,
+                schema_hash,
+                code,
+                message,
+            } = error
+            else {
+                panic!("lost completed abort");
+            };
+            assert_eq!(&**contract, "Treasury");
+            assert_eq!(&**name, "InsufficientFunds");
+            assert_eq!(&**error_type, "treasury::Error");
+            assert_eq!(*schema_hash, [7; 32]);
+            assert_eq!(*code, 18);
+            assert_eq!(message.as_deref(), Some("残高が不足しています"));
+        }
+        let metered = VMError::metered(123, rejection);
+        assert_abort(metered.as_unmetered());
+        let (gas, moved) = metered.split_metered();
+        assert_eq!(gas, Some(123));
+        assert_abort(&moved);
     }
 
     #[test]
     fn local_refusal_never_acquires_a_deterministic_gas_charge() {
-        let deferred = VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable);
-        assert_eq!(VMError::metered(123, deferred.clone()), deferred);
+        let reason = ExecutionDeferral::AllocationUnavailable;
+        let deferred = VMError::metered(123, VMError::ExecutionDeferred(reason));
+        assert_reason(&deferred, reason);
         let wrapped = VMError::Metered {
             gas: 456,
-            source: Box::new(deferred.clone()),
+            source: Box::new(deferred),
         };
-        assert_eq!(
-            wrapped.execution_deferral(),
-            Some(ExecutionDeferral::AllocationUnavailable)
-        );
+        assert_eq!(wrapped.execution_deferral(), Some(reason));
         assert_eq!(wrapped.metered_gas(), None);
-        assert_eq!(wrapped.split_metered(), (None, deferred));
+        let (gas, moved) = wrapped.split_metered();
+        assert_eq!(gas, None);
+        assert_reason(&moved, reason);
     }
 
     #[test]
     fn deterministic_guest_memory_fault_preserves_metering() {
         let fault = VMError::metered(123, VMError::OutOfMemory);
         assert_eq!(fault.execution_deferral(), None);
-        assert_eq!(fault.split_metered(), (Some(123), VMError::OutOfMemory));
+        let (gas, moved) = fault.split_metered();
+        assert_eq!(gas, Some(123));
+        assert!(matches!(moved, VMError::OutOfMemory));
     }
 
     #[test]
@@ -776,19 +913,21 @@ mod execution_deferral_tests {
             error.execution_deferral(),
             Some(ExecutionDeferral::ActiveMemoryCapacity)
         );
-        assert_eq!(VMError::metered(123, error.clone()), error);
+        let error = VMError::metered(123, error);
+        assert!(matches!(&error, VMError::AllocationDeferred(found) if *found == refusal));
         let wrapped = VMError::Metered {
             gas: 456,
-            source: Box::new(error.clone()),
+            source: Box::new(error),
         };
         assert_eq!(wrapped.metered_gas(), None);
-        assert_eq!(VMError::metered(789, wrapped.clone()), error);
-        assert_eq!(
-            wrapped.split_metered(),
-            (None, VMError::AllocationDeferred(refusal))
-        );
+        let error = VMError::metered(789, wrapped);
+        assert!(matches!(&error, VMError::AllocationDeferred(found) if *found == refusal));
+        let (gas, moved) = error.split_metered();
+        assert_eq!(gas, None);
+        assert!(matches!(moved, VMError::AllocationDeferred(found) if found == refusal));
         drop(occupied);
     }
+
     #[test]
     fn unavailable_governed_verifier_is_local_and_cannot_be_metered() {
         let reason = ExecutionDeferral::VerifierArtifactsUnavailable;
@@ -796,27 +935,24 @@ mod execution_deferral_tests {
             reason.to_string(),
             "local governed verifier artifacts unavailable"
         );
-        let original = VMError::ExecutionDeferred(reason);
-        assert_eq!(VMError::metered(777, original.clone()), original);
-        assert_eq!(original.execution_deferral(), Some(reason));
-        assert_eq!(
-            original.split_metered(),
-            (None, VMError::ExecutionDeferred(reason))
-        );
+        let original = VMError::metered(777, VMError::ExecutionDeferred(reason));
+        assert_reason(&original, reason);
+        let (gas, moved) = original.split_metered();
+        assert_eq!(gas, None);
+        assert_reason(&moved, reason);
     }
+
     #[test]
     fn canonical_history_deferrals_cannot_be_metered_as_vm_faults() {
         for reason in [
             ExecutionDeferral::CanonicalHistoryUnavailable,
             ExecutionDeferral::CanonicalHistoryCapacity,
         ] {
-            let original = VMError::ExecutionDeferred(reason);
-            assert_eq!(VMError::metered(777, original.clone()), original);
-            assert_eq!(original.execution_deferral(), Some(reason));
-            assert_eq!(
-                original.split_metered(),
-                (None, VMError::ExecutionDeferred(reason))
-            );
+            let original = VMError::metered(777, VMError::ExecutionDeferred(reason));
+            assert_reason(&original, reason);
+            let (gas, moved) = original.split_metered();
+            assert_eq!(gas, None);
+            assert_reason(&moved, reason);
         }
     }
 
@@ -827,21 +963,191 @@ mod execution_deferral_tests {
             reason.to_string(),
             "local execution trace owner unavailable"
         );
-        let original = VMError::ExecutionDeferred(reason);
         let nested = VMError::Metered {
             gas: 17,
             source: Box::new(VMError::Metered {
                 gas: 91,
-                source: Box::new(original.clone()),
+                source: Box::new(VMError::ExecutionDeferred(reason)),
             }),
         };
         assert_eq!(nested.execution_deferral(), Some(reason));
         assert_eq!(nested.metered_gas(), None);
-        assert_eq!(VMError::metered(123, nested.clone()), original);
+        let nested = preserve_execution_deferral(nested, VMError::DecodeError);
+        let VMError::Metered { gas: 17, source } = &nested else {
+            panic!("outer diagnostic wrapper changed");
+        };
+        assert!(matches!(&**source, VMError::Metered { gas: 91, .. }));
+        let original = VMError::metered(123, nested);
+        assert_reason(&original, reason);
+        let (gas, moved) = original.split_metered();
+        assert_eq!(gas, None);
+        assert_reason(&moved, reason);
+    }
+}
+
+#[cfg(test)]
+mod canonical_decode_deferral_tests {
+    use super::*;
+
+    #[test]
+    fn retained_codec_refusal_has_no_metered_gas_or_deterministic_fault() {
+        let bytes = norito::encode_canonical(&vec![31_u8; 8]).unwrap();
+        let cause = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let error = VMError::DecodeDeferred(cause.clone());
         assert_eq!(
-            preserve_execution_deferral(nested.clone(), VMError::DecodeError),
-            nested
+            error.execution_deferral(),
+            Some(ExecutionDeferral::ActiveMemoryCapacity)
         );
-        assert_eq!(nested.split_metered(), (None, original));
+        assert_eq!(error.fault_kind(), None);
+        let error = VMError::metered(91, error);
+        assert!(matches!(&error, VMError::DecodeDeferred(found) if *found == cause));
+        let nested = VMError::Metered {
+            gas: 27,
+            source: Box::new(error),
+        };
+        assert_eq!(
+            nested.execution_deferral(),
+            Some(ExecutionDeferral::ActiveMemoryCapacity)
+        );
+        assert_eq!(nested.fault_kind(), None);
+        let (gas, error) = nested.split_metered();
+        assert_eq!(gas, None);
+        assert!(matches!(&error, VMError::DecodeDeferred(found) if *found == cause));
+        let error = preserve_execution_deferral(error, VMError::NoritoInvalid);
+        assert!(matches!(&error, VMError::DecodeDeferred(found) if *found == cause));
+        assert_eq!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<norito::core::DecodeLocalRefusal>(),
+            Some(&cause)
+        );
+        assert!(error.to_string().starts_with("execution decode deferred: "));
+    }
+
+    #[test]
+    fn captured_allocator_refusal_retains_bytes_without_a_pool_wakeup() {
+        // This synthetic decoder result exercises the established classifier trust
+        // boundary; it is not evidence of an actual physical allocation failure.
+        let cause = norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 127 })
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let error = VMError::DecodeDeferred(cause.clone());
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ExecutionDeferral::AllocationUnavailable)
+        );
+        assert_eq!(error.fault_kind(), None);
+        let (gas, returned) = VMError::metered(13, error).split_metered();
+        assert_eq!(gas, None);
+        let VMError::DecodeDeferred(original) = returned else {
+            panic!("lost decoder owner")
+        };
+        assert_eq!(original, cause);
+        assert_eq!(original.allocation_bytes(), Some(127));
+    }
+}
+
+#[cfg(test)]
+mod native_verification_deferral_tests {
+    use super::*;
+    use iroha_plonk::{
+        pcs::ipa::IpaError,
+        verification_attempt::{VerificationAttemptError, native_verification_error},
+        verifier::VerifyError,
+    };
+
+    #[test]
+    fn exact_native_budget_and_cancellation_move_through_nested_metering_without_faults() {
+        // This is a genuine native budget check, not a claim that physical allocation failed.
+        let budget = iroha_plonk::keys::KeygenConfigV2::pipa_r(Vec::new()).msm_budget;
+        let refusal = budget.check(usize::MAX).unwrap_err();
+        let cancellation = iroha_pasta::CancellationToken::new();
+        assert!(iroha_pasta::CancellationToken::checkpoint(Some(&cancellation)).is_ok());
+        cancellation.cancel();
+        let cancelled =
+            iroha_pasta::CancellationToken::checkpoint(Some(&cancellation)).unwrap_err();
+        for (original, reason) in [
+            (
+                VerifyError::Ipa(IpaError::Msm(refusal.into())),
+                ExecutionDeferral::NativeVerificationMemoryUnavailable,
+            ),
+            (
+                VerifyError::from(cancelled),
+                ExecutionDeferral::VerificationCancelled,
+            ),
+        ] {
+            let original = Box::new(original);
+            let expected_address: *const VerifyError = &*original;
+            let attempt = native_verification_error(
+                VerifyError::BatchItem {
+                    index: 2,
+                    error: original,
+                },
+                |_| -> () {
+                    panic!("unfinished native work cannot reject a proof");
+                },
+            );
+            let VerificationAttemptError::Deferred(owner) = attempt else {
+                panic!("lost native owner");
+            };
+            let error = VMError::VerificationDeferred(owner);
+            assert_eq!(error.execution_deferral(), Some(reason));
+            assert_eq!(error.fault_kind(), None);
+            assert!(
+                error
+                    .source()
+                    .unwrap()
+                    .downcast_ref::<VerificationRefusal>()
+                    .is_some()
+            );
+            let nested = VMError::Metered {
+                gas: 19,
+                source: Box::new(VMError::Metered {
+                    gas: 41,
+                    source: Box::new(error),
+                }),
+            };
+            assert_eq!(nested.execution_deferral(), Some(reason));
+            assert_eq!(nested.fault_kind(), None);
+            assert_eq!(nested.metered_gas(), None);
+            let mapped = preserve_execution_deferral(nested, VMError::NoritoInvalid);
+            let (gas, moved) = VMError::metered(71, mapped).split_metered();
+            assert_eq!(gas, None);
+            let VMError::VerificationDeferred(owner) = moved else {
+                panic!("lost original after consuming split");
+            };
+            assert!(owner.decode_refusal().is_none());
+            let Some(VerifyError::BatchItem { index, error }) = owner.native_verification_error()
+            else {
+                panic!("lost original typed outer failure");
+            };
+            assert_eq!(*index, 2);
+            let retained_address: *const VerifyError = &**error;
+            assert_eq!(retained_address, expected_address);
+            match reason {
+                ExecutionDeferral::NativeVerificationMemoryUnavailable => assert!(
+                    matches!(&**error, VerifyError::Ipa(IpaError::Msm(actual)) if *actual == refusal.into())
+                ),
+                ExecutionDeferral::VerificationCancelled => {
+                    assert!(matches!(&**error, VerifyError::Cancelled))
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 }

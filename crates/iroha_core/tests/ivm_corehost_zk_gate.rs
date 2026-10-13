@@ -29,10 +29,10 @@ fn assert_generic_bridge_rejected(instruction: InstructionBox) {
     );
     program.extend_from_slice(&encoding::wide::encode_halt().to_le_bytes());
     let mut vm = IVM::new(10_000_000);
-    let expected = ivm::VMError::GenericSyscallNotAllowed {
-        syscall: syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
-    };
-    assert_eq!(vm.load_program(&program), Err(expected.clone()));
+    let expected_syscall = syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION;
+    assert!(
+        matches!(vm.load_program(&program), Err(ivm::VMError::GenericSyscallNotAllowed { syscall }) if syscall == expected_syscall)
+    );
     let payload = norito::to_bytes(&instruction).unwrap();
     let mut tlv = Vec::new();
     tlv.extend_from_slice(&(PointerType::NoritoBytes as u16).to_be_bytes());
@@ -44,9 +44,9 @@ fn assert_generic_bridge_rejected(instruction: InstructionBox) {
     vm.set_register(10, pointer);
     vm.set_register(11, syscalls::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
     let mut host = CoreHost::new(ALICE_ID.clone());
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-        Err(expected)
+    assert!(
+        matches!(host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
+        Err(ivm::VMError::GenericSyscallNotAllowed { syscall }) if syscall == expected_syscall)
     );
     assert_eq!(vm.register(10), pointer);
 }

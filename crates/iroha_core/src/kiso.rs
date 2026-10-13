@@ -42,8 +42,9 @@ impl KisoHandle {
         let (network_acl_update, _) = watch::channel(initial_acl);
         let initial_handshake = state.network.soranet_handshake.clone();
         let (soranet_handshake_update, _) = watch::channel(initial_handshake);
-        let initial_confidential_gas = state.confidential.gas;
-        crate::gas::configure_confidential_gas(initial_confidential_gas.into());
+        // The verification gas schedule is consensus policy: the committed ZK validity
+        // policy or the protocol default installs it (`State::install_node_zk` and block
+        // construction). A node configuration holds no schedule.
         let mut actor = Actor {
             handle: actor_receiver,
             state,
@@ -160,7 +161,6 @@ impl KisoHandle {
         let logger = state.logger.clone();
         let network_acl = Actor::snapshot_network_acl(state);
         let soranet_handshake = state.network.soranet_handshake.clone();
-        crate::gas::configure_confidential_gas(state.confidential.gas.into());
         let mock_actor =
             run_mock_actor(actor_receiver, logger, network_acl, soranet_handshake, dto);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -297,6 +297,16 @@ struct Actor {
     soranet_handshake_update: watch::Sender<ActualSoranetHandshake>,
     soranet_handshake_applier: Option<mpsc::Sender<SoranetHandshakeApplyRequest>>,
 }
+/// Private staged settings; no part is published before runtime acceptance.
+struct PreparedConfigUpdate {
+    logger: LoggerConfig,
+    network: iroha_config::parameters::actual::Network,
+    transport: iroha_config::parameters::actual::ToriiTransport,
+    compute: iroha_config::parameters::actual::Compute,
+    notify_network_acl: bool,
+    notify_soranet_handshake: bool,
+}
+
 impl Actor {
     async fn run(&mut self) {
         while let Some(msg) = self.handle.recv().await {
@@ -310,7 +320,7 @@ impl Actor {
                 let _ = respond_to.send(dto);
             }
             Message::UpdateWithDTO { dto, respond_to } => {
-                let result = self.apply_config_update(*dto).await;
+                let result = Box::pin(self.apply_config_update(*dto)).await;
                 let _ = respond_to.send(result);
             }
             Message::SubscribeOnLogLevel { respond_to } => {
@@ -339,7 +349,10 @@ impl Actor {
         }
     }
     #[allow(clippy::too_many_lines)]
-    async fn apply_config_update(&mut self, dto: ConfigurationUpdate) -> Result<(), Error> {
+    fn prepare_config_update(
+        &self,
+        dto: ConfigurationUpdate,
+    ) -> Result<PreparedConfigUpdate, Error> {
         let ConfigurationUpdate {
             logger,
             network_acl,
@@ -348,10 +361,16 @@ impl Actor {
             transport,
             compute_pricing,
         } = dto;
-        // Stage updates on a clone to keep the config update atomic.
-        let mut next = self.state.clone();
-        let mut notify_network_acl = false;
-        let mut notify_soranet_handshake = false;
+        // Stage only the runtime-mutable fields. The complete node configuration
+        // must not occupy the update future while the runtime acknowledgement waits.
+        let mut next = PreparedConfigUpdate {
+            logger: self.state.logger.clone(),
+            network: self.state.network.clone(),
+            transport: self.state.torii.transport.clone(),
+            compute: self.state.compute.clone(),
+            notify_network_acl: false,
+            notify_soranet_handshake: false,
+        };
         let Logger { level, filter } = logger;
         next.logger.level = level;
         next.logger.filter = filter
@@ -381,7 +400,7 @@ impl Actor {
             if let Some(cidrs) = deny_cidrs {
                 next.network.deny_cidrs = cidrs;
             }
-            notify_network_acl = true;
+            next.notify_network_acl = true;
         }
         if let Some(network) = network {
             if let Some(value) = network.require_sm_handshake_match {
@@ -417,10 +436,10 @@ impl Actor {
                 handshake_update,
             )
             .map_err(Error::Validation)?;
-            notify_soranet_handshake = true;
+            next.notify_soranet_handshake = true;
         }
         if let Some(transport_update) = transport {
-            Self::apply_transport_update(&mut next.torii.transport, transport_update)
+            Self::apply_transport_update(&mut next.transport, transport_update)
                 .map_err(Error::Validation)?;
         }
         if let Some(pricing_update) = compute_pricing {
@@ -440,20 +459,29 @@ impl Actor {
             }
             next.compute = compute;
         }
-        if notify_soranet_handshake {
+        Ok(next)
+    }
+    async fn apply_config_update(&mut self, dto: ConfigurationUpdate) -> Result<(), Error> {
+        let next = self.prepare_config_update(dto)?;
+        if next.notify_soranet_handshake {
             Self::apply_soranet_handshake_runtime(
                 self.soranet_handshake_applier.clone(),
                 next.network.soranet_handshake.clone(),
             )
             .await?;
         }
-        self.state = next;
+        // The actor processes one message at a time. Publish every staged field
+        // together after validation and acknowledgement, with no intervening await.
+        self.state.logger = next.logger;
+        self.state.network = next.network;
+        self.state.torii.transport = next.transport;
+        self.state.compute = next.compute;
         let _ = self.logger_update.send_replace(self.state.logger.clone());
-        if notify_network_acl {
+        if next.notify_network_acl {
             let snapshot = Self::snapshot_network_acl(&self.state);
             let _ = self.network_acl_update.send_replace(snapshot);
         }
-        if notify_soranet_handshake {
+        if next.notify_soranet_handshake {
             let _ = self
                 .soranet_handshake_update
                 .send_replace(self.state.network.soranet_handshake.clone());
@@ -1016,6 +1044,7 @@ mod tests {
                     iroha_config::parameters::defaults::torii::QUERY_FANOUT_MAX_RETAINED_BYTES,
                 query_fanout_max_working_set_bytes:
                     iroha_config::parameters::defaults::torii::QUERY_FANOUT_MAX_WORKING_SET_BYTES,
+                sccp_history_cache_max_bytes: iroha_config::parameters::defaults::torii::SCCP_HISTORY_CACHE_MAX_BYTES,
                 app_api_routed_read_body_read_timeout: Duration::from_millis(
                     iroha_config::parameters::defaults::torii::APP_API_ROUTED_READ_BODY_READ_TIMEOUT_MS,
                 ),
@@ -1318,6 +1347,7 @@ mod tests {
             },
             soracloud_runtime: iroha_config::parameters::actual::SoracloudRuntime::default(),
             musubi_publication: iroha_config::parameters::actual::MusubiPublication::default(),
+            amx_relay: iroha_config::parameters::actual::AmxRelay::default(),
             kura: Kura { init_mode: iroha_config::kura::InitMode::Strict, store_dir: WithOrigin::inline(std::env::temp_dir()),
                 max_disk_usage_bytes:
                     iroha_config::parameters::defaults::kura::MAX_DISK_USAGE_BYTES,
@@ -1367,7 +1397,7 @@ mod tests {
                     iroha_config::parameters::defaults::snapshot::MAX_PAYLOAD_BYTES,
                 max_read_buffer_bytes:
                     iroha_config::parameters::defaults::snapshot::MAX_READ_BUFFER_BYTES,
-                resources: Default::default(),
+                resources: iroha_config::parameters::actual::SnapshotResourcePolicy::default(),
                 verification_public_key: None,
                 signing_private_key: None,
             },
@@ -1705,13 +1735,9 @@ mod tests {
                 max_archive_len: iroha_config::parameters::defaults::norito::MAX_ARCHIVE_LEN,
             },
             fraud_monitoring: FraudMonitoring::new(
-                iroha_config::parameters::defaults::fraud_monitoring::ENABLED,
                 Vec::new(),
                 iroha_config::parameters::defaults::fraud_monitoring::CONNECT_TIMEOUT,
                 iroha_config::parameters::defaults::fraud_monitoring::REQUEST_TIMEOUT,
-                iroha_config::parameters::defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-                None,
-                Vec::new(),
             ),
             gov: Governance {
                 vk_ballot: None,
@@ -1847,53 +1873,7 @@ mod tests {
                 assume_valid: iroha_config::parameters::defaults::confidential::ASSUME_VALID,
                 verifier_backend: iroha_config::parameters::defaults::confidential::VERIFIER_BACKEND
                     .to_string(),
-                max_proof_size_bytes:
-                    iroha_config::parameters::defaults::confidential::MAX_PROOF_SIZE_BYTES,
-                max_nullifiers_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_NULLIFIERS_PER_TX,
-                max_commitments_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_COMMITMENTS_PER_TX,
-                max_confidential_ops_per_block: iroha_config::parameters::defaults::confidential::MAX_CONFIDENTIAL_OPS_PER_BLOCK,
                 verify_timeout: iroha_config::parameters::defaults::confidential::VERIFY_TIMEOUT,
-                max_anchor_age_blocks:
-                    iroha_config::parameters::defaults::confidential::MAX_ANCHOR_AGE_BLOCKS,
-                max_proof_bytes_block:
-                    iroha_config::parameters::defaults::confidential::MAX_PROOF_BYTES_BLOCK,
-                max_verify_calls_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_VERIFY_CALLS_PER_TX,
-                max_verify_calls_per_block:
-                    iroha_config::parameters::defaults::confidential::MAX_VERIFY_CALLS_PER_BLOCK,
-                max_public_inputs:
-                    iroha_config::parameters::defaults::confidential::MAX_PUBLIC_INPUTS,
-                reorg_depth_bound:
-                    iroha_config::parameters::defaults::confidential::REORG_DEPTH_BOUND,
-                policy_transition_delay_blocks:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_DELAY_BLOCKS,
-                policy_transition_window_blocks:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_WINDOW_BLOCKS,
-                policy_transition_max_per_height:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_MAX_PER_HEIGHT,
-                tree_roots_history_len:
-                    iroha_config::parameters::defaults::confidential::TREE_ROOTS_HISTORY_LEN,
-                tree_frontier_checkpoint_interval:
-                    iroha_config::parameters::defaults::confidential::TREE_FRONTIER_CHECKPOINT_INTERVAL,
-                registry_max_vk_entries:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_VK_ENTRIES,
-                registry_max_params_entries:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_PARAMS_ENTRIES,
-                registry_max_delta_per_block:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_DELTA_PER_BLOCK,
-                gas: iroha_config::parameters::actual::ConfidentialGas {
-                    proof_base: iroha_config::parameters::defaults::confidential::gas::PROOF_BASE,
-                    per_public_input:
-                        iroha_config::parameters::defaults::confidential::gas::PER_PUBLIC_INPUT,
-                    per_proof_byte:
-                        iroha_config::parameters::defaults::confidential::gas::PER_PROOF_BYTE,
-                    per_nullifier:
-                        iroha_config::parameters::defaults::confidential::gas::PER_NULLIFIER,
-                    per_commitment:
-                        iroha_config::parameters::defaults::confidential::gas::PER_COMMITMENT,
-                },
             },
             crypto: iroha_config::parameters::actual::Crypto::default(),
             settlement: Settlement::default(),
@@ -1948,24 +1928,15 @@ mod tests {
         assert_eq!(format!("{}", value.filter.unwrap()), "trace,trace,trace");
     }
     #[tokio::test]
-    async fn confidential_gas_snapshot_is_unchanged_by_runtime_updates() {
-        struct ResetConfidentialGas;
-        impl Drop for ResetConfidentialGas {
-            fn drop(&mut self) {
-                crate::gas::configure_confidential_gas(
-                    crate::gas::ConfidentialGasSchedule::default(),
-                );
-            }
-        }
-        let _reset = ResetConfidentialGas;
-        let mut config = test_config();
-        config.confidential.gas.proof_base = 321_000;
-        config.confidential.gas.per_public_input = 9_999;
-        config.confidential.gas.per_proof_byte = 77;
-        config.confidential.gas.per_nullifier = 55;
-        config.confidential.gas.per_commitment = 44;
-        let expected_gas = config.confidential.gas;
-        let (kiso, _) = KisoHandle::start(config);
+    async fn configuration_dto_carries_the_protocol_default_gas_until_state_replaces_it() {
+        // The node configuration has no verification gas schedule: the DTO the
+        // configuration authority builds holds the protocol default, runtime
+        // updates leave it alone, and starting the authority installs nothing
+        // into the schedule State charges (no process-wide schedule exists; each
+        // block meters with its frozen ZK settings). Torii replaces the DTO field
+        // with the committed schedule before it serves the record.
+        let default = crate::state::default_zk_config().gas;
+        let (kiso, _) = KisoHandle::start(test_config());
         kiso.update_with_dto(ConfigurationUpdate {
             logger: LoggerDTO {
                 level: iroha_logger::Level::DEBUG,
@@ -1980,23 +1951,15 @@ mod tests {
         .await
         .expect("update should succeed");
         let dto = kiso.get_dto().await.expect("fetch updated dto");
-        assert_eq!(dto.confidential_gas.proof_base, expected_gas.proof_base);
+        assert_eq!(dto.confidential_gas.proof_base, default.proof_base);
         assert_eq!(
             dto.confidential_gas.per_public_input,
-            expected_gas.per_public_input
+            default.per_public_input
         );
-        assert_eq!(
-            dto.confidential_gas.per_proof_byte,
-            expected_gas.per_proof_byte
-        );
-        assert_eq!(
-            dto.confidential_gas.per_nullifier,
-            expected_gas.per_nullifier
-        );
-        assert_eq!(
-            dto.confidential_gas.per_commitment,
-            expected_gas.per_commitment
-        );
+        assert_eq!(dto.confidential_gas.per_proof_byte, default.per_proof_byte);
+        assert_eq!(dto.confidential_gas.per_nullifier, default.per_nullifier);
+        assert_eq!(dto.confidential_gas.per_commitment, default.per_commitment);
+        assert_eq!(default.proof_base, crate::gas::DEFAULT_ZK_GAS.proof_base);
     }
     #[tokio::test]
     async fn network_acl_updates_are_canonical_and_allow_clearing() {
@@ -2466,6 +2429,40 @@ mod tests {
         assert!(dto.network.require_sm_handshake_match);
         assert!(dto.network.require_sm_openssl_preview_match);
     }
+    #[test]
+    fn configuration_update_future_keeps_only_bounded_runtime_staging() {
+        let config = test_config();
+        let (logger_update, _) = watch::channel(config.logger.clone());
+        let (network_acl_update, _) = watch::channel(Actor::snapshot_network_acl(&config));
+        let (soranet_handshake_update, _) =
+            watch::channel(config.network.soranet_handshake.clone());
+        let (_, handle) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let mut actor = Actor {
+            handle,
+            state: config,
+            logger_update,
+            network_acl_update,
+            soranet_handshake_update,
+            soranet_handshake_applier: None,
+        };
+        let future = actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::INFO,
+                filter: None,
+            },
+            network_acl: None,
+            network: None,
+            soranet_handshake: None,
+            transport: None,
+            compute_pricing: None,
+        });
+        assert!(
+            std::mem::size_of_val(&future) <= 16 * 1024,
+            "configuration update retains {} bytes across suspension",
+            std::mem::size_of_val(&future),
+        );
+    }
+
     #[tokio::test]
     async fn invalid_logger_filter_does_not_publish_or_change_configuration() {
         let (kiso, _child) = KisoHandle::start(test_config());
@@ -2510,24 +2507,23 @@ mod tests {
             iroha_torii_shared::configuration::LaneProfile::Home,
             iroha_torii_shared::configuration::LaneProfile::Core,
         ] {
-            actor
-                .apply_config_update(ConfigurationUpdate {
-                    logger: LoggerDTO {
-                        level: Level::INFO,
-                        filter: None,
-                    },
-                    network_acl: None,
-                    network: Some(NetworkUpdate {
-                        lane_profile: Some(wire_profile),
-                        require_sm_handshake_match: None,
-                        require_sm_openssl_preview_match: None,
-                    }),
-                    soranet_handshake: None,
-                    transport: None,
-                    compute_pricing: None,
-                })
-                .await
-                .expect("wire profile update must use its runtime limits");
+            Box::pin(actor.apply_config_update(ConfigurationUpdate {
+                logger: LoggerDTO {
+                    level: Level::INFO,
+                    filter: None,
+                },
+                network_acl: None,
+                network: Some(NetworkUpdate {
+                    lane_profile: Some(wire_profile),
+                    require_sm_handshake_match: None,
+                    require_sm_openssl_preview_match: None,
+                }),
+                soranet_handshake: None,
+                transport: None,
+                compute_pricing: None,
+            }))
+            .await
+            .expect("wire profile update must use its runtime limits");
             let expected: iroha_config::parameters::actual::LaneProfile = wire_profile.into();
             let limits = expected.derived_limits();
             let network = &actor.state.network;
@@ -2571,38 +2567,37 @@ mod tests {
             .soranet_handshake
             .descriptor_commit
             .value()
-            .to_vec();
+            .clone();
         let initial_kem_id = actor.state.network.soranet_handshake.kem_id;
         let initial_sig_id = actor.state.network.soranet_handshake.sig_id;
         let replacement_key = checked_public_key();
-        let err = actor
-            .apply_config_update(ConfigurationUpdate {
-                logger: LoggerDTO {
-                    level: Level::DEBUG,
-                    filter: None,
-                },
-                network_acl: Some(NetworkAcl {
-                    allowlist_only: Some(!initial_allowlist_only),
-                    allow_keys: Some(vec![replacement_key]),
-                    deny_keys: None,
-                    allow_cidrs: None,
-                    deny_cidrs: None,
-                }),
-                network: None,
-                soranet_handshake: Some(SoranetHandshakeUpdate {
-                    descriptor_commit_hex: Some("0102".to_string()),
-                    client_capabilities_hex: Some("zz".to_string()),
-                    relay_capabilities_hex: None,
-                    kem_id: Some(initial_kem_id.saturating_add(1)),
-                    sig_id: Some(initial_sig_id.saturating_add(1)),
-                    resume_hash_hex: None,
-                    pow: None,
-                }),
-                transport: None,
-                compute_pricing: None,
-            })
-            .await
-            .expect_err("handshake validation should fail");
+        let err = Box::pin(actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::DEBUG,
+                filter: None,
+            },
+            network_acl: Some(NetworkAcl {
+                allowlist_only: Some(!initial_allowlist_only),
+                allow_keys: Some(vec![replacement_key]),
+                deny_keys: None,
+                allow_cidrs: None,
+                deny_cidrs: None,
+            }),
+            network: None,
+            soranet_handshake: Some(SoranetHandshakeUpdate {
+                descriptor_commit_hex: Some("0102".to_string()),
+                client_capabilities_hex: Some("zz".to_string()),
+                relay_capabilities_hex: None,
+                kem_id: Some(initial_kem_id.saturating_add(1)),
+                sig_id: Some(initial_sig_id.saturating_add(1)),
+                resume_hash_hex: None,
+                pow: None,
+            }),
+            transport: None,
+            compute_pricing: None,
+        }))
+        .await
+        .expect_err("handshake validation should fail");
         assert!(
             matches!(err, Error::Validation(msg) if msg.contains("invalid hex in client_capabilities_hex"))
         );
@@ -2676,33 +2671,32 @@ mod tests {
             .allowed_clients
             .clone();
         let initial_transport_stage = actor.state.torii.transport.norito_rpc.stage;
-        let err = actor
-            .apply_config_update(ConfigurationUpdate {
-                logger: LoggerDTO {
-                    level: Level::WARN,
-                    filter: None,
-                },
-                network_acl: Some(NetworkAcl {
-                    allowlist_only: Some(!initial_allowlist_only),
-                    allow_keys: Some(vec![checked_public_key()]),
-                    deny_keys: None,
-                    allow_cidrs: None,
-                    deny_cidrs: None,
+        let err = Box::pin(actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::WARN,
+                filter: None,
+            },
+            network_acl: Some(NetworkAcl {
+                allowlist_only: Some(!initial_allowlist_only),
+                allow_keys: Some(vec![checked_public_key()]),
+                deny_keys: None,
+                allow_cidrs: None,
+                deny_cidrs: None,
+            }),
+            network: None,
+            soranet_handshake: None,
+            transport: Some(TransportUpdate {
+                norito_rpc: Some(iroha_torii_shared::configuration::NoritoRpcUpdate {
+                    enabled: Some(!initial_transport_enabled),
+                    require_mtls: Some(!initial_transport_require_mtls),
+                    allowed_clients: Some(vec!["canary".to_string()]),
+                    stage: Some("not-a-stage".to_string()),
                 }),
-                network: None,
-                soranet_handshake: None,
-                transport: Some(TransportUpdate {
-                    norito_rpc: Some(iroha_torii_shared::configuration::NoritoRpcUpdate {
-                        enabled: Some(!initial_transport_enabled),
-                        require_mtls: Some(!initial_transport_require_mtls),
-                        allowed_clients: Some(vec!["canary".to_string()]),
-                        stage: Some("not-a-stage".to_string()),
-                    }),
-                }),
-                compute_pricing: None,
-            })
-            .await
-            .expect_err("transport validation should fail");
+            }),
+            compute_pricing: None,
+        }))
+        .await
+        .expect_err("transport validation should fail");
         assert!(
             matches!(err, Error::Validation(msg) if msg.contains("invalid transport.norito_rpc.stage"))
         );
@@ -2763,23 +2757,22 @@ mod tests {
             .expect("default price family present");
         invalid.cycles_per_unit =
             NonZeroU64::new(invalid.cycles_per_unit.get().saturating_mul(2)).expect("non-zero");
-        let err = actor
-            .apply_config_update(ConfigurationUpdate {
-                logger: LoggerDTO {
-                    level: Level::INFO,
-                    filter: None,
-                },
-                network_acl: None,
-                network: None,
-                soranet_handshake: None,
-                transport: None,
-                compute_pricing: Some(ComputePricingUpdate {
-                    price_families: [(family.clone(), invalid)].into_iter().collect(),
-                    default_price_family: None,
-                }),
-            })
-            .await
-            .expect_err("delta beyond bounds should be rejected");
+        let err = Box::pin(actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::INFO,
+                filter: None,
+            },
+            network_acl: None,
+            network: None,
+            soranet_handshake: None,
+            transport: None,
+            compute_pricing: Some(ComputePricingUpdate {
+                price_families: [(family.clone(), invalid)].into_iter().collect(),
+                default_price_family: None,
+            }),
+        }))
+        .await
+        .expect_err("delta beyond bounds should be rejected");
         assert!(matches!(err, Error::Validation(msg) if msg.contains("delta")));
         let mut ok = actor
             .state
@@ -2794,23 +2787,22 @@ mod tests {
                 .saturating_add(ok.cycles_per_unit.get() / 10),
         )
         .expect("non-zero");
-        actor
-            .apply_config_update(ConfigurationUpdate {
-                logger: LoggerDTO {
-                    level: Level::INFO,
-                    filter: None,
-                },
-                network_acl: None,
-                network: None,
-                soranet_handshake: None,
-                transport: None,
-                compute_pricing: Some(ComputePricingUpdate {
-                    price_families: [(family.clone(), ok.clone())].into_iter().collect(),
-                    default_price_family: None,
-                }),
-            })
-            .await
-            .expect("delta within bounds should apply");
+        Box::pin(actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::INFO,
+                filter: None,
+            },
+            network_acl: None,
+            network: None,
+            soranet_handshake: None,
+            transport: None,
+            compute_pricing: Some(ComputePricingUpdate {
+                price_families: [(family.clone(), ok.clone())].into_iter().collect(),
+                default_price_family: None,
+            }),
+        }))
+        .await
+        .expect("delta within bounds should apply");
         assert_eq!(actor.state.compute.price_families.get(&family), Some(&ok));
     }
 }

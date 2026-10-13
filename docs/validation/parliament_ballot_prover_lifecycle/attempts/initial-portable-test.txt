@@ -1,0 +1,138 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-lifecycle
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo test --release --locked -p iroha_parliament_ballot_proof --test prover_lifecycle -- --nocapture --test-threads=1
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.186
+   Compiling typenum v1.20.0
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.4
+   Compiling stable_deref_trait v1.2.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling getrandom v0.4.3
+   Compiling rand_core v0.10.1
+   Compiling writeable v0.6.3
+   Compiling smallvec v1.15.1
+   Compiling litemap v0.8.2
+   Compiling icu_properties_data v2.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.2.0
+   Compiling pkg-config v0.3.33
+   Compiling subtle v2.6.1
+   Compiling thiserror v2.0.18
+   Compiling strsim v0.11.1
+   Compiling serde_core v1.0.228
+   Compiling ident_case v1.0.1
+   Compiling cmov v0.5.3
+   Compiling drop_bomb v0.1.5
+   Compiling zstd-safe v7.2.4
+   Compiling winnow v1.0.3
+   Compiling percent-encoding v2.3.2
+   Compiling zeroize v1.8.2
+   Compiling winnow v0.7.15
+   Compiling norito v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito)
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling arrayref v0.3.9
+   Compiling form_urlencoded v1.2.2
+   Compiling arrayvec v0.7.6
+   Compiling constant_time_eq v0.4.2
+   Compiling byteorder v1.5.0
+   Compiling ctutils v0.4.2
+   Compiling iroha_allocation v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_allocation)
+   Compiling ryu v1.0.23
+   Compiling generic-array v0.14.7
+   Compiling crc64fast v1.1.0
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling hybrid-array v0.4.12
+   Compiling syn v2.0.117
+   Compiling proc-macro-utils v0.10.0
+   Compiling inout v0.2.2
+   Compiling block-buffer v0.12.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling inout v0.1.4
+   Compiling jobserver v0.1.34
+   Compiling cpufeatures v0.2.17
+   Compiling manyhow-macros v0.11.4
+   Compiling digest v0.10.7
+   Compiling cipher v0.4.4
+   Compiling keccak v0.1.6
+   Compiling crypto-common v0.2.2
+   Compiling cc v1.2.62
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling hmac v0.12.1
+   Compiling sha2 v0.10.9
+   Compiling sha3 v0.10.9
+   Compiling hkdf v0.12.4
+   Compiling universal-hash v0.6.1
+   Compiling cipher v0.5.2
+   Compiling aead v0.6.0-rc.10
+   Compiling poly1305 v0.9.0
+   Compiling chacha20 v0.10.2
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling blake3 v1.8.5
+   Compiling chacha20poly1305 v0.11.0-rc.3
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling synstructure v0.13.2
+   Compiling manyhow v0.11.4
+   Compiling darling_core v0.23.0
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.5
+   Compiling thiserror-impl v2.0.18
+   Compiling norito_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/norito_derive)
+   Compiling iroha_derive_primitives v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_derive_primitives)
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling iroha_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_derive)
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.2
+   Compiling zerovec v0.11.6
+   Compiling zerotrie v0.2.4
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+   Compiling iroha_audio v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_audio)
+   Compiling darling_macro v0.23.0
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_collections v2.2.0
+   Compiling darling v0.23.0
+   Compiling icu_locale_core v2.2.0
+   Compiling iroha_schema_derive v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_schema_derive)
+   Compiling icu_provider v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+   Compiling iroha_schema v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_schema)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling zstd v0.13.3
+   Compiling url v2.5.8
+    Finished `release` profile [optimized] target(s) in 15.92s
+     Running tests/prover_lifecycle.rs (target/cargo-fast/parliament-lifecycle/release/deps/prover_lifecycle-43300262da341a55)
+
+running 7 tests
+test cancellation_inside_actual_prove_finishes_discards_and_erases_selected_buffers ... cancel_in_prove row=Candidate role=Registration witness_bytes=4480 computation=proved published=false selected_buffers_erased=true
+cancel_in_prove row=Candidate role=Vote witness_bytes=6688 computation=proved published=false selected_buffers_erased=true
+cancel_in_prove row=Comparator role=Registration witness_bytes=4480 computation=proved published=false selected_buffers_erased=true
+cancel_in_prove row=Comparator role=Vote witness_bytes=6688 computation=proved published=false selected_buffers_erased=true
+ok
+test completed_but_unpublished_proof_can_still_be_cancelled ... ok
+test dropping_inflight_job_joins_and_discards ... ok
+test ordinary_errors_do_not_publish_or_retain_secret_and_tape ... ok
+test ordinary_publication_matches_independent_fixtures_and_cleans_input_owners ... published row=Candidate role=Registration bytes=160148 fixture_equal=true input_owners_erased=true
+published row=Candidate role=Vote bytes=233012 fixture_equal=true input_owners_erased=true
+published row=Comparator role=Registration bytes=109498 fixture_equal=true input_owners_erased=true
+published row=Comparator role=Vote bytes=158074 fixture_equal=true input_owners_erased=true
+ok
+test partial_entropy_fill_failure_erases_actual_owner_allocations ... ok
+test publication_and_cancellation_race_has_one_consistent_winner ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.70s
+

@@ -160,12 +160,22 @@ fn queue_teu_backlog_matches_metering() -> Result<()> {
         ),
     ];
     let expected_teu: u64 = [
-        gas::meter_instructions(&[InstructionBox::from(mint.clone())]),
-        gas::meter_instructions(&[InstructionBox::from(transfer.clone())]),
-        gas::meter_instructions(&[InstructionBox::from(metadata_instruction.clone())]),
+        gas::meter_instructions(
+            &[InstructionBox::from(mint.clone())],
+            &iroha_core::gas::DEFAULT_ZK_GAS,
+        ),
+        gas::meter_instructions(
+            &[InstructionBox::from(transfer.clone())],
+            &iroha_core::gas::DEFAULT_ZK_GAS,
+        ),
+        gas::meter_instructions(
+            &[InstructionBox::from(metadata_instruction.clone())],
+            &iroha_core::gas::DEFAULT_ZK_GAS,
+        ),
     ]
     .into_iter()
-    .sum();
+    .sum::<Result<_, _>>()
+    .expect("scheduler fixture instructions must admit gas metering");
     for tx in txs.clone() {
         if let Err(failure) = queue.push(tx, state.view()) {
             return Err(eyre::eyre!(failure.err.to_string()));

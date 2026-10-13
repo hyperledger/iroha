@@ -21,7 +21,7 @@ fn capsule() -> KagemushaWalletRecoveryCapsuleV1 {
 }
 fn credential(capsule: &KagemushaWalletRecoveryCapsuleV1) -> KagemushaWalletCredentialV1 {
     let original = retained_original(
-        &capsule.retained_inputs,
+        &capsule.body().retained_inputs,
         KagemushaWalletRetainedInputRoleV1::Request,
     )
     .unwrap();
@@ -31,13 +31,13 @@ fn credential(capsule: &KagemushaWalletRecoveryCapsuleV1) -> KagemushaWalletCred
 fn input(capsule: &KagemushaWalletRecoveryCapsuleV1) -> CapsuleFields<'_> {
     CapsuleFields {
         manifest: [7; 32],
-        source: capsule.predecessor_capsule_digest,
-        state: &capsule.successor_state,
-        statement: &capsule.statement,
+        source: capsule.body().predecessor_capsule_digest,
+        state: &capsule.body().successor_state,
+        statement: &capsule.body().statement,
         predecessor: None,
-        payment: capsule.payment_digest,
-        openings: capsule.map_openings.clone(),
-        retained: capsule.retained_inputs.clone(),
+        payment: capsule.body().payment_digest,
+        openings: capsule.body().map_openings.clone(),
+        retained: capsule.body().retained_inputs.clone(),
     }
 }
 #[test]
@@ -46,14 +46,19 @@ fn private_receive_assembly_preserves_all_originals_and_derives_identity_and_out
     let frozen = assemble(
         credential(&original),
         input(&original),
-        original.step_proof.clone(),
+        original.body().step_proof.clone(),
     )
     .unwrap();
-    assert_eq!(frozen.capsule, original);
-    frozen.validate().unwrap();
+    assert_eq!(frozen.body.body(), original.body());
+    frozen
+        .require_matches(&FrozenTransition {
+            credential: credential(&original),
+            capsule: original.clone(),
+        })
+        .unwrap();
     assert_eq!(
-        norito::encode_canonical(&frozen.capsule).unwrap(),
-        norito::encode_canonical(&original).unwrap()
+        norito::encode_canonical(frozen.body.body()).unwrap(),
+        norito::encode_canonical(original.body()).unwrap()
     );
 }
 #[test]
@@ -62,16 +67,16 @@ fn private_assembly_rejects_missing_role_and_wrong_payment_source_or_credential(
     let owner = credential(&original);
     let mut fields = input(&original);
     fields.retained.clear();
-    assert!(assemble(owner, fields, original.step_proof.clone()).is_err());
+    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.payment = [0; 32];
-    assert!(assemble(owner, fields, original.step_proof.clone()).is_err());
+    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.source = [0; 32];
-    assert!(assemble(owner, fields, original.step_proof.clone()).is_err());
+    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
     let mut wrong = owner;
     wrong.body.wallet_id[0] ^= 1;
-    assert!(assemble(wrong, input(&original), original.step_proof.clone()).is_err());
+    assert!(assemble(wrong, input(&original), original.body().step_proof.clone()).is_err());
 }
 #[test]
 fn prepared_native_insertions_retain_exact_low_and_intermediate_empty_openings() {

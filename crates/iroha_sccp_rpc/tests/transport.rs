@@ -4,6 +4,9 @@
 //! public mainnet endpoints (`fixtures/sccp/rpc/transport`) and synthetic
 //! failures. Nothing here touches the network.
 
+#[path = "transport/transaction_proof.rs"]
+mod transaction_proof;
+
 use std::{
     collections::VecDeque,
     fmt::Write as _,
@@ -29,7 +32,6 @@ use iroha_sccp_rpc::{
     evm::{BlockId, BlockTag, EvmCallRequest, EvmClient, U256},
     http::{HttpConfig, HttpTransport, JsonRpcCall, RpcError},
     limits::{JsonLimits, SMALL_RESPONSE_BYTES},
-    tron::TronClient,
 };
 use norito::json::Value;
 
@@ -460,12 +462,59 @@ fn evm(server: &MockServer) -> EvmClient {
     EvmClient::new(transport(&[server], 1).0)
 }
 
-fn beacon(server: &MockServer) -> BeaconClient {
-    BeaconClient::new(transport(&[server], 1).0)
+#[test]
+fn destination_log_discovery_bounds_queries_and_rejects_foreign_or_unpositioned_answers() {
+    let log = norito::json!({
+        "address":(format!("0x{}", "11".repeat(20))),
+        "topics":[(format!("0x{}", "22".repeat(32)))],
+        "data":"0x1234", "blockNumber":"0x10", "logIndex":"0x1",
+        "blockHash":(format!("0x{}", "33".repeat(32))), "removed":false,
+    });
+    let body = norito::json::to_json(&vec![log.clone()]).unwrap();
+    let server = MockServer::start(vec![Reply::rpc_result(&body)]);
+    let client = evm(&server);
+    assert!(
+        client
+            .destination_logs([0x11; 20], 1, 2_049, &[[0x22; 32]])
+            .is_err()
+    );
+    assert!(
+        client
+            .destination_logs([0x11; 20], 2, 1, &[[0x22; 32]])
+            .is_err()
+    );
+    assert!(client.destination_logs([0x11; 20], 1, 16, &[]).is_err());
+    assert_eq!(server.request_count(), 0);
+    let result = client
+        .destination_logs([0x11; 20], 1, 16, &[[0x22; 32]])
+        .unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].block_number, Some(16));
+    for (field, value) in [
+        ("address", Value::from(format!("0x{}", "44".repeat(20)))),
+        ("blockNumber", Value::from("0x11")),
+        ("logIndex", Value::Null),
+        ("blockHash", Value::Null),
+        (
+            "topics",
+            Value::Array(vec![Value::from(format!("0x{}", "55".repeat(32)))]),
+        ),
+    ] {
+        let mut bad = log.clone();
+        bad.as_object_mut().unwrap().insert(field.into(), value);
+        let body = norito::json::to_json(&vec![bad]).unwrap();
+        let server = MockServer::start(vec![Reply::rpc_result(&body)]);
+        assert!(
+            evm(&server)
+                .destination_logs([0x11; 20], 1, 16, &[[0x22; 32]])
+                .is_err(),
+            "{field}"
+        );
+    }
 }
 
-fn tron(server: &MockServer) -> TronClient {
-    TronClient::new(transport(&[server], 1).0)
+fn beacon(server: &MockServer) -> BeaconClient {
+    BeaconClient::new(transport(&[server], 1).0)
 }
 
 fn hex32(text: &str) -> [u8; 32] {
@@ -477,12 +526,6 @@ fn hex32(text: &str) -> [u8; 32] {
 fn hex20(text: &str) -> [u8; 20] {
     let mut out = [0_u8; 20];
     hex::decode_to_slice(text.trim_start_matches("0x"), &mut out).expect("20-byte hex");
-    out
-}
-
-fn hex21(text: &str) -> [u8; 21] {
-    let mut out = [0_u8; 21];
-    hex::decode_to_slice(text, &mut out).expect("21-byte hex");
     out
 }
 
@@ -632,14 +675,18 @@ fn timeouts_and_refused_connections_fail_over() {
 
 #[test]
 fn client_errors_and_json_rpc_errors_are_answers_not_failover() {
-    let a = MockServer::start(vec![recorded("tron/walletsolidity_getcontractinfo_405")]);
+    let a = MockServer::start(vec![Reply::status(
+        405,
+        "text/html",
+        b"<html><body><h1>405 Method Not Allowed</h1></body></html>",
+    )]);
     let b = MockServer::start(Vec::new());
     let (transport, _) = transport(&[&a, &b], 3);
     let error = transport
         .post(
-            "/walletsolidity/getcontractinfo",
+            "/eth/v1/beacon/headers/finalized",
             "application/json",
-            br#"{"value":"41a614f803b6fd780986a42c78ec9c7f77e6ded13c"}"#,
+            br#"{"id":"finalized"}"#,
             "application/json",
         )
         .expect_err("405");
@@ -877,7 +924,10 @@ fn not_found_and_bad_data_rotate_the_next_request() {
     assert_eq!((a.request_count(), b.request_count()), (1, 1));
 
     // Malformed data decoded inside the attempt discredits its endpoint too.
-    let a = MockServer::start(vec![Reply::rpc_result(r#""0x01""#)]);
+    let a = MockServer::start(vec![
+        Reply::rpc_result(r#""0x01""#),
+        recorded("evm/eth_chainId"),
+    ]);
     let b = MockServer::start(vec![recorded("evm/eth_chainId")]);
     let client = EvmClient::new(transport_pair(&a, &b));
     let error = client.chain_id().expect_err("non-canonical quantity");
@@ -889,28 +939,10 @@ fn not_found_and_bad_data_rotate_the_next_request() {
     assert_eq!(client.chain_id().expect("next endpoint"), 1);
     assert_eq!((a.request_count(), b.request_count()), (1, 1));
 
-    // So does a TRON API error; callers whose verification rejects data
-    // rotate explicitly.
-    let a = MockServer::start(vec![
-        recorded("tron/wallet_getblockbynum_api_error"),
-        recorded("tron/wallet_getnowblock"),
-    ]);
-    let b = MockServer::start(vec![recorded("tron/wallet_getnowblock")]);
-    let client = TronClient::new(transport_pair(&a, &b));
-    assert!(matches!(
-        client.block_by_num(1).expect_err("API error"),
-        RpcError::Api { .. }
-    ));
-    assert_eq!(
-        client.now_block().expect("next endpoint").header.number,
-        86_588_679
-    );
+    // Callers whose verification rejects data rotate explicitly.
     assert_eq!(client.transport().endpoints().preferred(), 1);
     client.transport().rotate_preferred();
-    assert_eq!(
-        client.now_block().expect("rotated back").header.number,
-        86_588_679
-    );
+    assert_eq!(client.chain_id().expect("rotated back"), 1);
     assert_eq!((a.request_count(), b.request_count()), (2, 1));
 }
 
@@ -1057,18 +1089,18 @@ fn refused_credentials_fail_over() {
     let forbidden = MockServer::start(vec![Reply::status(
         403,
         "application/json",
-        br#"{"Error":"request rate exceeded, the query server is suspended"}"#,
+        br#"{"message":"request rate exceeded, the query server is suspended"}"#,
     )]);
     let unauthorized = MockServer::start(vec![Reply::status(
         401,
         "application/json",
         br#"{"message":"invalid API key"}"#,
     )]);
-    let answering = MockServer::start(vec![recorded("tron/wallet_getnowblock")]);
-    let (tron_transport, sleeper) = transport(&[&forbidden, &unauthorized, &answering], 1);
-    let client = TronClient::new(tron_transport);
-    let head = client.now_block().expect("third endpoint answers");
-    assert_eq!(head.header.number, 86_588_679);
+    let answering = MockServer::start(vec![recorded("evm/eth_blockNumber")]);
+    let (keyed_transport, sleeper) = transport(&[&forbidden, &unauthorized, &answering], 1);
+    let client = EvmClient::new(keyed_transport);
+    let head = client.block_number().expect("third endpoint answers");
+    assert_eq!(head, 0x18d_af53);
     let order = [&forbidden, &unauthorized, &answering].map(|server| server.requests()[0].sequence);
     assert!(
         order[0] < order[1] && order[1] < order[2],
@@ -1083,8 +1115,8 @@ fn refused_credentials_fail_over() {
         br#"{"message":"forbidden"}"#,
     )]);
     let (lonely, _) = transport(&[&forbidden], 1);
-    let error = TronClient::new(lonely)
-        .now_block()
+    let error = EvmClient::new(lonely)
+        .block_number()
         .expect_err("the only endpoint refuses");
     assert!(
         matches!(
@@ -1111,13 +1143,6 @@ fn success_bodies_that_are_not_json_fail_over() {
     assert_eq!(client.chain_id().expect("second endpoint"), 1);
     assert_eq!((html.request_count(), answering.request_count()), (1, 1));
     assert_eq!(client.transport().endpoints().preferred(), 1);
-
-    let html = MockServer::start(vec![page()]);
-    let answering = MockServer::start(vec![recorded("tron/walletsolidity_getnowblock")]);
-    let client = TronClient::new(transport_pair(&html, &answering));
-    let solid = client.solidity_now_block().expect("second endpoint");
-    assert_eq!(solid.header.number, 86_588_661);
-    assert_eq!((html.request_count(), answering.request_count()), (1, 1));
     assert_eq!(
         answering.requests()[0].header("content-type"),
         Some("application/json")
@@ -1702,235 +1727,422 @@ fn beacon_headers_are_read_as_json() {
     assert_eq!(server.requests()[1].target, "/eth/v1/beacon/headers/42");
 }
 
-// ---------------------------------------------------------------------------
-// TRON HTTP API
-// ---------------------------------------------------------------------------
-
-const USDT: &str = "41a614f803b6fd780986a42c78ec9c7f77e6ded13c";
+fn receipt_visit_fixture() -> (Value, Vec<Value>) {
+    let mut block = fixture_json("evm/eth_getBlockByNumber_hashes")
+        .get("result")
+        .unwrap()
+        .clone();
+    let mut receipts = fixture_json("evm/eth_getBlockReceipts")
+        .get("result")
+        .unwrap()
+        .as_array()
+        .unwrap()[..2]
+        .to_vec();
+    let hashes = receipts
+        .iter()
+        .map(|receipt| receipt.get("transactionHash").unwrap().clone())
+        .collect();
+    let fields = block.as_object_mut().unwrap();
+    fields.insert("transactions".into(), Value::Array(hashes));
+    fields.insert("gasUsed".into(), Value::from("0xa410"));
+    for (index, receipt) in receipts.iter_mut().enumerate() {
+        let fields = receipt.as_object_mut().unwrap();
+        fields.insert(
+            "transactionIndex".into(),
+            Value::from(format!("0x{index:x}")),
+        );
+        fields.insert("gasUsed".into(), Value::from("0x5208"));
+        fields.insert(
+            "cumulativeGasUsed".into(),
+            Value::from(format!("0x{:x}", 21_000 * (index + 1))),
+        );
+    }
+    (block, receipts)
+}
 
 #[test]
-fn tron_blocks_keep_raw_transaction_bytes() {
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_getblockbynum"),
-        recorded("tron/wallet_getblockbynum_missing"),
-        recorded("tron/wallet_getnowblock"),
-        recorded("tron/walletsolidity_getnowblock"),
-    ]);
-    let client = tron(&server);
+fn per_transaction_receipt_visit_does_not_require_the_aggregate_json_to_fit() {
+    let (block, receipts) = receipt_visit_fixture();
+    let encoded: Vec<_> = receipts
+        .iter()
+        .map(|receipt| norito::json::to_json(receipt).unwrap())
+        .collect();
+    let block_json = norito::json::to_json(&block).unwrap();
+    let cap = encoded
+        .iter()
+        .map(String::len)
+        .chain([block_json.len()])
+        .max()
+        .unwrap()
+        + 100;
+    assert!(norito::json::to_vec(&receipts).unwrap().len() > cap);
+    let server = MockServer::start(
+        std::iter::once(Reply::rpc_result(&block_json))
+            .chain(encoded.iter().map(|body| Reply::rpc_result(body)))
+            .collect(),
+    );
+    let endpoints = EndpointSet::parse(&[server.url().as_str()], &[]).unwrap();
+    let client = EvmClient::new(
+        transport_with(
+            endpoints,
+            config(Duration::from_secs(5)).with_max_response_bytes(cap),
+            1,
+        )
+        .0,
+    );
     let block = client
-        .block_by_num(86_588_651)
-        .expect("block")
-        .expect("known block");
-    assert_eq!(block.header.number, 86_588_651);
-    assert_eq!(block.header.version, 37);
-    assert_eq!(block.header.timestamp, 1_790_438_358_000);
-    assert_eq!(block.header.witness_address[0], 0x41);
-    assert_eq!(block.header.witness_signature.len(), 65);
-    assert_eq!(&block.block_id[..8], &86_588_651_u64.to_be_bytes());
-    assert_eq!(block.transactions.len(), 2);
-    let usdt = &block.transactions[1];
-    assert_eq!(
-        usdt.tx_id,
-        hex32("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54")
-    );
-    assert_eq!(usdt.raw_data_hex[0], 0x0a);
-    assert_eq!(usdt.signatures.len(), 1);
-    assert_eq!(usdt.ret.len(), 1);
-    let request = &server.requests()[0];
-    assert_eq!(request.target, "/wallet/getblockbynum");
-    assert_eq!(
-        request.json().get("num").and_then(Value::as_u64),
-        Some(86_588_651)
-    );
-
-    assert_eq!(client.block_by_num(999_999_999).expect("missing"), None);
-    let head = client.now_block().expect("head");
-    assert_eq!(head.header.number, 86_588_679);
-    let solid = client.solidity_now_block().expect("solid head");
-    assert_eq!(solid.header.number, 86_588_661);
-    assert_eq!(server.requests()[3].target, "/walletsolidity/getnowblock");
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    let mut entries = Vec::new();
+    client
+        .visit_block_receipts(&block, |receipt| {
+            entries.push(iroha_sccp_rpc::builders::ethereum::receipt_rlp(receipt));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(|entry| !entry.is_empty()));
+    let requests = server.requests();
+    assert_eq!(requests.len(), 3);
+    for request in &requests[1..] {
+        let request = norito::json::from_slice::<Value>(&request.body).unwrap();
+        assert_eq!(
+            request.get("method").and_then(Value::as_str),
+            Some("eth_getTransactionReceipt")
+        );
+    }
 }
 
 #[test]
-fn tron_block_ranges() {
-    let server = MockServer::start(vec![recorded("tron/wallet_getblockbylimitnext")]);
-    let client = tron(&server);
-    let blocks = client
-        .blocks_by_limit_next(86_588_649, 86_588_651)
-        .expect("range");
-    assert_eq!(
-        blocks
+fn receipt_visit_refuses_missing_reordered_foreign_and_incomplete_block_answers() {
+    for case in 0..5 {
+        let (mut block, mut receipts) = receipt_visit_fixture();
+        match case {
+            0 => receipts[1] = Value::Null,
+            1 => {
+                receipts[1]
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("transactionIndex".into(), Value::from("0x0"));
+            }
+            2 => {
+                receipts[1].as_object_mut().unwrap().insert(
+                    "blockHash".into(),
+                    Value::from(format!("0x{}", "11".repeat(32))),
+                );
+            }
+            3 => {
+                receipts[1]
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("cumulativeGasUsed".into(), Value::from("0xa411"));
+            }
+            _ => {
+                block
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("gasUsed".into(), Value::from("0xa411"));
+            }
+        }
+        let replies = std::iter::once(Reply::rpc_result(&norito::json::to_json(&block).unwrap()))
+            .chain(
+                receipts
+                    .iter()
+                    .map(|receipt| Reply::rpc_result(&norito::json::to_json(receipt).unwrap())),
+            )
+            .collect();
+        let server = MockServer::start(replies);
+        let client = evm(&server);
+        let block = client
+            .block_by_number(BlockTag::Number(0x18d_af08))
+            .unwrap()
+            .unwrap();
+        assert!(
+            client.visit_block_receipts(&block, |_| Ok(())).is_err(),
+            "case {case}"
+        );
+    }
+}
+
+#[test]
+fn receipt_visit_stops_before_the_next_request_on_visitor_refusal() {
+    let (block, receipts) = receipt_visit_fixture();
+    let server = MockServer::start(vec![
+        Reply::rpc_result(&norito::json::to_json(&block).unwrap()),
+        Reply::rpc_result(&norito::json::to_json(&receipts[0]).unwrap()),
+    ]);
+    let client = evm(&server);
+    let block = client
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(client.visit_block_receipts(&block, |_| Err(RpcError::InvalidRequest("original visitor refusal".into()))),Err(RpcError::InvalidRequest(message)) if message=="original visitor refusal")
+    );
+    assert_eq!(server.requests().len(), 2);
+}
+
+fn receipt_proof_block(mut block: Value, receipts: &[Value]) -> Value {
+    let server = MockServer::start(
+        receipts
             .iter()
-            .map(|block| block.header.number)
-            .collect::<Vec<_>>(),
-        vec![86_588_649, 86_588_650]
+            .map(|receipt| Reply::rpc_result(&norito::json::to_json(receipt).unwrap()))
+            .collect(),
     );
-    assert_eq!(blocks[1].header.parent_hash, blocks[0].block_id);
-    let body = server.requests()[0].json();
-    assert_eq!(
-        body.get("startNum").and_then(Value::as_u64),
-        Some(86_588_649)
+    let client = evm(&server);
+    let entries: Vec<_> = receipts
+        .iter()
+        .enumerate()
+        .map(|(index, receipt)| {
+            let hash = hex32(receipt.get("transactionHash").unwrap().as_str().unwrap());
+            let receipt = client.transaction_receipt(&hash).unwrap().unwrap();
+            (
+                iroha_sccp::ethereum_source::rlp_encode_u64(index as u64),
+                iroha_sccp_rpc::builders::ethereum::receipt_rlp(&receipt),
+            )
+        })
+        .collect();
+    let root = iroha_sccp::ethereum_source::mpt_root(&entries).unwrap();
+    block.as_object_mut().unwrap().insert(
+        "receiptsRoot".into(),
+        Value::from(iroha_sccp_rpc::evm::format_data(&root)),
     );
-    assert_eq!(body.get("endNum").and_then(Value::as_u64), Some(86_588_651));
-    assert!(client.blocks_by_limit_next(5, 5).is_err());
-    assert!(client.blocks_by_limit_next(0, 101).is_err());
-    assert_eq!(server.request_count(), 1);
+    block
 }
 
 #[test]
-fn tron_transaction_info_and_contract_code() {
+fn streamed_receipt_proof_authenticates_root_and_rejects_substituted_receipts() {
+    let (block, receipts) = receipt_visit_fixture();
+    let block = receipt_proof_block(block, &receipts);
+    for changed in [false, true] {
+        let mut receipts = receipts.clone();
+        if changed {
+            receipts[1]
+                .as_object_mut()
+                .unwrap()
+                .insert("status".into(), Value::from("0x0"));
+        }
+        let server = MockServer::start(
+            std::iter::once(Reply::rpc_result(&norito::json::to_json(&block).unwrap()))
+                .chain(
+                    receipts
+                        .iter()
+                        .map(|receipt| Reply::rpc_result(&norito::json::to_json(receipt).unwrap())),
+                )
+                .collect(),
+        );
+        let client = evm(&server);
+        let block = client
+            .block_by_number(BlockTag::Number(0x18d_af08))
+            .unwrap()
+            .unwrap();
+        let result = client.block_receipt_proof(&block, 0, 1_048_576);
+        if changed {
+            assert!(result.is_err());
+        } else {
+            let proof = result.unwrap();
+            assert!(!proof.nodes.is_empty());
+            assert!(proof.nodes.iter().map(Vec::len).sum::<usize>() < 1_048_576);
+        }
+    }
+}
+
+#[test]
+fn streamed_receipt_enforces_the_whole_body_and_selected_proof_budgets() {
+    let (block, receipts) = receipt_visit_fixture();
+    let block = receipt_proof_block(block, &receipts);
+    let block_json = norito::json::to_json(&block).unwrap();
+    let cap = block_json.len() + 1_024;
+    let mut padded = receipts[0].clone();
+    padded
+        .as_object_mut()
+        .unwrap()
+        .insert("ignored_padding".into(), Value::from("x".repeat(cap * 2)));
     let server = MockServer::start(vec![
-        recorded("tron/walletsolidity_gettransactioninfobyid"),
-        recorded("tron/walletsolidity_gettransactioninfobyid_missing"),
-        recorded("tron/wallet_getcontractinfo"),
+        Reply::rpc_result(&block_json),
+        // No Content-Length: the streaming reader itself must enforce the bound.
+        Reply::rpc_result(&norito::json::to_json(&padded).unwrap()).close_delimited(),
     ]);
-    let client = tron(&server);
-    let txid = hex32("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54");
-    let info = client
-        .solidity_transaction_info(&txid)
-        .expect("info")
-        .expect("known transaction");
-    assert_eq!(info.id, txid);
-    assert_eq!(info.block_number, 86_588_651);
-    assert_eq!(info.contract_address, Some(hex21(USDT)));
-    assert_eq!(info.logs.len(), 1);
-    assert_eq!(
-        info.logs[0].topics[0],
-        hex32("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
-    );
-    assert_eq!(info.logs[0].data.len(), 32);
-    assert_eq!(info.result, None);
-    assert_eq!(
-        server.requests()[0]
-            .json()
-            .get("value")
-            .and_then(Value::as_str),
-        Some("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54")
-    );
-    assert_eq!(
-        client.solidity_transaction_info(&[0; 32]).expect("missing"),
-        None
-    );
-
-    let contract = client
-        .contract_info(&hex21(USDT))
-        .expect("contract")
-        .expect("deployed");
-    assert_eq!(contract.runtime_code.len(), 14_945);
-    assert!(contract.contract_state.is_some());
-    assert_eq!(server.requests()[2].target, "/wallet/getcontractinfo");
-    assert!(client.contract_info(&[0; 21]).is_err(), "non-TRON address");
-    assert_eq!(server.request_count(), 3);
-}
-
-#[test]
-fn tron_constant_calls_and_reverts() {
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_triggerconstantcontract"),
-        recorded("tron/wallet_triggerconstantcontract_revert"),
-    ]);
-    let client = tron(&server);
-    let owner = hex21(&format!("41{}", "00".repeat(20)));
-    let decimals = client
-        .trigger_constant_contract(&owner, &hex21(USDT), &[0x31, 0x3c, 0xe5, 0x67])
-        .expect("decimals()");
-    assert!(!decimals.reverted());
-    assert_eq!(decimals.constant_result.len(), 1);
-    assert_eq!(decimals.constant_result[0][31], 6);
-    assert_eq!(decimals.energy_used, 2_207);
-    let body = server.requests()[0].json();
-    assert_eq!(body.get("data").and_then(Value::as_str), Some("313ce567"));
-    assert_eq!(
-        body.get("contract_address").and_then(Value::as_str),
-        Some(USDT)
-    );
-
-    let transfer = client
-        .trigger_constant_contract(&owner, &hex21(USDT), &[0xa9, 0x05, 0x9c, 0xbb])
-        .expect("transfer()");
-    assert!(transfer.reverted());
-    assert_eq!(
-        transfer.message.as_deref(),
-        Some(&b"REVERT opcode executed"[..])
-    );
-    assert_eq!(transfer.constant_result, vec![Vec::<u8>::new()]);
-}
-
-#[test]
-fn tron_constant_calls_against_solidified_state() {
-    // The recorded head-state answer is replayed: both routes answer with the
-    // same `TransactionExtention` shape.
-    let server = MockServer::start(vec![recorded("tron/wallet_triggerconstantcontract")]);
-    let client = tron(&server);
-    let owner = format!("41{}", "00".repeat(20));
-    let decimals = client
-        .solidity_trigger_constant_contract(&hex21(&owner), &hex21(USDT), &[0x31, 0x3c, 0xe5, 0x67])
-        .expect("decimals()");
-    assert!(!decimals.reverted());
-    assert_eq!(decimals.constant_result[0][31], 6);
-    let request = &server.requests()[0];
-    assert_eq!(request.method, "POST");
-    assert_eq!(request.target, "/walletsolidity/triggerconstantcontract");
-    let body = request.json();
-    assert_eq!(
-        body.get("owner_address").and_then(Value::as_str),
-        Some(owner.as_str())
-    );
-    assert_eq!(body.get("data").and_then(Value::as_str), Some("313ce567"));
+    let set = EndpointSet::parse(&[&server.url()], &[]).unwrap();
+    let mut cfg = config(Duration::from_secs(5));
+    cfg.max_response_bytes = cap;
+    let (transport, _) = transport_with(set, cfg, 1);
+    let client = EvmClient::new(transport);
+    let block = client
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    let error = client
+        .block_receipt_proof(&block, 0, 1_048_576)
+        .unwrap_err();
     assert!(
-        client
-            .solidity_trigger_constant_contract(&[0; 21], &hex21(USDT), &[])
-            .is_err(),
-        "non-TRON owner"
-    );
-    assert_eq!(server.request_count(), 1, "invalid requests are not sent");
-}
-
-#[test]
-fn tron_broadcasts_and_api_errors() {
-    let txid = "ab".repeat(32);
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_broadcasthex_sigerror"),
-        recorded("tron/wallet_broadcasthex_parse_error"),
-        Reply::json(&format!(
-            r#"{{"result":true,"code":"SUCCESS","message":"","txid":"{txid}"}}"#
-        )),
-        recorded("tron/wallet_getblockbynum_api_error"),
-    ]);
-    let client = tron(&server);
-    let rejected = client
-        .broadcast_hex(&[0x0a, 0x01, 0x00])
-        .expect("rejection");
-    assert!(!rejected.result);
-    assert_eq!(rejected.code.as_deref(), Some("SIGERROR"));
-    assert_eq!(
-        rejected.message.as_deref(),
-        Some("Validate signature error: miss sig or contract")
-    );
-    assert_eq!(
-        rejected.txid,
-        Some(hex32(
-            "949d86e53d6a03f8d09ef021c8bedbcd9b881c0d1dc37f4d5fbb6eaff4ebe9d9"
-        ))
-    );
-    let error = client.broadcast_hex(&[0x0a, 0x02]).expect_err("unparsable");
-    assert!(
-        matches!(&error, RpcError::Api { message, .. } if message.contains("InvalidProtocolBufferException")),
+        matches!(error.last_failure(), RpcError::ResponseTooLarge { limit, .. } if *limit == cap),
         "{error:?}"
     );
-    let accepted = client.broadcast_hex(&[0x0a, 0x01, 0x00]).expect("accepted");
-    assert!(accepted.result);
-    assert_eq!(accepted.message, None);
-    assert_eq!(accepted.txid, Some([0xab; 32]));
-    assert_eq!(
-        server.requests()[2]
-            .json()
-            .get("transaction")
-            .and_then(Value::as_str),
-        Some("0a0100")
+    assert_eq!(server.request_count(), 2);
+
+    let server = MockServer::start(vec![
+        Reply::rpc_result(&block_json),
+        Reply::rpc_result(&norito::json::to_json(&receipts[0]).unwrap()),
+    ]);
+    let client = evm(&server);
+    let block = client
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    let error = client.block_receipt_proof(&block, 0, 256).unwrap_err();
+    assert!(
+        matches!(error.last_failure(), RpcError::InvalidResponse { .. }),
+        "{error:?}"
     );
-    let error = client.block_by_num(1).expect_err("API error");
-    assert!(matches!(error, RpcError::Api { .. }), "{error:?}");
-    assert!(client.broadcast_hex(&[]).is_err());
-    assert_eq!(server.request_count(), 4);
+    // The selected receipt cannot fit its proof: never fetch unrelated receipts.
+    assert_eq!(server.request_count(), 2);
+}
+
+#[test]
+fn streamed_receipt_slow_body_preserves_the_total_attempt_deadline() {
+    let (block, receipts) = receipt_visit_fixture();
+    let block = receipt_proof_block(block, &receipts);
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":2,"result":{}}}"#,
+        norito::json::to_json(&receipts[0]).unwrap()
+    )
+    .into_bytes();
+    let server = MockServer::start(vec![
+        Reply::rpc_result(&norito::json::to_json(&block).unwrap()),
+        Reply::Drip {
+            body,
+            interval: Duration::from_millis(20),
+        },
+    ]);
+    let set = EndpointSet::parse(&[&server.url()], &[]).unwrap();
+    let (transport, _) = transport_with(set, config(Duration::from_millis(500)), 1);
+    let client = EvmClient::new(transport);
+    let block = client
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    let started = Instant::now();
+    let error = client
+        .block_receipt_proof(&block, 0, 1_048_576)
+        .unwrap_err();
+    assert!(
+        matches!(error.last_failure(), RpcError::Timeout { .. }),
+        "{error:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(3));
+    assert_eq!(server.request_count(), 2);
+}
+
+#[test]
+fn unrelated_receipt_above_the_old_route_cap_retains_only_its_leaf_hash() {
+    let (mut block, mut receipts) = receipt_visit_fixture();
+    let data_bytes = 9 * 1024 * 1024;
+    let fields = receipts[1].as_object_mut().unwrap();
+    let mut log = fields.get("logs").unwrap().as_array().unwrap()[0].clone();
+    log.as_object_mut().unwrap().insert(
+        "data".into(),
+        Value::from(format!("0x{}", "aa".repeat(data_bytes))),
+    );
+    fields.insert("logs".into(), Value::Array(vec![log]));
+    let gas = 21_000 + 375 + u64::try_from(data_bytes).unwrap() * 8;
+    fields.insert("gasUsed".into(), Value::from(format!("0x{gas:x}")));
+    fields.insert(
+        "cumulativeGasUsed".into(),
+        Value::from(format!("0x{:x}", gas + 21_000)),
+    );
+    block.as_object_mut().unwrap().insert(
+        "gasUsed".into(),
+        Value::from(format!("0x{:x}", gas + 21_000)),
+    );
+    block.as_object_mut().unwrap().insert(
+        "gasLimit".into(),
+        Value::from(format!("0x{:x}", gas + 21_000)),
+    );
+    // Independent consensus receipt codec supplies the oracle; no streaming parser is
+    // used to manufacture its own expected root.
+    let entries: Vec<_> = receipts
+        .iter()
+        .enumerate()
+        .map(|(index, receipt)| {
+            let status = receipt.get("status").and_then(Value::as_str).unwrap() == "0x1";
+            let cumulative = iroha_sccp_rpc::evm::parse_quantity_u64(
+                receipt.get("cumulativeGasUsed").unwrap().as_str().unwrap(),
+            )
+            .unwrap();
+            let logs = receipt
+                .get("logs")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|log| iroha_sccp::ethereum_source::EthereumLogV1 {
+                    address: hex20(log.get("address").unwrap().as_str().unwrap()),
+                    topics: log
+                        .get("topics")
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|topic| hex32(topic.as_str().unwrap()))
+                        .collect(),
+                    data: iroha_sccp_rpc::evm::parse_data(
+                        log.get("data").unwrap().as_str().unwrap(),
+                    )
+                    .unwrap(),
+                })
+                .collect();
+            let bloom = iroha_sccp_rpc::evm::parse_data_array::<256>(
+                receipt.get("logsBloom").unwrap().as_str().unwrap(),
+            )
+            .unwrap();
+            let tx_type = u8::try_from(
+                iroha_sccp_rpc::evm::parse_quantity_u64(
+                    receipt.get("type").unwrap().as_str().unwrap(),
+                )
+                .unwrap(),
+            )
+            .expect("fixture receipt type fits one byte");
+            let bytes = iroha_sccp::ethereum_source::encode_receipt(
+                &iroha_sccp::ethereum_source::EthereumReceiptV1 {
+                    tx_type,
+                    success: status,
+                    cumulative_gas_used: cumulative,
+                    logs,
+                },
+                &bloom,
+            );
+            (
+                iroha_sccp::ethereum_source::rlp_encode_u64(index as u64),
+                bytes,
+            )
+        })
+        .collect();
+    let root = iroha_sccp::ethereum_source::mpt_root(&entries).unwrap();
+    block.as_object_mut().unwrap().insert(
+        "receiptsRoot".into(),
+        Value::from(iroha_sccp_rpc::evm::format_data(&root)),
+    );
+    let large = norito::json::to_json(&receipts[1]).unwrap();
+    assert!(large.len() > iroha_sccp_rpc::limits::EVM_RECEIPT_RESPONSE_BYTES);
+    let server = MockServer::start(vec![
+        Reply::rpc_result(&norito::json::to_json(&block).unwrap()),
+        Reply::rpc_result(&norito::json::to_json(&receipts[0]).unwrap()),
+        Reply::rpc_result(&large),
+    ]);
+    let client = evm(&server);
+    let block = client
+        .block_by_number(BlockTag::Number(0x18d_af08))
+        .unwrap()
+        .unwrap();
+    let proof = client.block_receipt_proof(&block, 0, 1_048_576).unwrap();
+    assert_eq!(
+        Some(proof.clone()),
+        iroha_sccp::ethereum_source::mpt_proof(
+            &entries,
+            &iroha_sccp::ethereum_source::rlp_encode_u64(0)
+        )
+    );
+    assert!(proof.nodes.iter().map(Vec::len).sum::<usize>() < 1_048_576);
 }

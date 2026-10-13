@@ -52,7 +52,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .finality_epochs
             .get(&mut self.archive, &epoch_key(epoch))?
             .ok_or(Error::WitnessLost("selected finality epoch index"))?;
-        archive::decode(&bytes).map_err(|_| Error::WitnessLost("selected finality epoch entry"))
+        archive::decode(&bytes)
     }
 
     /// Read only an epoch already selected by the protected manifest. The epoch argument
@@ -94,8 +94,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             let bytes = self
                 .archive
                 .read_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
-            SumeragiCommitCheckpointV1::decode_canonical(&bytes)
-                .map_err(|_| Error::WitnessLost("selected finality epoch original"))?
+            SumeragiCommitCheckpointV1::decode_canonical(&bytes).map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::WitnessLost("selected finality epoch original"),
+                )
+            })?
         };
         if checkpoint.selected_epoch().authorization.epoch != epoch {
             return Err(Error::WitnessLost("selected finality epoch identity"));
@@ -128,28 +132,42 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if !matches!(self.status()?, SlotStatus::Released(_)) {
             return Err(Error::NoHead);
         }
-        let certificate = SumeragiCommitCertificateV1::decode_canonical(bytes)
-            .map_err(|_| Error::Invalid("epoch certificate canonical original"))?;
+        let certificate =
+            SumeragiCommitCertificateV1::decode_canonical(bytes).map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Invalid("epoch certificate canonical original"),
+                )
+            })?;
         let (root, mut manifest) = self.sync_manifest()?;
         let current = manifest
             .finality_epoch
             .unwrap_or(genesis.initial_epoch().authorization.epoch);
         let (mut reader, incumbent) =
             self.selected_commit_epoch(&manifest, genesis, expected_epoch)?;
-        if certificate
-            .epoch_id()
-            .map_err(|_| Error::Invalid("epoch certificate selector"))?
-            != expected_epoch
-            || certificate
-                .height()
-                .map_err(|_| Error::Invalid("epoch certificate height"))?
-                != incumbent.selected_epoch().authorization.last_height
+        if certificate.epoch_id().map_err(|error| {
+            crate::kagemusha_wallet_state_v1::finality_read_error(
+                error,
+                Error::Invalid("epoch certificate selector"),
+            )
+        })? != expected_epoch
+            || certificate.height().map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Invalid("epoch certificate height"),
+                )
+            })? != incumbent.selected_epoch().authorization.last_height
         {
             return Err(Error::Proof("epoch boundary incumbent or height"));
         }
         let checkpoint = reader
             .verify_epoch_boundary(&certificate)
-            .map_err(|_| Error::Proof("epoch boundary certificate"))?;
+            .map_err(|error| {
+                crate::kagemusha_wallet_state_v1::finality_read_error(
+                    error,
+                    Error::Proof("epoch boundary certificate"),
+                )
+            })?;
         let next = expected_epoch
             .checked_add(1)
             .ok_or(Error::Proof("epoch number overflow"))?;

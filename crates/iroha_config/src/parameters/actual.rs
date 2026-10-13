@@ -79,6 +79,8 @@ use std::{
 };
 #[path = "actual_soranet_handshake_debug.rs"]
 mod actual_soranet_handshake_debug;
+mod amx_relay;
+pub use amx_relay::{AmxRelay, AmxRelayRoute};
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
     KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
@@ -96,10 +98,10 @@ use norito::{
     streaming::EntropyMode,
 };
 pub use sccp::{
-    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpAttestor,
-    SccpEndpointError, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode,
-    SccpSecretHeader, SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers,
-    derived_bridge_key_dir, parse_sccp_http_endpoint, parse_sccp_secret_header_name,
+    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpEndpointError,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers, derived_keeper_key_dir,
+    parse_sccp_http_endpoint, parse_sccp_secret_header_name,
 };
 pub use sorafs_reputation::{
     SorafsReputationFinalizedArchiveRetentionAuthority, SorafsReputationRuntime,
@@ -137,6 +139,8 @@ pub struct Root<G = Genesis> {
     pub soracloud_runtime: SoracloudRuntime,
     /// Non-secret local custody root for the injected private Musubi publisher.
     pub musubi_publication: MusubiPublication,
+    /// Supervised native AMX delivery with explicit signing and fee custody.
+    pub amx_relay: AmxRelay,
     /// Block storage (Kura) configuration.
     pub kura: Kura,
     /// Consensus (Sumeragi) configuration.
@@ -197,7 +201,7 @@ pub struct Root<G = Genesis> {
     pub settlement: Settlement,
     /// Streaming configuration (control-plane key material).
     pub streaming: Streaming,
-    /// Node-local SCCP attestor and light-client keeper.
+    /// Node-local SCCP keeper and its light-client duty.
     pub sccp: SccpNode,
     /// Node data directory, when the configuration uses the fixed `data_dir` layout.
     pub data_dir: Option<DataDir>,
@@ -1011,6 +1015,7 @@ impl<G> Root<G> {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,
@@ -1053,6 +1058,7 @@ impl<G> Root<G> {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,
@@ -2255,7 +2261,9 @@ pub struct Network {
     pub low_priority_burst: Option<std::num::NonZeroU32>,
     /// Optional per-peer Low-priority bytes budget (bytes/sec). When None, disabled.
     pub low_priority_bytes_per_sec: Option<std::num::NonZeroU32>,
-    /// Optional burst in bytes for Low-priority bytes token bucket.
+    /// Optional burst in complete canonical plaintext-frame bytes.
+    /// When omitted, P2P uses the larger of one second's rate and the largest eligible
+    /// Low-priority topic frame. An explicit burst smaller than that frame is invalid.
     pub low_priority_bytes_burst: Option<std::num::NonZeroU32>,
     /// Optional: Only allow connections (outbound/inbound) to peers whose public keys are explicitly listed.
     pub allowlist_only: bool,
@@ -2662,9 +2670,16 @@ impl_default!(ParliamentTleKeyLifecycle => {
 /// Governance configuration (actual layer).
 #[derive(Debug, Clone)]
 pub struct Governance {
-    /// Optional default verifying key for ZK ballots (backend + name).
+    /// Unused default verifying key for ZK ballots: always `None` on a node.
+    ///
+    /// Each election commits its own ballot key and validation reads only
+    /// that; the node schema has no key for this field.
+    // TODO(F.4): delete this field and `vk_tally` together with their terms of
+    // `execution_policy_digest_v1` and of the State governance projection.
+    // Removing the terms changes the certified State root, so it belongs to the
+    // declared cutover that regenerates the pinned first-release history.
     pub vk_ballot: Option<VerifyingKeyRef>,
-    /// Optional default verifying key for ZK tallies (backend + name).
+    /// Unused default verifying key for ZK tallies: always `None` on a node.
     pub vk_tally: Option<VerifyingKeyRef>,
     /// Asset definition used to denominate governance bonds and voting locks.
     pub voting_asset_id: AssetDefinitionId,
@@ -2734,7 +2749,9 @@ pub struct Governance {
     pub min_turnout: u128,
     /// Alternates retained for each attempt-local Parliament body draw.
     pub parliament_alternate_size: usize,
-    /// Exact future-beacon delay frozen into Parliament sortition requests.
+    /// Minimum future-beacon delay frozen into Parliament attempts. A sortition request targets
+    /// the first consensus-native `NPoS` pulse height at or after its request height plus this
+    /// delay.
     pub parliament_sortition_pulse_delay_blocks: u64,
     /// Consensus block-height span for immutable Parliament invitation responses.
     pub parliament_invitation_phase_blocks: u64,
@@ -4316,6 +4333,13 @@ fn execution_policy_canonical_set<'a, T: Encode + 'a>(
 /// host time.
 #[must_use]
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+// The pipeline execution limits hashed here are the committed `pipeline_validity_policy_v1`
+// parameter or its protocol default; pipeline fee fields are also a validated
+// committed projection (State passes its effective settings).
+// TODO(F.4): the other fields are still read from node configuration ([crypto], [gov], oracle, content, settlement router and the Nexus policy digest).
+// Move each family into a typed committed parameter, as `zk_validity_policy_v1` and
+// `pipeline_validity_policy_v1` did (census entries `cfg.*` of
+// specs/zk_runtime_validity_census.json), then remove this digest from genesis metadata.
 pub fn execution_policy_digest_v1(
     pipeline: &Pipeline,
     oracle: &Oracle,
@@ -4530,33 +4554,9 @@ pub fn execution_policy_digest_v1(
         "oracle.twitter_binding.min_update_spacing_ms",
         &twitter.min_update_spacing_ms,
     );
-    // Fraud transport and timeout settings only obtain assessments. Consensus binds the
-    // deterministic metadata gate, its grace semantics, and the attester trust set.
-    policy.push("fraud.enabled", &fraud_monitoring.enabled);
-    policy.push(
-        "fraud.required_minimum_band",
-        &fraud_monitoring
-            .required_minimum_band
-            .map(|band| match band {
-                FraudRiskBand::Low => 1_u8,
-                FraudRiskBand::Medium => 2,
-                FraudRiskBand::High => 3,
-                FraudRiskBand::Critical => 4,
-            }),
-    );
-    policy.push(
-        "fraud.missing_assessment_permitted",
-        &(!fraud_monitoring.missing_assessment_grace.is_zero()),
-    );
-    let fraud_attesters = fraud_monitoring
-        .attesters
-        .iter()
-        .map(|attester| (attester.engine_id.clone(), attester.public_key.clone()))
-        .collect::<Vec<_>>();
-    policy.push(
-        "fraud.attesters",
-        &execution_policy_canonical_set(fraud_attesters.iter()),
-    );
+    // The exact validated Model policy is the sole fraud encoding. Endpoints and
+    // request deadlines never enter this commitment.
+    policy.push("fraud.policy", &fraud_monitoring.policy);
     // Governance fields that drive admission, tallying, slashing, on-chain policy and triggers.
     policy.push(
         "governance.vk_ballot",
@@ -5029,7 +5029,10 @@ pub struct GovernanceModule {
     /// Additional parameters defined by the module.
     pub params: BTreeMap<String, String>,
 }
-/// Confidential asset and verifier configuration.
+/// Node-local confidential settings.
+///
+/// Confidential proof limits, windows, registry caps and the verification gas
+/// schedule are chain policy and are not held here.
 #[derive(Debug, Clone)]
 pub struct Confidential {
     /// Enables confidential asset features for this node.
@@ -5038,46 +5041,8 @@ pub struct Confidential {
     pub assume_valid: bool,
     /// Preferred verifier backend identifier.
     pub verifier_backend: String,
-    /// Maximum proof size accepted from a single confidential operation.
-    pub max_proof_size_bytes: u32,
-    /// Maximum number of nullifiers per transaction.
-    pub max_nullifiers_per_tx: u32,
-    /// Maximum number of commitments per transaction.
-    pub max_commitments_per_tx: u32,
-    /// Maximum confidential operations per block.
-    pub max_confidential_ops_per_block: u32,
-    /// Verifier timeout.
+    /// Local wall-clock budget of one verification attempt.
     pub verify_timeout: Duration,
-    /// Maximum anchor age in blocks.
-    pub max_anchor_age_blocks: u64,
-    /// Aggregate proof bytes allowed per block.
-    pub max_proof_bytes_block: u64,
-    /// Maximum verification calls per transaction.
-    pub max_verify_calls_per_tx: u32,
-    /// Maximum verification calls per block.
-    pub max_verify_calls_per_block: u32,
-    /// Maximum public inputs per proof.
-    pub max_public_inputs: u32,
-    /// Configured reorg depth bound.
-    pub reorg_depth_bound: u64,
-    /// Minimum delay between policy change request and activation.
-    pub policy_transition_delay_blocks: u64,
-    /// Grace window around policy activation.
-    pub policy_transition_window_blocks: u64,
-    /// Maximum confidential-policy transitions that may share one effective height.
-    pub policy_transition_max_per_height: NonZeroU32,
-    /// Non-zero commitment tree root history length.
-    pub tree_roots_history_len: NonZeroUsize,
-    /// Frontier checkpoint interval.
-    pub tree_frontier_checkpoint_interval: u64,
-    /// Maximum verifier entries allowed in registry.
-    pub registry_max_vk_entries: u32,
-    /// Maximum parameter entries allowed in registry.
-    pub registry_max_params_entries: u32,
-    /// Maximum registry mutations per block.
-    pub registry_max_delta_per_block: u32,
-    /// Gas schedule applied to confidential proof verification.
-    pub gas: ConfidentialGas,
 }
 /// Confidential verification gas schedule parameters.
 #[derive(Debug, Clone, Copy)]
@@ -5685,7 +5650,7 @@ pub struct Pipeline {
     pub overlay_max_bytes: u64,
     /// Execute overlay instructions in chunks of this size (at least 1).
     pub overlay_chunk_instructions: usize,
-    /// Gas fees configuration.
+    /// Committed pipeline fee projection; node configuration cannot set it.
     pub gas: Gas,
     /// Mandatory admission-time ceiling for `ProgramMetadata.max_cycles`.
     pub ivm_max_cycles_upper_bound: NonZeroU64,
@@ -5738,11 +5703,7 @@ impl_default!(Pipeline => {
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
             overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
             overlay_chunk_instructions: defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS,
-            gas: Gas {
-                tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_owned(),
-                accepted_assets: Vec::new(),
-                units_per_gas: Vec::new(),
-            },
+            gas: Gas::default(),
             ivm_max_cycles_upper_bound: defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND,
             ivm_max_decoded_instructions: defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS,
             ivm_max_decoded_bytes: defaults::pipeline::IVM_MAX_DECODED_BYTES,
@@ -6448,8 +6409,8 @@ pub enum QueryCursorMode {
     /// Store a cursor in the LiveQueryStore and allow continuation.
     Stored,
 }
-/// Gas fees configuration: accepted assets, conversion mapping, and tech account.
-#[derive(Debug, Clone)]
+/// Committed gas fee projection: accepted assets, conversion mapping, and receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gas {
     /// System-owned technical account that receives gas fee transfers.
     pub tech_account_id: String,
@@ -6458,6 +6419,15 @@ pub struct Gas {
     /// Deterministic conversion mapping (asset minimal units per one gas unit).
     #[allow(clippy::struct_field_names)]
     pub units_per_gas: Vec<GasRate>,
+}
+impl Default for Gas {
+    fn default() -> Self {
+        Self {
+            tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_owned(),
+            accepted_assets: Vec::new(),
+            units_per_gas: Vec::new(),
+        }
+    }
 }
 /// Governance-defined liquidity tiers for gas settlement routes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -6504,7 +6474,7 @@ impl FromStr for GasVolatility {
     }
 }
 /// Deterministic gas conversion entry mapping an accepted asset to units per gas.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GasRate {
     /// Asset ID string
     pub asset: String,
@@ -7219,6 +7189,8 @@ pub struct Torii {
     pub query_fanout_max_retained_bytes: Bytes,
     /// Maximum complete working set for one query, independent of aggregate capacity.
     pub query_fanout_max_working_set_bytes: Bytes,
+    /// Bytes retained by this node's authenticated SCCP history-node cache.
+    pub sccp_history_cache_max_bytes: Bytes,
     /// Absolute deadline for one admitted App routed-read body.
     pub app_api_routed_read_body_read_timeout: Duration,
     /// Maximum time a query waits for execution capacity before Torii rejects it.
@@ -7433,6 +7405,10 @@ impl fmt::Debug for Torii {
             .field(
                 "query_fanout_max_working_set_bytes",
                 &self.query_fanout_max_working_set_bytes,
+            )
+            .field(
+                "sccp_history_cache_max_bytes",
+                &self.sccp_history_cache_max_bytes,
             )
             .field("require_api_token", &self.require_api_token)
             .field("api_tokens", &self.api_tokens)
@@ -10668,10 +10644,6 @@ pub struct Sccp {
     pub max_native_header_bytes_per_transaction: NonZeroU64,
     /// Maximum framed native-finality header bytes committed in one block.
     pub max_native_header_bytes_per_block: NonZeroU64,
-    /// Maximum secp256k1 recoveries in one transaction.
-    pub max_secp256k1_recoveries_per_transaction: NonZeroU32,
-    /// Maximum secp256k1 recoveries committed in one block.
-    pub max_secp256k1_recoveries_per_block: NonZeroU32,
     /// Maximum Ed25519 signature checks in one transaction.
     pub max_ed25519_signature_checks_per_transaction: NonZeroU32,
     /// Maximum Ed25519 signature checks committed in one block.
@@ -10701,10 +10673,6 @@ impl_default!(Sccp => {
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION,
             max_native_header_bytes_per_block:
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK,
-            max_secp256k1_recoveries_per_transaction:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION,
-            max_secp256k1_recoveries_per_block:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK,
             max_ed25519_signature_checks_per_transaction:
                 defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION,
             max_ed25519_signature_checks_per_block:
@@ -11163,105 +11131,27 @@ pub struct Norito {
     /// Maximum allowed Norito archive length in bytes (0 = unlimited).
     pub max_archive_len: u64,
 }
-/// Severity bands reported by the fraud-monitoring service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FraudRiskBand {
-    /// Lowest severity rating produced by the external assessor.
-    Low,
-    /// Medium severity rating indicating elevated but tolerable risk.
-    Medium,
-    /// High severity rating signalling transactions that should be halted.
-    High,
-    /// Critical severity threshold reserved for outright blocking decisions.
-    Critical,
-}
-impl FraudRiskBand {
-    /// Return the canonical lowercase string representation expected by config files.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Critical => "critical",
-        }
-    }
-}
-impl core::fmt::Display for FraudRiskBand {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-impl core::str::FromStr for FraudRiskBand {
-    type Err = ();
-    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
-        match s {
-            "low" => Ok(Self::Low),
-            "medium" => Ok(Self::Medium),
-            "high" => Ok(Self::High),
-            "critical" => Ok(Self::Critical),
-            _ => Err(()),
-        }
-    }
-}
-impl From<super::user::FraudRiskBand> for FraudRiskBand {
-    fn from(value: super::user::FraudRiskBand) -> Self {
-        match value {
-            super::user::FraudRiskBand::Low => Self::Low,
-            super::user::FraudRiskBand::Medium => Self::Medium,
-            super::user::FraudRiskBand::High => Self::High,
-            super::user::FraudRiskBand::Critical => Self::Critical,
-        }
-    }
-}
-/// Registered assessment attester (engine id + public key).
-#[derive(Debug, Clone)]
-pub struct FraudAttester {
-    /// Deterministic identifier of the scoring engine / attester.
-    pub engine_id: String,
-    /// Public key used to verify assessment signatures.
-    pub public_key: PublicKey,
-}
-impl FraudAttester {
-    /// Create a trimmed engine identifier for metrics/logging.
-    #[must_use]
-    pub fn engine_label(&self) -> &str {
-        let trimmed = self.engine_id.trim();
-        if trimmed.is_empty() {
-            "unknown"
-        } else {
-            trimmed
-        }
-    }
-}
-/// Strongly typed fraud-monitoring configuration used by the host.
+/// Effective admission projection plus local assessment transport.
+///
+/// The node constructor supplies transport only. Core rebuilds semantic fields
+/// exclusively from the validated committed parameter of each predecessor.
 #[derive(Debug, Clone)]
 pub struct FraudMonitoring {
-    /// Master switch controlling whether fraud assessments gate admission.
-    pub enabled: bool,
-    /// Ordered list of HTTP endpoints queried for fraud assessments.
+    /// Exact validated Model policy supplied by committed State; never parsed from node configuration.
+    pub policy: iroha_data_model::fraud::FraudAdmissionPolicyV1,
+    /// Ordered local HTTP endpoints for obtaining assessment material.
     pub service_endpoints: Vec<Url>,
-    /// Timeout applied to the initial TCP connection attempt.
+    /// Local initial connection deadline.
     pub connect_timeout: Duration,
-    /// Timeout applied to the full HTTP request, including body transfer.
+    /// Local full request deadline.
     pub request_timeout: Duration,
-    /// Grace period after which missing assessments trigger warnings or fallback.
-    pub missing_assessment_grace: Duration,
-    /// Minimum severity band required for admission; `None` disables gating.
-    pub required_minimum_band: Option<FraudRiskBand>,
-    /// Registered assessment attesters whose signatures must validate assessments.
-    pub attesters: Vec<FraudAttester>,
 }
 impl FraudMonitoring {
-    #[allow(clippy::too_many_arguments)]
-    /// Construct a [`FraudMonitoring`] instance from validated user parameters.
+    /// Construct local transport settings; committed State supplies admission rules.
     pub fn new(
-        enabled: bool,
         service_endpoints: Vec<Url>,
         connect_timeout: Duration,
         request_timeout: Duration,
-        missing_assessment_grace_secs: u64,
-        required_minimum_band: Option<FraudRiskBand>,
-        attesters: Vec<FraudAttester>,
     ) -> Self {
         let mut deduped = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -11281,57 +11171,22 @@ impl FraudMonitoring {
         } else {
             request_timeout
         };
-        let missing_assessment_grace = Duration::from_secs(missing_assessment_grace_secs);
-        let mut attesters: Vec<FraudAttester> = attesters
-            .into_iter()
-            .filter_map(|mut attester| {
-                let trimmed = attester.engine_id.trim();
-                if trimmed.is_empty() {
-                    return None;
-                }
-                let mut normalized = trimmed.to_ascii_lowercase();
-                if normalized.is_empty() {
-                    normalized = trimmed.to_string();
-                }
-                attester.engine_id = normalized;
-                Some(attester)
-            })
-            .collect();
-        attesters.sort_by(|a, b| a.engine_id.cmp(&b.engine_id));
-        attesters.dedup_by(|a, b| a.engine_id == b.engine_id);
+
         Self {
-            enabled,
             service_endpoints: deduped,
             connect_timeout,
             request_timeout,
-            missing_assessment_grace,
-            required_minimum_band,
-            attesters,
+            ..Self::default()
         }
-    }
-    /// Return the registered attester for the provided engine identifier.
-    #[must_use]
-    pub fn attester(&self, engine_id: &str) -> Option<&FraudAttester> {
-        let key = engine_id.trim();
-        if key.is_empty() {
-            return None;
-        }
-        self.attesters
-            .iter()
-            .find(|attester| attester.engine_id == key)
     }
 }
+
 impl_default!(FraudMonitoring => {
         Self {
-            enabled: defaults::fraud_monitoring::ENABLED,
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default(),
             service_endpoints: Vec::new(),
             connect_timeout: defaults::fraud_monitoring::CONNECT_TIMEOUT,
             request_timeout: defaults::fraud_monitoring::REQUEST_TIMEOUT,
-            missing_assessment_grace: Duration::from_secs(
-                defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-            ),
-            required_minimum_band: None,
-            attesters: Vec::new(),
         }
 });
 include!("actual/tests.rs");

@@ -35,6 +35,7 @@ pub struct PublicationRwLockWriteGuard<'lock, T> {
 
 impl<T> PublicationRwLock<T> {
     /// Observe this lock's actual release without acquiring a guard or allocating.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn observe_release(&self) -> ReleaseWait {
         self.released.observe()
     }
@@ -99,6 +100,10 @@ impl<T> PublicationRwLock<T> {
     }
 
     /// Acquire a reader or retain its exact physical source observed before probing.
+    ///
+    /// # Errors
+    /// Returns the original pre-probe release observation when shared access
+    /// cannot be acquired immediately.
     pub fn try_read_or_wait(&self) -> Result<PublicationRwLockReadGuard<'_, T>, ReleaseWait> {
         let wait = self.released.observe();
         self.try_read().ok_or(wait)
@@ -125,6 +130,10 @@ impl<T> PublicationRwLock<T> {
     ///
     /// Release every earlier aggregate guard before awaiting this event. A wake
     /// requires retrying acquisition and authenticating the original operation.
+    ///
+    /// # Errors
+    /// Returns the original pre-probe release observation when exclusive access
+    /// cannot be acquired immediately.
     pub fn try_write_or_wait(&self) -> Result<PublicationRwLockWriteGuard<'_, T>, ReleaseWait> {
         let wait = self.released.observe();
         self.try_write().ok_or(wait)
@@ -146,6 +155,10 @@ impl<T> PublicationRwLockReadGuard<'_, T> {
 
     /// Unlock into a batch of this exact source without invoking callbacks.
     /// A foreign batch returns this same held reader without any release.
+    ///
+    /// # Errors
+    /// Returns this unchanged, still-held reader if `batch` belongs to another
+    /// physical release source.
     pub fn try_release_into(self, batch: &mut DeferredReleaseBatch) -> Result<(), Self> {
         self.inner
             .try_release_into(batch, drop)
@@ -162,6 +175,10 @@ impl<T> PublicationRwLockWriteGuard<'_, T> {
 
     /// Unlock into a batch of this exact source without invoking callbacks.
     /// A foreign batch returns this same held writer without any release.
+    ///
+    /// # Errors
+    /// Returns this unchanged, still-held writer if `batch` belongs to another
+    /// physical release source.
     pub fn try_release_into(self, batch: &mut DeferredReleaseBatch) -> Result<(), Self> {
         self.inner
             .try_release_into(batch, drop)

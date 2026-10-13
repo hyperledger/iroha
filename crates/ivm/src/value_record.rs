@@ -98,7 +98,7 @@ pub enum EntrypointReturnDecodeError {
     /// Local resource admission could not complete return collection.
     ///
     /// This is an unfinished local attempt, not malformed guest data. The
-    /// original refusal retains its allocation pool and release observation.
+    /// original cause and any existing allocation-pool observation are retained.
     #[error("contract return collection deferred at word {word_index}: {reason}")]
     ExecutionDeferred {
         /// Result-table word whose access could not be admitted locally.
@@ -314,11 +314,7 @@ fn decode_canonical<T>(
 where
     T: for<'__frame> norito::NoritoDeserialize<'__frame> + norito::NoritoSerialize,
 {
-    decode_canonical_norito(payload).map_err(|error| EntrypointReturnDecodeError::InvalidValue {
-        word_index,
-        kind,
-        reason: error.to_string(),
-    })
+    decode_canonical_norito(payload).map_err(|error| handle_decode_error(word_index, kind, error))
 }
 fn expected_pointer_type(kind: EntrypointValueKindV1) -> Option<PointerType> {
     Some(match kind {
@@ -434,7 +430,7 @@ fn handle_decode_error(
             word_index,
             reason: error,
         }
-    } else if error == crate::VMError::PrivacyViolation {
+    } else if matches!(error, crate::VMError::PrivacyViolation) {
         EntrypointReturnDecodeError::Privacy {
             word_index,
             reason: error,
@@ -1650,8 +1646,12 @@ pub fn decode_entrypoint_return_record(
         });
     }
     let record: EntrypointReturnRecordV1 = decode_canonical_norito(payload).map_err(|error| {
-        EntrypointReturnDecodeError::RecordEncoding {
-            reason: error.to_string(),
+        if error.execution_deferral().is_some() {
+            handle_decode_error(0, "canonical return record", error)
+        } else {
+            EntrypointReturnDecodeError::RecordEncoding {
+                reason: error.to_string(),
+            }
         }
     })?;
     if exact_record_bytes(&record, MAX_ENTRYPOINT_RETURN_RECORD_BYTES)?.as_slice() != payload {
@@ -2963,6 +2963,60 @@ mod tests {
         assert!(matches!(
             encode_entrypoint_return_record(&vm, &schema),
             Err(EntrypointReturnDecodeError::InvalidValue { kind: "Result", .. })
+        ));
+    }
+
+    #[test]
+    fn canonical_return_reads_retain_decoder_owner_through_nested_projection() {
+        let schema = leaf(EntrypointValueKindV1::Bool);
+        let record = EntrypointReturnRecordV1 {
+            schema_hash: schema_hash(&schema).unwrap(),
+            atoms: vec![EntrypointValueAtomV1::Bool(true)],
+        };
+        let bytes = norito::encode_canonical(&record).unwrap();
+        let text = "same original scalar".to_owned();
+        let text_bytes = norito::encode_canonical(&text).unwrap();
+        let limit =
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let record_error = norito::core::with_decode_limits_scope(limit, || {
+            decode_entrypoint_return_record(&schema, &bytes)
+        })
+        .unwrap_err();
+        let scalar_error = norito::core::with_decode_limits_scope(limit, || {
+            decode_canonical::<String>(&text_bytes, 7, "String")
+        })
+        .unwrap_err();
+        for (error, expected_word) in [(record_error, 0), (scalar_error, 7)] {
+            let EntrypointReturnDecodeError::ExecutionDeferred { word_index, reason } = &error
+            else {
+                panic!("return reader must not stringify an unfinished attempt");
+            };
+            assert_eq!(*word_index, expected_word);
+            let crate::VMError::DecodeDeferred(original) = reason else {
+                panic!("retain the actual opaque decoder owner");
+            };
+            let retained = original.clone();
+            norito::core::with_decode_limits_scope(limit, || {
+                assert!(
+                    matches!(error.into_nested_vm_error(), crate::VMError::DecodeDeferred(__actual_error_field) if __actual_error_field == (retained))
+                );
+            });
+        }
+        assert_eq!(
+            decode_entrypoint_return_record(&schema, &bytes).unwrap(),
+            record
+        );
+        assert_eq!(
+            decode_canonical::<String>(&text_bytes, 7, "String").unwrap(),
+            text
+        );
+        assert!(matches!(
+            decode_entrypoint_return_record(&schema, &bytes[..7]),
+            Err(EntrypointReturnDecodeError::RecordEncoding { .. })
+        ));
+        assert!(matches!(
+            decode_canonical::<String>(&text_bytes[..7], 7, "String"),
+            Err(EntrypointReturnDecodeError::InvalidValue { word_index: 7, .. })
         ));
     }
 }

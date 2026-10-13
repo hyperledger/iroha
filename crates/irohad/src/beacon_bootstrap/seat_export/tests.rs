@@ -54,9 +54,11 @@ fn prepared_seat_export_admits_every_frame_before_extraction_and_preserves_canon
     let occupied = budget
         .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
         .unwrap();
+    let mut components = Some(components);
     owner
-        .accept(components)
-        .unwrap_or_else(|(_, error)| panic!("accept failed: {error}"));
+        .accept(&mut components)
+        .unwrap_or_else(|error| panic!("accept failed: {error}"));
+    assert!(components.is_none());
     owner.publish(&directory).unwrap();
     assert!(owner.complete());
     assert_eq!(owner.outputs.public.as_slice().as_ptr(), pointer);
@@ -93,8 +95,9 @@ fn prepared_seat_export_admits_every_frame_before_extraction_and_preserves_canon
 
 #[test]
 fn actual_partial_file_refusal_retries_original_descriptor_offset_and_exact_prefix() {
-    let (_temporary, directory) = private_directory();
     use rustix::fs::{Mode, OFlags};
+
+    let (_temporary, directory) = private_directory();
     let file = File::from(
         rustix::fs::openat(
             &directory.file,
@@ -173,9 +176,11 @@ fn export_refuses_replaced_completed_name_without_reopening_or_overwriting_it() 
     let (public, components) = source(&budget);
     let (_temporary, directory) = private_directory();
     let mut owner = PreparedSeatExport::new(&directory, &public, 1, HANDLE, 7, &budget).unwrap();
+    let mut components = Some(components);
     owner
-        .accept(components)
-        .unwrap_or_else(|(_, error)| panic!("accept failed: {error}"));
+        .accept(&mut components)
+        .unwrap_or_else(|error| panic!("accept failed: {error}"));
+    assert!(components.is_none());
     encode_global_beacon_partial_signer_credential_v1(
         &mut owner.outputs.credential,
         owner
@@ -239,9 +244,11 @@ fn pending_export_failure_retains_private_source_and_original_pool_until_explici
     let floor = budget.reserved_bytes();
     assert!(components.belongs_to(&budget));
     let mut owner = PreparedSeatExport::new(&directory, &public, 1, HANDLE, 7, &budget).unwrap();
+    let mut components = Some(components);
     owner
-        .accept(components)
-        .unwrap_or_else(|(_, error)| panic!("accept failed: {error}"));
+        .accept(&mut components)
+        .unwrap_or_else(|error| panic!("accept failed: {error}"));
+    assert!(components.is_none());
     let ciphertext = owner
         .source
         .as_ref()
@@ -307,9 +314,11 @@ fn export_preparation_refusal_keeps_original_directory_and_rejects_foreign_publi
     assert_eq!(directory.file.metadata().unwrap().ino(), original_inode);
     drop(occupied);
     let mut owner = PreparedSeatExport::new(&directory, &public, 1, HANDLE, 7, &budget).unwrap();
+    let mut components = Some(components);
     owner
-        .accept(components)
-        .unwrap_or_else(|(_, error)| panic!("original private source: {error}"));
+        .accept(&mut components)
+        .unwrap_or_else(|error| panic!("original private source: {error}"));
+    assert!(components.is_none());
     assert!(matches!(owner.publish(&foreign), Err(ExportError::Custody)));
     assert!(owner.files.iter().all(|file| file.descriptor.is_none()));
     assert!(matches!(
@@ -457,10 +466,11 @@ fn restore_rejects_equal_named_replacement_during_actual_sync_without_losing_ori
 fn final_export_rejects_foreign_provider_handle_or_revision_without_consuming_original_aggregate_owner()
  {
     let budget = super::super::test_credential_budget();
-    let (public, mut source) = source(&budget);
+    let (public, source) = source(&budget);
     let (_temporary, directory) = private_directory();
     let ciphertext = source.encrypted_checkpoint().to_vec();
     let pointer = source.encrypted_checkpoint().as_ptr();
+    let mut source = Some(source);
     for (handle, revision) in [
         ("software://iroha/consensus-threshold/foreign-export", 7),
         (HANDLE, 8),
@@ -468,24 +478,22 @@ fn final_export_rejects_foreign_provider_handle_or_revision_without_consuming_or
         let mut foreign =
             PreparedSeatExport::new(&directory, &public, 1, handle, revision, &budget).unwrap();
         let retained = budget.reserved_bytes();
-        let (returned, error) = match foreign.accept(source) {
-            Err(failure) => failure,
-            Ok(()) => panic!("foreign output provider cannot adopt original aggregate authority"),
-        };
-        source = returned;
+        let error = foreign.accept(&mut source).unwrap_err();
+        let retained_source = source.as_ref().expect("refusal retains original owner");
         assert!(matches!(error, ExportError::Phase));
         assert!(foreign.source.is_none());
         assert!(foreign.files.iter().all(|file| file.descriptor.is_none()));
-        assert!(source.belongs_to(&budget));
-        assert!(source.authenticated_session().ptr_eq(&public));
-        assert_eq!(source.encrypted_checkpoint().as_ptr(), pointer);
-        assert_eq!(source.encrypted_checkpoint(), ciphertext);
+        assert!(retained_source.belongs_to(&budget));
+        assert!(retained_source.authenticated_session().ptr_eq(&public));
+        assert_eq!(retained_source.encrypted_checkpoint().as_ptr(), pointer);
+        assert_eq!(retained_source.encrypted_checkpoint(), ciphertext);
         assert_eq!(budget.reserved_bytes(), retained);
     }
     let mut original = PreparedSeatExport::new(&directory, &public, 1, HANDLE, 7, &budget).unwrap();
     original
-        .accept(source)
-        .unwrap_or_else(|(_, error)| panic!("same original provider: {error}"));
+        .accept(&mut source)
+        .unwrap_or_else(|error| panic!("same original provider: {error}"));
+    assert!(source.is_none());
     original.publish(&directory).unwrap();
     assert!(original.complete());
     drop(original);

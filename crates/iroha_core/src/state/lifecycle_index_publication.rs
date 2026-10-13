@@ -6,6 +6,7 @@ use crate::publication_rwlock::DeferredPublicationRwLock;
 /// Retains original index releases outside the calling operation's physical fences.
 /// Short read/write guards unlock normally; their notifications stay in this owner.
 pub(super) struct LaneLifecycleReleases<'state> {
+    pub(super) geometry: crate::kura::KuraPublicationReleases,
     pub(super) hashes: Option<iroha_allocation::release::DeferredReleaseBatch>,
     pub(super) membership: iroha_allocation::release::DeferredReleaseBatch,
     pub(super) world: view_acquisition::WorldReadReleases,
@@ -22,12 +23,13 @@ pub(super) struct LaneLifecycleReleases<'state> {
     pub(super) shard_cursors: DeferredPublicationRwLock<'state, DaShardCursorIndex>,
     pub(super) pin_intents: DeferredPublicationRwLock<'state, DaPinStore>,
     pub(super) hydrated:
-        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationError>>>,
+        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationFailure>>>,
 }
 
 impl<'state> LaneLifecycleReleases<'state> {
     pub(super) fn new(state: &'state State) -> Self {
         Self {
+            geometry: crate::kura::KuraPublicationReleases::new(&state.kura),
             hashes: state.block_hashes.reader_release_batch(),
             membership: state.transactions.reader_release_batch(),
             world: view_acquisition::WorldReadReleases::new(&state.world),
@@ -84,7 +86,8 @@ pub(super) fn panic_after_manifest_write_for_test() {
 
 #[cfg(test)]
 pub(super) fn after_manifest_write_for_test() {
-    if PANIC_AFTER_MANIFEST_WRITE.with(|flag| flag.replace(false)) {
-        panic!("injected panic after original manifest write");
-    }
+    assert!(
+        !PANIC_AFTER_MANIFEST_WRITE.with(|flag| flag.replace(false)),
+        "injected panic after original manifest write"
+    );
 }

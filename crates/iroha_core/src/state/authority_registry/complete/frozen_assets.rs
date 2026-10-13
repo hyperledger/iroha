@@ -58,8 +58,10 @@ impl<'frozen> Original<'frozen> {
         let holders_owned = holders.belongs_to(&fields.state_ref.world.asset_definition_holders);
         let nonzero_owned =
             nonzero.belongs_to(&fields.state_ref.world.asset_definition_nonzero_holders);
-        if !homes.belongs_to(&fields.state_ref.world.asset_definition_direct_homes)
-            || !incarnations.belongs_to(&fields.state_ref.world.axt_asset_incarnations)
+        let original_homes = &fields.state_ref.world.asset_definition_direct_homes;
+        let original_incarnations = &fields.state_ref.world.axt_asset_incarnations;
+        if !homes.belongs_to(original_homes)
+            || !incarnations.belongs_to(original_incarnations)
             || rows.mode() != homes.mode()
             || rows.mode() != incarnations.mode()
             || !rows_owned
@@ -148,7 +150,7 @@ mod direct_home_admission_tests {
     #[test]
     fn same_frozen_original_retries_after_original_pool_admission_refusal() {
         let _pin = crossbeam_epoch::pin();
-        let mut world = *fixture::fixture(false);
+        let mut world = fixture::fixture(false);
         let id = fixture::definition("coin");
         world
             .set_asset_definition_dataspace_for_testing(id.clone(), DataSpaceId::new(7))
@@ -170,8 +172,8 @@ mod direct_home_admission_tests {
             max_tables: 1,
             max_rows: 64,
             max_payload_bytes: 65536,
-            max_ordered_table_bytes: 131072,
-            max_streamed_value_bytes: 131072,
+            max_ordered_table_bytes: 131_072,
+            max_streamed_value_bytes: 131_072,
         };
         pool.set_limit_bytes(0);
         // Direct-home rows need no extra backing; the leaf encoder refuses the empty pool.

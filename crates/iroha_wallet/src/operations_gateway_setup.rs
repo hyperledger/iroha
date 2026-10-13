@@ -157,9 +157,10 @@ pub(super) fn instructions(
     plan.instructions(config)
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct GatewaySetupExpectation<'a>(pub(super) &'a InitialGatewaySetupRequest);
 impl GatewaySetupExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::InitialGatewaySetup { plan, terms } = record.operation else {
             eyre::bail!("setup journal differs from selected setup purpose");
         };

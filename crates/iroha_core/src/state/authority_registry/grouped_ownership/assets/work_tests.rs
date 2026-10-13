@@ -409,7 +409,7 @@ pub(super) fn publish(world: &World, source: usize) {
         6 => world.asset_definition_holders.block().commit(),
         7 => world.asset_definition_nonzero_holders.block().commit(),
         _ => unreachable!(),
-    };
+    }
 }
 
 #[test]

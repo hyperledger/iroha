@@ -70,8 +70,8 @@ use crate::{
 };
 
 /// Default ceiling on one response body (64 MiB). Each route has a smaller
-/// cap of its own ([`crate::limits`]); the ceiling bounds the routes without
-/// one: a full `eth_getBlockReceipts` and a 100-block TRON segment.
+/// cap of its own ([`crate::limits`]); the ceiling also bounds incremental receipt
+/// decoding and routes without a smaller cap, such as `eth_getBlockReceipts`.
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 /// Most calls accepted in one JSON-RPC batch.
 pub const MAX_JSON_RPC_BATCH: usize = 100;
@@ -241,13 +241,6 @@ pub enum RpcError {
         /// The error object, as an [`RpcError::JsonRpc`].
         error: Box<RpcError>,
     },
-    /// An HTTP API reported an error in a success response (TRON `{"Error": …}`).
-    Api {
-        /// Endpoint origin.
-        endpoint: String,
-        /// Sanitized error message.
-        message: String,
-    },
     /// Every attempt of every round failed with a failover error.
     Exhausted {
         /// Each failed attempt, in order.
@@ -291,17 +284,14 @@ impl RpcError {
 
     /// Whether this answer is a reason to start the next request at another
     /// endpoint: a non-failover HTTP status (404 included), a JSON-RPC error
-    /// object, a TRON API error, or a malformed response. The answer itself is
-    /// still returned; only the preferred endpoint moves on. Errors raised
-    /// before anything was sent and failover errors discredit nobody.
+    /// object or a malformed response. The answer itself is still returned;
+    /// only the preferred endpoint moves on. Errors raised before anything was
+    /// sent and failover errors discredit nobody.
     pub fn discredits_endpoint(&self) -> bool {
         !self.is_failover()
             && matches!(
                 self,
-                Self::Status { .. }
-                    | Self::JsonRpc { .. }
-                    | Self::Api { .. }
-                    | Self::InvalidResponse { .. }
+                Self::Status { .. } | Self::JsonRpc { .. } | Self::InvalidResponse { .. }
             )
     }
 
@@ -374,9 +364,6 @@ impl fmt::Display for RpcError {
             } => write!(formatter, "{endpoint}: JSON-RPC error {code}: {message}"),
             Self::BatchRejected { error } => {
                 write!(formatter, "JSON-RPC batch rejected: {error}")
-            }
-            Self::Api { endpoint, message } => {
-                write!(formatter, "{endpoint}: API error: {message}")
             }
             Self::Exhausted { failures } => {
                 write!(
@@ -651,12 +638,10 @@ impl HttpTransport {
 
     /// Moves the next request to the endpoint after the one that answered
     /// last, for callers whose verification (`iroha_sccp`, or admission on
-    /// Taira) rejected that endpoint's data. The builders' `rotate_endpoints`
-    /// calls it, and the keeper does so after a build that failed on the data
-    /// it was served.
-    // TODO(WP9): the keeper does not observe on-chain rejections of its
-    // submitted advances, and the wallet and CLI do not rotate after a local
-    // verification failure yet.
+    /// Taira) rejected that endpoint's data. The keeper's original finite admission
+    /// and the wallet/CLI's bounded `builders::build_verified` retry use typed source
+    /// rejections. A local refusal, changed state/profile or generic commit rejection
+    /// does not establish that another endpoint should be selected.
     pub fn rotate_preferred(&self) {
         self.endpoints.rotate_preferred();
     }
@@ -735,32 +720,6 @@ impl HttpTransport {
         self.execute_then(&spec, |response| decode(response.json()?))
     }
 
-    /// `POST path` with a JSON body; parses the answer and passes it with the
-    /// answering endpoint's origin to `decode`, both inside the attempt (see
-    /// [`Self::get_json_then`]).
-    ///
-    /// # Errors
-    /// Any [`RpcError`], including those of `decode`.
-    pub fn post_json_then<T>(
-        &self,
-        path: &str,
-        body: &Value,
-        decode: impl Fn(&str, Value) -> Result<T, RpcError>,
-    ) -> Result<T, RpcError> {
-        let bytes = encode_json(body)?;
-        let spec = RequestSpec {
-            method: Method::POST,
-            path,
-            accept: MEDIA_TYPE_JSON,
-            body: Some((MEDIA_TYPE_JSON, &bytes)),
-            cap: http_response_cap(path),
-        };
-        self.execute_then(&spec, |response| {
-            let value = response.json()?;
-            decode(&response.endpoint, value)
-        })
-    }
-
     /// One JSON-RPC 2.0 call against the endpoint URL itself; returns `result`
     /// (which may be `null`).
     ///
@@ -797,6 +756,63 @@ impl HttpTransport {
                     Some(id),
                     &response.endpoint,
                 )?)
+            },
+        )
+    }
+
+    /// Decode an EVM receipt or raw transaction under the whole-response ceiling.
+    /// The streaming decoder owns its finite scratch/output bounds. Route-wide Value
+    /// limits do not apply because no JSON tree is materialized.
+    pub(crate) fn evm_stream<T>(
+        &self,
+        method: &str,
+        hash: &[u8; 32],
+        decode: impl Fn(&mut dyn io::Read, u64, &str, usize) -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let body = encode_json(&json_rpc_request(
+            id,
+            method,
+            vec![Value::from(crate::evm::format_data(hash))],
+        ))?;
+        let spec = json_rpc_spec(&body, None);
+        run_with_failover(
+            &self.endpoints,
+            &self.policy,
+            self.sleeper.as_ref(),
+            self.budget.deadline(),
+            |endpoint| {
+                let cap = self.config.max_response_bytes;
+                let (response, _, _, deadline) = self.send_open(endpoint, &spec)?;
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > cap as u64)
+                {
+                    return Err(RpcError::ResponseTooLarge {
+                        endpoint: endpoint.origin().to_owned(),
+                        limit: cap,
+                    });
+                }
+                let mut input = ReceiptRead {
+                    response,
+                    remaining: cap,
+                    deadline,
+                    refusal: None,
+                };
+                let result = decode(&mut input, id, endpoint.origin(), cap);
+                if let Some(refusal) = input.refusal {
+                    return Err(match refusal {
+                        BodyReadFailure::TooLarge => RpcError::ResponseTooLarge {
+                            endpoint: endpoint.origin().to_owned(),
+                            limit: cap,
+                        },
+                        BodyReadFailure::Deadline => RpcError::Timeout {
+                            endpoint: endpoint.origin().to_owned(),
+                        },
+                        BodyReadFailure::Io(error) => read_error(endpoint.origin(), error),
+                    });
+                }
+                result
             },
         )
     }
@@ -882,6 +898,22 @@ impl HttpTransport {
         spec: &RequestSpec<'_>,
         cap: usize,
     ) -> Result<HttpResponse, RpcError> {
+        let (response, status, content_type, deadline) = self.send_open(endpoint, spec)?;
+        let origin = endpoint.origin();
+        let body = read_body(response, cap, origin, deadline)?;
+        Ok(HttpResponse {
+            endpoint: origin.to_owned(),
+            status,
+            content_type,
+            body,
+            cap,
+        })
+    }
+    fn send_open(
+        &self,
+        endpoint: &Endpoint,
+        spec: &RequestSpec<'_>,
+    ) -> Result<(Response, u16, Option<String>, Instant), RpcError> {
         let origin = endpoint.origin();
         let started = Instant::now();
         let deadline =
@@ -928,14 +960,46 @@ impl HttpTransport {
                 message: body.and_then(|body| error_message(content_type.as_deref(), &body)),
             });
         }
-        let body = read_body(response, cap, origin, deadline)?;
-        Ok(HttpResponse {
-            endpoint: origin.to_owned(),
-            status,
-            content_type,
-            body,
-            cap,
-        })
+        Ok((response, status, content_type, deadline))
+    }
+}
+
+struct ReceiptRead {
+    response: Response,
+    remaining: usize,
+    deadline: Instant,
+    refusal: Option<BodyReadFailure>,
+}
+impl io::Read for ReceiptRead {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if Instant::now() >= self.deadline {
+            self.refusal = Some(BodyReadFailure::Deadline);
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "receipt response deadline",
+            ));
+        }
+        let maximum = buffer.len().min(self.remaining.saturating_add(1));
+        match self.response.read(&mut buffer[..maximum]) {
+            Ok(count) if count <= self.remaining => {
+                self.remaining -= count;
+                Ok(count)
+            }
+            Ok(_) => {
+                self.refusal = Some(BodyReadFailure::TooLarge);
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "receipt response byte limit",
+                ))
+            }
+            Err(error) => {
+                self.refusal = Some(BodyReadFailure::Io(error));
+                Err(io::Error::other("receipt response read failed"))
+            }
+        }
     }
 }
 
@@ -984,7 +1048,7 @@ pub(crate) fn encode_json(value: &Value) -> Result<Vec<u8>, RpcError> {
 
 /// Decodes one JSON-RPC response object answering request `expected_id`
 /// (`None` for an object answering a whole batch, which must be an error).
-fn decode_json_rpc_response(
+pub(crate) fn decode_json_rpc_response(
     value: Value,
     expected_id: Option<u64>,
     endpoint: &str,
@@ -1249,22 +1313,18 @@ fn media_type_of(content_type: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Extracts a message from an error body: `message`, `error` or `Error`
-/// members of a JSON object, or a `text/plain` body.
+/// Extracts a message from an error body: the `message` or `error` member of
+/// a JSON object, or a `text/plain` body.
 fn error_message(content_type: Option<&str>, body: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(body).ok()?;
     if let Ok(Value::Object(map)) = parse_json(body, JsonLimits::for_cap(ERROR_BODY_LIMIT)) {
-        let message = map
-            .get("message")
-            .and_then(Value::as_str)
-            .or_else(|| map.get("Error").and_then(Value::as_str))
-            .or_else(|| {
-                map.get("error").and_then(|error| {
-                    error
-                        .as_str()
-                        .or_else(|| error.get("message").and_then(Value::as_str))
-                })
-            })?;
+        let message = map.get("message").and_then(Value::as_str).or_else(|| {
+            map.get("error").and_then(|error| {
+                error
+                    .as_str()
+                    .or_else(|| error.get("message").and_then(Value::as_str))
+            })
+        })?;
         return Some(sanitize_message(message));
     }
     let is_plain = content_type.is_some_and(|value| media_type_of(value) == "text/plain");
@@ -1549,13 +1609,6 @@ mod tests {
             }
             .is_failover()
         );
-        assert!(
-            !RpcError::Api {
-                endpoint: "e".to_owned(),
-                message: "x".to_owned(),
-            }
-            .is_failover()
-        );
         // Bodies over their cap or decode limits fail over.
         assert!(
             RpcError::ResponseTooLarge {
@@ -1599,10 +1652,6 @@ mod tests {
             json_rpc(-32000),
             json_rpc(3),
             invalid_response("bad hex"),
-            RpcError::Api {
-                endpoint: "e".to_owned(),
-                message: "x".to_owned(),
-            },
         ] {
             assert!(discrediting.discredits_endpoint(), "{discrediting:?}");
         }
@@ -1758,10 +1807,8 @@ mod tests {
             ),
             Some("LC bootstrap unavailable".to_owned())
         );
-        assert_eq!(
-            error_message(None, br#"{"Error":"class x : y"}"#),
-            Some("class x : y".to_owned())
-        );
+        // The `Error` member of the removed TRON HTTP API is not read.
+        assert_eq!(error_message(None, br#"{"Error":"class x : y"}"#), None);
         assert_eq!(
             error_message(None, br#"{"error":{"code":-1,"message":"m"}}"#),
             Some("m".to_owned())

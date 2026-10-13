@@ -127,7 +127,7 @@ fn archived_tail_fixture() -> (
                 stake_account: validator.clone(),
                 total_stake: total,
                 self_stake,
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 status: PublicLaneValidatorStatus::Active,
                 activation_height: 1,
                 election_exit_height: None,
@@ -143,7 +143,7 @@ fn archived_tail_fixture() -> (
                     staker,
                     bonded,
                     pending_unbonds: BTreeMap::new(),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                 },
             );
         }
@@ -220,18 +220,21 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         timestamp,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         chain.height() + 1,
         None,
     )
     .expect("unbond has separate fee funding and an exact signed admission quote");
     drop(view);
-    let signed = builder
+    let signed_payload = builder
         .with_fee_payment_intent(quote.recommended_intent)
         .sign(signer.private_key());
     assert_eq!(
-        chain.commit_at(timestamp, vec![signed]),
+        chain.commit_at(timestamp, vec![signed_payload]),
         vec![true],
         "signed unbond must apply before the archived exposure changes: {:?}",
         chain.committed(chain.height()).block().network_output_at(0)

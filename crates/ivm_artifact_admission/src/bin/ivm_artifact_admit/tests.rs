@@ -29,7 +29,10 @@ fn arguments_require_one_input_and_one_output_without_retired_options() {
             out: "manifest.json".into(),
         })
     );
-    assert_eq!(parse_args(["--help".into()]), Ok(None));
+    assert_eq!(
+        (parse_args(["--help".into()])).expect("expected successful fixture result"),
+        None
+    );
     for args in [
         vec![],
         vec!["--code-file"],
@@ -97,7 +100,7 @@ fn full_artifact_bound_includes_the_fixed_header() {
     while artifact.len() + halt.len() <= maximum {
         artifact.extend_from_slice(&halt);
     }
-    assert!(artifact.len() > MAX_CONTRACT_IMAGE_BYTES as usize);
+    assert!(artifact.len() > usize::try_from(MAX_CONTRACT_IMAGE_BYTES).unwrap());
     assert!(maximum - artifact.len() < halt.len());
     let expected = norito::json::to_json_pretty(
         &verify_contract_artifact(&artifact)

@@ -473,10 +473,16 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
                 let (cycles, gas, trace): (u64, u64, Vec<u64>) = completed.take().unwrap();
                 let budget =
                     ivm::VmCycleBudget::new(core::num::NonZeroU64::new(cycles - 1).unwrap());
-                assert_eq!(
-                    vm.run_with_host_and_cycle_budget(&mut host, &budget),
-                    Err(ivm::VMError::ExceededMaxCycles)
-                );
+                assert!(matches!(
+                    (
+                        &(vm.run_with_host_and_cycle_budget(&mut host, &budget)),
+                        &(ivm::VMError::ExceededMaxCycles)
+                    ),
+                    (
+                        Err(ivm::VMError::ExceededMaxCycles),
+                        ivm::VMError::ExceededMaxCycles
+                    )
+                ));
                 assert_eq!(vm.get_cycle_count(), cycles - 1);
                 assert_eq!(budget.consumed(), cycles - 1);
                 assert!(budget.exhausted());
@@ -497,8 +503,14 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
                 return (cycles, gas, refused_gas);
             }
             vm.run_with_host(&mut host).unwrap();
-            assert_eq!(vm.call_result_word_count(), Ok(1));
-            assert_eq!(vm.public_call_result_word(0), Ok(0));
+            assert_eq!(
+                (vm.call_result_word_count()).expect("completed fixture operation"),
+                1
+            );
+            assert_eq!(
+                (vm.public_call_result_word(0)).expect("completed fixture operation"),
+                0
+            );
             completed = Some((
                 vm.get_cycle_count(),
                 GAS - vm.remaining_gas(),
@@ -514,12 +526,16 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
         let mut segment_cycles = Vec::new();
         let mut segment_gas = Vec::new();
         let mut successful_batch_gas = None;
-        let authored_gas = isi_gas::meter_instructions(&[SetKeyValue::account(
-            ALICE_ID.clone(),
-            "effect_authored".parse().unwrap(),
-            Json::new(true),
+        let authored_gas = isi_gas::meter_instructions(
+            &[SetKeyValue::account(
+                ALICE_ID.clone(),
+                "effect_authored".parse().unwrap(),
+                Json::new(true),
+            )
+            .into()],
+            &crate::gas::DEFAULT_ZK_GAS,
         )
-        .into()]);
+        .expect("gas quote must complete for this fixture");
         assert!(authored_gas > 0);
         let mut refused_return_gas = None;
         for case in 0..5 {

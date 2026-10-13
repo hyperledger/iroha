@@ -27,9 +27,9 @@ pub(super) fn payment(bytes: &[u8]) -> Result<IncomingOriginalV1, Error> {
     if bytes.is_empty() || bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Authority);
     }
-    let payment: KagemushaWalletPaymentV1 =
+    let payment: KagemushaWalletPaymentV1 = read_original(|| {
         norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
-            .map_err(|_| Error::Authority)?;
+    })?;
     // The fixed Send carrier has no package-version or absent-lineage tape.
     // Reject an unrepresentable outer shape instead of silently normalizing it.
     if payment.send.version != KAGEMUSHA_WALLET_VERSION_V1
@@ -71,7 +71,7 @@ pub(super) fn payment(bytes: &[u8]) -> Result<IncomingOriginalV1, Error> {
         successor: payment.send.statement.successor,
         statement_digest,
         proof_digest,
-        capsule_digest: original.capsule_digest,
+        capsule_commitment: original.capsule_commitment,
         payment_digest: original.payment_digest,
     };
     let receipt_digest = kagemusha_wallet_signed_object_digest_v1(

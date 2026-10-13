@@ -181,11 +181,56 @@ impl Core {
         if self.awaiting {
             return;
         }
+        // Retry local refusals at the existing cadence, always through the durable reservation.
+        let height = self.height;
+        // MS58: verified quorums are stranded after a transient aggregation refusal.
+        #[cfg(not(sumeragi_mutation = "MS58"))]
+        self.retry_certificates();
+        if !self.same_height(height) {
+            return;
+        }
+        // MS60: durable signing reservations never retry after the local backend recovers.
+        #[cfg(not(sumeragi_mutation = "MS60"))]
+        {
+            if self.mine.proposal.is_none() {
+                self.resend_recorded_proposal();
+            }
+            self.try_prepare();
+            if !self.same_height(height) {
+                return;
+            }
+            self.try_commit();
+            if !self.same_height(height) {
+                return;
+            }
+            #[cfg(not(sumeragi_mutation = "MS62"))]
+            let timeout_missing = self
+                .mine
+                .timeout
+                .as_ref()
+                .is_none_or(|timeout| timeout.view != self.view);
+            // MS62: a retained prior-view timeout strands the current signing reservation.
+            #[cfg(sumeragi_mutation = "MS62")]
+            let timeout_missing = self.mine.timeout.is_none();
+            if self.timeout_view == Some(self.view) && timeout_missing {
+                self.sign_timeout(self.view);
+            }
+            if !self.same_height(height) {
+                return;
+            }
+        }
         #[cfg(not(sumeragi_mutation = "MS9"))]
-        let resent = self.mine.timeout.clone();
+        let resent = self
+            .mine
+            .timeout
+            .clone()
+            .filter(|timeout| timeout.view == self.view);
         // MS9: the timeout of the view is re-signed with the current lock instead of re-sent.
         #[cfg(sumeragi_mutation = "MS9")]
-        let resent = (self.mine.timeout.as_ref())
+        let resent = self
+            .mine
+            .timeout
+            .clone()
             .filter(|_| self.timeout_view == Some(self.view))
             .and_then(|_| self.signer())
             .and_then(|me| self.build_timeout(me, self.view, self.high_pqc.clone()));

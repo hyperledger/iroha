@@ -1107,7 +1107,10 @@ mod tests {
         assert_eq!(utf16_offset(text, 0, 2), Some(6));
         assert_eq!(utf16_offset(text, 0, 3), None);
         assert_eq!(utf16_offset(text, 0, 4), Some(10));
-        assert_eq!(utf16_offset(text, 1, 1), Some(text.len() as u32));
+        assert_eq!(
+            utf16_offset(text, 1, 1),
+            Some(u32::try_from(text.len()).expect("fixture source length fits u32"))
+        );
     }
     #[test]
     fn semantic_responses_share_identity_ranges_and_named_argument_labels() {

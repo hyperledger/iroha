@@ -20,7 +20,7 @@ fn capacity() -> Error {
 }
 
 /// The producer phases are created only by the original query-pool acquisition.
-pub(crate) struct ProducerBudget {
+pub struct ProducerBudget {
     envelope: QueryFanoutMemoryEnvelope,
     pool_generation: u64,
     cold_frames: AllocationBudget,
@@ -111,7 +111,7 @@ impl ProducerBudget {
 
 /// Closed capability retaining both actual admission and its unchanged producer corridors.
 #[derive(Clone)]
-pub(crate) struct HistoryProducerOwner {
+pub struct HistoryProducerOwner {
     // Reclaim all native producer controls before the last query lease releases credit.
     budget: ChargedShared<ProducerBudget>,
     reservation: QueryFanoutMemoryReservation,
@@ -191,7 +191,6 @@ impl HistoryProducerOwner {
         {
             return owner.map(Some);
         }
-        #[cfg(feature = "app_api")]
         if let Ok(owner) = crate::APP_ROUTED_READ_HTTP_ADMISSION
             .try_with(|admission| Self::from_reservation(&admission.reservation))
         {

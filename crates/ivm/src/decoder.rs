@@ -83,10 +83,17 @@ mod tests {
             .load_code(&code)
             .expect("decoder test program fits code region");
         for pc in [0, 4] {
-            assert_eq!(decode_slice(&code, pc), decode(&memory, pc));
+            assert_eq!(
+                decode_slice(&code, pc).unwrap(),
+                decode(&memory, pc).unwrap()
+            );
         }
         for pc in [1, 8, u64::MAX] {
-            assert_eq!(decode_slice(&code, pc), decode(&memory, pc));
+            for result in [decode_slice(&code, pc), decode(&memory, pc)] {
+                assert!(
+                    matches!(result, Err(VMError::MemoryAccessViolation { addr, perm }) if addr == pc as u32 && perm == Perm::EXECUTE)
+                );
+            }
         }
     }
 }

@@ -96,10 +96,10 @@ mod tests {
             .set_execution_outputs(
                 outputs,
                 0,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &structural_output_limits(),
             )
             .unwrap();

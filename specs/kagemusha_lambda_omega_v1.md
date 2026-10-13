@@ -756,9 +756,15 @@ every possible challenge output. The format has no
 hiding term, so "G is the commitment" is enforced by the decide itself.
 
 **C3. PCD composition.** Each step is a constant-depth DAG (Q → A → Ω, or Q → A_1 → W → A_2 →
-Ω), composed into PCD by BCMS20 PCD-from-accumulation and BCLMS21 (ePrint 2020/1618). The
-theorems give constant depth; **unbounded lineage depth is heuristic**, as for Halo 2, Pickles
-and Nova, and PIPA §11's TODO remains.
+Ω). BCMS20 PCD-from-accumulation and BCLMS21 (ePrint 2020/1618) motivate the composition;
+their ROM accumulation results alone do not establish the security of this concrete
+oracle-dependent recursive relation. The first release explicitly accepts the
+[recursive Fiat–Shamir security-preservation assumption](kagemusha_recursion_soundness_v1.md#selected-recursive-fiatshamir-assumption)
+for the pinned Pasta/Poseidon construction. This assumption also matters for a bounded
+recursive execution; it is not merely a caveat about an infinite lineage.
+**Unbounded lineage depth remains heuristic**, and PIPA §11's TODO remains.
+C12 joint privacy and the implementation's other composition obligations still require
+their own arguments and candidate evidence.
 
 **C4. Full succinct verification in the base field.** Transcript and group operations of each
 consumed proof are native in its verifier circuit. Scalar arithmetic is CRT foreign-field
@@ -857,6 +863,18 @@ accumulator, G = ⟨s(u), g⟩ is determined by u and the pinned generators. D_A
 18 public lineage fields and acc_P's coordinates and challenge limbs (52 field words),
 so it adds no information beyond that public tuple. Q, A and the local fold proofs are
 not transported; `wallet_id` and `payment_key` are already public.
+
+A receipt's public `capsule_commitment` binds its frozen private recovery body
+through the selected private opening described in proposal §4.1. For any fixed
+body and auxiliary information fixed before independent uniform r is drawn,
+`m0 g[0] + m1 g[1] + r w` is uniform in Vesta. Its deterministic `kgwcapc1` hash
+therefore has the same distribution for every body, including the explicit
+zero-hash refusal branch. This does not assert a uniform digest or a 1/p zero
+probability. The private wrapper hash and r never appear in that receipt.
+Binding uses SHA/Poseidon collision resistance and the admitted IPA tuple's
+existing generator-relation premise. A/Q continue to authenticate the opaque
+receipt field and payment-key signature; the trusted native provider verifies
+the full wrapper and opening before signing.
 
 These local facts do not prove privacy of the joint public transcript. The two exposed
 challenge vectors come from non-hiding folds and can share inputs correlated with

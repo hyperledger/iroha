@@ -244,7 +244,11 @@ impl IVM {
             VMError::AbiTypeNotAllowed { .. } => VmTrapKind::AbiTypeNotAllowed,
             VMError::HostOutputBudgetExceeded { .. } => VmTrapKind::HostOutputBudgetExceeded,
             VMError::AmxBudgetExceeded { .. } => VmTrapKind::AmxBudgetExceeded,
-            VMError::ExecutionDeferred(_) | VMError::AllocationDeferred(_) => VmTrapKind::Other,
+            VMError::ExecutionDeferred(_)
+            | VMError::AllocationDeferred(_)
+            | VMError::AllocatorDeferred(_)
+            | VMError::DecodeDeferred(_)
+            | VMError::VerificationDeferred(_) => VmTrapKind::Other,
             VMError::Metered { .. } => unreachable!("as_unmetered peels metered wrappers"),
         }
     }

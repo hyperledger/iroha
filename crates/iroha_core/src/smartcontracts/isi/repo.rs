@@ -804,9 +804,8 @@ pub mod query {
                 world
                     .repo_agreements()
                     .iter()
-                    .filter_map(move |(_, agreement)| {
-                        filter.applies(agreement).then(|| agreement.clone())
-                    }),
+                    .filter(move |&(_, agreement)| filter.applies(agreement))
+                    .map(|(_, agreement)| agreement.clone()),
             );
             Ok(iter)
         }
@@ -859,7 +858,7 @@ mod tests {
                 Quantity::from(12_u32),
             ),
         ];
-        let settlement: SettlementId = "consent_trade".parse().unwrap();
+        let settlement = SettlementId::new(ALICE_ID.clone(), "consent_trade".parse().unwrap());
         let initiation = (
             settlement,
             Hash::new(b"initiation-consent"),

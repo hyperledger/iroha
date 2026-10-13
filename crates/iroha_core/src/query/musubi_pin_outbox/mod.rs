@@ -153,7 +153,6 @@ impl MusubiPinOutboxCheckAttemptFailureV1 {
         self.pending.signed_transaction()
     }
     /// Recover original custody and require a fresh native verification before consumption.
-    #[must_use]
     pub fn into_pending(self) -> PendingMusubiPinOutboxCheckV1 {
         self.pending
     }

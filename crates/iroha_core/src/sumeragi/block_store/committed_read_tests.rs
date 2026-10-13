@@ -65,6 +65,7 @@ fn committed_read_returns_original_qc_backing_after_projection_refusal_and_retry
     let original_header = decoded.header.clone();
     let mut read = CommittedRead {
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto,
         schedule,
@@ -162,8 +163,13 @@ fn body_only_read_discards_invalid_qc_before_untrusted_restoration() {
         certified_source(&schedule, &*crypto, 10, &decoded.header, &decoded.commit_qc,).is_err(),
         "the changed signature cannot authenticate a native committed body"
     );
-    let mut read =
-        body_read::StoredBodyRead::from_decoded(source.clone(), decoded, budget.clone(), crypto);
+    let mut read = body_read::StoredBodyRead::from_decoded(
+        source.clone(),
+        decoded,
+        budget.clone(),
+        crypto,
+        chain.root_scope(),
+    );
     let retained = budget.reserved_bytes();
     budget.set_limit_bytes(retained);
     assert!(matches!(
@@ -246,6 +252,7 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
 
     let read = CommittedRead {
         height: 10,
+        root_scope: chain.root_scope(),
         budget: budget.clone(),
         crypto: crypto.clone(),
         schedule: schedule.clone(),
@@ -254,12 +261,14 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
             decoded,
             budget.clone(),
             crypto.clone(),
+            chain.root_scope(),
         )),
     };
     let store = KuraBlockStore::new(
         chain.kura().clone(),
         crypto,
         1,
+        chain.root_scope(),
         Staging::new(),
         budget.clone(),
         schedule,
@@ -301,6 +310,20 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
 
 #[test]
 fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
+    struct OriginalSchedule {
+        instance: Hash32,
+        config: HeightConfig,
+    }
+    impl AvailabilitySchedule for OriginalSchedule {
+        fn instance(&self) -> Hash32 {
+            self.instance
+        }
+        fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
+            assert_eq!(height, 2);
+            Ok(Some(self.config.clone()))
+        }
+    }
+
     use crate::test_allocations::refuse_one_layout_during;
     use iroha_data_model::{
         block::decode_framed_signed_block, sumeragi_finality::test_fixtures::NativeFinalityFixture,
@@ -325,19 +348,6 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
                 .map(|m| (m.validator.public_key(), m.proof_of_possession.as_slice())),
         )
         .unwrap();
-    struct OriginalSchedule {
-        instance: Hash32,
-        config: HeightConfig,
-    }
-    impl AvailabilitySchedule for OriginalSchedule {
-        fn instance(&self) -> Hash32 {
-            self.instance
-        }
-        fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
-            assert_eq!(height, 2);
-            Ok(Some(self.config.clone()))
-        }
-    }
     let budget = AllocationBudget::new(1 << 25);
     let mut read = CommittedRead::new(
         Clone::clone(&source),
@@ -348,6 +358,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
             instance: fixture.verifier().instance(),
             config: scheduled.height_config().unwrap(),
         }),
+        fixture.root_scope(),
     );
     let owners = read.retained_certificate_owners_for_test().unwrap();
     let (result, refused) =
@@ -356,7 +367,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
         refused,
         "actual certificate bitmap must reach the fallible allocator"
     );
-    let error = result.err().expect("physical decoder allocation refuses");
+    let error = result.expect_err("physical decoder allocation refuses");
     assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
     assert!(matches!(error, Attempt::Deferred(_)));
     assert_eq!(read.retained_certificate_owners_for_test().unwrap(), owners);

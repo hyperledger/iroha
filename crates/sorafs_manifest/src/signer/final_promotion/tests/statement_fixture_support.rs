@@ -1,9 +1,7 @@
 // Test-only exact-binding statement helper; requires a lexical `manifest` alias.
 
 /// Adapt the independent canonical ASCII golden to one exact synthetic custody binding.
-pub(crate) fn statement_message(
-    binding: &manifest::signer::custody::SignerCustodyBindingV1,
-) -> Vec<u8> {
+pub fn statement_message(binding: &manifest::signer::custody::SignerCustodyBindingV1) -> Vec<u8> {
     use iroha_crypto::sha256;
     use manifest::signer::{
         final_promotion::{

@@ -248,6 +248,9 @@ impl AuthenticatedBootstrap {
             proof_clients,
             peer_clients,
             deadline,
+            self.verifier.root_scope().map_err(|_| {
+                crate::verify::http::HttpFinalityError::Invalid("authenticated checkpoint scope")
+            })?,
         )
     }
 
@@ -391,12 +394,13 @@ impl ReleaseCheckpointStore {
             return Err(BootstrapError::Invalid("release is not currently valid"));
         }
         let previous = self.read_watermark()?.accepted;
-        let mut reset = false;
-        if let Some(previous) = previous {
+        let reset = if let Some(previous) = previous {
             // Expiry limits fresh bootstrap, not the lifetime of a retained rollback watermark.
             verify_retained_release(trust, &previous, now_ms)?;
-            reset = validate_successor(&previous.artifact.release, &artifact.release)?;
-        }
+            validate_successor(&previous.artifact.release, &artifact.release)?
+        } else {
+            false
+        };
         let verifier = verify_checkpoint(&artifact.release, &artifact.checkpoint)?;
         let release = artifact.release.clone();
         let retained = RetainedRelease {

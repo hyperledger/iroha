@@ -117,7 +117,8 @@ fn native_origin_rejects_nested_attachments_multisig_bad_signature_and_outer_sub
                 );
                 signed = TransactionBuilder::from_payload(original.payload().clone())
                     .unwrap()
-                    .with_attachments(vec![attachment].try_into().unwrap())
+                    .with_proof_attachments(vec![attachment])
+                    .expect("valid proof carriers")
                     .sign(key.private_key());
             }
             2 => signed.set_multisig_signatures(MultisigSignatures::new(Vec::new())),
@@ -452,7 +453,7 @@ fn native_origin_refusal_preclears_origin_and_preserves_original_allocation_owne
             .is_err()
         );
         assert!(tx.current_direct_musubi_pin_outbox_origin.is_none());
-        let original = tx.execution_deferral().unwrap();
+        let original = tx.borrow_execution_deferral().unwrap();
         assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(original.allocation_refusal(), sticky.then_some(&refusal));
         assert!(

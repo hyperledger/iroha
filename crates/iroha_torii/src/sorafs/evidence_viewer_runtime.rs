@@ -16,7 +16,7 @@ const EVIDENCE_AUDITOR_ROLE_V1: &str = "sorafs_evidence_auditor";
 const LEGAL_REVIEWER_ROLE_V1: &str = "sorafs_legal_reviewer";
 /// Reads one exact case, role assignment, and finalized block anchor from a
 /// single immutable state view.
-pub(crate) struct ToriiEvidenceViewerFinalizedAuthorizationReaderV1 {
+pub struct ToriiEvidenceViewerFinalizedAuthorizationReaderV1 {
     state: Arc<State>,
     auditor_role: RoleId,
     legal_role: RoleId,

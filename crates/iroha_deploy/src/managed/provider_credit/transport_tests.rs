@@ -2,6 +2,7 @@
 
 use super::tests::{fixture, intent, options};
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::{
     MAX_CHECKPOINT_BYTES,
     test_support::{UnavailablePeers, wallet_http::WalletHttp},
@@ -125,7 +126,7 @@ fn unavailable_initial_credit_finality_never_prepares_quotes_or_dispatches() {
             .directory
             .open_child("install")
             .unwrap();
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory.open_child("transaction").err().unwrap().kind(),
             io::ErrorKind::NotFound
@@ -146,7 +147,7 @@ fn unavailable_initial_credit_finality_never_prepares_quotes_or_dispatches() {
                 .is_err()
         );
         assert_eq!(peers.requests.lock().unwrap().len(), count);
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         drop(directory);
         drop(coordinator);
         coordinator = ManagedInitialProviderCredit::open(
@@ -191,11 +192,8 @@ fn unproved_initial_credit_checkpoint_cannot_advance_or_recover_a_wallet() {
         checkpoint: vec![0x5a; 16 * 1024],
     };
     // This is a local canonical record only: the fake checkpoint must fail before any HTTP.
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("install")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "install").unwrap();
     let original = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -255,11 +253,8 @@ fn unproved_initial_credit_checkpoint_cannot_advance_or_recover_a_wallet() {
 fn initial_credit_wallet503_reopen_preserves_original_wire_and_single_dispatch() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared, mut coordinator) = fixture();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("install")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "install").unwrap();
     let intent = intent(&coordinator);
     let options = options();
     let original = Original {

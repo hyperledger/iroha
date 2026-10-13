@@ -2,8 +2,7 @@
 //! These portable verifier fixtures do not execute World, custody or DKG.
 use super::*;
 use iroha_crypto::{
-    Algorithm, Hash, KeyPair, Signature, SignatureOf, bls_normal_aggregate_signatures,
-    bls_normal_pop_prove,
+    Algorithm, Hash, KeyPair, Signature, SignatureOf, bls::consensus, bls_normal_pop_prove,
 };
 use iroha_data_model::{
     account::AccountId,
@@ -30,10 +29,11 @@ use iroha_data_model::{
         },
     },
     sumeragi_finality::{
-        ChainParamsRecord, ExecutionCommitment, ExecutionResultCommitment, NativeLaneStateProof,
-        ScheduleOutcome, ScheduledConfig, SumeragiFinalityAttestationBody, authenticated_genesis,
-        chain_hash, core_epoch, global_threshold_beacon_npos_successor_seed_v1,
-        global_threshold_beacon_pulse_id_v1, global_threshold_beacon_pulse_payload_v1,
+        CertifiedResultV1, ChainParamsRecord, ExecutionCommitment, ExecutionResultCommitment,
+        NativeLaneStateProof, SccpFinalityHeaderV1, ScheduleOutcome, ScheduledConfig,
+        SumeragiFinalityAttestationBody, authenticated_genesis, chain_hash, core_epoch,
+        global_threshold_beacon_npos_successor_seed_v1, global_threshold_beacon_pulse_id_v1,
+        global_threshold_beacon_pulse_payload_v1,
         test_fixtures::{NativeFinalityFixture, author_payload},
     },
     transaction::{FeePaymentIntent, TransactionBuilder},
@@ -79,8 +79,39 @@ fn validators(keys: &[KeyPair]) -> Vec<FinalityValidator> {
 fn block(proof: &SumeragiFinalityProof) -> SignedBlock {
     decode_framed_signed_block(&proof.block_wire).unwrap()
 }
-fn result(proof: &SumeragiFinalityProof) -> ExecutionResultCommitment {
-    ExecutionResultCommitment::decode(block(proof).commit_certificate().unwrap().result_preimage())
+fn result(
+    proof: &SumeragiFinalityProof,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> ExecutionResultCommitment {
+    CertifiedResultV1::decode(
+        block(proof).commit_certificate().unwrap().result_preimage(),
+        root_scope.into(),
+    )
+    .unwrap()
+    .into_parts()
+    .1
+}
+// Negative fixtures retain the exact original X while substituting only the selected body.
+// This helper creates untrusted test bytes; native verification remains the authority.
+fn preserved_result_preimage(
+    proof: &SumeragiFinalityProof,
+    body: &ExecutionResultCommitment,
+) -> Vec<u8> {
+    let block = block(proof);
+    let bytes = block.commit_certificate().unwrap().result_preimage();
+    let header = SccpFinalityHeaderV1::parse(
+        &bytes[..iroha_data_model::sumeragi_finality::certified_result::X_LEN],
+    )
+    .unwrap();
+    CertifiedResultV1::from_parts_unvalidated(header, body.clone())
+        .preimage()
+        .unwrap()
+}
+fn preserved_result_hash(
+    proof: &SumeragiFinalityProof,
+    body: &ExecutionResultCommitment,
+) -> Hash32 {
+    iroha_data_model::sumeragi_finality::result_of_preimage(&preserved_result_preimage(proof, body))
         .unwrap()
 }
 fn core(proof: &SumeragiFinalityProof) -> CoreHeader {
@@ -103,19 +134,9 @@ fn sign_qc(qc: &mut Qc, keys: &[KeyPair], indices: &[u32]) {
     qc.signers = Bitmap::from_indices(keys.len(), indices.iter().copied()).unwrap();
     let signatures: Vec<_> = indices
         .iter()
-        .map(|i| Signature::try_new(keys[*i as usize].private_key(), &qc.preimage()).unwrap())
+        .map(|i| consensus::sign_preimage(keys[*i as usize].private_key(), &qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(
-            &signatures
-                .iter()
-                .map(Signature::payload)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-        .try_into()
-        .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 fn replace_certificate(
     proof: &mut SumeragiFinalityProof,
@@ -128,7 +149,7 @@ fn replace_certificate(
     b.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         norito::encode_canonical(header).unwrap(),
         norito::encode_canonical(qc).unwrap(),
-        result.preimage().unwrap(),
+        preserved_result_preimage(proof, result),
         availability,
     )));
     proof.block_wire = b.encode_wire().unwrap();
@@ -138,11 +159,15 @@ struct Epoch {
     context: ValidatorEpochContextV1,
 }
 struct Chain {
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     anchor: GenesisAnchor,
     epochs: Vec<Epoch>,
     proofs: Vec<SumeragiFinalityProof>,
 }
 impl Chain {
+    fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.root_scope
+    }
     fn constant(size: usize, tip: u64) -> Self {
         Self::new(&[(0..size, tip + 3)], tip)
     }
@@ -249,14 +274,14 @@ impl Chain {
             genesis: genesis.clone(),
             validators: validators(&epochs[0].keys),
         };
+        let mut native =
+            SumeragiFinalityVerifier::new(&genesis, CHAIN, anchor.validators.clone()).unwrap();
         let mut chain = Self {
+            root_scope: native.root_scope(),
             anchor,
             epochs,
             proofs: vec![],
         };
-        let mut native =
-            SumeragiFinalityVerifier::new(&genesis, CHAIN, chain.anchor.validators.clone())
-                .unwrap();
         for height in 1..=tip {
             let index = chain
                 .epochs
@@ -304,11 +329,16 @@ impl Chain {
                     chain_hash(&block_hash_preimage(&core(p)))
                 }
             });
-            let parent_result = parent
-                .as_ref()
-                .map_or(Hash32([1; 32]), |p| result(p).result().unwrap());
+            let parent_result = parent.as_ref().map_or(Hash32([1; 32]), |p| {
+                iroha_data_model::sumeragi_finality::result_of_preimage(
+                    block(p).commit_certificate().unwrap().result_preimage(),
+                )
+                .unwrap()
+            });
             let boundary = if height == context.authorization.last_height {
-                let pulse = result(parent.as_ref().unwrap()).beacon.unwrap();
+                let pulse = result(parent.as_ref().unwrap(), chain.root_scope())
+                    .beacon
+                    .unwrap();
                 chain.epochs[index + 1].context.leader_seed =
                     global_threshold_beacon_npos_successor_seed_v1(
                         &pulse,
@@ -414,11 +444,19 @@ impl Chain {
                 native_lanes,
             )
             .unwrap();
+            let x = SccpFinalityHeaderV1::inactive(
+                *network.as_bytes(),
+                height,
+                u64::try_from(b.header().creation_time().as_millis()).unwrap(),
+            )
+            .unwrap();
+            let certified =
+                CertifiedResultV1::new(x, commitment, chain.root_scope().into()).unwrap();
             let certificate = if height == 1 {
                 CommitCertificate::from_untrusted_parts(
                     vec![],
                     vec![],
-                    commitment.preimage().unwrap(),
+                    certified.preimage().unwrap(),
                     vec![],
                 )
             } else {
@@ -469,7 +507,7 @@ impl Chain {
                     height,
                     view: 0,
                     block_hash: chain_hash(&block_hash_preimage(header)),
-                    result: commitment.result().unwrap(),
+                    result: certified.result().unwrap(),
                     signers: Bitmap::new(keys.len()),
                     agg_sig: AggregateSignature([0; 96]),
                 };
@@ -477,7 +515,7 @@ impl Chain {
                 CommitCertificate::from_untrusted_parts(
                     norito::encode_canonical(header).unwrap(),
                     norito::encode_canonical(&qc).unwrap(),
-                    commitment.preimage().unwrap(),
+                    certified.preimage().unwrap(),
                     norito::encode_canonical(authored.body.availability()).unwrap(),
                 )
             };
@@ -561,7 +599,7 @@ impl Chain {
     fn alternate(&self, height: u64) -> SumeragiFinalityProof {
         let mut p = self.proof(height).clone();
         let h = core(&p);
-        let r = result(&p);
+        let r = result(&p, self.root_scope());
         let mut qc: Qc =
             norito::decode_canonical(block(&p).commit_certificate().unwrap().commit_qc()).unwrap();
         let keys = &self.epoch(height).keys;
@@ -654,19 +692,9 @@ fn forge_qc(qc: &mut Qc, members: usize, named: &[u32], signers: &[&KeyPair], me
     qc.signers = Bitmap::from_indices(members, named.iter().copied()).unwrap();
     let signatures: Vec<_> = signers
         .iter()
-        .map(|k| Signature::try_new(k.private_key(), message).unwrap())
+        .map(|k| consensus::sign_preimage(k.private_key(), message).unwrap())
         .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(
-            &signatures
-                .iter()
-                .map(Signature::payload)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-        .try_into()
-        .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 /// `context` with its equal-vote BLS signing generation replaced by `keys`.
 fn with_committee(context: &ValidatorEpochContextV1, keys: &[KeyPair]) -> ValidatorEpochContextV1 {
@@ -699,9 +727,10 @@ fn recertify(
     proof: &SumeragiFinalityProof,
     context: &ValidatorEpochContextV1,
     keys: &[KeyPair],
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> SumeragiFinalityProof {
     let mut p = proof.clone();
-    let mut r = result(&p);
+    let mut r = result(&p, root_scope);
     r.schedule.current = context.clone();
     for slot in [&mut r.schedule.next, &mut r.schedule.after_next] {
         if let ScheduledSlot::Ready(config) = slot {
@@ -713,7 +742,7 @@ fn recertify(
     let mut qc = commit_qc(&p);
     qc.epoch = h.epoch;
     qc.block_hash = chain_hash(&block_hash_preimage(&h));
-    qc.result = r.result().unwrap();
+    qc.result = preserved_result_hash(&p, &r);
     let q = CommitteeSize::new(keys.len()).unwrap().quorum();
     sign_qc(&mut qc, keys, &seats(0..q));
     replace_certificate(&mut p, &h, &qc, &r);
@@ -730,6 +759,7 @@ fn fake_claim(chain: &Chain, member: &KeyPair, height: u64) -> SumeragiFinalityA
         chain.proof(height),
         &with_committee(context, &foreign),
         &foreign,
+        chain.root_scope(),
     );
     resign(&mut attestation, member);
     attestation
@@ -847,7 +877,7 @@ fn exact_quorum_requires_distinct_members_and_valid_possession_proofs() {
         for count in [q - 1, q + 1] {
             let mut p = chain.proof(2).clone();
             let h = core(&p);
-            let r = result(&p);
+            let r = result(&p, chain.root_scope());
             let mut qc: Qc =
                 norito::decode_canonical(block(&p).commit_certificate().unwrap().commit_qc())
                     .unwrap();
@@ -873,7 +903,7 @@ fn advance_rejects_mutated_proofs_and_keeps_original_checkpoint() {
     for mutation in 0..7 {
         let mut p = chain.proof(4).clone();
         let mut h = core(&p);
-        let mut r = result(&p);
+        let mut r = result(&p, chain.root_scope());
         let mut qc: Qc =
             norito::decode_canonical(block(&p).commit_certificate().unwrap().commit_qc()).unwrap();
         match mutation {
@@ -901,7 +931,12 @@ fn epoch_boundaries_use_exact_native_quorums_without_application_seals() {
     for height in [3, 6] {
         let proof = chain.proof(height);
         let header = core(proof);
-        assert!(result(proof).schedule.boundary.is_some());
+        assert!(
+            result(proof, chain.root_scope())
+                .schedule
+                .boundary
+                .is_some()
+        );
         let mut qc: Qc =
             norito::decode_canonical(block(proof).commit_certificate().unwrap().commit_qc())
                 .unwrap();
@@ -924,7 +959,7 @@ fn epoch_boundaries_use_exact_native_quorums_without_application_seals() {
         assert_eq!(verifier.verify_qc(&qc), Ok(()));
         sign_qc(&mut qc, &current.keys, &seats(0..committee.q() - 1));
         assert!(verifier.verify_qc(&qc).is_err());
-        sign_qc(&mut qc, &current.keys, &seats(0..committee.q() + 1));
+        sign_qc(&mut qc, &current.keys, &seats(0..=committee.q()));
         assert!(verifier.verify_qc(&qc).is_err());
     }
     let mut verifier = chain.verifier();
@@ -940,7 +975,7 @@ fn altered_boundary_cannot_select_a_foreign_committee_or_freshness_seed() {
     for mutation in 0..3 {
         let mut p = chain.proof(3).clone();
         let h = core(&p);
-        let mut r = result(&p);
+        let mut r = result(&p, chain.root_scope());
         let mut qc: Qc =
             norito::decode_canonical(block(&p).commit_certificate().unwrap().commit_qc()).unwrap();
         let b = r.schedule.boundary.as_mut().unwrap();
@@ -958,7 +993,7 @@ fn altered_boundary_cannot_select_a_foreign_committee_or_freshness_seed() {
                 }
             }
         }
-        qc.result = r.result().unwrap();
+        qc.result = preserved_result_hash(&p, &r);
         sign_qc(&mut qc, &chain.epoch(3).keys, &[0, 1, 2]);
         replace_certificate(&mut p, &h, &qc, &r);
         let source = Source::new(&chain);
@@ -1115,14 +1150,14 @@ fn genuinely_signed_conflicting_result_is_rejected_even_one_block_behind() {
     for height in [4, 5] {
         let mut p = chain.proof(height).clone();
         let h = core(&p);
-        let mut r = result(&p);
+        let mut r = result(&p, chain.root_scope());
         r.execution.parent_state_root = Hash::new(b"conflicting execution");
         let mut qc: Qc =
             norito::decode_canonical(block(&p).commit_certificate().unwrap().commit_qc()).unwrap();
-        qc.result = r.result().unwrap();
+        qc.result = preserved_result_hash(&p, &r);
         sign_qc(&mut qc, &chain.epoch(height).keys, &[0, 1, 2]);
         replace_certificate(&mut p, &h, &qc, &r);
-        assert!(p.decode_checked().is_ok());
+        assert!(p.decode_checked(chain.root_scope().into()).is_ok());
         let member = &chain.epoch(5).keys[0];
         let mut attestation = chain.attest(member, height);
         attestation.body.finality_proof = p;
@@ -1300,14 +1335,14 @@ fn observation_does_not_promote_a_signed_conflict_from_an_earlier_verified_posit
     let mut attestation = chain.attest(key, 2);
     let proof = &mut attestation.body.finality_proof;
     let header = core(proof);
-    let mut commitment = result(proof);
+    let mut commitment = result(proof, chain.root_scope());
     commitment.execution.parent_state_root = Hash::new(b"conflicting early result");
     let mut qc: Qc =
         norito::decode_canonical(block(proof).commit_certificate().unwrap().commit_qc()).unwrap();
-    qc.result = commitment.result().unwrap();
+    qc.result = preserved_result_hash(proof, &commitment);
     sign_qc(&mut qc, &chain.epoch(2).keys, &[0, 1, 2]);
     replace_certificate(proof, &header, &qc, &commitment);
-    assert!(proof.decode_checked().is_ok());
+    assert!(proof.decode_checked(chain.root_scope().into()).is_ok());
     resign(&mut attestation, key);
     source.attestation_overrides.insert(peer(key), attestation);
     let report = chain.verifier().observe(&source, &CHALLENGE).unwrap();
@@ -1339,26 +1374,58 @@ fn native_result_decode_bounds_complete_committee_graphs_and_preserves_outer_lim
         let proof = chain.proof(2);
         let carrier = block(proof);
         let bytes = carrier.commit_certificate().unwrap().result_preimage();
-        let decoded = ExecutionResultCommitment::decode(bytes).unwrap();
-        assert_eq!(decoded.schedule.current.committee.len(), size);
+        let decoded = CertifiedResultV1::decode(bytes, chain.root_scope().into()).unwrap();
+        assert_eq!(decoded.commitment().schedule.current.committee.len(), size);
         assert_eq!(decoded.preimage().unwrap(), bytes);
-        assert!(ExecutionResultCommitment::decode(&bytes[..bytes.len() - 1]).is_err());
+        decoded
+            .check_block(
+                carrier.header().height().get(),
+                carrier.header().creation_time_ms,
+            )
+            .unwrap();
+        assert_eq!(
+            decoded.result().unwrap(),
+            iroha_data_model::sumeragi_finality::result_of_preimage(bytes).unwrap()
+        );
+        assert!(
+            CertifiedResultV1::decode(
+                &bytes[iroha_data_model::sumeragi_finality::certified_result::X_LEN..],
+                chain.root_scope().into(),
+            )
+            .is_err()
+        );
+        assert!(
+            CertifiedResultV1::decode(&bytes[..bytes.len() - 1], chain.root_scope().into())
+                .is_err()
+        );
         let mut trailing = bytes.to_vec();
         trailing.push(0);
-        assert!(ExecutionResultCommitment::decode(&trailing).is_err());
+        assert!(CertifiedResultV1::decode(&trailing, chain.root_scope().into()).is_err());
         let outer_refusal = norito::with_decode_limits(
             norito::DecodeLimits::new(96, bytes.len(), 8192, 0, 32),
-            || Ok(ExecutionResultCommitment::decode(bytes)),
+            || Ok(CertifiedResultV1::decode(bytes, chain.root_scope().into())),
         );
         assert!(
             matches!(outer_refusal, Err(_) | Ok(Err(_))),
             "inner canonical policy cannot replace the caller's exhausted budget"
         );
+        let original_resource = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128),
+            || CertifiedResultV1::decode(bytes, chain.root_scope().into()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            original_resource,
+            iroha_data_model::sumeragi_finality::CertifiedResultError::Body(
+                iroha_data_model::sumeragi_finality::CommitmentError::Resource(_)
+            )
+        ));
     }
+    let native = NativeFinalityFixture::start("deployment-result-bound");
     let oversized = vec![0; iroha_data_model::sumeragi_finality::MAX_RESULT_PREIMAGE_BYTES + 1];
     assert!(matches!(
-        ExecutionResultCommitment::decode(&oversized),
-        Err(iroha_data_model::sumeragi_finality::CommitmentError::PreimageLength(_))
+        CertifiedResultV1::decode(&oversized, native.root_scope().into()),
+        Err(iroha_data_model::sumeragi_finality::CertifiedResultError::PreimageLength(_))
     ));
     // A boundary repeats complete target credentials in its exact atomic successor slots.
     let chain = Chain::new(&[(0..4, 3), (0..31, 6), (0..4, 9)], 5);
@@ -1375,9 +1442,9 @@ fn self_consistent_certificate_of_a_foreign_committee_is_rejected() {
         let chain = Chain::constant(size, 3);
         let foreign = ordered_keys(200..200 + size);
         let context = with_committee(&chain.epoch(2).context, &foreign);
-        let proof = recertify(chain.proof(2), &context, &foreign);
+        let proof = recertify(chain.proof(2), &context, &foreign, chain.root_scope());
         // Structurally, the proof is an exact quorum of the committee it names.
-        proof.decode_checked().unwrap();
+        proof.decode_checked(chain.root_scope().into()).unwrap();
         let mut verifier = chain.verifier();
         let checkpoint = verifier.checkpoint().clone();
         assert!(matches!(
@@ -1423,10 +1490,18 @@ fn epoch_handoff_admits_only_the_committee_its_boundary_certified() {
             chain.proof(4),
             &with_committee(&chain.epoch(4).context, &foreign),
             &foreign,
+            chain.root_scope(),
         ),
-        recertify(chain.proof(4), &extended, &chain.epoch(3).keys),
+        recertify(
+            chain.proof(4),
+            &extended,
+            &chain.epoch(3).keys,
+            chain.root_scope(),
+        ),
     ] {
-        substitute.decode_checked().unwrap();
+        substitute
+            .decode_checked(chain.root_scope().into())
+            .unwrap();
         let source = Source::new(&chain);
         source.proofs.borrow_mut().insert(4, substitute.clone());
         let mut verifier =
@@ -1467,9 +1542,9 @@ fn forged_quorum_certificates_are_rejected_without_progress() {
             forge_qc(&mut qc, size, &named, &signers, &message);
             let mut proof = chain.proof(2).clone();
             let header = core(&proof);
-            let commitment = result(&proof);
+            let commitment = result(&proof, chain.root_scope());
             replace_certificate(&mut proof, &header, &qc, &commitment);
-            assert!(proof.decode_checked().is_err());
+            assert!(proof.decode_checked(chain.root_scope().into()).is_err());
             let mut verifier = chain.verifier();
             let checkpoint = verifier.checkpoint().clone();
             assert!(matches!(
@@ -1645,7 +1720,7 @@ fn lagging_checkpoint_is_caught_up_across_observations_before_any_publish() {
         assert!(
             matches!(
                 result,
-                Err(FinalityError::CatchingUp { verified, claimed: 8 }) if verified == reached
+                Err(FinalityError::CatchingUp { verified: certified_tip, claimed: 8 }) if certified_tip == reached
             ),
             "{result:?}"
         );
@@ -1736,9 +1811,9 @@ fn durable_parent_observation_retains_bounded_certified_progress_but_never_readi
             matches!(
                 result,
                 Err(BootstrapError::Finality(FinalityError::CatchingUp {
-                    verified,
+                    verified: certified_tip,
                     claimed: 8,
-                })) if verified == reached
+                })) if certified_tip == reached
             ),
             "{result:?}"
         );
@@ -1818,7 +1893,7 @@ fn managed_custody_retains_catching_up_prefix_without_claiming_freshness() {
             },
         );
         assert!(
-            matches!(&result, Err(FinalityError::CatchingUp { verified, .. }) if *verified == expected)
+            matches!(&result, Err(FinalityError::CatchingUp { verified: certified_tip, .. }) if *certified_tip == expected)
         );
         assert!(retain_observation(&directory, &mut verifier, result).is_err());
         let bytes = directory
@@ -2291,7 +2366,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
         assert_eq!(checkpoint.encode_canonical().unwrap(), original);
     });
     let validation_cost = usize::try_from(validation.consumed_allocated_bytes()).unwrap();
-    assert!(validation_cost > 0);
+    // Epoch shape validation now retains only bounded inline snapshots; it does
+    // not decode a detached committee graph or consume the original decoder owner.
+    assert_eq!(validation_cost, 0);
     let before_policy_cost = validation_cost.checked_add(original_binary_cost).unwrap();
     assert!(before_policy_cost < ceiling);
     norito::with_decode_limits_scope(limits(before_policy_cost), || {
@@ -2362,7 +2439,7 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
     ));
     assert!(verifier.verified_tip.get().is_none());
     assert_eq!(verifier, independent);
-    let verified = verifier.verified_tip().unwrap();
+    let certified_tip = verifier.verified_tip().unwrap();
     let borrowed = verifier.verified_tip_ref().unwrap();
     assert!(std::ptr::eq(borrowed, verifier.verified_tip.get().unwrap()));
     assert!(std::ptr::eq(borrowed, cloned.verified_tip_ref().unwrap()));
@@ -2370,21 +2447,21 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
         borrowed,
         independent.verified_tip_ref().unwrap()
     ));
-    assert_eq!(borrowed.context_id(), verified.context_id());
+    assert_eq!(borrowed.context_id(), certified_tip.context_id());
     assert_eq!(
-        verified.block().encode_wire().unwrap(),
+        certified_tip.block().encode_wire().unwrap(),
         chain.proof(2).block_wire
     );
     assert!(cloned.verified_tip.get().is_some());
     assert!(independent.verified_tip.get().is_some());
     assert_eq!(
         independent.verified_tip.get().unwrap().context_id(),
-        verified.context_id()
+        certified_tip.context_id()
     );
     assert_eq!(verifier, independent);
     assert_eq!(
         cloned.verified_tip().unwrap().context_id(),
-        verified.context_id()
+        certified_tip.context_id()
     );
     cloned
         .advance(&Source::new(&chain), chain.proof(3))
@@ -2434,9 +2511,12 @@ fn verified_tip_memo_is_replaced_by_catch_up_and_successful_observation() {
     assert!(verifier.verified_tip.get().is_some());
     assert!(!Arc::ptr_eq(&verifier.checkpoint, &caught_up.checkpoint));
     assert_eq!(caught_up.checkpoint().height(), 4);
-    let verified = verifier.verified_tip().unwrap();
-    assert_eq!(verified.height(), 5);
-    assert_eq!(verified.header().hash(), chain.proof(5).block_header.hash());
+    let certified_tip = verifier.verified_tip().unwrap();
+    assert_eq!(certified_tip.height(), 5);
+    assert_eq!(
+        certified_tip.header().hash(),
+        chain.proof(5).block_header.hash()
+    );
     assert_eq!(caught_up.verified_tip().unwrap().height(), 4);
     assert_eq!(original.verified_tip().unwrap().height(), 2);
     assert_eq!(original_tip.height(), 2);
@@ -2563,7 +2643,7 @@ fn verified_tip_memo_keeps_failures_retryable_and_rechecks_new_certificate_witne
     let mut qc = commit_qc(&alternate);
     qc.agg_sig.0[0] ^= 1;
     let header = core(&alternate);
-    let execution = result(&alternate);
+    let execution = result(&alternate, chain.root_scope());
     replace_certificate(&mut alternate, &header, &qc, &execution);
     assert_eq!(alternate.block_header, chain.proof(2).block_header);
     assert!(matches!(
@@ -2585,7 +2665,7 @@ fn verified_tip_memo_keeps_failures_retryable_and_rechecks_new_certificate_witne
     let mut qc = commit_qc(&successor);
     qc.agg_sig.0[0] ^= 1;
     let header = core(&successor);
-    let execution = result(&successor);
+    let execution = result(&successor, chain.root_scope());
     replace_certificate(&mut successor, &header, &qc, &execution);
     assert!(matches!(
         verifier.advance(&Source::new(&chain), &successor),
@@ -2646,14 +2726,14 @@ fn checkpoint_import_retains_authenticated_tip_without_redecode_or_fresh_witness
             .verify_global_scope(chain.anchor.network_id, "foreign-chain")
             .is_err()
     );
-    let verified = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip())
+    let certified_tip = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip())
         .expect("the successful import already authenticated this exact tip");
     assert_eq!(
-        verified.block().encode_wire().unwrap(),
+        certified_tip.block().encode_wire().unwrap(),
         chain.proof(2).block_wire
     );
     assert_eq!(
-        verified.context_id(),
+        certified_tip.context_id(),
         original.verified_tip().unwrap().context_id()
     );
     assert_eq!(checkpoint.encode_canonical().unwrap(), original_bytes);
@@ -2662,7 +2742,7 @@ fn checkpoint_import_retains_authenticated_tip_without_redecode_or_fresh_witness
     let mut qc = commit_qc(&bad);
     qc.agg_sig.0[0] ^= 1;
     let header = core(&bad);
-    let execution = result(&bad);
+    let execution = result(&bad, chain.root_scope());
     replace_certificate(&mut bad, &header, &qc, &execution);
     assert_eq!(bad.block_header, chain.proof(2).block_header);
     assert!(matches!(
@@ -2727,3 +2807,20 @@ mod observed_tip_tests;
 
 #[path = "placement_tests.rs"]
 mod placement_tests;
+
+#[test]
+fn retained_verifier_scope_survives_checkpoint_import_and_successor_admission() {
+    let chain = Chain::constant(4, 3);
+    let mut verifier = chain.verifier();
+    assert_eq!(verifier.root_scope().unwrap(), chain.root_scope());
+    let source = Source::new(&chain);
+    verifier.advance(&source, chain.proof(3)).unwrap();
+    assert_eq!(verifier.root_scope().unwrap(), chain.root_scope());
+    let restored = FinalityVerifier::from_checkpoint(
+        verifier.checkpoint().clone(),
+        chain.anchor.network_id,
+        CHAIN,
+    )
+    .unwrap();
+    assert_eq!(restored.root_scope().unwrap(), chain.root_scope());
+}

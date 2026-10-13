@@ -1,3 +1,4 @@
+import { ISO_PAYMENT_INTENT } from "./fixtures/isoNativePayment.js";
 import { withArtifactResponseIdentity } from "./contractArtifactReadTestHelpers.js";
 import { buildRegisterSmartContractCodeInstruction } from "../src/instructionBuilders.js";
 import { canonicalHashLiteral } from "../src/instructionBuilderPrimitives.js";
@@ -6913,6 +6914,7 @@ test("submitIsoMessage builds pacs.008 XML and posts with defaults", async () =>
   };
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const response = await client.submitIsoMessage({
+    ...ISO_PAYMENT_INTENT,
     messageId: "built-iso",
     instructionId: "instr-iso",
     creationDateTime: "2026-02-01T00:00:00Z",
@@ -6946,6 +6948,7 @@ test("submitIsoMessage requires explicit creationDateTime", async () => {
   await assert.rejects(
     () =>
       client.submitIsoMessage({
+        ...ISO_PAYMENT_INTENT,
         messageId: "built-iso",
         instructionId: "instr-iso",
         amount: { currency: "EUR", value: "5.00" },
@@ -6967,6 +6970,7 @@ test("submitIsoMessage rejects unsupported option fields", async () => {
     () =>
       client.submitIsoMessage(
         {
+          ...ISO_PAYMENT_INTENT,
           messageId: "built-iso",
           instructionId: "instr-iso",
           amount: { currency: "EUR", value: "5.00" },
@@ -6995,6 +6999,7 @@ test("submitIsoMessage rejects mismatched kind aliases", async () => {
     () =>
       client.submitIsoMessage(
         {
+          ...ISO_PAYMENT_INTENT,
           messageId: "iso-mismatch",
           instructionId: "instr-iso",
           amount: { currency: "EUR", value: "5.00" },
@@ -7022,6 +7027,7 @@ test("submitIsoMessage rejects unsupported ISO message kinds", async () => {
     },
   });
   const messageFields = {
+    ...ISO_PAYMENT_INTENT,
     messageId: "iso-invalid-kind",
     instructionId: "instr-invalid-kind",
     amount: { currency: "EUR", value: "1.23" },
@@ -7082,6 +7088,7 @@ test("submitIsoMessage supports pacs.009 wait flow and reuses signals", async ()
   };
   const status = await client.submitIsoMessage(
     {
+      ...ISO_PAYMENT_INTENT,
       instructionId: "flow-009",
       amount: { currency: "USD", value: "12.5" },
       instigatingAgent: { bic: "BOFAUS3N" },
@@ -7140,6 +7147,7 @@ test("submitIsoMessage resolves accepted status without transaction hash when re
 
   const status = await client.submitIsoMessage(
     {
+      ...ISO_PAYMENT_INTENT,
       messageId: "accept-no-tx",
       instructionId: "instr-accept-no-tx",
       creationDateTime: "2026-02-01T00:00:00Z",

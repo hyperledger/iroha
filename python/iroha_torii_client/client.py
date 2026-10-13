@@ -93,10 +93,10 @@ from .canonical_transport import (
 from .canonical_transport import (
     send_request as _send_request,
 )
+from .client_evidence import parse_sumeragi_evidence_record as _parse_sumeragi_evidence_record
 from .client_status_models import (
     _KAIGI_HEALTH_STATUSES,
-    SUMERAGI_EVIDENCE_CLASSES,
-    SUMERAGI_EVIDENCE_KIND,
+    SUMERAGI_EVIDENCE_KINDS,
     ConfidentialGasSchedule,
     ConfigurationSnapshot,
     ConnectAdmissionManifest,
@@ -128,6 +128,18 @@ from .client_status_models import (
     SumeragiEvidencePenaltyStatus,
     SumeragiEvidencePendingPenaltyStatus,
     SumeragiEvidenceRecord,
+    SumeragiNativeEvidenceRecord,
+    SumeragiEvidenceScope,
+    SumeragiLaneEvidenceScope,
+    SccpGenerationEvidenceScope,
+    SccpForgeryAnchor,
+    SccpForgerySubmission,
+    SccpForgeryRule,
+    SccpForgeryOffender,
+    SccpForgeryRecord,
+    SccpEvidenceOffender,
+    SccpEvidenceAttribution,
+    SccpForgeryEvidenceRecord,
     SumeragiParamsSnapshot,
     parse_sumeragi_json_object,
 )
@@ -763,6 +775,18 @@ __all__ = [
     "SumeragiEvidenceAppliedPenaltyStatus",
     "SumeragiEvidenceOffender",
     "SumeragiEvidenceRecord",
+    "SumeragiNativeEvidenceRecord",
+    "SumeragiEvidenceScope",
+    "SumeragiLaneEvidenceScope",
+    "SccpGenerationEvidenceScope",
+    "SccpForgeryAnchor",
+    "SccpForgerySubmission",
+    "SccpForgeryRule",
+    "SccpForgeryOffender",
+    "SccpForgeryRecord",
+    "SccpEvidenceOffender",
+    "SccpEvidenceAttribution",
+    "SccpForgeryEvidenceRecord",
     "SumeragiEvidenceListPage",
     "KaigiRelaySummary",
     "KaigiRelaySummaryList",
@@ -4982,9 +5006,9 @@ class ToriiClient(
             page_offset = offset
         if kind is not None:
             literal = self._require_non_empty_string(kind, "sumeragi evidence kind")
-            if literal != kind or literal != SUMERAGI_EVIDENCE_KIND:
+            if literal != kind or literal not in SUMERAGI_EVIDENCE_KINDS:
                 raise RuntimeError(
-                    "sumeragi evidence kind must be NativeSumeragiEvidence"
+                    "sumeragi evidence kind must be NativeSumeragiEvidence or SccpForgeryEvidence"
                 )
             params["kind"] = literal
         payload = self._get_sumeragi_operator_json_object(
@@ -4999,6 +5023,7 @@ class ToriiClient(
             context="sumeragi evidence listing",
             limit=page_limit,
             offset=page_offset,
+            kind=kind,
         )
 
     def get_sumeragi_evidence_count(self) -> int:
@@ -9947,6 +9972,7 @@ class ToriiClient(
         context: str,
         limit: int = 50,
         offset: int = 0,
+        kind: Optional[str] = None,
     ) -> SumeragiEvidenceListPage:
         record = ToriiClient._ensure_mapping(payload, context)
         actual_fields = set(record)
@@ -9973,6 +9999,8 @@ class ToriiClient(
             raise RuntimeError(
                 f"{context}.items must contain at most {limit} records"
             )
+        if kind is not None and any(item.kind != kind for item in items):
+            raise RuntimeError(f"{context} item kind differs from the requested filter")
         total = record["total"]
         if isinstance(total, bool) or not isinstance(total, int) or not 0 <= total <= 0xFFFFFFFFFFFFFFFF:
             raise RuntimeError(f"{context}.total must be a non-negative JSON u64")
@@ -9988,180 +10016,8 @@ class ToriiClient(
 
     @staticmethod
     def _parse_sumeragi_evidence_record(payload: Any, *, context: str) -> SumeragiEvidenceRecord:
-        record = ToriiClient._ensure_mapping(payload, context)
-
-        kind_value = record.get("kind")
-        kind = ToriiClient._require_non_empty_string(kind_value, f"{context}.kind")
-        if kind != kind_value or kind != SUMERAGI_EVIDENCE_KIND:
-            raise RuntimeError(
-                f"{context}.kind must be NativeSumeragiEvidence"
-            )
-        required_fields = {
-            "kind", "class", "instance", "height", "epoch", "context_id",
-            "authority_generation", "offenders", "safety_violation", "native_frame_hash",
-            "recorded_height", "recorded_view", "recorded_ms", "consensus_admitted_height",
-            "penalty_status",
-        }
-        actual_fields = set(record)
-        missing = sorted(required_fields - actual_fields)
-        unexpected = sorted(str(field) for field in actual_fields - required_fields)
-        if missing or unexpected:
-            details = []
-            if missing:
-                details.append(f"missing {', '.join(missing)}")
-            if unexpected:
-                details.append(f"unexpected {', '.join(unexpected)}")
-            raise RuntimeError(
-                f"{context} must use the exact server fields ({'; '.join(details)})"
-            )
-
-        def json_unsigned(
-            field: str, *, maximum: int = 0xFFFFFFFFFFFFFFFF
-        ) -> int:
-            value = record[field]
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise RuntimeError(f"{context}.{field} must be a non-negative JSON integer")
-            if value > maximum:
-                raise RuntimeError(f"{context}.{field} must be <= {maximum}")
-            return value
-
-        def evidence_hash(field: str) -> str:
-            return ToriiClient._require_exact_lower_hex_string(
-                record[field],
-                context=f"{context}.{field}",
-                expected_length=64,
-            )
-
-        def exact_non_empty_string_for_value(value: Any, field_context: str) -> str:
-            literal = ToriiClient._require_non_empty_string(value, field_context)
-            if literal != value:
-                raise RuntimeError(
-                    f"{field_context} must not contain surrounding whitespace"
-                )
-            return literal
-
-        def exact_non_empty_string(field: str) -> str:
-            return exact_non_empty_string_for_value(
-                record[field], f"{context}.{field}"
-            )
-
-        evidence_class = exact_non_empty_string("class")
-        if evidence_class not in SUMERAGI_EVIDENCE_CLASSES:
-            allowed = ", ".join(sorted(SUMERAGI_EVIDENCE_CLASSES))
-            raise RuntimeError(f"{context}.class must be one of: {allowed}")
-        raw_offenders = record["offenders"]
-        # Different-view CommitQC conflicts do not attribute individual signers.
-        permits_unattributed_safety_violation = (
-            evidence_class == "conflicting_certificates"
-            and record["safety_violation"] is True
-        )
-        if (
-            not isinstance(raw_offenders, list)
-            or len(raw_offenders) > 1024
-            or (not raw_offenders and not permits_unattributed_safety_violation)
-        ):
-            raise RuntimeError(
-                f"{context}.offenders must contain between 1 and 1024 entries, "
-                "or be empty for a conflicting-certificate safety violation"
-            )
-        offenders = []
-        peers = set()
-        previous_signer = -1
-        for index, offender in enumerate(raw_offenders):
-            offender_context = f"{context}.offenders[{index}]"
-            if not isinstance(offender, Mapping) or set(offender) != {"signer", "peer_id"}:
-                raise RuntimeError(f"{offender_context} must contain exactly signer and peer_id")
-            signer = offender["signer"]
-            if type(signer) is not int or not previous_signer < signer <= 1023:
-                raise RuntimeError(f"{offender_context}.signer must increase strictly within 0..1023")
-            peer_id = offender["peer_id"]
-            # Validate the canonical public-key shape; attribution is authenticated by the node.
-            if not isinstance(peer_id, str) or re.fullmatch(r"ea0130[0-9A-F]{96}", peer_id) is None:
-                raise RuntimeError(f"{offender_context}.peer_id must be a canonical BLS-normal public key")
-            if peer_id in peers:
-                raise RuntimeError(f"{offender_context}.peer_id must be unique")
-            peers.add(peer_id)
-            previous_signer = signer
-            offenders.append(SumeragiEvidenceOffender(signer, peer_id))
-        safety_violation = record["safety_violation"]
-        if not isinstance(safety_violation, bool):
-            raise RuntimeError(f"{context}.safety_violation must be a boolean")
-        penalty = ToriiClient._ensure_mapping(
-            record["penalty_status"], f"{context}.penalty_status"
-        )
-        penalty_fields = set(penalty)
-        if penalty_fields != {"status", "details"}:
-            missing = sorted({"status", "details"} - penalty_fields)
-            unexpected = sorted(
-                str(field) for field in penalty_fields - {"status", "details"}
-            )
-            details = []
-            if missing:
-                details.append(f"missing {', '.join(missing)}")
-            if unexpected:
-                details.append(f"unexpected {', '.join(unexpected)}")
-            raise RuntimeError(
-                f"{context}.penalty_status must use the exact server fields "
-                f"({'; '.join(details)})"
-            )
-        penalty_literal = exact_non_empty_string_for_value(
-            penalty["status"], f"{context}.penalty_status.status"
-        )
-        if penalty_literal == "pending":
-            if penalty["details"] is not None:
-                raise RuntimeError(
-                    f"{context}.penalty_status.details must be null when status is pending"
-                )
-            penalty_status: SumeragiEvidencePenaltyStatus = (
-                SumeragiEvidencePendingPenaltyStatus(
-                    status="pending",
-                    details=None,
-                )
-            )
-        elif penalty_literal == "applied":
-            penalty_details = ToriiClient._ensure_mapping(
-                penalty["details"], f"{context}.penalty_status.details"
-            )
-            if set(penalty_details) != {"height"}:
-                raise RuntimeError(
-                    f"{context}.penalty_status.details must contain exactly height"
-                )
-            penalty_height = penalty_details["height"]
-            if (
-                isinstance(penalty_height, bool)
-                or not isinstance(penalty_height, int)
-                or not 0 <= penalty_height <= 0xFFFFFFFFFFFFFFFF
-            ):
-                raise RuntimeError(
-                    f"{context}.penalty_status.details.height must be a non-negative JSON u64"
-                )
-            typed_details = SumeragiEvidencePenaltyDetails(height=penalty_height)
-            penalty_status = SumeragiEvidenceAppliedPenaltyStatus(
-                status="applied",
-                details=typed_details,
-            )
-        else:
-            raise RuntimeError(
-                f"{context}.penalty_status.status must be pending or applied"
-            )
-        return SumeragiEvidenceRecord(
-            kind="NativeSumeragiEvidence",
-            class_=cast(
-                Literal["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"], evidence_class
-            ),
-            height=json_unsigned("height"),
-            epoch=json_unsigned("epoch"),
-            context_id=evidence_hash("context_id"),
-            instance=evidence_hash("instance"),
-            authority_generation=evidence_hash("authority_generation"),
-            offenders=tuple(offenders),
-            safety_violation=safety_violation,
-            native_frame_hash=evidence_hash("native_frame_hash"),
-            recorded_height=json_unsigned("recorded_height"),
-            recorded_view=json_unsigned("recorded_view"),
-            recorded_ms=json_unsigned("recorded_ms"),
-            consensus_admitted_height=json_unsigned("consensus_admitted_height"),
-            penalty_status=penalty_status,
+        return _parse_sumeragi_evidence_record(
+            ToriiClient, payload, context=context, hash_literal=_offline_hash_literal,
         )
 
     @staticmethod

@@ -65,13 +65,7 @@ impl LaneStoreAuthorities for TestLaneStoreAuthorities {
             return Ok(None);
         }
         let network = *self.state.network_id_ref();
-        if lane_instance(
-            &*self.crypto,
-            &network,
-            &view.chain_id().to_string(),
-            &record,
-        ) != instance
-        {
+        if lane_instance(&*self.crypto, &network, view.chain_id().as_ref(), &record) != instance {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "fixture lane authority has another instance",

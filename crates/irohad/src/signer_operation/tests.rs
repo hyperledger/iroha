@@ -43,7 +43,18 @@ enum Mutation {
     LostReservation,
     LostCompletion,
 }
+type CompletedOperation = (
+    SignerOperationReservationV1,
+    [u8; 32],
+    SignerOperationCommitmentV1,
+    [u8; 32],
+    SignerOperationCustodyV1,
+);
 #[derive(Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "these independent test fault switches exercise combinations of custody, observation, commit and journal failures"
+)]
 struct SourceState {
     active_binding: SignerCustodyBindingV1,
     enrollment: Option<(SignerCustodyBindingV1, SignerCustodyEnrollmentContextV1)>,
@@ -55,13 +66,7 @@ struct SourceState {
     audit: SignerOperationAuditHeadV1,
     reservation: Option<(SignerOperationReservationV1, [u8; 32])>,
     used_ids: BTreeSet<[u8; 32]>,
-    completed: Option<(
-        SignerOperationReservationV1,
-        [u8; 32],
-        SignerOperationCommitmentV1,
-        [u8; 32],
-        SignerOperationCustodyV1,
-    )>,
+    completed: Option<CompletedOperation>,
     reserve_override: Option<SignerOperationReservationV1>,
     mutate_after_reserve: Option<Mutation>,
     mutate_at_reserved: Option<(usize, Mutation)>,
@@ -153,10 +158,10 @@ impl SignerOperationStateSourceV1 for Source {
         binding: &SignerCustodyBindingV1,
     ) -> Result<SignerCustodyUseContextV1, SignerOperationErrorV1> {
         let mut state = self.state.lock().expect("test source lock");
-        if state.transition_commits > 0 {
-            if let Some(mutation) = state.mutate_on_transition_observe.take() {
-                state.mutate(mutation);
-            }
+        if state.transition_commits > 0
+            && let Some(mutation) = state.mutate_on_transition_observe.take()
+        {
+            state.mutate(mutation);
         }
         if state.fail_observe || binding != &state.active_binding || !state.initially_enrolled {
             return Err(SignerOperationErrorV1::StateUnavailable);
@@ -214,11 +219,11 @@ impl SignerOperationStateSourceV1 for Source {
             return Err(SignerOperationErrorV1::StateUnavailable);
         }
         state.reserved_reads += 1;
-        if let Some((index, mutation)) = state.mutate_at_reserved {
-            if index == state.reserved_reads {
-                state.mutate(mutation);
-                state.mutate_at_reserved = None;
-            }
+        if let Some((index, mutation)) = state.mutate_at_reserved
+            && index == state.reserved_reads
+        {
+            state.mutate(mutation);
+            state.mutate_at_reserved = None;
         }
         if state.fail_observe {
             return Err(SignerOperationErrorV1::StateUnavailable);
@@ -333,11 +338,11 @@ impl SignerOperationStateSourceV1 for Source {
         if state.fail_completed_phase == Some(phase) {
             return Err(SignerOperationErrorV1::StateUnavailable);
         }
-        if let Some((expected, mutation)) = state.mutate_at_completed {
-            if phase == expected {
-                state.mutate(mutation);
-                state.mutate_at_completed = None;
-            }
+        if let Some((expected, mutation)) = state.mutate_at_completed
+            && phase == expected
+        {
+            state.mutate(mutation);
+            state.mutate_at_completed = None;
         }
         if phase == SignerCommittedObservationPhaseV1::BeforeRelease {
             #[cfg(unix)]

@@ -701,12 +701,33 @@ fn retired_sumeragi_debug_commands_are_not_parseable() {
 #[test]
 fn fallback_config_derives_checked_signing_key() {
     let config = fallback_config();
+    assert_eq!(
+        config.http_transport_policy,
+        iroha::config::HttpTransportPolicy::Ordinary
+    );
     let payload = b"offline fallback config signing smoke";
     let signature = iroha_crypto::Signature::try_new(config.key_pair.private_key(), payload)
         .expect("fallback signing key should sign");
     signature
         .verify(config.key_pair.public_key(), payload)
         .expect("fallback signature should verify");
+}
+#[test]
+fn configuration_json_reports_selected_http_transport_policy() {
+    let mut config = fallback_config();
+    let filesystem = client_config::FilesystemConfig::default();
+    for policy in [
+        iroha::config::HttpTransportPolicy::Ordinary,
+        iroha::config::HttpTransportPolicy::DirectLoopback,
+    ] {
+        config.http_transport_policy = policy;
+        let json = config_to_json(&config, &filesystem).unwrap();
+        assert_eq!(
+            json.get("http_transport_policy")
+                .and_then(norito::json::Value::as_str),
+            Some(policy.as_str())
+        );
+    }
 }
 #[test]
 fn fallback_config_is_limited_to_local_commands() {
@@ -2702,6 +2723,7 @@ impl CaptureContext {
             key_pair,
             basic_auth: None,
             api_token: None,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: Url::parse("http://127.0.0.1/").unwrap(),
             torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
             transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,

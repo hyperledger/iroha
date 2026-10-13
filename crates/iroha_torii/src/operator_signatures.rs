@@ -300,7 +300,7 @@ pub struct OperatorSignatures {
 }
 /// Invalid operator-signature freshness, replay, or body-read deadline configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct OperatorSignatureConfigError;
+pub struct OperatorSignatureConfigError;
 impl fmt::Display for OperatorSignatureConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(
@@ -315,10 +315,10 @@ impl std::error::Error for OperatorSignatureConfigError {}
 /// Identity-bound routes receive this extension without receiving operator
 /// admission; their handler must still bind the key to its governed role.
 #[derive(Clone, Debug)]
-pub(crate) struct AuthenticatedOperatorPublicKey(pub PublicKey);
+pub struct AuthenticatedOperatorPublicKey(pub PublicKey);
 /// Route-local operator authentication state with an exact body limit.
 #[derive(Clone)]
-pub(crate) struct BoundedOperatorAccessState {
+pub struct BoundedOperatorAccessState {
     /// Shared Torii state used for operator authentication and replay protection.
     pub(crate) app: SharedAppState,
     /// Maximum body bytes authentication may buffer for this route.
@@ -721,6 +721,11 @@ async fn collect_operator_signature_body(
     }
 }
 /// Build operator signature headers for an internal Torii request.
+///
+/// # Errors
+///
+/// Returns an error if nonce generation, request-message construction, signing,
+/// or encoding the signature headers fails.
 pub fn signed_request_headers(
     key_pair: &KeyPair,
     network_id: &NetworkId,
@@ -758,7 +763,12 @@ fn signed_request_headers_with_rng<R: TryCryptoRng>(
 /// is deliberately not checked against the privileged operator allow-list: the proxy handler
 /// remains responsible for binding this authenticated peer identity to the request's authoritative
 /// route.
-pub(crate) fn signed_torii_proxy_request_headers(
+///
+/// # Errors
+///
+/// Returns an error if nonce generation, route-bound message construction, signing,
+/// or encoding the signature headers fails.
+pub fn signed_torii_proxy_request_headers(
     sender_key_pair: &KeyPair,
     network_id: &NetworkId,
     target_peer_id: &PeerId,
@@ -879,7 +889,7 @@ pub async fn enforce_operator_access(
     private_operator_response(enforce_operator_access_inner(app, req, next, max_body_bytes).await)
 }
 /// Enforce operator authentication while buffering no more than the route-specific body limit.
-pub(crate) async fn enforce_bounded_operator_access(
+pub async fn enforce_bounded_operator_access(
     State(state): State<BoundedOperatorAccessState>,
     req: Request,
     next: Next,
@@ -1132,23 +1142,25 @@ mod tests {
         token: &str,
         data_dir: &std::path::Path,
     ) -> crate::operator_auth::OperatorAuth {
-        let mut config = ToriiOperatorAuth::default();
-        config.enabled = true;
-        config.tokens = vec![token.to_owned()];
-        config.rate_per_minute = None;
-        config.burst = None;
-        config.webauthn = Some(OperatorWebAuthnConfig {
-            rp_id: "example.com".to_owned(),
-            rp_name: "Iroha Operator".to_owned(),
-            origins: vec![Url::parse("https://example.com").expect("operator origin")],
-            user_id: b"operator".to_vec(),
-            user_name: "operator".to_owned(),
-            user_display_name: "Operator".to_owned(),
-            challenge_ttl: Duration::from_secs(120),
-            session_ttl: Duration::from_secs(600),
-            require_user_verification: true,
-            allowed_algorithms: vec![OperatorWebAuthnAlgorithm::Es256],
-        });
+        let config = ToriiOperatorAuth {
+            enabled: true,
+            tokens: vec![token.to_owned()],
+            rate_per_minute: None,
+            burst: None,
+            webauthn: Some(OperatorWebAuthnConfig {
+                rp_id: "example.com".to_owned(),
+                rp_name: "Iroha Operator".to_owned(),
+                origins: vec![Url::parse("https://example.com").expect("operator origin")],
+                user_id: b"operator".to_vec(),
+                user_name: "operator".to_owned(),
+                user_display_name: "Operator".to_owned(),
+                challenge_ttl: Duration::from_secs(120),
+                session_ttl: Duration::from_secs(600),
+                require_user_verification: true,
+                allowed_algorithms: vec![OperatorWebAuthnAlgorithm::Es256],
+            }),
+            ..Default::default()
+        };
         crate::operator_auth::OperatorAuth::new(
             config,
             data_dir.to_path_buf(),
@@ -1268,9 +1280,11 @@ mod tests {
     #[test]
     fn operator_signatures_reject_short_nonce_retention() {
         let key_pair = checked_ed25519_keypair();
-        let mut config = ToriiOperatorSignatures::default();
-        config.max_clock_skew = Duration::from_secs(60);
-        config.nonce_ttl = Duration::from_secs(120);
+        let config = ToriiOperatorSignatures {
+            max_clock_skew: Duration::from_secs(60),
+            nonce_ttl: Duration::from_secs(120),
+            ..Default::default()
+        };
         let error = match OperatorSignatures::new(
             config,
             key_pair.public_key().clone(),
@@ -1286,8 +1300,10 @@ mod tests {
     #[test]
     fn operator_signatures_reject_zero_body_read_timeout() {
         let key_pair = checked_ed25519_keypair();
-        let mut config = ToriiOperatorSignatures::default();
-        config.body_read_timeout = Duration::ZERO;
+        let config = ToriiOperatorSignatures {
+            body_read_timeout: Duration::ZERO,
+            ..Default::default()
+        };
         let error = match OperatorSignatures::new(
             config,
             key_pair.public_key().clone(),
@@ -1427,8 +1443,7 @@ mod tests {
             .expect("first use ok");
         let replay = auth
             .authorize_bytes(&headers, &crate::Method::POST, &uri, body)
-            .err()
-            .expect("the identical signed request must be rejected as replay");
+            .expect_err("the identical signed request must be rejected as replay");
         assert_eq!(replay.code, "operator_signature_replay");
         headers.insert(
             HEADER_OPERATOR_PUBLIC_KEY,
@@ -1438,8 +1453,7 @@ mod tests {
         );
         let err = auth
             .authorize_bytes(&headers, &crate::Method::POST, &uri, body)
-            .err()
-            .expect("retired key spelling must be rejected before replay lookup");
+            .expect_err("retired key spelling must be rejected before replay lookup");
         assert_eq!(err.code, "operator_signature_invalid");
     }
     #[test]
@@ -2414,8 +2428,10 @@ mod tests {
         let node_public_key = app.da_receipt_signer.public_key().clone();
         let network_id = *app.state.network_id_ref();
         let telemetry = app.telemetry.clone();
-        let mut cfg = ToriiOperatorSignatures::default();
-        cfg.enabled = false;
+        let cfg = ToriiOperatorSignatures {
+            enabled: false,
+            ..Default::default()
+        };
         let app_mut = Arc::get_mut(&mut app).expect("unique app state required");
         app_mut.operator_auth = Arc::new(operator_auth);
         app_mut.operator_signatures = Arc::new(

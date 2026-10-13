@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::policy as generated_policy;
 use iroha_data_model::{
     sorafs::{capacity::CapacityDeclarationRecord, reserve::ReserveLifecycleStage},
@@ -66,7 +67,7 @@ pub(super) fn codec_original(coordinator: &ManagedProviderCapacity) -> Original 
         "1".parse().unwrap(),
         observed_block_time_ms / 1000,
         observed_block_time_ms / 1000,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     let economics = provider_economics::derive_retained(
         &plan,
@@ -105,14 +106,11 @@ fn capacity_original_roundtrip_preserves_large_checkpoint_and_prior_capacity_byt
         1,
         1,
         2,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     ));
     // Raw previous bytes exercise codec admission only; no proof validator sees this specimen.
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "declare").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let restored = journal::read_intent(&directory).unwrap().unwrap();
     assert_eq!(
@@ -220,7 +218,7 @@ fn capacity_original_utc_and_fee_terms_never_renew_and_large_components_refuse()
         1,
         1,
         2,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     ));
     assert!(
         original

@@ -27,6 +27,10 @@ fn current_collection_read_memory_reservation(
 }
 
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn current_routed_read_memory_envelope(
     app: &SharedAppState,
 ) -> Result<QueryFanoutMemoryEnvelope, Response> {
@@ -139,7 +143,7 @@ fn collection_query_body(
     bytes: collections::memory::BytePolicy,
 ) -> Result<Vec<u8>, Error> {
     norito::json::to_json_bounded_boxed(query, bytes.source_frame_bytes)
-        .map(|boxed| boxed.into_vec())
+        .map(<[u8]>::into_vec)
         .map_err(|_| collections::memory::capacity("forwarded query").into())
 }
 
@@ -304,6 +308,10 @@ fn empty_collection_page_response(routed_by: &'static str, include_total: bool) 
 
 /// Decode the query carried by a routed collection request.
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_routed_collection_query(
     plan: ToriiRoutedReadRequestDecodePlan,
     endpoint: ToriiReadEndpointV1,

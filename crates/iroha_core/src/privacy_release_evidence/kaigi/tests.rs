@@ -50,20 +50,19 @@ fn real_kaigi_release_builders_preserve_governed_keys_and_final_carriers() {
         } else {
             &participant
         };
-        let sequence = if action == KaigiAuthorizationActionV1::HostEnd {
-            0
-        } else {
-            1
-        };
+        let sequence = u64::from(action != KaigiAuthorizationActionV1::HostEnd);
         let generated =
             build_kaigi_release_authorization_v1(network, &record, subject, sequence, action);
         assert_eq!(generated.root, record.roster_root());
         let proof = ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), generated.proof.clone());
-        assert!(crate::zk::verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &proof,
-            keys[0].record.key.as_ref()
-        ));
+        assert!(
+            crate::zk::verify_backend(
+                ZK_BACKEND_NATIVE_PIPA_R,
+                &proof,
+                keys[0].record.key.as_ref()
+            )
+            .expect("verification attempt must complete for this semantic fixture")
+        );
         match action {
             KaigiAuthorizationActionV1::Join => assert_eq!(
                 generated.join(call.id(), subject).proof,
@@ -79,28 +78,37 @@ fn real_kaigi_release_builders_preserve_governed_keys_and_final_carriers() {
             _ => unreachable!(),
         }
     }
-    assert!(crate::zk::verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), created.proof),
-        keys[0].record.key.as_ref()
-    ));
+    assert!(
+        crate::zk::verify_backend(
+            ZK_BACKEND_NATIVE_PIPA_R,
+            &ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), created.proof),
+            keys[0].record.key.as_ref()
+        )
+        .expect("verification attempt must complete for this semantic fixture")
+    );
     let usage = build_kaigi_release_usage_v1(network, &record);
     assert_eq!(usage.duration_ms, 1200);
     assert_eq!(usage.billed_gas, 345);
     let proof = ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), usage.proof.unwrap());
-    assert!(crate::zk::verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &proof,
-        keys[1].record.key.as_ref()
-    ));
+    assert!(
+        crate::zk::verify_backend(
+            ZK_BACKEND_NATIVE_PIPA_R,
+            &proof,
+            keys[1].record.key.as_ref()
+        )
+        .expect("verification attempt must complete for this semantic fixture")
+    );
     let mut changed: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
     changed.aux.push(1);
-    assert!(!crate::zk::verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &ProofBox::new(
-            ZK_BACKEND_NATIVE_PIPA_R.into(),
-            norito::encode_canonical(&changed).unwrap()
-        ),
-        keys[1].record.key.as_ref()
-    ));
+    assert!(
+        !crate::zk::verify_backend(
+            ZK_BACKEND_NATIVE_PIPA_R,
+            &ProofBox::new(
+                ZK_BACKEND_NATIVE_PIPA_R.into(),
+                norito::encode_canonical(&changed).unwrap()
+            ),
+            keys[1].record.key.as_ref()
+        )
+        .expect("verification attempt must complete for this semantic fixture")
+    );
 }

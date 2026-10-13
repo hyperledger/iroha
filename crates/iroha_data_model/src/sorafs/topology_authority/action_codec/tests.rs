@@ -153,7 +153,7 @@ fn boxed_expiry_preserves_complete_original_wire_schema_identity() {
     assert!(!actual.contains_key::<Box<TopologyExpireV1>>());
     assert_eq!(crate::wire_schema::wire_root_defects(&actual), Vec::new());
     assert_eq!(
-        crate::wire_schema::wire_schema_hash_of(&[&actual], [0; 32]),
-        crate::wire_schema::wire_schema_hash_of(&[&original], [0; 32])
+        crate::wire_schema::wire_schema_hash_of(&[&actual], &[], [0; 32]),
+        crate::wire_schema::wire_schema_hash_of(&[&original], &[], [0; 32])
     );
 }

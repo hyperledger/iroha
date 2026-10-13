@@ -109,14 +109,19 @@ transaction preflight caches only a successful, matching probe.
 
 Ordinary source-checkout unit tests can use a separate current Debug N-API
 producer. From the repository root, select the worktree's existing warm Cargo
-lane and an external artifact directory whose parent is owned mode `0700`:
+lane and create a private run directory under this checkout's
+`target/qualification`. The producer and loader require the artifact to remain
+in that canonical subtree; `mktemp -d` creates the owned mode `0700` parent:
 
 ```bash
+iroha_root="$(pwd -P)"
+mkdir -p "$iroha_root/target/qualification"
+iroha_native_run="$(mktemp -d "$iroha_root/target/qualification/js-native-local-XXXXXXXX")"
 python3.12 -I -S -B scripts/native_js_local_unit.py produce \
-  --root "$PWD" --target-dir "$PWD/target/cargo-fast/<existing-lane>" \
-  --output /absolute/owner-only-directory/js-native \
+  --root "$iroha_root" --target-dir "$iroha_root/target/cargo-fast/<existing-lane>" \
+  --output "$iroha_native_run/artifact" \
   --config /absolute/local-native-tools.json --acknowledge-local-unit-recipe
-(cd javascript/iroha_js && IROHA_JS_NATIVE_DIR=/absolute/owner-only-directory/js-native \
+(cd "$iroha_root/javascript/iroha_js" && IROHA_JS_NATIVE_DIR="$iroha_native_run/artifact" \
   node ./scripts/run-test-profile.mjs unit)
 ```
 
@@ -124,8 +129,8 @@ The tool configuration has exactly `python`, `cargo`, `rustc`, `rustdoc`,
 `node`, `clang`, `ld`, `codesign`, `sdk` and `developer_dir` paths. Use the
 current canonical Python 3.12 and Node executables, stock Rust 1.93.1 tools,
 and the selected Xcode's macOS SDK, clang and Apple linker. The producer uses
-locked, offline Cargo with its native jobserver and incremental compilation;
-it creates no additional Cargo target. It retains the actual compiler JSON,
+locked, offline Cargo with one job, incremental compilation disabled and zero
+Debug symbols; it creates no additional Cargo target. It retains the actual compiler JSON,
 complete dep-info after Cargo's natural successful terminal, original source
 and native build inputs, exact tools, and independently copied emitted bytes.
 The real Node consumer checks the current ABI and required exports before the
@@ -2312,14 +2317,18 @@ const count = await torii.getSumeragiEvidenceCount();
 console.log(`Committed evidence count: ${count.count}`);
 ```
 
-The first-release JSON contract is closed: each item is a
-`NativeSumeragiEvidence` record with the original instance, epoch context, signing
-generation, ordered historical offenders, original frame digest, and
-a non-null consensus admission height and
-a `pending`, `applied`, or `cancelled` penalty status. Unknown response fields
-and retired evidence kinds are rejected. Unsigned 64-bit values above
-`Number.MAX_SAFE_INTEGER` are returned as `bigint` without rounding. Count
-responses are capped at 1 KiB and JSON list responses at 1 MiB.
+The first-release JSON contract is the closed `{ kind, value }` envelope.
+`NativeSumeragiEvidence` values retain the root or lane scope, original instance,
+epoch context, signing generation, ordered historical offenders and frame digest.
+`SccpForgeryEvidence` values retain the exact submitted certificate bytes, optional
+anchor, recorded generation liability and attribution. Both carry a non-null
+consensus admission height and a closed `pending` or `applied` penalty status.
+Read the variant payload through `item.value`; parsing these observations does not
+verify signatures or establish historical-state authority. Unknown fields,
+retired flat layouts and response kinds that differ from the requested filter
+are rejected. Unsigned 64-bit values above `Number.MAX_SAFE_INTEGER` are returned
+as `bigint` without rounding. Count responses are capped at 1 KiB and JSON list
+responses at 1 MiB.
 
 ## SoraFS Storage Helpers
 
@@ -3080,26 +3089,19 @@ deterministic unit tests and use sensible intervals in production flows.
 
 `submitIsoMessage` combines the builders with the submission/wait helpers so callers can
 provide structured ISO 20022 fields instead of hand-written XML. Pass `kind: "pacs.009"`
-for PvP funding legs (defaults to pacs.008), and include `wait` options when you want the
-helper to poll until Torii returns a deterministic status. The helper sets pragmatic MIME
+for bank credit transfers (defaults to pacs.008), and include `wait` options to poll
+Torii-reported status. Polling does not independently verify a monetary receipt. The helper sets pragmatic MIME
 types (`application/pacs008+xml` or `application/pacs009+xml`) and reuses the same
 `AbortSignal` for both the submission and polling phases:
 
 ```js
-const settlement = await torii.submitIsoMessage(
-  {
-    instructionId: "pvpfund-1",
-    amount: { currency: "USD", value: "1250.50" },
-    instigatingAgent: { bic: "BOFAUS3N" },
-    instructedAgent: { bic: "DEUTDEFF" },
-    purposeCode: "SECU",
-  },
-  {
-    kind: "pacs.009",
-    wait: { maxAttempts: 10, pollIntervalMs: 2_000 },
-  },
-);
-console.log(settlement.status, settlement.transaction_hash);
+// retainedPayment is the payer-approved BuildPacs009Options, including
+// creationDateTime, uetr, and all five nexusSettlement fields below.
+const reported = await torii.submitIsoMessage(retainedPayment, {
+  kind: "pacs.009",
+  wait: { maxAttempts: 10, pollIntervalMs: 2_000 },
+});
+console.log(reported.status, reported.transaction_hash);
 ```
 
 Pass either `kind` or its alias `messageKind`; if both are provided they must match or the
@@ -3195,39 +3197,57 @@ how to wire `ISO_POLL_ATTEMPTS`, `ISO_POLL_INTERVAL_MS`, `ISO_MESSAGE_ID`, and
 
 ### ISO 20022 Message Builders
 
-The SDK exports `buildPacs008Message` and `buildPacs009Message` helpers that map
-structured inputs to standards-compliant XML while validating identifiers
-described in the [ISO field mapping guide](../../specs/finance/settlement_iso_mapping.md).
-Pass the required identifiers (BIC, amount, purpose code, etc.) and the helpers
-emit deterministic XML payloads ready for submission via the Torii client. In
-addition to the length/character checks, IBAN inputs must pass the canonical
-mod-97 checksum so builders fail fast when an attestation hash contains a typo.
-Creation timestamps must include a timezone offset (`Z` or `±HH:MM`) so the
-payload is deterministic across hosts; timezone-less strings are rejected to
-avoid lossy local-time conversions.
+The SDK exports `buildPacs008Message` and `buildPacs009Message` for the native
+Global payment profile. Both require an explicit payer-retained `uetr` and a
+`nexusSettlement` object with exactly five fields:
+
+- `networkId`: an immutable `NetworkId` parsed from the selected network's canonical hash literal.
+- `expiresAtHeight`: the payer-selected positive absolute block height (exact u64).
+- `sourceAccountId` and `targetAccountId`: exact canonical account identities.
+- `assetDefinitionId`: the exact canonical asset definition identity.
+
+The builders emit these fields under the owned
+`urn:iroha:iso20022:nexus:v1` XML extension, outside `CdtTrfTxInf`. Ordinary
+`supplementaryData` remains separate JSON metadata. The lowercase UETR becomes
+the payer-scoped business reference; gateway `messageId`, `transactionId`, and
+local clocks never replace it or derive expiry. Retain the UETR and every native
+term unchanged when another gateway retries the same instruction. IBAN/currency
+mappings validate the explicit identities; they do not choose them.
+
+Canonical account validation uses the authenticated native SDK artifact. IBANs
+must pass mod-97, and creation timestamps must include a timezone offset (`Z` or
+`±HH:MM`). Debtor and creditor IBANs must match the bridge's configured bindings.
+A `pacs.009` submission here describes one Global payment; it does not construct
+an autonomous two-bank PvP operation.
 
 ```js
-import { buildPacs008Message, ToriiClient } from "@iroha/iroha-js";
+import { buildPacs008Message, NetworkId, ToriiClient } from "@iroha/iroha-js";
 
-const settlement = buildPacs008Message({
-  messageId: "iso-demo-1",
-  instructionId: "instr-1",
-  settlementDate: "2026-02-10",
-  amount: { currency: "EUR", value: "25.00" },
-  instigatingAgent: { bic: "DEUTDEFF", lei: "529900ODI3047E2LIV03" },
-  instructedAgent: { bic: "COBADEFF" },
-  debtorAccount: { iban: "DE89370400440532013000" },
-  creditorAccount: { otherId: "sorauﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB" },
-  purposeCode: "SECU",
-  supplementaryData: { account_id: "sorauﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB", leg: "delivery" },
-});
-
-const torii = new ToriiClient("http://localhost:8080");
-const status = await torii.submitIsoPacs008AndWait(settlement, {
-  wait: { maxAttempts: 15, pollIntervalMs: 3_000 },
-});
-console.log(status.status, status.transaction_hash);
+// payment is a durably retained, payer-approved BuildPacs008Options document.
+// Its JSON networkId is the exact selected network hash literal. The remaining
+// fields include messageId, instructionId, creationDateTime, amount, agents,
+// account IBANs, uetr, and the five explicit native settlement terms.
+async function submitRetainedPayment(payment, operatorSigningContext) {
+  const xml = buildPacs008Message({
+    ...payment,
+    nexusSettlement: {
+      ...payment.nexusSettlement,
+      networkId: NetworkId.parse(payment.nexusSettlement.networkId),
+    },
+  });
+  const torii = new ToriiClient("http://localhost:8080", { operatorSigningContext });
+  const reported = await torii.submitIsoPacs008AndWait(xml, {
+    wait: { maxAttempts: 15, pollIntervalMs: 3_000 },
+  });
+  console.log("Node-reported status", reported.status, reported.transaction_hash);
+}
 ```
+
+The operator signing context must name that same network. HTTP acceptance and
+status polling are observations, not independently verified settlement receipts
+or permission to credit a customer. Verify the original successful native effect
+against the retained intent before crediting it; a rejected retry carrier remains
+rejected even when that original business effect succeeded.
 
 For advanced flows, supply optional `debtorAgent`/`creditorAgent` (additional BIC/LEI pairs)
 and `debtor`/`creditor` party metadata (legal name, LEI, proprietary IDs with custom scheme
@@ -3235,8 +3255,8 @@ codes). The builders insert those records as `DbtrAgt`/`CdtrAgt` and `Dbtr`/`Cdt
 PvP/RFQ pipelines can mirror the ISO 20022 guidance in
 [`settlement_iso_mapping.md`](../../specs/finance/settlement_iso_mapping.md) without hand
 crafting XML. Both builders also accept optional debtor/creditor accounts, purpose codes, and
-structured supplementary JSON, making it trivial to carry Norito identifiers alongside the
-standard MT-style fields.
+structured supplementary JSON. That metadata cannot substitute for the required
+owned native settlement extension.
 Accounts may also carry proxy aliases (for example, phone-number or email handles) via
 `proxy: { id, typeCode?, typeProprietary? }`. When present, the proxy is emitted under `Prxy`
 alongside the IBAN, enforcing `Max2048Text` for the identifier and requiring either a 1-4
@@ -3247,8 +3267,7 @@ bridge’s canonical profile. When callers override `messageDefinitionId`, the h
 concrete value for both `MsgDefIdr` and the `Document` XSD namespace.
 The `pacs.009` helper defaults `Purp` to `SECU` (the securities funding category purpose) but
 accepts any valid ISO code when callers intentionally emit non-securities transfers; invalid
-values still throw before submission so PvP funding flows stay aligned with the mapping guide
-while other ISO scenarios remain supported.
+values still throw before submission.
 
 Cash amounts are normalised to the correct ISO 4217 minor units before emission (for example,
 `JPY` rejects fractional values, while `BHD` pads to three decimals). The helpers pad shorter
@@ -3256,9 +3275,10 @@ values with zeros and reject inputs that exceed the allowed precision so callers
 non-compliant interbank payloads.
 
 The `recipes/iso_bridge_builder.mjs` example wires those helpers into a CLI that
-derives sensible defaults, accepts overrides via environment variables or a JSON
-config file, prints the generated XML, and optionally submits the message to
-Torii when `ISO_SUBMIT=1`.
+requires retained UETR/native terms from environment variables or a JSON config
+file, prints the generated XML, and optionally submits with a runtime operator
+signer when `ISO_SUBMIT=1`. Sample payment builders also require caller-owned
+`uetr` and `nexusSettlement`; only demo envelope fields receive defaults.
 
 ## Contract Deployment Helpers
 
@@ -4224,8 +4244,8 @@ file; selecting the live suite without `IROHA_TORII_INTEGRATION_URL` fails.
 - `IROHA_TORII_INTEGRATION_MUTATE` — set to `1` to enable mutation tests (registering disposable domains via the builder helpers). The docker harness described below enables this flag automatically.
 - `IROHA_TORII_INTEGRATION_STREAM_ENABLED` — set to `1` (alongside `IROHA_TORII_INTEGRATION_MUTATE=1`) to exercise the event-stream coverage that waits for a `Pipeline.Block` SSE and asserts the typed payload mirrors Torii’s stream schema. Leave unset when SSE endpoints are disabled or proxied away.
 - `IROHA_TORII_INTEGRATION_ISO_ENABLED` — set to `1` to exercise the ISO bridge smoke test (submits a tiny `pacs.008` payload and fetches its status). Leave unset/`0` to skip the ISO coverage when the bridge runtime is disabled.
-- `IROHA_TORII_INTEGRATION_ISO_PACS008` — optional JSON object merged into the default ISO builder fields (useful for overriding BICs/amounts/message IDs when replaying production fixtures).
-- `IROHA_TORII_INTEGRATION_ISO_PACS009` — optional JSON object merged into the default pacs.009 builder fields (same structure as the pacs.008 overrides; handy for replaying RTGS transfers with custom identifiers).
+- `IROHA_TORII_INTEGRATION_ISO_PACS008` — JSON fields required when exercising pacs.008 integration: retain explicit `uetr` and all five `nexusSettlement` terms (networkId as a canonical string), plus the configured IBAN bindings.
+- `IROHA_TORII_INTEGRATION_ISO_PACS009` — the corresponding explicit retained pacs.009 intent and configured payment fields; no business reference, network, or expiry is generated by the harness.
 - `IROHA_TORII_INTEGRATION_ISO_ALIAS` — optional ISO alias (for example, `GB82 WEST 1234 5698 7654 32`) used by the alias-resolution integration test. Set alongside `IROHA_TORII_INTEGRATION_ISO_ENABLED=1` when the ISO runtime is active.
 - `IROHA_TORII_INTEGRATION_ISO_ALIAS_INDEX` — optional deterministic index (integer) for exercising `resolveAliasByIndex`. Provide this when the target node exposes indexed alias metadata so the integration suite can cover both alias endpoints.
 - `IROHA_TORII_INTEGRATION_SORAFS_ENABLED` — set to `1` to run the SoraFS registry/storage, payload-range, and PoR tests. An enabled SoraFS lane fails unless the payload manifest, positive range length, and PoR week inputs are all supplied and the endpoints respond.

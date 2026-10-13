@@ -48,11 +48,11 @@ unsafe impl GlobalAlloc for Allocator {
         // SAFETY: forward the caller's unchanged allocation request.
         let pointer = unsafe { System.alloc(layout) };
         let _ = OBSERVED.try_with(|active| {
-            if let Some(mut value) = active.get() {
-                if value.layout == layout {
-                    value.pointer = pointer as usize;
-                    active.set(Some(value));
-                }
+            if let Some(mut value) = active.get()
+                && value.layout == layout
+            {
+                value.pointer = pointer as usize;
+                active.set(Some(value));
             }
         });
         pointer
@@ -60,15 +60,16 @@ unsafe impl GlobalAlloc for Allocator {
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         let _ = OBSERVED.try_with(|active| {
-            if let Some(mut value) = active.get() {
-                if value.layout == layout && value.pointer == pointer as usize {
-                    // SAFETY: Scope retains this borrow on this thread until
-                    // observation is disabled; the test destroys its World
-                    // shell inside that scope. No pointer escapes the observer.
-                    value.reserved_at_free = unsafe { &*value.original_budget }.reserved_bytes();
-                    value.frees += 1;
-                    active.set(Some(value));
-                }
+            if let Some(mut value) = active.get()
+                && value.layout == layout
+                && value.pointer == pointer as usize
+            {
+                // SAFETY: Scope retains this borrow on this thread until
+                // observation is disabled; the test destroys its World
+                // shell inside that scope. No pointer escapes the observer.
+                value.reserved_at_free = unsafe { &*value.original_budget }.reserved_bytes();
+                value.frees += 1;
+                active.set(Some(value));
             }
         });
         // SAFETY: the original pointer/layout pair is returned unchanged.

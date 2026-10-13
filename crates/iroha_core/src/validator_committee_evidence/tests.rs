@@ -28,6 +28,7 @@ use iroha_data_model::{
         epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
         finality::NativeFinalityArtifact,
     },
+    sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
     transaction::signed::TransactionResult,
 };
 use iroha_model_base::peer::PeerId;
@@ -55,14 +56,14 @@ fn limits() -> NativeFinalityLimits {
 fn validate_anchor(journal: &NativeFinalityJournal, network: NetworkId) {
     let genesis = journal.blocks[0].decode_block(limits()).unwrap();
     assert_eq!(genesis.hash(), network.into_genesis_hash());
-    let instance = crate::sumeragi::node::root_instance(&genesis, &chain_id().to_string()).unwrap();
+    let instance = crate::sumeragi::node::root_instance(&genesis, chain_id().as_ref()).unwrap();
     assert_ne!(instance, Hash32::ZERO);
 }
 fn outputs(block: &mut SignedBlock) {
     let values = (0..block.external_transactions().count())
         .map(|index| {
             ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
-                input_index: index as u32,
+                input_index: u32::try_from(index).expect("fixture value fits u32"),
                 result: TransactionResult::new(Ok(Vec::new())),
                 completions: Vec::new(),
             })
@@ -72,10 +73,10 @@ fn outputs(block: &mut SignedBlock) {
         .set_execution_outputs(
             values,
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .unwrap();
@@ -188,13 +189,14 @@ fn certify(keys: &[KeyPair], header: &BlockHeader, bytes: &[u8]) -> iroha_sumera
                 height: header.height,
                 view: 0,
                 block_hash: header.hash(&crypto),
-                result: result_of_preimage(bytes),
+                result: result_of_preimage(bytes).unwrap(),
                 signer: index,
                 sig: iroha_sumeragi::types::Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = KeyPairSigner::new(&keys[index as usize])
                 .unwrap()
-                .sign(&vote.preimage());
+                .sign(&vote.preimage())
+                .unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -217,10 +219,12 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             )
         })
         .collect::<Vec<_>>();
-    let mut policy = SumeragiNposParameters::default();
-    policy.epoch_length_blocks = NonZeroU64::new(10).unwrap();
-    policy.evidence_horizon_blocks = 10;
-    policy.slashing_delay_blocks = 10;
+    let policy = SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(10).unwrap(),
+        evidence_horizon_blocks: 10,
+        slashing_delay_blocks: 10,
+        ..Default::default()
+    };
     let mut genesis = crate::sumeragi::test_chain::signed_genesis_fixture(
         &chain_id(),
         &KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519),
@@ -232,7 +236,7 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
     )
     .unwrap();
     let network = NetworkId::from_genesis_hash(genesis.hash());
-    let instance = crate::sumeragi::node::root_instance(&genesis, &chain_id().to_string()).unwrap();
+    let instance = crate::sumeragi::node::root_instance(&genesis, chain_id().as_ref()).unwrap();
     let mut current = crate::sumeragi::epoch::authenticated_genesis(&genesis)
         .map(|genesis| genesis.into_parts().0)
         .unwrap();
@@ -257,7 +261,23 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .unwrap(),
     )
     .unwrap();
-    let mut parent_result = result_of_preimage(&initial.preimage().unwrap());
+    let initial_x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        *network.as_bytes(),
+        1,
+        u64::try_from(genesis.header().creation_time().as_millis()).unwrap(),
+    )
+    .unwrap();
+    let initial = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+        initial_x,
+        initial,
+        iroha_genesis::signed_genesis_consensus_metadata(&genesis)
+            .unwrap()
+            .sumeragi_context
+            .root_scope
+            .into(),
+    )
+    .unwrap();
+    let mut parent_result = result_of_preimage(&initial.preimage().unwrap()).unwrap();
     genesis = genesis.with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
         Vec::new(),
         Vec::new(),
@@ -386,7 +406,8 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             availability_digest: Hash32::ZERO,
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: crate::sumeragi::epoch_beacon::control::encode(pulse).unwrap(),
+            control_witness: crate::sumeragi::epoch_beacon::control::encode(pulse.as_ref())
+                .unwrap(),
         };
         let config = ScheduledConfig {
             height,
@@ -437,6 +458,22 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
             .unwrap(),
         )
         .unwrap();
+        let x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *network.as_bytes(),
+            height,
+            u64::try_from(block.header().creation_time().as_millis()).unwrap(),
+        )
+        .unwrap();
+        let result = iroha_data_model::sumeragi_finality::CertifiedResultV1::new(
+            x,
+            result,
+            iroha_genesis::signed_genesis_consensus_metadata(&history[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope
+                .into(),
+        )
+        .unwrap();
         let preimage = result.preimage().unwrap();
         let qc = certify(&keys, &header, &preimage);
         block = block.with_commit_certificate(Some(
@@ -485,7 +522,7 @@ fn evidence_fixture() -> ValidatorCommitteeProvisioningEvidenceV1 {
         .take(3)
         .enumerate()
         .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
-            signer_index: index as u16,
+            signer_index: u16::try_from(index).expect("fixture value fits u16"),
             signature: Signature::new(key.private_key(), &preimage),
         })
         .collect();
@@ -534,7 +571,12 @@ fn committee_boundary_requires_exact_native_quorum() {
     let block = selecting.decode_block(limits()).unwrap();
     let certificate = block.commit_certificate().unwrap();
     let header: BlockHeader = norito::decode_canonical(certificate.consensus_header()).unwrap();
-    let result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let result = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let result = result.commitment();
     let qc: iroha_sumeragi::message::Qc =
         norito::decode_canonical(certificate.commit_qc()).unwrap();
     assert_eq!(header.height, 10);
@@ -574,24 +616,21 @@ fn committee_boundary_requires_exact_native_quorum() {
         iroha_sumeragi::crypto::Verifier::new(&crypto, &header.instance, &epoch.id, &committee);
     assert_eq!(verifier.verify_qc(&qc), Ok(()));
     let resign = |qc: &mut iroha_sumeragi::message::Qc, count: usize| {
-        qc.signers =
-            iroha_sumeragi::types::Bitmap::from_indices(4, (0..count).map(|index| index as u32))
-                .unwrap();
+        qc.signers = iroha_sumeragi::types::Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let signatures = keys
             .iter()
             .take(count)
-            .map(|key| Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
+            .map(|key| {
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
+                    .expect("canonical native quorum share")
+            })
             .collect::<Vec<_>>();
         qc.agg_sig = iroha_sumeragi::types::AggregateSignature(
-            iroha_crypto::bls_normal_aggregate_signatures(
-                &signatures
-                    .iter()
-                    .map(Signature::payload)
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::aggregate(&signatures).unwrap(),
         );
     };
     let mut insufficient = qc.clone();

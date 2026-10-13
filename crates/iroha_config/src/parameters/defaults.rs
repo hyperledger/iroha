@@ -1143,8 +1143,10 @@ pub mod network {
         nonzero!(128 * 1024 * 1024_usize);
     /// Maximum low-priority stream wire bytes retained per peer, including frame prefixes; the
     /// inbound transport mirrors this as separate process-wide source and alignment-scratch pools.
+    /// This funds plaintext and encryption copies for both 17 MiB BlockSync and gossip
+    /// classes, plus their bounded envelopes, without sharing either class's reservation.
     pub const P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES: NonZeroUsize =
-        nonzero!(64 * 1024 * 1024_usize);
+        nonzero!(72 * 1024 * 1024_usize);
     /// Maximum encrypted high-priority outbound frames retained per peer.
     pub const P2P_OUTBOUND_FRAME_QUEUE_MAX_HIGH_FRAMES: NonZeroUsize = nonzero!(8192_usize);
     /// Maximum encrypted low-priority outbound frames retained per peer.
@@ -1207,7 +1209,7 @@ pub mod network {
     // transport message; it was measured on the retired certified-body response.
     pub const MAX_FRAME_BYTES: NonZeroUsize =
         nonzero!(17 * 1024 * 1024_usize + DEFAULT_AEAD_FRAME_OVERHEAD_BYTES);
-    // Per-topic caps (defaults stricter than global except BlockSync)
+    // Per-topic caps describe complete canonical plaintext frames.
     /// Maximum frame size for consensus control traffic.
     ///
     /// Consensus certificates and READY bundles can scale with validator set size, so keep
@@ -1222,11 +1224,9 @@ pub mod network {
     pub const MAX_FRAME_BYTES_CONTROL: NonZeroUsize = nonzero!(2 * 1024 * 1024_usize);
     /// Maximum frame size for block sync / consensus payload traffic.
     pub const MAX_FRAME_BYTES_BLOCK_SYNC: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
-    /// Maximum frame size for transaction gossip.
-    // TODO(X.2): a transaction above this frame is not gossiped, so a maximum-proof
-    // transaction is proposed only when its ingress node leads
-    // (`specs/zk_resource_contract.json`, `gossip_frame_carries_max_transaction`).
-    pub const MAX_FRAME_BYTES_TX_GOSSIP: NonZeroUsize = nonzero!(262_144_usize); // 256 KiB
+    /// Maximum complete transaction-gossip frame, including signed relay metadata.
+    /// This carries the maximum committed transaction under the global plaintext ceiling.
+    pub const MAX_FRAME_BYTES_TX_GOSSIP: NonZeroUsize = MAX_PLAINTEXT_FRAME_BYTES;
     /// Maximum frame size for peer gossip.
     pub const MAX_FRAME_BYTES_PEER_GOSSIP: NonZeroUsize = nonzero!(65_536_usize); // 64 KiB
     /// Maximum frame size for health-check channel messages.
@@ -2394,6 +2394,8 @@ pub mod torii {
     pub const QUERY_FANOUT_MAX_RETAINED_BYTES: Bytes = Bytes(512_000_000);
     /// Maximum complete working set owned by one query, independent of aggregate concurrency.
     pub const QUERY_FANOUT_MAX_WORKING_SET_BYTES: Bytes = Bytes(48_000_000);
+    /// Persistent SCCP history-node backing, independent of transient query leases.
+    pub const SCCP_HISTORY_CACHE_MAX_BYTES: Bytes = Bytes(8_000_000);
     /// Minimum aggregate V1 query-memory pool for four ingress slots plus one fanout.
     pub const QUERY_FANOUT_MIN_POOL_BYTES_V1: u64 = 20_000_000;
     /// Source-derived route/catalogue/key/candidate bytes in one V1 fanout.
@@ -3826,14 +3828,10 @@ pub mod connect {
 /// External fraud-risk monitoring defaults.
 pub mod fraud_monitoring {
     use std::time::Duration;
-    /// Enable outbound fraud-monitoring requests.
-    pub const ENABLED: bool = false;
     /// HTTP connect timeout for fraud-monitoring requests.
     pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
     /// Request timeout for fraud-monitoring calls.
     pub const REQUEST_TIMEOUT: Duration = Duration::from_millis(1_500);
-    /// Maximum grace period to tolerate missing fraud assessments (seconds).
-    pub const MISSING_ASSESSMENT_GRACE_SECS: u64 = 0;
 }
 /// Telemetry export defaults.
 pub mod telemetry {
@@ -4048,9 +4046,10 @@ pub mod accel {
     pub const ARTIFACT_BYTES: usize = RESOURCE_LIMITS.artifact_bytes;
 }
 /// Zero-knowledge subsystem defaults used by Torii and the host runtime.
-// TODO(F.4): the proof-size, circuit-size and SCCP limits below decide validity but are read
-// from node configuration and bound into State only as a hash. Move their source into
-// committed State (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
+// The proof-size, circuit-size and SCCP limits below are the protocol default of the committed
+// `zk_validity_policy_v1` parameter (`iroha_data_model::zk_validity_policy`): a chain that
+// commits no policy runs under them, and the node configuration schema has no key for them
+// (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
 pub mod zk {
     /// SCCP proof-admission and deterministic verifier-work defaults.
     pub mod sccp {
@@ -4084,12 +4083,6 @@ pub mod zk {
             nonzero!(8_u64 * 1024 * 1024);
         /// Maximum framed native-finality header bytes committed in one block.
         pub const MAX_NATIVE_HEADER_BYTES_PER_BLOCK: NonZeroU64 = nonzero!(32_u64 * 1024 * 1024);
-        /// Maximum secp256k1 recoveries in one transaction.
-        ///
-        /// A full TRON advance carries 16 segments of at most 128 signed headers apiece.
-        pub const MAX_SECP256K1_RECOVERIES_PER_TRANSACTION: NonZeroU32 = nonzero!(2_048_u32);
-        /// Maximum secp256k1 recoveries committed in one block.
-        pub const MAX_SECP256K1_RECOVERIES_PER_BLOCK: NonZeroU32 = nonzero!(8_192_u32);
         /// Maximum Ed25519 signature checks in one transaction.
         ///
         /// A full TON advance carries 16 key-block hops signed by at most 1,024 validators
@@ -4781,32 +4774,25 @@ pub mod settlement {
         pub const HALT_PCT: u8 = 2;
     }
 }
-/// Node-local SCCP defaults for `[sccp.attestor]` and `[sccp.light_client_keeper]`
-/// (`specs/sccp.md` §4.9, §4.13.4). Every value works without operator input.
+/// Node-local SCCP defaults for `[sccp.keeper]` and `[sccp.light_client_keeper]`
+/// (`specs/sccp.md` §4.13.4). Every value works without operator input.
 pub mod sccp {
-    /// `[sccp.attestor]` defaults.
-    pub mod attestor {
-        /// The attestor runs on every node by default.
+    /// `[sccp.keeper]` defaults.
+    pub mod keeper {
+        /// The keeper runs by default.
         pub const ENABLED: bool = true;
-        /// Bridge-key directory below `kura.store_dir`, used while `key_dir` is empty.
-        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/bridge-keys";
-        /// Register the node's newest bridge key with `SetSccpBridgeKeyV1` automatically.
-        pub const AUTO_REGISTER: bool = true;
-        /// Attestation entries per `SubmitSccpAttestationsV1` transaction.
-        pub const MAX_ENTRIES_PER_TRANSACTION: u32 = 64;
-        /// Largest accepted `max_entries_per_transaction`; the node also caps it at runtime
-        /// by the on-chain `max_attestation_entries_per_instruction`.
-        pub const MAX_ENTRIES_PER_TRANSACTION_CEILING: u32 = 1_024;
-        /// Blocks after which still-unrecorded attestation entries are resubmitted.
-        pub const RESUBMIT_AFTER_BLOCKS: u64 = 3;
-        /// Largest lead of a rotation subject's `timestamp_ms` over the local clock that is signed.
-        pub const MAX_CLOCK_DRIFT_MS: u64 = 3_600_000;
-        /// Longest graceful-shutdown delay spent getting pending subjects recorded.
-        pub const SHUTDOWN_GRACE_MS: u64 = 30_000;
+        /// Keeper-key directory below `kura.store_dir`, used while `key_dir` is empty.
+        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/keeper-key";
+        /// Submit due keepalives (§4.7.4).
+        pub const KEEPALIVE: bool = true;
+        /// Keepalive stagger per canonical committee index.
+        pub const KEEPALIVE_STAGGER_MS: u64 = 15_000;
+        /// Watch the registered destinations for certificates that Taira did not produce.
+        pub const WATCH: bool = true;
     }
     /// `[sccp.light_client_keeper]` defaults.
     pub mod light_client_keeper {
-        /// The keeper runs by default; it acts only while the node holds a registered bridge key.
+        /// The keeper advances stale light clients by default.
         pub const ENABLED: bool = true;
         /// `0` advances once `ws_bound_ms / 4` of each light client has elapsed without progress.
         pub const ADVANCE_AFTER_MS: u64 = 0;
@@ -4843,8 +4829,6 @@ pub mod sccp {
             "https://bsc-dataseed.bnbchain.org",
             "https://bsc-rpc.publicnode.com",
         ];
-        /// TRON mainnet HTTP API endpoints.
-        pub const TRON: &[&str] = &["https://api.trongrid.io", "https://tron-rpc.publicnode.com"];
         /// TON mainnet liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`, copied from
         /// the `liteservers` array of `https://ton.org/global-config.json` (signed-integer IP
         /// converted to dotted form).
@@ -4875,3 +4859,19 @@ pub mod sccp {
 #[cfg(test)]
 #[path = "defaults_tests.rs"]
 mod tests;
+
+/// Local scheduling and bounded work for the supervised native AMX relay.
+pub mod amx_relay {
+    /// Durable existing-workflow storage; no signing key is stored here.
+    pub const JOURNAL_DIR: &str = "./storage/amx/workflows";
+    /// Default observation cadence, independent of all consensus deadlines.
+    pub const POLL_INTERVAL_MS: u64 = 2_000;
+    /// Maximum local observation interval.
+    pub const MAX_POLL_INTERVAL_MS: u64 = 60_000;
+    /// Maximum original source heights inspected in one service pass.
+    pub const MAX_SOURCE_HEIGHTS_PER_PASS: usize = 32;
+    /// Maximum contiguous destination finality proofs read in one observation.
+    pub const MAX_FINALITY_PROOF_READS: usize = 64;
+    /// Maximum separately pinned and funded destinations.
+    pub const MAX_ROUTES: usize = 32;
+}

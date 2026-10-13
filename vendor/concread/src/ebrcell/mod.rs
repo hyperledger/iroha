@@ -5,15 +5,9 @@
 //! not block writers, and writers do not block readers. Writers are serialised
 //! same as the write in a `RwLock`.
 //!
-//! This is the Ebr collected implementation.
-//! Ebr is the crossbeam-epoch based reclaim system for async memory
-//! garbage collection. Ebr is faster than `Arc`,
-//! but long transactions can cause the memory usage to grow very quickly
-//! before a garbage reclaim. This is a space time trade, where you gain
-//! performance at the expense of delaying garbage collection. Holding Ebr
-//! reads for too long may impact garbage collection of other epoch structures
-//! or crossbeam library components.
-//! If you need accurate memory reclaim, use the Arc (`CowCell`) implementation.
+//! This implementation uses crossbeam-epoch for deferred reclamation. Long-lived
+//! read transactions keep older generations alive and can delay reclamation in
+//! other structures sharing the epoch collector.
 
 mod frozen;
 pub use frozen::{EbrCellFrozen, EbrCellFrozenRead};
@@ -972,7 +966,7 @@ mod tests {
     use super::EbrCell;
     use std::thread::scope;
 
-    #[cfg(all(feature = "maps", not(feature = "dhat-heap"), not(miri)))]
+    #[cfg(all(feature = "maps", not(miri)))]
     #[test]
     fn fresh_original_writer_constructors_need_no_cold_acquisition_allocation() {
         use crate::internals::bptree::node::allocation_tests::without_allocations;

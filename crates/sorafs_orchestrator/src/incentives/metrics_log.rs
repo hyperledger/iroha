@@ -57,6 +57,29 @@ impl MetricsLogReadLimitsV1 {
     }
 }
 
+/// Filesystem failures while preparing the append-only relay metrics log.
+///
+/// Opening cannot decode or encode records; retaining those unrelated failures here
+/// would enlarge every reward-configuration result with a Norito decode graph.
+#[derive(Debug, Error)]
+pub enum MetricsLogOpenError {
+    /// Creating the parent directory failed.
+    #[error("failed to create metrics log directory {path:?}: {source}")]
+    CreateDir {
+        /// Parent directory requested by the log configuration.
+        path: PathBuf,
+        /// Underlying filesystem failure.
+        source: io::Error,
+    },
+    /// Opening the log file failed.
+    #[error("failed to open metrics log at {path:?}: {source}")]
+    Open {
+        /// Configured log file.
+        path: PathBuf,
+        /// Underlying filesystem failure.
+        source: io::Error,
+    },
+}
 /// Failure to open, append, or replay the canonical relay metrics log.
 #[derive(Debug, Error)]
 pub enum MetricsLogError {
@@ -65,14 +88,6 @@ pub enum MetricsLogError {
     InvalidReadLimits {
         /// Rejected caller policy; no filesystem access has occurred.
         limits: MetricsLogReadLimitsV1,
-    },
-    /// Creating the parent directory failed.
-    #[error("failed to create metrics log directory {path:?}: {source}")]
-    CreateDir {
-        /// Parent directory requested by the log configuration.
-        path: PathBuf,
-        /// Underlying filesystem failure.
-        source: io::Error,
     },
     /// Opening the log file failed.
     #[error("failed to open metrics log at {path:?}: {source}")]
@@ -120,11 +135,11 @@ struct MetricsLog {
     writer: Mutex<File>,
 }
 impl MetricsLog {
-    fn open(path: PathBuf) -> Result<Self, MetricsLogError> {
+    fn open(path: PathBuf) -> Result<Self, MetricsLogOpenError> {
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            std::fs::create_dir_all(parent).map_err(|source| MetricsLogError::CreateDir {
+            std::fs::create_dir_all(parent).map_err(|source| MetricsLogOpenError::CreateDir {
                 path: parent.to_path_buf(),
                 source,
             })?;
@@ -133,7 +148,7 @@ impl MetricsLog {
             .create(true)
             .append(true)
             .open(&path)
-            .map_err(|source| MetricsLogError::Open {
+            .map_err(|source| MetricsLogOpenError::Open {
                 path: path.clone(),
                 source,
             })?;

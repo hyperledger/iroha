@@ -20,7 +20,7 @@ use std::num::NonZeroU64;
 
 fn new_state() -> State {
     State::new_for_testing(
-        *fixture::world(),
+        fixture::world(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     )

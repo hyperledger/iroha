@@ -1,6 +1,6 @@
-//! Node-local SCCP configuration (`specs/sccp.md` §4.9, §4.13.4): an empty file yields a
-//! working `[sccp.attestor]` and `[sccp.light_client_keeper]`, and operator overrides are
-//! validated syntactically.
+//! Node-local SCCP configuration (`specs/sccp.md` §4.13.4): an empty file yields a working
+//! `[sccp.keeper]` and `[sccp.light_client_keeper]`, and operator overrides are validated
+//! syntactically.
 
 use std::{
     fs,
@@ -55,22 +55,20 @@ fn urls(list: &[url::Url]) -> Vec<&str> {
 #[test]
 fn empty_config_yields_every_default_with_key_dir_under_kura_store_dir() {
     let config = load("").expect("an empty SCCP configuration is valid");
-    let attestor = &config.sccp.attestor;
-    assert!(attestor.enabled);
-    assert!(attestor.auto_register);
+    let keeper = &config.sccp.keeper;
+    assert!(keeper.enabled);
     assert_eq!(
-        attestor.key_dir_path(),
+        keeper.key_dir_path(),
         config
             .kura
             .store_dir
             .resolve_relative_path()
             .join("sccp")
-            .join("bridge-keys")
+            .join("keeper-key")
     );
-    assert_eq!(attestor.max_entries_per_transaction.get(), 64);
-    assert_eq!(attestor.resubmit_after_blocks.get(), 3);
-    assert_eq!(attestor.max_clock_drift, Duration::from_millis(3_600_000));
-    assert_eq!(attestor.shutdown_grace, Duration::from_millis(30_000));
+    assert!(keeper.keepalive);
+    assert_eq!(keeper.keepalive_stagger, Duration::from_millis(15_000));
+    assert!(keeper.watch);
 
     let keeper = &config.sccp.light_client_keeper;
     assert!(keeper.enabled);
@@ -99,7 +97,6 @@ fn empty_config_yields_every_default_with_key_dir_under_kura_store_dir() {
             defaults::sccp::endpoints::ETHEREUM_BEACON,
         ),
         (&endpoints.bsc, defaults::sccp::endpoints::BSC),
-        (&endpoints.tron, defaults::sccp::endpoints::TRON),
     ] {
         assert!(!list.is_empty());
         assert_eq!(list, &actual::compiled_http_endpoints(compiled));
@@ -114,8 +111,8 @@ fn empty_config_yields_every_default_with_key_dir_under_kura_store_dir() {
 fn default_key_dir_follows_kura_store_dir() {
     let config = load("[kura]\nstore_dir = \"/var/lib/iroha-sccp-test\"\n").expect("valid");
     assert_eq!(
-        config.sccp.attestor.key_dir_path(),
-        PathBuf::from("/var/lib/iroha-sccp-test/sccp/bridge-keys")
+        config.sccp.keeper.key_dir_path(),
+        PathBuf::from("/var/lib/iroha-sccp-test/sccp/keeper-key")
     );
 }
 
@@ -123,25 +120,23 @@ fn default_key_dir_follows_kura_store_dir() {
 fn explicit_key_dir_overrides_the_derived_default() {
     let config = load(
         "[kura]\nstore_dir = \"/var/lib/iroha-sccp-test\"\n\
-         [sccp.attestor]\nkey_dir = \"/opt/iroha/bridge-keys\"\n",
+         [sccp.keeper]\nkey_dir = \"/opt/iroha/keeper-key\"\n",
     )
     .expect("valid");
     assert_eq!(
-        config.sccp.attestor.key_dir_path(),
-        PathBuf::from("/opt/iroha/bridge-keys")
+        config.sccp.keeper.key_dir_path(),
+        PathBuf::from("/opt/iroha/keeper-key")
     );
 }
 
 #[test]
-fn explicit_attestor_and_keeper_values_are_kept() {
+fn explicit_keeper_values_are_kept() {
     let config = load(
-        "[sccp.attestor]\n\
+        "[sccp.keeper]\n\
          enabled = false\n\
-         auto_register = false\n\
-         max_entries_per_transaction = 1024\n\
-         resubmit_after_blocks = 9\n\
-         max_clock_drift_ms = 0\n\
-         shutdown_grace_ms = 120000\n\
+         keepalive = false\n\
+         keepalive_stagger_ms = 2500\n\
+         watch = false\n\
          [sccp.light_client_keeper]\n\
          enabled = false\n\
          advance_after_ms = 3600000\n\
@@ -151,13 +146,11 @@ fn explicit_attestor_and_keeper_values_are_kept() {
          max_advance_bytes = 65536\n",
     )
     .expect("valid");
-    let attestor = &config.sccp.attestor;
-    assert!(!attestor.enabled);
-    assert!(!attestor.auto_register);
-    assert_eq!(attestor.max_entries_per_transaction.get(), 1024);
-    assert_eq!(attestor.resubmit_after_blocks.get(), 9);
-    assert_eq!(attestor.max_clock_drift, Duration::ZERO);
-    assert_eq!(attestor.shutdown_grace, Duration::from_secs(120));
+    let keeper = &config.sccp.keeper;
+    assert!(!keeper.enabled);
+    assert!(!keeper.keepalive);
+    assert_eq!(keeper.keepalive_stagger, Duration::from_millis(2_500));
+    assert!(!keeper.watch);
     let keeper = &config.sccp.light_client_keeper;
     assert!(!keeper.enabled);
     assert_eq!(keeper.advance_after, Some(Duration::from_secs(3_600)));
@@ -189,7 +182,6 @@ fn endpoint_override_replaces_only_that_default_list() {
     let compiled = actual::SccpLightClientKeeperEndpoints::compiled_defaults();
     assert_eq!(endpoints.ethereum_beacon, compiled.ethereum_beacon);
     assert_eq!(endpoints.bsc, compiled.bsc);
-    assert_eq!(endpoints.tron, compiled.tron);
 }
 
 #[test]
@@ -199,8 +191,8 @@ fn invalid_endpoint_urls_are_rejected() {
         "endpoints.bsc[0]: an endpoint URL must use https",
     );
     assert_rejected(
-        "[sccp.light_client_keeper.endpoints]\ntron = [\"not a url\"]\n",
-        "endpoints.tron[0]: invalid endpoint URL",
+        "[sccp.light_client_keeper.endpoints]\nethereum_execution = [\"not a url\"]\n",
+        "endpoints.ethereum_execution[0]: invalid endpoint URL",
     );
     assert_rejected(
         "[sccp.light_client_keeper.endpoints]\n\
@@ -254,19 +246,9 @@ fn zero_intervals_and_bounds_are_rejected() {
         "sccp.light_client_keeper.max_advance_bytes must be nonzero",
     );
     assert_rejected(
-        "[sccp.attestor]\nresubmit_after_blocks = 0\n",
-        "sccp.attestor.resubmit_after_blocks must be at least 1",
+        "[sccp.keeper]\nkeepalive_stagger_ms = 0\n",
+        "sccp.keeper.keepalive_stagger_ms must be nonzero",
     );
-}
-
-#[test]
-fn out_of_range_max_entries_are_rejected() {
-    for entries in [0, 1025, 65_536] {
-        assert_rejected(
-            &format!("[sccp.attestor]\nmax_entries_per_transaction = {entries}\n"),
-            "sccp.attestor.max_entries_per_transaction must be in 1..=1024",
-        );
-    }
 }
 
 #[test]
@@ -332,7 +314,7 @@ fn relative_paths_resolve_against_the_config_file() {
         &config_path,
         format!(
             "extends = [{base:?}]\n\
-             [sccp.attestor]\nkey_dir = \"keys\"\n\
+             [sccp.keeper]\nkey_dir = \"keys\"\n\
              [[sccp.light_client_keeper.secret_headers]]\n\
              endpoint = \"https://eth.example.org\"\nheader = \"x-api-key\"\n\
              value_file = \"secrets\"\n",
@@ -350,7 +332,7 @@ fn relative_paths_resolve_against_the_config_file() {
         .expect("config parses");
     let canonical = |path: &Path| fs::canonicalize(path).expect("canonical path");
     assert_eq!(
-        canonical(&config.sccp.attestor.key_dir_path()),
+        canonical(&config.sccp.keeper.key_dir_path()),
         canonical(&dir.join("keys"))
     );
     assert_eq!(
@@ -363,8 +345,8 @@ fn relative_paths_resolve_against_the_config_file() {
 #[test]
 fn sccp_tables_have_no_environment_aliases() {
     let env = MockEnv::new()
-        .set("SCCP_ATTESTOR_ENABLED", "false")
-        .set("SCCP_ATTESTOR_KEY_DIR", "/tmp/elsewhere")
+        .set("SCCP_KEEPER_ENABLED", "false")
+        .set("SCCP_KEEPER_KEY_DIR", "/tmp/elsewhere")
         .set("SCCP_LIGHT_CLIENT_KEEPER_ENABLED", "false");
     let config = ConfigReader::new()
         .with_env(env.clone())
@@ -374,11 +356,11 @@ fn sccp_tables_have_no_environment_aliases() {
         .expect("config reads")
         .parse()
         .expect("config parses");
-    assert!(config.sccp.attestor.enabled);
+    assert!(config.sccp.keeper.enabled);
     assert!(config.sccp.light_client_keeper.enabled);
     for name in [
-        "SCCP_ATTESTOR_ENABLED",
-        "SCCP_ATTESTOR_KEY_DIR",
+        "SCCP_KEEPER_ENABLED",
+        "SCCP_KEEPER_KEY_DIR",
         "SCCP_LIGHT_CLIENT_KEEPER_ENABLED",
     ] {
         assert!(env.unvisited().contains(name), "{name} must not be read");
@@ -386,10 +368,53 @@ fn sccp_tables_have_no_environment_aliases() {
 }
 
 #[test]
+fn tron_endpoint_list_is_rejected() {
+    for list in ["[]", "[\"https://api.trongrid.io\"]"] {
+        let extra = format!("[sccp.light_client_keeper.endpoints]\ntron = {list}\n");
+        let error = load(&extra).expect_err(&extra);
+        assert!(
+            error.contains("sccp.light_client_keeper.endpoints.tron"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn zk_sccp_rejects_node_local_validity_limits() {
+    for key in [
+        "max_secp256k1_recoveries_per_transaction",
+        "max_secp256k1_recoveries_per_block",
+        "max_ed25519_signature_checks_per_block",
+    ] {
+        let extra = format!("[zk.sccp]\n{key} = 2048\n");
+        let error = load(&extra).expect_err(&extra);
+        assert!(error.contains("`zk.sccp`"), "{error}");
+    }
+}
+
+#[test]
+fn sccp_attestor_table_is_rejected() {
+    for key in [
+        "enabled = true",
+        "key_dir = \"/opt/iroha/bridge-keys\"",
+        "auto_register = false",
+        "max_entries_per_transaction = 64",
+        "resubmit_after_blocks = 3",
+        "max_clock_drift_ms = 3600000",
+        "shutdown_grace_ms = 30000",
+    ] {
+        let extra = format!("[sccp.attestor]\n{key}\n");
+        let error = load(&extra).expect_err(&extra);
+        assert!(error.contains("sccp.attestor"), "{error}");
+    }
+}
+
+#[test]
 fn unknown_sccp_keys_are_rejected() {
     for extra in [
         "[sccp]\nenabled = true\n",
-        "[sccp.attestor]\nkey_directory = \"/x\"\n",
+        "[sccp.keeper]\nkey_directory = \"/x\"\n",
+        "[sccp.keeper]\nauto_register = true\n",
         "[sccp.light_client_keeper.endpoints]\nton = []\n",
     ] {
         assert!(load(extra).is_err(), "{extra} must be rejected");

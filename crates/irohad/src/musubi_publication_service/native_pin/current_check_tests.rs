@@ -254,11 +254,11 @@ fn daemon_fresh_check_rejects_later_native_inventory_change() {
 fn daemon_fresh_check_keeps_independent_network_and_original_deadline() {
     let fixture = Fixture::new();
     let reader = fixture.reader();
-    assert_eq!(
+    assert!(matches!(
         begin_musubi_pin_outbox_check_v1(
             Arc::clone(&reader),
             fixture.expected(MusubiPinOutboxCheckExpectationV1::Absent),
-            Instant::now() - Duration::from_secs(1),
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
         )
         .err(),
         Some(
@@ -266,12 +266,12 @@ fn daemon_fresh_check_keeps_independent_network_and_original_deadline() {
                 MusubiPinOutboxCheckErrorV1::Expired
             )
         )
-    );
+    ));
     let mut wrong = fixture.expected(MusubiPinOutboxCheckExpectationV1::Absent);
     wrong.network_id = NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
         iroha_crypto::Hash::new(b"different independent network"),
     ));
-    assert_eq!(
+    assert!(matches!(
         begin_musubi_pin_outbox_check_v1(
             Arc::clone(&reader),
             wrong,
@@ -283,7 +283,7 @@ fn daemon_fresh_check_keeps_independent_network_and_original_deadline() {
                 MusubiPinOutboxCheckErrorV1::CurrentState
             )
         )
-    );
+    ));
 }
 
 #[test]

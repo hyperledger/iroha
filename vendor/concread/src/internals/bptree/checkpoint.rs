@@ -257,6 +257,6 @@ impl<K: Clone + Ord + Debug, V: Clone, M: MapMode + NodeCloning<K, V>> Drop
     }
 }
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "checkpoint_tests.rs"]
 mod tests;

@@ -287,7 +287,7 @@ fn down_requires_original_context_and_terminal_zero_peer_authenticated_reply() {
             PublishMode::CreateNew,
         )
         .unwrap();
-    let _runtime = acquire(&directory, "runtime.lock", "local").unwrap();
+    let runtime = acquire(&directory, "runtime.lock", "local").unwrap();
     let mut foreign = status.clone();
     foreign.context.network_id.push('x');
     foreign.phase = ManagedPhase::Stopped;
@@ -322,7 +322,7 @@ fn down_requires_original_context_and_terminal_zero_peer_authenticated_reply() {
             &status_bytes
         );
     }
-    drop(_runtime);
+    drop(runtime);
     let runtime = acquire(&directory, "runtime.lock", "local").unwrap();
     let listener = transport::Listener::bind(&directory).unwrap();
     let terminal = ManagedStatus {

@@ -87,9 +87,32 @@ fn vm_error_samples() -> Vec<VMError> {
         .try_reserve_bytes(1)
         .expect_err("an exhausted budget refuses");
     drop(occupied);
+    let bytes = norito::encode_canonical(&vec![7_u8; 16]).unwrap();
+    let decoded = norito::core::with_decode_limits_scope(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .unwrap();
     vec![
         VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
         VMError::AllocationDeferred(refusal),
+        VMError::DecodeDeferred(decoded.clone()),
+        VMError::AllocatorDeferred(
+            iroha_allocation::AllocatorRefusal::try_from(
+                iroha_allocation::ChargedBufferError::Allocator { requested_bytes: 1 },
+            )
+            .unwrap(),
+        ),
+        VMError::VerificationDeferred(crate::error::VerificationRefusal::from_decode_refusal(
+            decoded,
+        )),
         VMError::Metered {
             gas: 1,
             source: Box::new(VMError::OutOfGas),
@@ -254,7 +277,7 @@ fn opcode_names_and_values_match_the_abi_constant_source() {
 /// calls. A result returned without `?` needs no trap token and no
 /// propagated helper, so the whole call surface is pinned: a new call there
 /// requires a review of the `terminal` phase.
-const TERMINAL_CALLS: [&str; 32] = [
+const TERMINAL_CALLS: [&str; 33] = [
     "abort_host_register_log_isolation",
     "and_then",
     "as_deref_mut",
@@ -273,6 +296,7 @@ const TERMINAL_CALLS: [&str; 32] = [
     "finish_run",
     "finish_step",
     "finish_trace_invocation",
+    "into_vm_error",
     "is_ok",
     "last",
     "map",
@@ -292,7 +316,7 @@ const TERMINAL_CALLS: [&str; 32] = [
 /// Every non-`VMError` argument the terminal block gives to `Err(`: the
 /// stored contract abort, the caught panic payload and the final result
 /// binding.
-const TERMINAL_ERR_ARGUMENTS: [&str; 3] = ["err", "error", "payload"];
+const TERMINAL_ERR_ARGUMENTS: [&str; 3] = ["err", "error.into_vm_error()", "payload"];
 
 /// Compare one source region with its inventoried run phase.
 fn check_run_phase(id: &str, surface: &scan::RegionSurface) -> Result<(), String> {
@@ -516,7 +540,7 @@ fn run_phases_match_the_interpreter_and_root_call_sources() {
     assert!(terminal.obligations.contains(&Obligation::Padding));
     assert_eq!(
         terminal.result_sources,
-        ["contract_abort_error", "ensure_healthy"]
+        ["contract_abort_error", "ensure_healthy", "into_vm_error"]
     );
     // Every variant root-call initialization names has that origin recorded.
     for trap in root.direct_traps {
@@ -1261,6 +1285,9 @@ fn every_vm_error_projects_only_completed_deterministic_faults() {
     let excluded = [
         "ExecutionDeferred",
         "AllocationDeferred",
+        "DecodeDeferred",
+        "AllocatorDeferred",
+        "VerificationDeferred",
         "HostUnavailable",
         "SyscallGasQuoteExceeded",
         "SyscallMeteringModeMismatch",

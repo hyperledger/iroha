@@ -54,6 +54,7 @@ use iroha_data_model::{
         SealedTransactionCommitmentPayload, SealedTransactionReveal,
         SignedSealedTransactionCommitment, compute_sealed_transaction_commitment,
     },
+    transaction::signed_attachments::{ActionOperationV1, SignedAttachmentErrorV1},
     transaction::{error::TransactionLimitError, signed::TransactionSignatureError},
 };
 use iroha_logger::{debug, error, warn};
@@ -97,12 +98,14 @@ pub(crate) fn exact_signed_transaction_hash(
         TransactionEntrypoint::SealedCommitment(_) => None,
     }
 }
-/// Return every identity that must be checked for replay before executing entrypoints.
+/// Collect replay identities for fixture comparisons.
+/// Production checks the original accepted transaction without allocating this collection.
 ///
 /// A sealed reveal always exposes both its carrier and enclosed signed identity
 /// to duplicate/replay validation. This helper does not decide which identities
 /// a rejected reveal is authenticated to commit; use
-/// [`canonical_carrier_membership_hashes`] at the persistence boundary.
+/// [`for_each_canonical_carrier_membership_hash`] at the persistence boundary.
+#[cfg(test)]
 pub(crate) fn canonical_replay_alias_hashes(
     entrypoints: &[TransactionEntrypoint],
 ) -> Vec<HashOf<TransactionEntrypoint>> {
@@ -119,13 +122,15 @@ pub(crate) fn canonical_replay_alias_hashes(
     }
     hashes
 }
-/// Return the identities authenticated for canonical carrier membership.
+/// Collect authenticated carrier identities for fixture comparisons.
+/// Production retains the visitor output in its original funded source owner.
 ///
 /// Every entrypoint commits its outer carrier identity. A sealed reveal commits
 /// the enclosed signed identity only when it exactly authenticates a pending
 /// commitment from the pre-block state at this block's height. Re-reading the
 /// pre-block value keeps the classification stable after successful removal,
 /// rejected execution rollback, or end-of-block expiry pruning.
+#[cfg(test)]
 pub(crate) fn canonical_carrier_membership_hashes(
     state_block: &StateBlock<'_>,
     entrypoints: &[TransactionEntrypoint],
@@ -196,6 +201,13 @@ pub(crate) fn execution_rejection_from_admission_failure(
 ) -> TransactionRejectionReason {
     match fail {
         AcceptTransactionFail::TransactionLimit(err) => TransactionRejectionReason::LimitCheck(err),
+        // The committed rejection keeps the class attachment shape failures
+        // always had; the typed violation is its deterministic reason text.
+        AcceptTransactionFail::SignedAttachments(violation) => {
+            TransactionRejectionReason::LimitCheck(TransactionLimitError {
+                reason: format!("Signed attachments rejected: {violation}"),
+            })
+        }
         AcceptTransactionFail::SignatureVerification(sig_fail) => {
             TransactionRejectionReason::Validation(iroha_data_model::ValidationFail::NotPermitted(
                 format!("signature verification failed: {}", sig_fail.detail),
@@ -663,7 +675,6 @@ pub struct AcceptedTransaction<'tx> {
     entrypoint: Cow<'tx, TransactionEntrypoint>,
     validation_time: Option<Duration>,
     entrypoint_hash: OnceLock<HashOf<TransactionEntrypoint>>,
-    signed_hash: OnceLock<HashOf<SignedTransaction>>,
     encoded_len: OnceLock<usize>,
     entrypoint_bytes: OnceLock<Arc<Vec<u8>>>,
     signed_bytes: OnceLock<Option<Arc<Vec<u8>>>>,
@@ -683,7 +694,6 @@ impl Clone for AcceptedTransaction<'_> {
             },
             validation_time: self.validation_time,
             entrypoint_hash: clone_once_lock(&self.entrypoint_hash),
-            signed_hash: clone_once_lock(&self.signed_hash),
             encoded_len: clone_once_lock(&self.encoded_len),
             entrypoint_bytes: clone_once_lock(&self.entrypoint_bytes),
             signed_bytes: clone_once_lock(&self.signed_bytes),
@@ -967,6 +977,8 @@ impl SignatureVerificationFail {
 pub enum AcceptTransactionFail {
     /// Failure during limits check
     TransactionLimit(#[source] TransactionLimitError),
+    /// Signed attachment schema violation: {0}
+    SignedAttachments(#[source] SignedAttachmentErrorV1),
     /// Failure during signature verification
     SignatureVerification(#[source] SignatureVerificationFail),
     /// Transaction expired at `{expires_at_ms}` ms since Unix epoch (current time `{now_ms}` ms)
@@ -1289,27 +1301,45 @@ fn enforce_nts_health_for_entrypoint(
         TransactionEntrypoint::SealedCommitment(_) => Ok(()),
     }
 }
-fn validate_proof_attachment_shapes(tx: &SignedTransaction) -> Result<(), AcceptTransactionFail> {
-    let Some(attachments) = tx.attachments() else {
-        return Ok(());
-    };
-    if attachments.is_empty() {
-        return Err(AcceptTransactionFail::TransactionLimit(
-            TransactionLimitError {
-                reason: "Proof attachment list must not be empty".into(),
-            },
-        ));
+/// Whether an executor route consumes the attachments of this operation.
+///
+/// Registration of an instruction wire identifier does not establish support:
+/// an attachment-backed action is admitted only when a route verifies its
+/// statement and consumes its declared occurrences.
+pub(crate) const fn attachment_operation_is_supported(operation: &ActionOperationV1) -> bool {
+    match operation {
+        // The transaction-level carriers are preverified by the executor.
+        ActionOperationV1::TransactionProof | ActionOperationV1::IvmProvedExecution => true,
+        // TODO(I.2, I.3): no invocation-scoped attachment handle and no typed
+        // native bridge exist yet, so nothing would consume the declared
+        // occurrences of a native instruction action. Such a declaration is
+        // refused until those routes exist; deleting this refusal alone would
+        // admit declarations that are never consumed.
+        ActionOperationV1::NativeInstruction(_) => false,
     }
-    for (index, attachment) in attachments.as_slice().iter().enumerate() {
-        if let Some((field, message)) = attachment.structural_error() {
-            return Err(AcceptTransactionFail::TransactionLimit(
-                TransactionLimitError {
-                    reason: format!("Proof attachment {index} `{field}` {message}"),
-                },
-            ));
-        }
-    }
-    Ok(())
+}
+/// Refuse the first declared action whose operation has no consuming route.
+pub(crate) fn first_unsupported_attachment_operation(
+    tx: &SignedTransaction,
+) -> Option<SignedAttachmentErrorV1> {
+    tx.attachments()?
+        .actions()
+        .iter()
+        .find(|action| !attachment_operation_is_supported(&action.operation))
+        .map(|action| SignedAttachmentErrorV1::UnsupportedOperation {
+            action_index: action.action_index,
+        })
+}
+/// Validate the ordered intent descriptor and the signed attachment occurrences.
+///
+/// Type, index, length and hash of every occurrence, the reference–occurrence
+/// bijection, the closed operation rules, the invocation bindings, the wrapped
+/// proof carriers and the statement bindings are checked by the shared
+/// data-model predicate; this node additionally refuses an operation that no
+/// executor route consumes.
+fn validate_signed_attachments(tx: &SignedTransaction) -> Result<(), AcceptTransactionFail> {
+    tx.validate_signed_attachments_v1()?;
+    first_unsupported_attachment_operation(tx).map_or(Ok(()), |error| Err(error.into()))
 }
 impl<'tx> AcceptedTransaction<'tx> {
     fn from_entrypoint(entrypoint: Cow<'tx, TransactionEntrypoint>) -> Self {
@@ -1317,7 +1347,6 @@ impl<'tx> AcceptedTransaction<'tx> {
             entrypoint,
             validation_time: None,
             entrypoint_hash: OnceLock::new(),
-            signed_hash: OnceLock::new(),
             encoded_len: OnceLock::new(),
             entrypoint_bytes: OnceLock::new(),
             signed_bytes: OnceLock::new(),
@@ -1364,14 +1393,12 @@ impl<'tx> AcceptedTransaction<'tx> {
         let payload_hash = HashOf::new(tx.payload());
         let single_ed25519_key = Self::parsed_single_ed25519_key(&tx);
         let entrypoint = TransactionEntrypoint::External(tx);
-        let signed_hash = Self::compat_signed_hash(entrypoint_hash);
         let accepted = Self::from_entrypoint(Cow::Owned(entrypoint));
         let _ = accepted.signed_bytes.set(Some(signed_bytes));
         let _ = accepted.encoded_len.set(encoded_len);
         let _ = accepted.payload_hash.set(Some(payload_hash));
         let _ = accepted.single_ed25519_key.set(single_ed25519_key);
         let _ = accepted.entrypoint_hash.set(entrypoint_hash);
-        let _ = accepted.signed_hash.set(signed_hash);
         accepted
     }
     fn from_entrypoint_with_cached_entrypoint_bytes(
@@ -1382,18 +1409,10 @@ impl<'tx> AcceptedTransaction<'tx> {
         let accepted = Self::from_entrypoint(Cow::Owned(tx));
         let _ = accepted.entrypoint_bytes.set(entrypoint_bytes);
         let _ = accepted.entrypoint_hash.set(entrypoint_hash);
-        let _ = accepted
-            .signed_hash
-            .set(Self::compat_signed_hash(entrypoint_hash));
         accepted
     }
     fn from_external_with_hot_cache(tx: SignedTransaction) -> Self {
         Self::from_external_with_cached_bytes(tx, None)
-    }
-    fn compat_signed_hash(
-        entrypoint_hash: HashOf<TransactionEntrypoint>,
-    ) -> HashOf<SignedTransaction> {
-        HashOf::from_untyped_unchecked(iroha_crypto::Hash::from(entrypoint_hash))
     }
     fn canonical_signed_payload_with_flags(tx: &SignedTransaction) -> (Vec<u8>, u8) {
         let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
@@ -1617,7 +1636,6 @@ impl<'tx> AcceptedTransaction<'tx> {
         if let Some(entrypoint_bytes) = prepared.entrypoint_bytes {
             let _ = accepted.entrypoint_bytes.set(entrypoint_bytes);
         }
-        let _ = accepted.signed_hash.set(prepared.signed_hash);
         let _ = accepted.entrypoint_hash.set(prepared.entrypoint_hash);
         accepted
     }
@@ -2077,25 +2095,10 @@ impl<'tx> AcceptedTransaction<'tx> {
                 },
             ));
         }
-        validate_proof_attachment_shapes(tx)?;
-        let decompressed_len = tx.attachments().map_or(0usize, |attachments| {
-            attachments
-                .as_slice()
-                .iter()
-                .fold(0usize, |acc, attachment| {
-                    let mut subtotal = attachment.proof.bytes.len();
-                    if attachment.vk_commitment.is_some() {
-                        subtotal = subtotal.saturating_add(32);
-                    }
-                    if attachment.envelope_hash.is_some() {
-                        subtotal = subtotal.saturating_add(32);
-                    }
-                    if let Some(privacy) = &attachment.lane_privacy {
-                        subtotal = subtotal.saturating_add(privacy.encoded_len());
-                    }
-                    acc.saturating_add(subtotal)
-                })
-        });
+        validate_signed_attachments(tx)?;
+        let decompressed_len = tx
+            .attachments()
+            .map_or(0usize, |attachments| attachments.total_occurrence_bytes());
         let decompressed_len = u64::try_from(decompressed_len).unwrap_or(u64::MAX);
         let max_decompressed_bytes = limits.max_decompressed_bytes().get();
         if decompressed_len > max_decompressed_bytes {
@@ -2390,14 +2393,10 @@ impl<'tx> AcceptedTransaction<'tx> {
             TransactionEntrypoint::SealedCommitment(_) => None,
         }
     }
-    /// Return the canonical hash of the wrapped transaction.
-    #[must_use]
-    pub fn hash(&self) -> HashOf<SignedTransaction> {
-        *self
-            .signed_hash
-            .get_or_init(|| Self::compat_signed_hash(self.hash_as_entrypoint()))
-    }
-    /// Return the canonical entrypoint hash of the wrapped transaction.
+    /// Return the canonical hash of the complete wrapped entrypoint.
+    ///
+    /// Sealed carriers keep their outer identity. Signed work inside a reveal has a
+    /// separate execution-call identity and must not substitute for this hash.
     #[must_use]
     pub fn hash_as_entrypoint(&self) -> HashOf<TransactionEntrypoint> {
         *self
@@ -2458,7 +2457,9 @@ impl<'tx> AcceptedTransaction<'tx> {
     #[must_use]
     #[cfg(test)]
     pub(crate) fn prepared_metadata(&self) -> Option<PreparedTransactionMetadata> {
-        self.external()?;
+        let TransactionEntrypoint::External(signed) = self.entrypoint() else {
+            return None;
+        };
         let payload_hash = *self
             .payload_hash
             .get_or_init(|| self.external().map(|signed| HashOf::new(signed.payload())))
@@ -2467,8 +2468,8 @@ impl<'tx> AcceptedTransaction<'tx> {
             .single_ed25519_key
             .get_or_init(|| self.external().and_then(Self::parsed_single_ed25519_key));
         Some(PreparedTransactionMetadata {
-            signed_hash: self.hash(),
-            stateless_cache_key: StatelessValidationCacheKey::new(self.external()?),
+            signed_hash: signed.hash(),
+            stateless_cache_key: StatelessValidationCacheKey::new(signed),
             entrypoint_hash: self.hash_as_entrypoint(),
             payload_hash,
             encoded_len: self.encoded_len(),
@@ -2478,9 +2479,12 @@ impl<'tx> AcceptedTransaction<'tx> {
             metadata_depths: prepare_metadata_depths(self.metadata()?),
         })
     }
+    /// Return signed cache metadata only for an original External fixture.
     #[cfg(test)]
     pub(crate) fn stateless_cache_metadata(&self) -> Option<PreparedTransactionMetadata> {
-        let signed = self.external()?;
+        let TransactionEntrypoint::External(signed) = self.entrypoint() else {
+            return None;
+        };
         let payload_hash = *self
             .payload_hash
             .get_or_init(|| Some(HashOf::new(signed.payload())))
@@ -2489,7 +2493,7 @@ impl<'tx> AcceptedTransaction<'tx> {
             .single_ed25519_key
             .get_or_init(|| Self::parsed_single_ed25519_key(signed));
         Some(PreparedTransactionMetadata {
-            signed_hash: self.hash(),
+            signed_hash: signed.hash(),
             stateless_cache_key: StatelessValidationCacheKey::new(signed),
             entrypoint_hash: self.hash_as_entrypoint(),
             payload_hash,
@@ -2711,17 +2715,16 @@ impl AcceptedTransaction<'static> {
         }
         .with_validation_time(now))
     }
-    /// Accept an entrypoint at one explicit validation instant.
+    /// Admit a test-chain or queue fixture at one explicit validation instant.
     ///
-    /// Durable recovery uses the persisted enqueue instant to prove that an acknowledged
-    /// entrypoint passed the same chain, signature, crypto-policy, clock, and limit checks as
-    /// ingress before classifying its current terminal state. It deliberately does not
-    /// re-evaluate live NTS health: the durable record proves prior ingress admission, and a
-    /// restarting sampler must not invalidate acknowledged queue state.
+    /// Fixtures run the same chain, signature, crypto-policy, clock, and limit checks as
+    /// ingress with their own clock. Live NTS health is not part of this fixture operation;
+    /// production ingress captures and enforces its actual NTS admission snapshot.
     ///
     /// # Errors
     ///
     /// See [`AcceptTransactionFail`].
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn accept_entrypoint_at_time(
         tx: TransactionEntrypoint,
         expected_network_id: &NetworkId,
@@ -2853,32 +2856,9 @@ impl AcceptedTransaction<'static> {
             if let Some(entrypoint_bytes) = prepared.entrypoint_bytes.as_ref() {
                 let _ = accepted.entrypoint_bytes.set(Arc::clone(entrypoint_bytes));
             }
-            let _ = accepted.signed_hash.set(prepared.signed_hash);
             let _ = accepted.entrypoint_hash.set(prepared.entrypoint_hash);
         }
         Ok(accepted.with_validation_time(now))
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for SignedTransaction {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        match source.entrypoint.into_owned() {
-            TransactionEntrypoint::External(entrypoint) => entrypoint,
-            TransactionEntrypoint::SealedReveal(entrypoint) => entrypoint.signed_transaction,
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("sealed commitment entrypoints are not signed transactions")
-            }
-        }
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for (AccountId, Executable) {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        SignedTransaction::from(source).into()
-    }
-}
-impl AsRef<SignedTransaction> for AcceptedTransaction<'_> {
-    fn as_ref(&self) -> &SignedTransaction {
-        self.external()
-            .expect("system entrypoints do not expose SignedTransaction access")
     }
 }
 impl StateBlock<'_> {
@@ -3078,6 +3058,13 @@ impl StateBlock<'_> {
         state_transaction.current_lane_id = Some(routing_decision.lane_id);
         state_transaction.current_dataspace_id = Some(routing_decision.dataspace_id);
         state_transaction.world.current_dataspace_id = Some(routing_decision.dataspace_id);
+        crate::executor::reject_committed_direct_payment(state_transaction, tx).map_err(
+            |error| {
+                TransactionRejectionReason::Validation(
+                    state_transaction.attempt_error_to_validation_fail(error),
+                )
+            },
+        )?;
         crate::executor::validate_transaction_fee_admission(state_transaction, tx)
             .map_err(TransactionRejectionReason::Validation)?;
         if let Err(error) =
@@ -3131,41 +3118,44 @@ impl StateBlock<'_> {
         genesis: Option<&crate::block::AuthenticatedGenesisTransaction>,
     ) -> Result<DataTriggerSequence, ExecutionAttemptError<TransactionRejectionReason>> {
         state_transaction.genesis_execution_scope = None;
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if genesis.is_some() && !matches!(tx.entrypoint(), TransactionEntrypoint::External(_)) {
             return Err(
                 reject_not_permitted("genesis admission requires an external input").into(),
             );
         }
-        if let TransactionEntrypoint::SealedCommitment(commitment) = tx.entrypoint() {
-            return Self::validate_sealed_transaction_commitment(commitment, state_transaction)
-                .map_err(ExecutionAttemptError::Rejected);
-        }
-        if let TransactionEntrypoint::SealedReveal(reveal) = tx.entrypoint() {
-            return Self::validate_sealed_transaction_reveal(
-                reveal,
-                state_transaction,
-                ivm_cache,
-                routing_decision,
-                policy_route,
-            );
-        }
+        let signed = match tx.entrypoint() {
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                return Self::validate_sealed_transaction_commitment(commitment, state_transaction)
+                    .map_err(ExecutionAttemptError::Rejected);
+            }
+            TransactionEntrypoint::SealedReveal(reveal) => {
+                return Self::validate_sealed_transaction_reveal(
+                    reveal,
+                    state_transaction,
+                    ivm_cache,
+                    routing_decision,
+                    policy_route,
+                );
+            }
+            TransactionEntrypoint::External(signed) => signed,
+        };
         let admission = Self::validate_stateful_admission(
-            tx.as_ref(),
+            signed,
             state_transaction,
             routing_decision,
             policy_route,
             genesis,
         )?;
         state_transaction.genesis_execution_scope =
-            policy_route.genesis_execution_scope(tx.as_ref(), state_transaction, genesis)?;
+            policy_route.genesis_execution_scope(signed, state_transaction, genesis)?;
         let authority = admission.authority.clone();
         let allow_unregistered_authority = admission.allow_unregistered_authority;
-        match tx.as_ref().instructions() {
+        match signed.instructions() {
             Executable::ContractCall(call) => {
-                if crate::executor::transaction_gas_limit(tx.as_ref()).is_none() {
+                if crate::executor::transaction_gas_limit(signed).is_none() {
                     return Err(TransactionRejectionReason::Validation(
                         ValidationFail::NotPermitted(
                             "missing gas limit in fee payment intent".to_owned(),
@@ -3207,7 +3197,7 @@ impl StateBlock<'_> {
                 )?;
             }
             Executable::Ivm(bytes) => {
-                if crate::executor::transaction_gas_limit(tx.as_ref()).is_none() {
+                if crate::executor::transaction_gas_limit(signed).is_none() {
                     return Err(TransactionRejectionReason::Validation(
                         ValidationFail::NotPermitted(
                             "missing gas limit in fee payment intent".to_owned(),
@@ -3219,15 +3209,19 @@ impl StateBlock<'_> {
                     authority.clone(),
                     state_transaction,
                     bytes.clone(),
-                    Some(tx.as_ref().metadata()),
+                    Some(signed.metadata()),
                     None,
                     ivm_cache,
                 )?;
             }
             _ => {}
         }
-        debug!(tx=%tx.hash(), "Validating transaction");
-        Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;
+        debug!(tx=%tx.hash_as_entrypoint(), "Validating transaction");
+        Self::validate_transaction_with_runtime_executor(
+            signed.clone(),
+            state_transaction,
+            ivm_cache,
+        )?;
         let trigger_sequence = if allow_unregistered_authority {
             debug!(
                 authority = %authority,
@@ -3237,14 +3231,23 @@ impl StateBlock<'_> {
         } else {
             debug!("Transaction validated successfully; processing data triggers");
             let trigger_result = state_transaction.execute_data_triggers_dfs(&authority);
-            if let Some(reason) = state_transaction.execution_deferral() {
-                return Err(ExecutionAttemptError::Deferred(reason));
-            }
+            state_transaction
+                .ensure_execution_ready()
+                .map_err(ExecutionAttemptError::Deferred)?;
             let trigger_sequence = trigger_result?;
             debug!("Data triggers executed successfully");
             trigger_sequence
         };
         crate::retail_fee::finalize(state_transaction)?;
+        if genesis.is_none() {
+            // All instructions and callbacks have completed in this disposable overlay.
+            // Authenticated genesis is checked once after its complete signed batch.
+            crate::resource_coherence::validate_final_policy(
+                &state_transaction.world,
+                state_transaction.block_height(),
+            )
+            .map_err(crate::resource_coherence::PolicyCoherenceError::into_transaction_rejection)?;
+        }
         if let Some(seq) = admission.sequence_to_commit {
             state_transaction
                 .world
@@ -3356,9 +3359,10 @@ impl StateBlock<'_> {
         // Parse and cache metadata + derived hashes.
         let bytes = contract.as_ref();
         let summary = ivm_cache.summarize_executable(bytes).map_err(|error| {
-            if let Some(owner) = ExecutionDeferred::from_vm_error(&error) {
-                return ExecutionAttemptError::Deferred(owner);
-            }
+            let error = match ExecutionDeferred::try_from_vm_error(error) {
+                Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                Err(error) => error,
+            };
             let failure = match error {
                 ivm::VMError::UnknownSyscall(number) => ValidationFail::NotPermitted(format!(
                     "unknown syscall number 0x{number:02x} for abi_version 1"
@@ -3465,9 +3469,10 @@ impl StateBlock<'_> {
                     &state_transaction.execution_budget(),
                 )
                 .map_err(|err| {
-                    if let Some(owner) = ExecutionDeferred::from_vm_error(&err) {
-                        return ExecutionAttemptError::Deferred(owner);
-                    }
+                    let err = match ExecutionDeferred::try_from_vm_error(err) {
+                        Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                        Err(error) => error,
+                    };
                     ExecutionAttemptError::Rejected(TransactionRejectionReason::Validation(
                         ValidationFail::IvmAdmission(
                             iroha_data_model::executor::IvmAdmissionError::BytecodeDecodingFailed(
@@ -3628,11 +3633,10 @@ impl StateBlock<'_> {
     ///
     /// Note: transaction instructions will be executed on the given `state_transaction`.
     fn validate_transaction_with_runtime_executor(
-        tx: AcceptedTransaction<'_>,
+        tx: SignedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
         ivm_cache: &mut IvmCache,
     ) -> Result<(), ExecutionAttemptError<TransactionRejectionReason>> {
-        let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
         state_transaction
             .world
@@ -3706,11 +3710,10 @@ fn reject_lane_policy(alias: &str, reason: impl Into<String>) -> TransactionReje
 fn collect_lane_privacy_proofs(
     tx: &SignedTransaction,
 ) -> Vec<iroha_data_model::nexus::LanePrivacyProof> {
-    tx.attachments()
-        .into_iter()
-        .flat_map(|list| list.as_slice().iter())
-        .filter_map(|attachment| attachment.lane_privacy.clone())
-        .collect()
+    // Admission has validated every wrapped carrier. A transaction that
+    // bypassed it and holds a malformed carrier contributes no witness, so the
+    // lane policy that requires one refuses it.
+    tx.lane_privacy_proofs_v1().unwrap_or_default()
 }
 fn enforce_manifest_quorum(
     alias: &str,
@@ -4637,7 +4640,7 @@ impl<'a> FraudTelemetryContext<'a> {
             field,
         );
     }
-    fn record_assessment(&self, band: iroha_config::parameters::actual::FraudRiskBand) {
+    fn record_assessment(&self, band: iroha_data_model::fraud::FraudRiskBandV1) {
         self.telemetry.record_fraud_assessment(
             self.lane_id,
             self.dataspace_label(),
@@ -4666,13 +4669,13 @@ impl<'a> FraudTelemetryContext<'a> {
     }
     fn outcome_mismatch_direction(
         &self,
-        band: iroha_config::parameters::actual::FraudRiskBand,
+        band: iroha_data_model::fraud::FraudRiskBandV1,
     ) -> Option<&'static str> {
         let band_level = match band {
-            iroha_config::parameters::actual::FraudRiskBand::Low => 0,
-            iroha_config::parameters::actual::FraudRiskBand::Medium => 1,
-            iroha_config::parameters::actual::FraudRiskBand::High => 2,
-            iroha_config::parameters::actual::FraudRiskBand::Critical => 3,
+            iroha_data_model::fraud::FraudRiskBandV1::Low => 0,
+            iroha_data_model::fraud::FraudRiskBandV1::Medium => 1,
+            iroha_data_model::fraud::FraudRiskBandV1::High => 2,
+            iroha_data_model::fraud::FraudRiskBandV1::Critical => 3,
         };
         match self.disposition {
             Some(FraudDisposition::Fraud) if band_level < 2 => Some("missed_fraud"),
@@ -4709,6 +4712,7 @@ pub(crate) fn enforce_fraud_policy(
     telemetry: Option<&StateTelemetry>,
     routing: &LaneAssignment<'_>,
 ) -> Result<(), TransactionRejectionReason> {
+    let config = &config.policy;
     if !config.enabled {
         return Ok(());
     }
@@ -4728,14 +4732,14 @@ pub(crate) fn enforce_fraud_policy(
     let Some(value) = metadata.get(FRAUD_ASSESSMENT_BAND_NAME.as_ref()) else {
         #[cfg(feature = "telemetry")]
         if let Some(ctx) = fraud_ctx.as_ref() {
-            let cause = if config.missing_assessment_grace.is_zero() {
+            let cause = if !config.missing_assessment_permitted {
                 "missing"
             } else {
-                "grace"
+                "permitted"
             };
             ctx.record_missing(cause);
         }
-        if config.missing_assessment_grace.is_zero() {
+        if !config.missing_assessment_permitted {
             return Err(TransactionRejectionReason::Validation(
                 ValidationFail::NotPermitted(
                     "fraud monitoring requires an attached assessment".into(),
@@ -4743,12 +4747,11 @@ pub(crate) fn enforce_fraud_policy(
             ));
         }
         warn!(
-            missing_grace_seconds = config.missing_assessment_grace.as_secs(),
-            endpoints = ?config.service_endpoints,
+            missing_assessment_permitted = config.missing_assessment_permitted,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
-            "Transaction missing fraud assessment; permitted by grace window"
+            "Transaction missing fraud assessment; permitted by committed policy"
         );
         return Ok(());
     };
@@ -4763,8 +4766,7 @@ pub(crate) fn enforce_fraud_policy(
             ValidationFail::NotPermitted("fraud assessment band must be a string".into()),
         ));
     };
-    let band = if let Ok(band) = band_str.parse::<iroha_config::parameters::actual::FraudRiskBand>()
-    {
+    let band = if let Ok(band) = band_str.parse::<iroha_data_model::fraud::FraudRiskBandV1>() {
         band
     } else {
         #[cfg(feature = "telemetry")]
@@ -4837,7 +4839,6 @@ pub(crate) fn enforce_fraud_policy(
             ctx.record_invalid("score_bps");
         }
         warn!(
-            endpoints = ?config.service_endpoints,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
@@ -5184,21 +5185,21 @@ pub(crate) fn enforce_fraud_policy(
     }
     Ok(())
 }
-fn expected_band_from_score(score_bps: u16) -> iroha_config::parameters::actual::FraudRiskBand {
-    use iroha_config::parameters::actual::FraudRiskBand;
+fn expected_band_from_score(score_bps: u16) -> iroha_data_model::fraud::FraudRiskBandV1 {
+    use iroha_data_model::fraud::FraudRiskBandV1;
     if score_bps > 1_000 {
         match score_bps {
-            ..=2_499 => FraudRiskBand::Low,
-            2_500..=5_499 => FraudRiskBand::Medium,
-            5_500..=7_499 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=2_499 => FraudRiskBandV1::Low,
+            2_500..=5_499 => FraudRiskBandV1::Medium,
+            5_500..=7_499 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     } else {
         match score_bps {
-            ..=249 => FraudRiskBand::Low,
-            250..=549 => FraudRiskBand::Medium,
-            550..=749 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=249 => FraudRiskBandV1::Low,
+            250..=549 => FraudRiskBandV1::Medium,
+            550..=749 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     }
 }
@@ -5309,7 +5310,7 @@ pub mod tests {
             ManifestVersion, ParticipantSelector,
         },
         permission::Permissions,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         role::{Role, RoleId},
         runtime::RuntimeUpgradeManifest,
         smart_contract::ContractArtifactId,
@@ -6530,11 +6531,15 @@ None))])
         let authority_account = new_account_in_domain(&authority, &domain_id).build(&authority);
         let validator_a_account =
             new_account_in_domain(&validator_a, &domain_id).build(&validator_a);
-        let validator_b_account =
+        let second_validator_registration =
             new_account_in_domain(&validator_b, &domain_id).build(&validator_b);
         let world = World::with(
             [domain],
-            [authority_account, validator_a_account, validator_b_account],
+            [
+                authority_account,
+                validator_a_account,
+                second_validator_registration,
+            ],
             [],
         );
         let kura = Kura::blank_kura_for_testing();
@@ -7488,7 +7493,7 @@ instructions_hash)])
             .clone()
             .into_checked(&view)
             .expect("transaction should not be committed");
-        assert_eq!(checked.as_ref().hash(), accepted.as_ref().hash());
+        assert_eq!(checked.hash_as_entrypoint(), accepted.hash_as_entrypoint());
     }
     #[test]
     fn accepted_transaction_into_entrypoint_consumes_wrapped_entrypoint() {
@@ -7630,7 +7635,10 @@ instructions_hash)])
             .expect("signed transaction encodes")
             .len();
         let accepted = AcceptedTransaction::new_unchecked(Cow::Owned(signed.clone()));
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.hash_as_entrypoint(), signed.hash_as_entrypoint());
         assert_eq!(
             external_entrypoint_hash_from_signed_hash(signed.hash()),
@@ -7875,7 +7883,10 @@ instructions_hash)])
         let accepted = decoded
             .into_accepted(&test_network_id(), Duration::ZERO, limits, &crypto_cfg)
             .expect("decoded transaction accepts");
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.hash_as_entrypoint(), signed.hash_as_entrypoint());
         assert_eq!(accepted.encoded_len(), expected_len);
         assert_eq!(
@@ -7973,7 +7984,10 @@ instructions_hash)])
                 &crypto_cfg,
             )
             .expect("prechecked decoded transaction accepts");
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.encoded_len(), expected_len);
     }
     #[test]
@@ -8067,6 +8081,155 @@ instructions_hash)])
         versioned.push(0);
         assert!(DecodedVersionedSignedTransaction::decode_versioned(&versioned).is_err());
     }
+    fn accepted_hash_carriers() -> [TransactionEntrypoint; 3] {
+        let (authority, keypair) = gen_account_in("wonderland");
+        let mut builder = TransactionBuilder::new(
+            test_network_id(),
+            authority.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([Log::new(Level::INFO, "original carrier identity".into())]);
+        builder.set_creation_time(Duration::from_millis(1_000));
+        let signed = builder.sign(keypair.private_key());
+        let salt = [0x59; 32];
+        let deadline = 9;
+        let commitment_hash =
+            compute_sealed_transaction_commitment(&test_network_id(), &signed, salt, deadline);
+        let commitment = SignedSealedTransactionCommitment::sign(
+            SealedTransactionCommitmentPayload::new(
+                test_network_id(),
+                authority,
+                commitment_hash,
+                2,
+                deadline,
+                None,
+            ),
+            keypair.private_key(),
+        );
+        [
+            TransactionEntrypoint::External(signed.clone()),
+            TransactionEntrypoint::SealedCommitment(commitment),
+            TransactionEntrypoint::SealedReveal(SealedTransactionReveal::new(
+                commitment_hash,
+                signed,
+                salt,
+            )),
+        ]
+    }
+
+    #[test]
+    fn accepted_and_checked_hashes_preserve_each_original_complete_carrier() {
+        let state = State::new_for_testing(
+            World::default(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        for entrypoint in accepted_hash_carriers() {
+            let expected = entrypoint.hash();
+            let bytes = Arc::new(norito::encode_canonical(&entrypoint).unwrap());
+            let borrowed =
+                AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(&entrypoint));
+            assert!(std::ptr::eq(borrowed.entrypoint(), &raw const entrypoint));
+            assert_eq!(borrowed.hash_as_entrypoint(), expected);
+            let admitted = AcceptedTransaction::accept_entrypoint_at_time(
+                entrypoint.clone(),
+                &test_network_id(),
+                Duration::ZERO,
+                TransactionParameters::default(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                Duration::from_millis(1_000),
+            )
+            .expect("each original carrier passes its actual signature and network checks");
+            assert_eq!(admitted.hash_as_entrypoint(), expected);
+            assert_eq!(admitted.entrypoint(), &entrypoint);
+            let cached = AcceptedTransaction::from_entrypoint_with_cached_entrypoint_bytes(
+                admitted.into_entrypoint(),
+                Arc::clone(&bytes),
+                expected,
+            );
+            assert_eq!(cached.hash_as_entrypoint(), expected);
+            assert!(Arc::ptr_eq(&cached.entrypoint_bytes(), &bytes));
+            let checked = cached
+                .clone()
+                .into_checked(&state.view())
+                .expect("the blank ledger contains none of these original carriers");
+            assert_eq!(checked.hash_as_entrypoint(), expected);
+            assert!(Arc::ptr_eq(&checked.entrypoint_bytes(), &bytes));
+            assert_eq!(checked.into_accepted().into_entrypoint(), entrypoint);
+            assert_eq!(cached.entrypoint_bytes().as_slice(), bytes.as_slice());
+            if let TransactionEntrypoint::SealedReveal(reveal) = &entrypoint {
+                assert_ne!(expected, reveal.signed_transaction().hash_as_entrypoint());
+                assert_eq!(
+                    entrypoint.execution_call_hash(),
+                    reveal.signed_transaction().hash_as_entrypoint()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn accepted_signed_metadata_requires_an_original_external_carrier() {
+        for entrypoint in accepted_hash_carriers() {
+            let accepted =
+                AcceptedTransaction::new_unchecked_entrypoint(Cow::Owned(entrypoint.clone()));
+            let frame = accepted.entrypoint_bytes();
+            let identity = accepted.hash_as_entrypoint();
+            let prepared = accepted.prepared_metadata();
+            let cache = accepted.stateless_cache_metadata();
+            match &entrypoint {
+                TransactionEntrypoint::External(signed) => {
+                    let prepared = prepared.expect("the original External has signed metadata");
+                    let cache = cache.expect("the original External has signed cache metadata");
+                    for metadata in [&prepared, &cache] {
+                        assert_eq!(metadata.signed_hash, signed.hash());
+                        assert_eq!(metadata.entrypoint_hash, signed.hash_as_entrypoint());
+                        assert_eq!(
+                            metadata.stateless_cache_key,
+                            StatelessValidationCacheKey::new(signed)
+                        );
+                        assert_eq!(metadata.payload_hash, HashOf::new(signed.payload()));
+                        assert_eq!(
+                            metadata.encoded_len,
+                            norito::encode_canonical(signed).unwrap().len()
+                        );
+                    }
+                    assert!(Arc::ptr_eq(
+                        prepared.entrypoint_bytes.as_ref().unwrap(),
+                        &frame
+                    ));
+                    assert!(Arc::ptr_eq(
+                        prepared.signed_bytes.as_ref().unwrap(),
+                        &accepted.signed_bytes().unwrap()
+                    ));
+                    assert!(cache.entrypoint_bytes.is_none());
+                    assert!(cache.signed_bytes.is_none());
+                }
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::SealedReveal(_) => {
+                    assert!(
+                        prepared.is_none(),
+                        "sealed carrier metadata must not be labeled as an External signed frame"
+                    );
+                    assert!(cache.is_none());
+                    assert!(accepted.signed_bytes.get().is_none());
+                    assert!(accepted.payload_hash.get().is_none());
+                    assert!(accepted.single_ed25519_key.get().is_none());
+                    if let TransactionEntrypoint::SealedReveal(reveal) = &entrypoint {
+                        assert_eq!(accepted.external(), Some(reveal.signed_transaction()));
+                        assert_ne!(identity, reveal.signed_transaction().hash_as_entrypoint());
+                    }
+                }
+            }
+            assert_eq!(accepted.entrypoint(), &entrypoint);
+            assert_eq!(accepted.hash_as_entrypoint(), identity);
+            assert!(Arc::ptr_eq(&accepted.entrypoint_bytes(), &frame));
+            assert_eq!(
+                frame.as_slice(),
+                norito::encode_canonical(&entrypoint).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn accepted_transaction_entrypoint_encoded_lengths_match_norito_frames() {
         let (authority, keypair) = gen_account_in("wonderland");
@@ -8378,8 +8541,11 @@ instructions_hash)])
     #[test]
     fn fraud_policy_rejects_missing_assessment() {
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let metadata = iroha_model_base::metadata::Metadata::default();
@@ -8675,7 +8841,10 @@ instructions_hash)])
             finalize
         )));
         let settlement_id: iroha_data_model::isi::settlement::SettlementId =
-            "settlement-1".parse().expect("settlement id");
+            iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "settlement-1".parse().expect("settlement reference"),
+            );
         let dvp = iroha_data_model::isi::settlement::DvpIsi::new(
             settlement_id.clone(),
             iroha_data_model::isi::settlement::SettlementLeg::new(
@@ -9022,8 +9191,11 @@ instructions_hash)])
     fn fraud_policy_rejects_insufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9049,8 +9221,11 @@ instructions_hash)])
     fn fraud_policy_accepts_sufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9070,8 +9245,11 @@ instructions_hash)])
     fn fraud_policy_rejects_inconsistent_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Low),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Low),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9156,12 +9334,15 @@ instructions_hash)])
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9196,12 +9377,15 @@ instructions_hash)])
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9247,12 +9431,15 @@ instructions_hash)])
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9296,12 +9483,15 @@ instructions_hash)])
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9345,18 +9535,22 @@ instructions_hash)])
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query_handle = crate::query::store::LiveQueryStore::start_test();
         let chain: ChainId = "chain".parse().unwrap();
-        let mut state = State::new_with_chain(world, kura, query_handle, chain.clone());
-        // Configure pipeline gas allowlist
-        let mut pipeline = state.pipeline.clone();
-        pipeline.gas.accepted_assets = vec![
-            AssetDefinitionId::derive_from_components(
-                DomainId::try_new("domain", "universal").unwrap(),
-                "xor".parse().unwrap(),
-            )
-            .canonical_address(),
-        ];
-        state.set_pipeline(pipeline);
-        let chain = crate::block::tests::component_chain(state);
+        let state = State::new_with_chain(world, kura, query_handle, chain.clone());
+        // Commit the pipeline gas allowlist in the original signed genesis.
+        let gas = iroha_config::parameters::actual::Gas {
+            accepted_assets: vec![
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("domain", "universal").unwrap(),
+                    "xor".parse().unwrap(),
+                )
+                .canonical_address(),
+            ],
+            ..Default::default()
+        };
+        let chain = crate::block::tests::component_chain_with_genesis_parameters(
+            state,
+            crate::pipeline_gas_policy::parameters_for_testing(gas).into(),
+        );
         let state = chain.state();
         // Bind an executable gas limit but omit the required PipelineGas charge limit.
         let program = minimal_ivm_program_with_max_cycles(1, 1_000);
@@ -9606,9 +9800,11 @@ instructions_hash)])
         fn new() -> Self {
             let (world, authority_id, keypair) = world_with_authority("wonderland");
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-                iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ));
+            parameters
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                    iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
             let state = State::new_with_chain(
                 world,
@@ -9622,22 +9818,35 @@ instructions_hash)])
                 keypair,
             }
         }
-        fn validate_program(&self, program: Vec<u8>) -> Result<(), TransactionRejectionReason> {
+        fn validate_program(self, program: Vec<u8>) -> Result<(), TransactionRejectionReason> {
             self.validate_program_with(program, None, |_| {})
         }
         fn validate_program_with(
-            &self,
+            self,
             program: Vec<u8>,
             metadata: Option<Metadata>,
             prepare_block: impl FnOnce(&mut StateBlock<'_>),
         ) -> Result<(), TransactionRejectionReason> {
-            // Use a height-two component overlay with synthetic Global scope metadata.
-            // This fixture does not apply signed genesis or establish Network finality.
-            let header = BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
-            let mut block = self.state.block(header);
+            // Admission limits belong to signed chain policy. Preserve local cache settings,
+            // but commit the requested validity limits through real genesis before execution.
+            let policy =
+                crate::pipeline_validity_policy::policy_of(self.state.installed_pipeline());
+            let chain = crate::block::tests::component_chain_with_genesis_parameters(
+                self.state,
+                vec![iroha_data_model::parameter::Parameter::Custom(
+                    policy.clone().into_custom_parameter(),
+                )],
+            );
+            let state = chain.state();
+            let header = original_component_successor_header(state);
+            let mut block = state.block(header);
+            assert_eq!(
+                crate::pipeline_validity_policy::policy_of(block.pipeline()),
+                policy
+            );
             prepare_block(&mut block);
             let builder = TransactionBuilder::new(
-                test_network_id(),
+                chain.network_id(),
                 self.authority_id.clone(),
                 fee_payment_with_gas_limit(TEST_GAS_LIMIT),
             );
@@ -9736,12 +9945,12 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_metadata_conflict_rejected_even_if_state_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a correct manifest for the program.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -9749,11 +9958,13 @@ instructions_hash)])
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
@@ -9849,9 +10060,9 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_abi_and_code_hash_match() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
         let mut block = fixture.state.block(header);
@@ -9908,8 +10119,8 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_hashes() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         // Compute real code hash; then corrupt expected
@@ -9957,8 +10168,8 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_code_hash() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         let mut wrong_bytes = [0u8; 32];
@@ -10006,12 +10217,12 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_state_conflict_rejected_even_if_metadata_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a manifest that has the right code_hash but wrong abi_hash.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10019,11 +10230,13 @@ instructions_hash)])
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
@@ -10143,8 +10356,8 @@ instructions_hash)])
     #[test]
     fn validate_ivm_max_cycles_exceeds_fuel_rejected() {
         let mut fixture = IvmAdmissionFixture::new();
-        // Raise pipeline upper bound above fuel limit so the fuel check triggers first.
-        let mut pipeline = fixture.state.pipeline.clone();
+        // Commit an upper bound above the fuel limit so the fuel check triggers first.
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         let fuel_limit = fixture
             .state
             .world
@@ -10173,7 +10386,7 @@ instructions_hash)])
     #[test]
     fn validate_ivm_max_cycles_equal_to_fuel_is_admitted() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         let fuel_limit = fixture
             .state
             .world
@@ -10182,7 +10395,7 @@ instructions_hash)])
             .smart_contract()
             .fuel()
             .get();
-        // Keep the node-local ceiling above the fuel so only the fuel comparison decides.
+        // Commit a ceiling above the fuel so only the fuel comparison decides.
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(fuel_limit + 10).expect("fuel limit plus ten is non-zero");
         fixture.state.set_pipeline(pipeline);
@@ -10195,7 +10408,7 @@ instructions_hash)])
     #[test]
     fn validate_ivm_instruction_limit_enforced() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_decoded_instructions = 2;
         pipeline.ivm_max_decoded_bytes =
             iroha_config::parameters::defaults::pipeline::IVM_MAX_DECODED_BYTES;
@@ -10219,7 +10432,7 @@ instructions_hash)])
         let baseline = ivm::ivm_cache::cache_limits();
         let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(baseline);
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_cache_max_decoded_ops = 1;
         pipeline.ivm_max_decoded_instructions = 4;
         pipeline.ivm_max_decoded_bytes =
@@ -10236,7 +10449,7 @@ instructions_hash)])
     #[test]
     fn validate_ivm_decoded_byte_limit_enforced() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_decoded_instructions = 0;
         pipeline.ivm_max_decoded_bytes = 8; // allow only two 4-byte instructions
         fixture.state.set_pipeline(pipeline);
@@ -10254,9 +10467,9 @@ instructions_hash)])
     }
     #[test]
     fn validate_ivm_manifest_lookup_in_state() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1: insert a manifest into WSV directly via state tx
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10264,11 +10477,13 @@ instructions_hash)])
         let mut tx1 = block1.transaction();
         // Seed synthetic Global scope in this component World/height overlay;
         // the fixture does not authenticate committed genesis or Network finality.
-        tx1.world.parameters.get_mut().set_parameter(
-            crate::sumeragi::lanes::routing::test_support::metadata(
+        tx1.world
+            .parameters
+            .get_mut()
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ),
-        );
+            ))
+            .expect("valid fixture parameters");
         // Build a minimal program to compute its code_hash/abi_hash
         let prog = minimal_ivm_contract_program();
         let code_hash = ivm::contract_code_hash(&prog);
@@ -10473,10 +10688,10 @@ instructions_hash)])
     fn ivm_bytecode_at_limit_is_accepted_at_admission() {
         use iroha_data_model::transaction::{Executable, TransactionBuilder};
         use std::time::Duration;
+        const BYTECODE_LIMIT: u64 = 1021;
         let (authority_id, kp) = gen_account_in("wonderland");
         // Use an exact bytecode-size limit that can be represented by the 17-byte
         // IVM metadata header plus a valid literal-prefix alignment.
-        const BYTECODE_LIMIT: u64 = 1021;
         let default_limits = TransactionParameters::default();
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10487,8 +10702,14 @@ instructions_hash)])
             default_limits.max_metadata_depth(),
         );
         // Create a blob exactly at the allowed bytecode size.
-        let at_limit_blob = minimal_ivm_program_with_literal_padding(1, BYTECODE_LIMIT as usize);
-        assert_eq!(at_limit_blob.len(), BYTECODE_LIMIT as usize);
+        let at_limit_blob = minimal_ivm_program_with_literal_padding(
+            1,
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize"),
+        );
+        assert_eq!(
+            at_limit_blob.len(),
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize")
+        );
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),
@@ -10769,6 +10990,414 @@ instructions_hash)])
             other => panic!("expected TransactionLimit failure, got {other:?}"),
         }
     }
+    /// Wrap proof attachments as transaction-level carriers without checking them.
+    fn unvalidated_proof_carriers(
+        attachments: &[ProofAttachment],
+    ) -> iroha_data_model::transaction::SignedAttachmentsV1 {
+        use iroha_data_model::transaction::signed_attachments::PlannedActionV1;
+        let mut plan = iroha_data_model::transaction::SignedAttachmentPlanV1::new();
+        for attachment in attachments {
+            plan.push_action(
+                PlannedActionV1::transaction_proof_unvalidated(attachment)
+                    .expect("canonical wrapper"),
+            );
+        }
+        plan.declare()
+    }
+    fn carrier_attachment(name: &str, proof: Vec<u8>) -> ProofAttachment {
+        ProofAttachment::new_ref(
+            "halo2/ipa".into(),
+            ProofBox::new("halo2/ipa".into(), proof),
+            VerifyingKeyId::new("halo2/ipa", name),
+        )
+    }
+    /// A proof attachment whose canonical wrapper frame has exactly `target` bytes.
+    fn carrier_attachment_with_frame_len(target: usize) -> ProofAttachment {
+        let mut proof_len = target / 2;
+        loop {
+            let attachment = carrier_attachment("vk_ceiling", vec![0x5a; proof_len]);
+            let actual = norito::encode_canonical(&attachment)
+                .expect("canonical wrapper")
+                .len();
+            if actual == target {
+                return attachment;
+            }
+            proof_len = proof_len + target - actual;
+        }
+    }
+    fn admit(
+        tx: &SignedTransaction,
+        limits: TransactionParameters,
+    ) -> Result<(), AcceptTransactionFail> {
+        AcceptedTransaction::validate_with_now(
+            tx,
+            &test_network_id(),
+            std::time::Duration::from_secs(0),
+            limits,
+            &iroha_config::parameters::actual::Crypto::default(),
+            tx.creation_time(),
+        )
+    }
+    #[test]
+    fn signed_attachment_schema_violations_are_rejected_at_admission() {
+        use iroha_data_model::transaction::signed_attachments::{
+            ActionAuthorityBindingV1, ActionIntentV1, ActionInvocationBindingV1,
+            ActionPublicInputsDigestV1, ActionRoleV1, AttachmentKindV1, AttachmentRoleV1,
+            PlannedActionV1, PlannedAttachmentV1, SignedAttachmentOccurrenceV1,
+            SignedAttachmentPlanV1, SignedAttachmentsV1,
+        };
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let limits = TransactionParameters::default();
+        let builder = || {
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, "attachments".to_owned())])
+        };
+        let valid = builder()
+            .with_proof_attachments([
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+                carrier_attachment("vk_b", vec![4, 5, 6, 7]),
+            ])
+            .expect("two carriers")
+            .sign(kp.private_key());
+        admit(&valid, limits).expect("valid carriers are admitted");
+
+        // Sign a payload exactly as given: nothing is rebound or repaired.
+        let sign = |payload: TransactionPayload| {
+            TransactionBuilder::from_payload(payload)
+                .expect("ordinary payload")
+                .sign(kp.private_key())
+        };
+        let tampered =
+            |change: &dyn Fn(&mut Vec<ActionIntentV1>, &mut Vec<SignedAttachmentOccurrenceV1>)| {
+                let mut payload = valid.payload().clone();
+                let (mut actions, mut occurrences) = payload
+                    .attachments
+                    .take()
+                    .expect("attachments")
+                    .into_parts();
+                change(&mut actions, &mut occurrences);
+                payload.attachments = Some(SignedAttachmentsV1::from_parts_unvalidated(
+                    actions,
+                    occurrences,
+                ));
+                sign(payload)
+            };
+        let rejection = |tx: &SignedTransaction| match admit(tx, limits) {
+            Err(AcceptTransactionFail::SignedAttachments(error)) => error,
+            other => panic!("expected a signed attachment rejection, got {other:?}"),
+        };
+
+        // Reorder.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| actions.swap(0, 1))),
+            SignedAttachmentErrorV1::ActionOutOfOrder {
+                position: 0,
+                action_index: 1
+            }
+        );
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences.swap(0, 1))),
+            SignedAttachmentErrorV1::OccurrenceOutOfOrder {
+                position: 0,
+                index: 1
+            }
+        );
+        // Substitute: another wrapped proof in a declared slot.
+        let substitute = norito::encode_canonical(&carrier_attachment("vk_c", vec![9, 9, 9]))
+            .expect("canonical wrapper");
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences[0] = SignedAttachmentOccurrenceV1::new(
+                    0,
+                    AttachmentKindV1::Proof,
+                    substitute.clone(),
+                );
+            })),
+            SignedAttachmentErrorV1::ReferenceHashMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+        // Bytes changed under an unchanged occurrence header.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences[1].bytes[60] ^= 1)),
+            SignedAttachmentErrorV1::OccurrenceHashMismatch { index: 1 }
+        );
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences[1].bytes.push(0))),
+            SignedAttachmentErrorV1::OccurrenceLengthMismatch {
+                index: 1,
+                declared: u64::try_from(valid.attachments().unwrap().occurrences()[1].bytes.len())
+                    .unwrap(),
+                actual: valid.attachments().unwrap().occurrences()[1].bytes.len() + 1
+            }
+        );
+        // Omit.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences.pop();
+            })),
+            SignedAttachmentErrorV1::MissingOccurrence {
+                action_index: 1,
+                index: 1
+            }
+        );
+        // Duplicate.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                let first = actions[0].attachments[0];
+                actions[1].attachments[0] = first;
+            })),
+            SignedAttachmentErrorV1::DuplicateReference {
+                action_index: 1,
+                index: 0
+            }
+        );
+        let duplicated = builder()
+            .with_signed_attachments(unvalidated_proof_carriers(&[
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+            ]))
+            .sign(kp.private_key());
+        assert_eq!(
+            rejection(&duplicated),
+            SignedAttachmentErrorV1::DuplicateProofContent {
+                first: 0,
+                second: 1
+            }
+        );
+        // Unused declaration.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences.push(SignedAttachmentOccurrenceV1::new(
+                    2,
+                    AttachmentKindV1::Proof,
+                    vec![0xEE; 8],
+                ));
+            })),
+            SignedAttachmentErrorV1::UnreferencedOccurrence { index: 2 }
+        );
+        // Another declared type and role.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                actions[0].attachments[0].kind = AttachmentKindV1::KeyMaterial;
+            })),
+            SignedAttachmentErrorV1::ReferenceKindMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                actions[0].attachments[0].role = AttachmentRoleV1::VerifyingKey;
+            })),
+            SignedAttachmentErrorV1::ReferenceRoleMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+
+        // Replay of a signed descriptor: the same actions and occurrences under
+        // another nonce carry statement digests of another ordered intent.
+        let mut lifted = valid.payload().clone();
+        lifted.nonce = std::num::NonZeroU32::new(77);
+        let expected = lifted
+            .action_statement_digests_v1()
+            .expect("statement digests")[0];
+        assert_eq!(
+            rejection(&sign(lifted)),
+            SignedAttachmentErrorV1::StatementBindingMismatch {
+                action_index: 0,
+                expected,
+                actual: valid.attachments().unwrap().actions()[0].statement_digest,
+            }
+        );
+
+        // A native instruction action is well formed and bound, but no route
+        // consumes its attachments yet.
+        let log_wire_id = iroha_data_model::isi::instruction_wire_id(&InstructionBox::from(
+            Log::new(Level::INFO, "attachments".to_owned()),
+        ))
+        .expect("Log is registered")
+        .to_owned();
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(PlannedActionV1 {
+            operation: ActionOperationV1::NativeInstruction(log_wire_id),
+            role: ActionRoleV1::ProofEffect,
+            authority: ActionAuthorityBindingV1::TransactionAuthority,
+            invocation: ActionInvocationBindingV1::Direct {
+                instruction_index: 0,
+            },
+            public_inputs_digest: ActionPublicInputsDigestV1::new([0x5a; 32]),
+            attachments: vec![PlannedAttachmentV1 {
+                kind: AttachmentKindV1::Proof,
+                role: AttachmentRoleV1::ActionProof,
+                bytes: vec![0xAA; 48],
+            }],
+        });
+        let native = builder()
+            .with_attachment_plan(plan)
+            .expect("schema-valid native action")
+            .sign(kp.private_key());
+        native
+            .validate_signed_attachments_v1()
+            .expect("the shared predicate accepts the declaration");
+        assert_eq!(
+            rejection(&native),
+            SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+        );
+        assert!(super::attachment_operation_is_supported(
+            &ActionOperationV1::TransactionProof
+        ));
+        assert!(super::attachment_operation_is_supported(
+            &ActionOperationV1::IvmProvedExecution
+        ));
+        assert_eq!(super::first_unsupported_attachment_operation(&valid), None);
+    }
+    #[test]
+    fn ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected() {
+        use iroha_data_model::transaction::signed_attachments::SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1;
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let signed_with = |attachment: &ProofAttachment| {
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, "ceiling".to_owned())])
+            .with_signed_attachments(unvalidated_proof_carriers(std::slice::from_ref(attachment)))
+            .sign(kp.private_key())
+        };
+        // The committed defaults: a 10 MiB transaction and 10 MiB of attachment bytes.
+        let defaults = TransactionParameters::default();
+
+        let at_ceiling = signed_with(&carrier_attachment_with_frame_len(
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1,
+        ));
+        let occurrence_bytes = at_ceiling
+            .attachments()
+            .expect("attachments")
+            .total_occurrence_bytes();
+        assert_eq!(occurrence_bytes, SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1);
+        let framed_len = norito::encode_canonical(&at_ceiling)
+            .expect("canonical frame")
+            .len();
+        assert!(
+            u64::try_from(framed_len).unwrap() <= defaults.max_tx_bytes().get(),
+            "a ceiling-sized occurrence must fit the transaction cap"
+        );
+        admit(&at_ceiling, defaults).expect("a ceiling-sized occurrence is admitted");
+
+        let one_over = signed_with(&carrier_attachment_with_frame_len(
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 + 1,
+        ));
+        assert_eq!(
+            admit(&one_over, defaults),
+            Err(AcceptTransactionFail::SignedAttachments(
+                SignedAttachmentErrorV1::OccurrenceTooLarge {
+                    index: 0,
+                    actual: SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 + 1,
+                    maximum: SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1,
+                }
+            ))
+        );
+
+        // The complete framed transaction is measured against the committed cap.
+        let limits_with = |max_tx_bytes: usize, max_decompressed_bytes: usize| {
+            TransactionParameters::with_max_signatures(
+                defaults.max_signatures(),
+                defaults.max_instructions(),
+                defaults.ivm_bytecode_size(),
+                NonZeroU64::new(u64::try_from(max_tx_bytes).unwrap()).unwrap(),
+                NonZeroU64::new(u64::try_from(max_decompressed_bytes).unwrap()).unwrap(),
+                defaults.max_metadata_depth(),
+            )
+        };
+        admit(&at_ceiling, limits_with(framed_len, occurrence_bytes))
+            .expect("exactly the transaction cap and exactly the attachment byte budget");
+        match admit(&at_ceiling, limits_with(framed_len - 1, occurrence_bytes)) {
+            Err(AcceptTransactionFail::TransactionLimit(limit)) => {
+                assert!(limit.reason.contains("Transaction size"), "{limit:?}");
+            }
+            other => panic!("expected the transaction cap to refuse, got {other:?}"),
+        }
+        match admit(&at_ceiling, limits_with(framed_len, occurrence_bytes - 1)) {
+            Err(AcceptTransactionFail::TransactionLimit(limit)) => {
+                assert!(limit.reason.contains("attachments expand"), "{limit:?}");
+            }
+            other => panic!("expected the attachment byte budget to refuse, got {other:?}"),
+        }
+    }
+    #[test]
+    fn ceiling_sized_raw_native_proof_passes_every_size_check_and_lacks_only_a_route() {
+        use iroha_data_model::transaction::signed_attachments::{
+            ActionAuthorityBindingV1, ActionInvocationBindingV1, ActionPublicInputsDigestV1,
+            ActionRoleV1, AttachmentKindV1, AttachmentRoleV1, PlannedActionV1, PlannedAttachmentV1,
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1, SignedAttachmentPlanV1,
+        };
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let defaults = TransactionParameters::default();
+        let log = || Log::new(Level::INFO, "ceiling".to_owned());
+        let log_wire_id = iroha_data_model::isi::instruction_wire_id(&InstructionBox::from(log()))
+            .expect("Log is registered")
+            .to_owned();
+        // One native action whose single occurrence is a raw proof of exactly
+        // the 9,437,184-byte proof ceiling: no wrapper counts toward it.
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(PlannedActionV1 {
+            operation: ActionOperationV1::NativeInstruction(log_wire_id),
+            role: ActionRoleV1::ProofEffect,
+            authority: ActionAuthorityBindingV1::TransactionAuthority,
+            invocation: ActionInvocationBindingV1::Direct {
+                instruction_index: 0,
+            },
+            public_inputs_digest: ActionPublicInputsDigestV1::new([0x5a; 32]),
+            attachments: vec![PlannedAttachmentV1 {
+                kind: AttachmentKindV1::Proof,
+                role: AttachmentRoleV1::ActionProof,
+                bytes: vec![0x5a; SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1],
+            }],
+        });
+        let raw_ceiling = TransactionBuilder::new(
+            test_network_id(),
+            authority_id,
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([log()])
+        .with_attachment_plan(plan)
+        .expect("a ceiling-sized raw proof is schema-valid")
+        .sign(kp.private_key());
+        assert_eq!(
+            raw_ceiling
+                .attachments()
+                .expect("attachments")
+                .total_occurrence_bytes(),
+            9_437_184
+        );
+        let framed_len = norito::encode_canonical(&raw_ceiling)
+            .expect("canonical frame")
+            .len();
+        assert!(
+            u64::try_from(framed_len).unwrap() <= defaults.max_tx_bytes().get(),
+            "a ceiling-sized raw proof must fit the 10 MiB transaction cap"
+        );
+        raw_ceiling
+            .validate_signed_attachments_v1()
+            .expect("the shared predicate accepts the ceiling-sized declaration");
+        // The transaction cap and the schema admit it. The node refuses it only
+        // because no executor route consumes a native instruction action yet
+        // (`attachment_operation_is_supported`, TODO(I.2, I.3)).
+        assert_eq!(
+            admit(&raw_ceiling, defaults),
+            Err(AcceptTransactionFail::SignedAttachments(
+                SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+            ))
+        );
+    }
     #[test]
     fn attachments_decompressed_limit_enforced() {
         use std::time::Duration;
@@ -10776,15 +11405,15 @@ instructions_hash)])
         let proof = ProofBox::new("halo2/ipa".into(), vec![0u8; 192]);
         let vk_id = VerifyingKeyId::new("halo2/ipa", "vk_limit");
         let attachment = ProofAttachment::new_ref("halo2/ipa".into(), proof, vk_id);
-        let attachments = ProofAttachmentList::try_from(vec![attachment])
-            .expect("one attachment is a valid bounded proof list");
+        let attachments = vec![attachment];
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_instructions([Log::new(Level::INFO, "proof".to_string())])
-        .with_attachments(attachments)
+        .with_proof_attachments(attachments)
+        .expect("valid proof carriers")
         .sign(kp.private_key());
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10842,56 +11471,55 @@ instructions_hash)])
         forged_hash[0] ^= 0x80;
         forged_envelope_hash.envelope_hash = Some(forged_hash);
         assert!(matches!(
-            ProofAttachmentList::try_from(Vec::new()),
-            Err(iroha_data_model::proof::ProofAttachmentListError::Empty)
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_proof_attachments(Vec::new()),
+            Err(SignedAttachmentErrorV1::NoActions)
         ));
         let cases = [
             (
                 "proof-backend-mismatch",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("stark/fri".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "vk_admission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.backend",
             ),
             (
                 "nonportable-vk-ref-name",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "VkAdmission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "vk_ref",
             ),
             (
                 "empty-proof-bytes",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), Vec::new()),
                     VerifyingKeyId::new("halo2/ipa", "vk_admission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.bytes",
             ),
             (
                 "zero-vk-commitment",
-                ProofAttachmentList::try_from(vec![zero_vk_commitment])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_vk_commitment],
                 "vk_commitment",
             ),
             (
                 "zero-envelope-hash",
-                ProofAttachmentList::try_from(vec![zero_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_envelope_hash],
                 "envelope_hash",
             ),
             (
                 "forged-envelope-hash",
-                ProofAttachmentList::try_from(vec![forged_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![forged_envelope_hash],
                 "envelope_hash",
             ),
         ];
@@ -10902,7 +11530,7 @@ instructions_hash)])
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
             .with_instructions([Log::new(Level::INFO, format!("proof-{label}"))])
-            .with_attachments(attachments)
+            .with_signed_attachments(unvalidated_proof_carriers(&attachments))
             .sign(kp.private_key());
             let err = AcceptedTransaction::validate_with_now(
                 &tx,
@@ -10914,14 +11542,17 @@ instructions_hash)])
             )
             .expect_err("malformed proof attachment must be rejected at admission");
             match err {
-                AcceptTransactionFail::TransactionLimit(limit) => {
+                AcceptTransactionFail::SignedAttachments(
+                    SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason },
+                ) => {
                     assert!(
-                        limit.reason.contains(expected_reason),
-                        "case {label}: expected reason to contain {expected_reason}, got {}",
-                        limit.reason
+                        reason.contains(expected_reason),
+                        "case {label}: expected reason to contain {expected_reason}, got {reason}"
                     );
                 }
-                other => panic!("case {label}: expected TransactionLimit failure, got {other:?}"),
+                other => {
+                    panic!("case {label}: expected a malformed proof carrier, got {other:?}")
+                }
             }
         }
     }
@@ -11380,7 +12011,7 @@ instructions_hash)])
         assert_eq!(updated, 6);
     }
     #[test]
-    fn custom_parameter_cannot_disable_configured_ivm_cycle_ceiling() {
+    fn custom_parameter_cannot_disable_committed_ivm_cycle_ceiling() {
         use iroha_data_model::parameter::{
             Parameter,
             custom::{CustomParameter, CustomParameterId},
@@ -11388,12 +12019,12 @@ instructions_hash)])
         use iroha_model_base::name::Name;
         use iroha_primitives::json::Json;
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(1_000).expect("test ceiling is non-zero");
         fixture.state.set_pipeline(pipeline);
-        // A consensus custom parameter with the retired name must not disable
-        // or override the node's configured production admission policy.
+        // A custom parameter with the retired name must not disable or override
+        // the actual committed pipeline policy frozen for this block.
         let id = CustomParameterId::new(Name::from_str("max_ivm_cycles_upper_bound").unwrap());
         let custom = CustomParameter::new(id, Json::new(0_u64));
         // Build program with max_cycles = 2000
@@ -11405,7 +12036,8 @@ instructions_hash)])
                     .world
                     .parameters
                     .get_mut()
-                    .set_parameter(Parameter::Custom(custom));
+                    .set_parameter(Parameter::Custom(custom))
+                    .expect("valid fixture parameters");
             },
         );
         match result {
@@ -11415,11 +12047,11 @@ instructions_hash)])
                 assert_eq!(info.max_cycles, 2_000);
                 assert_eq!(info.upper_bound, 1_000);
             }
-            other => panic!("configured cycle ceiling must reject the program, got {other:?}"),
+            other => panic!("committed cycle ceiling must reject the program, got {other:?}"),
         }
     }
     #[test]
-    fn configured_ivm_cycle_ceiling_accepts_within_bound_despite_custom_parameter() {
+    fn committed_ivm_cycle_ceiling_accepts_within_bound_despite_custom_parameter() {
         use iroha_data_model::{
             parameter::{
                 Parameter,
@@ -11433,22 +12065,27 @@ instructions_hash)])
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query_handle = crate::query::store::LiveQueryStore::start_test();
         let mut state = State::new(world, kura, query_handle);
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(4_000).expect("test ceiling is non-zero");
+        let policy = crate::pipeline_validity_policy::policy_of(&pipeline);
         state.set_pipeline(pipeline);
-        let chain = crate::block::tests::component_chain(state);
+        let chain = crate::block::tests::component_chain_with_genesis_parameters(
+            state,
+            vec![Parameter::Custom(policy.into_custom_parameter())],
+        );
         let state = chain.state();
         let header = original_component_successor_header(state);
         let mut block = state.block(header);
-        // The retired custom parameter cannot lower the configured ceiling.
+        // The retired custom parameter cannot lower the committed ceiling.
         let id = CustomParameterId::new(Name::from_str("max_ivm_cycles_upper_bound").unwrap());
         let custom = CustomParameter::new(id, Json::new(1_u64));
         block
             .world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(custom));
+            .set_parameter(Parameter::Custom(custom))
+            .expect("valid fixture parameters");
         // Build program with max_cycles = 2000, below the bound
         let prog = minimal_ivm_program_with_max_cycles(1, 2_000);
         let tx = TransactionBuilder::new(
@@ -11903,10 +12540,8 @@ instructions_hash)])
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_instructions([Log::new(Level::INFO, "noop".into())])
-        .with_attachments(
-            ProofAttachmentList::try_from(vec![attachment1, attachment2])
-                .expect("two attachments are a valid bounded proof list"),
-        )
+        .with_proof_attachments(vec![attachment1, attachment2])
+        .expect("valid proof carriers")
         .sign(keypair.private_key());
         let collected_proofs = super::collect_lane_privacy_proofs(&tx);
         let ids: BTreeSet<_> = collected_proofs
@@ -12732,7 +13367,7 @@ instructions_hash)])
         let nexus = state.nexus_snapshot();
         let crypto = state.crypto();
         let zk = state.zk_snapshot();
-        let pipeline = state.pipeline.clone();
+        let pipeline = state.installed_pipeline().clone();
         let fraud_monitoring = state.fraud_monitoring.clone();
         let governance = state.gov.clone();
         #[cfg(feature = "telemetry")]
@@ -13359,7 +13994,7 @@ instructions_hash)])
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );
-        let mut zk = state.zk.clone();
+        let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
         zk.max_verify_calls_per_tx = 2;

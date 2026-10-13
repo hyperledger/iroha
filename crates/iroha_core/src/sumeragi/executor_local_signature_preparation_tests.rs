@@ -39,6 +39,7 @@ fn original_source(
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: std::time::Duration::ZERO,
         },
         &[accepted],
     )
@@ -148,7 +149,12 @@ fn original_local_payload_signature_refusal_keeps_job_and_exact_release_owner() 
             assert!(worker.recovery.is_none());
             assert!(events.try_recv().is_err());
             let again = worker.finish_payload_build().unwrap_err();
-            assert_eq!(again, error);
+            let PublicationError::Deferred(again) = again else {
+                panic!("same signature preparation must defer");
+            };
+            assert_eq!(again.allocation_refusal(), returned.allocation_refusal());
+            assert_eq!(again.release_wait(), returned.release_wait());
+            assert!(again.execution().is_none() && returned.execution().is_none());
             assert_eq!(
                 registration.poll_wait(&release, &mut context),
                 Poll::Pending

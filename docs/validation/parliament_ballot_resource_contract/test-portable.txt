@@ -1,0 +1,28 @@
+COMMAND scripts/cargo_fast.sh --target-slot parliament-workspace --incremental -- test --release --locked -p iroha_parliament_ballot_proof --example resource_contract
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-workspace
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo test --release --locked -p iroha_parliament_ballot_proof --example resource_contract
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 1.27s
+     Running unittests examples/resource_contract.rs (target/cargo-fast/parliament-workspace/release/examples/resource_contract-f7c9a2ddff99c0b9)
+
+running 10 tests
+test arena::tests::zeroed_reallocation_copy_and_failed_growth_follow_allocator_contract ... ok
+test workspace::tests::exhaustion_decimal_writer_is_bounded_and_exact ... ok
+test workspace::tests::operational_failures_are_never_invalid_proofs ... ok
+test arena::tests::exact_budget_alignment_and_coalescing ... ok
+test budget::tests::empty_malformed_calls_are_charged_and_length_substitution_is_refused ... ok
+test budget::tests::outer_cap_and_large_budgets_do_not_wrap_or_partially_debit ... ok
+test budget::tests::exact_budget_is_spent_and_failed_reservations_are_atomic ... ok
+test arena::tests::deterministic_fragmentation_campaign_preserves_live_bytes ... ok
+test native::tests::supplied_native_stack_and_partition_are_exact ... ok
+test budget::tests::honest_early_invalid_and_late_invalid_proofs_spend_the_same_unit ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.77s
+
+
+EXIT 0

@@ -1,0 +1,388 @@
+{
+  "schema": "sccp-evm-gas-baseline/v1",
+  "spec": "specs/sccp.md §5.4",
+  "generator": "contracts/evm/sccp/test/sccp_gas.test.js (SCCP_GAS_BASELINE=write)",
+  "note": "Gas used per hardfork, row and profile on the locked EDR runtime. `rows` are whole transactions (gasUsed = intrinsic + execution; floor is the EIP-7623 minimum of the calldata). `derived` are (gas of 16 certificates − gas of 1) / 15 and the LOG3 of SccpCertificate from the execution trace. The bsc profile is the same build under chain id 56 on EDR; it is no measurement of a BSC node.",
+  "tolerance": {
+    "rule": "a measured value m passes iff below·b ≤ denominator·m ≤ above·b for its baseline b",
+    "above": 11,
+    "below": 9,
+    "denominator": 10
+  },
+  "rows": {
+    "prague": {
+      "applyControl inline, n = 31 (new X)": {
+        "ethereum": { "gasUsed": 330986, "calldataBytes": 3972, "intrinsic": 73680, "floor": 152700, "execution": 257306 },
+        "bsc": { "gasUsed": 331018, "calldataBytes": 3972, "intrinsic": 73692, "floor": 152730, "execution": 257326 }
+      },
+      "applyControl inline, n = 4 (new X)": {
+        "ethereum": { "gasUsed": 267508, "calldataBytes": 1796, "intrinsic": 39044, "floor": 66110, "execution": 228464 },
+        "bsc": { "gasUsed": 267528, "calldataBytes": 1796, "intrinsic": 39044, "floor": 66110, "execution": 228484 }
+      },
+      "applyControl inline, n = 7 (new X)": {
+        "ethereum": { "gasUsed": 274662, "calldataBytes": 2052, "intrinsic": 42972, "floor": 75930, "execution": 231690 },
+        "bsc": { "gasUsed": 274694, "calldataBytes": 2052, "intrinsic": 42984, "floor": 75960, "execution": 231710 }
+      },
+      "applyControlFromCheckpoint (1-leaf block)": {
+        "ethereum": { "gasUsed": 51196, "calldataBytes": 868, "intrinsic": 27724, "floor": 37810, "execution": 23472 },
+        "bsc": { "gasUsed": 51216, "calldataBytes": 868, "intrinsic": 27724, "floor": 37810, "execution": 23492 }
+      },
+      "applyControlFromCheckpoint (512-leaf block through a 32-sibling history path)": {
+        "ethereum": { "gasUsed": 94377, "calldataBytes": 2180, "intrinsic": 48248, "floor": 89120, "execution": 46129 },
+        "bsc": { "gasUsed": 94397, "calldataBytes": 2180, "intrinsic": 48248, "floor": 89120, "execution": 46149 }
+      },
+      "deployment through SCCP_EVM_DEPLOYER": {
+        "ethereum": { "gasUsed": 3811293, "calldataBytes": 18606, "intrinsic": 304956, "floor": 730890, "execution": 3506337 },
+        "bsc": { "gasUsed": 3811323, "calldataBytes": 18606, "intrinsic": 304956, "floor": 730890, "execution": 3506367 }
+      },
+      "finalizeFromCheckpoint (1-leaf block; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 71400, "calldataBytes": 900, "intrinsic": 28176, "floor": 38940, "execution": 43224 },
+        "bsc": { "gasUsed": 71407, "calldataBytes": 900, "intrinsic": 28152, "floor": 38880, "execution": 43255 }
+      },
+      "finalizeFromCheckpoint (1-leaf block; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 139788, "calldataBytes": 900, "intrinsic": 28164, "floor": 38910, "execution": 111624 },
+        "bsc": { "gasUsed": 139819, "calldataBytes": 900, "intrinsic": 28164, "floor": 38910, "execution": 111655 }
+      },
+      "finalizeFromCheckpoint (512-leaf block through a 32-sibling history path; new balance and bitmap word)": {
+        "ethereum": { "gasUsed": 148843, "calldataBytes": 2212, "intrinsic": 48676, "floor": 90190, "execution": 100167 },
+        "bsc": { "gasUsed": 148886, "calldataBytes": 2212, "intrinsic": 48688, "floor": 90220, "execution": 100198 }
+      },
+      "finalizeFromTaira inline, n = 31 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 352284, "calldataBytes": 4036, "intrinsic": 74608, "floor": 155020, "execution": 277676 },
+        "bsc": { "gasUsed": 352339, "calldataBytes": 4036, "intrinsic": 74632, "floor": 155080, "execution": 277707 }
+      },
+      "finalizeFromTaira inline, n = 31 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 419646, "calldataBytes": 4004, "intrinsic": 74108, "floor": 153770, "execution": 345538 },
+        "bsc": { "gasUsed": 419701, "calldataBytes": 4004, "intrinsic": 74132, "floor": 153830, "execution": 345569 }
+      },
+      "finalizeFromTaira inline, n = 31 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 155110, "calldataBytes": 4036, "intrinsic": 74644, "floor": 155110, "execution": 80466 },
+        "bsc": { "gasUsed": 155110, "calldataBytes": 4036, "intrinsic": 74644, "floor": 155110, "execution": 80466 }
+      },
+      "finalizeFromTaira inline, n = 4 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 288866, "calldataBytes": 1860, "intrinsic": 40032, "floor": 68580, "execution": 248834 },
+        "bsc": { "gasUsed": 288885, "calldataBytes": 1860, "intrinsic": 40020, "floor": 68550, "execution": 248865 }
+      },
+      "finalizeFromTaira inline, n = 4 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 356192, "calldataBytes": 1828, "intrinsic": 39496, "floor": 67240, "execution": 316696 },
+        "bsc": { "gasUsed": 356235, "calldataBytes": 1828, "intrinsic": 39508, "floor": 67270, "execution": 316727 }
+      },
+      "finalizeFromTaira inline, n = 4 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 92578, "calldataBytes": 1860, "intrinsic": 40044, "floor": 68610, "execution": 52534 },
+        "bsc": { "gasUsed": 92585, "calldataBytes": 1860, "intrinsic": 40020, "floor": 68550, "execution": 52565 }
+      },
+      "finalizeFromTaira inline, n = 7 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 295984, "calldataBytes": 2116, "intrinsic": 43924, "floor": 78310, "execution": 252060 },
+        "bsc": { "gasUsed": 296027, "calldataBytes": 2116, "intrinsic": 43936, "floor": 78340, "execution": 252091 }
+      },
+      "finalizeFromTaira inline, n = 7 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 363310, "calldataBytes": 2084, "intrinsic": 43388, "floor": 76970, "execution": 319922 },
+        "bsc": { "gasUsed": 363377, "calldataBytes": 2084, "intrinsic": 43424, "floor": 77060, "execution": 319953 }
+      },
+      "finalizeFromTaira inline, n = 7 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 98080, "calldataBytes": 2116, "intrinsic": 43936, "floor": 78340, "execution": 54144 },
+        "bsc": { "gasUsed": 98123, "calldataBytes": 2116, "intrinsic": 43948, "floor": 78370, "execution": 54175 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 31 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 320337, "calldataBytes": 3492, "intrinsic": 70104, "floor": 143760, "execution": 250233 },
+        "bsc": { "gasUsed": 320347, "calldataBytes": 3492, "intrinsic": 70104, "floor": 143760, "execution": 250243 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 31 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 323149, "calldataBytes": 3492, "intrinsic": 70116, "floor": 143790, "execution": 253033 },
+        "bsc": { "gasUsed": 323159, "calldataBytes": 3492, "intrinsic": 70116, "floor": 143790, "execution": 253043 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 4 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 256908, "calldataBytes": 1316, "intrinsic": 35516, "floor": 57290, "execution": 221392 },
+        "bsc": { "gasUsed": 256918, "calldataBytes": 1316, "intrinsic": 35516, "floor": 57290, "execution": 221402 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 4 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 259660, "calldataBytes": 1316, "intrinsic": 35468, "floor": 57170, "execution": 224192 },
+        "bsc": { "gasUsed": 259670, "calldataBytes": 1316, "intrinsic": 35468, "floor": 57170, "execution": 224202 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 7 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 264027, "calldataBytes": 1572, "intrinsic": 39408, "floor": 67020, "execution": 224619 },
+        "bsc": { "gasUsed": 264037, "calldataBytes": 1572, "intrinsic": 39408, "floor": 67020, "execution": 224629 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 7 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 266839, "calldataBytes": 1572, "intrinsic": 39420, "floor": 67050, "execution": 227419 },
+        "bsc": { "gasUsed": 266849, "calldataBytes": 1572, "intrinsic": 39420, "floor": 67050, "execution": 227429 }
+      },
+      "submitCheckpoints, 1 certificate, n = 31 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 316706, "calldataBytes": 3492, "intrinsic": 69696, "floor": 142740, "execution": 247010 },
+        "bsc": { "gasUsed": 316716, "calldataBytes": 3492, "intrinsic": 69696, "floor": 142740, "execution": 247020 }
+      },
+      "submitCheckpoints, 1 certificate, n = 4 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 253265, "calldataBytes": 1316, "intrinsic": 35096, "floor": 56240, "execution": 218169 },
+        "bsc": { "gasUsed": 253275, "calldataBytes": 1316, "intrinsic": 35096, "floor": 56240, "execution": 218179 }
+      },
+      "submitCheckpoints, 1 certificate, n = 7 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 260396, "calldataBytes": 1572, "intrinsic": 39000, "floor": 66000, "execution": 221396 },
+        "bsc": { "gasUsed": 260406, "calldataBytes": 1572, "intrinsic": 39000, "floor": 66000, "execution": 221406 }
+      },
+      "submitCheckpoints, 16 certificates, n = 31 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 4602731, "calldataBytes": 54852, "intrinsic": 795132, "floor": 1956330, "execution": 3807599 },
+        "bsc": { "gasUsed": 4602741, "calldataBytes": 54852, "intrinsic": 795132, "floor": 1956330, "execution": 3807609 }
+      },
+      "submitCheckpoints, 16 certificates, n = 4 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 3583256, "calldataBytes": 20036, "intrinsic": 241280, "floor": 571700, "execution": 3341976 },
+        "bsc": { "gasUsed": 3583266, "calldataBytes": 20036, "intrinsic": 241280, "floor": 571700, "execution": 3341986 }
+      },
+      "submitCheckpoints, 16 certificates, n = 7 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 3697934, "calldataBytes": 24132, "intrinsic": 303972, "floor": 728430, "execution": 3393962 },
+        "bsc": { "gasUsed": 3697944, "calldataBytes": 24132, "intrinsic": 303972, "floor": 728430, "execution": 3393972 }
+      },
+      "submitCheckpoints, 16 rotations, n = 31 (key changes)": {
+        "ethereum": { "gasUsed": 4660695, "calldataBytes": 54852, "intrinsic": 801528, "floor": 1972320, "execution": 3859167 },
+        "bsc": { "gasUsed": 4660705, "calldataBytes": 54852, "intrinsic": 801528, "floor": 1972320, "execution": 3859177 }
+      },
+      "submitCheckpoints, 16 rotations, n = 4 (key changes)": {
+        "ethereum": { "gasUsed": 3641232, "calldataBytes": 20036, "intrinsic": 247448, "floor": 587120, "execution": 3393784 },
+        "bsc": { "gasUsed": 3641242, "calldataBytes": 20036, "intrinsic": 247448, "floor": 587120, "execution": 3393794 }
+      },
+      "submitCheckpoints, 16 rotations, n = 7 (key changes)": {
+        "ethereum": { "gasUsed": 3755910, "calldataBytes": 24132, "intrinsic": 310620, "floor": 745050, "execution": 3445290 },
+        "bsc": { "gasUsed": 3755920, "calldataBytes": 24132, "intrinsic": 310620, "floor": 745050, "execution": 3445300 }
+      },
+      "transferToTaira (1024-byte recipient; later burn)": {
+        "ethereum": { "gasUsed": 75829, "calldataBytes": 1156, "intrinsic": 38032, "floor": 63580, "execution": 37797 },
+        "bsc": { "gasUsed": 75860, "calldataBytes": 1156, "intrinsic": 38032, "floor": 63580, "execution": 37828 }
+      },
+      "transferToTaira (34-byte recipient; first burn of the sender)": {
+        "ethereum": { "gasUsed": 68646, "calldataBytes": 196, "intrinsic": 22300, "floor": 24250, "execution": 46346 },
+        "bsc": { "gasUsed": 68677, "calldataBytes": 196, "intrinsic": 22300, "floor": 24250, "execution": 46377 }
+      },
+      "transferToTaira (34-byte recipient; later burn)": {
+        "ethereum": { "gasUsed": 51558, "calldataBytes": 196, "intrinsic": 22312, "floor": 24280, "execution": 29246 },
+        "bsc": { "gasUsed": 51589, "calldataBytes": 196, "intrinsic": 22312, "floor": 24280, "execution": 29277 }
+      },
+      "voidExpired inline, n = 31 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 338172, "calldataBytes": 4036, "intrinsic": 74284, "floor": 154210, "execution": 263888 },
+        "bsc": { "gasUsed": 338203, "calldataBytes": 4036, "intrinsic": 74284, "floor": 154210, "execution": 263919 }
+      },
+      "voidExpired inline, n = 4 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 274694, "calldataBytes": 1860, "intrinsic": 39648, "floor": 67620, "execution": 235046 },
+        "bsc": { "gasUsed": 274725, "calldataBytes": 1860, "intrinsic": 39648, "floor": 67620, "execution": 235077 }
+      },
+      "voidExpired inline, n = 7 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 281872, "calldataBytes": 2116, "intrinsic": 43600, "floor": 77500, "execution": 238272 },
+        "bsc": { "gasUsed": 281891, "calldataBytes": 2116, "intrinsic": 43588, "floor": 77470, "execution": 238303 }
+      },
+      "voidExpiredFromCheckpoint (1-leaf block; used bitmap word)": {
+        "ethereum": { "gasUsed": 58374, "calldataBytes": 932, "intrinsic": 28328, "floor": 39320, "execution": 30046 },
+        "bsc": { "gasUsed": 58405, "calldataBytes": 932, "intrinsic": 28328, "floor": 39320, "execution": 30077 }
+      },
+      "voidExpiredFromCheckpoint (512-leaf block through a 32-sibling history path; new bitmap word)": {
+        "ethereum": { "gasUsed": 118642, "calldataBytes": 2244, "intrinsic": 48840, "floor": 90600, "execution": 69802 },
+        "bsc": { "gasUsed": 118685, "calldataBytes": 2244, "intrinsic": 48852, "floor": 90630, "execution": 69833 }
+      },
+      "voidFrozen, 1 nonce (new bitmap word)": {
+        "ethereum": { "gasUsed": 54458, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 33114 },
+        "bsc": { "gasUsed": 54468, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 33124 }
+      },
+      "voidFrozen, 256 nonces (one new bitmap word)": {
+        "ethereum": { "gasUsed": 450206, "calldataBytes": 68, "intrinsic": 21332, "floor": 21830, "execution": 428874 },
+        "bsc": { "gasUsed": 450216, "calldataBytes": 68, "intrinsic": 21332, "floor": 21830, "execution": 428884 }
+      },
+      "voidFrozen, 256 nonces (two new bitmap words)": {
+        "ethereum": { "gasUsed": 472836, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 451492 },
+        "bsc": { "gasUsed": 472846, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 451502 }
+      }
+    },
+    "osaka": {
+      "applyControl inline, n = 31 (new X)": {
+        "ethereum": { "gasUsed": 332186, "calldataBytes": 3972, "intrinsic": 73680, "floor": 152700, "execution": 258506 },
+        "bsc": { "gasUsed": 332218, "calldataBytes": 3972, "intrinsic": 73692, "floor": 152730, "execution": 258526 }
+      },
+      "applyControl inline, n = 4 (new X)": {
+        "ethereum": { "gasUsed": 268708, "calldataBytes": 1796, "intrinsic": 39044, "floor": 66110, "execution": 229664 },
+        "bsc": { "gasUsed": 268728, "calldataBytes": 1796, "intrinsic": 39044, "floor": 66110, "execution": 229684 }
+      },
+      "applyControl inline, n = 7 (new X)": {
+        "ethereum": { "gasUsed": 275862, "calldataBytes": 2052, "intrinsic": 42972, "floor": 75930, "execution": 232890 },
+        "bsc": { "gasUsed": 275894, "calldataBytes": 2052, "intrinsic": 42984, "floor": 75960, "execution": 232910 }
+      },
+      "applyControlFromCheckpoint (1-leaf block)": {
+        "ethereum": { "gasUsed": 51196, "calldataBytes": 868, "intrinsic": 27724, "floor": 37810, "execution": 23472 },
+        "bsc": { "gasUsed": 51216, "calldataBytes": 868, "intrinsic": 27724, "floor": 37810, "execution": 23492 }
+      },
+      "applyControlFromCheckpoint (512-leaf block through a 32-sibling history path)": {
+        "ethereum": { "gasUsed": 94377, "calldataBytes": 2180, "intrinsic": 48248, "floor": 89120, "execution": 46129 },
+        "bsc": { "gasUsed": 94397, "calldataBytes": 2180, "intrinsic": 48248, "floor": 89120, "execution": 46149 }
+      },
+      "deployment through SCCP_EVM_DEPLOYER": {
+        "ethereum": { "gasUsed": 3811293, "calldataBytes": 18606, "intrinsic": 304956, "floor": 730890, "execution": 3506337 },
+        "bsc": { "gasUsed": 3811323, "calldataBytes": 18606, "intrinsic": 304956, "floor": 730890, "execution": 3506367 }
+      },
+      "finalizeFromCheckpoint (1-leaf block; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 71400, "calldataBytes": 900, "intrinsic": 28176, "floor": 38940, "execution": 43224 },
+        "bsc": { "gasUsed": 71407, "calldataBytes": 900, "intrinsic": 28152, "floor": 38880, "execution": 43255 }
+      },
+      "finalizeFromCheckpoint (1-leaf block; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 139788, "calldataBytes": 900, "intrinsic": 28164, "floor": 38910, "execution": 111624 },
+        "bsc": { "gasUsed": 139819, "calldataBytes": 900, "intrinsic": 28164, "floor": 38910, "execution": 111655 }
+      },
+      "finalizeFromCheckpoint (512-leaf block through a 32-sibling history path; new balance and bitmap word)": {
+        "ethereum": { "gasUsed": 148843, "calldataBytes": 2212, "intrinsic": 48676, "floor": 90190, "execution": 100167 },
+        "bsc": { "gasUsed": 148886, "calldataBytes": 2212, "intrinsic": 48688, "floor": 90220, "execution": 100198 }
+      },
+      "finalizeFromTaira inline, n = 31 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 353484, "calldataBytes": 4036, "intrinsic": 74608, "floor": 155020, "execution": 278876 },
+        "bsc": { "gasUsed": 353539, "calldataBytes": 4036, "intrinsic": 74632, "floor": 155080, "execution": 278907 }
+      },
+      "finalizeFromTaira inline, n = 31 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 420846, "calldataBytes": 4004, "intrinsic": 74108, "floor": 153770, "execution": 346738 },
+        "bsc": { "gasUsed": 420901, "calldataBytes": 4004, "intrinsic": 74132, "floor": 153830, "execution": 346769 }
+      },
+      "finalizeFromTaira inline, n = 31 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 155110, "calldataBytes": 4036, "intrinsic": 74644, "floor": 155110, "execution": 80466 },
+        "bsc": { "gasUsed": 155110, "calldataBytes": 4036, "intrinsic": 74644, "floor": 155110, "execution": 80466 }
+      },
+      "finalizeFromTaira inline, n = 4 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 290066, "calldataBytes": 1860, "intrinsic": 40032, "floor": 68580, "execution": 250034 },
+        "bsc": { "gasUsed": 290085, "calldataBytes": 1860, "intrinsic": 40020, "floor": 68550, "execution": 250065 }
+      },
+      "finalizeFromTaira inline, n = 4 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 357392, "calldataBytes": 1828, "intrinsic": 39496, "floor": 67240, "execution": 317896 },
+        "bsc": { "gasUsed": 357435, "calldataBytes": 1828, "intrinsic": 39508, "floor": 67270, "execution": 317927 }
+      },
+      "finalizeFromTaira inline, n = 4 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 92578, "calldataBytes": 1860, "intrinsic": 40044, "floor": 68610, "execution": 52534 },
+        "bsc": { "gasUsed": 92585, "calldataBytes": 1860, "intrinsic": 40020, "floor": 68550, "execution": 52565 }
+      },
+      "finalizeFromTaira inline, n = 7 (new X; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 297184, "calldataBytes": 2116, "intrinsic": 43924, "floor": 78310, "execution": 253260 },
+        "bsc": { "gasUsed": 297227, "calldataBytes": 2116, "intrinsic": 43936, "floor": 78340, "execution": 253291 }
+      },
+      "finalizeFromTaira inline, n = 7 (new X; first operation: new balance, bitmap word and slot C)": {
+        "ethereum": { "gasUsed": 364510, "calldataBytes": 2084, "intrinsic": 43388, "floor": 76970, "execution": 321122 },
+        "bsc": { "gasUsed": 364577, "calldataBytes": 2084, "intrinsic": 43424, "floor": 77060, "execution": 321153 }
+      },
+      "finalizeFromTaira inline, n = 7 (stored X, cheap path; existing balance, used bitmap word)": {
+        "ethereum": { "gasUsed": 98080, "calldataBytes": 2116, "intrinsic": 43936, "floor": 78340, "execution": 54144 },
+        "bsc": { "gasUsed": 98123, "calldataBytes": 2116, "intrinsic": 43948, "floor": 78370, "execution": 54175 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 31 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 321537, "calldataBytes": 3492, "intrinsic": 70104, "floor": 143760, "execution": 251433 },
+        "bsc": { "gasUsed": 321547, "calldataBytes": 3492, "intrinsic": 70104, "floor": 143760, "execution": 251443 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 31 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 324349, "calldataBytes": 3492, "intrinsic": 70116, "floor": 143790, "execution": 254233 },
+        "bsc": { "gasUsed": 324359, "calldataBytes": 3492, "intrinsic": 70116, "floor": 143790, "execution": 254243 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 4 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 258108, "calldataBytes": 1316, "intrinsic": 35516, "floor": 57290, "execution": 222592 },
+        "bsc": { "gasUsed": 258118, "calldataBytes": 1316, "intrinsic": 35516, "floor": 57290, "execution": 222602 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 4 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 260860, "calldataBytes": 1316, "intrinsic": 35468, "floor": 57170, "execution": 225392 },
+        "bsc": { "gasUsed": 260870, "calldataBytes": 1316, "intrinsic": 35468, "floor": 57170, "execution": 225402 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 7 (heartbeat: slot B)": {
+        "ethereum": { "gasUsed": 265227, "calldataBytes": 1572, "intrinsic": 39408, "floor": 67020, "execution": 225819 },
+        "bsc": { "gasUsed": 265237, "calldataBytes": 1572, "intrinsic": 39408, "floor": 67020, "execution": 225829 }
+      },
+      "submitCheckpoints, 1 certificate with rotation, n = 7 (key change: root and slot B)": {
+        "ethereum": { "gasUsed": 268039, "calldataBytes": 1572, "intrinsic": 39420, "floor": 67050, "execution": 228619 },
+        "bsc": { "gasUsed": 268049, "calldataBytes": 1572, "intrinsic": 39420, "floor": 67050, "execution": 228629 }
+      },
+      "submitCheckpoints, 1 certificate, n = 31 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 317906, "calldataBytes": 3492, "intrinsic": 69696, "floor": 142740, "execution": 248210 },
+        "bsc": { "gasUsed": 317916, "calldataBytes": 3492, "intrinsic": 69696, "floor": 142740, "execution": 248220 }
+      },
+      "submitCheckpoints, 1 certificate, n = 4 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 254465, "calldataBytes": 1316, "intrinsic": 35096, "floor": 56240, "execution": 219369 },
+        "bsc": { "gasUsed": 254475, "calldataBytes": 1316, "intrinsic": 35096, "floor": 56240, "execution": 219379 }
+      },
+      "submitCheckpoints, 1 certificate, n = 7 (new checkpoint, high raised)": {
+        "ethereum": { "gasUsed": 261596, "calldataBytes": 1572, "intrinsic": 39000, "floor": 66000, "execution": 222596 },
+        "bsc": { "gasUsed": 261606, "calldataBytes": 1572, "intrinsic": 39000, "floor": 66000, "execution": 222606 }
+      },
+      "submitCheckpoints, 16 certificates, n = 31 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 4621931, "calldataBytes": 54852, "intrinsic": 795132, "floor": 1956330, "execution": 3826799 },
+        "bsc": { "gasUsed": 4621941, "calldataBytes": 54852, "intrinsic": 795132, "floor": 1956330, "execution": 3826809 }
+      },
+      "submitCheckpoints, 16 certificates, n = 4 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 3602456, "calldataBytes": 20036, "intrinsic": 241280, "floor": 571700, "execution": 3361176 },
+        "bsc": { "gasUsed": 3602466, "calldataBytes": 20036, "intrinsic": 241280, "floor": 571700, "execution": 3361186 }
+      },
+      "submitCheckpoints, 16 certificates, n = 7 (16 new checkpoints)": {
+        "ethereum": { "gasUsed": 3717134, "calldataBytes": 24132, "intrinsic": 303972, "floor": 728430, "execution": 3413162 },
+        "bsc": { "gasUsed": 3717144, "calldataBytes": 24132, "intrinsic": 303972, "floor": 728430, "execution": 3413172 }
+      },
+      "submitCheckpoints, 16 rotations, n = 31 (key changes)": {
+        "ethereum": { "gasUsed": 4679895, "calldataBytes": 54852, "intrinsic": 801528, "floor": 1972320, "execution": 3878367 },
+        "bsc": { "gasUsed": 4679905, "calldataBytes": 54852, "intrinsic": 801528, "floor": 1972320, "execution": 3878377 }
+      },
+      "submitCheckpoints, 16 rotations, n = 4 (key changes)": {
+        "ethereum": { "gasUsed": 3660432, "calldataBytes": 20036, "intrinsic": 247448, "floor": 587120, "execution": 3412984 },
+        "bsc": { "gasUsed": 3660442, "calldataBytes": 20036, "intrinsic": 247448, "floor": 587120, "execution": 3412994 }
+      },
+      "submitCheckpoints, 16 rotations, n = 7 (key changes)": {
+        "ethereum": { "gasUsed": 3775110, "calldataBytes": 24132, "intrinsic": 310620, "floor": 745050, "execution": 3464490 },
+        "bsc": { "gasUsed": 3775120, "calldataBytes": 24132, "intrinsic": 310620, "floor": 745050, "execution": 3464500 }
+      },
+      "transferToTaira (1024-byte recipient; later burn)": {
+        "ethereum": { "gasUsed": 75829, "calldataBytes": 1156, "intrinsic": 38032, "floor": 63580, "execution": 37797 },
+        "bsc": { "gasUsed": 75860, "calldataBytes": 1156, "intrinsic": 38032, "floor": 63580, "execution": 37828 }
+      },
+      "transferToTaira (34-byte recipient; first burn of the sender)": {
+        "ethereum": { "gasUsed": 68646, "calldataBytes": 196, "intrinsic": 22300, "floor": 24250, "execution": 46346 },
+        "bsc": { "gasUsed": 68677, "calldataBytes": 196, "intrinsic": 22300, "floor": 24250, "execution": 46377 }
+      },
+      "transferToTaira (34-byte recipient; later burn)": {
+        "ethereum": { "gasUsed": 51558, "calldataBytes": 196, "intrinsic": 22312, "floor": 24280, "execution": 29246 },
+        "bsc": { "gasUsed": 51589, "calldataBytes": 196, "intrinsic": 22312, "floor": 24280, "execution": 29277 }
+      },
+      "voidExpired inline, n = 31 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 339372, "calldataBytes": 4036, "intrinsic": 74284, "floor": 154210, "execution": 265088 },
+        "bsc": { "gasUsed": 339403, "calldataBytes": 4036, "intrinsic": 74284, "floor": 154210, "execution": 265119 }
+      },
+      "voidExpired inline, n = 4 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 275894, "calldataBytes": 1860, "intrinsic": 39648, "floor": 67620, "execution": 236246 },
+        "bsc": { "gasUsed": 275925, "calldataBytes": 1860, "intrinsic": 39648, "floor": 67620, "execution": 236277 }
+      },
+      "voidExpired inline, n = 7 (new X; used bitmap word)": {
+        "ethereum": { "gasUsed": 283072, "calldataBytes": 2116, "intrinsic": 43600, "floor": 77500, "execution": 239472 },
+        "bsc": { "gasUsed": 283091, "calldataBytes": 2116, "intrinsic": 43588, "floor": 77470, "execution": 239503 }
+      },
+      "voidExpiredFromCheckpoint (1-leaf block; used bitmap word)": {
+        "ethereum": { "gasUsed": 58374, "calldataBytes": 932, "intrinsic": 28328, "floor": 39320, "execution": 30046 },
+        "bsc": { "gasUsed": 58405, "calldataBytes": 932, "intrinsic": 28328, "floor": 39320, "execution": 30077 }
+      },
+      "voidExpiredFromCheckpoint (512-leaf block through a 32-sibling history path; new bitmap word)": {
+        "ethereum": { "gasUsed": 118642, "calldataBytes": 2244, "intrinsic": 48840, "floor": 90600, "execution": 69802 },
+        "bsc": { "gasUsed": 118685, "calldataBytes": 2244, "intrinsic": 48852, "floor": 90630, "execution": 69833 }
+      },
+      "voidFrozen, 1 nonce (new bitmap word)": {
+        "ethereum": { "gasUsed": 54458, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 33114 },
+        "bsc": { "gasUsed": 54468, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 33124 }
+      },
+      "voidFrozen, 256 nonces (one new bitmap word)": {
+        "ethereum": { "gasUsed": 450206, "calldataBytes": 68, "intrinsic": 21332, "floor": 21830, "execution": 428874 },
+        "bsc": { "gasUsed": 450216, "calldataBytes": 68, "intrinsic": 21332, "floor": 21830, "execution": 428884 }
+      },
+      "voidFrozen, 256 nonces (two new bitmap words)": {
+        "ethereum": { "gasUsed": 472836, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 451492 },
+        "bsc": { "gasUsed": 472846, "calldataBytes": 68, "intrinsic": 21344, "floor": 21860, "execution": 451502 }
+      }
+    }
+  },
+  "derived": {
+    "prague": {
+      "SccpCertificate LOG3, n = 31": { "ethereum": 7388, "bsc": 7388 },
+      "SccpCertificate LOG3, n = 4": { "ethereum": 7388, "bsc": 7388 },
+      "SccpCertificate LOG3, n = 7": { "ethereum": 7388, "bsc": 7388 },
+      "submitCheckpoints, each extra certificate, n = 31": { "ethereum": 285735, "bsc": 285735 },
+      "submitCheckpoints, each extra certificate, n = 4": { "ethereum": 221999, "bsc": 221999 },
+      "submitCheckpoints, each extra certificate, n = 7": { "ethereum": 229169, "bsc": 229169 }
+    },
+    "osaka": {
+      "SccpCertificate LOG3, n = 31": { "ethereum": 7388, "bsc": 7388 },
+      "SccpCertificate LOG3, n = 4": { "ethereum": 7388, "bsc": 7388 },
+      "SccpCertificate LOG3, n = 7": { "ethereum": 7388, "bsc": 7388 },
+      "submitCheckpoints, each extra certificate, n = 31": { "ethereum": 286935, "bsc": 286935 },
+      "submitCheckpoints, each extra certificate, n = 4": { "ethereum": 223199, "bsc": 223199 },
+      "submitCheckpoints, each extra certificate, n = 7": { "ethereum": 230369, "bsc": 230369 }
+    }
+  }
+}

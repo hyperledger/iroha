@@ -191,7 +191,7 @@ pub enum PushError {
 }
 /// Original-pool refusal before a push worker acquires any startup effects.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PushWorkerStartError {
+pub enum PushWorkerStartError {
     /// The original State pool could not admit the exact retry control.
     #[error("push retry control admission: {0}")]
     Admission(#[source] AllocationRefusal),
@@ -285,6 +285,7 @@ impl AppliedBlockCursor {
 }
 #[derive(Debug)]
 enum PushReplayError {
+    AwaitingGenesisSuccessor,
     Deferred(ExecutionDeferred),
     Backpressure {
         height: u64,
@@ -798,34 +799,34 @@ impl PushBridge {
     pub(crate) fn registered_device(&self, token: &str) -> Option<RegisteredDevice> {
         self.registered_device_by_token(token)
     }
+    #[cfg(test)]
     fn reconcile_to_authoritative_height(&self, state: &State) -> Result<(), PushReplayError> {
-        let authoritative_height = exact_applied_state_height(state)?;
-        self.reconcile_through_known_authoritative_height(
-            state,
-            authoritative_height,
-            authoritative_height,
-        )
+        PushReplayRead::new(state).reconcile(self, PushReplayTarget::Authoritative)
     }
+    #[cfg(test)]
     fn reconcile_through_height(&self, state: &State, height: u64) -> Result<(), PushReplayError> {
-        let authoritative_height = exact_applied_state_height(state)?;
-        if height > authoritative_height {
-            return Err(PushError::Storage(format!(
-                "observed applied block height {height} exceeds State's applied height {authoritative_height}"
-            ))
-            .into());
-        }
-        self.reconcile_through_known_authoritative_height(state, height, authoritative_height)
+        PushReplayRead::new(state).reconcile(self, PushReplayTarget::Height(height))
     }
-    fn reconcile_through_known_authoritative_height(
+    fn reconcile_with_reader(
         &self,
-        state: &State,
         target_height: u64,
         authoritative_height: u64,
+        read: &mut PushReplayRead<'_>,
     ) -> Result<(), PushReplayError> {
-        self.validate_applied_block_cursor_against_state(state, authoritative_height)?;
+        self.validate_applied_block_cursor_against_state(authoritative_height, read)?;
         let current_height = self.applied_block_cursor.lock().height;
         if current_height >= target_height {
             return Ok(());
+        }
+        // Native genesis execution needs the real H2 anchor. A height observation
+        // grants no authority: defer source verification until that successor is
+        // stably published, then authenticate the unchanged complete native prefix.
+        // Idle chains produce no blocks, so bootstrap must remain cancellable.
+        if !cfg!(all(test, sumeragi_torii_mutation = "TOR5"))
+            && authoritative_height == 1
+            && target_height == 1
+        {
+            return Err(PushReplayError::AwaitingGenesisSuccessor);
         }
         let first_height = current_height.checked_add(1).ok_or_else(|| {
             PushReplayError::Fatal(PushError::Storage(
@@ -833,14 +834,14 @@ impl PushBridge {
             ))
         })?;
         for next_height in first_height..=target_height {
-            self.enqueue_committed_block(state, next_height)?;
+            self.enqueue_committed_block(next_height, read)?;
         }
         Ok(())
     }
     fn validate_applied_block_cursor_against_state(
         &self,
-        state: &State,
         authoritative_height: u64,
+        read: &mut PushReplayRead<'_>,
     ) -> Result<(), ExecutionAttemptError<PushError>> {
         let cursor = self.applied_block_cursor.lock().clone();
         cursor.validate().map_err(storage_error)?;
@@ -853,7 +854,15 @@ impl PushBridge {
         if cursor.height == 0 {
             return Ok(());
         }
-        let block = state_block_at_height(state, cursor.height)?;
+        if authoritative_height == 1 {
+            return Err(PushError::Storage(
+                "push applied-block cursor cannot be published before genesis has a committed successor".into(),
+            ).into());
+        }
+        if read.cursor_is_verified(&cursor)? {
+            return Ok(());
+        }
+        let block = read.block(cursor.height)?;
         if block.header().height().get() != cursor.height {
             return Err(PushError::Storage(format!(
                 "State returned block height {} for push cursor height {}",
@@ -869,10 +878,15 @@ impl PushBridge {
             ))
             .into());
         }
+        read.retain_verified_cursor(&cursor, &block);
         Ok(())
     }
-    fn enqueue_committed_block(&self, state: &State, height: u64) -> Result<(), PushReplayError> {
-        let block = state_block_at_height(state, height)?;
+    fn enqueue_committed_block(
+        &self,
+        height: u64,
+        read: &mut PushReplayRead<'_>,
+    ) -> Result<(), PushReplayError> {
+        let block = read.block(height)?;
         if block.header().height().get() != height {
             return Err(PushError::Storage(format!(
                 "State returned block height {} while push reconciliation requested {height}",
@@ -912,6 +926,7 @@ impl PushBridge {
             block_hash: Some(block.hash()),
         };
         self.persist_applied_block_cursor(&next_cursor)?;
+        read.retain_verified_cursor(&next_cursor, &block);
         *cursor = next_cursor;
         Ok(())
     }
@@ -982,10 +997,15 @@ impl PushBridge {
             self.remove_job(&job.dedupe_key);
             return;
         };
-        if device.account_id != job.account_id
-            || device.token_fingerprint != job.token_fingerprint
-            || device.platform != job.target_platform
-        {
+        if (
+            &device.account_id,
+            &device.token_fingerprint,
+            &device.platform,
+        ) != (
+            &job.account_id,
+            &job.token_fingerprint,
+            &job.target_platform,
+        ) {
             // A token can be re-registered between enqueue and dispatch. Never deliver an old
             // account's activity through the replacement registration.
             self.remove_job(&job.dedupe_key);
@@ -1367,6 +1387,126 @@ async fn wait_for_push_history_retry(
         }
     }
 }
+// Durable replay owns its current read across waiting. This private cursor receipt
+// is obtained only from a carrier authenticated during this operation and checked
+// against the exact durable cursor plus current State binding on every reuse. It
+// retains no completed block graph and grants no authority outside this operation.
+struct VerifiedPushCursor {
+    height: u64,
+    block_hash: HashOf<BlockHeader>,
+}
+struct PushReplayRead<'state> {
+    state: &'state State,
+    pending:
+        Option<iroha_core::smartcontracts::isi::tx::FinalizedExecutionCarrierReadAttempt<'state>>,
+    verified_cursor: Option<VerifiedPushCursor>,
+}
+impl<'state> PushReplayRead<'state> {
+    fn new(state: &'state State) -> Self {
+        Self {
+            state,
+            pending: None,
+            verified_cursor: None,
+        }
+    }
+
+    fn cursor_is_verified(
+        &self,
+        cursor: &AppliedBlockCursor,
+    ) -> Result<bool, ExecutionAttemptError<PushError>> {
+        let Some(original) = &self.verified_cursor else {
+            return Ok(false);
+        };
+        if original.height != cursor.height || Some(original.block_hash) != cursor.block_hash {
+            return Ok(false);
+        }
+        let index = usize::try_from(cursor.height).map_err(|_| {
+            PushError::Storage(format!(
+                "native block height {} exceeds usize",
+                cursor.height
+            ))
+        })?;
+        if self.state.block_hashes.view().get(index - 1).copied() != Some(original.block_hash) {
+            return Err(
+                PushError::Storage("push replay's original cursor binding changed".into()).into(),
+            );
+        }
+        Ok(true)
+    }
+
+    fn retain_verified_cursor(&mut self, cursor: &AppliedBlockCursor, block: &SignedBlock) {
+        // Both callers first authenticate this actual native carrier and require
+        // exact height/hash agreement. Queue publication records it only after
+        // durable cursor persistence succeeds.
+        debug_assert_eq!(cursor.height, block.header().height().get());
+        debug_assert_eq!(cursor.block_hash, Some(block.hash()));
+        self.verified_cursor = Some(VerifiedPushCursor {
+            height: block.header().height().get(),
+            block_hash: block.hash(),
+        });
+    }
+
+    fn block(
+        &mut self,
+        height: u64,
+    ) -> Result<SharedSignedBlock, ExecutionAttemptError<PushError>> {
+        let index = usize::try_from(height).map_err(|_| {
+            PushError::Storage(format!("native block height {height} exceeds usize"))
+        })?;
+        let height_nonzero = NonZeroUsize::new(index)
+            .ok_or_else(|| PushError::Storage("native block height must be nonzero".into()))?;
+        if let Some(original) = &self.pending {
+            if original.height() != height_nonzero {
+                return Err(
+                    PushError::Storage("push replay's pending target changed".into()).into(),
+                );
+            }
+        } else {
+            let work = crate::routing::app_query_limits().max_fetch_size;
+            self.pending = Some(
+                self.state
+                    .begin_finalized_execution_carrier_read(
+                        height_nonzero,
+                        work,
+                        iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
+                    )
+                    .map_err(|error| {
+                        error.map_rejection(|error| PushError::Storage(error.to_string()))
+                    })?,
+            );
+        }
+        let block = self
+            .pending
+            .as_mut()
+            .expect("same original pending target")
+            .advance()
+            .map_err(|error| error.map_rejection(|error| PushError::Storage(error.to_string())))?
+            .into_block();
+        self.pending = None;
+        Ok(block)
+    }
+
+    fn reconcile(
+        &mut self,
+        bridge: &PushBridge,
+        target: PushReplayTarget,
+    ) -> Result<(), PushReplayError> {
+        let authoritative_height = exact_applied_state_height(self.state)?;
+        let target_height = match target {
+            PushReplayTarget::Authoritative => authoritative_height,
+            PushReplayTarget::Height(height) => {
+                if height > authoritative_height {
+                    return Err(PushError::Storage(format!(
+                        "observed applied block height {height} exceeds State's applied height {authoritative_height}"
+                    )).into());
+                }
+                height
+            }
+        };
+        bridge.reconcile_with_reader(target_height, authoritative_height, self)
+    }
+}
+
 async fn replay_with_queue_drain(
     bridge: &PushBridge,
     state: &State,
@@ -1393,15 +1533,27 @@ async fn replay_with_queue_drain_observed(
     registration: &mut ReleaseRegistration,
     #[cfg(test)] mut observe: Option<&mut (dyn FnMut(&ExecutionDeferred) + Send)>,
 ) -> Result<PushReplayOutcome, PushError> {
+    let mut original = PushReplayRead::new(state);
     loop {
-        let result = match target {
-            PushReplayTarget::Authoritative => bridge.reconcile_to_authoritative_height(state),
-            PushReplayTarget::Height(height) => bridge.reconcile_through_height(state, height),
-        };
+        let result = original.reconcile(bridge, target);
         match result {
             Ok(()) => return Ok(PushReplayOutcome::Complete),
             Err(PushReplayError::Fatal(error)) => return Err(error),
+            Err(PushReplayError::AwaitingGenesisSuccessor) => {
+                tokio::select! {
+                    () = shutdown_signal.receive() => {
+                        return Ok(PushReplayOutcome::StoppedByShutdown);
+                    },
+                    () = state.wait_for_committed_height(2) => {}
+                }
+            }
             Err(PushReplayError::Deferred(reason)) => {
+                // Mutation restores only the old current-read abandonment. The
+                // original typed refusal and its exact release cut remain unchanged.
+                #[cfg(all(test, sumeragi_torii_mutation = "TOR4"))]
+                {
+                    original.pending = None;
+                }
                 #[cfg(test)]
                 if let Some(probe) = observe.as_mut() {
                     probe(&reason);
@@ -1708,6 +1860,7 @@ fn exact_applied_state_height(state: &State) -> Result<u64, PushError> {
     u64::try_from(state.committed_height())
         .map_err(|_| PushError::Storage("State's applied height exceeds u64".to_owned()))
 }
+#[cfg(test)]
 fn state_block_at_height(
     state: &State,
     height: u64,
@@ -1723,7 +1876,7 @@ fn state_block_at_height(
             work,
             iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
         )
-        .map(|carrier| carrier.into_block())
+        .map(iroha_core::smartcontracts::tx::FinalizedExecutionCarrier::into_block)
         .map_err(|error| error.map_rejection(|error| PushError::Storage(error.to_string())))
 }
 fn invalid_data(message: impl Into<String>) -> io::Error {
@@ -2683,6 +2836,406 @@ mod tests {
         }
         chain
     }
+    fn native_push_genesis_config() -> iroha_core::sumeragi::test_chain::TestChainConfig {
+        use iroha_core::{state::World, sumeragi::test_chain::TestChainConfig};
+        use iroha_data_model::prelude::{Account, Register};
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        let account = AccountId::parse_encoded(TEST_ACCOUNT_I105).expect("fixture account");
+        config
+            .genesis_instructions
+            .push(Register::account(Account::new(account)).into());
+        config
+    }
+
+    /// Only H2's schedule, captured from genuinely replayed G1 before H2 is supplied.
+    struct RestartedPushGenesisSchedule {
+        instance: iroha_sumeragi::types::Hash32,
+        config: iroha_sumeragi::types::HeightConfig,
+    }
+    impl iroha_core::sumeragi::availability_schedule::AvailabilitySchedule
+        for RestartedPushGenesisSchedule
+    {
+        fn instance(&self) -> iroha_sumeragi::types::Hash32 {
+            self.instance
+        }
+        fn height_config(
+            &self,
+            height: u64,
+        ) -> Result<Option<iroha_sumeragi::types::HeightConfig>, ExecutionAttemptError<io::Error>>
+        {
+            Ok((height == 2).then(|| self.config.clone()))
+        }
+    }
+
+    /// Re-execute the original stored genesis into a new State/pool, then replay real H2.
+    struct RestartedPushGenesis {
+        state: Arc<State>,
+        kura: Arc<Kura>,
+        blocks: iroha_core::sumeragi::block_store::KuraBlockStore,
+        executor: iroha_core::sumeragi::executor::StateExecutor,
+    }
+    impl RestartedPushGenesis {
+        fn new(source: &iroha_core::sumeragi::test_chain::CertifiedTestChain) -> Self {
+            use iroha_core::{
+                state::WorldReadOnly as _,
+                sumeragi::{
+                    block_store::{KuraBlockStore, Staging},
+                    crypto::BlsCrypto,
+                    executor::{ExecutorContext, StateExecutor},
+                    startup,
+                    test_chain::CertifiedTestChain,
+                },
+            };
+            let prepared = CertifiedTestChain::prepare(native_push_genesis_config()).unwrap();
+            let state = prepared.state;
+            let kura = prepared.kura;
+            assert_eq!(state.committed_height(), 0);
+            assert_eq!(kura.blocks_count(), 0);
+            let original = source.committed(1);
+            assert_eq!(
+                prepared.genesis.expected_hash(),
+                source.validated_genesis().expected_hash()
+            );
+            kura.store_block(original.block().clone()).unwrap();
+            let (genesis, certificate, stored_tip) =
+                startup::stored_genesis(&state).unwrap().unwrap();
+            let instance =
+                iroha_core::sumeragi::node::root_instance(&genesis, state.chain_id_ref().as_ref())
+                    .unwrap();
+            assert_eq!(instance, source.instance());
+            let genesis_account = AccountId::new(prepared.genesis.public_key().clone());
+            let consensus_mode = prepared.genesis.consensus_metadata().mode.into();
+            let tip = startup::apply_genesis(
+                &state,
+                genesis,
+                &genesis_account,
+                consensus_mode,
+                Some(&certificate),
+            )
+            .unwrap();
+            assert_eq!(tip.block_hash, stored_tip.block_hash);
+            assert_eq!(tip.result, stored_tip.result);
+            assert_eq!(state.committed_height(), 1);
+
+            // Authority comes only from the independently re-executed G1 State.
+            // This fixture admits H2 only, not a caller-selected historical schedule.
+            let scheduled = state
+                .view()
+                .world()
+                .consensus_schedule()
+                .ready(2)
+                .unwrap()
+                .clone();
+            let crypto = Arc::new(BlsCrypto::new());
+            crypto
+                .admit_committee(scheduled.epoch.committee.iter().map(|member| {
+                    (
+                        member.validator.public_key(),
+                        member.proof_of_possession.as_slice(),
+                    )
+                }))
+                .unwrap();
+            let schedule = Arc::new(RestartedPushGenesisSchedule {
+                instance,
+                config: scheduled.height_config().unwrap(),
+            });
+            let staging = Staging::new();
+            let blocks = KuraBlockStore::new(
+                Arc::clone(&kura),
+                crypto.clone(),
+                startup::GENESIS_HEIGHT,
+                source.root_scope(),
+                staging.clone(),
+                state.ivm_execution_budget(),
+                schedule,
+            );
+            let (events, _) = tokio::sync::broadcast::channel(16);
+            let executor = StateExecutor::spawn(ExecutorContext {
+                time_source: iroha_primitives::time::TimeSource::new_system(),
+                state: Arc::clone(&state),
+                root_scope: source.root_scope(),
+                native_context_archive: Arc::new(
+                    iroha_core::query::native_context_archive::NativeContextArchive::open(
+                        &kura,
+                        state.ivm_execution_budget(),
+                        kura.native_context_archive_max_bytes(),
+                    )
+                    .unwrap(),
+                ),
+                queue: None,
+                staging,
+                events,
+                genesis_account,
+                consensus_mode,
+                applied: (1, tip.block_hash),
+                crypto: Some(crypto),
+                applied_watch: Arc::new(iroha_core::sumeragi::lanes::global::AppliedWatch::new(
+                    1,
+                    state.view().latest_block_hash(),
+                )),
+                lane_blocks: prepared.lane_blocks,
+            })
+            .unwrap();
+            Self {
+                state,
+                kura,
+                blocks,
+                executor,
+            }
+        }
+
+        fn replay_successor(
+            &mut self,
+            source: &iroha_core::sumeragi::test_chain::CertifiedTestChain,
+        ) {
+            assert_eq!(self.state.committed_height(), 1);
+            assert_eq!(source.height(), 2);
+            self.kura
+                .store_block(source.committed(2).block().clone())
+                .unwrap();
+            let (body, certificate) = self.blocks.committed_body(2).unwrap().unwrap();
+            assert!(body.admitted_to(&self.state.ivm_execution_budget()));
+            self.executor.replay(&body, &certificate).unwrap();
+            assert_eq!(self.state.committed_height(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn push_worker_genesis_bootstrap_waits_for_authenticated_successor_and_shutdown() {
+        use iroha_core::sumeragi::test_chain::CertifiedTestChain;
+        for restarted in [false, true] {
+            for publish_successor in [false, true] {
+                let mut chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+                let mut replayed = restarted.then(|| RestartedPushGenesis::new(&chain));
+                let state = Arc::clone(
+                    replayed
+                        .as_ref()
+                        .map_or_else(|| chain.state(), |owner| &owner.state),
+                );
+                assert_eq!(state.committed_height(), 1);
+                assert_eq!(state.exact_durable_block_count().unwrap(), 1);
+                let temp = tempfile::tempdir().unwrap();
+                let dispatcher = Arc::new(MockDispatcher::new(vec![DispatchOutcome::Sent]));
+                let bridge = PushBridge::with_dispatcher_and_limits_in(
+                    test_bridge_config(),
+                    dispatcher.clone(),
+                    test_storage_limits(1, 1),
+                    temp.path().to_path_buf(),
+                )
+                .unwrap();
+                bridge
+                    .register_device(register_request("genesis-bootstrap"))
+                    .unwrap();
+                let cursor_before = fs::read(bridge.applied_block_cursor_path()).unwrap();
+                let pool = state.ivm_execution_budget();
+                let before_worker = pool.reserved_bytes();
+                // Deliberately send no Push events: State publication must wake bootstrap.
+                let (events, _) = tokio::sync::broadcast::channel(4);
+                let shutdown = ShutdownSignal::new();
+                let mut worker = bridge
+                    .start_event_worker(Arc::clone(&state), events.clone(), shutdown.clone())
+                    .unwrap()
+                    .unwrap();
+                let parked = tokio::time::timeout(Duration::from_millis(20), &mut worker).await;
+                assert!(
+                    parked.is_err(),
+                    "applied G1 worker must remain parked until its actual successor or shutdown; restarted={restarted}, got {parked:?}"
+                );
+                let waiting_cursor = bridge.applied_block_cursor.lock().clone();
+                let waiting_disk = fs::read(bridge.applied_block_cursor_path()).unwrap();
+                let waiting_queue = bridge.queued_count();
+                let waiting_calls = dispatcher.calls.lock().unwrap().len();
+                let progress = if publish_successor {
+                    // The fixture supplies an actual signed clock Log transaction, not an empty block.
+                    chain.commit(Vec::new());
+                    if let Some(owner) = replayed.as_mut() {
+                        owner.replay_successor(&chain);
+                    }
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        while bridge.applied_block_cursor.lock().height != 2 {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                } else {
+                    Ok(())
+                };
+                shutdown.send();
+                let exit = worker.await.unwrap();
+                assert_eq!(exit, crate::ToriiCriticalWorkerExit::StoppedByShutdown);
+                assert_eq!(waiting_cursor, AppliedBlockCursor::origin());
+                assert_eq!(
+                    waiting_disk, cursor_before,
+                    "bootstrap wait must not publish a cursor"
+                );
+                assert_eq!(waiting_queue, 0);
+                assert_eq!(waiting_calls, 0, "bootstrap wait must not dispatch");
+                assert!(
+                    progress.is_ok(),
+                    "authentic successor must wake the original worker without a Push event"
+                );
+                let cursor = bridge.applied_block_cursor.lock().clone();
+                if publish_successor {
+                    assert_eq!(cursor.height, 2);
+                    assert_eq!(cursor.block_hash, Some(chain.committed(2).block_hash()));
+                    assert_eq!(
+                        read_json::<AppliedBlockCursor>(
+                            &bridge.applied_block_cursor_path(),
+                            MAX_PUSH_APPLIED_BLOCK_CURSOR_BYTES
+                        )
+                        .unwrap(),
+                        cursor
+                    );
+                    let native = state_block_at_height(&state, 1).unwrap();
+                    assert_eq!(
+                        native.encode_wire().unwrap(),
+                        chain.committed(1).block().encode_wire().unwrap()
+                    );
+                    assert_eq!(
+                        bridge.queued_count() + dispatcher.calls.lock().unwrap().len(),
+                        1,
+                        "the original genesis activity appears exactly once after full authentication"
+                    );
+                } else {
+                    assert_eq!(cursor, AppliedBlockCursor::origin());
+                    assert_eq!(
+                        fs::read(bridge.applied_block_cursor_path()).unwrap(),
+                        cursor_before
+                    );
+                    assert_eq!(bridge.queued_count(), 0);
+                    assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
+                    assert_eq!(
+                        pool.reserved_bytes(),
+                        before_worker,
+                        "parked cancellation refunds original retry control"
+                    );
+                }
+                drop(events);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn push_worker_genesis_bootstrap_rejects_corrupt_history_and_nonzero_cursor() {
+        use iroha_core::sumeragi::test_chain::CertifiedTestChain;
+        for missing in [false, true] {
+            let mut chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+            let state = Arc::clone(chain.state());
+            let temp = tempfile::tempdir().unwrap();
+            let dispatcher = Arc::new(MockDispatcher::new(Vec::new()));
+            let bridge = PushBridge::with_dispatcher_and_limits_in(
+                test_bridge_config(),
+                dispatcher.clone(),
+                test_storage_limits(1, 1),
+                temp.path().to_path_buf(),
+            )
+            .unwrap();
+            bridge
+                .register_device(register_request("untrusted-genesis"))
+                .unwrap();
+            let cursor_before = fs::read(bridge.applied_block_cursor_path()).unwrap();
+            let (events, _) = tokio::sync::broadcast::channel(4);
+            let shutdown = ShutdownSignal::new();
+            let mut worker = bridge
+                .start_event_worker(Arc::clone(&state), events.clone(), shutdown.clone())
+                .unwrap()
+                .unwrap();
+            let parked = tokio::time::timeout(Duration::from_millis(20), &mut worker).await;
+            assert!(
+                parked.is_err(),
+                "applied G1 worker must remain parked before adversarial successor delivery; got {parked:?}"
+            );
+            // This test uses Tokio's current-thread runtime. Publish synchronously, then
+            // corrupt the actual original journal before the woken Push worker can poll.
+            chain.commit(Vec::new());
+            let path = Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+            let original = fs::read(&path).unwrap();
+            let saved = path.with_extension("genesis-bootstrap-original");
+            if missing {
+                fs::rename(&path, &saved).unwrap();
+            } else {
+                let mut corrupt = original.clone();
+                corrupt[0] ^= 0xff;
+                fs::write(&path, corrupt).unwrap();
+            }
+            let terminal = tokio::time::timeout(Duration::from_secs(10), &mut worker).await;
+            if missing {
+                fs::rename(&saved, &path).unwrap();
+            } else {
+                fs::write(&path, &original).unwrap();
+            }
+            shutdown.send();
+            let exit = match terminal {
+                Ok(exit) => exit.unwrap(),
+                Err(_) => worker.await.unwrap(),
+            };
+            assert_eq!(
+                exit,
+                crate::ToriiCriticalWorkerExit::UnexpectedExit,
+                "successor notification supplies no authority for corrupt or missing history"
+            );
+            assert_eq!(
+                *bridge.applied_block_cursor.lock(),
+                AppliedBlockCursor::origin()
+            );
+            assert_eq!(
+                fs::read(bridge.applied_block_cursor_path()).unwrap(),
+                cursor_before
+            );
+            assert_eq!(bridge.queued_count(), 0);
+            assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
+            drop(events);
+        }
+        let chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+        for cursor in [
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 1,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 2,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 0,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION + 1,
+                height: 0,
+                block_hash: None,
+            },
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let bridge =
+                PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+            *bridge.applied_block_cursor.lock() = cursor.clone();
+            let (events, _) = tokio::sync::broadcast::channel(4);
+            let shutdown = ShutdownSignal::new();
+            let mut worker = bridge
+                .start_event_worker(Arc::clone(chain.state()), events.clone(), shutdown.clone())
+                .unwrap()
+                .unwrap();
+            let terminal = tokio::time::timeout(Duration::from_secs(10), &mut worker).await;
+            shutdown.send();
+            let exit = match terminal {
+                Ok(exit) => exit.unwrap(),
+                Err(_) => worker.await.unwrap(),
+            };
+            assert_eq!(
+                exit,
+                crate::ToriiCriticalWorkerExit::UnexpectedExit,
+                "non-origin or corrupt cursor cannot wait on a genesis-only State"
+            );
+            assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+            assert_eq!(bridge.queued_count(), 0);
+            drop(events);
+        }
+    }
+
     fn pristine_push_state(kura: Arc<Kura>) -> Arc<State> {
         Arc::new(State::new_for_testing(
             iroha_core::state::World::new(),
@@ -3125,12 +3678,29 @@ mod tests {
         let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
         let cursor = bridge.applied_block_cursor.lock().clone();
         let shutdown = ShutdownSignal::new();
-        let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+        let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
         let observation = Arc::clone(&observed);
         let mut probe = move |reason: &ExecutionDeferred| {
             let mut first = observation.lock().unwrap();
             if first.is_none() {
-                *first = Some(reason.clone());
+                // The running replay retains the move-only owner; this observer borrows
+                // its actual pool leaf solely to test that same release registration.
+                assert_eq!(
+                    reason.reason(),
+                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                );
+                assert_eq!(reason.phase(), None);
+                assert!(
+                    reason.decode_refusal().is_none()
+                        && reason.allocator_refusal().is_none()
+                        && reason.verification_refusal().is_none()
+                );
+                *first = Some(
+                    reason
+                        .allocation_refusal()
+                        .expect("actual observed original pool refusal")
+                        .clone(),
+                );
             }
         };
         let mut replay = Box::pin(replay_with_queue_drain_observed(
@@ -3163,11 +3733,11 @@ mod tests {
             .unwrap()
             .clone()
             .expect("actual late native refusal");
-        let Some(iroha_allocation::AllocationRefusal::Capacity {
+        let iroha_allocation::AllocationRefusal::Capacity {
             requested_bytes,
             release,
             ..
-        }) = original.allocation_refusal()
+        } = &original
         else {
             panic!("genuine original pool capacity refusal");
         };
@@ -3241,6 +3811,380 @@ mod tests {
         drop(occupied);
         drop(registration);
         drop(observation_registration);
+        assert_eq!(pool.reserved_bytes(), baseline);
+    }
+
+    #[tokio::test]
+    async fn push_replay_verification_slot_capacity_preserves_original_wait_and_resumes() {
+        use iroha_core::sumeragi::certified_chain::{CertifiedPrefix, CommittedBlock};
+        use iroha_data_model::sumeragi_finality::certified_result::CertifiedResultV1;
+        use std::{
+            future::Future,
+            mem::size_of,
+            task::{Context, Poll},
+        };
+
+        let chain = native_push_chain(false);
+        let state = chain.state();
+        let pool = state.ivm_execution_budget();
+        let baseline = pool.reserved_bytes();
+        let frame_bytes = chain.committed(1).block().encode_wire().unwrap().len();
+        let shell_bytes = SharedSignedBlock::allocation_layout().size();
+        let prefix_bytes = size_of::<CertifiedPrefix>();
+        let committed_bytes = size_of::<CommittedBlock>();
+        let result_bytes = size_of::<CertifiedResultV1>();
+        // Each stage fails at an actual allocation in the shipping replay. The
+        // last case admits the receipt slot before its result slot refuses, so
+        // retaining only the wire, shell and prefix would still self-wake.
+        for (stage, retained_bytes, requested) in [
+            ("prefix", frame_bytes + shell_bytes, prefix_bytes),
+            (
+                "committed frame",
+                frame_bytes + shell_bytes + prefix_bytes,
+                committed_bytes,
+            ),
+            (
+                "execution result",
+                frame_bytes + shell_bytes + prefix_bytes + committed_bytes,
+                result_bytes,
+            ),
+        ] {
+            let registration_bytes = ReleaseRegistration::allocation_layout().size();
+            let mut prepaid = pool.try_reserve_bytes(2 * registration_bytes).unwrap();
+            let mut registration = ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+            let mut observation_registration =
+                ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+            drop(prepaid);
+            assert!(registration.belongs_to(&pool));
+            assert!(observation_registration.belongs_to(&pool));
+            let controls = baseline + 2 * registration_bytes;
+            let occupied = pool
+                .try_reserve_bytes(pool.limit_bytes() - controls - retained_bytes)
+                .unwrap();
+            let temp = tempfile::tempdir().unwrap();
+            let bridge =
+                PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+            let cursor = bridge.applied_block_cursor.lock().clone();
+            let shutdown = ShutdownSignal::new();
+            let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
+            let observation = Arc::clone(&observed);
+            let mut probe = move |reason: &ExecutionDeferred| {
+                let mut first = observation.lock().unwrap();
+                if first.is_none() {
+                    // The running replay retains the move-only owner; this observer borrows
+                    // its actual pool leaf solely to test that same release registration.
+                    assert_eq!(
+                        reason.reason(),
+                        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                    );
+                    assert_eq!(reason.phase(), None);
+                    assert!(
+                        reason.decode_refusal().is_none()
+                            && reason.allocator_refusal().is_none()
+                            && reason.verification_refusal().is_none()
+                    );
+                    *first = Some(
+                        reason
+                            .allocation_refusal()
+                            .expect("actual observed original pool refusal")
+                            .clone(),
+                    );
+                }
+            };
+            let mut replay = Box::pin(replay_with_queue_drain_observed(
+                &bridge,
+                state,
+                PushReplayTarget::Height(chain.height()),
+                &shutdown,
+                &mut registration,
+                Some(&mut probe),
+            ));
+            let (stop_watchdog, wait_watchdog) = std::sync::mpsc::channel();
+            let watchdog_shutdown = shutdown.clone();
+            let watchdog = std::thread::spawn(move || {
+                if matches!(
+                    wait_watchdog.recv_timeout(Duration::from_secs(5)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    watchdog_shutdown.send();
+                }
+            });
+            let mut context = Context::from_waker(std::task::Waker::noop());
+            let first_poll = replay.as_mut().poll(&mut context);
+            let _ = stop_watchdog.send(());
+            watchdog.join().unwrap();
+            let original = observed
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("actual late verification refusal");
+            let iroha_allocation::AllocationRefusal::Capacity {
+                requested_bytes,
+                release,
+                ..
+            } = &original
+            else {
+                panic!("genuine original pool capacity refusal at {stage}");
+            };
+            let mut exact_wait = Box::pin(
+                release
+                    .clone()
+                    .wait_for_release(&mut observation_registration),
+            );
+            let original_wait_poll = exact_wait.as_mut().poll(&mut context);
+            if original_wait_poll != Poll::Pending
+                || !first_poll.is_pending()
+                || *requested_bytes != requested
+            {
+                // Retire all original owners before reporting a causal failure.
+                // The exact release observation takes precedence over the normal
+                // watchdog shutdown outcome of an incorrectly spinning replay.
+                drop(exact_wait);
+                drop(replay);
+                drop(occupied);
+                drop(registration);
+                drop(observation_registration);
+                assert_eq!(pool.reserved_bytes(), baseline);
+                assert_eq!(
+                    original_wait_poll,
+                    Poll::Pending,
+                    "{stage}: later refusal must not release an earlier original verification slot"
+                );
+                assert_eq!(*requested_bytes, requested, "actual {stage} slot refused");
+                panic!("{stage}: genuine replay must park until external release");
+            }
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+            assert_eq!(bridge.queued_count(), 0);
+            drop(occupied);
+            assert_eq!(exact_wait.as_mut().poll(&mut context), Poll::Ready(()));
+            drop(exact_wait);
+            assert!(matches!(
+                replay.as_mut().poll(&mut context),
+                Poll::Ready(Ok(PushReplayOutcome::Complete))
+            ));
+            drop(replay);
+            assert_eq!(bridge.applied_block_cursor.lock().height, chain.height());
+            assert_eq!(
+                bridge.applied_block_cursor.lock().block_hash,
+                Some(chain.committed(chain.height()).block_hash())
+            );
+            assert_eq!(pool.reserved_bytes(), controls);
+
+            let cancelled_temp = tempfile::tempdir().unwrap();
+            let cancelled =
+                PushBridge::new_in(test_bridge_config(), cancelled_temp.path().to_path_buf())
+                    .unwrap();
+            let occupied = pool
+                .try_reserve_bytes(pool.limit_bytes() - controls - retained_bytes)
+                .unwrap();
+            let mut replay = Box::pin(replay_with_queue_drain_observed(
+                &cancelled,
+                state,
+                PushReplayTarget::Height(chain.height()),
+                &shutdown,
+                &mut registration,
+                None,
+            ));
+            assert!(replay.as_mut().poll(&mut context).is_pending());
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            drop(replay);
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes() - retained_bytes);
+            assert_eq!(cancelled.applied_block_cursor.lock().height, 0);
+            assert_eq!(cancelled.queued_count(), 0);
+            drop(occupied);
+            drop(registration);
+            drop(observation_registration);
+            assert_eq!(pool.reserved_bytes(), baseline);
+        }
+    }
+
+    #[test]
+    fn push_replay_verified_cursor_preserves_pending_successor_and_original_wait() {
+        use std::{
+            future::Future,
+            task::{Context, Poll},
+        };
+        let chain = native_push_chain(false);
+        let state = chain.state();
+        let pool = state.ivm_execution_budget();
+        let baseline = pool.reserved_bytes();
+        let temp = tempfile::tempdir().unwrap();
+        let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+        let mut read = PushReplayRead::new(state);
+        read.reconcile(&bridge, PushReplayTarget::Height(1))
+            .unwrap();
+        let cursor = bridge.applied_block_cursor.lock().clone();
+        assert_eq!(cursor.height, 1);
+        assert_eq!(cursor.block_hash, Some(chain.committed(1).block_hash()));
+        assert!(read.pending.is_none());
+        assert!(read.cursor_is_verified(&cursor).unwrap());
+        assert_eq!(
+            pool.reserved_bytes(),
+            baseline,
+            "cursor receipt retains no completed graph"
+        );
+
+        let mut prepaid = pool
+            .try_reserve(ReleaseRegistration::allocation_layout())
+            .unwrap();
+        let mut registration = ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+        drop(prepaid);
+        let controls = pool.reserved_bytes();
+        let wire_bytes = chain.committed(1).block().encode_wire().unwrap().len();
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - controls - wire_bytes)
+            .unwrap();
+        let Err(PushReplayError::Deferred(original)) =
+            read.reconcile(&bridge, PushReplayTarget::Height(2))
+        else {
+            panic!("actual successor frame admission must refuse");
+        };
+        let Some(iroha_allocation::AllocationRefusal::Capacity {
+            requested_bytes,
+            release,
+            ..
+        }) = original.allocation_refusal()
+        else {
+            panic!("same original State pool supplies the successor refusal");
+        };
+        assert_eq!(
+            *requested_bytes,
+            SharedSignedBlock::allocation_layout().size()
+        );
+        assert_eq!(read.pending.as_ref().unwrap().height().get(), 2);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+        assert_eq!(bridge.queued_count(), 0);
+        let mut wait = Box::pin(release.clone().wait_for_release(&mut registration));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert_eq!(wait.as_mut().poll(&mut context), Poll::Pending);
+
+        // This is the production retry sequence: validate durable h1 while the
+        // exact h2 read is still pending, without replacing its owner with h1.
+        let Err(PushReplayError::Deferred(retry)) =
+            read.reconcile(&bridge, PushReplayTarget::Height(2))
+        else {
+            panic!("same pending successor must preserve its original refusal");
+        };
+        assert_eq!(retry.allocation_refusal(), original.allocation_refusal());
+        assert_eq!(read.pending.as_ref().unwrap().height().get(), 2);
+        assert_eq!(wait.as_mut().poll(&mut context), Poll::Pending);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+        assert_eq!(bridge.queued_count(), 0);
+        drop(occupied);
+        assert_eq!(wait.as_mut().poll(&mut context), Poll::Ready(()));
+        drop(wait);
+        read.reconcile(&bridge, PushReplayTarget::Height(2))
+            .unwrap();
+        assert_eq!(bridge.applied_block_cursor.lock().height, 2);
+        assert_eq!(
+            bridge.applied_block_cursor.lock().block_hash,
+            Some(chain.committed(2).block_hash())
+        );
+        assert!(read.pending.is_none());
+        assert_eq!(pool.reserved_bytes(), controls);
+        drop(read);
+        drop(registration);
+        assert_eq!(pool.reserved_bytes(), baseline);
+    }
+
+    #[test]
+    fn push_replay_cursor_receipt_is_operation_local_and_rejects_rebound_state() {
+        let chain = native_push_chain(false);
+        // Authenticate the replacement before exhausting the original pool: reading
+        // certified history itself requires that pool's allocation authority.
+        let replacement_hash = chain.committed(2).block_hash();
+        let state = chain.state();
+        let pool = state.ivm_execution_budget();
+        let baseline = pool.reserved_bytes();
+        let temp = tempfile::tempdir().unwrap();
+        let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+        let mut initial = PushReplayRead::new(state);
+        initial
+            .reconcile(&bridge, PushReplayTarget::Height(1))
+            .unwrap();
+        drop(initial);
+        let cursor = bridge.applied_block_cursor.lock().clone();
+        assert_eq!(pool.reserved_bytes(), baseline);
+        let wire_bytes = chain.committed(1).block().encode_wire().unwrap().len();
+
+        // A new operation has no inherited cursor authority: even though its
+        // target already equals the durable cursor, it must read native history.
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - baseline)
+            .unwrap();
+        let mut fresh = PushReplayRead::new(state);
+        let Err(PushReplayError::Deferred(original)) =
+            fresh.reconcile(&bridge, PushReplayTarget::Height(1))
+        else {
+            panic!("persisted h1 requires original native authentication");
+        };
+        assert!(fresh.verified_cursor.is_none());
+        assert_eq!(fresh.pending.as_ref().unwrap().height().get(), 1);
+        assert!(matches!(original.allocation_refusal(),
+            Some(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. })
+                if *requested_bytes == wire_bytes));
+        assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+        drop(occupied);
+        fresh
+            .reconcile(&bridge, PushReplayTarget::Height(1))
+            .unwrap();
+        assert!(fresh.cursor_is_verified(&cursor).unwrap());
+        assert!(fresh.pending.is_none());
+        assert_eq!(pool.reserved_bytes(), baseline);
+
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - baseline - wire_bytes)
+            .unwrap();
+        assert!(matches!(
+            fresh.reconcile(&bridge, PushReplayTarget::Height(2)),
+            Err(PushReplayError::Deferred(_))
+        ));
+        assert_eq!(fresh.pending.as_ref().unwrap().height().get(), 2);
+        // A changed durable cursor cannot borrow a previously verified receipt,
+        // nor can it retarget the pending successor's retained physical owners.
+        bridge.applied_block_cursor.lock().block_hash = Some(replacement_hash);
+        let changed_cursor = bridge.applied_block_cursor.lock().clone();
+        assert!(matches!(
+            fresh.reconcile(&bridge, PushReplayTarget::Height(2)),
+            Err(PushReplayError::Fatal(PushError::Storage(reason)))
+                if reason == "push replay's pending target changed"
+        ));
+        assert_eq!(*bridge.applied_block_cursor.lock(), changed_cursor);
+        assert_eq!(bridge.queued_count(), 0);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        drop(fresh);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes() - wire_bytes);
+        drop(occupied);
+        *bridge.applied_block_cursor.lock() = cursor.clone();
+        assert_eq!(pool.reserved_bytes(), baseline);
+
+        let mut rebound = PushReplayRead::new(state);
+        rebound
+            .reconcile(&bridge, PushReplayTarget::Height(1))
+            .unwrap();
+        // Replace only fixture State history under its real publication owner.
+        // Retain the successor height so the genesis-only guard cannot reject
+        // before the operation's original cursor binding is checked.
+        // The unchanged durable cursor still matches this operation's receipt,
+        // so the mandatory current-State binding check is the rejecting control.
+        state.block_hashes.block_and_revert().commit_for_tests();
+        let mut replacement = state.block_hashes.block_and_revert();
+        replacement.push_for_tests(replacement_hash);
+        replacement.push_for_tests(replacement_hash);
+        replacement.commit_for_tests();
+        assert_eq!(state.committed_height(), 2);
+        assert!(matches!(
+            rebound.reconcile(&bridge, PushReplayTarget::Height(1)),
+            Err(PushReplayError::Fatal(PushError::Storage(reason)))
+                if reason == "push replay's original cursor binding changed"
+        ));
+        assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+        assert_eq!(bridge.queued_count(), 0);
+        assert!(rebound.pending.is_none());
+        drop(rebound);
         assert_eq!(pool.reserved_bytes(), baseline);
     }
 
@@ -3372,12 +4316,14 @@ mod tests {
         bridge
             .register_device(register_request("activity-token"))
             .expect("register push activity target");
-        let stale = test_job(91);
-        let stale_key = stale.dedupe_key.clone();
+        let outdated_job = test_job(91);
+        let stale_key = outdated_job.dedupe_key.clone();
         bridge
-            .persist_job(&stale)
+            .persist_job(&outdated_job)
             .expect("persist full queue fixture");
-        bridge.queue.insert(stale.dedupe_key.clone(), stale);
+        bridge
+            .queue
+            .insert(outdated_job.dedupe_key.clone(), outdated_job);
 
         assert!(matches!(
             bridge.reconcile_to_authoritative_height(&state),

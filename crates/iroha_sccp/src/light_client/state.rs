@@ -18,12 +18,52 @@ use iroha_data_model::{
 
 use crate::v1::hashes::keccak256;
 
+pub mod admitted;
+pub(crate) mod writer;
+
+/// Borrowed consensus record for source verification. The encoded validator graph stays
+/// under its original stored or admitted-delta owner; reading it cannot clone that graph.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SccpLcConsensusSetRefV1<'a> {
+    /// Source consensus-set identifier.
+    pub set_id: u64,
+    /// First source height at which the set may sign.
+    pub valid_from_source_height: u64,
+    /// Source time at which a successor superseded this set.
+    pub superseded_at_source_ms: Option<u64>,
+    /// Canonical encoded validator-set bytes borrowed from their actual owner.
+    pub set_bytes: &'a [u8],
+}
+
+impl<'a> From<&'a SccpLcConsensusSetV1> for SccpLcConsensusSetRefV1<'a> {
+    fn from(record: &'a SccpLcConsensusSetV1) -> Self {
+        Self {
+            set_id: record.set_id,
+            valid_from_source_height: record.valid_from_source_height,
+            superseded_at_source_ms: record.superseded_at_source_ms,
+            set_bytes: &record.set_bytes,
+        }
+    }
+}
+
+impl SccpLcConsensusSetRefV1<'_> {
+    /// Whether no authenticated successor has superseded this set.
+    #[must_use]
+    pub const fn is_current(&self) -> bool {
+        self.superseded_at_source_ms.is_none()
+    }
+}
+
 /// Read-only view of stored light-client data.
 pub trait SccpLcStateView {
     /// The installed light client of `network`.
     fn light_client(&self, network: SccpNetworkV1) -> Option<SccpLightClientV1>;
     /// The stored consensus set `set_id` of `network`.
-    fn consensus_set(&self, network: SccpNetworkV1, set_id: u64) -> Option<SccpLcConsensusSetV1>;
+    fn consensus_set(
+        &self,
+        network: SccpNetworkV1,
+        set_id: u64,
+    ) -> Option<SccpLcConsensusSetRefV1<'_>>;
     /// The stored checkpoint of `network` at `source_height`.
     fn checkpoint(&self, network: SccpNetworkV1, source_height: u64) -> Option<SccpLcCheckpointV1>;
 }
@@ -143,7 +183,12 @@ pub(super) struct CheckpointRecorder<'a, V: SccpLcStateView + ?Sized> {
     network: SccpNetworkV1,
     origin: SccpLcCheckpointOriginV1,
     now: u64,
-    pending: BTreeMap<u64, SccpLcCheckpointV1>,
+    // BSC records both endpoints plus a possibly interior latest epoch
+    // announcement for each of its 16 steps.
+    // ETH records at most 16 updates, backfills one, and inclusion proofs two.
+    // This scalar stack storage needs no heap owner or allocation grant.
+    pending: [Option<SccpLcCheckpointV1>; 3 * super::profile::BSC_MAX_STEPS_PER_ADVANCE],
+    pending_count: usize,
 }
 
 impl<'a, V: SccpLcStateView + ?Sized> CheckpointRecorder<'a, V> {
@@ -158,7 +203,8 @@ impl<'a, V: SccpLcStateView + ?Sized> CheckpointRecorder<'a, V> {
             network,
             origin,
             now,
-            pending: BTreeMap::new(),
+            pending: [None; 3 * super::profile::BSC_MAX_STEPS_PER_ADVANCE],
+            pending_count: 0,
         }
     }
 
@@ -171,7 +217,9 @@ impl<'a, V: SccpLcStateView + ?Sized> CheckpointRecorder<'a, V> {
         let height = data.source_height;
         let existing = self
             .pending
-            .get(&height)
+            .iter()
+            .flatten()
+            .find(|checkpoint| checkpoint.data.source_height == height)
             .map(|checkpoint| checkpoint.data)
             .or_else(|| {
                 self.view
@@ -186,22 +234,41 @@ impl<'a, V: SccpLcStateView + ?Sized> CheckpointRecorder<'a, V> {
             ),
             Some(_) => Ok(()),
             None => {
-                self.pending.insert(
-                    height,
-                    SccpLcCheckpointV1 {
-                        data,
-                        recorded_at_taira_ms: self.now,
-                        origin: self.origin,
-                    },
-                );
+                if self.pending_count == self.pending.len() {
+                    return Err(super::SccpLcError::TooManyItems {
+                        kind: "recorded checkpoints",
+                        count: self.pending_count + 1,
+                        max: self.pending.len(),
+                    });
+                }
+                let position = self.pending[..self.pending_count]
+                    .iter()
+                    .position(|checkpoint| {
+                        checkpoint.is_some_and(|value| value.data.source_height > height)
+                    })
+                    .unwrap_or(self.pending_count);
+                self.pending
+                    .copy_within(position..self.pending_count, position + 1);
+                self.pending[position] = Some(SccpLcCheckpointV1 {
+                    data,
+                    recorded_at_taira_ms: self.now,
+                    origin: self.origin,
+                });
+                self.pending_count += 1;
                 Ok(())
             }
         }
     }
 
     /// The new checkpoints in height order.
+    #[cfg(test)]
     pub(super) fn into_vec(self) -> Vec<SccpLcCheckpointV1> {
-        self.pending.into_values().collect()
+        self.into_records().collect()
+    }
+
+    /// Borrow-free scalar iteration for a caller-owned admitted output.
+    pub(super) fn into_records(self) -> impl Iterator<Item = SccpLcCheckpointV1> {
+        self.pending.into_iter().flatten()
     }
 }
 
@@ -227,15 +294,32 @@ pub fn state_hash(
     head: &SccpLcHeadV1,
     frozen: Option<&SccpLcFreezeReasonV1>,
 ) -> [u8; 32] {
+    // The fixed scalar serializer and streaming Keccak writer allocate no output graph.
+    // Preserve the previous deterministic fallback if a codec invariant ever fails.
+    use tiny_keccak::Hasher as _;
+    struct Digest(tiny_keccak::Keccak);
+    impl std::io::Write for Digest {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
     let input = StateHashInputV1 {
         params: *params,
         head: *head,
         frozen: frozen.copied(),
     };
-    // Encoding a fixed-shape value of `Copy` fields cannot fail; an empty frame would still hash
-    // deterministically on every peer.
-    let frame = norito::encode_canonical(&input).unwrap_or_default();
-    keccak256(&[b"SCCP/LC/STATE/V1", &frame])
+    let mut digest = Digest(tiny_keccak::Keccak::v256());
+    digest.0.update(b"SCCP/LC/STATE/V1");
+    if norito::core::write_canonical_to_writer(&input, &mut digest).is_err() {
+        return keccak256(&[b"SCCP/LC/STATE/V1"]);
+    }
+    let mut output = [0; 32];
+    digest.0.finalize(&mut output);
+    output
 }
 
 /// Whether a signing set is fresh at `taira_now_ms` (§4.13.2).
@@ -451,8 +535,12 @@ impl SccpLcStateView for SccpLcMemoryStateV1 {
         self.light_clients.get(&network).copied()
     }
 
-    fn consensus_set(&self, network: SccpNetworkV1, set_id: u64) -> Option<SccpLcConsensusSetV1> {
-        self.sets.get(&(network, set_id)).cloned()
+    fn consensus_set(
+        &self,
+        network: SccpNetworkV1,
+        set_id: u64,
+    ) -> Option<SccpLcConsensusSetRefV1<'_>> {
+        self.sets.get(&(network, set_id)).map(Into::into)
     }
 
     fn checkpoint(&self, network: SccpNetworkV1, source_height: u64) -> Option<SccpLcCheckpointV1> {
@@ -468,6 +556,36 @@ mod tests {
     };
 
     const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
+
+    #[test]
+    fn consensus_reads_borrow_the_original_encoded_set_and_only_copy_metadata() {
+        let record = SccpLcConsensusSetV1 {
+            set_id: 7,
+            valid_from_source_height: 123,
+            superseded_at_source_ms: None,
+            set_bytes: vec![3; 4_096],
+        };
+        let original = record.set_bytes.as_ptr();
+        let mut memory = SccpLcMemoryStateV1::default();
+        memory.sets.insert((ETH, 7), record);
+        let first = memory.consensus_set(ETH, 7).expect("stored set");
+        let mut overlay = first;
+        overlay.superseded_at_source_ms = Some(456);
+        assert_eq!(first.set_bytes.as_ptr(), original);
+        assert_eq!(overlay.set_bytes.as_ptr(), original);
+        assert!(first.is_current());
+        assert!(!overlay.is_current());
+        assert_eq!(first.set_id, 7);
+        assert_eq!(first.valid_from_source_height, 123);
+        assert!(
+            memory
+                .consensus_set(ETH, 7)
+                .expect("stored set")
+                .is_current()
+        );
+        assert!(memory.consensus_set(SccpNetworkV1::BscMainnet, 7).is_none());
+        assert!(memory.consensus_set(ETH, 8).is_none());
+    }
 
     fn params() -> SccpLightClientParamsV1 {
         SccpLightClientParamsV1::defaults_for(ETH).expect("external")
@@ -496,6 +614,65 @@ mod tests {
             },
             recorded_at_taira_ms: at,
             origin,
+        }
+    }
+
+    #[test]
+    fn checkpoint_recorder_covers_every_bsc_endpoint_and_interior_announcement() {
+        let source = SccpLcMemoryStateV1::default();
+        let origin = SccpLcCheckpointOriginV1::Advance;
+        let mut recorder = CheckpointRecorder::new(&source, ETH, origin, 17);
+        let maximum = 3 * super::super::profile::BSC_MAX_STEPS_PER_ADVANCE;
+        for height in (1..=maximum as u64).rev() {
+            recorder
+                .record(checkpoint(height, origin, 17).data)
+                .unwrap();
+        }
+        // Full capacity still permits an identical re-proof, but never a
+        // contradictory block or one additional distinct record.
+        let original = checkpoint(1, origin, 17);
+        recorder.record(original.data).unwrap();
+        let mut conflict = original.data;
+        conflict.block_hash = [255; 32];
+        assert!(matches!(
+            recorder.record(conflict),
+            Err(super::super::SccpLcError::ConflictsWithStoredData(_))
+        ));
+        assert!(matches!(
+            recorder.record(checkpoint(maximum as u64 + 1, origin, 17).data),
+            Err(super::super::SccpLcError::TooManyItems { .. })
+        ));
+        let records = recorder.into_vec();
+        assert_eq!(records.len(), maximum);
+        assert_eq!(records[0], original);
+        assert!(
+            records
+                .windows(2)
+                .all(|rows| { rows[0].data.source_height < rows[1].data.source_height })
+        );
+        assert_eq!(source.checkpoint_count(ETH), 0);
+    }
+
+    #[test]
+    fn state_hash_stream_matches_the_exact_canonical_frame_without_an_output_buffer() {
+        for frozen in [
+            None,
+            Some(SccpLcFreezeReasonV1::Equivocation(
+                SccpLcEquivocationFreezeV1 {
+                    evidence_hash: [19; 32],
+                },
+            )),
+        ] {
+            let input = StateHashInputV1 {
+                params: params(),
+                head: head(22, 33),
+                frozen,
+            };
+            let frame = norito::encode_canonical(&input).expect("canonical fixture");
+            assert_eq!(
+                state_hash(&input.params, &input.head, input.frozen.as_ref()),
+                keccak256(&[b"SCCP/LC/STATE/V1", &frame])
+            );
         }
     }
 
@@ -543,9 +720,9 @@ mod tests {
         );
         assert_eq!(
             retention_class(
-                SccpNetworkV1::TronMainnet,
-                2_400,
-                1_200,
+                SccpNetworkV1::BscMainnet,
+                16_384,
+                8_192,
                 SccpLcCheckpointOriginV1::Backfill
             ),
             SccpLcRetentionClassV1::StrideCandidate { bucket: 2 }
@@ -643,7 +820,7 @@ mod tests {
         );
         assert_eq!(memory.light_client(ETH), Some(light_client));
         assert_eq!(memory.set_count(ETH), 1);
-        assert_eq!(memory.consensus_set(ETH, 7), Some(set));
+        assert_eq!(memory.consensus_set(ETH, 7), Some((&set).into()));
         assert_eq!(memory.checkpoint_count(ETH), 1);
         assert!(SccpLcDeltaV1::default().is_empty());
         let moved = head(20, 2);

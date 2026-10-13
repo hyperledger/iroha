@@ -14,7 +14,7 @@ The hot demand is checked from the actual net changes: at most one height plus
 257 path nodes per changed key. Counting visits the unchanged staged/latest sets,
 not historical membership. Repeated commits have zero changes. Locations are
 physical references excluded from logical commitments; restart does not recreate
-an original in-process preparation identity or its HashSet iteration order.
+an original in-process preparation identity or its BTreeSet iteration order.
 
 A replay cursor identifies fixed record ordinals inside the one original range.
 Completed ordinals are read and compared against the entire expected frame,

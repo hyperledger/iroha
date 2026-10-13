@@ -1,7 +1,7 @@
 //! Actual fallible World construction, original refusal owners and same-source retry.
 
 use super::*;
-use crate::execution_attempt::{ExecutionAttemptError, ExecutionDeferred};
+use crate::execution_attempt::ExecutionAttemptError;
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
 use iroha_data_model::{
     asset::AssetBalancePolicy,
@@ -131,10 +131,7 @@ fn decoder_refusal(record: bool) {
     else {
         panic!("fallible World constructor must preserve original typed Kaigi deferral: {error:?}");
     };
-    assert_eq!(
-        reason,
-        &ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity)
-    );
+    assert_eq!(reason.reason(), ExecutionDeferral::ActiveMemoryCapacity);
     assert!(reason.allocation_refusal().is_none());
     let consumed_before_retry = original.consumed_allocated_bytes();
     assert!(consumed_before_retry > 0);

@@ -56,20 +56,7 @@ mod planner_tests {
         for transition in plan.due.iter().chain(exact) {
             let applied = match transition {
                 ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(payload) => {
-                    let request = state
-                        .election(&payload.election_attempt_id)
-                        .expect("planned election")
-                        .attempt
-                        .request;
-                    let pulse_available = world
-                        .verified_pulse(request.beacon_session_id, request.pulse_height)
-                        .is_some();
-                    state.fail_body_election_no_roster(
-                        id,
-                        payload.election_attempt_id,
-                        pulse_available,
-                        height,
-                    )
+                    state.fail_body_election_no_roster(id, payload.election_attempt_id, height)
                 }
                 ParliamentLifecycleTransitionV1::SealBodyRoster(payload) => state
                     .seal_body_roster(id, payload.election_attempt_id, height)
@@ -187,7 +174,7 @@ mod planner_tests {
     }
 
     #[test]
-    fn planner_consumes_committed_pulses_and_fails_missing_ones() {
+    fn planner_consumes_the_exact_slot_pulse_and_never_fails_a_missing_one() {
         let (state, election_id, request_id) = policy_sortition_registered();
         let mut governance = governance_for_pending_draws(&state);
         governance.parliament_invitation_phase_blocks = 1;
@@ -221,20 +208,64 @@ mod planner_tests {
                 ),
             ]
         );
-        let missing = state.plan_driver_v1(
-            &FixedPlanWorld::default(),
-            &network_id(),
-            &governance,
-            20,
-            23,
-        );
+        // The same pulse is still consumed however late the driver observes it.
+        let late = state.plan_driver_v1(&world, &network_id(), &governance, 9_000, 9_003);
+        assert_eq!(late.due, plan.due);
+
+        // No pulse at the frozen slot: nothing is due and nothing is scheduled, at the slot,
+        // just past it and arbitrarily far past it. A live electorate does not turn the wait
+        // into a retry generation either.
+        let electorate = FixedPlanWorld {
+            candidates: Some(candidates(40, 4)),
+            ..FixedPlanWorld::default()
+        };
+        // Pulses of another height or of another beacon session never substitute the draw.
+        let substituted = FixedPlanWorld {
+            pulses: [
+                (
+                    (beacon_session(13), 23),
+                    (pulse_id(15), *pulse_id(15).as_bytes()),
+                ),
+                (
+                    (beacon_session(99), 20),
+                    (pulse_id(16), *pulse_id(16).as_bytes()),
+                ),
+            ]
+            .into(),
+            candidates: Some(candidates(40, 4)),
+            ..FixedPlanWorld::default()
+        };
+        for missing_world in [&FixedPlanWorld::default(), &electorate, &substituted] {
+            for (committed_height, execution_height) in [
+                (20, 21),
+                (20, 23),
+                (23, 24),
+                (1_000_000, 1_000_001),
+                (u64::MAX - 1, u64::MAX),
+            ] {
+                let missing = state.plan_driver_v1(
+                    missing_world,
+                    &network_id(),
+                    &governance,
+                    committed_height,
+                    execution_height,
+                );
+                assert_eq!(
+                    missing,
+                    ParliamentDriverPlanV1::default(),
+                    "an election awaiting its pulse yields no transition at height \
+                     {committed_height}"
+                );
+            }
+        }
         assert_eq!(
-            missing.due,
-            vec![ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(
-                ParliamentFailBodyElectionNoRosterV1 {
-                    election_attempt_id: election_id,
-                }
-            )]
+            state
+                .election(&election_id)
+                .expect("pending election")
+                .attempt
+                .request
+                .pulse_height,
+            20
         );
     }
 
@@ -538,9 +569,17 @@ mod planner_tests {
             None,
         );
         let election_id = request.body_election_attempt_id;
+        let request_id = request.id;
         state
             .register_sortition_request(id, 0, request, snapshot)
             .expect("register policy sortition");
+        // The election consumes the pulse of its exact slot and nobody accepts before the
+        // one-block invitation window closes: the only way an election ends `NoRoster`.
+        consume_sortition(&mut state, id, vec![request_id], logical, 20, pulse_id(14))
+            .expect("consume the exact slot pulse");
+        state
+            .begin_invitation_acceptance(id, election_id, 20, 1)
+            .expect("open the invitation window");
         let governance = Governance {
             policy_jury_size: 3,
             ..plan_governance()
@@ -567,7 +606,8 @@ mod planner_tests {
             retry_snapshot,
             3,
             23,
-            33,
+            // The first native pulse height at or after 23 plus the ten-block delay.
+            35,
             logical,
         );
         assert_eq!(
@@ -655,7 +695,8 @@ mod planner_tests {
             grown,
             3,
             11,
-            21,
+            // The evidence generation holds slot 20; height 21 is not a native pulse height.
+            23,
             logical,
         );
         assert_eq!(
@@ -736,7 +777,7 @@ mod planner_tests {
                         still_small.clone(),
                         3,
                         11,
-                        21,
+                        23,
                         logical,
                     ),
                 }],
@@ -749,7 +790,6 @@ mod planner_tests {
     fn planner_retries_every_failed_body_as_one_generation() {
         let (mut state, failed) =
             rules_and_policy_invitations_open(MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1 - 1);
-        let id = state.attempt.id;
         for election_id in failed {
             respond_to_every_invitation(&mut state, election_id, false, 20);
         }
@@ -785,7 +825,7 @@ mod planner_tests {
             vec![ParliamentExactTransitionV1 {
                 height: 22,
                 transition: register_sortition(sortition_generation(
-                    id, &bodies, 1, &snapshot, 22, logical,
+                    &state, &bodies, 1, &snapshot, 22, logical,
                 )),
             }]
         );

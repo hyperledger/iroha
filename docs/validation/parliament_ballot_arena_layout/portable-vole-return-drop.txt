@@ -1,0 +1,41 @@
+
+/tmp/parliament-resource-contract/resource-portable:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+000000010000df30 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E>:
+10000df30:     	stp	x20, x19, [sp, #-0x20]!
+10000df34:     	stp	x29, x30, [sp, #0x10]
+10000df38:     	add	x29, sp, #0x10
+10000df3c:     	mov	x19, x0
+10000df40:     	ldr	x1, [x0]
+10000df44:     	cbz	x1, 0x10000df54 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E+0x24>
+10000df48:     	ldr	x0, [x19, #0x8]
+10000df4c:     	mov	w2, #0x1                ; =1
+10000df50:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10000df54:     	ldr	x8, [x19, #0x18]
+10000df58:     	cbz	x8, 0x10000df6c <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E+0x3c>
+10000df5c:     	ldr	x0, [x19, #0x20]
+10000df60:     	lsl	x1, x8, #1
+10000df64:     	mov	w2, #0x2                ; =2
+10000df68:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10000df6c:     	ldr	x1, [x19, #0x30]
+10000df70:     	cbz	x1, 0x10000df80 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E+0x50>
+10000df74:     	ldr	x0, [x19, #0x38]
+10000df78:     	mov	w2, #0x1                ; =1
+10000df7c:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10000df80:     	ldr	x1, [x19, #0x48]
+10000df84:     	cbz	x1, 0x10000df94 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E+0x64>
+10000df88:     	ldr	x0, [x19, #0x50]
+10000df8c:     	mov	w2, #0x1                ; =1
+10000df90:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10000df94:     	ldr	x1, [x19, #0x60]
+10000df98:     	cbz	x1, 0x10000dfb0 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17h793cec0c37451367E+0x80>
+10000df9c:     	ldr	x0, [x19, #0x68]
+10000dfa0:     	mov	w2, #0x1                ; =1
+10000dfa4:     	ldp	x29, x30, [sp, #0x10]
+10000dfa8:     	ldp	x20, x19, [sp], #0x20
+10000dfac:     	b	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+10000dfb0:     	ldp	x29, x30, [sp, #0x10]
+10000dfb4:     	ldp	x20, x19, [sp], #0x20
+10000dfb8:     	ret

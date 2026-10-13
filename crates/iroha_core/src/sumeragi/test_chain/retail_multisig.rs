@@ -165,9 +165,9 @@ fn treasury_payout_binding(
         reference_feed_config_version: 1,
         reference_provider_accounts: (10..15).map(account).collect(),
         max_sbd_per_attempt_minor: 1000,
-        max_sbd_per_day_minor: 100000,
+        max_sbd_per_day_minor: 100_000,
         min_interval_ms: 60000,
-        max_source_age_ms: 300000,
+        max_source_age_ms: 300_000,
         max_slippage_bps: 100,
         validator_lane_id: iroha_model_base::topology::LaneId::new(0),
         min_reward_claim_xor_minor: 1,
@@ -343,7 +343,8 @@ fn activate_bound_payout_runtime(
     feed.feed_id = binding.reference_feed_id.clone();
     feed.feed_config_version =
         iroha_data_model::oracle::FeedConfigVersion(binding.reference_feed_config_version);
-    feed.providers = binding.reference_provider_accounts.clone();
+    feed.providers
+        .clone_from(&binding.reference_provider_accounts);
     feed.min_signers = 3;
     feed.committee_size = 5;
     state_tx
@@ -494,7 +495,8 @@ fn install_monthly_policy(
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .expect("valid fixture parameters");
     let record = RetailFeeAccountStateV1::enroll(source.clone(), START, 1000).unwrap();
     crate::retail_fee::write_account(&mut transaction.world, &record).unwrap();
 }

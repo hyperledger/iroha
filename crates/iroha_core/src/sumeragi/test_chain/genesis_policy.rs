@@ -57,14 +57,22 @@ pub(crate) fn staged_genesis_policies(
     state: &State,
     mode: ConsensusMode,
 ) -> Result<Option<(Hash, Hash)>, String> {
-    let validation = ValidBlock::validate_signed_genesis(
-        genesis,
-        topology,
-        genesis_account,
-        &TimeSource::new_system(),
-        state,
-        mode,
-    )
+    let validation = {
+        let selected_genesis = genesis;
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            topology,
+            genesis_account,
+            &TimeSource::new_system(),
+            state,
+            mode,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     match validation {
         Ok(staged) => {

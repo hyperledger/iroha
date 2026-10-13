@@ -99,7 +99,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -110,8 +110,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0)
     );
@@ -119,15 +118,13 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .map(|(_, err)| format!("{err:?}"));
     let (_, rejection) = valid_block
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("batch rejection");
     assert!(
         matches!(
@@ -169,8 +166,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
 }
 #[test]
 fn rejected_contract_only_batch_vm_error_still_charges_nexus_fee() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let _guard = crate::status::nexus_fee_test_lock()
         .lock()
         .expect("nexus fee test lock");
@@ -246,7 +242,13 @@ ledger::account::set_metadata(
             iroha_model_base::topology::DataSpaceId::UNIVERSAL,
             code_hash,
         ),
-        manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &payer_keypair).expect("sign bounded fixture manifest"),
+        manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &payer_keypair,
+            )
+            .expect("sign bounded fixture manifest"),
     );
     world
         .contract_instances
@@ -329,7 +331,7 @@ ledger::account::set_metadata(
         .sign(payer_keypair.private_key())
         .unpack(|_| {});
     let (mut state_block, state_block_recorder) =
-        crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+        crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
             .expect("original writer-first component execution");
     let valid = block
         .validate_and_record_transactions(&mut state_block, state_block_recorder)
@@ -338,8 +340,7 @@ ledger::account::set_metadata(
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .map(|(_, error)| error)
         .expect("the gas-capped contract call must fail");
     let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = error else {
@@ -399,7 +400,7 @@ fn successful_live_batches_accumulate_parent_block_gas() {
             LiveQueryStore::start_test(),
             chain_id.clone(),
         );
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_apply = parallel_apply;
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
@@ -408,7 +409,11 @@ fn successful_live_batches_accumulate_parent_block_gas() {
         let state = native_chain.state();
         let log_instruction =
             InstructionBox::from(Log::new(Level::INFO, "meter one live batch".to_owned()));
-        let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&log_instruction));
+        let expected_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&log_instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        )
+        .expect("gas quote must complete for this fixture");
         assert!(expected_gas > 0, "the fixture must consume gas");
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();
@@ -455,7 +460,7 @@ fn successful_live_batches_accumulate_parent_block_gas() {
         .sign(keypair.private_key())
         .unpack(|_| {});
         let (mut state_block, state_block_recorder) =
-            crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+            crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
                 .expect("original writer-first component execution");
         state_block.gas_limit_per_block = expected_gas;
         let valid = block

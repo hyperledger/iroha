@@ -4,9 +4,20 @@
 //! nodes, destination contracts, wallets and tools must agree on byte for
 //! byte: profile identities and lanes, the transfer payload codec and amount
 //! rules, payload and message hashes, block commitment and history trees,
-//! EIP-712 digests, roster digests, signature checks, the node-local bridge
-//! key file, TON cell hashing and EVM ABI helpers. Nothing here performs I/O;
+//! native BLS certificates, external transaction signatures, TON cell hashing and EVM ABI helpers. Nothing here performs I/O;
 //! network access lives in `iroha_sccp_rpc`.
+//!
+//! The revision-5 finality reference (`specs/sccp.md` §3.4, §3.6–§3.8, §5.1, §5.2.2) is in
+//! six modules: [`finality`] holds the finality header `X`, `QC_FIXED`, the certified result
+//! `R`, the Commit preimage and the destination verification relation
+//! ([`finality::verify_certificate`]); [`committee`] the committee root and geometry, the
+//! EVM point forms and the destination committee state machine; [`evidence`] the consensus
+//! anchors and the forgery-evidence identity; [`control`] the 199-byte control leaf;
+//! [`destination`] the executable model of the destination contracts, EVM and TON
+//! ([`destination::Destination`]); [`destination_abi`] their selectors, event topics and
+//! the shared error table with its TON exit codes.
+//!
+//! Core controls commit the complete authenticated 199-byte control leaf.
 
 /// Declare a field-less error enum with `Debug`, `Display` and `std::error::Error`.
 macro_rules! unit_error {
@@ -35,17 +46,21 @@ macro_rules! unit_error {
 }
 
 pub mod amount;
+pub mod committee;
 pub mod constants;
-pub mod eip712;
+pub mod control;
+pub mod destination;
+pub mod destination_abi;
+pub mod evidence;
 pub mod evm_abi;
+pub mod finality;
 pub mod hashes;
 pub mod history;
-pub mod key_file;
 pub mod merkle;
 pub mod network;
 pub mod payload;
 pub mod proof;
-pub mod roster;
+pub mod reconciliation;
 pub mod signature;
 pub mod ton_cell;
 

@@ -46,10 +46,10 @@ impl StreamTokenStateObserverClientV1 for ServerReplyBackend {
             "exactly one actual Observe"
         );
         std::thread::sleep(self.delay);
-        match &self.record {
-            Some(record) => StreamTokenObserverReplyV1::current(record.clone(), self.bytes.clone()),
-            None => StreamTokenObserverReplyV1::completed(self.bytes.clone()),
-        }
+        self.record.as_ref().map_or_else(
+            || StreamTokenObserverReplyV1::completed(self.bytes.clone()),
+            |record| StreamTokenObserverReplyV1::current(record.clone(), self.bytes.clone()),
+        )
     }
 }
 fn server_reply_case(mode: ServerMode, outcome: ServerOutcome) {

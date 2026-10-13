@@ -1619,7 +1619,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn write_output_bytes_rejects_socket_output() {
-        let (_tmp, tmp_path) = canonical_tempdir();
+        // Unix socket addresses have a small fixed byte limit, independent of PATH_MAX.
+        // A caller's TMPDIR can exceed it; keep this real socket fixture under /tmp.
+        let socket_root = tempfile::tempdir_in("/tmp").expect("short Unix socket directory");
+        let tmp_path = socket_root
+            .path()
+            .canonicalize()
+            .expect("canonical socket root");
         let output_path = tmp_path.join("segment.sock");
         let _listener =
             std::os::unix::net::UnixListener::bind(&output_path).expect("bind Unix socket");

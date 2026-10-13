@@ -144,7 +144,7 @@ impl Server {
             .unwrap();
         let https_address = https.listener.local_addr().unwrap();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let http_address = listener.local_addr().unwrap();
+        let plaintext_address = listener.local_addr().unwrap();
         let shutdown = ShutdownSignal::new();
         let task_shutdown = shutdown.clone();
         let task = tokio::spawn(serve_torii_public(
@@ -155,7 +155,7 @@ impl Server {
             task_shutdown,
         ));
         Self {
-            http: http_address,
+            http: plaintext_address,
             https: https_address,
             shutdown,
             task,
@@ -300,7 +300,7 @@ fn bounded_identity_loader_rejects_bad_key_empty_oversized_and_replaced_files() 
         .directory
         .write_atomic(
             "key.der",
-            &[0x5A; https::MAX_DER_BYTES + 1],
+            &vec![0x5A; https::MAX_DER_BYTES + 1],
             PublishMode::Replace,
         )
         .unwrap();
@@ -371,9 +371,11 @@ async fn real_tls_uses_normal_roots_names_and_exact_same_authenticated_router() 
 async fn http_and_https_share_both_global_and_per_ip_socket_capacity() {
     let identity = Identity::new();
     for global in [1, 2] {
-        let mut http = ToriiHttpTransport::default();
-        http.max_connections = NonZeroUsize::new(global).unwrap();
-        http.max_connections_per_ip = NonZeroUsize::new(1).unwrap();
+        let http = ToriiHttpTransport {
+            max_connections: NonZeroUsize::new(global).unwrap(),
+            max_connections_per_ip: NonZeroUsize::new(1).unwrap(),
+            ..Default::default()
+        };
         let server = Server::start(&identity, http).await;
         // A completed TLS handshake proves the native pool has admitted this socket.
         let held = server.tls(identity.connector(), HOST).await.unwrap();
@@ -463,8 +465,10 @@ async fn shutdown_cancels_unfinished_tls_before_its_handshake_deadline() {
 #[tokio::test(flavor = "current_thread")]
 async fn encrypted_partial_http_head_keeps_existing_absolute_deadline() {
     let identity = Identity::new();
-    let mut http = ToriiHttpTransport::default();
-    http.header_read_timeout = Duration::from_millis(40);
+    let http = ToriiHttpTransport {
+        header_read_timeout: Duration::from_millis(40),
+        ..Default::default()
+    };
     let server = Server::start(&identity, http).await;
     let mut tls = server.tls(identity.connector(), HOST).await.unwrap();
     tls.write_all(b"GET /peer HTTP/1.1\r\nHost:").await.unwrap();

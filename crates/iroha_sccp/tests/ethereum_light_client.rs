@@ -54,7 +54,6 @@ use iroha_sccp::{
             checkpoint_prune_due, is_permanent_checkpoint,
         },
         ton::{TonMasterchainAnchorV1, TonSourceProofV1},
-        tron::{TronProofAnchorV1, TronSourceProofV1},
     },
     test_support::{
         ethereum::{
@@ -65,13 +64,11 @@ use iroha_sccp::{
             successful_receipt, transfer_log, update_from_beacon_json, voided_log,
         },
         ton::{BitsV1, CellArenaV1, SyntheticTonChainV1, SyntheticTonEventV1},
-        tron::{SyntheticTronChainV1, trigger_transaction},
     },
     v1::{
-        constants::{
-            CODEC_EVM_ADDRESS20, CODEC_TAIRA_ACCOUNT, TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED,
-        },
-        evm_abi::{AbiError, TransferToTairaCallV1, TransferToTairaLogV1, VoidCallV1},
+        constants::{CODEC_EVM_ADDRESS20, CODEC_TAIRA_ACCOUNT},
+        destination_abi::{TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED},
+        evm_abi::{AbiError, TransferToTairaLogV1},
         hashes::{keccak256, to_hex},
         network::account_codec,
         payload::{PayloadAccountV1, SccpTransferPayloadV1},
@@ -1409,11 +1406,6 @@ fn external_sender(network: SccpNetworkV1) -> Vec<u8> {
     let domain = u8::try_from(network.domain_id()).expect("SCCP domains fit in a byte");
     let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[domain]]);
     match network {
-        SccpNetworkV1::TronMainnet => {
-            let mut bytes = vec![0x41];
-            bytes.extend_from_slice(&body[12..]);
-            bytes
-        }
         SccpNetworkV1::TonMainnet => {
             let mut bytes = vec![0; 4];
             bytes.extend_from_slice(&body);
@@ -1446,19 +1438,9 @@ fn transfer_normalized(emitter: &[u8], payload: &SccpTransferPayloadV1) -> Value
 }
 
 fn void_normalized(kind: &str, first_nonce: u64, count: u64, message_id: &[u8; 32]) -> Value {
-    void_normalized_from(&EMITTER, kind, first_nonce, count, message_id)
-}
-
-fn void_normalized_from(
-    emitter: &[u8],
-    kind: &str,
-    first_nonce: u64,
-    count: u64,
-    message_id: &[u8; 32],
-) -> Value {
     obj(vec![
         ("kind", text("void")),
-        ("emitter", hex(emitter)),
+        ("emitter", hex(&EMITTER)),
         ("void_kind", text(kind)),
         ("first_nonce", num(first_nonce)),
         ("count", num(count)),
@@ -1510,22 +1492,6 @@ fn transfer_vector(network: SccpNetworkV1) -> Value {
             entries.push(("log", log_value(&log)));
             entries.push(("normalized", transfer_normalized(&EMITTER, &payload)));
         }
-        SccpNetworkV1::TronMainnet => {
-            let call = TransferToTairaCallV1 {
-                taira_recipient: taira_recipient(),
-                token_amount: 1_000_000_000,
-                expected_nonce: 7,
-            };
-            let caller: [u8; 20] = sender[1..].try_into().expect("20 bytes");
-            assert_eq!(
-                call.inbound_payload(network, 1, &caller).expect("payload"),
-                payload
-            );
-            entries.push(("contract_address", hex(&TRON_CONTRACT)));
-            entries.push(("owner_address", hex(&sender)));
-            entries.push(("calldata", hex(&call.calldata())));
-            entries.push(("normalized", transfer_normalized(&TRON_CONTRACT, &payload)));
-        }
         SccpNetworkV1::TonMainnet => {
             let owner: [u8; 32] = sender[4..].try_into().expect("36-byte TON account");
             let body = ton_transfer_body(
@@ -1546,11 +1512,6 @@ fn transfer_vector(network: SccpNetworkV1) -> Value {
 
 /// Minter account of the TON vector.
 const TON_MINTER: [u8; 32] = [0x44; 32];
-/// Contract of the TRON vectors (`0x41`-prefixed).
-const TRON_CONTRACT: [u8; 21] = [
-    0x41, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-    0x33, 0x33, 0x33, 0x33, 0x33,
-];
 
 /// The canonical `BoC` of a `sccp_transfer_to_taira` external-out body (§5.3.3): op, message id,
 /// nonce, `addr_std` of the burning owner, `Coins` amount, and the payload as `^SnakeBytes`
@@ -1586,19 +1547,11 @@ fn native_transfer_event_fixture() -> Value {
     let frozen_logs: Vec<EthereumLogV1> = (10..13)
         .map(|nonce| voided_log(EMITTER, [0; 32], nonce))
         .collect();
-    let frozen_call = iroha_sccp::v1::evm_abi::void_frozen_calldata(10, 3);
-    assert_eq!(
-        VoidCallV1::decode(&frozen_call),
-        Ok(VoidCallV1::Frozen {
-            first_nonce: 10,
-            count: 3
-        })
-    );
     obj(vec![
         ("schema", text("iroha_sccp/native_transfer_event_v1")),
         (
             "spec",
-            text("specs/sccp.md revision 4, §3.2, §3.3, §4.12.1, §4.12.2, §4.16, §5.1.8"),
+            text("specs/sccp.md revision 5, §3.2, §3.3, §4.12.1, §4.12.2, §4.16, §5.1.8"),
         ),
         ("generator", text(GENERATOR)),
         ("taira_network_id", hex(&TAIRA)),
@@ -1615,7 +1568,6 @@ fn native_transfer_event_fixture() -> Value {
                 [
                     SccpNetworkV1::EthereumMainnet,
                     SccpNetworkV1::BscMainnet,
-                    SccpNetworkV1::TronMainnet,
                     SccpNetworkV1::TonMainnet,
                 ]
                 .into_iter()
@@ -1638,19 +1590,6 @@ fn native_transfer_event_fixture() -> Value {
                         Value::Array(frozen_logs.iter().map(log_value).collect()),
                     ),
                     ("normalized", void_normalized("frozen", 10, 3, &[0; 32])),
-                ]),
-                obj(vec![
-                    ("name", text("tron_void_frozen_call")),
-                    ("contract_address", hex(&TRON_CONTRACT)),
-                    (
-                        "owner_address",
-                        hex(&external_sender(SccpNetworkV1::TronMainnet)),
-                    ),
-                    ("calldata", hex(&frozen_call)),
-                    (
-                        "normalized",
-                        void_normalized_from(&TRON_CONTRACT, "frozen", 10, 3, &[0; 32]),
-                    ),
                 ]),
             ]),
         ),
@@ -1741,73 +1680,6 @@ fn transfer_event_json(emitter: &[u8], event: &SccpNormalizedEventV1) -> Value {
         ("nonce", num(*nonce)),
         ("payload_hash", hex(payload_hash)),
     ])
-}
-
-/// The TRON verifier's normalized event of a vector's `TriggerSmartContract` call, solid in a
-/// synthetic TRON chain. A transfer call is normalized as Taira normalizes it: by rebuilding the
-/// payload from the caller and the call (route revision 1).
-fn tron_verifier_normalized(vector: &Value) -> Value {
-    let tron = SccpNetworkV1::TronMainnet;
-    let contract: [u8; 21] = field_bytes(vector, "contract_address")
-        .try_into()
-        .expect("21 bytes");
-    let owner: [u8; 21] = field_bytes(vector, "owner_address")
-        .try_into()
-        .expect("21 bytes");
-    let calldata = field_bytes(vector, "calldata");
-    let chain = SyntheticTronChainV1::new([0x77; 32]).with_transactions(
-        1_120,
-        vec![trigger_transaction(&owner, &contract, &calldata, 1, 0)],
-    );
-    let mut memory = SccpLcMemoryStateV1::new();
-    let initial = light_client::initialize_light_client(
-        &memory,
-        tron,
-        SccpLcInitExpectationV1::Absent,
-        &SccpLightClientParamsV1::defaults_for(tron).expect("external"),
-        &chain.bootstrap(1_100),
-        chain.time_ms(1_100) + 60_000,
-    )
-    .expect("bootstrap");
-    memory.install(tron, &initial);
-    let proof = SccpSourceProofV1::Tron(TronSourceProofV1 {
-        anchor: TronProofAnchorV1::Solid(chain.segment(1_120, 1_140)),
-        transaction: chain.transaction_proof(1_120, 0),
-    })
-    .to_bytes()
-    .expect("bounded");
-    let event = light_client::verify_proof(&memory, tron, &proof, chain.time_ms(1_160) + 1_000)
-        .expect("the TRON vector verifies")
-        .event;
-    match event {
-        SccpNormalizedEventV1::TransferCall {
-            emitter: SccpSourceEmitterV1::Tron(emitter),
-            caller,
-            call,
-            ..
-        } => transfer_normalized(
-            &emitter,
-            &call.inbound_payload(tron, 1, &caller).expect("payload"),
-        ),
-        SccpNormalizedEventV1::Void {
-            emitter: SccpSourceEmitterV1::Tron(emitter),
-            kind,
-            first_nonce,
-            count,
-            message_id_or_zero,
-            ..
-        } => void_normalized_from(
-            &emitter,
-            match kind {
-                SccpVoidKindV1::Expired => "expired",
-                SccpVoidKindV1::Frozen => "frozen",
-            },
-            first_nonce,
-            count,
-            &message_id_or_zero,
-        ),
-        other => panic!("unexpected TRON event {other:?}"),
-    }
 }
 
 /// The TON verifier's normalized event of the TON transfer vector, emitted by a synthetic
@@ -1939,18 +1811,24 @@ fn native_transfer_event_fixture_matches_the_verifier() {
             vector.get("normalized").cloned().expect("normalized")
         );
     }
-    // TRON transfers and voids are proven from the call; TON transfers from the minter's
-    // external-out body.
-    for vector in [&transfers[2], &voids[2]] {
-        assert_eq!(
-            tron_verifier_normalized(vector),
-            vector.get("normalized").cloned().expect("normalized")
-        );
-    }
+    // TON transfers are proven from the minter's external-out body.
     assert_eq!(
-        ton_verifier_normalized(&transfers[3]),
-        transfers[3].get("normalized").cloned().expect("normalized")
+        ton_verifier_normalized(&transfers[2]),
+        transfers[2].get("normalized").cloned().expect("normalized")
     );
+    assert_eq!(
+        transfers
+            .iter()
+            .map(|vector| vector.get("source_profile").and_then(Value::as_str))
+            .collect::<Vec<_>>(),
+        [
+            Some("ethereum-mainnet"),
+            Some("bsc-mainnet"),
+            Some("ton-mainnet")
+        ],
+        "one transfer vector per external source"
+    );
+    assert_eq!(voids.len(), 2, "the EVM expired and frozen voids");
     assert!(
         transfers
             .iter()
@@ -1978,11 +1856,7 @@ fn unsupported_networks_and_mismatched_frames_fail_closed() {
         light_client::apply_advance(&memory, SccpNetworkV1::SoraTaira, &bytes, now),
         Err(SccpLcError::UnsupportedNetwork(SccpNetworkV1::SoraTaira))
     );
-    for network in [
-        SccpNetworkV1::BscMainnet,
-        SccpNetworkV1::TronMainnet,
-        SccpNetworkV1::TonMainnet,
-    ] {
+    for network in [SccpNetworkV1::BscMainnet, SccpNetworkV1::TonMainnet] {
         assert_eq!(
             light_client::apply_advance(&memory, network, &bytes, now),
             Err(SccpLcError::NotInstalled(network))

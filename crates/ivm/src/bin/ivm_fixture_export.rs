@@ -475,25 +475,27 @@ mod tests {
     fn command_requires_an_explicit_mode_and_accepts_a_staged_output_root() {
         let default_root = Path::new("/workspace");
         assert_eq!(
-            parse_options_from(&["--check".to_owned()], default_root),
-            Ok(Options {
+            (parse_options_from(&["--check".to_owned()], default_root))
+                .expect("expected successful fixture result"),
+            Options {
                 mode: Mode::Check,
                 output_root: default_root.to_path_buf(),
-            })
+            }
         );
         assert_eq!(
-            parse_options_from(
+            (parse_options_from(
                 &[
                     "--output-root".to_owned(),
                     "/staged/fixtures".to_owned(),
                     "--write".to_owned(),
                 ],
                 default_root,
-            ),
-            Ok(Options {
+            ))
+            .expect("expected successful fixture result"),
+            Options {
                 mode: Mode::Write,
                 output_root: PathBuf::from("/staged/fixtures"),
-            })
+            }
         );
         assert!(parse_options_from(&[], default_root).is_err());
         assert!(
@@ -551,7 +553,7 @@ mod tests {
         );
         assert_eq!(fixture._context.consumed_allocated_bytes(), before);
         let payload = fixture
-            .signed_manifest
+            .manifest
             .signature_payload_bytes(&fixture._context, frame.remaining_bytes())
             .expect("encode original fixture verification payload");
         assert_eq!(
@@ -572,6 +574,18 @@ mod tests {
             .signature
             .verify(&provenance.signer, &payload)
             .expect("fixture manifest signature");
+        // An undersized frame refuses before consuming the original operation's
+        // cumulative allowance or allocating another output buffer.
+        let consumed = fixture._context.consumed_allocated_bytes();
+        assert_eq!(payload.len(), frame_bytes);
+        assert!(matches!(
+            signed_manifest.signature_payload_bytes(&fixture._context, frame_bytes - 1),
+            Err(norito::core::BoundedEncodeError::FrameTooLarge {
+                encoded_bytes,
+                max_bytes,
+            }) if encoded_bytes == frame_bytes && max_bytes == frame_bytes - 1
+        ));
+        assert_eq!(fixture._context.consumed_allocated_bytes(), consumed);
         drop(payload);
         drop(frame);
         let rendered =

@@ -751,7 +751,7 @@ fn unavailable_production_artifacts_retain_local_deferral_and_no_activation() {
         let rows = tx.world.kagemusha_wallet_ledger.iter().count();
         assert!(instruction.execute(&memory.authority, tx).is_err());
         assert_eq!(
-            tx.execution_deferral().unwrap().reason(),
+            tx.borrow_execution_deferral().unwrap().reason(),
             ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
         );
         assert_eq!(tx.world.kagemusha_wallet_ledger.iter().count(), rows);
@@ -1397,16 +1397,20 @@ fn private_root_load_rejects_before_debit_or_receipt_creation() {
             .into_custom_parameter()
             .unwrap(),
         ));
-    config.pipeline.gas.tech_account_id =
-        AccountId::new(config.genesis_key.public_key().clone()).to_string();
-    config.pipeline.gas.accepted_assets = vec![fee_asset.canonical_address()];
-    config.pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-        asset: fee_asset.canonical_address(),
-        units_per_gas: 1,
-        twap_local_per_xor: Numeric::one(),
-        liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-        volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-    }];
+    let gas = iroha_config::parameters::actual::Gas {
+        tech_account_id: AccountId::new(config.genesis_key.public_key().clone()).to_string(),
+        accepted_assets: vec![fee_asset.canonical_address()],
+        units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+            asset: fee_asset.canonical_address(),
+            units_per_gas: 1,
+            twap_local_per_xor: Numeric::one(),
+            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+        }],
+    };
+    config
+        .genesis_parameters
+        .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
     config
         .genesis_instructions
         .extend([Register::asset_definition(AssetDefinition::numeric(

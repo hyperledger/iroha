@@ -312,7 +312,7 @@ pub(super) fn capsule_for(
         &payment_digest,
     )
     .expect("output");
-    let capsule = KagemushaWalletRecoveryCapsuleV1 {
+    let body = iroha_data_model::kagemusha::KagemushaWalletRecoveryBodyV1 {
         version: 1,
         scheme_id: f.scheme_id(),
         wallet_id: f.wallet_id(),
@@ -330,8 +330,10 @@ pub(super) fn capsule_for(
         retained_inputs: retained_for(kind),
         output,
     };
-    capsule.validate().expect("valid capsule");
-    capsule
+    body.freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening")
 }
 
 /// Stand-in capsule map openings: the insertion witness of key `seed` into an empty indexed
@@ -397,26 +399,21 @@ pub(super) fn next_capsule_variant(
     previous: &KagemushaWalletRecoveryCapsuleV1,
     variant: u8,
 ) -> KagemushaWalletRecoveryCapsuleV1 {
-    let sequence = previous.statement.sequence + 1;
+    let sequence = previous.body().statement.sequence + 1;
     let tag = (u8::try_from(sequence % 100).expect("tag") + 1) ^ variant.wrapping_mul(0x80);
     let statement = KagemushaWalletStatementV1 {
         lifecycle: KagemushaWalletLifecycleV1::Active,
         sequence,
-        next_load: previous.statement.next_load,
-        predecessor: previous.statement.successor,
+        next_load: previous.body().statement.next_load,
+        predecessor: previous.body().statement.successor,
         successor: commitment(tag),
         effect: KagemushaWalletEffectV1::ArchiveSent {
             credit_id: field_value(tag),
             credited: field_value(tag.wrapping_add(2).max(1)),
         },
-        ..previous.statement
+        ..previous.body().statement
     };
-    capsule_for(
-        f,
-        statement,
-        previous.capsule_digest().expect("previous digest"),
-        tag,
-    )
+    capsule_for(f, statement, previous.custody_digest(), tag)
 }
 
 /// Completion record of `capsule` whose output is `output_byte` repeated.
@@ -425,17 +422,17 @@ pub(super) fn completion_for(
     capsule: &KagemushaWalletRecoveryCapsuleV1,
     output_byte: u8,
 ) -> KagemushaWalletCompletionRecordV1 {
-    let capsule_digest = capsule.capsule_digest().expect("capsule digest");
+    let capsule_digest = capsule.custody_digest();
     let record = KagemushaWalletCompletionRecordV1 {
         version: 1,
         wallet_id: f.wallet_id(),
-        operation_id: capsule.operation_id,
+        operation_id: capsule.body().operation_id,
         capsule_digest,
         receipt: KagemushaWalletReceiptV1 {
             version: 1,
-            operation_id: capsule.operation_id,
-            capsule_digest,
-            payment_digest: capsule.payment_digest,
+            operation_id: capsule.body().operation_id,
+            capsule_commitment: capsule.receipt_commitment(),
+            payment_digest: capsule.body().payment_digest,
             signature: low_s_signature(&f.signing, &[output_byte; 8]),
         },
         output: vec![output_byte; 64],
@@ -1126,16 +1123,21 @@ impl
         capsule: &KagemushaWalletRecoveryCapsuleV1,
         capsule_digest: &[u8; 32],
     ) -> Result<Vec<u8>, super::KagemushaWalletProviderErrorV1> {
+        if capsule.custody_digest() != *capsule_digest {
+            return Err(super::KagemushaWalletProviderErrorV1::Invalid {
+                field: "receipt.capsule",
+            });
+        }
         Ok(KagemushaWalletReceiptBodyV1 {
             version: 1,
-            scheme_id: capsule.scheme_id,
-            wallet_id: capsule.wallet_id,
+            scheme_id: capsule.body().scheme_id,
+            wallet_id: capsule.body().wallet_id,
             provider_contract: kagemusha_wallet_provider_contract_v1(),
-            sequence: capsule.statement.sequence,
-            operation_id: capsule.operation_id,
-            predecessor: capsule.statement.predecessor,
-            successor: capsule.statement.successor,
-            statement_digest: capsule.statement.statement_digest().map_err(|_| {
+            sequence: capsule.body().statement.sequence,
+            operation_id: capsule.body().operation_id,
+            predecessor: capsule.body().statement.predecessor,
+            successor: capsule.body().statement.successor,
+            statement_digest: capsule.body().statement.statement_digest().map_err(|_| {
                 super::KagemushaWalletProviderErrorV1::Invalid {
                     field: "receipt.statement_digest",
                 }
@@ -1145,10 +1147,22 @@ impl
                     field: "receipt.proof_digest",
                 }
             })?,
-            capsule_digest: *capsule_digest,
-            payment_digest: capsule.payment_digest,
+            capsule_commitment: capsule.receipt_commitment(),
+            payment_digest: capsule.body().payment_digest,
         }
         .transcript())
+    }
+
+    fn require_completion(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        record: &KagemushaWalletCompletionRecordV1,
+    ) -> Result<(), super::KagemushaWalletProviderErrorV1> {
+        record.require_capsule(capsule).map_err(|_| {
+            super::KagemushaWalletProviderErrorV1::Invalid {
+                field: "completion.capsule",
+            }
+        })
     }
 
     fn assemble(
@@ -1161,14 +1175,14 @@ impl
         output.extend_from_slice(signature.as_raw_bytes());
         let record = KagemushaWalletCompletionRecordV1 {
             version: 1,
-            wallet_id: capsule.wallet_id,
-            operation_id: capsule.operation_id,
+            wallet_id: capsule.body().wallet_id,
+            operation_id: capsule.body().operation_id,
             capsule_digest: *capsule_digest,
             receipt: KagemushaWalletReceiptV1 {
                 version: 1,
-                operation_id: capsule.operation_id,
-                capsule_digest: *capsule_digest,
-                payment_digest: capsule.payment_digest,
+                operation_id: capsule.body().operation_id,
+                capsule_commitment: capsule.receipt_commitment(),
+                payment_digest: capsule.body().payment_digest,
                 signature: *signature,
             },
             output,
@@ -1205,8 +1219,8 @@ pub(super) fn advance_request(
 ) -> super::KagemushaWalletAdvanceRequestV1<KagemushaWalletRecoveryCapsuleV1> {
     super::KagemushaWalletAdvanceRequestV1 {
         expected: super::KagemushaWalletExpectedHeadV1::of(current).expect("expected head"),
-        operation_id: capsule.operation_id,
-        new_head: capsule.statement.successor,
+        operation_id: capsule.body().operation_id,
+        new_head: capsule.body().statement.successor,
         proof_digest: capsule.proof_digest().expect("proof digest"),
         capsule: capsule.clone(),
         growth_bytes: 0,

@@ -67,7 +67,7 @@ fn config() -> TestChainConfig {
             por_recorder_authority: authority.clone(),
             dispute_recorder_authority: authority.clone(),
             token_recorder_authority: authority.clone(),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: REPUTATION_JOURNAL_MAX_SOURCE_AGE_MS_V1,
         })
         .into(),
@@ -186,6 +186,7 @@ fn context(
         .unwrap();
     (
         ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Clone::clone(chain.state()),
             native_context_archive: Arc::new(
                 NativeContextArchive::open(
@@ -200,6 +201,7 @@ fn context(
             events,
             genesis_account: chain.genesis_account().clone(),
             consensus_mode: ConsensusMode::Permissioned,
+            root_scope: chain.root_scope(),
             applied: (1, chain.committed(1).core_hash()),
             crypto: Some(crypto),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(1, None)),
@@ -212,9 +214,8 @@ fn context(
 fn worker(context: &ExecutorContext, archives: FinalizedArchives) -> Worker<'_> {
     Worker {
         payload_build: None,
+        assembly_parent_service: None,
         signature_decode: None,
-        routing_refusal: None,
-        payload_refusal: None,
         context,
         state: &context.state,
         applied: context.applied,
@@ -247,6 +248,7 @@ fn prepare_and_append(worker: &mut Worker<'_>, block: &AvailableBody, qc: &Qc) -
         worker.state.kura_handle(),
         worker.context.crypto.as_ref().unwrap().clone(),
         1,
+        worker.context.root_scope,
         worker.context.staging.clone(),
         worker.state.ivm_execution_budget(),
         Arc::new(
@@ -328,7 +330,12 @@ fn assert_pending_archive_owner(
     assert_eq!(worker.applied.0, 1);
     assert!(events.try_recv().is_err());
     assert!(worker.live.as_ref().unwrap().overlay.is_none());
-    assert!(worker.execute(block, qc.block_hash).is_none());
+    assert!(
+        worker
+            .execute(block, qc.block_hash, false)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(worker.prepare(block, qc).unwrap(), Some(qc.result));
     event_count
 }
@@ -391,15 +398,9 @@ fn committed_archive_index_refusal_retains_original_release_and_exact_publicatio
                     reason.execution().is_none(),
                     "an index lock is not VM capacity"
                 );
-                assert_eq!(
-                    worker
-                        .pending_commit
-                        .as_ref()
-                        .unwrap()
-                        .archive_refusal
-                        .as_ref(),
-                    Some(&reason)
-                );
+                // The driver owns this actual returned refusal; PendingCommit
+                // retains publication inputs, never a second retry owner.
+                assert!(reason.release_wait().is_some());
                 let expected_events =
                     assert_pending_archive_owner(&mut worker, &block, &qc, original, &mut events);
                 let released = reason.release_wait().unwrap().clone();
@@ -415,10 +416,15 @@ fn committed_archive_index_refusal_retains_original_release_and_exact_publicatio
                     registration.poll_wait(&released, &mut cx).is_pending(),
                     "foreign pool release is not archive release"
                 );
-                assert!(matches!(
-                    worker.commit(&block, &qc),
-                    Err(PublicationError::Deferred(_))
-                ));
+                let PublicationError::Deferred(retry) = worker.commit(&block, &qc).unwrap_err()
+                else {
+                    panic!("the held archive reader must still defer the actual retry");
+                };
+                assert_eq!(
+                    reason.release_wait(),
+                    retry.release_wait(),
+                    "separate retries must observe the same original archive release source"
+                );
                 (reason, expected_events)
             };
             let (reason, expected_events) = if provider_busy {
@@ -502,16 +508,29 @@ fn committed_archive_cold_history_refusal_retains_original_pool_and_exact_public
             let PublicationError::Deferred(reason) = worker.commit(&block, &qc).unwrap_err() else {
                 panic!("original authenticated cold history read must remain deferred");
             };
-            assert_eq!(reason.execution(), Some(&expected));
+            let actual = reason
+                .execution()
+                .expect("returned original execution owner");
+            assert_eq!(actual.reason(), expected.reason());
             assert_eq!(
-                worker
-                    .pending_commit
-                    .as_ref()
-                    .unwrap()
-                    .archive_refusal
-                    .as_ref(),
-                Some(&reason)
+                actual.allocation_refusal(),
+                expected.allocation_refusal(),
+                "the actual reader preserves the same finite demand and original pool observation"
             );
+            // Full owning execution/publication errors are move-only. The two
+            // probes have matching allocation diagnostics; retry behavior below
+            // authenticates the actual returned original's release source.
+            let released = reason.release_wait().unwrap().clone();
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(registration.poll_wait(&released, &mut cx).is_pending());
+            let foreign = AllocationBudget::new(layout.size());
+            drop(foreign.try_reserve(layout).unwrap());
+            assert!(registration.poll_wait(&released, &mut cx).is_pending());
+            drop(occupied);
+            assert!(registration.poll_wait(&released, &mut cx).is_ready());
+            // These custody/wire reads can allocate and refund this same pool.
+            // Observe the original pre-probe wait before issuing them, so their
+            // own legitimate release cannot masquerade as the held pressure owner.
             assert_eq!(
                 assert_pending_archive_owner(&mut worker, &block, &qc, original, &mut events),
                 expected_events
@@ -523,14 +542,6 @@ fn committed_archive_cold_history_refusal_retains_original_pool_and_exact_public
                     .unwrap(),
                 original_wire
             );
-            let released = reason.release_wait().unwrap().clone();
-            let mut cx = Context::from_waker(Waker::noop());
-            assert!(registration.poll_wait(&released, &mut cx).is_pending());
-            let foreign = AllocationBudget::new(layout.size());
-            drop(foreign.try_reserve(layout).unwrap());
-            assert!(registration.poll_wait(&released, &mut cx).is_pending());
-            drop(occupied);
-            assert!(registration.poll_wait(&released, &mut cx).is_ready());
             complete_archive_once(&mut worker, &block, &qc, &mut events, expected_events);
             assert_eq!(
                 chain
@@ -642,7 +653,12 @@ fn partial_archive_failure_retains_exact_decision_and_retries_without_reexecutio
         "archive failure cannot clean committed queue work"
     );
     assert!(events.try_recv().is_err());
-    assert!(worker.execute(&block, qc.block_hash).is_none());
+    assert!(
+        worker
+            .execute(&block, qc.block_hash, false)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(worker.build(3, 0, 1 << 20, 100).unwrap(), None);
     assert_eq!(worker.prepare(&block, &qc).unwrap(), Some(qc.result));
     assert!(
@@ -919,14 +935,8 @@ fn below_quorum_current_frame_cannot_finish_pending_archive_capture_case() {
         "an actually invalid certificate cannot become local resource deferral"
     );
     assert!(worker.pending_commit.is_some());
-    assert!(
-        worker
-            .pending_commit
-            .as_ref()
-            .unwrap()
-            .archive_refusal
-            .is_none()
-    );
+    // The typed Retryable return above proves this actual certificate rejection
+    // was not relabeled Deferred; there is no duplicate pending refusal slot.
     assert_eq!(
         worker
             .pending_commit

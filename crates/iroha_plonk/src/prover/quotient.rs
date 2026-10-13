@@ -33,14 +33,16 @@
 //! The numerator is multiplied by `(s_c^n - 1)^-1`, the constant value of
 //! `1 / (X^n - 1)` on coset `c`, and the `d - 1` coset vectors are recombined
 //! into the `(d - 1) n` coefficients of `h` with a small Vandermonde solve.
-//! For a satisfying witness this is the vendored `h` exactly.
+//! For a satisfying witness this is the canonical quotient polynomial `h`
+//! defined by the protocol constraint order and vanishing polynomial.
 //!
 //! The shared expression DAG is evaluated once per row, retaining one
-//! `(A + beta)(S + gamma)` numerator column per lookup. A single triple of
-//! committed lookup cosets is then reused in lookup order, appending the five
-//! constraints to each row's Horner accumulator without changing its powers
-//! of `y`. Only `L` numerator columns remain live between the stages;
-//! the lookup triple reuses dead gate-stage cosets. With `B` owned gate-stage
+//! `(A + beta)(S + gamma)` numerator column per lookup. Up to four triples of
+//! committed lookup cosets are transformed together using dead gate-stage
+//! cosets, then folded in lookup order, appending the five constraints to each
+//! row's Horner accumulator without changing its powers of `y`. A short
+//! workspace still streams one triple. Only `L` numerator columns remain live
+//! between the stages. With `B` owned gate-stage
 //! cosets, their combined allocation is `max(B, 3) + L` for `L > 0`,
 //! plus the shared powers column. Cached key cosets are never overwritten.
 //!
@@ -71,11 +73,14 @@ use crate::{
 /// Rows per parallel task; results do not depend on it.
 const ROWS_PER_TASK: usize = 1 << 8;
 
+/// At most twelve dead coset columns share one lookup FFT dispatch.
+const LOOKUPS_PER_BATCH: usize = 4;
+
 mod evaluation;
 use evaluation::{EvaluatedRow, TilePlan};
 
 mod gate_fold;
-use gate_fold::GateFold;
+use gate_fold::{GateFold, GatePlan};
 
 mod workspace;
 pub use workspace::{QuotientWorkspace, WorkspaceError};
@@ -614,9 +619,10 @@ pub(super) fn workspace_elements<C: PastaCurve>(
             .checked_add(shape.permutation_columns)
             .ok_or(ProtocolError::Overflow)?
     };
-    // Gate-stage cosets are dead before the lookup stage, so the streamed
-    // product/input/table triple reuses their first three owned columns. Only
-    // a shortfall is allocated when fewer than three such columns exist.
+    // Gate-stage cosets are dead before the lookup stage. The mandatory
+    // product/input/table triple reuses their first three owned columns; extra
+    // batches use only remaining columns. Only a shortfall is allocated when
+    // fewer than three such columns exist.
     // Numerators and the FFT powers remain separate throughout both stages.
     // Eager fixed-only keys without lookups retain no workspace storage.
     let transformed = key_columns
@@ -684,6 +690,67 @@ fn evaluate_many<F: PastaField>(
     let plan = plan.ok_or(KeyError::CosetIndex)?;
     plan.fft_many_from_cancellable(coefficients, values, cancellation)?;
     Ok(())
+}
+
+/// Borrows complete lookup triples without growing the field workspace.
+/// `first` is the mandatory triple; optional mask weights were reserved before
+/// the remaining columns reach this function. Partial trailing triples stay unused.
+fn lookup_batch_columns<'a, F>(
+    first: [&'a mut [F]; 3],
+    columns: &mut impl Iterator<Item = &'a mut [F]>,
+    lookups: usize,
+) -> Vec<&'a mut [F]> {
+    let maximum = 3 * lookups.clamp(1, LOOKUPS_PER_BATCH);
+    let mut batch = Vec::with_capacity(maximum);
+    batch.extend(first);
+    batch.extend(columns.take(maximum - 3));
+    batch.truncate(batch.len() / 3 * 3);
+    batch
+}
+
+/// Reuses two already-dead gate cosets for public lookup mask weights.
+/// A short workspace or a single lookup keeps the existing fold without allocation.
+fn prepare_lookup_mask_weights<'a, F: PastaField>(
+    columns: &mut impl Iterator<Item = &'a mut [F]>,
+    masks: [&[F]; 2],
+    powers: [F; 2],
+    lookups: usize,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Option<[&'a [F]; 2]>, ProverError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if lookups <= 1 {
+        return Ok(None);
+    }
+    let (Some(first), Some(last)) = (columns.next(), columns.next()) else {
+        return Ok(None);
+    };
+    let n = masks[0].len();
+    for actual in [masks[1].len(), first.len(), last.len()] {
+        if actual != n {
+            return Err(KeyError::Shape {
+                what: "lookup mask weights",
+                expected: n,
+                actual,
+            }
+            .into());
+        }
+    }
+    first
+        .par_chunks_mut(ROWS_PER_TASK)
+        .zip(last.par_chunks_mut(ROWS_PER_TASK))
+        .enumerate()
+        .for_each(|(task, (first, last))| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return;
+            }
+            let start = task * ROWS_PER_TASK;
+            for (offset, (first, last)) in first.iter_mut().zip(last).enumerate() {
+                *first = masks[0][start + offset] * powers[0];
+                *last = masks[1][start + offset] * powers[1];
+            }
+        });
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(Some([first, last]))
 }
 
 /// Updates owned key-polynomial buffers in place, or changes the borrowed
@@ -810,7 +877,14 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         y,
     } = challenges;
     let gate_fold = GateFold::new(y);
+    let gate_plan = GatePlan::new(compiled);
+    let compiled = gate_plan.compiled();
     let one = C::ScalarExt::ONE;
+    // Public powers shared by every row and lookup; no inverse of y is used.
+    let y2 = y.square();
+    let y3 = y2 * y;
+    let y4 = y2.square();
+    let y5 = y4 * y;
     let delta = <C::ScalarExt as ff::PrimeField>::DELTA;
     let mut cosets = SecretColumns::new(Vec::with_capacity(shape.quotient_pieces));
     let elements = workspace_elements(pk, protocol)?;
@@ -962,7 +1036,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                         let row = start + offset;
                         let r_next = (row + 1) & mask;
                         let scratch = EvaluatedRow::new(&scratch, tile_plan.width, lane);
-                        let mut value = gate_fold.evaluate(&compiled.gates, scratch, filter);
+                        let mut value = gate_plan.evaluate(&gate_fold, scratch, filter);
                         // Every term is computed; a filtered term adds zero but
                         // keeps its power of y.
                         let mut push = |term: ConstraintTerm, contribution: C::ScalarExt| {
@@ -1049,63 +1123,113 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                 .chain(instance.iter_mut().map(|values| &mut **values))
                 .chain(products.iter_mut().map(|values| &mut **values))
                 .chain(lookup_spill.iter_mut().map(|values| &mut **values));
-            let [product, input, table] = [
+            let first = [
                 next_column(&mut lookup_columns)?,
                 next_column(&mut lookup_columns)?,
                 next_column(&mut lookup_columns)?,
             ];
-            for (index, (lookup, numerator)) in
-                inputs.lookups.iter().zip(&lookup_numerators).enumerate()
+            // Reserve the same optional weight columns before borrowing extra
+            // complete triples. All lookup outputs remain disjoint from weights,
+            // numerators and cached key cosets, within the original field budget.
+            let mask_weights = prepare_lookup_mask_weights(
+                &mut lookup_columns,
+                [l0, l_last],
+                [y, y3],
+                shape.lookups,
+                cancellation,
+            )?;
+            let mut batch_columns = lookup_batch_columns(first, &mut lookup_columns, shape.lookups);
+            let batch_size = batch_columns.len() / 3;
+            let mut coefficients = Vec::with_capacity(batch_columns.len());
+            for (batch_index, (lookups, numerators)) in inputs
+                .lookups
+                .chunks(batch_size)
+                .zip(lookup_numerators.chunks(batch_size))
+                .enumerate()
             {
+                // Only slice metadata is collected. Each FFT keeps its original
+                // arithmetic; batching gives the column-parallel kernel more than
+                // three independent columns without nested FFT parallelism.
+                coefficients.clear();
+                coefficients.extend(
+                    lookups
+                        .iter()
+                        .flat_map(|lookup| [lookup.product, lookup.input, lookup.table]),
+                );
                 evaluate_many(
                     plan.as_ref(),
-                    &[lookup.product, lookup.input, lookup.table],
-                    &mut [&mut *product, &mut *input, &mut *table],
+                    &coefficients,
+                    &mut batch_columns[..coefficients.len()],
                     cancellation,
                 )?;
-                values
-                    .par_chunks_mut(ROWS_PER_TASK)
-                    .enumerate()
-                    .for_each(|(task, out)| {
-                        if CancellationToken::checkpoint(cancellation).is_err() {
-                            return;
-                        }
-                        let start = task * ROWS_PER_TASK;
-                        for (offset, value) in out.iter_mut().enumerate() {
-                            let row = start + offset;
-                            let r_next = (row + 1) & mask;
-                            let r_prev = (row + mask) & mask;
-                            let a_minus_s = input[row] - table[row];
-                            let mut push = |part, contribution: C::ScalarExt| {
-                                let term = ConstraintTerm::Lookup {
-                                    lookup: index,
-                                    part,
-                                };
-                                *value = *value * y
-                                    + if filter.keeps(term) {
+                for (offset, (columns, numerator)) in
+                    batch_columns.chunks_exact(3).zip(numerators).enumerate()
+                {
+                    let index = batch_index * batch_size + offset;
+                    let [product, input, table] = [&*columns[0], &*columns[1], &*columns[2]];
+                    values
+                        .par_chunks_mut(ROWS_PER_TASK)
+                        .enumerate()
+                        .for_each(|(task, out)| {
+                            if CancellationToken::checkpoint(cancellation).is_err() {
+                                return;
+                            }
+                            let start = task * ROWS_PER_TASK;
+                            for (offset, value) in out.iter_mut().enumerate() {
+                                let row = start + offset;
+                                let r_next = (row + 1) & mask;
+                                let r_prev = (row + mask) & mask;
+                                let a_minus_s = input[row] - table[row];
+                                // Evaluate every unmasked contribution before filtering,
+                                // preserving all five keeps calls in the serial order.
+                                let kept = |part, contribution: C::ScalarExt| {
+                                    let term = ConstraintTerm::Lookup {
+                                        lookup: index,
+                                        part,
+                                    };
+                                    if filter.keeps(term) {
                                         contribution
                                     } else {
                                         C::ScalarExt::ZERO
-                                    };
-                            };
-                            push(LookupConstraint::First, (one - product[row]) * l0[row]);
-                            push(
-                                LookupConstraint::Last,
-                                (product[row].square() - product[row]) * l_last[row],
-                            );
-                            push(
-                                LookupConstraint::Product,
-                                (product[r_next] * (input[row] + beta) * (table[row] + gamma)
-                                    - product[row] * numerator[row])
-                                    * l_active[row],
-                            );
-                            push(LookupConstraint::Start, a_minus_s * l0[row]);
-                            push(
-                                LookupConstraint::Step,
-                                a_minus_s * (input[row] - input[r_prev]) * l_active[row],
-                            );
-                        }
-                    });
+                                    }
+                                };
+                                let first = kept(LookupConstraint::First, one - product[row]);
+                                let last = kept(
+                                    LookupConstraint::Last,
+                                    product[row].square() - product[row],
+                                );
+                                let product_term = kept(
+                                    LookupConstraint::Product,
+                                    product[r_next] * (input[row] + beta) * (table[row] + gamma)
+                                        - product[row] * numerator[row],
+                                );
+                                let start = kept(LookupConstraint::Start, a_minus_s);
+                                let step = kept(
+                                    LookupConstraint::Step,
+                                    a_minus_s * (input[row] - input[r_prev]),
+                                );
+                                // Expand five Horner positions, factoring only equal
+                                // public masks. Omitted terms still retain their powers.
+                                let (first_and_start, last) = match mask_weights {
+                                    Some([first_weight, last_weight]) => (
+                                        first_weight[row] * (y3 * first + start),
+                                        last_weight[row] * last,
+                                    ),
+                                    None => (
+                                        l0[row] * (y4 * first + y * start),
+                                        l_last[row] * (y3 * last),
+                                    ),
+                                };
+                                *value = *value * y5
+                                    + first_and_start
+                                    + last
+                                    + l_active[row] * (y2 * product_term + step);
+                            }
+                        });
+                    // The old next-triple FFT checked cancellation before the
+                    // next lookup. Keep that joined-task boundary within a batch.
+                    CancellationToken::checkpoint(cancellation)?;
+                }
             }
         }
         CancellationToken::checkpoint(cancellation)?;

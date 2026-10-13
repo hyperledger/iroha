@@ -28,7 +28,8 @@ fn invalid_source_policy_is_retained_without_lifecycle_or_publication() {
     profile.block.max_executed_entries = 0;
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     let mut block = state.block(header());
     assert!(!block.start_of_block_effects_applied);
@@ -45,7 +46,8 @@ fn invalid_source_policy_is_retained_without_lifecycle_or_publication() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
             nonzero!(1_u32),
-        )));
+        )))
+        .expect("valid fixture parameters");
     assert!(!transaction.fastpq_source_quota.allows_apply());
     assert!(
         transaction

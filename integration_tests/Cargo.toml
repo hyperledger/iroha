@@ -47,7 +47,6 @@ required-features = ["parliament-test-signers"]
 [[test]]
 name = "sccp_lanes"
 path = "tests/sccp_lanes/main.rs"
-required-features = ["parliament-test-signers"]
 
 [[test]]
 name = "consensus_and_da"
@@ -146,6 +145,7 @@ iroha_genesis = { workspace = true }
 iroha_core = { workspace = true, features = ["node", "iroha-core-tests"], default-features = false }
 iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_sumeragi = { workspace = true }
+iroha_sccp = { workspace = true }
 iroha_p2p = { workspace = true }
 tracing = { workspace = true }
 sha2 = "0.10.9"

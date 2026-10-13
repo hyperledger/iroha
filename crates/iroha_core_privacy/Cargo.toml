@@ -68,6 +68,8 @@ rustix = { version = "1.1.4", features = ["fs", "process"] }
 # Diagnostics only: the X509 prover observation and its tests record phase
 # trees. Production builds of this crate do not link the recorder.
 iroha_measurement = { workspace = true }
+# Test builds only: structurally valid Exact12 role samples for the dispatch tests.
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "privacy-exact12-conformance"] }
 rand_08 = { package = "rand", version = "=0.8.7" }
 tempfile = { workspace = true }
 x509-parser = { version = "0.18.0", default-features = false, features = ["verify"] }
@@ -75,4 +77,11 @@ x509-parser = { version = "0.18.0", default-features = false, features = ["verif
 [[test]]
 name = "fastpq_phase_tree_measurement"
 path = "tests/fastpq_phase_tree_measurement.rs"
+required-features = ["fastpq-replay-measurement"]
+
+# Development-only measurement of the State commitment candidates of ZK
+# delivery plan task G.2. TODO(G.3): remove with the prototypes.
+[[test]]
+name = "state_commitment_candidates_measurement"
+path = "tests/state_commitment_candidates_measurement.rs"
 required-features = ["fastpq-replay-measurement"]

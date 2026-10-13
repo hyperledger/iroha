@@ -239,19 +239,19 @@ fn validation_and_migration_preserve_local_original_pool_refusal() {
         context: context.clone(),
         target: 0_u8,
     };
-    let expected = crate::execution_attempt::ExecutionDeferred::from_vm_error(
-        &LoadedExecutor::load_runtime(&loaded.raw_executor, GAS, HEAP, &budget)
+    let expected = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+        LoadedExecutor::load_runtime(&loaded.raw_executor, GAS, HEAP, &budget)
             .err()
             .unwrap(),
     )
     .unwrap();
     assert!(
         matches!(run_executor_validation(&loaded, &payload, "funding", GAS, HEAP, &budget),
-        Err(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) if reason == expected)
+        Err(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) if reason.reason() == expected.reason() && reason.allocation_refusal() == expected.allocation_refusal())
     );
     assert!(
         matches!(run_executor_migration(&loaded, &context, GAS, HEAP, &budget),
-        Err(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) if reason == expected)
+        Err(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) if reason.reason() == expected.reason() && reason.allocation_refusal() == expected.allocation_refusal())
     );
     assert_eq!(budget.peak_reserved_bytes(), 0);
 }

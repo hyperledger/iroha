@@ -67,6 +67,7 @@ final class NativeSumeragiLanesTests: XCTestCase {
         XCTAssertEqual(running.record.merged.blockHash, String(repeating: "22", count: 32))
         XCTAssertEqual(running.record.merged.result, String(repeating: "33", count: 32))
         XCTAssertEqual(running.record.params.keyAllowedAlgorithms, ["bls_normal"])
+        XCTAssertEqual(running.record.params.dueWorkMaxLagMs, 60_000)
         XCTAssertEqual(running.record.daLayout.encoding, "reed_solomon16")
         XCTAssertEqual(running.record.daLayout.chunkSizeBytes, 262144)
         XCTAssertEqual(running.record.daLayout.dataShards, 4)
@@ -147,8 +148,14 @@ final class NativeSumeragiLanesTests: XCTestCase {
     func testDataAvailabilityKeepsCompactFinalStripesAndRejectsInvalidGeometry() throws {
         let record = try XCTUnwrap(try lanes()[0]["record"] as? [String: Any])
         let layout = try XCTUnwrap(record["da_layout"] as? [String: Any])
+        let params = try XCTUnwrap(record["params"] as? [String: Any])
         func changedLayout(_ values: [String: Any]) throws -> Data {
-            try changedRecord { $0["da_layout"] = layout.merging(values) { _, replacement in replacement } }
+            try changedRecord {
+                // Keep the block bound valid so these cases exercise the changed DA geometry.
+                var changed = params; changed["max_block_bytes"] = 4194304
+                $0["params"] = changed
+                $0["da_layout"] = layout.merging(values) { _, replacement in replacement }
+            }
         }
         let compact: [String: Any] = ["max_payload_size_bytes": 4194305, "max_chunk_count": 30]
         XCTAssertEqual(try ToriiSumeragiLaneStatus.parseJSONList(changedLayout(compact))[0].record.daLayout.maxPayloadSizeBytes, 4194305)
@@ -168,7 +175,6 @@ final class NativeSumeragiLanesTests: XCTestCase {
         ] {
             XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedLayout(bad)))
         }
-        let params = try XCTUnwrap(record["params"] as? [String: Any])
         XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord {
             var changed = params; changed["max_block_bytes"] = 16777217; $0["params"] = changed
         }))
@@ -183,11 +189,19 @@ final class NativeSumeragiLanesTests: XCTestCase {
             XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord { $0["incarnation"] = bad }), bad)
         }
         let params = try XCTUnwrap(record["params"] as? [String: Any])
-        for field in ["block_cadence_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms",
+        for field in ["block_cadence_ms", "due_work_max_lag_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms",
                       "max_block_bytes", "epoch_length_blocks", "demotion_window"] {
             XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord {
                 var copy = params; copy[field] = 0; $0["params"] = copy
             }), "zero \(field)")
+        }
+        XCTAssertEqual(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord {
+            var copy = params; copy["due_work_max_lag_ms"] = UInt64.max; $0["params"] = copy
+        })[0].record.params.dueWorkMaxLagMs, UInt64.max)
+        for bad: Any in [-1, "60000", true, NSNull()] {
+            XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord {
+                var copy = params; copy["due_work_max_lag_ms"] = bad; $0["params"] = copy
+            }))
         }
         for algorithms: Any in [["bls"], ["BLS_NORMAL"], "bls_normal", [1]] {
             XCTAssertThrowsError(try ToriiSumeragiLaneStatus.parseJSONList(changedRecord {

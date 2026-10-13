@@ -19,7 +19,7 @@ use std::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ClaimError {
+pub enum ClaimError {
     #[error(transparent)]
     Admission(#[from] AllocationRefusal),
     #[error(transparent)]

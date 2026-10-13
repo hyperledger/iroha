@@ -140,6 +140,10 @@ pub(super) fn body(
         observed_at_ms: 2_000,
     }
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the permit constructor consumes the original signed body"
+)]
 pub(super) fn signed(
     dispatch: &PreKeyDispatchV1,
     body: KagemushaEnrollmentPermitBodyV1,

@@ -58,7 +58,7 @@ impl EpochReader {
     // entry followed by selected-origin reads and one full exit, all with original limits.
     pub(in crate::managed) fn read_body_histories(
         &mut self,
-        parser: ReadOnlyHistoryParser<'_>,
+        parser: ReadOnlyHistoryParser<'_, '_>,
         pass: &EnrollmentReadPass<'_>,
     ) -> Result<()> {
         if norito::core::decode_limits_active() {
@@ -88,14 +88,17 @@ impl EpochReader {
         result
     }
 
-    pub(super) fn validate_parser_references<'a>(
+    pub(super) fn validate_parser_references<'a, Origins>(
         &self,
         directory: &PrivateDirectory,
         original_digest: [u8; 32],
         fees: &Fees,
         scope: Scope,
-        origins: impl Iterator<Item = &'a Origin>,
-    ) -> Result<()> {
+        origins: Origins,
+    ) -> Result<()>
+    where
+        Origins: Iterator<Item = &'a Origin>,
+    {
         let source = self
             .parser_source
             .as_ref()

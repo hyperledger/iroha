@@ -254,7 +254,8 @@ fn public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_
                 stx.world
                     .parameters
                     .get_mut()
-                    .set_parameter(Parameter::Custom(changed.into_custom_parameter()));
+                    .set_parameter(Parameter::Custom(changed.into_custom_parameter()))
+                    .expect("valid fixture parameters");
             } else {
                 // Scale eighteen still admits this scale-nine payment. If HC58 omits
                 // the canonical-currency guard, no unrelated precision check should
@@ -275,7 +276,7 @@ fn public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_
                 "global network XOR with scale nine"
             };
             assert!(error.to_string().contains(expected), "{error}");
-            assert!(stx.execution_deferral().is_none());
+            assert!(!stx.is_execution_deferred());
             assert_eq!(
                 stx.world
                     .smart_contract_state
@@ -317,7 +318,8 @@ fn public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_
                 .get_mut()
                 .set_parameter(Parameter::Custom(
                     original_parameters.into_custom_parameter(),
-                ));
+                ))
+                .expect("valid fixture parameters");
             stx.world
                 .asset_definitions
                 .insert(binding.xor_asset_id.clone(), original_definition);
@@ -651,12 +653,15 @@ fn fee_reward_claim_refuses_currency_substitution_and_stale_credit() {
             binding.validator_lane_id,
         )
         .unwrap();
-        let mut params = SumeragiNposParameters::default();
-        params.xor_asset_definition_id = binding.ds_asset_id.clone();
+        let params = SumeragiNposParameters {
+            xor_asset_definition_id: binding.ds_asset_id.clone(),
+            ..Default::default()
+        };
         stx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(params.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(params.into_custom_parameter()))
+            .expect("valid fixture parameters");
         let before = stx
             .world
             .smart_contract_state
@@ -694,7 +699,8 @@ fn fee_reward_claim_refuses_currency_substitution_and_stale_credit() {
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         seed_claim_credit(stx, &binding, &claimant, 101, 200);
         assert!(
             prepare_fee_reward_claim(

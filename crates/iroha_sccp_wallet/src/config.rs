@@ -4,7 +4,6 @@
 //! [sccp]
 //! request_timeout_ms = 10000          # one public-RPC request, then fail over
 //! poll_interval_ms = 2000             # Torii and destination polling cadence
-//! attestation_timeout_ms = 900000     # give up waiting for an attestation
 //! confirmation_timeout_ms = 900000    # give up waiting for a destination receipt
 //! journal_dir = ""                    # empty: `sccp-journal` next to this file
 //!
@@ -12,7 +11,6 @@
 //! ethereum_execution = []
 //! ethereum_beacon = []
 //! bsc = []
-//! tron = []
 //! ton_liteservers = []
 //!
 //! [[sccp.secret_headers]]             # optional, repeatable
@@ -24,41 +22,20 @@
 //! network_id = "hash:…#…"             # canonical NetworkId literal
 //! network = "ethereum-mainnet"        # profile key
 //! revision = 1
-//! address = "0x…"                     # EVM: 20 bytes; TRON: 21 bytes starting 0x41
-//! runtime_code_hash = "0x…"           # EVM and TRON: keccak256 of the runtime code
+//! address = "0x…"                     # EVM: 20 bytes
+//! runtime_code_hash = "0x…"           # EVM: keccak256 of the runtime code
 //! # TON instead: master_account = "0x…" and
 //! # minter_code, wallet_code, bucket_code = { hash = "0x…", depth = N }
 //! ```
 //!
 //! # Where the table lives
 //!
-//! The `[sccp]` table must **not** go into the file the `iroha` client loads yet. That loader
-//! (`iroha::config::Config`, reading `iroha::config::user::Root` with `read_and_complete`)
-//! rejects every top-level key its root does not declare, and the root has no `sccp` field, so
-//! adding `[sccp]` to `client.toml` breaks the ordinary client and CLI. Until the root nests the
-//! table, it lives in its own file, by default [`defaults::CONFIG_FILE_NAME`] next to the client
-//! config ([`SccpClientConfig::path_beside`]). That file holds `[sccp]` and an optional
-//! `extends` only: [`SccpClientConfig::load`] refuses any other top-level key, so a client
-//! config passed by mistake, or a misspelled table that would silently fall back to the public
-//! endpoints, is an error. The table's shape is final, so it moves into the client config
-//! verbatim once the root accepts it.
-//!
-//! The file is read with the `iroha_config_base` reader the client config uses (same TOML
-//! sources, `extends` handling and unknown-key rejection), never from environment variables.
-//! Every field has a default, so a file with an empty or absent `[sccp]` works: the endpoint
-//! lists fall back to `iroha_config::parameters::defaults::sccp::endpoints` and the request
-//! timeout to the keeper's default. Pinned deployments are the wallet's trust anchor for
-//! `GET /v1/sccp/registry` (§7.1 step 1): a flow refuses a Taira network or a deployment that is
-//! not pinned here.
-//!
-//! TODO(ws35): nest `[sccp]` in the `iroha` client config (this needs `crates/iroha/src/config/
-//! user.rs`, which no SCCP workstream owns yet). `iroha` cannot depend on this crate
-//! (`iroha_sccp_wallet` → `iroha_wallet` → `iroha`), so first move the plain user types
-//! ([`SccpClientConfigUser`], [`SccpClientEndpointsUser`], [`SccpPinnedDeploymentEntry`],
-//! [`SccpTonCodeEntry`]) to a layer below `iroha` (for example `iroha_config::client::sccp`),
-//! add them as `#[config(nested)] sccp` to `iroha::config::user::Root`, and reduce this module
-//! to [`SccpClientConfigUser::parse`] on that value; [`SccpClientConfig::load`] and the separate
-//! file then go away.
+//! The table lives in the ordinary `iroha` client configuration and is read by
+//! `iroha::config::sccp::SccpClientConfigUser` with file provenance and strict unknown-key
+//! checks. No environment variable overrides it. The wallet validates those retained values
+//! with [`SccpClientConfig::from_user`]; it never loads a second configuration file.
+//! Empty endpoint lists use the compiled public lists. Pinned deployments remain the trust
+//! anchor for registry reads: unknown networks and mismatched deployments are refused.
 
 use core::fmt;
 use std::{
@@ -68,138 +45,27 @@ use std::{
     time::Duration,
 };
 
+use iroha::config::sccp::{
+    SccpClientConfigUser, SccpClientEndpointsUser, SccpClientSecretHeaderUser,
+    SccpPinnedDeploymentEntry, SccpTonCodeEntry, defaults,
+};
 use iroha_config::parameters::{
     actual::{
         SccpLightClientKeeperEndpoints, SccpSecretHeader, SccpTonLiteserver,
         compiled_http_endpoints, compiled_ton_liteservers, parse_sccp_http_endpoint,
         parse_sccp_secret_header_name,
     },
-    defaults as node_defaults, user,
+    defaults as node_defaults,
 };
-use iroha_config_base::{ReadConfig, WithOrigin, read::ConfigReader, util::DurationMs};
+use iroha_config_base::{WithOrigin, util::DurationMs};
 use iroha_data_model::{
     NetworkId,
     bridge::SccpNetworkV1,
     sccp::deployment::{
         SccpDeploymentV1, SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1,
-        SccpTronDeploymentV1,
     },
 };
 use iroha_sccp_rpc::{EndpointSet, HttpConfig, HttpEndpointKind, endpoints::EndpointError};
-
-/// Defaults of the `[sccp]` client table.
-pub mod defaults {
-    /// One public-RPC request, before failing over to the next endpoint.
-    pub const REQUEST_TIMEOUT_MS: u64 =
-        iroha_config::parameters::defaults::sccp::light_client_keeper::REQUEST_TIMEOUT_MS;
-    /// Polling cadence of Torii statuses and destination receipts.
-    pub const POLL_INTERVAL_MS: u64 = 2_000;
-    /// Longest wait for an attestation (§7.1 step 4 expects about 8–12 s).
-    pub const ATTESTATION_TIMEOUT_MS: u64 = 900_000;
-    /// Longest wait for a destination transaction receipt.
-    pub const CONFIRMATION_TIMEOUT_MS: u64 = 900_000;
-    /// Journal directory name next to the `[sccp]` file when `journal_dir` is empty.
-    pub const JOURNAL_DIR_NAME: &str = "sccp-journal";
-    /// Name of the `[sccp]` file next to the client config (see the module docs).
-    pub const CONFIG_FILE_NAME: &str = "sccp.toml";
-    /// Most `[[sccp.deployments]]` entries.
-    pub const MAX_DEPLOYMENTS: usize = 256;
-}
-
-const fn ms(millis: u64) -> DurationMs {
-    DurationMs(Duration::from_millis(millis))
-}
-
-/// User view of `[sccp]`, read with [`ReadConfig`].
-#[derive(Debug, Clone, ReadConfig)]
-pub struct SccpClientConfigUser {
-    /// Timeout of one RPC request in milliseconds (nonzero).
-    #[config(default = "ms(defaults::REQUEST_TIMEOUT_MS)")]
-    pub request_timeout_ms: DurationMs,
-    /// Polling cadence in milliseconds (nonzero).
-    #[config(default = "ms(defaults::POLL_INTERVAL_MS)")]
-    pub poll_interval_ms: DurationMs,
-    /// Longest wait for an attestation in milliseconds (nonzero).
-    #[config(default = "ms(defaults::ATTESTATION_TIMEOUT_MS)")]
-    pub attestation_timeout_ms: DurationMs,
-    /// Longest wait for a destination receipt in milliseconds (nonzero).
-    #[config(default = "ms(defaults::CONFIRMATION_TIMEOUT_MS)")]
-    pub confirmation_timeout_ms: DurationMs,
-    /// Journal directory; empty means `sccp-journal` next to the `[sccp]` file. A relative path
-    /// resolves against the file that sets it.
-    #[config(default = "PathBuf::new()")]
-    pub journal_dir: WithOrigin<PathBuf>,
-    /// `[sccp.endpoints]`: RPC endpoint lists per chain.
-    #[config(nested)]
-    pub endpoints: SccpClientEndpointsUser,
-    /// `[[sccp.secret_headers]]`: secret request headers read from owner-only files.
-    #[config(default)]
-    pub secret_headers: WithOrigin<Vec<user::SccpSecretHeader>>,
-    /// `[[sccp.deployments]]`: pinned deployments per Taira `NetworkId`.
-    #[config(default)]
-    pub deployments: Vec<SccpPinnedDeploymentEntry>,
-}
-
-/// `[sccp.endpoints]`: endpoint lists per chain, tried in order with failover. An empty list
-/// selects the compiled public list; a configured list replaces it.
-#[derive(Debug, Clone, Default, ReadConfig)]
-pub struct SccpClientEndpointsUser {
-    /// Ethereum execution-layer JSON-RPC URLs.
-    #[config(default)]
-    pub ethereum_execution: Vec<String>,
-    /// Ethereum beacon API URLs.
-    #[config(default)]
-    pub ethereum_beacon: Vec<String>,
-    /// BNB Smart Chain JSON-RPC URLs.
-    #[config(default)]
-    pub bsc: Vec<String>,
-    /// TRON HTTP API URLs.
-    #[config(default)]
-    pub tron: Vec<String>,
-    /// TON liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`.
-    #[config(default)]
-    pub ton_liteservers: Vec<String>,
-}
-
-/// A TON code reference in a pinned deployment.
-#[derive(Debug, Clone, PartialEq, Eq, norito::derive::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub struct SccpTonCodeEntry {
-    /// `0x`-prefixed representation hash of the code cell.
-    pub hash: String,
-    /// Depth of the code cell.
-    pub depth: u16,
-}
-
-/// One `[[sccp.deployments]]` entry.
-#[derive(Debug, Clone, PartialEq, Eq, norito::derive::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub struct SccpPinnedDeploymentEntry {
-    /// Taira `NetworkId` the deployment belongs to.
-    pub network_id: NetworkId,
-    /// External profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
-    pub network: String,
-    /// Route revision (at least 1).
-    pub revision: u32,
-    /// EVM (20 bytes) or TRON (21 bytes, `0x41…`) contract address.
-    #[norito(default)]
-    pub address: Option<String>,
-    /// EVM and TRON: `keccak256` of the deployed runtime code.
-    #[norito(default)]
-    pub runtime_code_hash: Option<String>,
-    /// TON: account id of the Jetton master (workchain 0).
-    #[norito(default)]
-    pub master_account: Option<String>,
-    /// TON: minter code.
-    #[norito(default)]
-    pub minter_code: Option<SccpTonCodeEntry>,
-    /// TON: Jetton wallet code.
-    #[norito(default)]
-    pub wallet_code: Option<SccpTonCodeEntry>,
-    /// TON: consumption bucket code.
-    #[norito(default)]
-    pub bucket_code: Option<SccpTonCodeEntry>,
-}
 
 /// Why the `[sccp]` table could not be read or is invalid.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,8 +123,6 @@ pub struct SccpClientConfig {
     pub request_timeout: Duration,
     /// Polling cadence.
     pub poll_interval: Duration,
-    /// Longest wait for an attestation.
-    pub attestation_timeout: Duration,
     /// Longest wait for a destination receipt.
     pub confirmation_timeout: Duration,
     /// Journal directory.
@@ -272,40 +136,6 @@ pub struct SccpClientConfig {
 }
 
 impl SccpClientConfig {
-    /// The default location of the `[sccp]` file for the client config at `client_config`:
-    /// [`defaults::CONFIG_FILE_NAME`] in the same directory.
-    #[must_use]
-    pub fn path_beside(client_config: &Path) -> PathBuf {
-        client_config
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(defaults::CONFIG_FILE_NAME)
-    }
-
-    /// Read the `[sccp]` file at `path` (with its `extends` chain) and validate it. A file
-    /// without `[sccp]` yields the defaults; any other top-level key is refused, because the
-    /// table must not share the file the `iroha` client loads (see the module docs).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigError::Read`] for unreadable files and unknown or malformed keys, and
-    /// [`ConfigError::Invalid`] for rule violations.
-    pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        let mut reader = ConfigReader::new()
-            .without_env()
-            .read_toml_with_extends(path)
-            .map_err(|report| ConfigError::Read(format!("{report:?}")))?;
-        let user = reader.read_nested::<SccpClientConfigUser>("sccp");
-        reader
-            .into_result()
-            .map_err(|report| ConfigError::Read(format!("{report:?}")))?;
-        let default_journal_dir = path
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(defaults::JOURNAL_DIR_NAME);
-        user.unwrap().parse(&default_journal_dir)
-    }
-
     /// The HTTP transport limits of wallet requests.
     #[must_use]
     pub fn http_config(&self) -> HttpConfig {
@@ -374,13 +204,16 @@ impl SccpClientConfig {
     }
 }
 
-impl SccpClientConfigUser {
+impl SccpClientConfig {
     /// Validate and resolve the table; `default_journal_dir` replaces an empty `journal_dir`.
     ///
     /// # Errors
     ///
     /// Returns [`ConfigError::Invalid`] with every violation.
-    pub fn parse(self, default_journal_dir: &Path) -> Result<SccpClientConfig, ConfigError> {
+    pub fn from_user(
+        user: SccpClientConfigUser,
+        default_journal_dir: &Path,
+    ) -> Result<Self, ConfigError> {
         let mut errors = Vec::new();
         let mut nonzero = |value: DurationMs, name: &str, fallback: u64| {
             let value = value.get();
@@ -392,40 +225,34 @@ impl SccpClientConfigUser {
             }
         };
         let request_timeout = nonzero(
-            self.request_timeout_ms,
+            user.request_timeout_ms,
             "request_timeout_ms",
             defaults::REQUEST_TIMEOUT_MS,
         );
         let poll_interval = nonzero(
-            self.poll_interval_ms,
+            user.poll_interval_ms,
             "poll_interval_ms",
             defaults::POLL_INTERVAL_MS,
         );
-        let attestation_timeout = nonzero(
-            self.attestation_timeout_ms,
-            "attestation_timeout_ms",
-            defaults::ATTESTATION_TIMEOUT_MS,
-        );
         let confirmation_timeout = nonzero(
-            self.confirmation_timeout_ms,
+            user.confirmation_timeout_ms,
             "confirmation_timeout_ms",
             defaults::CONFIRMATION_TIMEOUT_MS,
         );
-        let journal_dir = if self.journal_dir.value().as_os_str().is_empty() {
+        let journal_dir = if user.journal_dir.value().as_os_str().is_empty() {
             default_journal_dir.to_path_buf()
         } else {
-            self.journal_dir.resolve_relative_path()
+            user.journal_dir.resolve_relative_path()
         };
-        let endpoints = self.endpoints.parse(&mut errors);
-        let secret_headers = parse_secret_headers(self.secret_headers, &mut errors);
-        let deployments = parse_deployments(&self.deployments, &mut errors);
+        let endpoints = parse_endpoints(&user.endpoints, &mut errors);
+        let secret_headers = parse_secret_headers(user.secret_headers, &mut errors);
+        let deployments = parse_deployments(&user.deployments, &mut errors);
         if !errors.is_empty() {
             return Err(ConfigError::Invalid(errors));
         }
         Ok(SccpClientConfig {
             request_timeout,
             poll_interval,
-            attestation_timeout,
             confirmation_timeout,
             journal_dir,
             endpoints,
@@ -435,43 +262,43 @@ impl SccpClientConfigUser {
     }
 }
 
-impl SccpClientEndpointsUser {
-    fn parse(&self, errors: &mut Vec<String>) -> SccpLightClientKeeperEndpoints {
-        use node_defaults::sccp::endpoints;
-        let http = |entries: &[String], name: &str, compiled: &[&str], errors: &mut Vec<String>| {
-            parse_list(
-                entries,
-                name,
-                || compiled_http_endpoints(compiled),
-                |raw| parse_sccp_http_endpoint(raw).map_err(|error| error.to_string()),
-                |url| url.as_str().to_owned(),
-                errors,
-            )
-        };
-        SccpLightClientKeeperEndpoints {
-            ethereum_execution: http(
-                &self.ethereum_execution,
-                "ethereum_execution",
-                endpoints::ETHEREUM_EXECUTION,
-                errors,
-            ),
-            ethereum_beacon: http(
-                &self.ethereum_beacon,
-                "ethereum_beacon",
-                endpoints::ETHEREUM_BEACON,
-                errors,
-            ),
-            bsc: http(&self.bsc, "bsc", endpoints::BSC, errors),
-            tron: http(&self.tron, "tron", endpoints::TRON, errors),
-            ton_liteservers: parse_list(
-                &self.ton_liteservers,
-                "ton_liteservers",
-                || compiled_ton_liteservers(endpoints::TON_LITESERVERS),
-                |raw| SccpTonLiteserver::from_str(raw).map_err(|error| error.to_string()),
-                |server: &SccpTonLiteserver| server.address.to_string(),
-                errors,
-            ),
-        }
+fn parse_endpoints(
+    user: &SccpClientEndpointsUser,
+    errors: &mut Vec<String>,
+) -> SccpLightClientKeeperEndpoints {
+    use node_defaults::sccp::endpoints;
+    let http = |entries: &[String], name: &str, compiled: &[&str], errors: &mut Vec<String>| {
+        parse_list(
+            entries,
+            name,
+            || compiled_http_endpoints(compiled),
+            |raw| parse_sccp_http_endpoint(raw).map_err(|error| error.to_string()),
+            |url| url.as_str().to_owned(),
+            errors,
+        )
+    };
+    SccpLightClientKeeperEndpoints {
+        ethereum_execution: http(
+            &user.ethereum_execution,
+            "ethereum_execution",
+            endpoints::ETHEREUM_EXECUTION,
+            errors,
+        ),
+        ethereum_beacon: http(
+            &user.ethereum_beacon,
+            "ethereum_beacon",
+            endpoints::ETHEREUM_BEACON,
+            errors,
+        ),
+        bsc: http(&user.bsc, "bsc", endpoints::BSC, errors),
+        ton_liteservers: parse_list(
+            &user.ton_liteservers,
+            "ton_liteservers",
+            || compiled_ton_liteservers(endpoints::TON_LITESERVERS),
+            |raw| SccpTonLiteserver::from_str(raw).map_err(|error| error.to_string()),
+            |server: &SccpTonLiteserver| server.address.to_string(),
+            errors,
+        ),
     }
 }
 
@@ -510,7 +337,7 @@ fn parse_list<T>(
 }
 
 fn parse_secret_headers(
-    entries: WithOrigin<Vec<user::SccpSecretHeader>>,
+    entries: WithOrigin<Vec<SccpClientSecretHeaderUser>>,
     errors: &mut Vec<String>,
 ) -> Vec<SccpSecretHeader> {
     let (entries, origin) = entries.into_tuple();
@@ -617,25 +444,18 @@ fn entry_deployment(
         let address = entry
             .address
             .as_deref()
-            .ok_or("address is required for EVM and TRON deployments")?;
+            .ok_or("address is required for EVM deployments")?;
         let runtime_code_hash = parse_hex_fixed::<32>(
             "runtime_code_hash",
             entry
                 .runtime_code_hash
                 .as_deref()
-                .ok_or("runtime_code_hash is required for EVM and TRON deployments")?,
+                .ok_or("runtime_code_hash is required for EVM deployments")?,
         )?;
-        if network == SccpNetworkV1::TronMainnet {
-            SccpDeploymentV1::Tron(SccpTronDeploymentV1 {
-                address: parse_hex_fixed::<21>("address", address)?,
-                runtime_code_hash,
-            })
-        } else {
-            SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
-                address: parse_hex_fixed::<20>("address", address)?,
-                runtime_code_hash,
-            })
-        }
+        SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address: parse_hex_fixed::<20>("address", address)?,
+            runtime_code_hash,
+        })
     };
     if !deployment.fits_network(network) {
         return Err(format!(
@@ -717,32 +537,35 @@ mod tests {
     }
 
     fn write_config(dir: &Path, body: &str) -> PathBuf {
-        let path = dir.join(defaults::CONFIG_FILE_NAME);
+        let path = dir.join("client.toml");
         std::fs::write(&path, body).expect("write config");
         path
     }
 
-    #[test]
-    fn the_file_sits_beside_the_client_config() {
-        assert_eq!(
-            SccpClientConfig::path_beside(Path::new("/home/u/.iroha/client.toml")),
-            Path::new("/home/u/.iroha/sccp.toml")
-        );
-        assert_eq!(
-            SccpClientConfig::path_beside(Path::new("client.toml")),
-            Path::new("sccp.toml")
-        );
+    fn load_fixture(path: &Path) -> Result<SccpClientConfig, ConfigError> {
+        let mut reader = iroha_config_base::read::ConfigReader::new()
+            .without_env()
+            .read_toml_with_extends(path)
+            .map_err(|error| ConfigError::Read(format!("{error:?}")))?;
+        let user = reader.read_nested::<SccpClientConfigUser>("sccp");
+        reader
+            .into_result()
+            .map_err(|error| ConfigError::Read(format!("{error:?}")))?;
+        SccpClientConfig::from_user(
+            user.unwrap(),
+            &path.parent().unwrap().join(defaults::JOURNAL_DIR_NAME),
+        )
     }
 
     #[test]
-    fn client_config_keys_are_refused() {
+    fn isolated_codec_fixture_refuses_unread_keys() {
         let dir = tempfile::tempdir().expect("tempdir");
         let client = write_config(
             dir.path(),
             "chain = \"00000000-0000-0000-0000-000000000000\"\n[account]\nchain_discriminant = 753\n[sccp]\npoll_interval_ms = 500\n",
         );
-        let Err(ConfigError::Read(report)) = SccpClientConfig::load(&client) else {
-            panic!("the [sccp] file must not be the client config");
+        let Err(ConfigError::Read(report)) = load_fixture(&client) else {
+            panic!("the isolated codec fixture must reject unread keys");
         };
         assert!(report.contains("chain"), "{report}");
         let misspelled = write_config(
@@ -750,7 +573,7 @@ mod tests {
             "[scp.endpoints]\nbsc = [\"https://a.example\"]\n",
         );
         assert!(matches!(
-            SccpClientConfig::load(&misspelled),
+            load_fixture(&misspelled),
             Err(ConfigError::Read(_))
         ));
     }
@@ -767,7 +590,7 @@ mod tests {
             dir.path(),
             "extends = \"base.toml\"\n[sccp]\npoll_interval_ms = 700\n",
         );
-        let config = SccpClientConfig::load(&path).expect("loads");
+        let config = load_fixture(&path).expect("loads");
         assert_eq!(config.request_timeout, Duration::from_millis(1_234));
         assert_eq!(config.poll_interval, Duration::from_millis(700));
     }
@@ -776,7 +599,7 @@ mod tests {
     fn an_absent_table_yields_every_default() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = write_config(dir.path(), "# no [sccp] table\n");
-        let config = SccpClientConfig::load(&path).expect("defaults load");
+        let config = load_fixture(&path).expect("defaults load");
         assert_eq!(
             config.request_timeout,
             Duration::from_millis(defaults::REQUEST_TIMEOUT_MS)
@@ -827,9 +650,9 @@ runtime_code_hash = "0x{h}"
 
 [[sccp.deployments]]
 network_id = "{network_id}"
-network = "tron-mainnet"
+network = "bsc-mainnet"
 revision = 2
-address = "0x41{t}"
+address = "0x{b}"
 runtime_code_hash = "0x{h}"
 
 [[sccp.deployments]]
@@ -842,11 +665,11 @@ wallet_code = {{ hash = "0x{h}", depth = 5 }}
 bucket_code = {{ hash = "0x{h}", depth = 3 }}
 "#,
             a = "22".repeat(20),
-            t = "33".repeat(20),
+            b = "33".repeat(20),
             m = "44".repeat(32),
             h = "AB".repeat(32),
         );
-        SccpClientConfig::load(&write_config(dir, &body)).expect("loads")
+        load_fixture(&write_config(dir, &body)).expect("loads")
     }
 
     #[test]
@@ -889,10 +712,13 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
                 runtime_code_hash: [0xab; 32],
             })
         );
-        assert!(matches!(
-            config.pinned_deployment(&id, SccpNetworkV1::TronMainnet, 2),
-            Some(SccpDeploymentV1::Tron(_))
-        ));
+        assert_eq!(
+            config.pinned_deployment(&id, SccpNetworkV1::BscMainnet, 2),
+            Some(&SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+                address: [0x33; 20],
+                runtime_code_hash: [0xab; 32],
+            }))
+        );
         assert!(matches!(
             config.pinned_deployment(&id, SccpNetworkV1::TonMainnet, 1),
             Some(SccpDeploymentV1::Ton(_))
@@ -924,18 +750,30 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
     }
 
     #[test]
+    fn retired_attestation_wait_setting_is_rejected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_config(dir.path(), "[sccp]\nattestation_timeout_ms = 900000\n");
+        assert!(
+            matches!(load_fixture(&path), Err(ConfigError::Read(_))),
+            "native SCCP proofs have no attestation wait or compatibility setting"
+        );
+    }
+
+    #[test]
     fn unknown_keys_and_invalid_values_are_rejected() {
         let dir = tempfile::tempdir().expect("tempdir");
         let unknown = write_config(dir.path(), "[sccp]\nrequest_timeout = 5\n");
-        assert!(matches!(
-            SccpClientConfig::load(&unknown),
-            Err(ConfigError::Read(_))
-        ));
+        assert!(matches!(load_fixture(&unknown), Err(ConfigError::Read(_))));
+        let retired = write_config(dir.path(), "[sccp.endpoints]\ntron = []\n");
+        assert!(
+            matches!(load_fixture(&retired), Err(ConfigError::Read(_))),
+            "SCCP v1 has no TRON endpoint list"
+        );
         let invalid = write_config(
             dir.path(),
             "[sccp]\npoll_interval_ms = 0\n[sccp.endpoints]\nbsc = [\"http://rpc.example\", \"https://a.example\", \"https://a.example\"]\n",
         );
-        let Err(ConfigError::Invalid(messages)) = SccpClientConfig::load(&invalid) else {
+        let Err(ConfigError::Invalid(messages)) = load_fixture(&invalid) else {
             panic!("invalid values must be rejected");
         };
         assert!(messages.iter().any(|m| m.contains("poll_interval_ms")));
@@ -965,12 +803,14 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
         let mut mixed = good.clone();
         mixed.master_account = Some(format!("0x{}", "44".repeat(32)));
         assert!(entry_deployment(&mixed).is_err());
-        let mut bad_prefix = good.clone();
-        bad_prefix.network = "tron-mainnet".to_owned();
-        bad_prefix.address = Some(format!("0x42{}", "33".repeat(20)));
+        let mut retired = good.clone();
+        retired.network = "tron-mainnet".to_owned();
+        retired.address = Some(format!("0x41{}", "33".repeat(20)));
         assert!(
-            entry_deployment(&bad_prefix).is_err(),
-            "TRON needs the 0x41 prefix"
+            entry_deployment(&retired)
+                .unwrap_err()
+                .contains("not an external SCCP profile"),
+            "SCCP v1 has no TRON profile"
         );
         let mut evm_fields_on_ton = good.clone();
         evm_fields_on_ton.network = "ton-mainnet".to_owned();

@@ -1766,33 +1766,28 @@ mod tests {
         bytes[6] = 0x80;
         bytes[7] = VECTOR_LENGTH_MAX + 1;
         bytes[16] = 3;
-        assert_eq!(
-            ProgramMetadata::parse(&bytes).expect_err("version must win"),
-            VMError::UnsupportedProgramVersion { major: 2, minor: 1 }
+        assert!(
+            matches!((&(ProgramMetadata::parse(&bytes).expect_err("version must win")), &(VMError::UnsupportedProgramVersion { major: 2, minor: 1 })), (VMError::UnsupportedProgramVersion { major: __actual_major, minor: __actual_minor }, VMError::UnsupportedProgramVersion { major: __expected_major, minor: __expected_minor }) if __actual_major == __expected_major && __actual_minor == __expected_minor)
         );
         bytes[4] = 1;
         bytes[5] = 2;
-        assert_eq!(
-            ProgramMetadata::parse(&bytes).expect_err("minor version must be explicit"),
-            VMError::UnsupportedProgramVersion { major: 1, minor: 2 }
+        assert!(
+            matches!((&(ProgramMetadata::parse(&bytes).expect_err("minor version must be explicit")), &(VMError::UnsupportedProgramVersion { major: 1, minor: 2 })), (VMError::UnsupportedProgramVersion { major: __actual_major, minor: __actual_minor }, VMError::UnsupportedProgramVersion { major: __expected_major, minor: __expected_minor }) if __actual_major == __expected_major && __actual_minor == __expected_minor)
         );
         bytes[5] = 1;
-        assert_eq!(
-            ProgramMetadata::parse(&bytes).expect_err("feature bits must precede ABI"),
-            VMError::UnsupportedProgramFeatureBits { bits: 0x80 }
+        assert!(
+            matches!((&(ProgramMetadata::parse(&bytes).expect_err("feature bits must precede ABI")), &(VMError::UnsupportedProgramFeatureBits { bits: 0x80 })), (VMError::UnsupportedProgramFeatureBits { bits: __actual_bits }, VMError::UnsupportedProgramFeatureBits { bits: __expected_bits }) if __actual_bits == __expected_bits)
         );
         bytes[6] = 0;
-        assert_eq!(
-            ProgramMetadata::parse(&bytes).expect_err("ABI must precede vector width"),
-            VMError::UnsupportedProgramAbiVersion { version: 3 }
+        assert!(
+            matches!((&(ProgramMetadata::parse(&bytes).expect_err("ABI must precede vector width")), &(VMError::UnsupportedProgramAbiVersion { version: 3 })), (VMError::UnsupportedProgramAbiVersion { version: __actual_version }, VMError::UnsupportedProgramAbiVersion { version: __expected_version }) if __actual_version == __expected_version)
         );
         bytes[16] = 1;
-        assert_eq!(
-            ProgramMetadata::parse(&bytes).expect_err("vector width must precede ABI hash"),
-            VMError::ProgramVectorLengthTooLarge {
+        assert!(
+            matches!((&(ProgramMetadata::parse(&bytes).expect_err("vector width must precede ABI hash")), &(VMError::ProgramVectorLengthTooLarge {
                 vector_length: VECTOR_LENGTH_MAX + 1,
                 max_allowed: VECTOR_LENGTH_MAX,
-            }
+            })), (VMError::ProgramVectorLengthTooLarge { vector_length: __actual_vector_length, max_allowed: __actual_max_allowed }, VMError::ProgramVectorLengthTooLarge { vector_length: __expected_vector_length, max_allowed: __expected_max_allowed }) if __actual_vector_length == __expected_vector_length && __actual_max_allowed == __expected_max_allowed)
         );
         bytes[7] = 0;
         bytes[17] ^= 1;
@@ -1800,16 +1795,16 @@ mod tests {
             ProgramMetadata::parse(&bytes),
             Err(VMError::ArtifactAbiHashMismatch { .. })
         ));
-        assert_eq!(
+        assert!(matches!(
             ProgramMetadata::parse(&bytes[..HEADER_SIZE - 1])
                 .expect_err("truncated fixed header is structural corruption"),
             VMError::InvalidMetadata
-        );
+        ));
         bytes[0] ^= 0xff;
-        assert_eq!(
+        assert!(matches!(
             ProgramMetadata::parse(&bytes).expect_err("bad magic is structural corruption"),
             VMError::InvalidMetadata
-        );
+        ));
     }
     #[test]
     fn program_image_limit_is_enforced_before_section_decoding() {
@@ -1818,25 +1813,28 @@ mod tests {
         ProgramMetadata::parse(&exact).expect("the exact V1 image budget must remain valid");
 
         exact.push(0);
-        assert_eq!(
+        assert!(matches!(
             ProgramMetadata::parse(&exact)
                 .expect_err("an image above the V1 budget must fail before decoding sections"),
             VMError::InvalidMetadata
-        );
+        ));
 
         exact[HEADER_SIZE..HEADER_SIZE + 4].copy_from_slice(&CONTRACT_INTERFACE_SECTION_MAGIC);
-        assert_eq!(
+        assert!(matches!(
             ProgramMetadata::parse(&exact)
                 .expect_err("an oversized CNTR-shaped image must not reach Norito decoding"),
             VMError::InvalidMetadata
-        );
+        ));
     }
     #[test]
     fn literal_descriptors_roundtrip_kind_and_full_offset_domain() {
         for kind in [LiteralKindV1::PointerTlv, LiteralKindV1::I64] {
             for offset in [0, 1, 0x00ff_ffff, LITERAL_OFFSET_MASK] {
                 let raw = encode_literal_descriptor(kind, offset).expect("encodable offset");
-                assert_eq!(decode_literal_descriptor(raw), Ok((kind, offset)));
+                assert_eq!(
+                    (decode_literal_descriptor(raw)).expect("expected successful fixture result"),
+                    (kind, offset)
+                );
             }
         }
         assert!(encode_literal_descriptor(LiteralKindV1::I64, LITERAL_OFFSET_MASK + 1).is_none());
@@ -2412,11 +2410,11 @@ mod tests {
             CONTRACT_INTERFACE_SECTION_MAGIC,
             &alternate_frame(&interface),
         );
-        assert_eq!(
+        assert!(matches!(
             parse_contract_interface_section(&alternate, 0)
                 .expect_err("alternate-layout CNTR payload must be rejected"),
             VMError::InvalidMetadata
-        );
+        ));
         let mut artifact = ProgramMetadata::default().encode();
         artifact.extend_from_slice(&section);
         artifact.extend_from_slice(&0x4900_0000_u32.to_le_bytes());
@@ -2466,11 +2464,11 @@ mod tests {
             assert_eq!(debug.encode_section(), section);
         }
         let alternate = test_section(CONTRACT_DEBUG_SECTION_MAGIC, &alternate_frame(&debug));
-        assert_eq!(
+        assert!(matches!(
             parse_contract_debug_section(&alternate, 0)
                 .expect_err("alternate-layout DBG1 payload must be rejected"),
             VMError::InvalidMetadata
-        );
+        ));
     }
 }
 

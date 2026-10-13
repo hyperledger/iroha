@@ -1,0 +1,112 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "round_completed_externally_before_the_crash_is_recovered_not_rerun",
+  "category": "interruption_after_irreversible_progress",
+  "rules": [
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "The process stops after the share-collection round took effect outside the process and before its completion was recorded. The resumed run asks the driver to recover the round under the persisted identity and records the original transcript; it does not start a second round.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "round-completed-externally-before-the-crash-is-recovered-not-rer",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ],
+        "round_recoveries": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "round_recover:0",
+          "build:1#1",
+          "sign:1#1",
+          "dispatch:1#1",
+          "status:1#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "round_completed",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

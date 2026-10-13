@@ -129,6 +129,10 @@ impl PotrRuntimeProviderBindingV1 {
 /// These public, non-secret pins keep the immutable finalized-state source and admission-material
 /// resolver distinct from the reader facade and both runtime signer roles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Each id names a separately pinned and independently authenticated provider identity."
+)]
 pub struct PotrRuntimeReaderBindingsV1 {
     reader_id: [u8; 32],
     source_id: [u8; 32],
@@ -230,6 +234,11 @@ pub trait PotrAdmissionReaderV1: Send + Sync {
     /// Stable non-secret identity of this administered reader.
     fn reader_id(&self) -> [u8; 32];
     /// Resolve the exact active provider admission for one receipt interval.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if finalized admission is unavailable, cannot satisfy
+    /// the minimum policy revision, is revoked, or rejects the requested interval.
     fn active_admission(
         &self,
         provider_id: [u8; 32],
@@ -256,6 +265,11 @@ pub trait PotrFinalizedPolicySourceV1: Send + Sync {
     /// Stable non-secret identity of the administered finalized-state source.
     fn source_id(&self) -> [u8; 32];
     /// Read one provider's current native policy from an immutable finalized view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the finalized policy source is unavailable or stale,
+    /// the provider admission is revoked, or the exact finalized query is refused.
     fn active_policy(
         &self,
         provider_id: [u8; 32],
@@ -336,6 +350,11 @@ pub trait PotrAdmissionMaterialResolverV1: Send + Sync {
     /// Stable non-secret identity of this administered material resolver.
     fn resolver_id(&self) -> [u8; 32];
     /// Resolve one exact council-verified envelope.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the admission material is unavailable, stale, revoked,
+    /// or does not match the exact provider and envelope digest.
     fn resolve(
         &self,
         provider_id: [u8; 32],
@@ -575,10 +594,25 @@ pub trait PotrGatewaySignerV1: Send + Sync {
     /// Stable non-secret identity of this independently administered signer.
     fn signer_id(&self) -> [u8; 32];
     /// Qualify the active adapter and exact public-policy revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses the
+    /// qualification probe.
     fn qualification(&self) -> Result<PotrRuntimeProviderQualificationV1, PotrSignerServiceError>;
     /// Return the active Ed25519 public key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses to
+    /// provide its active public key.
     fn public_key(&self) -> Result<[u8; 32], PotrSignerServiceError>;
     /// Sign the exact domain-separated canonical PoTR payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses the
+    /// exact canonical receipt payload.
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, PotrSignerServiceError>;
 }
 /// Runtime-only ML-DSA-65 signer for the provider role of a PoTR receipt.
@@ -592,12 +626,32 @@ pub trait PotrProviderSignerV1: Send + Sync {
     /// Stable non-secret identity of this independently administered signer.
     fn signer_id(&self) -> [u8; 32];
     /// Qualify the active adapter and governed admission-policy revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses the
+    /// qualification probe.
     fn qualification(&self) -> Result<PotrRuntimeProviderQualificationV1, PotrSignerServiceError>;
     /// Governed provider identity served by this signer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses to
+    /// provide its governed provider identity.
     fn provider_id(&self) -> Result<[u8; 32], PotrSignerServiceError>;
     /// Return the active ML-DSA-65 public key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses to
+    /// provide its active public key.
     fn public_key(&self) -> Result<Vec<u8>, PotrSignerServiceError>;
     /// Sign the exact domain-separated canonical PoTR payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signer service is unavailable or refuses the
+    /// exact canonical receipt payload.
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, PotrSignerServiceError>;
 }
 fn validate_potr_runtime_handle(handle: &str) -> Result<(), PotrRuntimeSignerConfigError> {

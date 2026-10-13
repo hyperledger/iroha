@@ -268,7 +268,7 @@ struct PublicResetApply {
     /// Owner-private signing config for forward work or read-only mutation recovery.
     #[arg(long, value_name = "PATH")]
     runtime_client_config: Option<PathBuf>,
-    /// Four ordered validator read configs for forward work, Canary or RestartProof recovery;
+    /// Four ordered validator read configs for forward work, Canary recovery;
     /// other recovery steps ignore these paths.
     #[arg(long, value_name = "PATH", num_args = 4)]
     validator_client_config: Vec<PathBuf>,
@@ -285,12 +285,9 @@ impl PublicResetApply {
         &self,
         step: executor_model::ExecutionStep,
     ) -> Result<Option<PathBuf>> {
-        if matches!(
-            step,
-            executor_model::ExecutionStep::Canary | executor_model::ExecutionStep::RestartProof
-        ) {
+        if matches!(step, executor_model::ExecutionStep::Canary) {
             Ok(Some(self.validator_operator_key.clone().ok_or_else(
-                || eyre!("Canary/RestartProof recovery requires --validator-operator-key"),
+                || eyre!("Canary recovery requires --validator-operator-key"),
             )?))
         } else {
             Ok(None)
@@ -307,10 +304,10 @@ impl PublicResetApply {
         step: executor_model::ExecutionStep,
     ) -> Result<Vec<PathBuf>> {
         match step {
-            executor_model::ExecutionStep::RestartProof | executor_model::ExecutionStep::Canary => {
+            executor_model::ExecutionStep::Canary => {
                 if self.validator_client_config.len() != 4 {
                     return Err(eyre!(
-                        "Canary/RestartProof recovery requires exactly four --validator-client-config values"
+                        "Canary recovery requires exactly four --validator-client-config values"
                     ));
                 }
                 Ok(self.validator_client_config.clone())
@@ -5225,7 +5222,6 @@ mod executor_model {
         Start,
         Convergence,
         Canary,
-        RestartProof,
         EdgeStage,
         EdgeCutover,
         EdgeVerify,
@@ -5287,7 +5283,6 @@ mod executor_model {
                 Self::Start => "start",
                 Self::Convergence => "convergence",
                 Self::Canary => "canary",
-                Self::RestartProof => "restart_proof",
                 Self::EdgeStage => "edge_stage",
                 Self::EdgeCutover => "edge_cutover",
                 Self::EdgeVerify => "edge_verify",
@@ -5307,7 +5302,6 @@ mod executor_model {
                 Self::Start => timeouts.start_secs,
                 Self::Convergence => timeouts.convergence_secs,
                 Self::Canary => timeouts.canary_secs,
-                Self::RestartProof => timeouts.restart_secs,
                 Self::EdgeStage | Self::EdgeCutover | Self::EdgeVerify | Self::Seal => {
                     timeouts.edge_secs
                 }
@@ -5339,7 +5333,7 @@ mod executor_model {
         }
 
         pub(super) const fn supports_recovery(self) -> bool {
-            matches!(self, Self::Canary | Self::RestartProof)
+            matches!(self, Self::Canary)
         }
     }
 
@@ -6046,40 +6040,21 @@ mod executor_model {
                     .unwrap(),
                 validator_configs
             );
-            assert_eq!(
-                args.recovery_validator_client_configs(ExecutionStep::RestartProof)
-                    .expect("RestartProof retains its exact ordered four-config closure"),
-                validator_configs
-            );
             for count in [0, 3, 5] {
                 args.validator_client_config = (0..count)
                     .map(|index| unavailable.join(format!("validator-{index}.toml")))
                     .collect();
-                assert!(
-                    args.recovery_validator_client_configs(ExecutionStep::RestartProof)
-                        .is_err(),
-                    "RestartProof must reject {count} configs"
-                );
                 assert!(
                     args.recovery_validator_client_configs(ExecutionStep::Canary)
                         .is_err()
                 );
             }
             assert!(
-                args.recovery_validator_operator_key(ExecutionStep::RestartProof)
-                    .unwrap()
-                    .is_some()
-            );
-            assert!(
                 args.recovery_validator_operator_key(ExecutionStep::Canary)
                     .unwrap()
                     .is_some()
             );
             args.validator_operator_key = None;
-            assert!(
-                args.recovery_validator_operator_key(ExecutionStep::RestartProof)
-                    .is_err()
-            );
             assert!(
                 args.recovery_validator_operator_key(ExecutionStep::Canary)
                     .is_err()
@@ -6318,7 +6293,6 @@ mod executor_model {
                 next_mutation: 0,
                 mutations: (0..match step {
                     ExecutionStep::Canary => 3,
-                    ExecutionStep::RestartProof => 16,
                     ExecutionStep::EdgeVerify => 3,
                     _ => 1,
                 })
@@ -9722,7 +9696,7 @@ mod executor_model {
                 assert!(ExecutionStep::Canary.supports_recovery());
                 assert!(!ExecutionStep::EdgeVerify.supports_recovery());
                 assert!(ExecutionStep::EdgeVerify.is_edge_step());
-                assert!(!steps.contains(&ExecutionStep::RestartProof));
+                assert!(steps.iter().all(|step| step.label() != "restart_proof"));
                 let kinds = scope.canary_kinds();
                 assert_eq!(
                     &kinds[..8],

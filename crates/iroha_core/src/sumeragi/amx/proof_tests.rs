@@ -50,6 +50,7 @@ fn chain_with_begins(count: usize) -> (CertifiedTestChain, [u8; 32]) {
     assert!((1..=iroha_data_model::sumeragi_amx::MAX_AMX_PENDING).contains(&count));
     let config = config();
     let authority = config.genesis_key.clone();
+    let original_cadence_ms = config.genesis_block_cadence_ms.get();
     let mut chain = CertifiedTestChain::start(config).unwrap();
     let transaction = AmxTransactionV1 {
         legs: [21, 22]
@@ -60,6 +61,12 @@ fn chain_with_begins(count: usize) -> (CertifiedTestChain, [u8; 32]) {
             })
             .collect(),
         deadline: 3,
+        expires_at_ms: 2_000_u64
+            .checked_add(
+                iroha_data_model::sumeragi_amx::amx_max_time_window_ms(original_cadence_ms)
+                    .unwrap(),
+            )
+            .unwrap(),
         nonce: [7; 32],
     };
     let tx = transaction.id().unwrap();
@@ -124,6 +131,7 @@ fn persisted_amx_records_survive_deadline_pruning_and_certified_replay() {
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     let begin = read_proof(&chain, 2, AmxRecordKind::Begin, tx)
@@ -343,6 +351,7 @@ fn persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_dec
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -531,6 +540,7 @@ fn persisted_amx_completed_proof_retains_exact_graph_through_final_namespace_ref
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -683,6 +693,7 @@ fn persisted_amx_detached_source_keeps_original_frame_pool_and_retry_after_view_
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     assert_eq!(tracker.verify_record(proof.canonical()).unwrap().height, 2);
@@ -737,6 +748,7 @@ fn persisted_amx_detach_pins_partial_inode_and_continues_without_original_view()
         authenticated_genesis(chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap(),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
     )
     .unwrap();
     tracker.verify_record(proof.canonical()).unwrap();

@@ -373,11 +373,11 @@ mod tests {
     }
     #[test]
     fn source_has_one_bounded_typed_codec_registration_inventory() {
-        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 394;
+        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 393;
         #[cfg(feature = "governance")]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 394;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 393;
         #[cfg(not(feature = "governance"))]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 376;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 375;
         let registry_source = include_str!("registry.rs");
         let production = registry_source
             .split("\n#[cfg(test)]\nmod tests")
@@ -427,9 +427,9 @@ mod tests {
         use sha2::{Digest, Sha256};
         #[cfg(feature = "governance")]
         const EXPECTED_WITH_GOVERNANCE_SHA256: &str =
-            "19df1ccc9a0ae208a7161b827db7131598ecb6fec35b6f1a94ac5487d36da6ea";
+            "34a96c3a658eacd0da2bad59541b9d085f22a88ef49ce8ea6b238b2c8bbd7a4f";
         const EXPECTED_WITHOUT_GOVERNANCE_SHA256: &str =
-            "e6686b4a9284c0c2196bd5bdc798dfc2f049b23088f12913799b3104cd7015f7";
+            "e743e0d12b8ba3d21107671af4a2e1c57edd123983d156e65a92084f8728ff24";
         let assignment_digest = |entries: Vec<&wire_ids::BuiltInWireId>| {
             let mut assignments = entries
                 .into_iter()
@@ -786,7 +786,10 @@ mod tests {
             "registry_repo_margin".parse().expect("repo agreement id"),
         );
         let direct_dvp = settlement::DvpIsi::new(
-            "registry_settlement".parse().expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xB1),
+                "registry_settlement".parse().expect("settlement id"),
+            ),
             settlement_leg(account(0xB1), account(0xB2), 10),
             settlement_leg(account(0xB2), account(0xB1), 11),
             settlement::SettlementPlan::default(),
@@ -866,9 +869,12 @@ mod tests {
                 .expect("repo agreement id"),
         );
         let direct_dvp = settlement::DvpIsi::new(
-            "registry_settlement_pair_helper"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xD1),
+                "registry_settlement_pair_helper"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xD1), account(0xD2), 70),
             settlement_leg(account(0xD2), account(0xD1), 71),
             settlement::SettlementPlan::default(),
@@ -939,9 +945,12 @@ mod tests {
         );
         assert_instruction_box_uses_wire_id(
             settlement::DvpIsi::new(
-                "registry_settlement_conversion"
-                    .parse()
-                    .expect("settlement id"),
+                settlement::SettlementId::new(
+                    account(0xD3),
+                    "registry_settlement_conversion"
+                        .parse()
+                        .expect("settlement id"),
+                ),
                 settlement_leg(account(0xD3), account(0xD4), 80),
                 settlement_leg(account(0xD4), account(0xD3), 81),
                 settlement::SettlementPlan::default(),
@@ -961,9 +970,12 @@ mod tests {
                 .expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_removed_name_boxed"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xD5),
+                "registry_settlement_removed_name_boxed"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xD5), account(0xD6), 90),
             settlement_leg(account(0xD6), account(0xD5), 91),
             settlement::SettlementPlan::default(),
@@ -1014,9 +1026,12 @@ mod tests {
                 .expect("repo agreement id"),
         );
         let direct_dvp = settlement::DvpIsi::new(
-            "registry_settlement_frame_spoof"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xD7),
+                "registry_settlement_frame_spoof"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xD7), account(0xD8), 100),
             settlement_leg(account(0xD8), account(0xD7), 101),
             settlement::SettlementPlan::default(),
@@ -1051,9 +1066,12 @@ mod tests {
             "registry_repo_unframed".parse().expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_unframed"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xC1),
+                "registry_settlement_unframed"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xC1), account(0xC2), 50),
             settlement_leg(account(0xC2), account(0xC1), 51),
             settlement::SettlementPlan::default(),
@@ -1085,9 +1103,12 @@ mod tests {
             "registry_repo_trailing".parse().expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_trailing"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xC3),
+                "registry_settlement_trailing"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xC3), account(0xC4), 60),
             settlement_leg(account(0xC4), account(0xC3), 61),
             settlement::SettlementPlan::default(),
@@ -1138,7 +1159,10 @@ mod tests {
         assert_default_registry_rejects_payload(
             settlement::SettlementInstructionBox::WIRE_ID,
             settlement::DvpIsi::new(
-                "registry_settlement_spoof".parse().expect("settlement id"),
+                settlement::SettlementId::new(
+                    account(0xB3),
+                    "registry_settlement_spoof".parse().expect("settlement id"),
+                ),
                 settlement_leg(account(0xB3), account(0xB4), 20),
                 settlement_leg(account(0xB4), account(0xB3), 21),
                 settlement::SettlementPlan::default(),
@@ -1154,9 +1178,12 @@ mod tests {
                 .expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_cross_family"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xB5),
+                "registry_settlement_cross_family"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xB5), account(0xB6), 30),
             settlement_leg(account(0xB6), account(0xB5), 31),
             settlement::SettlementPlan::default(),
@@ -1186,9 +1213,12 @@ mod tests {
                 .expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_cross_type_name"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xD9),
+                "registry_settlement_cross_type_name"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xD9), account(0xDA), 110),
             settlement_leg(account(0xDA), account(0xD9), 111),
             settlement::SettlementPlan::default(),
@@ -1234,9 +1264,12 @@ mod tests {
             "registry_repo_bad_tag".parse().expect("repo agreement id"),
         ));
         let settlement_box = settlement::SettlementInstructionBox::Dvp(settlement::DvpIsi::new(
-            "registry_settlement_bad_tag"
-                .parse()
-                .expect("settlement id"),
+            settlement::SettlementId::new(
+                account(0xB7),
+                "registry_settlement_bad_tag"
+                    .parse()
+                    .expect("settlement id"),
+            ),
             settlement_leg(account(0xB7), account(0xB8), 40),
             settlement_leg(account(0xB8), account(0xB7), 41),
             settlement::SettlementPlan::default(),

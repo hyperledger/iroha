@@ -10,7 +10,9 @@ use iroha_core::{
     state::{State as CoreState, World},
     telemetry::StateTelemetry,
 };
-use iroha_data_model::block::consensus::{EvidencePenaltyStatus, EvidenceRecord};
+use iroha_data_model::block::consensus::{
+    EvidencePenaltyStatus, EvidenceRecord, RecordedEvidenceV1,
+};
 use iroha_torii::handle_v1_sumeragi_evidence_count;
 use iroha_torii_shared::sumeragi_evidence_api::{
     SUMERAGI_EVIDENCE_COUNT_RESPONSE_MAX_BYTES, SumeragiEvidenceCountResponse,
@@ -73,7 +75,7 @@ async fn evidence_count_endpoint_reports_increase() {
     for (idx, seed) in [0x11u8, 0x22].iter().enumerate() {
         let ev = make_phase_vote_evidence((idx + 1) as u64, *seed);
         let record = EvidenceRecord {
-            evidence: ev,
+            evidence: RecordedEvidenceV1::Native(ev),
             attribution: make_phase_vote_attribution((idx + 1) as u64, *seed),
             recorded_at_height: (idx + 1) as u64,
             recorded_at_view: 0,
@@ -122,14 +124,14 @@ async fn evidence_count_endpoint_reports_increase() {
         .uri("/v1/sumeragi/evidence/count")
         .body(axum::body::Body::empty())
         .unwrap();
-    let default_response = app.oneshot(default_request).await.unwrap();
+    let default_response = app.clone().oneshot(default_request).await.unwrap();
     assert_eq!(default_response.status(), http::StatusCode::OK);
     assert_eq!(
         default_response
             .headers()
             .get(http::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok()),
-        Some("application/x-norito")
+        Some("application/json")
     );
     let default_body = default_response
         .into_body()
@@ -138,7 +140,39 @@ async fn evidence_count_endpoint_reports_increase() {
         .unwrap()
         .to_bytes();
     assert!(default_body.len() <= SUMERAGI_EVIDENCE_COUNT_RESPONSE_MAX_BYTES);
-    let decoded: SumeragiEvidenceCountResponse =
-        norito::decode_from_bytes(&default_body).expect("decode default Norito count response");
+    let default_json: norito::json::Value =
+        norito::json::from_slice(&default_body).expect("decode default JSON count response");
+    assert_exact_count_response_shape(&default_json);
+    assert_eq!(
+        default_json
+            .get("count")
+            .and_then(norito::json::Value::as_u64),
+        Some(2)
+    );
+
+    let norito_request = http::Request::builder()
+        .method("GET")
+        .uri("/v1/sumeragi/evidence/count")
+        .header(http::header::ACCEPT, "application/x-norito")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let norito_response = app.oneshot(norito_request).await.unwrap();
+    assert_eq!(norito_response.status(), http::StatusCode::OK);
+    assert_eq!(
+        norito_response
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-norito")
+    );
+    let norito_body = norito_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    assert!(norito_body.len() <= SUMERAGI_EVIDENCE_COUNT_RESPONSE_MAX_BYTES);
+    let decoded: SumeragiEvidenceCountResponse = norito::decode_from_bytes(&norito_body)
+        .expect("decode explicitly requested Norito count response");
     assert_eq!(decoded.count, 2);
 }

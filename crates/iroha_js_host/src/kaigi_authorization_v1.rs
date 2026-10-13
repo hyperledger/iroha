@@ -408,11 +408,10 @@ mod tests {
         assert_eq!(envelope.vk_hash, hash_vk(&key));
         assert!(envelope.aux.is_empty());
         let proof = ProofBox::new(VK_BACKEND.to_owned(), artifacts.proof.as_ref().to_vec());
-        assert!(iroha_core_zk::verify_backend(
-            VK_BACKEND,
-            &proof,
-            Some(&key)
-        ));
+        assert!(
+            iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(&key))
+                .expect("valid authorization proof verification completes")
+        );
         for row in 0..31 {
             let mut changed = envelope.clone();
             let mut inner: iroha_data_model::zk::NativePipaRProofV1 =
@@ -430,7 +429,8 @@ mod tests {
                 norito::encode_canonical(&changed).unwrap(),
             );
             assert!(
-                !iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(&key)),
+                !iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(&key))
+                    .expect("mutated proof verification completes with a false verdict"),
                 "modified row {row}"
             );
         }

@@ -1,8 +1,8 @@
 //! One per-call original plan preserves full profile fences and actual attester refusal.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
-    native_operation::test_support::UnavailablePeers,
     service_authority::profile_validation_test_support::count,
     stream_token_custody::{
         bootstrap_test_support::NativeEnrollmentReads,
@@ -54,7 +54,7 @@ fn pending(fixture: &Fixture) -> (BodyHistory, VerifiedStreamTokenCustodyStateV1
         history.selection.digest().unwrap(),
         selection.digest().unwrap()
     );
-    assert!(history.original().unwrap().is_none());
+    assert!(history.original().is_none());
     assert!(history.has_pending());
     (history, current, terms)
 }
@@ -63,7 +63,7 @@ fn pending(fixture: &Fixture) -> (BodyHistory, VerifiedStreamTokenCustodyStateV1
 fn unsigned_body_reads_share_one_plan_and_recheck_complete_profile_on_every_call() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let (history, current, _) = pending(&fixture);
     let expected = history.selection.digest().unwrap();
     let (read, validations) = count(|| history.read_current(&fixture.owner));
@@ -196,7 +196,7 @@ impl EnrollmentReads for ChangeProfileDuringHistorical<'_> {
 fn changed_profile_during_actual_historical_read_refuses_attester_and_original_publication() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(4_000);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let (history, current, terms) = pending(&fixture);
     let unsigned = encode(
         &history.anchor.pending.as_ref().unwrap().unsigned,
@@ -239,7 +239,10 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
         .unwrap();
     assert_eq!(
         body.entries(2).unwrap(),
-        vec![std::ffi::OsString::from("reserved.nrt")]
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("reserved.nrt")
+        ]
     );
     let anchor: Anchor = read(&root, "anchor.nrt", MAX_BODY_BYTES).unwrap();
     assert_eq!(anchor.active, Some(1));
@@ -251,7 +254,7 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
     let restored = BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2))
         .unwrap()
         .unwrap();
-    assert!(restored.original().unwrap().is_none());
+    assert!(restored.original().is_none());
     let completed = restored
         .finish_pending_with_reads(
             &fixture.owner,
@@ -261,16 +264,20 @@ fn changed_profile_during_actual_historical_read_refuses_attester_and_original_p
             &NativeEnrollmentReads(&fixture.native),
         )
         .unwrap();
-    assert!(completed.original().unwrap().is_some());
+    assert!(completed.original().is_some());
     assert_eq!(
         completed.anchor.completed,
-        Some(completed.original().unwrap().unwrap().digest().unwrap())
+        Some(completed.original().unwrap().digest().unwrap())
     );
     assert_eq!(
         encode(&completed.bodies[0].reservation.unsigned, MAX_BODY_BYTES).unwrap(),
         unsigned
     );
-    assert!(!body.path().join("dispatch.nrt").exists());
+    assert!(
+        !metadata::test_read_component(&body, None, "dispatch.nrt")
+            .unwrap()
+            .is_some()
+    );
     assert!(!body.path().join("attempts").exists());
     assert_eq!(fixture.native.chain.height(), 4);
     assert!(peers.requests.lock().unwrap().is_empty());

@@ -165,6 +165,17 @@ struct RawDigest {
     conf_rules_version: Option<u32>,
     zk_policy_hash: Option<RawBytes>,
 }
+/// The original child bytes of one present digest hash under the active layout flags.
+///
+/// The record encoder writes an optional `[u8; 32]` through the sole generic array
+/// serializer: thirty-two one-byte elements, each behind its own length prefix. A
+/// faithful source producer therefore carries exactly those bytes. Thirty-two packed
+/// bytes are a different source that the encoder never emits; the complete-frame
+/// decoders refuse a block carrying it. The block test
+/// `framed_block_rejects_packed_confidential_digest_hash_arrays` shows that.
+fn original_hash_child(bytes: [u8; 32]) -> RawBytes {
+    RawBytes(bare(&bytes))
+}
 #[derive(norito::codec::Encode)]
 struct RawHeader {
     height: RawBytes,
@@ -194,13 +205,11 @@ fn raw(value: &BlockHeader) -> RawHeader {
         creation_time_ms: value.creation_time_ms,
         view_change_index: value.view_change_index,
         confidential_features: value.confidential_features.map(|d| RawDigest {
-            // Option<[u8; 32]> uses the installed framed-array layout.
-            // Keep the unchanged array serializer in this malformed-source producer.
-            vk_set_hash: d.vk_set_hash.map(|bytes| RawBytes(bare(&bytes))),
+            vk_set_hash: d.vk_set_hash.map(original_hash_child),
             poseidon_params_id: d.poseidon_params_id,
             pedersen_params_id: d.pedersen_params_id,
             conf_rules_version: d.conf_rules_version,
-            zk_policy_hash: d.zk_policy_hash.map(|bytes| RawBytes(bare(&bytes))),
+            zk_policy_hash: d.zk_policy_hash.map(original_hash_child),
         }),
         execution_context_hash: value.execution_context_hash,
         global_beacon_pulse_hash: value.global_beacon_pulse_hash,

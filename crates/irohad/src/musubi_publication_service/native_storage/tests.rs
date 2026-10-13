@@ -269,8 +269,10 @@ fn operation_identity_charges_one_canonical_publisher_frame_without_renewal() {
     norito::with_decode_limits_scope(limits, || {
         assert_eq!(operation_id(&original).unwrap(), expected);
         let error = operation_id(&original).unwrap_err();
-        assert!(matches!(error.downcast_ref::<norito::Error>(),
-            Some(norito::Error::TotalAllocationExceeded { .. })));
+        assert!(matches!(
+            error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { .. })
+        ));
     });
 }
 
@@ -284,13 +286,28 @@ fn storage_copy_charges_one_frame_and_its_independently_measured_decoded_graph()
         assert_eq!(norito::decode_canonical::<Vec<u8>>(&frame).unwrap(), source);
         let norito::Error::TotalAllocationExceeded { attempted, .. } =
             norito::core::reserve_decode_allocation(budget + 1).unwrap_err()
-        else { panic!("allocation usage probe must refuse without charging"); };
-        attempted as usize - budget - 1
+        else {
+            panic!("allocation usage probe must refuse without charging");
+        };
+        usize::try_from(attempted).expect("fixture bytes fit usize") - budget - 1
     });
     let exact = frame.len() + decoded_bytes;
     let limits = norito::DecodeLimits::new(65536, 65536, 65536, exact, 128);
     norito::with_decode_limits_scope(limits, || {
         assert_eq!(bounded_copy(&source).unwrap(), source);
-        assert!(bounded_copy(&source).is_err(), "copy cannot renew inherited allowance");
+        assert!(
+            bounded_copy(&source).is_err(),
+            "copy cannot renew inherited allowance"
+        );
     });
+}
+
+#[test]
+fn native_storage_decode_budget_matches_the_archive_ceiling() {
+    let limits = decode_limits().expect("native storage limits fit the supported host");
+    assert_eq!(
+        u64::try_from(limits.max_total_allocated_bytes()).expect("budget fits u64"),
+        8 * MUSUBI_MAX_CAR_BYTES_V1,
+    );
+    assert_eq!(limits.max_nesting_depth(), 64);
 }

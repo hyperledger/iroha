@@ -1,7 +1,12 @@
 # RAM-LFE execution-proof completion
 
 Status: the [canonical V1 contract](#canonical-v1-contract) below is implemented
-as types, commitments and a cleartext reference interpreter. The encrypted
+as types, commitments and a cleartext reference interpreter. It requires a
+proved [normalizing lowering](#normalizing-lowering) under one
+[fixed public schedule](#fixed-public-schedule) for each class profile. That
+lowering is specified, and its plaintext definition is a cleartext oracle that
+tests compare with the reference; no encrypted normalizer, no schedule and no
+proof of the lowering exist. The encrypted
 evaluator, the execution relation and the opening proofs are not implemented.
 Encrypted policy registration, activation, restored-state validation and
 receipts still reject in both signed and proof modes, and no Core, Torii or SDK
@@ -17,8 +22,10 @@ then executes the branchless tape. The closed
 [BFV profile](../crates/iroha_crypto/src/fhe_bfv.rs) bounds it to 64 encrypted input
 slots, four registers, 32 state lanes, 256 instructions, 64 outputs and
 multiplicative depth 16. It has no refresh, so it admits exactly the tapes of
-the canonical `bounded.v1` class. Its ring degree is 64, plaintext modulus is
-257 and ciphertext modulus is `257 * 2^48`.
+the canonical `bounded.v1` class. It evaluates a tape instruction by
+instruction; the canonical contract requires the
+[normalizing lowering](#normalizing-lowering) instead. Its ring degree is 64,
+plaintext modulus is 257 and ciphertext modulus is `257 * 2^48`.
 The public backend tags are `bfv-affine-v1` and `bfv-programmed-v1`; they identify
 the evaluator's semantics. Retired `sha3-256` tags are rejected. Exact hash and
 initializer choices are specified by the compiled protocol and profile descriptor.
@@ -101,9 +108,10 @@ security claims documented in the crypto module.
 ## Canonical V1 contract
 
 This section is normative for RAM-LFE roles, leakage, program classes, plaintext
-semantics, commitments and the cleartext reference. Code:
+semantics, the normalizing lowering with its fixed public schedule,
+commitments and the cleartext reference. Code:
 [`iroha_crypto::ram_lfe`](../crates/iroha_crypto/src/ram_lfe.rs) modules
-`class`, `canonical` and `reference`, and
+`class`, `canonical`, `reference` and `normal_form`, and
 [`iroha_data_model::ram_lfe`](../crates/iroha_data_model/src/ram_lfe.rs).
 The sections after it describe the superseded diagnostic backend and the work
 that remains.
@@ -179,8 +187,12 @@ order and time.
 
 Never public: the tape, its instruction count, opcodes, indexes and immediates,
 the output count, the program key, the state lanes, the plaintext input, the
-plaintext output and every refresh point. Evaluation and proof shapes are one
-fixed padded shape per class; a private count never selects a smaller one.
+plaintext output and every refresh point. The
+[normal form](#normalizing-lowering) of the tape is as private as the tape: its
+gates, their kinds, number and order, and every coefficient. Evaluation and
+proof shapes follow one [fixed public schedule](#fixed-public-schedule) for
+each class profile, padded to the class maximum; a private count never selects
+a smaller one.
 
 No commitment confirms a guess. The function, initializer and
 initialized-memory commitments each take the program key or a blinding derived
@@ -197,6 +209,9 @@ What stays linkable, by construction:
 - Reusing one program key for two different functions is not visible: the
   function commitment and the initializer commitment each differ for every
   class and tape.
+- Two function identities with the same class, tape and program key and
+  different query limits show the same function commitment and the same
+  initializer commitment; only the function identity differs.
 - Two policies that commit the same key, profile or relation bytes show the
   same commitment for it.
 - Executions with the same associated data show the same associated-data
@@ -210,6 +225,15 @@ which is less than 513 bits (`2^512 < 257^64 < 2^513`,
 `RAM_LFE_V1_OUTPUT_LEAKAGE_BITS`), to the opener and to the beneficiary that
 receives the opened result. Nothing else about the input, the function or the
 state lanes may reach them.
+
+What they receive is the 64 output slots an
+[opening commits](#commitments): the ordered output followed by zeros. The
+number of outputs the tape emitted is known to the program owner, who holds
+the tape, and an opening conveys it to nobody else. From the 64 scalars the
+opener and the beneficiary can infer only that this number reaches at least
+the last nonzero slot; a trailing zero the tape emitted is indistinguishable
+from padding. Validators and everyone else see the hiding output commitment
+and no scalar.
 
 Oracle leakage: a function identity accepts at most `total` executions on one
 network over its whole life, so accepted executions disclose at most
@@ -351,6 +375,8 @@ selection multiplication, so a condition adds ten and a branch adds one. Rank
 passes through registers and through state lanes. **Rank is not a noise
 budget.** Additions and plaintext multiplications consume noise at constant
 rank; the leveled noise and work plan belongs to the encryption profile.
+[Logical rank and physical noise](#logical-rank-and-physical-noise) states what
+rank does and does not bound.
 
 `refresh.v1` keeps the eleven instructions; there is no refresh opcode. Refresh
 is the identity on plaintext. Its schedule is a function of the tape: when the
@@ -360,7 +386,10 @@ before the instruction executes, and the result rank is recomputed. A register
 that appears twice is refreshed once, and a destination that aliases an operand
 receives the recomputed rank. The schedule is private with the tape and is not
 chosen by the evaluator; the execution relation must constrain it inside the
-padded shape. Adding an encryption of zero is not a refresh.
+padded shape. It is logical accounting: it decides membership and places the
+refresh gates of the normal form, and it is never the physical refresh
+schedule, which the [fixed public schedule](#fixed-public-schedule) fixes for
+the class profile. Adding an encryption of zero is not a refresh.
 
 The declared class is part of the function identity. The same tape and key under
 two classes are two functions, so a proof for one class cannot serve another.
@@ -373,6 +402,346 @@ Candidate shape, recorded before any measurement: 64 input slots, 64 outputs,
 four registers, 32 state lanes, 256 instructions, rank 16, 64 refreshes. Any
 measurement names this shape. A changed bound changes the descriptor and every
 function identity, and the affected measurements are repeated.
+
+### Logical rank and physical noise
+
+**Logical rank bounds ciphertext multiplication depth, not physical noise.**
+The rank rules of the descriptor count the dependency depth of ciphertext
+multiplications and nothing else. Rank does not count:
+
+- **Plaintext operations.** `Add`, `AddPlain`, `SubPlain` and `MulPlain` leave
+  rank unchanged and each grows the noise of a ciphertext. One multiplication
+  by a hidden constant multiplies a worst-case noise bound by up to
+  `(257 - 1) / 2 = 128`, seven bits, at constant rank, and every class admits
+  a run of 254 of them on one loaded input at rank 0.
+- **The number of ciphertext multiplications.** Rank 16 does not mean at most
+  sixteen multiplication operations. A `bounded.v1` tape of 255 independent
+  `SelectEqZero` instructions has rank 10 and 2,550 ciphertext
+  multiplications; one of 255 independent `Mul` instructions has rank 1.
+- **Everything else an encrypted evaluation does**: key switches, modulus
+  switches, masks, broadcasts, output zeroing, sanitization and refresh.
+
+Rank therefore decides class membership. It decides no level, no modulus chain
+and no failure probability, and the limit 16 is a recorded candidate, not a
+property of any encryption profile.
+
+**Instruction-by-instruction evaluation of the existing candidates does not
+hold the maximum shape.** The
+[RNS-BGV cost model](ram_lfe_encryption_replacement.md#rns-bgv-starting-candidate)
+of delivery-plan task C.3 lowers every tape instruction onto the scheme by
+itself, with a lazy level policy and exact worst-case bounds, and plans nine
+tape families of the [candidate shape](#program-classes) on its three starting
+candidates. No candidate holds every family planned for it:
+
+<!-- ram-lfe-maximum-shape-need -->
+| Class | Candidate | Main primes in the candidate | Main primes every planned family would need |
+| --- | --- | ---: | ---: |
+| `affine.v1` | `bgv.f257.n14.q6x50.p2x60` | 6 | 38 |
+| `bounded.v1` | `bgv.f257.n16.q22x50.p2x60` | 22 | 52 |
+| `refresh.v1` | `bgv.f257.n16.q32x50.p2x60` | 32 | 52 |
+
+The families each candidate refuses, with the instruction at which the plan
+runs out of modulus. Every one of them is a member of the candidate's class,
+and each contains a long run of constant multiplications:
+
+<!-- ram-lfe-maximum-shape-counterexamples -->
+| Candidate | Family | Logical rank | Refused at instruction | Main primes the family needs |
+| --- | --- | ---: | ---: | ---: |
+| `bgv.f257.n14.q6x50.p2x60` | `affine.scale_chain` | 0 | 36 | 38 |
+| `bgv.f257.n14.q6x50.p2x60` | `affine.scale_then_outputs` | 0 | 36 | 29 |
+| `bgv.f257.n16.q22x50.p2x60` | `affine.scale_chain` | 0 | 147 | 38 |
+| `bgv.f257.n16.q22x50.p2x60` | `affine.scale_then_outputs` | 0 | 147 | 29 |
+| `bgv.f257.n16.q22x50.p2x60` | `bounded.scaled_rank_chain` | 16 | 147 | 52 |
+| `bgv.f257.n16.q32x50.p2x60` | `affine.scale_chain` | 0 | 217 | 38 |
+| `bgv.f257.n16.q32x50.p2x60` | `bounded.scaled_rank_chain` | 16 | 217 | 52 |
+
+`affine.scale_chain` is one input load, 254 sequential constant
+multiplications and one output; `affine.scale_then_outputs` is 191 of them and
+64 outputs; `bounded.scaled_rank_chain` is 238 of them below sixteen squarings.
+The longest run of constant multiplications each candidate holds beside 64
+outputs, after a chain of the given rank, against the longest run the class
+admits there:
+
+<!-- ram-lfe-plaintext-run-limits -->
+| Candidate | After rank 0 | After rank 10 | After rank 16 |
+| --- | ---: | ---: | ---: |
+| `bgv.f257.n14.q6x50.p2x60` | 30 of 191 | not admitted | not admitted |
+| `bgv.f257.n16.q22x50.p2x60` | 142 of 191 | 70 of 181 | 28 of 175 |
+| `bgv.f257.n16.q32x50.p2x60` | 191 of 191 | 140 of 181 | 98 of 175 |
+
+A test compares the three tables with the recorded
+[cost summary](fhe_bgv_cost_summary.json); a change of the summary changes
+them in the same change. The numbers are worst-case plans of
+a costing harness. They are counterexamples, not a qualification. The
+candidates are unqualified. What is estimated about their security, and what
+is not, is recorded with the
+[candidates](ram_lfe_encryption_replacement.md#rns-bgv-starting-candidate);
+meeting a security target and holding a class are separate conditions, and no
+estimate repairs the class fit.
+
+The contract does not answer this by enlarging a modulus chain, and it adds no
+plaintext-depth limit to a class: the admitted tapes, the class rules, the
+descriptor and every function identity stay as they are. It answers it by the
+lowering below.
+
+### Normalizing lowering
+
+A V1 tape is never evaluated on ciphertexts instruction by instruction. It is
+evaluated through its **normal form**, by a **normalizing lowering** that is
+proved to preserve the cleartext reference. The lowering is mandatory for all
+three classes.
+
+It changes no canonical type. The function identity commits the tape, the
+class is decided on the tape by `RamLfeClassV1::membership`, and the
+plaintext-semantics descriptor is the one above. A normal form has no
+canonical encoding and enters no commitment.
+
+**Normal form.** An execution has these columns:
+
+| Columns | Value |
+| --- | --- |
+| 0 | The constant one. |
+| 1 to 64 | The 64 input slots. |
+| 65 to 96 | The 32 lanes the execution was initialized with. |
+| 97 + g | The result of gate g, in gate order. |
+
+An **affine form** is one coefficient of F257 for each column, reduced to
+`0..=256`. Its value is the sum of coefficient times column value modulo 257.
+A **gate** takes affine forms over the columns before it and adds one column:
+
+<!-- ram-lfe-v1-normal-gates -->
+| Gate | Operand forms | Result | Ciphertext multiplications |
+| --- | --- | --- | ---: |
+| `Mul` | lhs, rhs | `lhs * rhs` | 1 |
+| `SelectEqZero` | cond, zero, nonzero | `nonzero + (1 - cond^256) * (zero - nonzero)`, the expansion of the descriptor | 10 |
+| `Refresh` | operand | The operand. It is the identity on plaintext. | 0 |
+
+An **output** is an affine form. A normal form is its gates in order and its
+1 to 64 outputs in order.
+
+**Normalization** is a deterministic function of the tape and its class
+accounting. Each register and each lane holds an affine form: a register
+starts as the zero form and lane `l` as column `65 + l`. The instructions are
+taken in tape order, each by the role of its opcode:
+
+<!-- ram-lfe-v1-normal-roles -->
+| Opcode | Role | Effect on the forms |
+| --- | --- | --- |
+| `LoadInput` | folded | The destination becomes the column of the input slot. |
+| `LoadState` | folded | The destination becomes the form the lane holds. |
+| `StoreState` | folded | The lane becomes the form the source holds. |
+| `LoadConst` | folded | The destination becomes the constant form of the immediate. |
+| `Add` | folded | The destination becomes the sum of the two forms, column by column. |
+| `AddPlain` | folded | The destination becomes the source form with the immediate added to its constant coefficient. |
+| `SubPlain` | folded | The destination becomes the source form with the immediate subtracted from its constant coefficient. |
+| `MulPlain` | folded | The destination becomes the source form with every coefficient multiplied by the immediate. |
+| `Mul` | boundary | One `Mul` gate over the forms of both sources. The destination becomes the gate's column. |
+| `SelectEqZero` | boundary | One `SelectEqZero` gate over the forms of the three sources. The destination becomes the gate's column. |
+| `Output` | snapshot | The form the source holds is appended to the outputs. |
+
+A **folded** instruction leaves no operation of its own: a run of any number
+of them between two boundaries becomes the coefficients of the forms that read
+it. Every coefficient is computed exactly in F257 and is reduced before any
+encrypted evaluation, which multiplies by its centered representative of
+magnitude at most 128.
+
+The lowering must preserve:
+
+- **State updates.** `StoreState` and `LoadState` are resolved in tape order.
+  A lane holds the form that was stored, not what the source register became
+  afterwards, and a later store replaces an earlier one. The forms refer only
+  to the columns of this execution, so nothing reaches another execution.
+- **Output snapshots.** An output is the form its register held when its
+  `Output` executed. A later write to the register does not change it. The
+  outputs keep their order and their count.
+- **Aliasing.** Every source is read before the destination is written, as in
+  the reference. A destination may be any of its sources and a source may be
+  named more than once.
+- **Nonlinear boundaries.** Every `Mul` and every `SelectEqZero` stays exactly
+  one gate, in tape order, with the formula of the descriptor. No gate is
+  merged, split, reordered, replaced by a cheaper one or removed. That holds
+  for a gate whose operands are constants, for one whose operands folded to
+  zero and for one whose result nothing reads.
+- **Refresh points.** For `refresh.v1`, every point of the canonical schedule
+  is one `Refresh` gate over the form of the scheduled register, placed
+  immediately before the instruction that required it. The register then holds
+  the gate's column. Another register or lane that holds the same form is not
+  refreshed.
+
+What the lowering removes is what need not survive: the instruction count,
+which folded opcodes a run used, which registers and lanes carried a value,
+and the number, length and placement of plaintext runs. Plaintext runs that
+give the same forms leave no trace: two tapes whose gates have the same kinds
+and the same operand forms, in order, and whose output forms are equal have
+one normal form, whatever instructions produced those forms.
+
+**A normal form is not canonical for the function a tape computes.** Two tapes
+that compute one function can have different normal forms:
+
+- A scaling moved across a gate stays in the coefficients.
+  `LoadInput(0,1); Mul(1,0,0); Output(1)` and
+  `LoadInput(0,1); MulPlain(0,0,2); Mul(1,0,0); MulPlain(1,1,193); Output(1)`
+  both output the square of input slot 1, because `2 * 2 * 193` is 1 modulo
+  257. The operand forms of the first carry the coefficient 1 and its output
+  form the coefficient 1; those of the second carry 2 and 193.
+- A nonzero scaling of a `SelectEqZero` condition selects the same branch and
+  stays in the condition form.
+- A gate nothing reads and a gate over constants stay gates.
+
+Nothing may therefore rest on equal functions having equal normal forms. What
+an evaluated ciphertext discloses about the coefficients is bounded by the
+sanitization of `NL-L7` and by nothing in the lowering.
+
+**Depth.** The multiplication depth of a column is zero for the constant, an
+input slot, a lane and a `Refresh` gate. The depth of a form is the highest
+depth of a column with a nonzero coefficient. A `Mul` gate has the higher
+depth of its two forms plus one; a `SelectEqZero` gate has the highest of the
+condition plus ten and each branch plus one. The depth of a normal form is at
+most the logical rank of its tape, and can be lower when a coefficient folds
+to zero. The class is decided on the tape and never on the normal form: a tape
+outside its class is refused even when its normal form would be shallower.
+
+**Shape.** The largest normal form of a class is a function of the class
+alone. Every member tape normalizes within it, and every bound is reached by a
+member tape.
+
+<!-- ram-lfe-v1-normal-shape -->
+| Class | `Mul` and `SelectEqZero` gates | `Refresh` gates | Outputs | Columns | Depth | Ciphertext multiplications |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `affine.v1` | 0 | 0 | 64 | 97 | 0 | 0 |
+| `bounded.v1` | 255 | 0 | 64 | 352 | 16 | 2,550 |
+| `refresh.v1` | 255 | 64 | 64 | 416 | 16 | 2,550 |
+
+The depth of `refresh.v1` is the depth between two refreshes. The last column
+counts every gate as a `SelectEqZero`, which is what hiding a gate's kind
+costs when gates are evaluated one by one.
+
+**The bounds are reached together, except the outputs.** One member tape of
+255 `SelectEqZero` instructions and one output reaches every other bound of
+its class at once: for `refresh.v1` 255 nonlinear gates, 64 refreshes, 416
+columns, depth 16 and 2,550 ciphertext multiplications, and for `bounded.v1`
+255 nonlinear gates, 352 columns, depth 16 and 2,550 ciphertext
+multiplications. Only the output bound and the gate bound exclude each other,
+because an output and a nonlinear gate are one instruction each and a tape has
+at most 256: a tape with 64 outputs has at most 192 nonlinear gates, and it
+still reaches the refresh and depth bounds. The fixed public schedule provides
+every gate, refresh and output slot whatever the tape uses, so the noise and
+the work to derive are those of all bounds of a row together.
+
+**What this does for noise, and what it does not.** In a normal form a value
+passes through one coefficient on its way from a column to the next gate or to
+an output, however long the plaintext run of the tape was. A form has at most
+416 terms of centered magnitude at most 128. The worst-case noise of a
+normalized evaluation is therefore a function of the class shape and the
+profile, not of the plaintext instructions of a tape. That function is not
+derived. The cost summary
+projects the folded affine map of the affine candidate at 3 main primes; that
+is a projection, not a measurement, and nothing evaluates it. Folding does not
+make the existing candidates adequate: task C.3 derives and measures the
+worst-case noise and work of the complete padded construction, including key
+switches, masking and sanitization.
+
+The evaluator holds the program key, so it knows the lanes of an execution in
+cleartext. It may fold the constant column and the lane columns of a form into
+one constant for that execution. The lanes change with the associated data;
+the normal form does not.
+
+`ram_lfe_reference_normalize_v1` is the plaintext definition of this section
+(see [cleartext reference](#cleartext-reference)). It is a cleartext oracle.
+No encrypted normalizer exists.
+
+### Fixed public schedule
+
+The encrypted evaluation of a normal form follows **one fixed public schedule
+for each class profile**: each pair of a class and an encryption profile that
+a policy can name. The policy's `profile` and `relation` commit it; a prover
+or an evaluator chooses none of it.
+
+- **A function of the public profile only.** The schedule fixes the level of
+  every ciphertext at every step, every ciphertext size, the evaluation keys
+  it requires and their sizes, the number, kind and position of every key
+  switch, modulus switch, ciphertext multiplication, mask and broadcast, the
+  refresh slots, the sequence of operations and of memory and key accesses,
+  the shape and size of the proof and the size of every message.
+- **Padded to the class maximum.** The schedule provides for the largest
+  normal form of the class in the table above. A tape with fewer gates,
+  outputs or refreshes, with shorter forms or with zero coefficients runs the
+  same schedule. No hidden count selects a shorter schedule, a lower level, a
+  smaller ciphertext, a skipped operation or an early exit.
+- **Multiplications are concealed.** The number and the placement of the
+  ciphertext multiplications of a tape are hidden by the padding, and so is
+  the kind of every gate. Rank 16 does not mean at most sixteen multiplication
+  operations: the schedule of `bounded.v1` covers 255 nonlinear gates at
+  depth 16.
+- **Dummy work and hidden routing preserve semantics.** Padding is dummy work
+  (a gate slot no gate of the tape uses, an output slot beyond the output
+  count, a refresh slot without a logical refresh) and hidden routing (which
+  column feeds which slot). Neither changes a column or an output of the
+  normal form, and the unused output slots are zero. Their noise and their
+  work are inside the bound: the worst-case noise bound and the work, memory
+  and proof budgets are those of the complete padded schedule, with every key
+  switch, mask, dummy operation and sanitization step, and never those of one
+  tape.
+- **No visible failure.** Because the bound is that of the padded schedule,
+  every member tape and every well-formed input evaluates within it. An
+  evaluation never fails, is refused, is retried or takes another path because
+  of the tape.
+- **The private refresh accounting stays private.** The lazy schedule of the
+  class accounting (`RamLfeClassReportV1::refresh_points`) is a function of the
+  hidden tape. It decides membership and gives the `Refresh` gates of the
+  normal form. It must not become an observable physical schedule: the
+  physical refresh slots, their number and their positions are fixed by the
+  profile, the logical refreshes are routed into them privately, and an unused
+  slot performs a dummy refresh.
+- **A fixed schedule alone does not establish circuit privacy.** It hides
+  what the shape of the computation would disclose. It does not hide what the
+  evaluated ciphertext carries: its noise depends on the hidden coefficients
+  and on the values routed through it even when every level and size is
+  fixed. Hidden-function privacy against the opener needs the circuit-private
+  evaluation and sanitization of task R.11, established for the normalized
+  evaluation under this schedule.
+
+No class profile has a schedule yet. No profile is selected
+([open question 2](#open-construction-questions)); tasks R.3, R.7 and R.9
+build the schedules of `affine.v1`, `bounded.v1` and `refresh.v1` with the
+bounds of C.3 ([open question 5](#open-construction-questions)).
+
+### Obligations of the normalizing lowering
+
+Each obligation has an owner in the [delivery plan](zk_delivery_plan.md). The
+last column names the tests that check it today. They are tests of the
+cleartext oracle in `iroha_crypto` (`ram_lfe::normal_form`); a test fails when
+a row names a test that does not exist or a task the plan does not have.
+`none` means that nothing checks the obligation yet: it is an obligation of
+the tasks named, not a claim.
+
+The `NL-S` rows are the semantic-equivalence obligations. The execution
+relation must prove them against the cleartext reference: task R.3 for
+`affine.v1`, extended by R.7 to the `Mul` and `SelectEqZero` gates and by R.9
+to the `Refresh` gates. The `NL-L` rows are the leakage obligations that
+follow from the fixed public schedule.
+
+<!-- ram-lfe-normalizing-lowering-obligations -->
+| Id | Obligation | Owner | Checked today by |
+| --- | --- | --- | --- |
+| `NL-S1` | **Reference equality.** For every class, every member tape, every lane vector and every admitted input, the normal form evaluates to the ordered output of the cleartext reference: the same scalars, the same count, the same order. The equality does not depend on admission: it holds for every 64 scalars of F257 in the input slots. | R.0 | `normal_form_equals_the_reference_on_randomized_tapes_of_every_class`, `normal_form_equals_the_reference_on_every_maximum_shape_family`, `every_instruction_may_alias_its_operands` |
+| `NL-S2` | **Machine equality.** The forms the registers and the lanes hold after the last instruction evaluate to the last row of the reference trace, so every state update is resolved exactly. | R.0 | `state_updates_aliasing_and_output_snapshots_are_resolved_exactly`, `normal_form_equals_the_reference_on_randomized_tapes_of_every_class` |
+| `NL-S3` | **Boundaries.** Every `Mul`, every `SelectEqZero` and every scheduled refresh is exactly one gate, in execution order. The ciphertext multiplications of the gates are those of the class accounting, and the depth is at most the logical rank. | R.0 | `nonlinear_instructions_stay_gates_in_tape_order`, `refresh_points_become_identity_gates_of_the_canonical_schedule`, `logical_rank_bounds_the_multiplication_depth_of_the_normal_form` |
+| `NL-S4` | **Class on the tape.** Normalization refuses exactly the tapes class membership refuses, with the same error, and a tape has the same normal form under every class that admits it. | R.0 | `normalization_is_gated_by_the_declared_class`, `normal_form_equals_the_reference_on_every_maximum_shape_family` |
+| `NL-S5` | **Reduced coefficients.** Every coefficient is exact and canonical, and a plaintext run of any length contributes one coefficient for each column. Runs that give the same forms leave no trace; a normal form is not canonical for the function of its tape. | R.0 | `plaintext_runs_fold_into_one_reduced_coefficient`, `plaintext_runs_that_give_the_same_forms_leave_no_trace`, `a_normal_form_is_not_canonical_for_the_function_of_its_tape`, `centered_scalar_is_the_least_magnitude_representative` |
+| `NL-S6` | **Encrypted equality.** The output ciphertext of the encrypted evaluation decrypts to the output of `NL-S1` in the 64 padded output slots, with the unused slots zero, for every member tape up to the maximum shape. Those 64 slots are the vector an opening commits. | R.3, R.7, R.9 | none |
+| `NL-S7` | **Proved, not asserted.** The execution relation proves, for the tape the function commitment commits, that the evaluated normal form is the normalization of that tape and that the tape is a member of the committed class. A normal form supplied as an unconstrained witness is not accepted. | R.3, R.7, R.9 | none |
+| `NL-L1` | **One shape for each class.** Every member tape normalizes within the shape of its class, and every bound of the shape is reached: all of them by one tape, except that 64 outputs leave at most 192 nonlinear gates. | R.0 | `class_shape_is_a_function_of_the_class_and_every_bound_is_reached`, `rank_sixteen_does_not_bound_the_number_of_ciphertext_multiplications` |
+| `NL-L2` | **One schedule for each class profile.** Levels, ciphertext sizes, evaluation keys, key switches, refresh slots and operation, access and proof shapes are identical for every member tape. | R.3, R.7, R.9 | none |
+| `NL-L3` | **Padded bound.** The worst-case physical noise and the work of the complete padded schedule, with dummy work, key switches, masking and sanitization, are derived and measured at the maximum shape. No evaluation of a member tape fails. | C.3, R.3, R.7, R.9 | none |
+| `NL-L4` | **Dummy work and routing.** Dummy operations and hidden routing change no column and no output, and the unused output slots are zero. | R.3, R.7, R.9 | none |
+| `NL-L5` | **Private refresh accounting.** The physical refresh slots are fixed by the profile. The number and the placement of the logical refreshes of a tape are not observable. | R.9 | none |
+| `NL-L6` | **Time and access.** What an observer outside the evaluator can time or measure for one execution does not depend on the tape. Work whose duration depends on the tape, such as normalizing it in cleartext, is not observable for a request. | R.11 | none |
+| `NL-L7` | **Circuit privacy.** The leakage bound of the normalized evaluation under the fixed schedule is established with its sanitization and its maximum-shape physical noise. A fixed schedule is not a substitute. | R.11 | none |
+
+Until the rows without a check are met, no class is usable. This contract
+registers no production policy and makes no security claim for the existing
+candidates.
 
 ### Commitments
 
@@ -408,8 +777,9 @@ bit set. No domain is a prefix of another.
 | Any byte string above | the domain of its role | `RamLfeOpaqueBytesInputV1`: `length`, `digest` |
 
 A byte string is committed through the last row: `length` is a u64 and `digest`
-is the plain Blake2b hash of the bytes. Every byte string except associated data
-must be nonempty. A key commitment covers the public form of its key. The
+is the Iroha Blake2b-256 `Hash` of the bytes, with the low bit of its last byte
+set (`Hash::new`); it is not the unmarked Blake2b output. Every byte string
+except associated data must be nonempty. A key commitment covers the public form of its key. The
 opening and PRF secrets never enter a commitment. Each role has its own type, so
 a commitment cannot be used in another role.
 
@@ -435,7 +805,7 @@ The **program key** is 32 uniformly random bytes. It blinds the tape commitment:
 a digest of the tape alone would let anyone test a guessed program. It also
 seeds the state lanes and the memory blinding. The initializer commitment takes
 the class and the function commitment as well as the key, so it is different
-for every function identity and a program key used for two functions is not
+for every class and tape and a program key used for two functions is not
 visible in it. It takes the function commitment and not the function identity,
 which contains the initializer itself.
 
@@ -491,6 +861,25 @@ blinding binds.
 another policy. Only the receipt's beneficiary may request it
 ([query limit](#query-limit)).
 
+**Opened output.** Every V1 opening commits the 64 decrypted output slots: the
+ordered output of the execution followed by zeros
+(`RamLfeOrderedOutputV1::padded_for_opening`). The ordered-output frame of an
+opening therefore always has `output_count` 64. This is an acceptance rule for
+openings, not an invariant of a type: the frame, the output commitment and the
+ordered-output owner are unchanged and still admit 1 to 64 scalars, and the
+cleartext reference keeps exactly the scalars the tape emitted, in order. The
+opener never holds the tape and cannot tell a trailing zero the tape emitted
+from padding, so it has no other vector to commit. An opening conveys the
+number of outputs the tape emitted to nobody; the program owner, who holds the
+tape, is the only party that knows it. The same 64 slots are what the
+decryption proof binds to the output ciphertext, what the output commitment
+commits and the output component of the identifier-PRF derivation. The hiding
+commitment shows validators no count, so the decryption proof of task R.8
+enforces the rule. A differential check against the cleartext reference
+compares the opened slots with the reference output padded with zeros to 64.
+Tests show the rule on a short output, on trailing zeros the tape emitted and
+on 64 outputs.
+
 A receipt or an opening is a statement, not evidence. The execution relation
 proves the first. Decryption and PRF proofs prove the second. No opener,
 resolver or committee signature over either statement replaces those proofs.
@@ -511,6 +900,49 @@ the field edges, the complete `SelectEqZero` formula for every condition, the
 initializer stream and one full evaluation. One test runs an eleven-opcode tape
 through this reference and through the diagnostic encrypted interpreter on the
 same lanes and compares the decrypted outputs.
+
+`ram_lfe_reference_normalize_v1` is the plaintext definition of the
+[normalizing lowering](#normalizing-lowering). It takes a tape of a declared
+class, refuses what class membership refuses, and returns the private normal
+form (`RamLfeNormalFormV1`). That owner holds the gates with their operand
+forms, the output forms, the forms the registers and lanes hold at the end,
+the multiplication depth and the class accounting.
+`RamLfeNormalFormV1::evaluate` and
+`evaluate_final_state` run it on plaintext. `RamLfeNormalShapeV1::of` is the
+largest normal form of a class and `RamLfeNormalRoleV1::of` the role of an
+opcode. Tests require the normal form to equal the reference exactly, in the
+ordered output and in the final machine: on randomized member tapes of every
+class, a quarter of them at the maximum length of 256 instructions, each on
+admitted inputs and on arbitrary scalars of F257 in the 64 input slots, on the
+nine maximum-shape families of the cost model under every class that admits
+them, and on tapes built for state aliasing, operand aliasing, output
+snapshots, cancelled coefficients, dead gates and refresh points.
+
+The nine families are mirrored in the tests of the oracle from the tape
+builders of the cost model
+(`crates/iroha_fhe/tests/support/machine.rs`, module `families`). One test
+compares their class, instruction count, output count and peak rank, and the
+shape limits, with the recorded [cost summary](fhe_bgv_cost_summary.json).
+Another pins a digest of the code of those builders and of the table that
+names them, so a changed family fails a test of the oracle until the mirror is
+compared again. The summary records no digest of a family tape; recording one
+belongs to task C.3.
+
+The normalizer is a cleartext oracle for the program owner and for tests, like
+the reference. It reads the hidden tape and is not constant time. Its buffers
+are heap allocations of fixed capacity that are cleared when they drop. A
+class refusal is returned before any buffer exists, so the only error returned
+while a buffer holds data is an allocation failure. Tests observe the cleared
+scalars when a form and its evaluations end, when a refused reservation
+returns an error after the refresh schedule and the initial symbolic machine
+of a normalization or the plaintext column values of an evaluation were
+written, and during unwinding. After its last reservation a normalization
+returns no error, so no error is returned while a folded form holds data. No
+encrypted normalizer exists; task R.3 builds it and compares it with this
+oracle.
+
+`RamLfeOrderedOutputV1::padded_for_opening` gives the 64 slots an
+[opening commits](#commitments) for a reference output.
 
 ### Open construction questions
 
@@ -533,10 +965,17 @@ These are not decided by this contract. Each names its owner in the
    from an evaluated ciphertext.
 4. **Client well-formedness (R.11).** The relation and its binding to the input
    commitment are not implemented.
-5. **Padded shapes (R.3, R.11).** The fixed ciphertext, key and proof sizes of
-   each class are not derived.
+5. **Fixed public schedules (C.3, R.3, R.7, R.9, R.11).** No class profile has
+   a [schedule](#fixed-public-schedule). The largest normal form of each class
+   is fixed above. The physical schedule of each class profile is not derived:
+   its levels, its ciphertext, key and proof sizes, its key switches and
+   refresh slots, how a gate slot hides the kind of its gate, how values are
+   routed, and its worst-case noise and work bound.
 6. **Opening and PRF (R.8).** The public opening material, the PRF, the carrier
    of the derived identifier and any expiry of the opening itself are not chosen.
+   What an opening commits is decided: the 64 padded output slots
+   ([Commitments](#commitments)), which the decryption proof, the output
+   commitment and the output component of the PRF derivation all bind.
 7. **Query-limit enforcement (R.8, R.11, R.12).** The limit, its scope and its
    counting rule are specified [above](#query-limit). Where State keeps the
    per-identity and per-beneficiary counts and the set of opened receipts, and
@@ -544,17 +983,454 @@ These are not decided by this contract. Each names its owner in the
    are decided where they are enforced.
 8. **Refresh (R.9, C.8).** The refresh algorithm does not exist. The rank limit
    16 and the count 64 are candidates to be derived again from a noise model.
+   How the private logical refreshes of a tape are routed into refresh slots
+   the profile fixes is part of that work.
 9. **Threshold opening (R.10).** What the opening-key commitment covers for a
    committee and its epochs is not specified.
 10. **Receipt consumers (R.12, R.4).** The time source for expiry, the replay
     set and whether two replay scopes suffice are decided where the receipt is
     consumed.
+11. **Proof of the normalizing lowering (R.3, R.7, R.9).** Whether the relation
+    constrains normalization step by step or proves equality with the
+    reference another way, and how it binds the normal form to the committed
+    tape, is not chosen. The cleartext oracle fixes what must be proved.
+12. **Whether folding suffices (C.3).** Folding removes the growth of
+    plaintext runs. Whether a candidate of this kind holds the padded maximum
+    shape of each class after folding, with key switches, masking and
+    sanitization, is not known; the only figure is a projection for the
+    affine map. A candidate that does not hold it is replaced by construction
+    work. No class becomes optional and no limit is added to a class.
+
+## Provider-backed phone control
+
+Status: the records, commitments and verification rules of this section are
+implemented as types and tests, in
+[`iroha_crypto::ram_lfe`](../crates/iroha_crypto/src/ram_lfe/phone_control.rs)
+(number commitment, provider key identity, signature rule) and
+[`iroha_data_model::phone_control`](../crates/iroha_data_model/src/phone_control.rs)
+(challenge, credential, provider policy). No Core, Torii or SDK path consumes
+them. The phone path of the
+[current-path inventory](#current-implementation-and-trust-boundary) is
+unchanged: it still names the pinned canonicality attestor and still refuses.
+The private relation is task R.2, State enforcement and the removal of the
+attestor are task R.4, and the one-call flow is task R.5 of the
+[delivery plan](zk_delivery_plan.md). Until R.2 and R.4 exist a phone claim
+stays refused.
+
+### What control evidence is
+
+A phone claim binds a number to an account, and a payment addressed to the
+number then reaches that account. Three facts are separate, and evidence for
+one establishes none of the others:
+
+| Fact | Established by |
+| --- | --- |
+| The encrypted input is one canonical E.164 number. | The private relation over the input ciphertext (R.2). |
+| No other live binding holds the number. | The keyed nullifier and the exclusive live binding in State (R.2, R.4). |
+| The claimant controls the number. | A provider credential, specified here. |
+
+Canonical format and uniqueness do not show control. Anyone who knows a number
+can encrypt it in canonical form, and without control evidence the first such
+claim would take the number. A phone claim without valid control evidence is
+rejected.
+
+The user selected verification-provider credentials as the control evidence.
+The evidence is checked by rule against committed State. No reviewer approves a
+claim, and the canonicality attestor is neither kept nor brought back as a
+gate: a signature that says "this ciphertext holds a canonical number" is not
+evidence of control and is not part of this contract.
+
+A credential replaces no proof of the
+[canonical V1 contract](#canonical-v1-contract). Execution, decryption and
+identifier derivation are still proven, and no provider signature stands in
+for any of them. The credential is not proven inside a relation either:
+validators verify the provider signature directly, and the relation of R.2
+proves what the signature cannot say, namely that the committed number is the
+encrypted input.
+
+### Flow
+
+1. The client normalizes the number to canonical E.164, draws a fresh blinding
+   and computes the [number commitment](#number-commitment).
+2. Over the provider's authenticated and confidential channel the client sends
+   the number, the blinding, a fresh client nonce and the values the credential
+   will be bound to: network, identifier namespace, policy commitment and
+   beneficiary account.
+3. The provider recomputes the commitment from the number and the blinding. It
+   adds a fresh provider nonce and a fixed expiry. This fixes the challenge
+   record. Only then does it send a one-time code to the number by SMS, or ask
+   the carrier.
+4. When the claimant answers correctly in time, the provider signs one
+   credential for exactly that challenge record.
+5. The client presents the challenge record and the signed credential with its
+   claim, together with the private proof of R.2.
+
+The provider learns the number, the blinding, the beneficiary account, the
+network and the namespace. It sees no ciphertext, no receipt and no
+nullifier, and it does not hold the identifier PRF secret. Validators, the
+evaluator and the ledger see the commitment and never the number. The opener
+can decrypt the input, as the [roles](#roles-and-collusion) already state.
+
+A presented credential is public. It shows that this provider confirmed, at
+this time, that this account controls some number. It does not show which.
+
+### Number commitment
+
+The credential carries a hiding commitment to the number so that the relation
+of R.2 can tie the credential to the encrypted input without disclosing the
+number. The relation recomputes the commitment, so the digest is the hash the
+shared proof backend computes in its own field, as the
+[primitive decision rule](zk_primitive_workloads.json) requires for a digest
+that is recomputed inside a relation.
+
+The commitment is the six-lane digest `GoldilocksDigest384V1` of `fastpq_isi`
+over one typed frame (`GoldilocksDigest384FrameV1`):
+
+<!-- phone-control-number-commitment -->
+| Frame part | Value |
+| --- | --- |
+| catalog | `iroha-privacy-exact12-v1` (`FASTPQ_CATALOG_V1`) |
+| protocol | `iroha.ram_lfe.v1.phone_control` |
+| profile | `goldilocks-digest384-v1`, the label of the digest identity |
+| role | `number-commitment` |
+| phase | empty |
+| level, index, counter | 0 |
+| field 0 | 16 bytes: the canonical E.164 ASCII bytes, zero-padded on the right |
+| field 1 | 32 bytes: the blinding |
+
+- **Number field.** Canonical E.164 is `+`, a nonzero digit and one to
+  fourteen more digits: 3 to 16 bytes. It contains no zero byte, so the padding
+  is unambiguous. The field is exactly RAM-LFE input slots `1..=16` of the
+  canonical input; slot 0 holds the length and every later slot is zero. The
+  set of admitted numbers is the set the keyed nullifier derivation admits; a
+  test compares the two.
+- **Blinding.** 32 bytes from the client's cryptographic random source, fresh
+  for every challenge and never reused. A phone number has at most fifty bits
+  of entropy, so an unblinded digest would let anyone test a guess. Two
+  commitments to one number under two blindings are unrelated, so credentials
+  do not link claims. The keyed nullifier links them, inside State and without
+  the number, and it is derived from the canonical unpadded number alone, never
+  from the blinding.
+- **Value.** 48 bytes: six little-endian Goldilocks words in lane order. Every
+  decoder rejects a word at or above the field modulus and never reduces one.
+  The provider signs the digest identity and all 48 bytes.
+- **Witnesses.** The number and the blinding live in clearing heap owners at
+  the client and at the provider, and the digest clears its scratch.
+
+The number `+15551234567` under a blinding of 32 bytes `0x42` commits to
+`087ebe46155a3b3b006b68ed8dbe85eba1758ea13d0765454ca2c591d86ecf8b0f34b3a95ef9eee079e95cf27e3d1c43`.
+
+The digest is **unqualified**. The
+[digest security record](fastpq_compact_digest_security.md) establishes no
+collision, preimage or hiding bound for the six-lane construction. Binding of
+the commitment needs its collision resistance. Hiding needs it to behave as a
+random function of the blinding. Neither is established, and this contract
+does not claim them.
+
+The choice depends on the profile freeze of task H.2, which selects the
+in-relation digest of the shared backend. The commitment therefore carries a
+typed digest identity, `PhoneNumberCommitmentDigestV1`. Exactly one identity is
+implemented, and a decoder rejects every other tag. If H.2 selects another
+digest, it replaces this identity, the frame above and the pinned vector
+together. Two identities are never accepted side by side.
+
+What the relation of R.2 must prove about the commitment. None of it is
+implemented:
+
+- It knows a number field and a blinding whose exact framed digest is the six
+  signed words, which are public inputs.
+- The number field equals input slots `1..=16` of the plaintext of the
+  receipt's input ciphertext. Slot 0 is the length of the number. The bytes
+  are `+`, a nonzero digit and one to fourteen more digits. Every slot after
+  the number is zero.
+- The keyed nullifier is derived from the same canonical unpadded number under
+  the registered PRF key.
+
+A verified credential says nothing about a ciphertext until that relation
+exists.
+
+### Records and frames
+
+Every commitment and the signed message is one fixed domain followed by one
+canonical Norito frame (`norito::encode_canonical`) of a named record, as in
+the [commitments](#commitments) of the V1 contract. Field order is the order
+listed, and tests compare each row with the definition in code. No domain of
+this table or of the V1 tables is a prefix of another.
+
+| Value | Domain | Frame fields, in order |
+| --- | --- | --- |
+| Number commitment | the typed frame above | `PhoneNumberCommitmentV1`: `digest`, `value` |
+| Provider key identity `PhoneControlProviderKeyIdV1` | `iroha.ram_lfe.v1.phone_control.provider_key` | `PhoneControlProviderKeyInputV1`: `algorithm`, `public_key` |
+| Provider policy commitment `PhoneControlProviderPolicyCommitmentV1` | `iroha.ram_lfe.v1.phone_control.provider_policy` | `PhoneControlProviderPolicyV1`: `identifier_policy`, `max_credential_lifetime_ms`, `max_binding_lifetime_ms`, `longer_credentials_expire_by_ms`, `keys` |
+| Provider key, inside the provider policy | none of its own | `PhoneControlProviderKeyV1`: `public_key`, `active_from_ms`, `state` |
+| Challenge identity `PhoneControlChallengeIdV1` | `iroha.ram_lfe.v1.phone_control.challenge` | `PhoneControlChallengeV1`: `provider`, `network`, `identifier_policy`, `policy`, `beneficiary`, `number`, `client_nonce`, `provider_nonce`, `expires_at_ms` |
+| Message the provider signs | `iroha.ram_lfe.v1.phone_control.credential` | `PhoneControlCredentialV1`: `provider`, `network`, `identifier_policy`, `policy`, `beneficiary`, `challenge`, `number`, `issued_at_ms`, `expires_at_ms` |
+| Signed credential | none of its own | `PhoneControlSignedCredentialV1`: `credential`, `signature` |
+| Control evidence of one claim | none of its own | `PhoneControlEvidenceV1`: `challenge`, `credential` |
+
+The provider key identity commits the algorithm tag and the public key bytes.
+The three identities and the policy commitment are Iroha Blake2b-256 `Hash`
+values. The signature is over the domain bytes followed by the frame, not over
+a digest of them.
+
+### What the credential binds
+
+| Field | Binds | A validator compares it with |
+| --- | --- | --- |
+| `provider` | The provider key, by the commitment to its algorithm-tagged public key. | A key of the committed provider policy of the namespace. |
+| `network` | The genesis-derived `NetworkId`. | Its own network. |
+| `identifier_policy` | The identifier namespace the claim is made in. | The namespace of the claim. State resolves the program of that namespace, and the receipt must name that program. |
+| `policy` | The commitment to the complete RAM-LFE policy: function identity, profile, every key and the relation. | The policy State holds for the program of the namespace, which is also the policy of the receipt. |
+| `beneficiary` | The `AccountId` that showed control and receives the binding. | The account the claim binds, which is also the beneficiary of the receipt. |
+| `challenge` | The identity of the challenge record. It is the nonce. | The presented challenge record. State consumes it once. |
+| `number` | The number commitment: digest identity and 48 bytes. | The public input of the relation of R.2. |
+| `issued_at_ms`, `expires_at_ms` | The validity interval, in milliseconds since the Unix epoch. | Consensus time, the committed lifetime bounds and the lifecycle of the key. |
+
+The challenge record binds the provider key, network, namespace, policy,
+beneficiary, number commitment and expiry again, with the client nonce and the
+provider nonce. The credential must repeat each shared field exactly, and its
+expiry must equal the expiry of the record.
+
+Changing any bound field invalidates the evidence. Tests substitute each field
+in the credential, in the challenge record and in the authoritative context at
+once, so that only the provider signature still names the original value, and
+verification fails on the signature. The same substituted statement is
+admitted once the named provider really signs it.
+
+Rotation of the encryption key changes the policy commitment. An outstanding
+credential then matches no policy, and the client repeats the challenge.
+
+Provider keys are Ed25519 or ML-DSA-65. No other algorithm is admitted.
+Verification is strict for the algorithm of the key. An Ed25519 signature must
+have a canonical `R` in the prime-order subgroup and satisfy the cofactorless
+equation, so a second signature that only an unchecked verifier accepts is
+rejected. An ML-DSA-65 signature must have the exact detached length. A
+provider uses a dedicated key for credentials.
+
+### Validity, replay and expiry
+
+`now_ms` is the consensus time of the block that admits the claim. It comes
+from committed State and never from the clock of a node. The source is
+selected with [open question 10](#open-construction-questions).
+
+- **Interval.** A credential is admissible while
+  `issued_at_ms <= now_ms < expires_at_ms`. The expiry is exclusive: the
+  credential is admitted at `expires_at_ms - 1` and rejected at
+  `expires_at_ms`. There is no skew allowance. A provider whose clock runs
+  ahead issues credentials that become admissible later, and one whose clock
+  runs behind issues credentials that expire sooner.
+- **Lifetime.** The interval is not empty, and
+  `expires_at_ms - issued_at_ms <= max_credential_lifetime_ms`, the bound the
+  provider policy commits. "Short-lived" means bounded by that committed
+  value. The contract fixes no number of minutes.
+- **Binding bound.** A binding never outlives its credential. The credential
+  and the provider policy bound the binding by the earlier of `expires_at_ms`
+  and `issued_at_ms + max_binding_lifetime_ms`, counted from the issue time
+  and not from the admission. The policy keeps
+  `max_binding_lifetime_ms <= max_credential_lifetime_ms`, because a larger
+  value could never apply. The committed credential lifetime is therefore also
+  the longest time a number stays bound without fresh control.
+- **Earliest applicable expiry.** The expiry of a binding is the earliest of
+  that bound and the expiry of everything else the binding rests on: the
+  receipt, the opening, the keys and the policy. No bound extends another. The
+  result must be strictly after the admission time, or the claim is rejected;
+  in particular a credential admits nothing once
+  `now_ms >= issued_at_ms + max_binding_lifetime_ms`.
+- **Renewal.** The same account renews with a fresh challenge and a fresh
+  credential. A renewal replaces the expiry with the earliest bound of the new
+  evidence, also when that is earlier, and replaces the provider key and the
+  admission time kept for [revocation](#provider-policy-in-committed-state).
+
+Challenge replay is prevented in two places.
+
+At the provider, which validators cannot observe and which is part of the
+[trust in the provider](#issuer-compromise): the one-time code is bound to one
+challenge record, is accepted once, has a short answer deadline and a bounded
+number of attempts, and the provider nonce is fresh.
+
+On the ledger, by rule:
+
+- State consumes `(network, challenge)` in the same atomic transition that
+  admits the claim. A second claim with the same challenge is rejected,
+  whoever submits it and whichever credential it carries. A rejected
+  transaction consumes nothing.
+- A credential cannot move to another beneficiary, network, namespace or
+  policy: each is signed, and each is committed by the challenge identity.
+- A party that copies a presented credential cannot use it. The challenge is
+  consumed, and the party knows neither the number nor the blinding the
+  relation of R.2 needs.
+- State may forget a consumed challenge from its recorded expiry on. The
+  recorded value is the expiry of the credential and not the bound of the
+  binding, which may be earlier: until the credential expiry the provider can
+  sign a second credential for the same record, and only the entry rejects
+  it. The expiry is a field of the challenge record and the credential must
+  repeat it, so one challenge identity has one expiry for ever. After the
+  entry is pruned, every credential that names the challenge is expired, and
+  the same challenge cannot return with a later expiry.
+
+### Provider policy in committed State
+
+`PhoneControlProviderPolicyV1` is the provider trust policy of one identifier
+namespace. Validators take every field from committed State. A claimant and a
+provider supply none. The owner of the identifier policy registers it and
+changes it through authorized State transitions (R.4), and only through the
+transitions listed below. Each takes the consensus time of the block that
+applies it where its rule depends on time, and the rules assume that this time
+never decreases. It holds at most 32 keys, in every state.
+
+<!-- phone-control-provider-key-lifecycle -->
+| State | A credential under the key is issued with | Existing bindings |
+| --- | --- | --- |
+| `Active` | `active_from_ms <= issued_at_ms` | Unaffected. |
+| `Retired` from `retired_from_ms` | `active_from_ms <= issued_at_ms < retired_from_ms` | Unaffected. Retirement is an issuance boundary. A credential issued earlier stays admissible until it expires. |
+| `Revoked` with `compromised_from_ms` | Nothing. Every credential under the key is rejected, whatever its issue time. | A binding is evicted when the credential that supports it was admitted at ledger time `>= compromised_from_ms`. |
+
+`active_from_ms` is kept in every state. Every key transition narrows what is
+admitted. None makes a rejected credential admissible, and none restores an
+evicted binding:
+
+- **Registration.** A key is trusted from its registration on:
+  `active_from_ms` is not earlier than the consensus time of the registering
+  transition. An identity that is present in any state is not registered
+  again.
+- **Rotation.** The owner registers the new key and retires the old one. Both
+  may be active for an overlap. A retirement is never backdated:
+  `retired_from_ms` is not earlier than the consensus time of the retiring
+  transition. A retired key may only retire earlier, and again not earlier
+  than the time of that transition, so a retirement whose instant has arrived
+  is final. Every credential admitted under a retired key was therefore issued
+  at or before `retired_from_ms`. A key that may have signed without the
+  consent of its provider in the past is not retired into the past. It is
+  revoked.
+- **Revocation.** It is terminal for the key identity. A compromised key can
+  backdate `issued_at_ms`, so the issue time decides nothing: every credential
+  under the key is rejected, and eviction uses the ledger time at which the
+  supporting credential was admitted, which the key cannot forge. For a
+  renewed binding that is the admission of the latest renewal. When the onset
+  of a compromise is unknown, the cutoff is conservative and covers every
+  admission the compromise may affect. A cutoff may lie in the past and may
+  only move earlier.
+- **Removal.** A retired key is removed once
+  `now_ms >= max(retired_from_ms + max_credential_lifetime_ms, longer_credentials_expire_by_ms)`.
+  Every credential admitted under it was issued at or before
+  `retired_from_ms` and lives at most the credential lifetime it was admitted
+  under. Its expiry is exclusive, so it has expired at that instant, and so
+  has every binding, because no binding outlives its credential. Until then
+  the record exists, so the key of a live binding can always be revoked. A
+  revoked key is never removed.
+- **Lifetimes.** `set_lifetimes` is the only change of
+  `max_credential_lifetime_ms` and `max_binding_lifetime_ms` after the policy
+  is registered. The new bounds apply to every later admission, and a raised
+  bound admits credentials the lower one refused. A binding that exists keeps
+  the expiry it was admitted with. When the credential lifetime is lowered at
+  consensus time `now_ms`, every credential admitted under the previous value
+  expires at or before `now_ms` plus that value. The policy keeps the latest
+  such instant in `longer_credentials_expire_by_ms`, which is zero until the
+  first lowering, so that the lower value never shortens the wait before a
+  removal. A lowering whose instant overflows is rejected. Raising a lifetime
+  and any change of the binding lifetime record nothing.
+- **Capacity.** A retired key frees its slot when it is removed. A revoked key
+  never does, because its identity must stay known to stay untrusted. Each
+  revocation therefore takes one of the 32 slots for good.
+  After 32 revocations every slot holds a revoked key: the namespace can
+  register no key and admits no claim, and its remaining bindings run to
+  their expiry. This contract defines no way back. Whether State may replace
+  the provider policy of a namespace is decided by R.4, and a replacement must
+  not silently trust a revoked identity again.
+
+The rules that reach State are functions of the records
+(`PhoneControlEvidenceV1::verify`, `PhoneControlAdmissionV1::consume_challenge`
+and `earliest_expiry_ms`, `PhoneControlProviderKeyV1::evicts_binding`, and the
+key and lifetime transitions of the policy). Each takes the persisted value
+and returns the next value or an error, and tests exercise each at its
+boundary. One test runs every order and schedule of an admission, retirements
+and lifetime changes over a small range of instants and checks that no key is
+removable while a credential admitted under it is live. Where State keeps the
+provider policy, the consumed challenges and the key and admission time of
+each binding is decided by R.4. The record does not enforce that State uses
+the transitions and passes consensus time. That is part of R.4.
+
+### Number recycling and reassignment
+
+Carriers reassign numbers. A binding is evidence about the past: it shows who
+controlled the number at `issued_at_ms`.
+
+- **A live binding stays exclusive.** Newer control evidence from another
+  account does not evict it. The claim of the other account is rejected until
+  the binding expires or is revoked.
+- **Bounded expiry.** Every binding expires, at the latest
+  `max_binding_lifetime_ms` after its credential was issued. The previous
+  holder of a reassigned number cannot renew, because renewal needs fresh
+  control.
+- **Revocation.** The account that holds the binding, or the owner of the
+  identifier policy on a dispute, ends it early through the existing
+  `RevokeIdentifier` authority.
+- **After expiry or revocation** the number is free. The
+  first valid claim admitted in ledger order takes it. Obtaining a credential
+  reserves nothing, and a former holder has no priority.
+
+Exposure: after a number changes hands, payments addressed to it still reach
+the previous holder until the binding expires or is revoked, for at most the
+remaining life of the binding. The owner of the namespace chooses that window
+with `max_binding_lifetime_ms`. This contract does not shorten it by detecting
+reassignment.
+
+### Issuer compromise
+
+The provider is trusted for one statement: the beneficiary answered a fresh
+challenge sent to the committed number. Nothing on the ledger can check that
+statement. The provider learns the number of every claimant it serves and can
+keep a record of numbers and accounts. The contract does not prevent that.
+
+A party that holds a registered provider key, or a provider that signs without
+a challenge, can issue a credential for any number and any account. With it,
+that party can:
+
+- claim any number that has no live binding, and receive the payments
+  addressed to it, until the binding expires or is revoked;
+- choose `issued_at_ms` freely, also in the past.
+
+It cannot:
+
+- evict a live binding, which stays exclusive;
+- use a credential on another network, namespace, policy or account than the
+  one it signed, or use one challenge twice;
+- forge an execution, decryption or derivation proof. It still has to produce
+  the proofs of a real claim for the number it takes;
+- outlast revocation. Once the key is revoked, every credential under it is
+  rejected and every binding admitted from the cutoff on is evicted.
+
+Exposure runs from the compromise to the revocation and is bounded by the
+bindings admitted in that window. A namespace with several providers is
+exposed to the weakest of them: one key suffices for a claim. The contract has
+no threshold of providers.
+
+### SIM takeover
+
+A party that receives the SMS of a number, through a SIM swap, a ported number,
+an intercepted message or a compromised handset, passes a genuine challenge.
+The provider then issues a genuine credential, and no rule of this contract
+can tell that claim from the claim of the subscriber. With it, that party can
+claim the number when it has no live binding, including the moment a binding
+of the subscriber expires, and then receives the payments addressed to it. The
+subscriber cannot renew while that binding is live.
+
+It cannot evict a live binding of the subscriber. The exposure of a subscriber
+who keeps a binding live is therefore the renewal: whoever controls the SMS
+when the binding has ended can take the number.
+
+Recovery is revocation by the owner of the identifier policy, and expiry. A
+carrier check in place of SMS, where a provider offers one, changes who can
+pass the challenge and not this analysis. Payments already made to a
+fraudulent binding are not undone by revocation.
 
 ## Encryption replacement requirements
 
 The [implementation plan](ram_lfe_encryption_replacement.md) records the current
-rounded-path noise limit, genuine RNS ownership gap, packing constraints and
-ordered implementation steps. Existing arithmetic is not a selected replacement.
+rounded-path noise limit, the RNS-BGV starting candidate that now owns genuine
+RNS arithmetic in `iroha_fhe`, packing constraints and ordered implementation
+steps. Neither the existing BFV arithmetic nor that candidate is a selected
+replacement: no profile is qualified and nothing consumes the candidate.
 
 The replacement must protect both encrypted inputs and the hidden function.
 Ordinary HE input confidentiality does not by itself establish circuit privacy
@@ -604,6 +1480,18 @@ transition, output ordering, and exact BFV modular arithmetic and relinearizatio
 All coefficient, index, quotient, remainder and depth bounds belong in the
 relation. Host-side interpreter checks alone cannot establish these facts.
 
+The relation proves the [normalizing lowering](#normalizing-lowering), not an
+instruction-by-instruction evaluation. For the tape behind the function
+commitment it establishes class membership on the tape, that the evaluated
+normal form is the normalization of that tape, and that the encrypted
+evaluation follows the [fixed public schedule](#fixed-public-schedule) of the
+committed class profile and decrypts, in the 64 padded output slots, to what
+the cleartext reference outputs followed by zeros.
+These are the `NL-S` rows of the
+[obligations](#obligations-of-the-normalizing-lowering). A normal form, a
+routing or a refresh placement supplied as an unconstrained witness is not
+acceptable. The proof has one shape for each class profile.
+
 The canonical hidden program is a validated immutable shared owner. Its sole
 `HiddenRamFheProgramV1` frame contains fixed profile metadata followed by 1..256
 48-byte instruction slots: six little-endian u64 words per instruction, with
@@ -649,10 +1537,12 @@ machine transitions; arbitrary initialized-state witnesses remain unacceptable.
    (delivery plan task C.3). Define the replacement statement, witness and
    bounded derivation; retain canonical Norito encoding without a legacy decoder
    or alternate relation.
-2. Emit an owned, clearing execution trace from the encrypted interpreter and
-   compare it with the cleartext reference, which supplies the independent
-   vectors for all eleven instructions and the maximum shapes. Trace generation
-   alone is not proof completion.
+2. Evaluate through the normalizing lowering under the fixed public schedule
+   of the class profile. Emit an owned, clearing execution trace from the
+   encrypted evaluator and compare it with the cleartext reference and with
+   the cleartext normal form, which supply the independent vectors for all
+   eleven instructions and the maximum shapes. Trace generation alone is not
+   proof completion.
 3. Implement the complete fixed-profile relation over the proof engine selected
    under [open question 1](#open-construction-questions), with a dedicated
    relation identity, canonical key owner and typed verifier. Constrain
@@ -662,7 +1552,12 @@ machine transitions; arbitrary initialized-state witnesses remain unacceptable.
 4. Pass real native positive proofs and direct-witness negatives for altered
    secret/policy/program/parameters/keys, input/output/associated data/receipt,
    omitted or repeated transitions, invalid register or memory access, modular
-   aliases, wrong relinearization and incorrect `SelectEqZero`. Measure maximum
+   aliases, wrong relinearization and incorrect `SelectEqZero`, and for a
+   normal form that is not the normalization of the committed tape, a wrong
+   coefficient, a moved or dropped gate, a wrong routing and a schedule other
+   than the profile's. Demonstrate maximum-shape correctness and the
+   worst-case physical noise of the padded schedule independently of logical
+   rank. Measure maximum
    proof size, prover/verifier work and memory, test error and unwind witness
    erasure, and record every admission limit the relation changes. An
    independent review of soundness and hiding yields findings and repairs; it

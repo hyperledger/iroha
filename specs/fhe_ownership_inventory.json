@@ -27,7 +27,7 @@
  },
  "consumed_by": {
   "C.2": "established the destination: primitives now name crates/iroha_fhe as canonical source; function_assignment records the adapters left in each consumer file",
-  "C.3": "protocol_logic (bfv), test_only_references, primitives, function_assignment",
+  "C.3": "built iroha_fhe::bgv on the shared kernels and added iroha_fhe::natural, ::ntt_plan and ::rns_chain; primitives, protocol_logic (rns_bgv), test_only_references and function_assignment record them. The retained BFV entries are unchanged and are not renamed into the RNS-BGV candidate.",
   "C.5": "primitives, test_only_references and function_assignment for ZK-AMS, protocol_logic (bgv_mkhe), zk_ams_distinct",
   "R.6": "hkdf, current_state, file_groups, generated_consumers"
  },
@@ -50,6 +50,11 @@
    "crate": "crates/iroha_crypto",
    "feature": "bfv-test-fixtures",
    "note": "Enabled only from dev-dependencies; cfg(any(test, feature = \"bfv-test-fixtures\")) therefore counts as test-only."
+  },
+  {
+   "crate": "crates/iroha_fhe",
+   "feature": "bgv-test-fixtures",
+   "note": "Enabled only from the dev-dependencies of iroha_fhe itself; crates/iroha_fhe/tests/bgv_surface.rs fails when another manifest names it. cfg(any(test, feature = \"bgv-test-fixtures\")) therefore counts as test-only."
   }
  ],
  "crates": [
@@ -93,9 +98,10 @@
   "established_by": "C.2",
   "constraints": [
    "Depends on no crate above it in `crates`; iroha_crypto, iroha_zkp_halo2 and iroha_core_privacy depend on it, never the reverse.",
-   "Holds parameter-free arithmetic over slices with typed errors. Schemes, parameters, wire types and codecs, key formats, noise accounting and proofs stay with their protocol owners, which bind parameters and translate errors in thin adapters.",
+   "For the BFV, ZK-AMS, Jindo and Bootle-Lantern consumers it holds parameter-free arithmetic over slices with typed errors; their schemes, parameters, wire types and codecs, key formats, noise accounting and proofs stay with their protocol owners, which bind parameters and translate errors in thin adapters. The one scheme the crate owns is iroha_fhe::bgv (task C.3), the shared RNS-BGV starting candidate; its wire framing, proofs, circuit privacy and policy stay with its consumers.",
    "Scalar code is the semantic reference; the NEON and AVX2 kernels behind the `simd` feature return its words and fall back to it. No Metal or CUDA kernel exists for word-modulus arithmetic yet.",
-   "Extraction preserved each caller's representation, centered reconstruction, branch-free fixed-modulus arithmetic and secret clearing; no wire byte or diagnostic changed."
+   "Extraction preserved each caller's representation, centered reconstruction, branch-free fixed-modulus arithmetic and secret clearing; no wire byte or diagnostic changed.",
+   "Production dependencies are zeroize, thiserror, blake3 and getrandom; the last two serve iroha_fhe::bgv only (coin expansion, profile identities, operating-system entropy). crates/iroha_fhe/tests/bgv_surface.rs fails when the list changes."
   ],
   "modules": {
    "iroha_fhe::modular": "Scalar arithmetic modulo a word-sized modulus, primality and primitive-root search.",
@@ -106,7 +112,11 @@
    "iroha_fhe::rounding": "Explicit centered lifting, scale-and-round, modulus-switch rounding and nearest-integer division.",
    "iroha_fhe::key_switch": "Digit decomposition and the digit/key inner product shared by relinearization, Galois and collective key switching.",
    "iroha_fhe::automorphism": "Coefficient permutation with sign for X -> X^k and its unit powers.",
-   "iroha_fhe::accel": "Accelerated slice kernels (NEON, AVX2), their dispatch and the scalar references they must equal."
+   "iroha_fhe::accel": "Accelerated slice kernels (NEON, AVX2), their dispatch and the scalar references they must equal.",
+   "iroha_fhe::natural": "Arbitrary-precision non-negative integers for public quantities.",
+   "iroha_fhe::ntt_plan": "Precomputed constant-time negacyclic transform of one prime below 2^62.",
+   "iroha_fhe::rns_chain": "Exact mixed-radix basis conversion and congruence-preserving scale-down over chains of any length.",
+   "iroha_fhe::bgv": "The exact modular RNS-BGV scheme shared by RAM-LFE and SoraCloud: profiles, keys, encryption, leveled operations, public noise bounds, slot encodings and the cost model. A starting candidate; nothing consumes it yet."
   }
  },
  "zk_ams_distinct": {
@@ -301,7 +311,7 @@
      "path": "crates/iroha_fhe/src/modular.rs",
      "symbol": "ModularArithmetic::mul",
      "role": "canonical",
-     "callers_exhaustive": true,
+     "callers_exhaustive": false,
      "callers": {
       "crates/iroha_fhe/src/modular.rs": ["ModularArithmetic::pow"],
       "crates/iroha_fhe/src/ntt.rs": ["cyclic_ntt_with", "forward_negacyclic_ntt_with", "inverse_negacyclic_ntt_with", "twist_in_place_with"],
@@ -319,7 +329,7 @@
     {"path": "crates/iroha_fhe/src/modular.rs", "symbol": "WordModulus::modulus", "role": "canonical", "callers_exhaustive": true, "callers": {}},
     {"path": "crates/iroha_fhe/src/modular.rs", "symbol": "WordModulus::add", "role": "canonical", "callers_exhaustive": true, "callers": {}},
     {"path": "crates/iroha_fhe/src/modular.rs", "symbol": "WordModulus::sub", "role": "canonical", "callers_exhaustive": true, "callers": {}},
-    {"path": "crates/iroha_fhe/src/modular.rs", "symbol": "WordModulus::mul", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {"path": "crates/iroha_fhe/src/modular.rs", "symbol": "WordModulus::mul", "role": "canonical", "callers_exhaustive": false, "callers": {}},
     {
      "path": "crates/iroha_fhe/src/modular.rs",
      "symbol": "low_u64_from_u128",
@@ -328,6 +338,7 @@
      "callers": {
       "crates/iroha_fhe/src/constant_time.rs": ["FixedModulus::montgomery_reduce_u128"],
       "crates/iroha_fhe/src/modular.rs": ["add_mod_u64", "mul_mod_u64"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::div_rem_u64", "Natural::from_u128", "Natural::mul", "Natural::mul_u64"],
       "crates/iroha_fhe/src/rns.rs": ["modulus_product_bit_len"]
      }
     },
@@ -397,9 +408,11 @@
        "validate_key_switch_entry_residuals"
       ],
       "crates/iroha_fhe/src/accel.rs": ["mul_mod_assign_scalar", "mul_scalar_mod_scalar"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"],
       "crates/iroha_fhe/src/modular.rs": ["WordModulus::mul", "is_prime_u64", "reduce_be_bytes_mod_u64"],
       "crates/iroha_fhe/src/ntt.rs": ["cyclic_ntt_in_place_scalar", "negacyclic_multiply_ntt_in_place"],
-      "crates/iroha_fhe/src/rns.rs": ["basis_extend_target_limbs", "reconstruct_coefficient"]
+      "crates/iroha_fhe/src/rns.rs": ["basis_extend_target_limbs", "reconstruct_coefficient"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::conversion_target"]
      }
     },
     {
@@ -450,8 +463,11 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_crypto/src/fhe_bfv.rs": ["encode_packed_plaintext_slots"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::new"],
       "crates/iroha_fhe/src/ntt.rs": ["negacyclic_multiply_ntt_in_place", "transform_parameters"],
-      "crates/iroha_fhe/src/rns.rs": ["basis_extend_target_limbs"]
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new"],
+      "crates/iroha_fhe/src/rns.rs": ["basis_extend_target_limbs"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::new", "RnsBasis::new"]
      }
     },
     {
@@ -559,7 +575,10 @@
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/jindo/security.rs": ["check_prime_difference_classes_v1"],
       "crates/iroha_crypto/src/fhe_bfv.rs": ["packed_plaintext_root"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvParameters::validate", "first_primes"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new"],
       "crates/iroha_fhe/src/rns.rs": ["validate_ntt_modulus_chain"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["basis_prime"],
       "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe.rs": ["BgvProfile::validate"]
      }
     },
@@ -568,14 +587,22 @@
      "symbol": "is_primitive_root_of_order",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_crypto/src/fhe_bfv.rs": ["negacyclic_ntt_root_for_order_with_candidate_limit", "validate_registered_bfv_rns_negacyclic_roots"]}
+     "callers": {
+      "crates/iroha_crypto/src/fhe_bfv.rs": ["negacyclic_ntt_root_for_order_with_candidate_limit", "validate_registered_bfv_rns_negacyclic_roots"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvParameters::validate"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/modular.rs",
      "symbol": "primitive_root_of_order_with_candidate_limit",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_crypto/src/fhe_bfv.rs": ["negacyclic_ntt_root_for_order_with_candidate_limit", "primitive_root_of_order"]}
+     "callers": {
+      "crates/iroha_crypto/src/fhe_bfv.rs": ["negacyclic_ntt_root_for_order_with_candidate_limit", "primitive_root_of_order"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::new"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvParameters::derive"]
+     }
     },
     {
      "path": "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe.rs",
@@ -707,14 +734,20 @@
      "symbol": "forward_negacyclic_ntt_with",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["forward_negacyclic_ntt_v1"]}
+     "callers": {
+      "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["forward_negacyclic_ntt_v1"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::decode"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/ntt.rs",
      "symbol": "inverse_negacyclic_ntt_with",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["inverse_negacyclic_ntt_v1"]}
+     "callers": {
+      "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["inverse_negacyclic_ntt_v1"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::slots_to_coefficients"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/ntt.rs",
@@ -1326,7 +1359,7 @@
      "symbol": "validate_power",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_crypto/src/fhe_bfv.rs": ["validate_galois_automorphism_power"]}
+     "callers": {"crates/iroha_crypto/src/fhe_bfv.rs": ["validate_galois_automorphism_power"], "crates/iroha_fhe/src/bgv/keys.rs": ["galois_power"]}
     },
     {
      "path": "crates/iroha_fhe/src/automorphism.rs",
@@ -1342,7 +1375,8 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::automorphism", "ProofPolynomialV1::automorphism"],
-      "crates/iroha_fhe/src/automorphism.rs": ["apply_into"]
+      "crates/iroha_fhe/src/automorphism.rs": ["apply_into"],
+      "crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::automorphism"]
      }
     },
     {
@@ -1412,7 +1446,10 @@
      "role": "canonical",
      "callers_exhaustive": true,
      "callers": {
-      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::canonicalize_i64", "add_mod_canonical_u64", "reduce_once_u64", "select_i64"]
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["Plaintext::centered_residues", "centered_magnitude"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::centered_magnitude"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::canonicalize_i64", "add_mod_canonical_u64", "reduce_once_u64", "select_i64"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::digits_to_target"]
      }
     },
     {
@@ -1429,7 +1466,12 @@
      "symbol": "equal_bit_u64",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target"]}
+     "callers": {
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["Plaintext::eq"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::slot_mask"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::exceeds_half_bit"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/constant_time.rs",
@@ -1438,7 +1480,10 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::centered_coefficient", "ProofPolynomialV1::centered_coefficient"],
-      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target"]
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["Plaintext::centered_residues", "centered_magnitude"],
+      "crates/iroha_fhe/src/bgv/encoding.rs": ["SlotEncoding::centered_magnitude", "SlotEncoding::prefix_mask"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::exceeds_half_bit"]
      }
     },
     {
@@ -1481,7 +1526,12 @@
      "symbol": "FixedModulus::derive",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_fhe/src/constant_time.rs": ["FixedModulus::is_consistent"]}
+     "callers": {
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"],
+      "crates/iroha_fhe/src/constant_time.rs": ["FixedModulus::is_consistent"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::conversion_target", "basis_prime"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/constant_time.rs",
@@ -1528,7 +1578,12 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::add", "ProofPolynomialV1::add"],
-      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::add"]
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["PublicKey::encrypt_from_coins"],
+      "crates/iroha_fhe/src/bgv/keys.rs": ["SwitchingKey::from_coins"],
+      "crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::add_assign"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::add"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::forward", "NegacyclicPlan::inverse", "NegacyclicPlan::pointwise_mul_add_assign"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::digits_to_target"]
      }
     },
     {
@@ -1538,7 +1593,11 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::sub", "ProofPolynomialV1::multiply_by_monomial", "ProofPolynomialV1::sub"],
-      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::canonicalize_i64", "FixedModulus::sub"]
+      "crates/iroha_fhe/src/bgv/keys.rs": ["masked_error"],
+      "crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::negate", "RnsPoly::sub_assign"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::canonicalize_i64", "FixedModulus::sub"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::forward", "NegacyclicPlan::inverse"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::digits_to_target"]
      }
     },
     {
@@ -1546,7 +1605,11 @@
      "symbol": "FixedModulus::montgomery_reduce_u128",
      "role": "canonical",
      "callers_exhaustive": true,
-     "callers": {"crates/iroha_fhe/src/constant_time.rs": ["FixedModulus::multiply"]}
+     "callers": {
+      "crates/iroha_fhe/src/constant_time.rs": ["FixedModulus::multiply"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["mul_by_montgomery_constant", "to_montgomery"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["mul_const", "to_montgomery"]
+     }
     },
     {
      "path": "crates/iroha_fhe/src/constant_time.rs",
@@ -1555,7 +1618,10 @@
      "callers_exhaustive": true,
      "callers": {
       "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/ring.rs": ["ApplicationPolynomialV1::scale_centered", "ProofPolynomialV1::scale_canonical_unchecked", "multiply_negacyclic_crt_ntt_v1"],
-      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::mul", "FixedModulus::power"]
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["PublicKey::encrypt_from_coins"],
+      "crates/iroha_fhe/src/bgv/keys.rs": ["SwitchingKey::from_coins", "masked_error"],
+      "crates/iroha_fhe/src/constant_time.rs": ["CenteredCrt3::reconstruct_mod_target", "FixedModulus::mul", "FixedModulus::power"],
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new", "NegacyclicPlan::pointwise_mul_add_assign", "NegacyclicPlan::pointwise_mul_assign"]
      }
     },
     {
@@ -1574,7 +1640,7 @@
     },
     {"path": "crates/iroha_fhe/src/constant_time.rs", "symbol": "FixedModulus::add", "role": "canonical", "callers_exhaustive": true, "callers": {}},
     {"path": "crates/iroha_fhe/src/constant_time.rs", "symbol": "FixedModulus::sub", "role": "canonical", "callers_exhaustive": true, "callers": {}},
-    {"path": "crates/iroha_fhe/src/constant_time.rs", "symbol": "FixedModulus::mul", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {"path": "crates/iroha_fhe/src/constant_time.rs", "symbol": "FixedModulus::mul", "role": "canonical", "callers_exhaustive": false, "callers": {}},
     {"path": "crates/iroha_fhe/src/constant_time.rs", "symbol": "FixedModulus::pow", "role": "canonical", "callers_exhaustive": false, "callers": {}}
    ]
   },
@@ -2002,6 +2068,546 @@
     {"path": "crates/iroha_fhe/src/accel/avx2.rs", "symbol": "mul_scalar_mod", "role": "canonical", "callers_exhaustive": true, "callers": {}},
     {"path": "crates/iroha_fhe/src/accel/avx2.rs", "symbol": "add_mod_assign", "role": "canonical", "callers_exhaustive": true, "callers": {}},
     {"path": "crates/iroha_fhe/src/accel/avx2.rs", "symbol": "sub_mod_assign", "role": "canonical", "callers_exhaustive": true, "callers": {}}
+   ]
+  },
+  {
+   "id": "natural.public_integers",
+   "family": "natural",
+   "summary": "Exact non-negative integers of any size for public quantities: modulus products, level capacities and noise bounds. Variable time; never holds a secret.",
+   "owner": {"crate": "iroha_fhe", "module": "iroha_fhe::natural"},
+   "canonical_source": {
+    "path": "crates/iroha_fhe/src/natural.rs",
+    "symbols": [
+     "Natural::add",
+     "Natural::add_u64",
+     "Natural::bit_len",
+     "Natural::checked_sub",
+     "Natural::cmp",
+     "Natural::div_ceil_u64",
+     "Natural::div_floor_u64",
+     "Natural::div_rem_u64",
+     "Natural::from_u128",
+     "Natural::from_u64",
+     "Natural::from_words_le",
+     "Natural::half_floor",
+     "Natural::is_zero",
+     "Natural::mul",
+     "Natural::mul_u64",
+     "Natural::normalize",
+     "Natural::one",
+     "Natural::partial_cmp",
+     "Natural::product_of",
+     "Natural::rem_u64",
+     "Natural::to_u128",
+     "Natural::to_u64",
+     "Natural::words_le",
+     "Natural::zero"
+    ]
+   },
+   "notes": [
+    "Used by iroha_fhe::rns_chain for products and reconstruction of public values and by iroha_fhe::bgv for capacities and noise bounds.",
+    "Residue arithmetic never goes through this type."
+   ],
+   "implementations": [
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::add",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["fresh_noise", "key_switch_noise", "switch_down_noise"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::add_u64"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_canonical"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::add_u64",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["fresh_noise", "key_switch_noise", "switch_down_noise"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::div_ceil_u64"]
+     }
+    },
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::bit_len", "role": "canonical", "callers_exhaustive": false, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::checked_sub",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_centered"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::cmp",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/natural.rs": ["Natural::cmp", "Natural::partial_cmp"]}
+    },
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::div_ceil_u64", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::div_floor_u64",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/noise.rs": ["key_switch_noise", "switch_down_noise"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::div_rem_u64",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/natural.rs": ["Natural::div_ceil_u64", "Natural::div_floor_u64", "Natural::rem_u64"]}
+    },
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::from_u128", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::from_u64",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["fresh_noise", "key_switch_noise", "plaintext_noise", "switch_down_noise"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::add_u64", "Natural::one"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::from_words_le",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/cipher.rs": ["Ciphertext::from_bytes"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::from_u128", "Natural::from_u64"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::half_floor",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/noise.rs": ["key_switch_noise", "switch_down_noise"], "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::half_product"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::is_zero",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/natural.rs": ["Natural::mul", "Natural::mul_u64"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::mul",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/noise.rs": ["fresh_noise", "key_switch_noise", "product_noise", "switch_down_noise"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::mul_u64",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["fresh_noise", "key_switch_noise", "product_noise", "switch_down_noise"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::product_of"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_canonical"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::normalize",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {
+      "crates/iroha_fhe/src/natural.rs": ["Natural::checked_sub", "Natural::div_rem_u64", "Natural::from_words_le", "Natural::half_floor", "Natural::mul"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::one",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/natural.rs": ["Natural::product_of"], "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_canonical"]}
+    },
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::partial_cmp", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::product_of",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["key_switch_noise"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::special_modulus"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::product"]
+     }
+    },
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::rem_u64", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::to_u128", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::to_u64", "role": "canonical", "callers_exhaustive": true, "callers": {}},
+    {"path": "crates/iroha_fhe/src/natural.rs", "symbol": "Natural::words_le", "role": "canonical", "callers_exhaustive": false, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/natural.rs",
+     "symbol": "Natural::zero",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/noise.rs": ["key_switch_noise"],
+      "crates/iroha_fhe/src/natural.rs": ["Natural::mul", "Natural::mul_u64"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_canonical"]
+     }
+    }
+   ]
+  },
+  {
+   "id": "ntt.negacyclic_plan",
+   "family": "ntt",
+   "summary": "Precomputed merged negacyclic transform (Longa-Naehrig) for one odd prime below 2^62 on the branch-free Montgomery kernels: natural-order coefficients to bit-reversed evaluations and back, with point-wise product and multiply-accumulate.",
+   "owner": {"crate": "iroha_fhe", "module": "iroha_fhe::ntt_plan"},
+   "canonical_source": {
+    "path": "crates/iroha_fhe/src/ntt_plan.rs",
+    "symbols": [
+     "NegacyclicPlan::check_len",
+     "NegacyclicPlan::degree",
+     "NegacyclicPlan::fixed",
+     "NegacyclicPlan::forward",
+     "NegacyclicPlan::inverse",
+     "NegacyclicPlan::new",
+     "NegacyclicPlan::pointwise_mul_add_assign",
+     "NegacyclicPlan::pointwise_mul_assign",
+     "NegacyclicPlan::prime",
+     "NegacyclicPlan::psi",
+     "mul_by_montgomery_constant",
+     "to_montgomery"
+    ]
+   },
+   "notes": [
+    "Constant-time in coefficient values; the scalar path is the only path for 50 to 60-bit moduli (TODO in the file for accelerated kernels).",
+    "Tested against the generic transform of iroha_fhe::ntt in bit-reversed order and against the schoolbook product."
+   ],
+   "implementations": [
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::check_len",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {
+      "crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::forward", "NegacyclicPlan::inverse", "NegacyclicPlan::pointwise_mul_add_assign", "NegacyclicPlan::pointwise_mul_assign"]
+     }
+    },
+    {"path": "crates/iroha_fhe/src/ntt_plan.rs", "symbol": "NegacyclicPlan::degree", "role": "canonical", "callers_exhaustive": false, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::fixed",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::add_assign", "RnsPoly::automorphism", "RnsPoly::negate", "RnsPoly::sub_assign"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::forward",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::forward"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::inverse",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::inverse"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::new",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::pointwise_mul_add_assign",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/eval.rs": ["BgvProfile::key_switch"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::pointwise_mul_assign",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/poly.rs": ["RnsPoly::pointwise_mul_assign"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "NegacyclicPlan::prime",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/keys.rs": ["decode_polys"]}
+    },
+    {"path": "crates/iroha_fhe/src/ntt_plan.rs", "symbol": "NegacyclicPlan::psi", "role": "canonical", "callers_exhaustive": false, "callers": {}},
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "mul_by_montgomery_constant",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::forward", "NegacyclicPlan::inverse"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/ntt_plan.rs",
+     "symbol": "to_montgomery",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/ntt_plan.rs": ["NegacyclicPlan::new"]}
+    }
+   ]
+  },
+  {
+   "id": "rns.arbitrary_chain",
+   "family": "rns",
+   "summary": "Arbitrary-chain RNS without u128 reconstruction: exact mixed-radix digits, exact centered and canonical basis conversion into any odd target modulus, and the congruence-preserving exact scale-down (c - t*w)/D used by BGV modulus switching and by the division by the special modulus.",
+   "owner": {"crate": "iroha_fhe", "module": "iroha_fhe::rns_chain"},
+   "canonical_source": {
+    "path": "crates/iroha_fhe/src/rns_chain.rs",
+    "symbols": [
+     "CongruentScaleDown::apply",
+     "CongruentScaleDown::dropped",
+     "CongruentScaleDown::dropped_len",
+     "CongruentScaleDown::kept_len",
+     "CongruentScaleDown::new",
+     "CongruentScaleDown::scale",
+     "ConversionTarget::target_modulus",
+     "RnsBasis::conversion_target",
+     "RnsBasis::convert",
+     "RnsBasis::convert_canonical",
+     "RnsBasis::convert_centered",
+     "RnsBasis::digits_to_target",
+     "RnsBasis::exceeds_half_bit",
+     "RnsBasis::half_product",
+     "RnsBasis::is_empty",
+     "RnsBasis::len",
+     "RnsBasis::mixed_radix_in_place",
+     "RnsBasis::new",
+     "RnsBasis::primes",
+     "RnsBasis::product",
+     "RnsBasis::reconstruct_canonical",
+     "RnsBasis::reconstruct_centered",
+     "basis_prime",
+     "check_len",
+     "limb_major_len",
+     "mul_const",
+     "to_montgomery"
+    ]
+   },
+   "notes": [
+    "Up to 64 primes below 2^62 per basis; every basis product is odd, so centered representatives are unique and no tie rule is needed.",
+    "Branch-free in residue values. RnsBasis::reconstruct_canonical and reconstruct_centered return Natural values and are for public data only.",
+    "iroha_fhe::rns keeps the u128 reconstruction for the retained BFV adapters; the BGV path does not call it (tests/bgv_surface.rs)."
+   ],
+   "implementations": [
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::apply",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/eval.rs": ["BgvProfile::key_switch", "BgvProfile::switch_down"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::dropped",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::dropped_len",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::kept_len",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::new",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "CongruentScaleDown::scale",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "ConversionTarget::target_modulus",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::conversion_target",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"], "crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::convert",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::convert_canonical", "RnsBasis::convert_centered"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::convert_canonical",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::convert_centered",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/cipher.rs": ["SecretKey::decrypt"], "crates/iroha_fhe/src/bgv/eval.rs": ["BgvProfile::key_switch"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::digits_to_target",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::convert"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::exceeds_half_bit",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::convert"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::half_product",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"], "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_centered"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::is_empty",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::is_empty", "RnsBasis::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::len",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/eval.rs": ["BgvProfile::key_switch"],
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"],
+      "crates/iroha_fhe/src/rns_chain.rs": [
+       "CongruentScaleDown::apply",
+       "CongruentScaleDown::new",
+       "RnsBasis::conversion_target",
+       "RnsBasis::convert",
+       "RnsBasis::len",
+       "RnsBasis::mixed_radix_in_place",
+       "RnsBasis::new"
+      ]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::mixed_radix_in_place",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::convert", "RnsBasis::reconstruct_canonical"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::new",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {"crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"], "crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::primes",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::product"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::product",
+     "role": "canonical",
+     "callers_exhaustive": false,
+     "callers": {
+      "crates/iroha_fhe/src/bgv/profile.rs": ["BgvProfile::new"],
+      "crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::half_product", "RnsBasis::reconstruct_centered"]
+     }
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::reconstruct_canonical",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["RnsBasis::reconstruct_centered"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "RnsBasis::reconstruct_centered",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "basis_prime",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::new", "RnsBasis::new"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "check_len",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::convert", "RnsBasis::mixed_radix_in_place"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "limb_major_len",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::convert"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "mul_const",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::apply", "RnsBasis::digits_to_target", "RnsBasis::mixed_radix_in_place"]}
+    },
+    {
+     "path": "crates/iroha_fhe/src/rns_chain.rs",
+     "symbol": "to_montgomery",
+     "role": "canonical",
+     "callers_exhaustive": true,
+     "callers": {"crates/iroha_fhe/src/rns_chain.rs": ["CongruentScaleDown::new", "RnsBasis::conversion_target", "RnsBasis::new"]}
+    }
    ]
   }
  ],
@@ -2617,6 +3223,26 @@
    "symbols": [{"symbol": "ram_lfe_reference_execute_v1"}, {"symbol": "ram_lfe_reference_evaluate_v1"}]
   },
   {
+   "id": "ram_lfe.cleartext_normal_form",
+   "scheme": "ram_lfe",
+   "component": "Cleartext normal form of a V1 tape: the specification oracle of the normalizing lowering",
+   "tasks": ["R.0"],
+   "executes": [],
+   "note": "Folds the plaintext runs of a hidden tape into affine forms over F257 and keeps each multiplication, selection and scheduled refresh as one gate, on plaintext scalars; it encrypts nothing. The encrypted normalizer, its fixed public schedule and its proof belong to tasks R.3, R.7 and R.9.",
+   "path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs",
+   "symbols": [{"symbol": "ram_lfe_reference_normalize_v1"}, {"symbol": "RamLfeNormalFormV1::evaluate"}]
+  },
+  {
+   "id": "ram_lfe.phone_control",
+   "scheme": "ram_lfe",
+   "component": "Provider-backed phone-control number commitment, provider key identity and provider signature rule",
+   "tasks": ["R.1", "R.2", "R.4"],
+   "executes": [],
+   "note": "Task R.1 owns this file. It commits a canonical E.164 number with the six-lane Goldilocks digest and checks provider signatures; it encrypts and evaluates nothing. The private relation over the commitment is task R.2 and State enforcement is task R.4.",
+   "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+   "symbols": [{"symbol": "PhoneNumberCommitmentV1::commit"}, {"symbol": "phone_control_provider_verify"}]
+  },
+  {
    "id": "mkhe.bgv_profile",
    "scheme": "bgv_mkhe",
    "component": "Multi-key RNS-BGV profile validation and digests",
@@ -2799,6 +3425,126 @@
    "note": "Compiles and evaluates proof relations over the ring types.",
    "path": "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/toolbox.rs",
    "symbols": [{"symbol": "QuadraticEquationV1::evaluate"}, {"symbol": "compile_schwartz_accumulators_v1"}]
+  },
+  {
+   "id": "rns_bgv.profile",
+   "scheme": "rns_bgv",
+   "component": "Parameter sets, the first-prime derivation rule, pinned candidates, canonical identity and the pinned evaluation context",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "Candidates are starting points for measurement; none has a reviewed security estimate. Validation rejects any prime that is not 1 mod 2*N*t.",
+   "path": "crates/iroha_fhe/src/bgv/profile.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.coins_and_samplers",
+   "scheme": "rns_bgv",
+   "component": "Operating-system entropy, the BLAKE3 coin stream and the ternary, centered binomial and uniform samplers",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "A failed or stuck entropy draw fails the operation. The seed, the hash state that absorbs it, the stream state and the buffered stream bytes live in one heap block that is overwritten whole before it is released; crates/iroha_fhe/tests/bgv_clearing.rs observes every such block.",
+   "path": "crates/iroha_fhe/src/bgv/coins.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.keys",
+   "scheme": "rns_bgv",
+   "component": "Secret, public, relinearization and Galois keys, their generators, their canonical word and byte encodings with decoders, and the custody frame of the secret key",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": ["key_generation"],
+   "note": "Generators that take an entropy source or explicit coins are pub(super); only the fixture module re-exports them. A decoded key is well formed as an encoding only: nothing here authenticates a frame or proves a key equation.",
+   "path": "crates/iroha_fhe/src/bgv/keys.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.encryption_and_encoding",
+   "scheme": "rns_bgv",
+   "component": "Plaintexts, ciphertexts, public-key encryption, decryption and the canonical word and byte encodings",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": ["encryption", "decryption"],
+   "note": "The noise bound in a decoded frame is the sender's claim; the proofs that make it valid belong to the consumers.",
+   "path": "crates/iroha_fhe/src/bgv/cipher.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.evaluation",
+   "scheme": "rns_bgv",
+   "component": "Addition, plaintext operations, tensor product, relinearization, hybrid key switching, automorphisms and modulus switching",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": ["evaluation", "key_switching"],
+   "note": "Every operation takes the shape of its result from rns_bgv.shape_planning and refuses a result whose public noise bound exceeds the capacity of its level.",
+   "path": "crates/iroha_fhe/src/bgv/eval.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.noise_accounting",
+   "scheme": "rns_bgv",
+   "component": "Public worst-case noise bounds and the decryption-failure condition",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "Functions take public quantities only; no key, coin or decrypted value can reach a bound.",
+   "path": "crates/iroha_fhe/src/bgv/noise.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.shape_planning",
+   "scheme": "rns_bgv",
+   "component": "Public shapes of ciphertexts (level, components, noise bound), the admission of every operation on them and the rule that lowers a product while its capacity ratio grows",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "The evaluation module takes the level, component count and bound of every result from here, so a plan is the admission part of the evaluator run without residues. Takes no key, plaintext value or coin.",
+   "path": "crates/iroha_fhe/src/bgv/plan.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.slot_encoding",
+   "scheme": "rns_bgv",
+   "component": "Scalar slot encodings (sparse subalgebra and fully split batching), slot masks, slot movement and the broadcast",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": ["evaluation"],
+   "note": "Subalgebra membership of a hidden plaintext needs a proof from whoever encrypted it; that proof is task R.11.",
+   "path": "crates/iroha_fhe/src/bgv/encoding.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.cost_model",
+   "scheme": "rns_bgv",
+   "component": "Deterministic sizes and work units from public profile geometry; every size is the length of a frame the crate encodes",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "scripts/fhe_bgv_cost_model.py holds an independent model and checks specs/fhe_bgv_cost_summary.json against it; crates/iroha_fhe/tests/bgv_cost_model_vectors.rs recomputes the sizes, work units, instruction costs, tape plans and contract inputs of that summary with this module, the noise rules and the costing harness.",
+   "path": "crates/iroha_fhe/src/bgv/cost.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.polynomial_owner",
+   "scheme": "rns_bgv",
+   "component": "Limb-major residue polynomial in a clearing owner, with limb-wise transforms and arithmetic on the shared kernels",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": ["ring_arithmetic"],
+   "note": "Holds no kernel of its own: every operation calls iroha_fhe::ntt_plan, iroha_fhe::constant_time or iroha_fhe::automorphism.",
+   "path": "crates/iroha_fhe/src/bgv/poly.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.errors",
+   "scheme": "rns_bgv",
+   "component": "The scheme error type and its conversions from kernel errors",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "Kernel errors collapse to one variant: they indicate an internal shape error, never an input the caller chose.",
+   "path": "crates/iroha_fhe/src/bgv/mod.rs",
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.fault_points",
+   "scheme": "rns_bgv",
+   "component": "Named points at which a test can make a secret-handling operation unwind",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "executes": [],
+   "note": "In a production build `reached` compiles to nothing; `arm` and `disarm` exist only with the fixture feature.",
+   "path": "crates/iroha_fhe/src/bgv/fault.rs",
+   "symbols": []
   }
  ],
  "test_only_references": [
@@ -3080,7 +3826,7 @@
    "id": "ram_lfe.clearing_observers",
    "scheme": "ram_lfe",
    "kind": "protocol_reference",
-   "note": "Test instrumentation that observes secret clearing and builds programs from public test parts.",
+   "note": "Test instrumentation that observes secret clearing, refuses one reservation of a clearing buffer, and builds programs and reference inputs from public test parts.",
    "symbols": []
   },
   {
@@ -3160,6 +3906,88 @@
    "kind": "unit_tests",
    "summary": "Integration test whose allocator inspects freed blocks: kernel scratch holding operand copies or partial results is all zero when released, after success, a rejected input and an unwind.",
    "path": "crates/iroha_fhe/tests/clearing.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {"id": "rns_bgv.unit_tests", "scheme": "rns_bgv", "kind": "unit_tests", "summary": "Inline unit tests of the RNS-BGV modules.", "symbols": []},
+  {
+   "id": "rns_bgv.fixtures",
+   "scheme": "rns_bgv",
+   "kind": "fixture",
+   "summary": "Seeded entropy, explicit-coin entry points, secret-derived probes and fault arming. Compiled only for tests or with the bgv-test-fixtures feature, which no production dependency edge enables; not a production stack.",
+   "path": "crates/iroha_fhe/src/bgv/fixtures.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.bigint_oracle",
+   "scheme": "rns_bgv",
+   "kind": "oracle",
+   "summary": "Run-time num-bigint reference of the whole scheme on integers modulo the full modulus (schoolbook or Kronecker products, constructive CRT, rounding rules from their definitions, its own coin derivation and samplers). Shares no code with iroha_fhe.",
+   "path": "crates/iroha_fhe/tests/support/oracle.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.python_reference",
+   "scheme": "rns_bgv",
+   "kind": "oracle",
+   "summary": "Pure-Python reference with its own single-chunk BLAKE3 that generates tests/vectors/bgv_kat_v1.txt: chain conversion and scale-down vectors over 18 fifty-bit and 6 sixty-bit primes and three complete seeded pipelines.",
+   "path": "crates/iroha_fhe/tests/vectors/bgv_reference.py",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.known_answer_tests",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "Requires the crate to reproduce every pinned word of the Python reference and every step of the num-bigint oracle on several chain shapes, including the affine candidate at N = 2^14, and to decode its keys from the pinned words into the frames it encodes.",
+   "path": "crates/iroha_fhe/tests/bgv_vectors.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.noise_tests",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "Compares the public noise bound with the exact noise the oracle computes: the fresh bound attained exactly, the capacity boundary, the modulus-switch bound within one unit and random admitted sequences.",
+   "path": "crates/iroha_fhe/tests/bgv_noise.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.clearing_probe",
+   "scheme": "rns_bgv",
+   "kind": "unit_tests",
+   "summary": "Allocator probe: every polynomial-sized block released by key generation, encryption, decryption, the encodings and the secret-key custody frame, and every block that held the seed and stream state of an operation, is all zero after success, an error return and an unwind.",
+   "path": "crates/iroha_fhe/tests/bgv_clearing.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.costing_harness",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "One lowering of the eleven V1 tape instructions onto the scheme with two back ends, public shapes and ciphertexts, the ledger of operations, work units and live buffers, an independent cleartext machine and the maximum-shape tape families. A costing harness for tests and measurements, not an evaluator a consumer has adopted.",
+   "path": "crates/iroha_fhe/tests/support/machine.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.tape_plan_tests",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "The planned and the encrypted run of one tape agree on every level and noise bound instruction by instruction, the encrypted run computes the tape, the ledger charges each instruction its lowering, and the equality indicator is exact for all 257 field values under encryption.",
+   "path": "crates/iroha_fhe/tests/bgv_tape_plan.rs",
+   "whole_file": true,
+   "symbols": []
+  },
+  {
+   "id": "rns_bgv.cost_summary_tests",
+   "scheme": "rns_bgv",
+   "kind": "protocol_reference",
+   "summary": "Recomputes the candidates' geometry, sizes and work units, the instruction costs, every tape-family plan and the contract inputs of specs/fhe_bgv_cost_summary.json, through its generated view, with the Rust cost model, noise rules, slot encoding and costing harness; every key of the view has to be read by a check.",
+   "path": "crates/iroha_fhe/tests/bgv_cost_model_vectors.rs",
    "whole_file": true,
    "symbols": []
   }
@@ -4721,6 +5549,105 @@
    "test_gated": {}
   },
   {
+   "path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs",
+   "production": {
+    "ram_lfe.cleartext_normal_form": [
+     "Folding::drop",
+     "Folding::finish",
+     "Folding::fold",
+     "Folding::form_depth",
+     "Folding::gate",
+     "Folding::lane",
+     "Folding::new",
+     "Folding::refresh",
+     "Folding::register",
+     "Folding::set_column",
+     "Folding::step",
+     "RamLfeNormalFormV1::ciphertext_multiplications",
+     "RamLfeNormalFormV1::class",
+     "RamLfeNormalFormV1::column_values",
+     "RamLfeNormalFormV1::columns",
+     "RamLfeNormalFormV1::depth",
+     "RamLfeNormalFormV1::drop",
+     "RamLfeNormalFormV1::evaluate",
+     "RamLfeNormalFormV1::evaluate_final_state",
+     "RamLfeNormalFormV1::fmt",
+     "RamLfeNormalFormV1::gate_count",
+     "RamLfeNormalFormV1::gate_kind",
+     "RamLfeNormalFormV1::gate_operand",
+     "RamLfeNormalFormV1::lane_form",
+     "RamLfeNormalFormV1::output_count",
+     "RamLfeNormalFormV1::output_form",
+     "RamLfeNormalFormV1::register_form",
+     "RamLfeNormalFormV1::report",
+     "RamLfeNormalGateKindV1::added_depth",
+     "RamLfeNormalGateKindV1::as_str",
+     "RamLfeNormalGateKindV1::ciphertext_multiplications",
+     "RamLfeNormalGateKindV1::code",
+     "RamLfeNormalGateKindV1::fmt",
+     "RamLfeNormalGateKindV1::from_code",
+     "RamLfeNormalGateKindV1::operand_count",
+     "RamLfeNormalRoleV1::as_str",
+     "RamLfeNormalRoleV1::fmt",
+     "RamLfeNormalRoleV1::of",
+     "RamLfeNormalShapeV1::gates",
+     "RamLfeNormalShapeV1::of",
+     "Scalars::drop",
+     "Scalars::extend",
+     "Scalars::push",
+     "Scalars::with_capacity",
+     "Scalars::zeroed",
+     "allocation_error",
+     "dot",
+     "ram_lfe_reference_normalize_v1",
+     "ram_lfe_v1_centered_scalar",
+     "reserve"
+    ]
+   },
+   "test_gated": {"ram_lfe.clearing_observers": ["allocation_refused", "cleared_scalars", "observe_clear", "refuse_allocation_after"]}
+  },
+  {
+   "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+   "production": {
+    "ram_lfe.phone_control": [
+     "PhoneControlProviderKeyIdV1::as_hash",
+     "PhoneControlProviderKeyIdV1::commit",
+     "PhoneNumberBlindingV1::checked",
+     "PhoneNumberBlindingV1::expose",
+     "PhoneNumberBlindingV1::fmt",
+     "PhoneNumberBlindingV1::from_bytes",
+     "PhoneNumberBlindingV1::generate",
+     "PhoneNumberCommitmentDigestV1::domain",
+     "PhoneNumberCommitmentDigestV1::label",
+     "PhoneNumberCommitmentV1::commit",
+     "PhoneNumberCommitmentV1::digest",
+     "PhoneNumberCommitmentV1::from_le_bytes",
+     "PhoneNumberCommitmentV1::lane_words",
+     "PhoneNumberCommitmentV1::to_le_bytes",
+     "PhoneNumberCommitmentV1::verify_opening",
+     "PhoneNumberCommitmentValueV1::decode_error",
+     "PhoneNumberCommitmentValueV1::decode_from_slice",
+     "PhoneNumberCommitmentValueV1::deserialize",
+     "PhoneNumberCommitmentValueV1::encoded_len_exact",
+     "PhoneNumberCommitmentValueV1::encoded_len_hint",
+     "PhoneNumberCommitmentValueV1::from_le_bytes",
+     "PhoneNumberCommitmentValueV1::serialize",
+     "PhoneNumberCommitmentValueV1::to_le_bytes",
+     "PhoneNumberCommitmentValueV1::try_deserialize",
+     "PhoneNumberCommitmentValueV1::words",
+     "PhoneNumberV1::expose_canonical",
+     "PhoneNumberV1::expose_padded",
+     "PhoneNumberV1::fmt",
+     "PhoneNumberV1::from_canonical",
+     "is_canonical_e164",
+     "phone_control_provider_sign",
+     "phone_control_provider_verify",
+     "provider_key_algorithm"
+    ]
+   },
+   "test_gated": {}
+  },
+  {
    "path": "crates/iroha_crypto/src/ram_lfe/policy_secret.rs",
    "production": {"ram_lfe.secret_owners": ["commit", "commit_canonical", "commit_canonical_into"]},
    "test_gated": {"ram_lfe.inline_unit_tests": ["mod tests"]}
@@ -4775,6 +5702,7 @@
      "RamLfeInitialMemoryV1::lanes",
      "RamLfeOrderedOutputV1::fmt",
      "RamLfeOrderedOutputV1::from_scalars",
+     "RamLfeOrderedOutputV1::padded_for_opening",
      "RamLfeOrderedOutputV1::scalars",
      "RamLfeReferenceExecutionV1::initial_memory",
      "RamLfeReferenceExecutionV1::output",
@@ -4801,7 +5729,7 @@
      "subtract"
     ]
    },
-   "test_gated": {}
+   "test_gated": {"ram_lfe.clearing_observers": ["RamLfeReferenceInputV1::from_field_slots"]}
   },
   {
    "path": "crates/iroha_crypto/src/ram_lfe/trace.rs",
@@ -4838,12 +5766,355 @@
   {"path": "crates/iroha_fhe/src/accel/avx2.rs", "production": {}, "test_gated": {}},
   {"path": "crates/iroha_fhe/src/accel/neon.rs", "production": {}, "test_gated": {}},
   {"path": "crates/iroha_fhe/src/automorphism.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
+  {
+   "path": "crates/iroha_fhe/src/bgv/cipher.rs",
+   "production": {
+    "rns_bgv.encryption_and_encoding": [
+     "Ciphertext::canonical_words",
+     "Ciphertext::check_profile",
+     "Ciphertext::component_count",
+     "Ciphertext::components",
+     "Ciphertext::encoded_len",
+     "Ciphertext::from_bytes",
+     "Ciphertext::from_canonical_words",
+     "Ciphertext::from_shape",
+     "Ciphertext::level",
+     "Ciphertext::noise_bound",
+     "Ciphertext::profile_identity",
+     "Ciphertext::to_bytes",
+     "Ciphertext::trivial",
+     "Plaintext::bound",
+     "Plaintext::centered_residues",
+     "Plaintext::check_profile",
+     "Plaintext::checked",
+     "Plaintext::coefficients",
+     "Plaintext::constant",
+     "Plaintext::constant_bound",
+     "Plaintext::eq",
+     "Plaintext::fmt",
+     "Plaintext::new",
+     "Plaintext::profile_identity",
+     "Plaintext::with_public_bound",
+     "Plaintext::worst_case_bound",
+     "PublicKey::encrypt",
+     "PublicKey::encrypt_from_coins",
+     "PublicKey::encrypt_with",
+     "SecretKey::decrypt",
+     "SecretKey::inner_product",
+     "centered_magnitude"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/coins.rs",
+   "production": {
+    "rns_bgv.coins_and_samplers": [
+     "CoinPurpose::tag",
+     "CoinState::wipe",
+     "CoinStream::centered_binomial",
+     "CoinStream::next_le",
+     "CoinStream::ternary",
+     "CoinStream::uniform",
+     "Coins::draw",
+     "Coins::drop",
+     "Coins::stream",
+     "EntropySource::fill",
+     "OsEntropy::fill",
+     "small_residue"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["Coins::seed", "mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/cost.rs",
+   "production": {
+    "rns_bgv.cost_model": [
+     "CostModel::automorphism_units",
+     "CostModel::check_level",
+     "CostModel::ciphertext_bytes",
+     "CostModel::ciphertext_residue_bytes",
+     "CostModel::conversion_units",
+     "CostModel::decryption_units",
+     "CostModel::degree",
+     "CostModel::encryption_units",
+     "CostModel::evaluation_key_bytes",
+     "CostModel::forward_transform_units",
+     "CostModel::inverse_transform_units",
+     "CostModel::key_switch_scratch_words",
+     "CostModel::key_switch_units",
+     "CostModel::multiplication_units",
+     "CostModel::new",
+     "CostModel::plaintext_multiplication_units",
+     "CostModel::public_key_bytes",
+     "CostModel::scale_down_units",
+     "CostModel::secret_key_bytes",
+     "CostModel::special",
+     "CostModel::switch_down_units",
+     "CostModel::switching_key_bytes",
+     "CostModel::tensor_units",
+     "word"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/encoding.rs",
+   "production": {
+    "rns_bgv.slot_encoding": [
+     "SlotEncoding::broadcast_elements",
+     "SlotEncoding::centered_magnitude",
+     "SlotEncoding::check_profile",
+     "SlotEncoding::check_scalar_subalgebra",
+     "SlotEncoding::decode",
+     "SlotEncoding::encode",
+     "SlotEncoding::is_fully_split",
+     "SlotEncoding::mask_bound",
+     "SlotEncoding::new",
+     "SlotEncoding::prefix_mask",
+     "SlotEncoding::root",
+     "SlotEncoding::select_and_broadcast",
+     "SlotEncoding::slot_mask",
+     "SlotEncoding::slot_source",
+     "SlotEncoding::slots",
+     "SlotEncoding::slots_to_coefficients",
+     "SlotEncoding::spread",
+     "SlotEncoding::stride",
+     "SlotEncoding::vector_bound"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/eval.rs",
+   "production": {
+    "rns_bgv.evaluation": [
+     "BgvProfile::add",
+     "BgvProfile::add_plain",
+     "BgvProfile::apply_galois",
+     "BgvProfile::combine",
+     "BgvProfile::combine_plain",
+     "BgvProfile::key_switch",
+     "BgvProfile::mul_plain",
+     "BgvProfile::multiply",
+     "BgvProfile::negate",
+     "BgvProfile::relinearize",
+     "BgvProfile::sub",
+     "BgvProfile::sub_plain",
+     "BgvProfile::switch_down",
+     "BgvProfile::switch_to_level",
+     "BgvProfile::tensor"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/fault.rs",
+   "production": {"rns_bgv.fault_points": ["reached"]},
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"], "rns_bgv.fixtures": ["arm", "disarm"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/keys.rs",
+   "production": {
+    "rns_bgv.keys": [
+     "EvaluationKeys::encoded_len",
+     "EvaluationKeys::from_bytes",
+     "EvaluationKeys::from_keys",
+     "EvaluationKeys::galois",
+     "EvaluationKeys::galois_elements",
+     "EvaluationKeys::generate",
+     "EvaluationKeys::generate_with",
+     "EvaluationKeys::relinearization",
+     "EvaluationKeys::to_bytes",
+     "KeySet::generate",
+     "KeySet::generate_with",
+     "PublicKey::canonical_words",
+     "PublicKey::check_profile",
+     "PublicKey::components",
+     "PublicKey::encoded_len",
+     "PublicKey::from_bytes",
+     "PublicKey::from_canonical_words",
+     "PublicKey::from_coins",
+     "PublicKey::generate",
+     "PublicKey::generate_with",
+     "PublicKey::profile_identity",
+     "PublicKey::to_bytes",
+     "SecretKey::check_profile",
+     "SecretKey::coefficients",
+     "SecretKey::custody_len",
+     "SecretKey::evaluation",
+     "SecretKey::fmt",
+     "SecretKey::from_coefficients",
+     "SecretKey::from_custody_bytes",
+     "SecretKey::generate",
+     "SecretKey::generate_with",
+     "SecretKey::profile_identity",
+     "SecretKey::to_custody_bytes",
+     "SwitchingKey::append_frame",
+     "SwitchingKey::canonical_words",
+     "SwitchingKey::check_profile",
+     "SwitchingKey::digit",
+     "SwitchingKey::encoded_len",
+     "SwitchingKey::from_bytes",
+     "SwitchingKey::from_canonical_words",
+     "SwitchingKey::from_coins",
+     "SwitchingKey::generate_galois",
+     "SwitchingKey::generate_relinearization",
+     "SwitchingKey::generate_with",
+     "SwitchingKey::kind",
+     "SwitchingKey::profile_identity",
+     "SwitchingKey::to_bytes",
+     "SwitchingKeyKind::coin_tag",
+     "SwitchingKeyKind::frame_tag",
+     "SwitchingKeyKind::from_frame_tag",
+     "check_coin_shape",
+     "decode_polys",
+     "frame_body",
+     "galois_power",
+     "masked_error",
+     "small_automorphism",
+     "small_to_evaluation"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/mod.rs",
+   "production": {"rns_bgv.errors": ["BgvError::from", "BgvError::from", "BgvError::from"]},
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/noise.rs",
+   "production": {
+    "rns_bgv.noise_accounting": [
+     "NoiseBound::as_natural",
+     "NoiseBound::bits",
+     "NoiseBound::new",
+     "degree_word",
+     "fresh_noise",
+     "key_switch_noise",
+     "plaintext_noise",
+     "product_noise",
+     "switch_down_noise"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/plan.rs",
+   "production": {
+    "rns_bgv.shape_planning": [
+     "BgvProfile::admit",
+     "BgvProfile::check_same_level",
+     "BgvProfile::check_two_components",
+     "BgvProfile::plan_add",
+     "BgvProfile::plan_add_plain",
+     "BgvProfile::plan_claimed",
+     "BgvProfile::plan_fresh",
+     "BgvProfile::plan_galois",
+     "BgvProfile::plan_key_switch",
+     "BgvProfile::plan_lower_multiplication",
+     "BgvProfile::plan_mul_plain",
+     "BgvProfile::plan_multiply",
+     "BgvProfile::plan_relinearize",
+     "BgvProfile::plan_switch_down",
+     "BgvProfile::plan_switch_to_level",
+     "BgvProfile::plan_tensor",
+     "BgvProfile::plan_trivial",
+     "Ciphertext::shape",
+     "CiphertextShape::bound",
+     "CiphertextShape::bound_bits",
+     "CiphertextShape::components",
+     "CiphertextShape::into_bound",
+     "CiphertextShape::level"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/poly.rs",
+   "production": {
+    "rns_bgv.polynomial_owner": [
+     "RnsPoly::add_assign",
+     "RnsPoly::automorphism",
+     "RnsPoly::check_same_shape",
+     "RnsPoly::drop",
+     "RnsPoly::fmt",
+     "RnsPoly::forward",
+     "RnsPoly::from_words",
+     "RnsPoly::inverse",
+     "RnsPoly::limb",
+     "RnsPoly::limb_mut",
+     "RnsPoly::limbs",
+     "RnsPoly::negate",
+     "RnsPoly::pointwise_mul_assign",
+     "RnsPoly::prefix",
+     "RnsPoly::sub_assign",
+     "RnsPoly::words",
+     "RnsPoly::words_mut",
+     "RnsPoly::zero",
+     "extend_le_bytes",
+     "words_from_le_bytes"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
+  {
+   "path": "crates/iroha_fhe/src/bgv/profile.rs",
+   "production": {
+    "rns_bgv.profile": [
+     "BgvCandidate::name",
+     "BgvCandidate::parameters",
+     "BgvParameters::all_primes",
+     "BgvParameters::all_roots",
+     "BgvParameters::canonical_bytes",
+     "BgvParameters::degree",
+     "BgvParameters::derive",
+     "BgvParameters::from_canonical_bytes",
+     "BgvParameters::from_canonical_bytes::pairs",
+     "BgvParameters::from_canonical_bytes::tag",
+     "BgvParameters::from_canonical_bytes::take",
+     "BgvParameters::identity",
+     "BgvParameters::validate",
+     "BgvProfile::candidate",
+     "BgvProfile::capacity",
+     "BgvProfile::degree",
+     "BgvProfile::digit_count",
+     "BgvProfile::error_bound",
+     "BgvProfile::extended_plan",
+     "BgvProfile::fresh_noise",
+     "BgvProfile::full_limbs",
+     "BgvProfile::full_plan",
+     "BgvProfile::identity",
+     "BgvProfile::key_switch_noise",
+     "BgvProfile::level",
+     "BgvProfile::level_modulus",
+     "BgvProfile::main_plan",
+     "BgvProfile::new",
+     "BgvProfile::noise_bound_words",
+     "BgvProfile::parameters",
+     "BgvProfile::plaintext_fixed",
+     "BgvProfile::plaintext_modulus",
+     "BgvProfile::special_count",
+     "BgvProfile::special_modulus",
+     "BgvProfile::special_plan",
+     "BgvProfile::special_product_mod_main",
+     "BgvProfile::top_level",
+     "first_primes",
+     "plan_defect"
+    ]
+   },
+   "test_gated": {"rns_bgv.unit_tests": ["mod tests"]}
+  },
   {"path": "crates/iroha_fhe/src/constant_time.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/key_switch.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/modular.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
+  {"path": "crates/iroha_fhe/src/natural.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/ntt.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
+  {"path": "crates/iroha_fhe/src/ntt_plan.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/polynomial.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/rns.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
+  {"path": "crates/iroha_fhe/src/rns_chain.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {"path": "crates/iroha_fhe/src/rounding.rs", "production": {}, "test_gated": {"shared.unit_tests": ["mod tests"]}},
   {
    "path": "crates/iroha_zkp_halo2/src/vega/zk_ams.rs",
@@ -9368,6 +10639,18 @@
    "summary": "`HkdfSha3_512PrfV1` is the only backend `require_production_support` accepts. It evaluates a plaintext keyed PRF in the authenticated Torii owner path. Core validates pinned signed policy and receipt metadata, original openings, bounded leases and independent phone attestations. The low-level evaluator echoes normalized input, but the Torii owner path clears that echo and returns only the opaque PRF digest. This path provides neither encrypted evaluation nor a program-execution proof; both BFV backends remain refused for production.",
    "replacement": "R.6 still requires genuine class-bound replacements before retiring this current plaintext owner-PRF consumer, its backend tag and Signed mode. Retirement must reject old tags at Norito/JSON decoding and registration without an alias; an empty census is not replacement evidence.",
    "users": [
+    {"path": "artifacts/openapi/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "artifacts/openapi/versions/current/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "crates/iroha_torii/assets/openapi/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "crates/iroha/src/client/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {
+     "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
+     "kind": "test",
+     "literals": ["HkdfSha3_512PrfV1"],
+     "test_only": true
+    },
+    {"path": "crates/iroha_torii_shared/src/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {"path": "scripts/tests/ledger_scoped_originals_openapi_test.py", "kind": "test", "literals": ["hkdf-sha3-512-prf-v1"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe.rs",
      "kind": "definition",
@@ -9534,6 +10817,12 @@
      "note": "Task T.1's history inventory anchors the HKDF dispatch arm of evaluate_commitment; its check fails when R.6 removes the backend, so R.6 updates the anchor in the same change."
     },
     {
+     "path": "specs/zk_resource_contract.json",
+     "kind": "source_anchor",
+     "literals": ["crates/iroha_data_model/src/identifier/hkdf_v1.rs"],
+     "note": "Task F.2 records the authenticated-owner plaintext PRF input-length comparison in the identifier helper. This is a source inventory reference, not another implementation or encrypted-evaluation evidence; R.6 updates it when retiring that backend."
+    },
+    {
      "path": "specs/universal_accounts_guide.md",
      "kind": "documentation",
      "literals": ["hkdf-sha3-512-prf-v1"],
@@ -9551,6 +10840,25 @@
      "kind": "source_anchor",
      "literals": ["hkdf-sha3-512-prf-v1"],
      "note": "Task G.1's State inventory lists the backend tag among the domain tags it checks against the source; R.6 updates the anchor when it removes the backend."
+    },
+    {
+     "path": "specs/zk_primitive_workloads.json",
+     "kind": "source_anchor",
+     "literals": ["hkdf-sha3-512-prf-v1"],
+     "note": "Task H.1's digest inventory records the backend as the role ram-lfe.prf-hkdf-sha3-512 and anchors its variant name in the source; R.6 updates the role when it removes the backend."
+    },
+    {
+     "path": "specs/zk_operation_inventory.json",
+     "kind": "source_anchor",
+     "literals": ["HkdfSha3_512PrfV1"],
+     "note": "Task F.1's operation inventory lists the backend variant, its tag and its consumers' rejections, and anchors them in the source; R.6 updates the entry when it removes the backend."
+    },
+    {
+     "path": "scripts/tests/check_zk_operation_inventory_test.py",
+     "kind": "test",
+     "literals": ["HkdfSha3_512PrfV1"],
+     "note": "Drift test of task F.1's inventory checker: it removes the backend variant in memory and expects the check to fail.",
+     "test_only": true
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
@@ -9712,6 +11020,9 @@
    "disposition": "preserve",
    "summary": "HKDF key derivation unrelated to RAM-LFE. R.6 must not remove any of it.",
    "entries": [
+    {"path": "contracts/evm/sccp/test/sccp_v1_model.js", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
+    {"path": "crates/iroha_sccp/tests/reference_support/bls_support.rs", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
+    {"path": "scripts/sccp_reference/bls_sig.py", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
     {"path": "Cargo.lock", "purpose": "Lock entry of the hkdf crate."},
     {"path": "IrohaSwift/Sources/IrohaSwift/Confidential.swift", "purpose": "Confidential key hierarchy and note or memo key derivation."},
     {"path": "IrohaSwift/Sources/IrohaSwift/ConfidentialNote.swift", "purpose": "Confidential key hierarchy and note or memo key derivation."},
@@ -10047,6 +11358,48 @@
    "evidence": {"path": "scripts/check_zk_resource_contract.py", "literal": "zk_resource_contract.json"}
   },
   {
+   "path": "specs/zk_runtime_validity_census.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/check_zk_runtime_validity.py", "literal": "zk_runtime_validity_census.json"}
+  },
+  {
+   "path": "specs/zk_primitive_workloads.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/check_zk_primitive_workloads.py", "literal": "zk_primitive_workloads.json"}
+  },
+  {
+   "path": "specs/zk_operation_inventory.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/check_zk_operation_inventory.py", "literal": "zk_operation_inventory.json"}
+  },
+  {
+   "path": "specs/zk_economic_invariants.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/check_zk_economic_invariants.py", "literal": "zk_economic_invariants.json"}
+  },
+  {
+   "path": "specs/fhe_bgv_cost_summary.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/fhe_bgv_cost_model.py", "literal": "fhe_bgv_cost_summary.json"}
+  },
+  {
+   "path": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt",
+   "kind": "fixture",
+   "registered": true,
+   "evidence": {"path": "generated-files.toml", "literal": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt"}
+  },
+  {
+   "path": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt",
+   "kind": "fixture",
+   "registered": true,
+   "evidence": {"path": "generated-files.toml", "literal": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt"}
+  },
+  {
+   "path": "crates/iroha_measurement/fixtures/consumers.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "crates/iroha_measurement/tests/layering.rs", "literal": "consumers.json"}
+  },
+  {
    "path": "fixtures/soracloud/identifier_owner_execute_v1.json",
    "kind": "fixture",
    "evidence": {"path": "IrohaSwift/Tests/IrohaSwiftTests/ToriiClientRamLfeTestSupport.swift", "literal": "identifier_owner_execute_v1.json"}
@@ -10199,9 +11552,12 @@
     {"path": "crates/iroha_fhe/src/key_switch.rs", "patterns": ["fhe", "negacyclic", "rns"]},
     {"path": "crates/iroha_fhe/src/lib.rs", "patterns": ["bfv", "bgv", "fhe", "negacyclic", "ntt", "ram_lfe", "rns"]},
     {"path": "crates/iroha_fhe/src/modular.rs", "patterns": ["bfv", "fhe"]},
+    {"path": "crates/iroha_fhe/src/natural.rs", "patterns": ["fhe", "rns"]},
     {"path": "crates/iroha_fhe/src/ntt.rs", "patterns": ["basis_conversion", "bfv", "fhe", "negacyclic", "ntt", "rns"]},
+    {"path": "crates/iroha_fhe/src/ntt_plan.rs", "patterns": ["fhe", "negacyclic", "ntt"]},
     {"path": "crates/iroha_fhe/src/polynomial.rs", "patterns": ["fhe", "negacyclic", "ntt"]},
     {"path": "crates/iroha_fhe/src/rns.rs", "patterns": ["basis_conversion", "fhe", "ntt", "rns"]},
+    {"path": "crates/iroha_fhe/src/rns_chain.rs", "patterns": ["bgv", "fhe", "rns"]},
     {"path": "crates/iroha_fhe/src/rounding.rs", "patterns": ["bfv", "fhe", "ram_lfe"]}
    ]
   },
@@ -10380,6 +11736,15 @@
     {"path": "crates/iroha_crypto/src/ram_lfe/clearing.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization_tests.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs", "patterns": ["fhe", "ram_lfe"]},
+    {
+     "path": "crates/iroha_crypto/src/ram_lfe/normal_form_tests.rs",
+     "patterns": ["bfv", "bgv", "fhe", "ram_lfe", "rns"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {"path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe/planning_candidate.rs",
      "patterns": ["bfv", "fhe", "ram_lfe", "rns"],
@@ -10393,7 +11758,7 @@
     {"path": "crates/iroha_crypto/src/ram_lfe/reference_tests.rs", "patterns": ["bfv", "fhe", "ram_lfe", "rns"], "cfg": ["test"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe/specification_tests.rs",
-     "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "patterns": ["bfv", "bgv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe", "rns"],
      "cfg": ["test"],
      "test_only": true
     },
@@ -12130,8 +13495,10 @@
     {"path": "crates/iroha_data_model/src/isi/shared_test_helpers.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_data_model/src/json_key_codec.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_data_model/src/lib.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_data_model/src/phone_control.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_data_model/src/ram_lfe.rs", "patterns": ["bfv", "ram_lfe"]},
     {"path": "crates/iroha_data_model/src/ram_lfe/captured_ram_lfe_schema_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_data_model/tests/phone_control_v1.rs", "patterns": ["fhe", "ram_lfe"], "test_only": true},
     {"path": "crates/iroha_data_model/tests/ram_lfe_canonical_v1.rs", "patterns": ["fhe", "ram_lfe"], "test_only": true}
    ]
   },
@@ -12439,9 +13806,9 @@
    "tasks": ["R.6", "C.9"],
    "summary": "Generated Torii OpenAPI documents and the package-local mirror that carry the RAM-LFE, identifier and SoraCloud FHE schemas.",
    "files": [
-    {"path": "artifacts/openapi/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]},
-    {"path": "artifacts/openapi/versions/current/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]},
-    {"path": "crates/iroha_torii/assets/openapi/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]}
+    {"path": "artifacts/openapi/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "artifacts/openapi/versions/current/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "crates/iroha_torii/assets/openapi/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]}
    ]
   },
   {
@@ -12475,7 +13842,7 @@
    "files": [
     {"path": "fixtures/sorafs/source_contracts/open_work.tsv", "patterns": ["mkhe"], "test_only": true},
     {"path": "scripts/panic_recovery_boundaries.inventory", "patterns": ["bfv", "ram_lfe", "rns"]},
-    {"path": "specs/agents/env_var_inventory.json", "patterns": ["bfv", "fhe", "mkhe", "ram_lfe", "rns"]},
+    {"path": "specs/agents/env_var_inventory.json", "patterns": ["bfv", "bgv", "fhe", "mkhe", "ram_lfe", "rns"]},
     {
      "path": "specs/agents/env_var_inventory.md",
      "patterns": [],
@@ -12754,14 +14121,27 @@
    "component": "scripts",
    "role": "tooling",
    "tasks": ["V.1"],
-   "summary": "Source guards, estimators and feature-hygiene checks that name BFV, FHE, RAM-LFE or MKHE identifiers, and the workflow and Makefile entries that run this inventory's checker.",
+   "summary": "Source guards, estimators and feature-hygiene checks that name BFV, FHE, RAM-LFE or MKHE identifiers, the workflow and Makefile entries that run this inventory's checker, and the registry of generated files, which names the two generated RNS-BGV vector files.",
    "files": [
-    {"path": ".github/workflows/pr.yml", "patterns": ["fhe"]},
-    {"path": "Makefile", "patterns": ["fhe"]},
+    {"path": ".github/workflows/pr.yml", "patterns": ["bgv", "fhe"]},
+    {"path": "Makefile", "patterns": ["bgv", "fhe", "rns"]},
+    {"path": "generated-files.toml", "patterns": ["bgv", "fhe"]},
     {"path": "pytests/scripts/qmask_s_stream_lifetime_test.py", "patterns": ["mkhe"], "test_only": true},
     {"path": "pytests/scripts/workspace_release_gate_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/check_cargo_feature_hygiene.py", "patterns": ["bfv", "fhe", "ntt"]},
     {"path": "scripts/check_release_feature_graph.py", "patterns": ["bfv"]},
+    {"path": "scripts/check_zk_operation_inventory.py", "patterns": ["fhe", "mkhe", "ram_lfe"]},
+    {"path": "scripts/check_zk_primitive_workloads.py", "patterns": ["mkhe"]},
+    {"path": "scripts/check_zk_resource_contract.py", "patterns": ["ram_lfe"]},
+    {"path": "scripts/check_zk_runtime_validity.py", "patterns": ["bfv", "bgv", "fhe", "mkhe"]},
+    {
+     "path": "scripts/tests/check_zk_operation_inventory_test.py",
+     "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe"],
+     "test_only": true
+    },
+    {"path": "scripts/tests/check_zk_primitive_workloads_test.py", "patterns": ["mkhe", "ram_lfe", "rns"], "test_only": true},
+    {"path": "scripts/tests/check_zk_resource_contract_test.py", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
+    {"path": "scripts/tests/check_zk_runtime_validity_test.py", "patterns": ["fhe", "ram_lfe"], "test_only": true},
     {"path": "scripts/tests/large_static_contract_asset_compaction_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/tests/openapi_contract_call_test.py", "patterns": ["bfv", "ram_lfe"], "test_only": true},
     {"path": "scripts/tests/release_feature_graph_test.py", "patterns": ["bfv"], "test_only": true},
@@ -12771,9 +14151,7 @@
     {"path": "scripts/tests/soracloud_fhe_proof_validation_matrix_source_test.py", "patterns": ["bfv", "fhe"], "test_only": true},
     {"path": "scripts/tests/soracloud_full_bootstrap_proof_case_matrix_source_test.py", "patterns": ["bfv", "fhe"], "test_only": true},
     {"path": "scripts/zk_ams_prefix_nonzero_vectors_v1.py", "patterns": ["mkhe", "rns"]},
-    {"path": "scripts/zk_ams_security_estimator_v1.py", "patterns": ["mkhe"]},
-    {"path": "scripts/check_zk_resource_contract.py", "patterns": ["ram_lfe"]},
-    {"path": "scripts/tests/check_zk_resource_contract_test.py", "patterns": ["ram_lfe"], "test_only": true}
+    {"path": "scripts/zk_ams_security_estimator_v1.py", "patterns": ["mkhe"]}
    ]
   },
   {
@@ -12783,12 +14161,12 @@
    "tasks": ["C.2"],
    "summary": "Workspace manifest and lockfile entries (the bfv-accel cfg registration, the hkdf crate, the iroha_fhe package), the manifests that declare the dependency on iroha_fhe, and the CI lane manifest that assigns iroha_fhe to the foundation lane.",
    "files": [
-    {"path": "Cargo.toml", "patterns": ["bfv"]},
     {"path": "Cargo.lock", "patterns": ["fhe", "hkdf"]},
-    {"path": "crates/iroha_fhe/Cargo.toml", "patterns": ["bfv", "fhe", "ntt", "rns"]},
+    {"path": "Cargo.toml", "patterns": ["bfv", "bgv", "fhe"]},
+    {"path": "ci/rust_lanes.toml", "patterns": ["fhe"]},
     {"path": "crates/iroha_core_privacy/Cargo.toml", "patterns": ["fhe"]},
-    {"path": "crates/iroha_zkp_halo2/Cargo.toml", "patterns": ["fhe"]},
-    {"path": "ci/rust_lanes.toml", "patterns": ["fhe"]}
+    {"path": "crates/iroha_fhe/Cargo.toml", "patterns": ["bfv", "bgv", "fhe", "ntt", "rns"]},
+    {"path": "crates/iroha_zkp_halo2/Cargo.toml", "patterns": ["fhe"]}
    ]
   },
   {
@@ -12798,10 +14176,19 @@
    "tasks": ["B.1", "G.1", "T.1"],
    "summary": "Source-checked sibling inventories of the same delivery plan that name BFV, FHE, RAM-LFE or MKHE items. Each has its own checker; a change to a named item refreshes them together with this file.",
    "files": [
+    {"path": "crates/iroha_measurement/fixtures/consumers.json", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
     {"path": "specs/fastpq/shared_backend_inventory.json", "patterns": ["bfv", "fhe", "mkhe", "ram_lfe", "rns"]},
+    {"path": "specs/fhe_bgv_cost_summary.json", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
     {"path": "specs/first_release_history_cutover.json", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]},
     {"path": "specs/state_table_inventory.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe", "rns"]},
-    {"path": "specs/zk_resource_contract.json", "patterns": ["bfv", "bgv", "ram_lfe", "rns"]}
+    {"path": "specs/zk_economic_invariants.json", "patterns": ["fhe", "ram_lfe"]},
+    {"path": "specs/zk_operation_inventory.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]},
+    {
+     "path": "specs/zk_primitive_workloads.json",
+     "patterns": ["basis_conversion", "bfv", "bgv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]
+    },
+    {"path": "specs/zk_resource_contract.json", "patterns": ["bfv", "bgv", "fhe", "hkdf", "ram_lfe", "rns"]},
+    {"path": "specs/zk_runtime_validity_census.json", "patterns": ["bfv", "bgv", "fhe", "mkhe", "ntt", "ram_lfe", "rns"]}
    ]
   },
   {
@@ -12811,6 +14198,103 @@
    "tasks": ["R.6"],
    "summary": "Markdown that names the RAM-LFE HKDF backend. Other Markdown is not scanned.",
    "files": [{"path": "specs/universal_accounts_guide.md", "patterns": ["hkdf", "hkdf_ram_lfe"]}]
+  },
+  {
+   "id": "fhe.rns_bgv",
+   "component": "iroha_fhe",
+   "role": "fhe_implementation",
+   "tasks": ["C.3", "C.4", "C.8", "C.9", "R.11", "R.8", "R.7"],
+   "summary": "The exact modular RNS-BGV starting candidate (task C.3): profiles and candidates, coins and samplers, keys and their canonical encodings, encryption and decryption, leveled evaluation with hybrid key switching, public noise accounting and shape planning, slot encodings and the cost model. The fixture module is compiled only for tests or with the bgv-test-fixtures feature. Not wired into any consumer; no profile is qualified.",
+   "files": [
+    {"path": "crates/iroha_fhe/src/bgv/cipher.rs", "patterns": ["bgv", "fhe", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/coins.rs", "patterns": ["bgv", "fhe"]},
+    {"path": "crates/iroha_fhe/src/bgv/cost.rs", "patterns": ["bgv", "fhe"]},
+    {"path": "crates/iroha_fhe/src/bgv/encoding.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt"]},
+    {"path": "crates/iroha_fhe/src/bgv/eval.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/fault.rs", "patterns": ["bgv", "fhe"]},
+    {
+     "path": "crates/iroha_fhe/src/bgv/fixtures.rs",
+     "patterns": ["bgv", "fhe", "rns"],
+     "cfg": ["any(test, feature = \"bgv-test-fixtures\")"],
+     "test_only": true
+    },
+    {"path": "crates/iroha_fhe/src/bgv/keys.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/mod.rs", "patterns": ["bfv", "bgv", "fhe", "ntt", "ram_lfe", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/noise.rs", "patterns": ["bgv", "fhe"]},
+    {"path": "crates/iroha_fhe/src/bgv/plan.rs", "patterns": ["bgv", "fhe"]},
+    {"path": "crates/iroha_fhe/src/bgv/poly.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "rns"]},
+    {"path": "crates/iroha_fhe/src/bgv/profile.rs", "patterns": ["bgv", "fhe", "negacyclic", "ntt", "ram_lfe", "rns"]}
+   ]
+  },
+  {
+   "id": "fhe.rns_bgv.tests",
+   "component": "iroha_fhe",
+   "role": "fhe_test_reference",
+   "tasks": ["C.3"],
+   "summary": "Independent references and tests of the RNS-BGV candidate and of the arbitrary-chain kernels: the Python reference and its known-answer file, the num-bigint oracle, vector, noise, clearing and surface tests, the costing harness that lowers the V1 tape instructions over shapes and over ciphertexts with its tests, the test that holds the tracked cost summary to the Rust model, and the measured workloads.",
+   "files": [
+    {"path": "crates/iroha_fhe/tests/bgv_clearing.rs", "patterns": ["bgv", "fhe"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_cost_measurement.rs", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_cost_model_vectors.rs", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_noise.rs", "patterns": ["bgv", "fhe"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_surface.rs", "patterns": ["basis_conversion", "bgv", "fhe", "ntt", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_tape_plan.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/bgv_vectors.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/rns_chain_vectors.rs", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/support/kat.rs", "patterns": ["bgv", "fhe"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/support/machine.rs", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/support/mod.rs", "patterns": ["bgv", "fhe"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/support/oracle.rs", "patterns": ["bgv", "fhe", "negacyclic", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt", "patterns": ["bgv", "fhe", "rns"], "test_only": true},
+    {"path": "crates/iroha_fhe/tests/vectors/bgv_reference.py", "patterns": ["bgv", "fhe", "rns"], "test_only": true}
+   ]
+  },
+  {
+   "id": "fhe.rns_bgv.cost_tooling",
+   "component": "iroha_fhe",
+   "role": "tooling",
+   "tasks": ["C.3"],
+   "summary": "Cost model, tape planner, summary builder and checker of the RNS-BGV candidates with its tests, the view of the summary that a Rust test recomputes, the pinned Lattice Estimator invocation and the raw output record of its run, which the summary restates and which qualifies no candidate.",
+   "files": [
+    {"path": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
+    {"path": "scripts/fhe_bgv_cost_model.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
+    {"path": "scripts/fhe_bgv_lattice_estimator.sage", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
+    {"path": "scripts/tests/fhe_bgv_cost_model_test.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
+    {"path": "specs/fhe_bgv_lattice_estimator_output.txt", "patterns": ["bgv", "fhe", "rns"]}
+   ]
+  },
+  {
+   "id": "native.ownership_and_sccp_references",
+   "component": "shared",
+   "role": "consumer",
+   "tasks": ["R.6"],
+   "summary": "Retained RAM-LFE authority originals and their tests, plus independent SCCP BLS KeyGen references. SCCP HKDF does not implement RAM-LFE.",
+   "files": [
+    {
+     "path": "crates/iroha/src/client/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_torii_shared/src/authority_originals/tests.rs",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
+    {"path": "scripts/tests/ledger_scoped_originals_openapi_test.py", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"], "test_only": true},
+    {"path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_torii_shared/src/authority_originals.rs", "patterns": ["ram_lfe"]},
+    {"path": "contracts/evm/sccp/test/sccp_v1_model.js", "patterns": ["hkdf"], "test_only": true},
+    {"path": "crates/iroha_sccp/tests/reference_support/bls_support.rs", "patterns": ["hkdf"], "test_only": true},
+    {"path": "scripts/sccp_reference/bls_sig.py", "patterns": ["hkdf"]}
+   ]
   }
  ]
 }

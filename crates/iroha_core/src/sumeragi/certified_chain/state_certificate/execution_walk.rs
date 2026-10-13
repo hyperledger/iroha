@@ -145,7 +145,7 @@ where
             NonZeroUsize::new(height).expect("nonzero successor"),
             &mut self.before_read,
         )?;
-        let current = read_frame(block, height as u64)
+        let current = read_frame(block, height as u64, self.chain.root_scope())
             .map_err(|error| verification_attempt_failure(VerificationReadError::from(error)))?;
         self.chain
             .verify_executed_successor(self.parent.as_ref().unwrap(), current)
@@ -161,13 +161,15 @@ where
         // authenticated H2 successor in the same iterator before yielding the original H1.
         self.successor = Some(self.read_successor(view, 2)?);
         let committed = self.parent.take().unwrap();
-        let certificate_len = norito::canonical_frame_len(
-            committed
-                .block()
-                .commit_certificate()
-                .ok_or_else(|| invalid("original genesis result certificate is absent"))?,
-        )
-        .map_err(|error| verification_attempt_failure(verification_codec_error(1, error)))?;
+        let certificate = committed
+            .block()
+            .commit_certificate()
+            .ok_or_else(|| invalid("original genesis result certificate is absent"))?;
+        let certificate_len =
+            norito::core::classify_decode_attempt(|| norito::canonical_frame_len(certificate))
+                .map_err(|error| {
+                    verification_attempt_failure(verification_codec_error(1, error))
+                })?;
         Ok(CertifiedBlock {
             committed,
             commit_qc: None,
@@ -221,7 +223,12 @@ where
             // Retain through the existing bounded original codec, not an infallible deep clone.
             // No source I/O or QC verification is repeated, and the same cumulative scope funds it.
             self.parent = Some(
-                read_frame(certified.block().clone(), height as u64).map_err(|error| {
+                read_frame(
+                    certified.block().clone(),
+                    height as u64,
+                    self.chain.root_scope(),
+                )
+                .map_err(|error| {
                     verification_attempt_failure(VerificationReadError::from(error))
                 })?,
             );

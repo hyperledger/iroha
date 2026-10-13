@@ -59,7 +59,10 @@ NATIVE_CORE_TEST_OWNERS = (
         'governance_slash_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys',
     )),
     ('native KAGEMUSHA wallet State and verifier-pack routing', 'kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests', ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss')),
-    ('native State preverify backend and key admission', 'state.rs', 'state/state_preverify_backend_admission_tests.rs', 'state_preverify_backend_admission_tests', 'state::state_preverify_backend_admission_tests', ('unsupported_retired_and_claimed_backends_fail_state_admission', 'stark_fri_profile_labels_require_enveloped_state_preverify_metadata', 'native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry', 'native_state_payload_caps_commitments_and_metadata_precede_dedup_publication', 'genuine_stark_originals_preserve_independent_admission_and_key_activity', 'retired_ipa_profile_labels_refuse_even_native_envelope', 'native_and_stark_key_refusals_preserve_original_dedup_for_retry')),
+    ('native State preverify backend and key admission', 'state.rs', 'state/state_preverify_backend_admission_tests.rs', 'state_preverify_backend_admission_tests', 'state::state_preverify_backend_admission_tests', ('unsupported_retired_and_claimed_backends_fail_state_admission', 'stark_fri_profile_labels_require_enveloped_state_preverify_metadata', 'native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry', 'native_state_payload_caps_commitments_and_metadata_precede_dedup_publication', 'genuine_stark_originals_preserve_independent_admission_and_key_activity', 'retired_ipa_profile_labels_refuse_even_native_envelope', 'native_and_stark_key_refusals_preserve_original_dedup_for_retry',
+        'original_state_preverify_refusal_does_not_publish_dedup_and_retries',
+        'proof_quota_preflight_is_nonmutating_and_registration_preserves_limits',
+    )),
     ('native original Queue payload lease custody', 'queue.rs', 'queue/payload_leases.rs', 'payload_leases', 'queue::payload_leases::tests', ('pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue', 'pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection', 'pending_payload_lease_retires_on_actual_certified_state_publication', 'pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap')),
     ('native original Queue resident custody', 'queue.rs', 'queue/resident_owner_tests.rs', 'resident_owner_tests', 'queue::tests::resident_owner_tests', ('removed_pending_owner_retains_original_resident_credit_until_last_reader', 'original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries', 'first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool', 'every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases', 'equal_limit_foreign_state_cannot_replace_original_queue_resident_pool', 'queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner', 'cold_queue_retirement_holds_original_fence_until_first_admission_can_publish')),
     ('native returned AMX context custody', 'sumeragi/amx/native/tests.rs', 'sumeragi/amx/native/tests/returned_context.rs', 'returned_context', 'sumeragi::amx::native::tests::returned_context', (
@@ -75,6 +78,9 @@ NATIVE_CORE_TEST_OWNERS = (
         'restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_without_reread',
         'restarted_paid_intent_rejects_substituted_authority_carrier_and_execution_claims',
         'restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery',
+        'native_amx_decision_delivery_after_restart_settles_exact_registered_child_at_final_tip',
+        'native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction',
+        'native_amx_decision_delivery_rejects_absent_begin_wrong_participant_and_foreign_root',
     )),
     ('native persisted AMX original proof custody', 'sumeragi/amx/mod.rs', 'sumeragi/amx/proof_tests.rs', 'proof_tests', 'sumeragi::amx::proof_tests', (
         'persisted_amx_records_survive_deadline_pruning_and_certified_replay',
@@ -131,6 +137,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'cancellation_stays_final_when_the_identical_context_and_request_return',
         'lane_sized_peer_inputs_above_global_bound_keep_independent_progress',
         'cancelling_and_dropping_scheduler_unlinks_all_waiters_before_original_refunds',
+        'clock_ahead_payload_retries_without_another_queue_notification',
     )),
     ('native committed-head release retries', 'sumeragi/driver/exec.rs', 'sumeragi/driver/source_retry_tests.rs', 'source_retry_tests', 'sumeragi::driver::exec::source_retry_tests', (
         'committed_head_waits_for_original_release_across_prepare_append_and_commit',
@@ -140,6 +147,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'original_wake_is_funded_before_startup_and_retained_by_its_waker',
         'inputs_and_original_release_keep_the_last_drain_to_park_edge',
         'original_release_wakes_actual_park_after_final_pending_check',
+        'original_thread_capacity_release_unparks_after_final_latch_check_with_writer_retained',
     )),
 
     ('native complete State reader custody', 'state/view_acquisition.rs', 'state/view_acquisition_tests.rs', 'tests', 'state::view_acquisition::tests', (
@@ -181,6 +189,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'attached_publication_busy_retry_retains_original_cursor_charge_and_release_sources',
     )),
     ('native publication custody', 'sumeragi/executor.rs', 'sumeragi/executor_publication_tests.rs', 'publication_tests', 'sumeragi::executor::publication_tests', (
+        'published_execution_result_binds_the_original_header_and_body_digest',
         'beacon_startup_retains_original_capacity_through_worker_channel_and_node',
         'prepared_block_moves_original_graph_and_rejects_replaced_shared_control',
         'reversible_publication_refusal_retains_original_overlay_capture_and_certified_frame',
@@ -227,6 +236,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_context_archive_corrupt_commitment_remains_sticky_recovery',
         'original_worker_world_cut_retains_completed_tail_after_final_control_refusal',
         'original_worker_completed_world_cut_refuses_changed_publication_source',
+        'original_worker_world_cut_physical_allocator_refusal_retains_tail_and_publication',
         'native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages',
     )),
     ('native local empty signature preparation', 'sumeragi/executor.rs', 'sumeragi/executor_local_signature_preparation_tests.rs', 'local_signature_preparation_tests', 'sumeragi::executor::local_signature_preparation_tests', (
@@ -269,7 +279,19 @@ NATIVE_CORE_TEST_OWNERS = (
         'cold_prepare_validation_refusals_retain_original_storage_owners',
         'validation_wrappers_keep_real_capacity_and_terminal_custody_distinct',
         'original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine',
+        'cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery',
         'native_source_publication_change_retries_without_recovery_or_quarantine',
+        'immutable_result_foreign_budget_requires_recovery_with_original_diagnostic',
+        'immutable_result_excessive_preimage_requires_recovery_with_original_extent',
+        'immutable_result_encoding_failure_requires_recovery_with_original_cause',
+        'immutable_certificate_foreign_budget_requires_recovery_with_original_diagnostic',
+        'immutable_preparation_capacity_preserves_the_exact_original_release',
+        'immutable_preparation_allocator_refusal_never_invents_a_release',
+        'immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody',
+        'producer_payload_errors_keep_original_release_and_terminal_classification',
+        'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery',
+        'sccp_evidence_publication_preserves_all_original_preparation_categories',
+        'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (
         'state_publication_lock_refusals_reach_scheduler_with_original_execution_and_release',
@@ -299,6 +321,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'restore_preserves_original_pool_refusal_release_and_same_source_retry',
         'restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry',
         'restore_keeps_corrupt_native_history_a_completed_schema_rejection',
+        'native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',
     )),
     ('native certified history', 'sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests', (
         'committed_and_certified_reads_of_a_real_chain',
@@ -319,6 +342,10 @@ NATIVE_CORE_TEST_OWNERS = (
         'certified_reader_rejects_missing_foreign_and_corrupt_signed_availability',
         'durable_certificate_read_rejects_checksum_valid_corruption_after_cache_warm',
         'signed_genesis_initialization_does_not_repeat_completed_scope_decode',
+        'current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body',
+        'native_frame_requires_fixed_header_and_exact_block_binding',
+        'authenticated_scope_rejects_active_non_global_without_redecoding_result',
+        'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners',
     )),
     ('native certified history boundaries', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/boundary_tests.rs', 'boundaries', 'sumeragi::certified_chain::tests::boundaries', (
         'rotated_away_committee_verifies_from_authenticated_boundaries_with_bounded_authority',
@@ -331,6 +358,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'result_pulses_require_exact_height_network_session_and_parent_bindings',
         'pinned_restoration_reuses_full_boundary_verification_and_one_authority_cursor',
         'historical_pulse_requires_signed_header_bytes_and_complete_native_context',
+        'npos_epoch_schedule_uses_committed_epoch_length',
     )),
     ('native certified prefix authority', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/prefix_tests.rs', 'prefix_tests', 'sumeragi::certified_chain::tests::prefix_tests', (
         'streamed_prefix_emits_genesis_execution_anchor_only_after_real_successor',
@@ -427,13 +455,18 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_active_session_from_a_foreign_real_committee_refuses_before_signing',
         'readiness_reprobes_same_applied_cut_without_signing_and_excludes_stale_generation',
         'readiness_no_demand_does_not_require_a_beacon_session',
+        'parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand',
+        'readiness_horizon_is_native_only_with_pending_parliament_slots',
         'control_retries_use_original_tip_without_decoding_history_again',
         'control_requires_original_tip_and_matching_published_hash_journal',
         'valid_same_roster_foreign_generation_refuses_production_readiness_and_capture',
     )),
     ('native executed beacon controls', 'sumeragi/epoch_beacon/producer/tests.rs', 'sumeragi/epoch_beacon/producer/execution_tests.rs', 'execution_tests', 'sumeragi::epoch_beacon::producer::tests::execution_tests', (
+        'sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height',
         'transported_pulse_executes_once_and_cold_replay_reproduces_the_certified_result',
         'native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work',
+        'pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work',
+        'npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots',
     )),
     ('native frozen epoch schedule', 'sumeragi/schedule.rs', 'sumeragi/schedule/tests.rs', 'tests', 'sumeragi::schedule::tests', (
         'chain_params_record_round_trips_the_core_and_on_chain_forms',
@@ -450,12 +483,16 @@ NATIVE_CORE_TEST_OWNERS = (
         'scheduled_slot_json_requires_its_canonical_variant_tag',
         'restored_schedule_keeps_original_generation_and_full_epoch_graph',
         'genesis_outcome_cannot_supply_an_arbitrary_epoch_or_boundary',
+        'sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization',
+        'clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes',
     )),
     ('native executed genesis registration', 'sumeragi/schedule/execution.rs', 'sumeragi/schedule/execution_tests.rs', 'tests', 'sumeragi::schedule::execution::tests', (
+        'sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment',
         'executed_genesis_must_retain_every_exact_signed_registration',
         'executed_genesis_rejects_an_extra_voting_registration',
         'executed_genesis_fee_scope_decode_refusal_defers_and_retries_same_authority',
         'boundary_capture_attempts_retain_capacity_release_and_deterministic_errors',
+        'executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state',
     )),
     ('native driver persistence', 'sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/file_stores.rs', 'file_stores', 'sumeragi::driver::tests::file_stores', (
         'file_stores_survive_disk_errors',
@@ -490,6 +527,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'control_worker_unwind_requires_recovery_and_cannot_invent_empty',
         'due_control_build_progresses_under_replenished_drive_and_partial_ingress',
         'execution_certification_survives_parking',
+        'certified_execution_flag_reaches_the_application_without_inference',
     )),
     ('native driver kernel', 'sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/kernel.rs', 'kernel', 'sumeragi::driver::tests::kernel', (
         'kernel_refuses_unfunded_waiter_before_constructing_consensus',
@@ -553,6 +591,7 @@ NATIVE_CORE_TEST_OWNERS = (
     )),
     ('native canonical prepared intent framing and row identity', 'query/native_context_archive.rs', 'query/native_context_archive/prepared_intents.rs', 'prepared_intents', 'query::native_context_archive::prepared_intents::tests', (
         'borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime',
+        'borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent',
         'original_prepared_key_selection_refuses_malformed_and_preserves_transaction',
         'borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality',
         'sole_intent_decoder_borrows_original_charged_ranges_and_refuses_framing_or_cumulative_limits',

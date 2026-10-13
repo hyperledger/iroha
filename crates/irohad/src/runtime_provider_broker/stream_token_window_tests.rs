@@ -58,9 +58,9 @@ fn stream_token_broker_rejects_either_substituted_window_claim_and_scrubs_signat
         assert_eq!(result.signature_bytes, 4 * 64);
         assert!(result.receipt_signatures_zero);
         assert!(result.role_signature_zero);
-        assert!(result.parsed_signature_zero);
+        assert!(result.parsed_signature_zero.is_none_or(|zero| zero));
         assert!(
-            !result.had_parsed_signature,
+            result.parsed_signature_zero.is_none(),
             "window rejected before role crypto allocation"
         );
     }

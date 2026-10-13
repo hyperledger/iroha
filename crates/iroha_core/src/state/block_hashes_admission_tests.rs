@@ -362,7 +362,11 @@ fn cold_history_owner_prepays_its_exact_shared_layout() {
 fn cold_construction_refusal_refunds_every_partially_built_owner() {
     for bytes in [1, 4096] {
         let budget = AllocationBudget::new(bytes);
-        let result = BlockHashes::try_new((0..100_000).map(|i| hash(i as u8)), budget.clone());
+        let result = BlockHashes::try_new(
+            (0..100_000)
+                .map(|i| hash(u8::try_from((i) & 0xff).expect("masked fixture byte fits u8"))),
+            budget.clone(),
+        );
         assert!(matches!(result, Err(BlockHashAdmissionError::Capacity(_))));
         assert_eq!(budget.reserved_bytes(), 0);
     }
@@ -447,7 +451,7 @@ fn replacement_capacity_refusal_preserves_all_da_indexes_and_durable_journal() {
     ));
     assert_eq!(snapshot(), before);
     assert_eq!(std::fs::read(path).unwrap(), durable);
-    assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+    assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
     assert_eq!(state.block_hashes.view().last(), Some(&hash(1)));
     drop(occupied);
 }

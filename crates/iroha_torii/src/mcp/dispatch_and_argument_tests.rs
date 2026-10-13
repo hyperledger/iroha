@@ -2605,7 +2605,8 @@ fn governance_mcp_catalog_preserves_required_body_or_flat_forms() {
 fn openapi_governance_mcp_catalog_requires_inspectable_json_bodies() {
     let cfg = iroha_config::parameters::actual::ToriiMcp::default();
     let tools = build_tool_specs(&cfg);
-    for target_path in ["/v1/zk/vote/tally"] {
+    {
+        let target_path = "/v1/zk/vote/tally";
         let tool = tools
             .iter()
             .find(|tool| {
@@ -2613,7 +2614,7 @@ fn openapi_governance_mcp_catalog_requires_inspectable_json_bodies() {
                     && tool
                         .route_backing()
                         .is_some_and(|(_, method, path_template)| {
-                            method == &Method::POST && path_template == target_path
+                            method == Method::POST && path_template == target_path
                         })
             })
             .unwrap_or_else(|| panic!("missing OpenAPI-derived governance tool for {target_path}"));
@@ -2672,7 +2673,7 @@ fn openapi_governance_mcp_catalog_requires_inspectable_json_bodies() {
                     && tool
                         .route_backing()
                         .is_some_and(|(_, method, path_template)| {
-                            method == &Method::POST && path_template == target_path
+                            method == Method::POST && path_template == target_path
                         }))
             }),
             "purpose-built governance tool must not have a generated alias for {target_path}"
@@ -2863,9 +2864,11 @@ const COLLECTION_TOOL_SHAPES: [(&str, CollectionQueryShape, Option<&str>); 40] =
 ];
 #[test]
 fn collection_tools_advertise_the_shared_collection_query_controls() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     for (name, shape, path_key) in COLLECTION_TOOL_SHAPES {
         let tool = tools

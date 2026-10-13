@@ -90,7 +90,6 @@ const IZANAMI_NEXUS_FUSION_EXIT_TEU: i64 = 24_000_000;
 const IZANAMI_IVM_GAS_LIMIT_PER_BLOCK: u64 = 2_000_000_000;
 const IZANAMI_NPOS_BLOCK_TIME_MS: i64 = 120;
 const IZANAMI_NPOS_COMMIT_TIME_MS: i64 = 180;
-const IZANAMI_PIPELINE_DYNAMIC_PREPASS: bool = true;
 const IZANAMI_PIPELINE_ACCESS_SET_CACHE_ENABLED: bool = true;
 const IZANAMI_PIPELINE_PARALLEL_OVERLAY: bool = true;
 const IZANAMI_PIPELINE_PARALLEL_APPLY: bool = true;
@@ -2386,10 +2385,6 @@ fn make_network_builder_with_sorafs(
     let queue_capacity = effective_network_queue_capacity(config);
     builder = builder.with_config_layer(move |layer| {
         layer
-            .write(
-                ["pipeline", "dynamic_prepass"],
-                IZANAMI_PIPELINE_DYNAMIC_PREPASS,
-            )
             .write(
                 ["pipeline", "access_set_cache_enabled"],
                 IZANAMI_PIPELINE_ACCESS_SET_CACHE_ENABLED,

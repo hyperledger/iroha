@@ -46,7 +46,8 @@ fn work_instruction(text: &str) -> InstructionBox {
 }
 
 fn work_fee(text: &str) -> u64 {
-    let gas = crate::gas::meter_instruction(&work_instruction(text));
+    let gas = crate::gas::meter_instruction(&work_instruction(text), &crate::gas::DEFAULT_ZK_GAS)
+        .expect("gas quote must complete for this fixture");
     assert!(gas > 0, "paid progress requires a positive metered charge");
     // The immutable signed policy burns a positive base charge plus metered gas.
     gas.checked_add(1).unwrap()
@@ -134,16 +135,18 @@ impl DataspaceChain {
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
-        let mut pipeline = iroha_config::parameters::actual::Pipeline::default();
-        pipeline.gas.tech_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
-        pipeline.gas.accepted_assets = vec![fee_asset.canonical_address()];
-        pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-            asset: fee_asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
-            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-        }];
+        let pipeline = iroha_config::parameters::actual::Pipeline::default();
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: SAMPLE_GENESIS_ACCOUNT_ID.to_string(),
+            accepted_assets: vec![fee_asset.canonical_address()],
+            units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+                asset: fee_asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
+                liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+                volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+            }],
+        };
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = scope;
         let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
@@ -180,6 +183,9 @@ impl DataspaceChain {
             .with_block_cadence_ms(100_u64.try_into().unwrap())
             .set_topology(entries)
             .with_sumeragi_context_parameters(context);
+        let builder = crate::pipeline_gas_policy::parameters_for_testing(gas)
+            .into_iter()
+            .fold(builder, GenesisBuilder::append_parameter);
         let manifest = instructions
             .into_iter()
             .fold(builder, GenesisBuilder::append_instruction)
@@ -326,7 +332,7 @@ impl DataspaceChain {
             .expect("start independent private root with its original stores and authority");
             assert_eq!(
                 node.instance,
-                root_instance(&self.chain.genesis, &self.chain.chain_id.to_string()).unwrap()
+                root_instance(&self.chain.genesis, self.chain.chain_id.as_ref()).unwrap()
             );
             assert!(node.handle().startup_recovery().is_ready());
             assert_eq!(
@@ -502,7 +508,39 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
     assert_eq!(committed_heights(&b), vec![1; 4]);
     assert!(b.iter().all(|v| !v.state.has_committed_entrypoint(a_work)));
     let a_roots = world_state_roots(&a);
+    let stopped_private_state = Arc::clone(&a[0].state);
     shutdown(a);
+    {
+        // Even a genuinely paid, quorum-certified private receipt is not Global SCCP
+        // authority. Observe the original pool after node workers stop, so unrelated
+        // publication cleanup cannot race the refusal/refund assertion.
+        use crate::smartcontracts::isi::sccp::read::native::{
+            SccpNativeReadControl, SccpNativeReadError, finality,
+        };
+        use crate::sumeragi::certified_chain::{CertifiedChain, QcVerification};
+        let view = stopped_private_state.view();
+        let reader = CertifiedChain::new(&view).unwrap();
+        let original = reader.certified(2).unwrap();
+        assert_eq!(original.verification(), QcVerification::Verified);
+        assert_eq!(original.root_scope(), first.scope);
+        let budget = stopped_private_state.ivm_execution_budget();
+        let occupied = budget.reserved_bytes();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        assert!(matches!(
+            finality(
+                &view,
+                std::num::NonZeroU64::new(2),
+                &budget,
+                SccpNativeReadControl {
+                    deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                    stop: &stop,
+                },
+            ),
+            Err(SccpNativeReadError::UnsupportedScope)
+        ));
+        assert_eq!(budget.reserved_bytes(), occupied);
+    }
+    drop(stopped_private_state);
     let (_, b_fee) = second.submit(&b, "B advances while A is stopped");
     second.balances(&b, b_fee);
     let inspection_budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
@@ -611,15 +649,26 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
     let crate::queue::Error::TransactionDomainMismatch(mismatch) = refusal.err else {
         panic!("private queue must reject the exact foreign signed domain");
     };
-    assert_eq!(mismatch.actual, *foreign.as_ref().domain());
+    let iroha_data_model::transaction::TransactionEntrypoint::External(foreign_signed) =
+        foreign.entrypoint()
+    else {
+        panic!("the accepted signed-work fixture must retain its External carrier");
+    };
+    assert_eq!(mismatch.actual, *foreign_signed.domain());
     assert_eq!(
         mismatch.expected,
         iroha_data_model::transaction::TransactionDomain::Network(*state.network_id_ref())
     );
     assert!(
-        payload::select(&state, &queue, 1024 * 1024, 0)
-            .expect("completed routing read")
-            .is_empty()
+        payload::select(
+            &state.view(),
+            &queue,
+            1024 * 1024,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .expect("completed routing read")
+        .is_empty()
     );
     assert_eq!(queue.queued_len(), 0);
     // Exercise the independent hostile-proposer boundary even though the queue
@@ -637,6 +686,7 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
             parent: &parent,
             view: 0,
             cadence: Duration::from_millis(100),
+            proposed_time: std::time::Duration::ZERO,
         },
         &selected,
     )

@@ -4,7 +4,6 @@ mod owner_prf_mounted_tests {
     use crate::tests_runtime_handlers::{app_auth_test_guard, signed_network_app_headers};
     use axum::{Router, body::Body, http::Uri};
     use iroha_torii_shared::route_catalog::{EnabledFeatures, RouteCatalog};
-    use tower::ServiceExt as _;
 
     fn mounted_router(app: SharedAppState, body_limit: usize) -> Router {
         use route_catalog::application_api as routes;

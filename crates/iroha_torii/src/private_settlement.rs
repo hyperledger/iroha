@@ -54,7 +54,7 @@ use iroha_torii_shared::private_settlement_api::{
 use std::{path::PathBuf, str::FromStr as _, sync::Arc, time::Duration};
 
 /// Kura-relative owner-only directory for encrypted private-settlement sidecars.
-pub(crate) const PRIVATE_SETTLEMENT_SIDECAR_DIRECTORY_V1: &str = "private-settlement-sidecars-v1";
+pub const PRIVATE_SETTLEMENT_SIDECAR_DIRECTORY_V1: &str = "private-settlement-sidecars-v1";
 const PRIVATE_SETTLEMENT_RECONCILIATION_PAGE_RECORDS_V1: usize = 16;
 const PRIVATE_SETTLEMENT_RECONCILIATION_MAX_PAGES_PER_TICK_V1: usize = 16;
 const PRIVATE_SETTLEMENT_RECONCILIATION_INTERVAL_V1: Duration = Duration::from_secs(1);
@@ -119,7 +119,7 @@ fn governed_sidecar_store_config_v1(
 
 /// Route-local durable runtime installed as an Axum extension.
 #[derive(Clone)]
-pub(crate) struct PrivateSettlementToriiRuntimeV1 {
+pub struct PrivateSettlementToriiRuntimeV1 {
     store: Option<Arc<PrivateSettlementFileSidecarStoreV1>>,
     availability_signer: Option<Arc<PrivateSettlementAvailabilitySignerV1>>,
     phase_signer: Option<Arc<PrivateSettlementPhaseSignerV1>>,
@@ -161,18 +161,30 @@ impl PrivateSettlementToriiRuntimeV1 {
         })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn store(&self) -> Result<&PrivateSettlementFileSidecarStoreV1, Response> {
         self.store
             .as_deref()
             .ok_or_else(private_settlement_unavailable)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn availability_signer(&self) -> Result<&PrivateSettlementAvailabilitySignerV1, Response> {
         self.availability_signer
             .as_deref()
             .ok_or_else(private_settlement_unavailable)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn phase_signer(&self) -> Result<&PrivateSettlementPhaseSignerV1, Response> {
         self.phase_signer
             .as_deref()
@@ -207,10 +219,12 @@ mod governed_sidecar_store_config_tests {
 
     #[test]
     fn governed_limits_are_forwarded_exactly() {
-        let mut config = iroha_config::parameters::actual::NexusAtomicPrivateSettlement::default();
-        config.sidecar_max_records = NonZeroU32::new(17).expect("non-zero record bound");
-        config.sidecar_max_total_bytes =
-            NonZeroU64::new(23 * 1024 * 1024).expect("non-zero byte bound");
+        let config = iroha_config::parameters::actual::NexusAtomicPrivateSettlement {
+            sidecar_max_records: NonZeroU32::new(17).expect("non-zero record bound"),
+            sidecar_max_total_bytes: NonZeroU64::new(23 * 1024 * 1024)
+                .expect("non-zero byte bound"),
+            ..Default::default()
+        };
 
         let store = governed_sidecar_store_config_v1(&config).expect("bounded store config");
         assert_eq!(store.max_records(), 17);
@@ -375,9 +389,12 @@ mod governed_sidecar_store_config_tests {
     #[test]
     fn reconciliation_page_runs_retention_pruning_even_without_candidates() {
         let directory = tempfile::tempdir().expect("temporary sidecar directory");
+        // Let the store create its own owner-only directory; the temporary
+        // parent follows the process umask and may allow other users to read it.
+        let store_root = directory.path().join("restricted-sidecars");
         let config = PrivateSettlementSidecarStoreConfigV1::new(4, 1024 * 1024)
             .expect("bounded sidecar configuration");
-        let store = PrivateSettlementFileSidecarStoreV1::open(directory.path(), config)
+        let store = PrivateSettlementFileSidecarStoreV1::open(&store_root, config)
             .expect("open empty sidecar store");
 
         let removed = reconcile_and_prune_private_settlement_page_v1(&store, Vec::new(), 10)
@@ -526,7 +543,7 @@ async fn run_private_settlement_finality_reconciliation_v1(
 }
 
 /// Start the fail-closed local finality reconciler under the Torii shutdown tree.
-pub(crate) fn spawn_private_settlement_finality_reconciliation_v1(
+pub fn spawn_private_settlement_finality_reconciliation_v1(
     runtime: PrivateSettlementToriiRuntimeV1,
     state: Arc<iroha_core::state::State>,
     shutdown_signal: ShutdownSignal,
@@ -625,6 +642,10 @@ fn error_response(status: StatusCode, code: &'static str) -> Response {
 
 /// Capture all replicated evidence from the same original immutable publication.
 #[cfg(feature = "test-network-private-settlement-route-control")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn private_settlement_test_network_ledger_evidence_at_view(
     view: &iroha_core::state::StateView<'_>,
 ) -> Result<
@@ -663,7 +684,7 @@ fn private_settlement_test_network_ledger_evidence_at_view(
 /// validator. This is a non-shipping release-evidence diagnostic, not a
 /// production privacy API.
 #[cfg(feature = "test-network-private-settlement-route-control")]
-pub(crate) async fn handler_test_network_state_commitment(
+pub async fn handler_test_network_state_commitment(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey>,
@@ -730,7 +751,7 @@ pub(crate) async fn handler_test_network_state_commitment(
 }
 
 #[cfg(feature = "test-network-private-settlement-route-control")]
-async fn apply_private_settlement_route_control_v1<T: norito::json::JsonSerialize>(
+async fn apply_private_settlement_route_control_v1<T: norito::json::JsonSerialize + Sync>(
     phase: crate::private_settlement_route_control::Phase,
     bundle_id: Hash,
     request: &T,
@@ -812,6 +833,10 @@ fn map_phase_error(_: PrivateSettlementPhaseErrorV1) -> Response {
     error_response(StatusCode::BAD_REQUEST, "private_settlement_phase_rejected")
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn authoritative_height(app: &SharedAppState) -> Result<u64, Response> {
     u64::try_from(app.state.view().height()).map_err(|_| {
         error_response(
@@ -821,6 +846,10 @@ fn authoritative_height(app: &SharedAppState) -> Result<u64, Response> {
     })
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn active_config(
     app: &SharedAppState,
     height: u64,
@@ -828,6 +857,10 @@ fn active_config(
     active_config_at_view(height, &app.state.view())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn active_config_at_view(
     height: u64,
     state: &iroha_core::state::StateView<'_>,
@@ -930,6 +963,10 @@ fn phase_certificate_acknowledges_lifecycle_v1(
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_digest(literal: &str) -> Result<Hash, Response> {
     let digest = Hash::from_str(literal).map_err(|_| {
         error_response(
@@ -970,6 +1007,10 @@ fn committee_authority_is_authoritative(
         .is_ok()
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_upload_policy(
     app: &SharedAppState,
     request: &PrivateSettlementLegUploadRequestV1,
@@ -1014,6 +1055,10 @@ fn validate_upload_policy(
     Ok(())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_availability_share_policy(
     app: &SharedAppState,
     request: &PrivateSettlementAvailabilityShareRequestV1,
@@ -1060,6 +1105,10 @@ fn validate_availability_share_policy(
     Ok(())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_phase_manifest_policy(
     app: &SharedAppState,
     manifest: &iroha_data_model::nexus::AtomicPrivateSettlementV1,
@@ -1084,6 +1133,10 @@ fn validate_phase_manifest_policy(
     Ok(())
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_phase_deadline(
     app: &SharedAppState,
     store: &PrivateSettlementFileSidecarStoreV1,
@@ -1112,7 +1165,7 @@ fn validate_phase_deadline(
 }
 
 /// Persist sponsor-authenticated provisional bytes and issue this node's share.
-pub(crate) async fn handler_availability_share(
+pub async fn handler_availability_share(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1171,7 +1224,7 @@ pub(crate) async fn handler_availability_share(
 }
 
 /// Independently validate current WSV, fsync-stage, and issue one Prepare vote.
-pub(crate) async fn handler_prepare_vote(
+pub async fn handler_prepare_vote(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1234,7 +1287,7 @@ pub(crate) async fn handler_prepare_vote(
 }
 
 /// Verify one exact complete all-Prepare barrier and issue a read-only Commit vote.
-pub(crate) async fn handler_commit_vote(
+pub async fn handler_commit_vote(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1300,7 +1353,7 @@ pub(crate) async fn handler_commit_vote(
 }
 
 /// Verify and fsync one aggregate Prepare or Commit certificate on a signer node.
-pub(crate) async fn handler_phase_certificate(
+pub async fn handler_phase_certificate(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1379,7 +1432,7 @@ pub(crate) async fn handler_phase_certificate(
 }
 
 /// Recover exact durable Prepare and Commit QCs as the immutable bundle sponsor.
-pub(crate) async fn handler_phase_certificates_get(
+pub async fn handler_phase_certificates_get(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1416,7 +1469,7 @@ pub(crate) async fn handler_phase_certificates_get(
 }
 
 /// Persist one sponsor-authenticated encrypted leg through restricted DA.
-pub(crate) async fn handler_leg_upload(
+pub async fn handler_leg_upload(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
@@ -1480,7 +1533,7 @@ pub(crate) async fn handler_leg_upload(
 }
 
 /// Return an allowlisted lifecycle projection for one encrypted leg.
-pub(crate) async fn handler_leg_status(
+pub async fn handler_leg_status(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Path(payload_digest): Path<String>,
@@ -1517,7 +1570,7 @@ pub(crate) async fn handler_leg_status(
 }
 
 /// Return proof and opaque delta material only to an exact committee validator.
-pub(crate) async fn handler_committee_proof(
+pub async fn handler_committee_proof(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey>,
@@ -1557,6 +1610,10 @@ pub(crate) async fn handler_committee_proof(
     .into_response()
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn governed_auditor_view(
     app: &SharedAppState,
     runtime: &PrivateSettlementToriiRuntimeV1,
@@ -1588,7 +1645,7 @@ fn governed_auditor_view(
 }
 
 /// Return the padded encrypted capsule only to an exact governed auditor key.
-pub(crate) async fn handler_auditor_capsule(
+pub async fn handler_auditor_capsule(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey>,
@@ -1676,7 +1733,7 @@ pub(crate) async fn handler_auditor_capsule(
 }
 
 /// Persist one approval after binding its body to the authenticated auditor key.
-pub(crate) async fn handler_auditor_approval(
+pub async fn handler_auditor_approval(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Extension(authenticated): Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey>,
@@ -1854,6 +1911,10 @@ impl ExactPrivateSettlementCarrierV1<'_> {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn exact_private_settlement_carrier(
     transaction: &SignedTransaction,
 ) -> Result<ExactPrivateSettlementCarrierV1<'_>, Response> {
@@ -1886,7 +1947,7 @@ fn exact_private_settlement_carrier(
 }
 
 /// Admit one exact sponsor-signed global Prepare-lock, finalization, or abort carrier.
-pub(crate) async fn handler_bundle_submit(
+pub async fn handler_bundle_submit(
     State(app): State<SharedAppState>,
     Extension(authenticated): Extension<VerifiedCanonicalRequest>,
     headers: HeaderMap,
@@ -1966,7 +2027,7 @@ fn terminal_bundle_state(
 }
 
 /// Return an allowlisted aggregate bundle lifecycle.
-pub(crate) async fn handler_bundle_status(
+pub async fn handler_bundle_status(
     State(app): State<SharedAppState>,
     Extension(runtime): Extension<PrivateSettlementToriiRuntimeV1>,
     Path(bundle_id): Path<String>,
@@ -2028,17 +2089,19 @@ fn public_bundle_receipt(
     receipt: Option<iroha_data_model::nexus::PrivateSettlementReceiptV1>,
     abort: Option<iroha_data_model::nexus::PrivateSettlementAbortReceiptV1>,
 ) -> PrivateSettlementBundleReceiptResponseV1 {
-    if let Some(receipt) = receipt {
-        PrivateSettlementBundleReceiptResponseV1::Finalized(receipt)
-    } else if let Some(abort) = abort {
-        PrivateSettlementBundleReceiptResponseV1::Aborted(abort)
-    } else {
-        PrivateSettlementBundleReceiptResponseV1::Pending { bundle_id }
-    }
+    receipt.map_or_else(
+        || {
+            abort.map_or_else(
+                || PrivateSettlementBundleReceiptResponseV1::Pending { bundle_id },
+                PrivateSettlementBundleReceiptResponseV1::Aborted,
+            )
+        },
+        PrivateSettlementBundleReceiptResponseV1::Finalized,
+    )
 }
 
 /// Return public terminal state from one committed view, independently of sidecar placement.
-pub(crate) async fn handler_bundle_receipt(
+pub async fn handler_bundle_receipt(
     State(app): State<SharedAppState>,
     Path(bundle_id): Path<String>,
 ) -> Response {

@@ -54,6 +54,13 @@ impl<T> Drop for PhysicalPublicationGuard<'_, T> {
 impl<T> PublicationGuard<'_, T> {
     /// Mutation epoch captured under this original physical guard; exhaustion
     /// permanently refuses observation reuse.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect read-only publication observations; retain the original mutex capability and mutation epoch to reject foreign or stale observations"
+        )
+    )]
     pub(crate) fn mutation_epoch(&self) -> Option<u64> {
         self.mutation_epoch
     }
@@ -79,8 +86,9 @@ impl<T> PublicationGuard<'_, T> {
         self.inner.release_deferred(drop).1
     }
 
-    /// Preserve QueuePlan's fair unlock before waiting for Kura publication.
-    /// The outer release guard signals only after the physical unlock completes.
+    /// Exercise fair physical unlock in release-custody regression tests.
+    /// The shared release guard signals only after the physical unlock completes.
+    #[cfg(test)]
     pub(crate) fn unlock_fair(mut self) {
         self.inner.fair = true;
         drop(self);
@@ -234,6 +242,13 @@ impl PublicationMutex {
     /// observations, using only its originally paired read capability.
     /// This remains an exclusive physical acquisition, not a shared read lock.
     /// A foreign permit fails before acquiring or observing the target mutex.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect read-only publication observations; retain the original mutex capability and mutation epoch to reject foreign or stale observations"
+        )
+    )]
     pub(crate) fn lock_read_only(
         &self,
         permit: &PublicationReadPermit,
@@ -335,10 +350,6 @@ mod tests {
 
     #[test]
     fn typed_guard_notifies_after_unlock_and_preserves_value() {
-        let observer_budget = iroha_allocation::AllocationBudget::new(
-            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
-        );
-        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         struct AcquireOnWake {
             original: Arc<PublicationMutex<Vec<u8>>>,
             observed: AtomicBool,
@@ -353,6 +364,11 @@ mod tests {
                 self.observed.store(true, Ordering::SeqCst);
             }
         }
+
+        let observer_budget = iroha_allocation::AllocationBudget::new(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        );
+        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         let original = Arc::new(PublicationMutex::new(vec![1_u8]));
         let mut held = original.lock();
         held.push(2);
@@ -424,17 +440,12 @@ mod tests {
         );
         let value = original
             .try_lock_or_wait()
-            .ok()
             .expect("parking-lot is not poisoned");
         assert_eq!(&*value, &[1, 3]);
     }
 
     #[test]
     fn deferred_notification_reenters_all_original_fences_after_outer_unlock() {
-        let observer_budget = iroha_allocation::AllocationBudget::new(
-            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
-        );
-        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         struct AcquireBoth {
             locks: [Arc<PublicationMutex>; 2],
             observed: AtomicBool,
@@ -453,6 +464,11 @@ mod tests {
                 drop((first, second));
             }
         }
+
+        let observer_budget = iroha_allocation::AllocationBudget::new(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        );
+        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         for unwind in [false, true] {
             let locks = [
                 Arc::new(PublicationMutex::default()),
@@ -606,11 +622,11 @@ mod mutation_epoch_tests {
     #[test]
     fn errors_and_unwind_invalidate_before_any_caller_work() {
         let (mutex, permit) = PublicationMutex::with_read_permit();
-        let failed: Result<(), &'static str> = (|| {
+        let failed: Result<(), &'static str> = {
             let held = mutex.lock();
             assert_eq!(held.mutation_epoch(), Some(1));
             Err("operation failed after acquiring original mutation fence")
-        })();
+        };
         assert!(failed.is_err());
         assert_eq!(read_epoch(&mutex, &permit), Some(1));
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -692,8 +708,7 @@ mod mutation_epoch_tests {
         let held = mutex.lock();
         let held = held
             .try_release_into(&mut foreign_batch)
-            .err()
-            .expect("foreign batch returns the original guard");
+            .expect_err("foreign batch returns the original guard");
         assert_eq!(held.mutation_epoch(), Some(1));
         assert!(mutex.try_lock().is_none());
         let mut original_batch = mutex.deferred_releases();

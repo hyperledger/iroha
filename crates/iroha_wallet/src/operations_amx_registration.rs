@@ -1,6 +1,6 @@
 //! Explicit administrative AMX registration through the existing bounded native journal.
 //! Structural selection grants no permission; Global native execution still requires
-//! CanSetParameters. No SNS-owner authority is inferred and no principal is moved.
+//! `CanSetParameters`. No SNS-owner authority is inferred and no principal is moved.
 
 use super::bounded::{encode_bounded, validate_options};
 use super::*;
@@ -59,9 +59,10 @@ pub(super) fn instruction(
     .into())
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct AmxRegistrationExpectation<'a>(pub(super) &'a AmxDataspaceRegistrationRequest);
 impl AmxRegistrationExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::AmxDataspaceRegistration {
             parent_chain_id,
             registration,

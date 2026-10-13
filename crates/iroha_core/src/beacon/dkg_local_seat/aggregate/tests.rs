@@ -104,7 +104,7 @@ fn original() -> Original {
             PreparedLocalGlobalThresholdBeaconDkgSeatV1::new(
                 session,
                 &roster,
-                (i + 1) as u16,
+                u16::try_from(i + 1).expect("bounded fixture seat fits u16"),
                 key,
                 &budget,
             )

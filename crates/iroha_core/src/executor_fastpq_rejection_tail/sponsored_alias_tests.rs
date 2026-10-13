@@ -1,4 +1,4 @@
-//! Rejection-tail sizing uses the frozen sponsor and authoritative SNS receiver.
+//! Rejection-tail sizing uses the frozen sponsor and canonical committed receiver.
 
 use super::*;
 use crate::{
@@ -98,7 +98,31 @@ fn quote(program: FeeSponsorProgramId, asset: AssetDefinitionId) -> FeeAdmission
 }
 
 #[test]
-fn sponsored_tail_resolves_active_alias_without_creating_transfer_work() {
+fn sponsored_tail_uses_canonical_receiver_without_creating_transfer_work() {
+    let (state, program, asset) = fixture();
+    let signed = source(&state, program.clone());
+    let quote = quote(program, asset);
+    let hash = iroha_crypto::Hash::from(signed.hash_as_entrypoint());
+    let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 50, 0));
+    let mut tx = block.transaction_for_fastpq_testing(hash);
+    tx.pipeline.gas.tech_account_id = AccountAddress::from_account_id(&ALICE_ID)
+        .unwrap()
+        .to_i105_for_discriminant(427)
+        .unwrap();
+    tx.nexus.fees.sponsor_vault_custody_account_id = BOB_ID.clone();
+    assert_eq!(
+        crate::pipeline_gas_policy::receiver_id(&tx.pipeline.gas.tech_account_id).unwrap(),
+        *ALICE_ID
+    );
+    let before = tx.fastpq_rejection_tail_context(hash).unwrap();
+    preflight(&mut tx, &ALICE_ID, &signed, Some(&quote), None).unwrap();
+    assert_eq!(tx.fastpq_rejection_tail_context(hash).unwrap(), before);
+    assert_eq!(tx.pending_transfer_transcript_count_for_testing(), 0);
+    assert_eq!(tx.last_tx_gas_used, 0);
+}
+
+#[test]
+fn an_alias_cannot_replace_the_committed_fee_receiver_before_work() {
     let (state, program, asset) = fixture();
     let signed = source(&state, program.clone());
     let quote = quote(program, asset);
@@ -116,33 +140,6 @@ fn sponsored_tail_resolves_active_alias_without_creating_transfer_work() {
         )
         .unwrap(),
         Some(ALICE_ID.clone())
-    );
-    let before = tx.fastpq_rejection_tail_context(hash).unwrap();
-    preflight(&mut tx, &ALICE_ID, &signed, Some(&quote), None).unwrap();
-    assert_eq!(tx.fastpq_rejection_tail_context(hash).unwrap(), before);
-    assert_eq!(tx.pending_transfer_transcript_count_for_testing(), 0);
-    assert_eq!(tx.last_tx_gas_used, 0);
-}
-
-#[test]
-fn expired_fee_alias_is_a_retained_fault_before_work() {
-    let (state, program, asset) = fixture();
-    let signed = source(&state, program.clone());
-    let quote = quote(program, asset);
-    let hash = iroha_crypto::Hash::from(signed.hash_as_entrypoint());
-    let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 150, 0));
-    let mut tx = block.transaction_for_fastpq_testing(hash);
-    tx.pipeline.gas.tech_account_id = "collector@fees.universal".to_owned();
-    tx.nexus.fees.sponsor_vault_custody_account_id = BOB_ID.clone();
-    assert_eq!(
-        parse_account_id_literal(
-            &tx.world,
-            &tx.nexus.dataspace_catalog,
-            &tx.pipeline.gas.tech_account_id,
-            150
-        )
-        .unwrap(),
-        None
     );
     assert!(matches!(
         preflight(&mut tx, &ALICE_ID, &signed, Some(&quote), None),

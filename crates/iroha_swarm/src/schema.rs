@@ -816,16 +816,14 @@ fn load_signed_genesis_and_run(runtime: Option<&PreparedRuntimeConfig>) -> Strin
     // Local Compose file binds retain host ownership and mode. Require originals and private
     // projected TOML to be native owner-0600 files for the actual daemon UID; never pretend
     // Compose secret uid/mode fields perform a cross-UID custody transfer.
-    let custody_checks = format!(
-        r#"require_private_file() {{
+    let custody_checks = r#"require_private_file() {
         test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
         test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
-        test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {{
+        test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {
             printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
-        }};
-    }} &&
-    require_private_file /config/peer.toml 8388608 &&"#
-    );
+        };
+    } &&
+    require_private_file /config/peer.toml 8388608 &&"#;
     format!(
         r#"/bin/sh -eu -c "
     GENESIS_PUBLIC_KEY_FILE=/run/secrets/iroha_genesis_public_key && \\

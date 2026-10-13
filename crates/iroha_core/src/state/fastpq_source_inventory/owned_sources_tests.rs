@@ -87,10 +87,14 @@ fn fixture_with_effects_in_root(
         policy.validate().unwrap();
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-        parameters.get_mut().set_parameter(Parameter::Block(
-            BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-        ));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
+        parameters
+            .get_mut()
+            .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                NonZeroU32::MIN,
+            )))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let domain = DomainId::try_new("owned-inventory", "universal").unwrap();
@@ -103,6 +107,7 @@ fn fixture_with_effects_in_root(
     } else {
         AssetDefinitionId::derive_from_components(domain.clone(), "coin".parse().unwrap())
     };
+    let mut fee_parameters = Vec::new();
     if fee_and_protocol {
         let fees = &mut state.nexus.get_mut().fees;
         fees.base_fee = Quantity::zero();
@@ -112,15 +117,18 @@ fn fixture_with_effects_in_root(
         // Nexus admission retains the canonical XOR identity even when its fee
         // is zero. The independently signed PipelineGas charge uses this asset.
         fees.fee_sink_account_id = BOB_ID.to_string();
-        state.pipeline.gas.tech_account_id = BOB_ID.to_string();
-        state.pipeline.gas.accepted_assets = vec![asset.canonical_address()];
-        state.pipeline.gas.units_per_gas = vec![GasRate {
-            asset: asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: Numeric::one(),
-            liquidity: GasLiquidity::Tier1,
-            volatility: GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: BOB_ID.to_string(),
+            accepted_assets: vec![asset.canonical_address()],
+            units_per_gas: vec![GasRate {
+                asset: asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: Numeric::one(),
+                liquidity: GasLiquidity::Tier1,
+                volatility: GasVolatility::Stable,
+            }],
+        };
+        fee_parameters.extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
     }
     let nexus = state.nexus_snapshot();
     let genesis_parameters = {
@@ -140,6 +148,7 @@ fn fixture_with_effects_in_root(
     config.governance = Some(state.gov);
     config.nexus = Some(nexus);
     config.genesis_parameters = genesis_parameters;
+    config.genesis_parameters.extend(fee_parameters);
     if let Some(dataspace) = private_dataspace {
         use iroha_data_model::{
             asset::AssetBalanceScope,
@@ -183,15 +192,20 @@ fn fixture_with_effects_in_root(
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         let genesis_authority = AccountId::new(config.genesis_key.public_key().clone());
         nexus.fees.fee_sink_account_id = genesis_authority.to_string();
-        config.pipeline.gas.tech_account_id = genesis_authority.to_string();
-        config.pipeline.gas.accepted_assets = vec![asset.canonical_address()];
-        config.pipeline.gas.units_per_gas = vec![GasRate {
-            asset: asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: Numeric::one(),
-            liquidity: GasLiquidity::Tier2,
-            volatility: GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: genesis_authority.to_string(),
+            accepted_assets: vec![asset.canonical_address()],
+            units_per_gas: vec![GasRate {
+                asset: asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: Numeric::one(),
+                liquidity: GasLiquidity::Tier2,
+                volatility: GasVolatility::Stable,
+            }],
+        };
+        config
+            .genesis_parameters
+            .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
         config.genesis_parameters.push(Parameter::Custom(
             PrivateRootFeePolicy {
                 asset_definition_id: asset.clone(),
@@ -396,7 +410,8 @@ fn fixture_with_effects_in_root(
         ))],
         vec![Unregister::trigger("owned_inventory_absent".parse().unwrap()).into()],
     ] {
-        let gas = crate::gas::meter_instructions(&body);
+        let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
         let mut tx = TransactionBuilder::new(
             state.network_id,
             ALICE_ID.clone(),
@@ -413,7 +428,12 @@ fn fixture_with_effects_in_root(
                 fee_and_protocol.then(|| NonZeroU64::new(gas).unwrap()),
             ),
         );
-        tx.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        tx.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let mut tx = tx.with_instructions(body);
         if let Some(dataspace) = private_dataspace {
             let view = state.view();
@@ -421,8 +441,11 @@ fn fixture_with_effects_in_root(
                 view.world(),
                 &state.nexus_snapshot(),
                 &state.pipeline,
+                &state.zk.gas,
                 tx.payload(),
                 u64::try_from(header.creation_time().as_millis()).unwrap(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 header.height().get(),
                 Some(dataspace),
             )
@@ -466,8 +489,17 @@ fn execute(block: &mut StateBlock<'_>, source: &SignedBlock) {
     cache_canonical_test_transaction_set(block, source.external_entrypoints_slice());
 }
 
-fn seal_metadata(block: &mut StateBlock<'_>) -> Result<ExecutionOutputSealMetadata, String> {
+fn seal_metadata(
+    block: &mut StateBlock<'_>,
+    source: &SignedBlock,
+) -> Result<ExecutionOutputSealMetadata, String> {
     Ok(ExecutionOutputSealMetadata {
+        sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+            *block.network_id().as_bytes(),
+            source.header().height().get(),
+            source.header().creation_time_ms,
+        )
+        .expect("nonzero fixture height"),
         committed_fragment_count: u64::try_from(block.committed_fragment_count()).unwrap(),
     })
 }
@@ -591,9 +623,9 @@ fn actual_three_phase_zero_transcript_inventory_retains_every_call_in_output_ord
             .is_empty()
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, routes| {
+        .seal_execution_outputs(&mut source, |block, source, routes| {
             assert_eq!(routes.len(), 2);
-            seal_metadata(block)
+            seal_metadata(block, source)
         })
         .unwrap();
     let inventory = block
@@ -652,7 +684,10 @@ fn known_rejected_call_capture_and_typed_protocol_extra_remain_owned() {
         let Executable::Instructions(body) = transaction.instructions() else {
             panic!("instruction fee fixture")
         };
-        Quantity::from(crate::gas::meter_instructions(body.as_ref()))
+        Quantity::from(
+            crate::gas::meter_instructions(body.as_ref(), &crate::gas::DEFAULT_ZK_GAS)
+                .expect("gas quote must complete for this fixture"),
+        )
     };
     let success_fee = gas_fee(0);
     let rejected_fee = gas_fee(1);
@@ -742,7 +777,7 @@ fn known_rejected_call_capture_and_typed_protocol_extra_remain_owned() {
         (1, 1, 1)
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+        .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(block, source))
         .unwrap();
     let inventory = block
         .verified_fastpq_source_inventory_for_capture()
@@ -805,7 +840,7 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         assert_eq!(actual_capture.route(), FastpqSourceRouteV1::Unrouted);
         // Corrupt facts captured by the actual Pipeline transfer. These are
         // hostile state mutations, never an admitted replacement source owner.
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         if mutation != 3 {
             let hash = if mutation == 0 {
                 Hash::new(b"unowned internal execution call")
@@ -835,7 +870,9 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         }
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(
+                    block, source
+                ))
                 .is_err()
         );
         let error = block.fastpq_source_inventory().unwrap_err().to_owned();
@@ -846,10 +883,12 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         };
         assert_eq!(error, expected);
         block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(
+                    block, source
+                ))
                 .is_err()
         );
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
@@ -885,7 +924,7 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
         let original_context = block.fastpq_source_context.clone();
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| {
+                .seal_execution_outputs(&mut source, |block, source, _| {
                     // Mutation inside the finalizer reaches source reconciliation after
                     // the original proposal owner has passed the outer seal preflight.
                     match mutation {
@@ -918,7 +957,7 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
                         }
                         _ => unreachable!(),
                     }
-                    seal_metadata(block)
+                    seal_metadata(block, source)
                 })
                 .is_err()
         );
@@ -935,7 +974,9 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
         block.fastpq_source_context = original_context;
         assert!(
             block
-                .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+                .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(
+                    block, source
+                ))
                 .is_err()
         );
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
@@ -967,7 +1008,7 @@ fn owned_seal_still_rejects_late_applied_capture_after_transcript_drain() {
     let call = *block.fastpq_transcripts.keys().next().unwrap();
     let captured = block.captured_fastpq_transcript_sources().unwrap()[&call];
     block
-        .seal_execution_outputs(&mut source, |block, _, _| seal_metadata(block))
+        .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(block, source))
         .unwrap();
     let inventory = block
         .verified_fastpq_source_inventory_for_capture()
@@ -1049,10 +1090,10 @@ fn actual_private_root_pipeline_and_time_keep_authenticated_invocation_dataspace
         matches!(&rows[3], ExecutionOutputV1::Time(output) if output.invocation.trigger.trigger_id == time)
     );
     block
-        .seal_execution_outputs(&mut source, |block, _, routes| {
+        .seal_execution_outputs(&mut source, |block, source, routes| {
             assert_eq!(routes.len(), 2);
             assert!(routes.iter().all(|route| route.dataspace_id == dataspace));
-            seal_metadata(block)
+            seal_metadata(block, source)
         })
         .unwrap();
     let inventory = block

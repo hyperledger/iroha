@@ -15,8 +15,7 @@
 //! - Closed dispatch for supported native PIPA-R and STARK relations. A backend
 //!   label is not a privacy or execution-correctness guarantee. Incomplete IVM
 //!   execution relations are not admitted through generic verification.
-//! - A unified ZK envelope (`ZK1 | TLV*`) reader/writer helpers for tests and
-//!   clients.
+//! - Canonical Norito proof envelopes for native verification and fixtures.
 //!
 //! Storage/WSV integration is intentionally limited to proof records and
 //! verifying-key registry ISIs; consensus-critical state and policies live in
@@ -81,7 +80,11 @@ pub mod confidential;
 /// Shared confidential note, tree, and verifier-key primitives.
 pub mod confidential_v2;
 mod ivm_proof_identity;
+mod native_key_carrier;
 mod verification;
+/// Canonical move-only verification attempt owners and codec classifiers.
+pub use iroha_plonk::verification_attempt;
+pub use iroha_plonk::verification_attempt::{VerificationAttemptError, VerificationRefusal};
 pub use verification::{ProofRelation, ProofVerificationError, VerifiedProof, verify_for_relation};
 /// Frame-identity path mapping for the relocated nominal schema names.
 #[cfg(test)]
@@ -497,23 +500,26 @@ pub(crate) fn validate_and_prepare_verifying_key_material_v1(
     circuit_id: &str,
     backend_tag: iroha_data_model::zk::BackendTag,
     vk: &VerifyingKeyBox,
-) -> Result<PreparedVerifyingKeyMaterialV1, String> {
+) -> Result<PreparedVerifyingKeyMaterialV1, VerificationAttemptError<String>> {
     if vk.backend.as_str() != backend {
-        return Err("verifying-key payload backend does not match registry backend".to_owned());
+        return Err(
+            ("verifying-key payload backend does not match registry backend".to_owned()).into(),
+        );
     }
     if production_verify_backend_tag(backend) != Some(backend_tag) {
-        return Err("verifying-key backend is not an exact production backend".to_owned());
+        return Err(("verifying-key backend is not an exact production backend".to_owned()).into());
     }
     match backend_tag {
         iroha_data_model::zk::BackendTag::NativePipaRPasta => {
-            let kind = native_pipa_r::validate_key(backend, circuit_id, vk)?;
+            let kind = native_pipa_r::validate_key(backend, circuit_id, vk)
+                .map_err(|error| error.map_rejection(|invalid| invalid.to_string()))?;
             Ok(PreparedVerifyingKeyMaterialV1::NativePipaRPasta { ipa_k: kind.k() })
         }
         iroha_data_model::zk::BackendTag::Stark => {
             #[cfg(not(feature = "zk-stark"))]
             {
                 let _ = (circuit_id, vk);
-                Err("verifying-key backend Stark is not enabled".to_owned())
+                Err(("verifying-key backend Stark is not enabled".to_owned()).into())
             }
             #[cfg(feature = "zk-stark")]
             {
@@ -545,27 +551,28 @@ pub(crate) fn validate_and_prepare_verifying_key_material_v1(
 pub fn validate_and_prepare_verifying_key_record_v1(
     id: &VerifyingKeyId,
     record: &VerifyingKeyRecord,
-) -> Result<Option<PreparedVerifyingKeyMaterialV1>, String> {
+) -> Result<Option<PreparedVerifyingKeyMaterialV1>, VerificationAttemptError<String>> {
     if !id.is_portable_registry_id() {
-        return Err("verifying-key registry id is not bounded and portable".to_owned());
+        return Err(("verifying-key registry id is not bounded and portable".to_owned()).into());
     }
     if record.commitment == [0_u8; 32] {
-        return Err("verifying-key commitment must be non-zero".to_owned());
+        return Err(("verifying-key commitment must be non-zero".to_owned()).into());
     }
     if record.public_inputs_schema_hash == [0_u8; 32] {
-        return Err("verifying-key public-input schema hash must be non-zero".to_owned());
+        return Err(("verifying-key public-input schema hash must be non-zero".to_owned()).into());
     }
     let backend = id.backend.as_str();
     if production_verify_backend_tag(backend) != Some(record.backend) {
         return Err(
-            "verifying-key record backend does not match the production registry backend"
-                .to_owned(),
+            ("verifying-key record backend does not match the production registry backend"
+                .to_owned())
+            .into(),
         );
     }
     match record.backend {
         iroha_data_model::zk::BackendTag::NativePipaRPasta => {
             if record.curve != "vesta" {
-                return Err("native PIPA-R verifying-key curve must be vesta".to_owned());
+                return Err(("native PIPA-R verifying-key curve must be vesta".to_owned()).into());
             }
             let kind = native_pipa_r::relation(backend, &record.circuit_id).ok_or_else(|| {
                 "native PIPA-R circuit is not admitted for the registry backend".to_owned()
@@ -573,17 +580,20 @@ pub fn validate_and_prepare_verifying_key_record_v1(
             let schema_hash: [u8; 32] =
                 iroha_crypto::Hash::new(native_pipa_r::public_schema(kind)).into();
             if record.public_inputs_schema_hash != schema_hash {
-                return Err("native PIPA-R public-input schema hash is not canonical".to_owned());
+                return Err(
+                    ("native PIPA-R public-input schema hash is not canonical".to_owned()).into(),
+                );
             }
         }
         iroha_data_model::zk::BackendTag::Stark => {
             if record.curve != "goldilocks" {
-                return Err("STARK/FRI verifying-key curve must be goldilocks".to_owned());
+                return Err(("STARK/FRI verifying-key curve must be goldilocks".to_owned()).into());
             }
             if !stark_registry_circuit_id_matches_backend(backend, &record.circuit_id) {
                 return Err(
-                    "STARK/FRI verifying-key circuit is not admitted for the registry backend"
-                        .to_owned(),
+                    ("STARK/FRI verifying-key circuit is not admitted for the registry backend"
+                        .to_owned())
+                    .into(),
                 );
             }
         }
@@ -595,29 +605,31 @@ pub fn validate_and_prepare_verifying_key_record_v1(
         iroha_data_model::zk::BackendTag::Stark => STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES,
     };
     if u64::from(record.vk_len) > max_payload_bytes as u64 {
-        return Err(format!(
+        return Err((format!(
             "declared verifying-key length exceeds the {max_payload_bytes}-byte backend limit"
-        ));
+        ))
+        .into());
     }
     validate_verifying_key_record_metadata_v1(record)?;
     let Some(vk) = record.key.as_ref() else {
         return Ok(None);
     };
     if vk.bytes.len() > max_payload_bytes {
-        return Err(format!(
+        return Err((format!(
             "inline verifying-key container exceeds the {max_payload_bytes}-byte backend limit"
-        ));
+        ))
+        .into());
     }
     if vk.backend != id.backend {
-        return Err("verifying-key payload backend does not match registry id".to_owned());
+        return Err(("verifying-key payload backend does not match registry id".to_owned()).into());
     }
     let vk_len = u32::try_from(vk.bytes.len())
         .map_err(|_| "inline verifying-key length exceeds u32".to_owned())?;
     if record.vk_len != vk_len {
-        return Err("verifying-key vk_len does not match inline bytes".to_owned());
+        return Err(("verifying-key vk_len does not match inline bytes".to_owned()).into());
     }
     if hash_vk(vk) != record.commitment {
-        return Err("verifying-key commitment does not match inline bytes".to_owned());
+        return Err(("verifying-key commitment does not match inline bytes".to_owned()).into());
     }
     validate_and_prepare_verifying_key_material_v1(backend, &record.circuit_id, record.backend, vk)
         .map(Some)
@@ -856,17 +868,20 @@ pub fn validate_stark_fri_verifying_key_v1(
     backend: &str,
     circuit_id: &str,
     bytes: &[u8],
-) -> Result<crate::stark::StarkFriVerifyingKeyV1, String> {
+) -> Result<crate::stark::StarkFriVerifyingKeyV1, VerificationAttemptError<String>> {
     #[cfg(test)]
     STARK_VERIFYING_KEY_PREPARATION_ENTRIES_V1.with(|entries| entries.set(entries.get() + 1));
     if !stark_registry_circuit_id_matches_backend(backend, circuit_id) {
-        return Err("STARK/FRI circuit id does not match the production backend".to_owned());
+        return Err(
+            ("STARK/FRI circuit id does not match the production backend".to_owned()).into(),
+        );
     }
     if bytes.len() > crate::stark::STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES {
-        return Err(format!(
+        return Err((format!(
             "STARK/FRI verifier key exceeds the {}-byte limit",
             crate::stark::STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES
-        ));
+        ))
+        .into());
     }
     let cache_key = StarkVerifyingKeyCacheKeyV1 {
         backend: backend.to_owned(),
@@ -877,7 +892,7 @@ pub fn validate_stark_fri_verifying_key_v1(
         .get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
     if let Some(cached) = cache
         .lock()
-        .map_err(|_| "STARK/FRI verifier-key cache lock poisoned".to_owned())?
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&cache_key)
         .cloned()
     {
@@ -889,7 +904,7 @@ pub fn validate_stark_fri_verifying_key_v1(
     )?;
     let mut guard = cache
         .lock()
-        .map_err(|_| "STARK/FRI verifier-key cache lock poisoned".to_owned())?;
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     Ok(insert_stark_verifying_key_cache_v1(
         &mut guard, cache_key, payload,
     ))
@@ -1119,7 +1134,7 @@ pub fn prove_stark_fri_open_verify_envelope(
     vk_box: &VerifyingKeyBox,
     schema_descriptor: &[u8],
     public_inputs: Vec<Vec<[u8; 32]>>,
-) -> Result<ProofBox, String> {
+) -> Result<ProofBox, crate::stark::StarkProofProductionError> {
     prove_stark_fri_open_verify_envelope_inner(
         backend,
         circuit_id,
@@ -1135,16 +1150,16 @@ fn prove_stark_fri_open_verify_envelope_inner(
     vk_box: &VerifyingKeyBox,
     schema_descriptor: &[u8],
     public_inputs: Vec<Vec<[u8; 32]>>,
-) -> Result<ProofBox, String> {
+) -> Result<ProofBox, crate::stark::StarkProofProductionError> {
     use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
     if !is_stark_fri_v1_backend(backend) {
-        return Err("backend is not a STARK/FRI V1 backend".to_owned());
+        return Err(("backend is not a STARK/FRI V1 backend".to_owned()).into());
     }
     if vk_box.backend != backend {
-        return Err("STARK verifying key backend mismatch".to_owned());
+        return Err(("STARK verifying key backend mismatch".to_owned()).into());
     }
     if !stark_open_verify_circuit_id_matches_backend(backend, circuit_id) {
-        return Err("STARK circuit_id does not match backend family".to_owned());
+        return Err(("STARK circuit_id does not match backend family".to_owned()).into());
     }
     let env_circuit_id = canonical_stark_fri_circuit_id_for_backend(backend, circuit_id)
         .ok_or_else(|| "invalid STARK circuit_id".to_owned())?;
@@ -1152,44 +1167,38 @@ fn prove_stark_fri_open_verify_envelope_inner(
         .as_deref()
         == Some(env_circuit_id);
     if is_ivm_execution_circuit {
-        return Err(
+        return Err((
             "IVM execution proof production requires the complete native STARK execution relation"
-                .to_owned(),
-        );
+                .to_owned()).into());
     }
     if canonical_circuit_is_zk_ace_relation_for_backend(backend, env_circuit_id) {
-        return Err(
+        return Err((
             "generic STARK OpenVerify proof cannot target a ZK-ACE relation; use SubmitPrivacyProofV1"
-                .to_owned(),
-        );
+                .to_owned()).into());
     }
     if canonical_bfv_full_bootstrap_stark_circuit_id_for_backend(backend).as_deref()
         == Some(env_circuit_id)
     {
-        return Err(
+        return Err((
             "generic STARK OpenVerify proof cannot target the BFV full-bootstrap circuit; use the BFV full-bootstrap STARK prover"
-                .to_owned(),
-        );
+                .to_owned()).into());
     }
     if canonical_circuit_is_governance_vote_relation_for_backend(backend, env_circuit_id) {
-        return Err(
+        return Err((
             "generic STARK OpenVerify proof cannot target a governance vote role; a dedicated semantic governance circuit is required"
-                .to_owned(),
-        );
+                .to_owned()).into());
     }
     if canonical_circuit_is_soracloud_fhe_relation_for_backend(backend, env_circuit_id) {
-        return Err(
+        return Err((
             "generic STARK OpenVerify proof cannot target a Soracloud FHE relation; a dedicated typed Soracloud verifier is required"
-                .to_owned(),
-        );
+                .to_owned()).into());
     }
     let vk_payload =
-        validate_stark_fri_verifying_key_v1(backend, circuit_id, vk_box.bytes.as_slice())
-            .map_err(|err| format!("invalid STARK verifying key payload: {err}"))?;
+        validate_stark_fri_verifying_key_v1(backend, circuit_id, vk_box.bytes.as_slice())?;
     let vk_circuit_id = canonical_stark_fri_circuit_id_for_backend(backend, &vk_payload.circuit_id)
         .ok_or_else(|| "invalid STARK verifying key circuit_id".to_owned())?;
     if env_circuit_id != vk_circuit_id {
-        return Err("STARK verifying key circuit_id mismatch".to_owned());
+        return Err(("STARK verifying key circuit_id mismatch".to_owned()).into());
     }
     let vk_hash = hash_vk(vk_box);
     let domain_tag = stark_open_verify_domain_tag_current(
@@ -1236,12 +1245,10 @@ fn prove_stark_fri_open_verify_envelope_inner(
         circuit_id: circuit_id.to_owned(),
         vk_hash,
         public_inputs: schema_descriptor.to_vec(),
-        proof_bytes: norito::encode_canonical(&open)
-            .map_err(|err| format!("failed to encode STARK wrapper payload: {err}"))?,
+        proof_bytes: norito::core::classify_decode_attempt(|| norito::encode_canonical(&open))?,
         aux: Vec::new(),
     };
-    let bytes = norito::encode_canonical(&env)
-        .map_err(|err| format!("failed to encode OpenVerifyEnvelope: {err}"))?;
+    let bytes = norito::core::classify_decode_attempt(|| norito::encode_canonical(&env))?;
     Ok(ProofBox::new(backend.to_owned(), bytes))
 }
 #[cfg(any(test, feature = "test-utils"))]
@@ -1483,12 +1490,14 @@ fn preverify_open_verify_envelope_metadata(
     vk: Option<&VerifyingKeyBox>,
     vk_commitment: Option<[u8; 32]>,
     expected_vk_commitment: Option<[u8; 32]>,
-) -> Result<(), PreverifyResult> {
+) -> Result<(), VerificationAttemptError<PreverifyResult>> {
     let Some(expected_tag) = expected_preverify_envelope_backend_tag(proof.backend.as_str()) else {
         return Ok(());
     };
-    let envelope: iroha_data_model::zk::OpenVerifyEnvelope =
-        norito::decode_canonical(&proof.bytes).map_err(|_| PreverifyResult::MalformedProof)?;
+    let envelope: iroha_data_model::zk::OpenVerifyEnvelope = verification_attempt::codec_attempt(
+        || norito::decode_canonical(&proof.bytes),
+        |_| PreverifyResult::MalformedProof,
+    )?;
     envelope.validate_for_admission().map_err(|err| {
         if err == iroha_data_model::zk::OpenVerifyEnvelopeValidationError::ZeroVerifierKeyHash {
             PreverifyResult::VerifyingKeyMismatch
@@ -1497,7 +1506,7 @@ fn preverify_open_verify_envelope_metadata(
         }
     })?;
     if envelope.backend != expected_tag {
-        return Err(PreverifyResult::MalformedProof);
+        return Err((PreverifyResult::MalformedProof).into());
     }
     if expected_tag == iroha_data_model::zk::BackendTag::NativePipaRPasta {
         native_pipa_r::validate_metadata(&proof.backend, &envelope)
@@ -1505,48 +1514,48 @@ fn preverify_open_verify_envelope_metadata(
     }
     if expected_tag == iroha_data_model::zk::BackendTag::Stark {
         if !stark_open_verify_circuit_id_matches_backend(&proof.backend, &envelope.circuit_id) {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
         let Some(env_circuit_id) =
             canonical_stark_fri_circuit_id_for_backend(&proof.backend, &envelope.circuit_id)
         else {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         };
         if canonical_circuit_is_zk_ace_relation_for_backend(&proof.backend, env_circuit_id) {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
         if canonical_bfv_full_bootstrap_stark_circuit_id_for_backend(&proof.backend).as_deref()
             == Some(env_circuit_id)
         {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
         if canonical_circuit_is_governance_vote_relation_for_backend(&proof.backend, env_circuit_id)
         {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
         if canonical_circuit_is_soracloud_fhe_relation_for_backend(&proof.backend, env_circuit_id) {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
         if canonical_ivm_execution_stark_circuit_id_for_backend(&proof.backend).as_deref()
             == Some(env_circuit_id)
         {
-            return Err(PreverifyResult::MalformedProof);
+            return Err((PreverifyResult::MalformedProof).into());
         }
     }
     if let Some(vk_box) = vk
         && hash_vk(vk_box) != envelope.vk_hash
     {
-        return Err(PreverifyResult::VerifyingKeyMismatch);
+        return Err((PreverifyResult::VerifyingKeyMismatch).into());
     }
     if let Some(commitment) = vk_commitment
         && commitment != envelope.vk_hash
     {
-        return Err(PreverifyResult::VerifyingKeyMismatch);
+        return Err((PreverifyResult::VerifyingKeyMismatch).into());
     }
     if let Some(expected) = expected_vk_commitment
         && expected != envelope.vk_hash
     {
-        return Err(PreverifyResult::VerifyingKeyMismatch);
+        return Err((PreverifyResult::VerifyingKeyMismatch).into());
     }
     Ok(())
 }
@@ -1605,54 +1614,54 @@ pub fn preverify_with_budget(
     vk_commitment: Option<[u8; 32]>,
     expected_vk_commitment: Option<[u8; 32]>,
     vk_active: bool,
-) -> PreverifyResult {
+) -> Result<PreverifyResult, VerificationRefusal> {
     // Basic sanity: require non-empty backend tag
     if proof.backend.is_empty() {
-        return PreverifyResult::UnsupportedBackend;
+        return Ok(PreverifyResult::UnsupportedBackend);
     }
     if is_production_claim_backend_label(proof.backend.as_str()) {
-        return PreverifyResult::UnsupportedBackend;
+        return Ok(PreverifyResult::UnsupportedBackend);
     }
     if is_trusted_setup_backend_label(proof.backend.as_str()) {
-        return PreverifyResult::UnsupportedBackend;
+        return Ok(PreverifyResult::UnsupportedBackend);
     }
     if is_developer_only_backend_label(proof.backend.as_str()) {
-        return PreverifyResult::UnsupportedBackend;
+        return Ok(PreverifyResult::UnsupportedBackend);
     }
     if expected_preverify_envelope_backend_tag(proof.backend.as_str()).is_none() {
-        return PreverifyResult::UnsupportedBackend;
+        return Ok(PreverifyResult::UnsupportedBackend);
     }
     if !vk_active {
-        return PreverifyResult::VerifyingKeyInactive;
+        return Ok(PreverifyResult::VerifyingKeyInactive);
     }
     // Extremely lightweight budget model: count raw bytes processed.
     // When budget is 0, treat as unlimited.
     if budget > 0 {
         let limit = usize::try_from(budget).unwrap_or(usize::MAX);
         if limit < proof.bytes.len() {
-            return PreverifyResult::PreverifyBudgetExceeded;
+            return Ok(PreverifyResult::PreverifyBudgetExceeded);
         }
     }
     let bound_vk_commitment =
         match preverify_bound_vk_commitment(vk_commitment, expected_vk_commitment) {
             Ok(commitment) => commitment,
-            Err(err) => return err,
+            Err(err) => return Ok(err),
         };
     if let Some(vk_box) = vk
         && vk_box.backend != proof.backend
     {
-        return PreverifyResult::VerifyingKeyMismatch;
+        return Ok(PreverifyResult::VerifyingKeyMismatch);
     }
     // If we have both VK bytes and expected commitment, enforce the match early.
     if let (Some(expected), Some(vk_box)) = (expected_vk_commitment, vk) {
         let actual = crate::hash_vk(vk_box);
         if actual != expected {
-            return PreverifyResult::VerifyingKeyMismatch;
+            return Ok(PreverifyResult::VerifyingKeyMismatch);
         }
     }
     if let (Some(expected), Some(commit)) = (expected_vk_commitment, vk_commitment) {
         if expected != commit {
-            return PreverifyResult::VerifyingKeyMismatch;
+            return Ok(PreverifyResult::VerifyingKeyMismatch);
         }
     }
     if let Err(err) = preverify_open_verify_envelope_metadata(
@@ -1661,19 +1670,22 @@ pub fn preverify_with_budget(
         Some(bound_vk_commitment),
         expected_vk_commitment,
     ) {
-        return err;
+        return match err {
+            VerificationAttemptError::Rejected(verdict) => Ok(verdict),
+            VerificationAttemptError::Deferred(original) => Err(original),
+        };
     }
     if !dedup.check_and_insert_with_commitment(proof, Some(bound_vk_commitment)) {
-        return PreverifyResult::Duplicate;
+        return Ok(PreverifyResult::Duplicate);
     }
-    PreverifyResult::Accepted
+    Ok(PreverifyResult::Accepted)
 }
 #[cfg(feature = "zk-stark")]
 fn verify_stark_fri_open_verify_envelope(
     backend: &str,
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
-) -> bool {
+) -> Result<bool, VerificationRefusal> {
     verify_stark_fri_open_verify_envelope_with_limits(
         backend,
         proof,
@@ -1687,7 +1699,7 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
     limits: &crate::stark::StarkVerifierLimits,
-) -> bool {
+) -> Result<bool, VerificationRefusal> {
     use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
     let reject = |reason: &'static str| {
         tracing::debug!(
@@ -1695,11 +1707,13 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
             reason,
             "stark/fri proof rejected (metadata/integrity check failed)"
         );
-        false
+        Ok(false)
     };
-    let env: OpenVerifyEnvelope = match norito::decode_canonical(&proof.bytes) {
-        Ok(env) => env,
-        Err(_) => return reject("invalid OpenVerifyEnvelope payload"),
+    let Some(env): Option<OpenVerifyEnvelope> = verification_attempt::completed_result(
+        verification_attempt::codec_attempt(|| norito::decode_canonical(&proof.bytes), |_| ()),
+    )?
+    else {
+        return reject("invalid OpenVerifyEnvelope payload");
     };
     if env.backend != BackendTag::Stark {
         return reject("unexpected OpenVerifyEnvelope backend tag");
@@ -1775,7 +1789,10 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
             Ok(PreparedVerifyingKeyMaterialV1::NativePipaRPasta { .. }) => {
                 return reject("STARK registry key prepared as a foreign engine");
             }
-            Err(_) => return reject("invalid STARK verifying key payload"),
+            Err(VerificationAttemptError::Rejected(_)) => {
+                return reject("invalid STARK verifying key payload");
+            }
+            Err(VerificationAttemptError::Deferred(original)) => return Err(original),
         };
     let vk_circuit_id =
         match canonical_stark_fri_circuit_id_for_backend(backend, &vk_circuit_id_raw) {
@@ -1786,9 +1803,11 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
         return reject("STARK verifying key circuit_id mismatch");
     }
     // Decode the STARK wrapper payload.
-    let open: StarkFriOpenProofV1 = match norito::decode_canonical(&env.proof_bytes) {
-        Ok(open) => open,
-        Err(_) => return reject("invalid STARK wrapper payload"),
+    let Some(open): Option<StarkFriOpenProofV1> = verification_attempt::completed_result(
+        verification_attempt::codec_attempt(|| norito::decode_canonical(&env.proof_bytes), |_| ()),
+    )?
+    else {
+        return reject("invalid STARK wrapper payload");
     };
     if open.version != 1 {
         return reject("unsupported STARK wrapper version");
@@ -1809,11 +1828,14 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
         &env.public_inputs,
         &open.public_inputs,
     );
-    let inner: crate::stark::StarkVerifyEnvelopeV1 =
-        match norito::decode_canonical(&open.envelope_bytes) {
-            Ok(inner) => inner,
-            Err(_) => return reject("invalid inner STARK envelope payload"),
-        };
+    let Some(inner): Option<crate::stark::StarkVerifyEnvelopeV1> =
+        verification_attempt::completed_result(verification_attempt::codec_attempt(
+            || norito::decode_canonical(&open.envelope_bytes),
+            |_| (),
+        ))?
+    else {
+        return reject("invalid inner STARK envelope payload");
+    };
     if inner.transcript_label != STARK_OPEN_VERIFY_AIR_TRANSCRIPT_LABEL_V1 {
         return reject("STARK OpenVerifyEnvelope transcript label mismatch");
     }
@@ -1863,29 +1885,33 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
     if air.public_digest != expected_public_digest {
         return reject("STARK AIR public digest mismatch");
     }
-    let stark_ok =
-        crate::stark::verify_stark_fri_envelope_with_limits(&open.envelope_bytes, limits);
+    let stark_ok = crate::stark::verify_decoded_stark_fri_envelope_with_limits(&inner, limits);
     if !stark_ok {
         return reject("inner STARK/FRI verifier rejected proof");
     }
-    true
+    Ok(true)
 }
 /// Check the compiled proof relation and envelope integrity for a backend.
 ///
 /// A successful binding proof does not establish execution, witness privacy,
 /// ledger authority, or current registry activation. Application callers should
 /// use [`verify_for_relation`] to require the exact relation they intend to verify.
-pub fn verify_backend(backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>) -> bool {
+pub fn verify_backend(
+    backend: &str,
+    proof: &ProofBox,
+    vk: Option<&VerifyingKeyBox>,
+) -> Result<bool, VerificationRefusal> {
     if proof.backend.as_str() != backend {
-        return false;
+        return Ok(false);
     }
     if !is_production_verify_backend_label(backend) {
-        return false;
+        return Ok(false);
     }
     if production_verify_backend_tag(backend)
         == Some(iroha_data_model::zk::BackendTag::NativePipaRPasta)
     {
-        return native_pipa_r::verify(backend, proof, vk);
+        return verification_attempt::completed_result(native_pipa_r::verify(backend, proof, vk))
+            .map(|completed| completed.is_some());
     }
     // STARK/FRI family: native multi-fold verifier
     if is_stark_fri_v1_backend(backend) {
@@ -1901,15 +1927,15 @@ pub fn verify_backend(backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyB
                 backend,
                 "stark/fri backend requested but binary was built without `zk-stark`"
             );
-            return false;
+            return Ok(false);
         }
     }
     // Groth16 family: unsupported in the first release.
     if backend.starts_with("groth16/") {
-        return false;
+        return Ok(false);
     }
     // Unknown backend tag
-    false
+    Ok(false)
 }
 #[cfg(test)]
 mod debug_backend_tests {
@@ -1951,7 +1977,10 @@ mod debug_backend_tests {
         ] {
             let proof = ProofBox::new(backend.into(), vec![0x01]);
             let vk = VerifyingKeyBox::new(backend.into(), vec![0x02]);
-            assert!(!verify_backend(backend, &proof, Some(&vk)));
+            assert!(
+                !verify_backend(backend, &proof, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture")
+            );
         }
     }
 }
@@ -2266,7 +2295,8 @@ mod stark_backend_tag_tests {
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             let vk = VerifyingKeyBox::new(backend.to_owned(), vec![5, 6, 7, 8]);
             assert!(
-                !verify_backend(backend, &proof, Some(&vk)),
+                !verify_backend(backend, &proof, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "protocol name {backend} must not reach a native verifier"
             );
         }
@@ -2292,7 +2322,8 @@ mod stark_backend_tag_tests {
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             let vk = VerifyingKeyBox::new(backend.to_owned(), vec![5, 6, 7, 8]);
             assert!(
-                !verify_backend(backend, &proof, Some(&vk)),
+                !verify_backend(backend, &proof, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "production-claim backend {backend} must not reach a native verifier"
             );
         }
@@ -2670,6 +2701,7 @@ mod stark_prover_tests {
         for _ in 0..2 {
             assert_eq!(
                 super::validate_stark_fri_verifying_key_v1(backend, &exact, &bytes)
+                    .map_err(crate::verification::expect_rejected)
                     .unwrap()
                     .circuit_id,
                 exact
@@ -2680,20 +2712,27 @@ mod stark_prover_tests {
             format!("{backend}/exact-registry-test"),
             format!(" {exact} "),
         ] {
-            assert!(super::validate_stark_fri_verifying_key_v1(backend, &alias, &bytes).is_err());
+            assert!(
+                super::validate_stark_fri_verifying_key_v1(backend, &alias, &bytes)
+                    .map_err(crate::verification::expect_rejected)
+                    .is_err()
+            );
             let changed = consensus_stark_vk!(alias.clone());
             let changed_bytes = norito::encode_canonical(&changed).unwrap();
             assert!(
                 super::validate_stark_fri_verifying_key_v1(backend, &exact, &changed_bytes)
+                    .map_err(crate::verification::expect_rejected)
                     .is_err()
             );
             assert!(
                 super::validate_stark_fri_verifying_key_v1(backend, &alias, &changed_bytes)
+                    .map_err(crate::verification::expect_rejected)
                     .is_err()
             );
         }
         assert_eq!(
             super::validate_stark_fri_verifying_key_v1(backend, &exact, &bytes)
+                .map_err(crate::verification::expect_rejected)
                 .unwrap()
                 .circuit_id,
             exact
@@ -2721,6 +2760,7 @@ mod stark_prover_tests {
             let bytes = norito::encode_canonical(&payload).unwrap();
             assert_eq!(
                 super::validate_stark_fri_verifying_key_v1(backend, bare, &bytes)
+                    .map_err(crate::verification::expect_rejected)
                     .unwrap()
                     .circuit_id,
                 bare
@@ -2735,7 +2775,9 @@ mod stark_prover_tests {
                     backend, &alias
                 ));
                 assert!(
-                    super::validate_stark_fri_verifying_key_v1(backend, &alias, &bytes).is_err()
+                    super::validate_stark_fri_verifying_key_v1(backend, &alias, &bytes)
+                        .map_err(crate::verification::expect_rejected)
+                        .is_err()
                 );
                 let altered = consensus_stark_vk!(alias.clone());
                 assert!(
@@ -2744,6 +2786,7 @@ mod stark_prover_tests {
                         &alias,
                         &norito::encode_canonical(&altered).unwrap()
                     )
+                    .map_err(crate::verification::expect_rejected)
                     .is_err()
                 );
                 assert!(
@@ -2752,6 +2795,7 @@ mod stark_prover_tests {
                         bare,
                         &norito::encode_canonical(&altered).unwrap()
                     )
+                    .map_err(crate::verification::expect_rejected)
                     .is_err()
                 );
             }
@@ -2765,7 +2809,11 @@ mod stark_prover_tests {
     #[test]
     fn stark_exact_envelope_and_air_reject_aliases_of_a_real_proof() {
         let (backend, exact, vk_box, proof) = sample_stark_open_verify_proof();
-        assert!(verify_backend_with_timing(backend, &proof, Some(&vk_box)).ok);
+        assert!(
+            verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture")
+                .ok
+        );
         let outer: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
         let open: StarkFriOpenProofV1 = norito::decode_canonical(&outer.proof_bytes).unwrap();
         let native: StarkVerifyEnvelopeV1 = norito::decode_canonical(&open.envelope_bytes).unwrap();
@@ -2780,7 +2828,11 @@ mod stark_prover_tests {
                 backend.to_owned(),
                 norito::encode_canonical(&altered).unwrap(),
             );
-            assert!(!verify_backend_with_timing(backend, &wire, Some(&vk_box)).ok);
+            assert!(
+                !verify_backend_with_timing(backend, &wire, Some(&vk_box))
+                    .expect("verification attempt must complete for this semantic fixture")
+                    .ok
+            );
             let mut changed_native = native.clone();
             changed_native.proof.air.as_mut().unwrap().circuit_id = alias;
             let mut changed_open = open.clone();
@@ -2791,7 +2843,11 @@ mod stark_prover_tests {
                 backend.to_owned(),
                 norito::encode_canonical(&changed_outer).unwrap(),
             );
-            assert!(!verify_backend_with_timing(backend, &wire, Some(&vk_box)).ok);
+            assert!(
+                !verify_backend_with_timing(backend, &wire, Some(&vk_box))
+                    .expect("verification attempt must complete for this semantic fixture")
+                    .ok
+            );
         }
     }
     #[test]
@@ -2830,7 +2886,11 @@ mod stark_prover_tests {
                     norito::encode_canonical(&outer).unwrap(),
                 );
                 super::STARK_VERIFYING_KEY_PREPARATION_ENTRIES_V1.with(|entries| entries.set(0));
-                assert!(!super::verify_backend(backend, &proof, Some(&vk)), "{role}");
+                assert!(
+                    !super::verify_backend(backend, &proof, Some(&vk))
+                        .expect("verification attempt must complete for this semantic fixture"),
+                    "{role}"
+                );
                 super::STARK_VERIFYING_KEY_PREPARATION_ENTRIES_V1.with(|entries| {
                     assert_eq!(entries.get(), 0, "reserved role prepared a key: {role}");
                 });
@@ -2841,7 +2901,10 @@ mod stark_prover_tests {
         let (backend, _, vk, proof) = sample_stark_open_verify_proof();
         for _ in 0..2 {
             super::STARK_VERIFYING_KEY_PREPARATION_ENTRIES_V1.with(|entries| entries.set(0));
-            assert!(super::verify_backend(backend, &proof, Some(&vk)));
+            assert!(
+                super::verify_backend(backend, &proof, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture")
+            );
             super::STARK_VERIFYING_KEY_PREPARATION_ENTRIES_V1.with(|entries| {
                 assert_eq!(
                     entries.get(),
@@ -2946,11 +3009,11 @@ mod stark_prover_tests {
             public_digest,
         ) {
             Ok(envelope_bytes) => envelope_bytes,
-            Err(err)
-                if err.contains("BFV full-bootstrap")
-                    || err.contains("ZK-ACE")
-                    || err.contains("IVM execution")
-                    || err.contains("Soracloud") =>
+            Err(crate::stark::StarkProofProductionError::Input(message))
+                if message.contains("BFV full-bootstrap")
+                    || message.contains("ZK-ACE")
+                    || message.contains("IVM execution")
+                    || message.contains("Soracloud") =>
             {
                 // Build a real generic fixture before deliberately corrupting
                 // its identity. Appending a leaf cannot leave a reserved IVM
@@ -3024,7 +3087,7 @@ mod stark_prover_tests {
         )
         .expect_err("generic STARK builder must reject below-floor VK payloads");
         assert!(
-            err.contains("below consensus floor"),
+            err.to_string().contains("below consensus floor"),
             "unexpected below-floor VK rejection: {err}"
         );
     }
@@ -3044,7 +3107,8 @@ mod stark_prover_tests {
             b"weak:schema:v1".to_vec(),
             vec![vec![[0x11; 32]]],
         );
-        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(
             !report.ok,
             "generic STARK verifier must reject below-floor VK payloads"
@@ -3068,7 +3132,7 @@ mod stark_prover_tests {
         )
         .expect_err("generic STARK builder must reject verifier-key backend mismatch");
         assert!(
-            err.contains("backend mismatch"),
+            err.to_string().contains("backend mismatch"),
             "unexpected VK backend mismatch rejection: {err}"
         );
     }
@@ -3088,7 +3152,8 @@ mod stark_prover_tests {
             b"backend-mismatch:schema:v1".to_vec(),
             vec![vec![[0x11; 32]]],
         );
-        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(
             !report.ok,
             "generic STARK verifier must reject a verifier key tagged for another backend"
@@ -3168,7 +3233,7 @@ mod stark_prover_tests {
             )
             .expect_err("generic STARK prover must reject circuit ids from another family/profile");
             assert!(
-                err.contains("backend family"),
+                err.to_string().contains("backend family"),
                 "unexpected circuit family rejection for {case}: {err}"
             );
         }
@@ -3245,7 +3310,8 @@ mod stark_prover_tests {
                 b"family-mismatch:schema:v1".to_vec(),
                 vec![vec![[0x11; 32]]],
             );
-            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture");
             assert!(
                 !report.ok,
                 "generic STARK verifier must reject circuit id family/profile mismatch for {case}"
@@ -3272,8 +3338,9 @@ mod stark_prover_tests {
                 vec![vec![[0x33; 32]]],
             )
             .expect_err("generic STARK prover must not target ZK-ACE circuit aliases");
-            assert_eq!(
-                err, "STARK circuit_id does not match backend family",
+            assert!(
+                matches!(&err, crate::stark::StarkProofProductionError::Input(message)
+                    if message == "STARK circuit_id does not match backend family"),
                 "reserved privacy namespaces must reject before verifier-key decoding: {circuit_id}"
             );
         }
@@ -3297,7 +3364,8 @@ mod stark_prover_tests {
                 b"zk-ace:forged-generic-schema:v1".to_vec(),
                 vec![vec![[0x44; 32]]],
             );
-            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture");
             assert!(
                 !report.ok,
                 "ZK-ACE circuit alias {circuit_id} must not verify as generic binding AIR"
@@ -3324,8 +3392,9 @@ mod stark_prover_tests {
                 vec![vec![[0x66; 32]]],
             )
             .expect_err("generic STARK prover must not target IVM execution circuit aliases");
-            assert_eq!(
-                err, "STARK circuit_id does not match backend family",
+            assert!(
+                matches!(&err, crate::stark::StarkProofProductionError::Input(message)
+                    if message == "STARK circuit_id does not match backend family"),
                 "unexpected IVM alias rejection for {circuit_id}"
             );
         }
@@ -3349,7 +3418,8 @@ mod stark_prover_tests {
                 b"ivm:forged-generic-schema:v1".to_vec(),
                 vec![vec![[0x77; 32]]],
             );
-            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture");
             assert!(
                 !report.ok,
                 "IVM execution circuit alias {circuit_id} must not verify with generic schema"
@@ -3381,7 +3451,8 @@ mod stark_prover_tests {
                     b"reserved:forged-generic-schema:v1".to_vec(),
                     vec![vec![[0x79; 32]]],
                 );
-                let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+                let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                    .expect("verification attempt must complete for this semantic fixture");
                 assert!(
                     !report.ok,
                     "reserved circuit alias {circuit_id} must not verify as generic binding AIR"
@@ -3414,9 +3485,9 @@ mod stark_prover_tests {
                 .expect_err("generic STARK prover must not target BFV full-bootstrap aliases");
                 assert!(
                     if circuit_id.starts_with(&format!("{backend}:")) {
-                        err.contains("BFV full-bootstrap")
+                        matches!(&err, crate::stark::StarkProofProductionError::Input(message) if message.contains("BFV full-bootstrap"))
                     } else {
-                        err == "STARK circuit_id does not match backend family"
+                        matches!(&err, crate::stark::StarkProofProductionError::Input(message) if message == "STARK circuit_id does not match backend family")
                     },
                     "unexpected BFV alias rejection for {backend} / {circuit_id}: {err}"
                 );
@@ -3446,7 +3517,8 @@ mod stark_prover_tests {
                     b"bfv:forged-generic-schema:v1".to_vec(),
                     vec![vec![[0x66; 32]]],
                 );
-                let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+                let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                    .expect("verification attempt must complete for this semantic fixture");
                 assert!(
                     !report.ok,
                     "BFV full-bootstrap alias {backend} / {circuit_id} must not verify as generic binding AIR"
@@ -3507,11 +3579,11 @@ mod stark_prover_tests {
                 )
                 .expect_err("generic STARK prover must not target a Soracloud FHE relation");
                 assert!(
-                    err.contains("Soracloud")
+                    matches!(&err, crate::stark::StarkProofProductionError::Input(message) if message.contains("Soracloud"))
                         || if circuit_id.starts_with(&format!("{backend}:")) {
-                            err.contains("BFV full-bootstrap")
+                            matches!(&err, crate::stark::StarkProofProductionError::Input(message) if message.contains("BFV full-bootstrap"))
                         } else {
-                            err == "STARK circuit_id does not match backend family"
+                            matches!(&err, crate::stark::StarkProofProductionError::Input(message) if message == "STARK circuit_id does not match backend family")
                         },
                     "unexpected Soracloud relation rejection for {circuit_id}: {err}"
                 );
@@ -3537,7 +3609,8 @@ mod stark_prover_tests {
                 schema.to_vec(),
                 vec![vec![[0xA7; 32]]],
             );
-            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+            let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture");
             assert!(
                 !report.ok,
                 "public metadata alone must not prove Soracloud FHE relation {circuit_id}"
@@ -3606,7 +3679,8 @@ mod stark_prover_tests {
     #[test]
     fn prove_stark_open_verify_envelope_emits_binding_air_proof() {
         let (backend, _circuit_id, vk_box, proof) = sample_stark_open_verify_proof();
-        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(report.ok);
     }
     #[test]
@@ -3635,7 +3709,8 @@ mod stark_prover_tests {
         )
         .expect_err("alternate-layout STARK VK must be rejected before proving");
         assert!(
-            err.contains("invalid STARK verifying key payload"),
+            err.to_string()
+                .contains("invalid STARK verifying key payload"),
             "unexpected error: {err}"
         );
     }
@@ -3655,7 +3730,9 @@ mod stark_prover_tests {
             .expect("ordinary Norito accepts the advertised layout");
         let alternate_proof = ProofBox::new(backend.to_owned(), alternate_outer);
         assert!(
-            !verify_backend_with_timing(backend, &alternate_proof, Some(&vk_box)).ok,
+            !verify_backend_with_timing(backend, &alternate_proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture")
+                .ok,
             "alternate-layout outer envelope must be rejected"
         );
     }
@@ -3687,11 +3764,15 @@ mod stark_prover_tests {
         );
         let _ambient = norito::core::DecodeFlagsGuard::enter(alternate_flags);
         assert!(
-            verify_backend_with_timing(backend, &proof, Some(&vk_box)).ok,
+            verify_backend_with_timing(backend, &proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture")
+                .ok,
             "canonical STARK proof must verify independently of ambient layout"
         );
         assert!(
-            !verify_backend_with_timing(backend, &alternate_proof, Some(&vk_box)).ok,
+            !verify_backend_with_timing(backend, &alternate_proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture")
+                .ok,
             "alternate-layout STARK wrapper must be rejected inside a canonical outer envelope"
         );
     }
@@ -3708,7 +3789,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode tampered outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3721,7 +3803,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode tampered outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3735,7 +3818,8 @@ mod stark_prover_tests {
             vec![vec![[0x11; 32]], vec![[0x22; 32]]],
             "IROHA-STARK-AIR-V1-ALT",
         );
-        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(
             !report.ok,
             "generic STARK OpenVerify wrappers must use the canonical binding AIR transcript label"
@@ -3751,7 +3835,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode tampered outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3774,20 +3859,23 @@ mod stark_prover_tests {
         ];
         for (case, mutate) in cases {
             let tampered = mutate_outer_stark_open_verify_proof(backend, &proof, mutate);
-            let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+            let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture");
             assert!(!report.ok, "case {case}");
         }
         let tampered = mutate_outer_stark_open_verify_proof(backend, &proof, |outer| {
             outer.public_inputs =
                 vec![0xA5; iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES + 1];
         });
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok, "oversized public inputs");
     }
     #[test]
     fn verify_stark_open_verify_envelope_rejects_missing_vk() {
         let (backend, _circuit_id, _vk_box, proof) = sample_stark_open_verify_proof();
-        let report = verify_backend_with_timing(backend, &proof, None);
+        let report = verify_backend_with_timing(backend, &proof, None)
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3812,7 +3900,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode tampered outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3831,7 +3920,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode tampered outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3844,7 +3934,8 @@ mod stark_prover_tests {
             backend.to_owned(),
             norito::to_bytes(&outer).expect("encode auxiliary outer STARK envelope"),
         );
-        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
     #[test]
@@ -3862,7 +3953,8 @@ mod stark_prover_tests {
         let vk_bytes = norito::to_bytes(&vk_payload).expect("encode vk payload");
         let vk_box = VerifyingKeyBox::new(backend.to_owned(), vk_bytes);
         let malformed = ProofBox::new(backend.to_owned(), vec![0xAA, 0xBB, 0xCC]);
-        let report = verify_backend_with_timing(backend, &malformed, Some(&vk_box));
+        let report = verify_backend_with_timing(backend, &malformed, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture");
         assert!(!report.ok);
     }
 }
@@ -3880,9 +3972,10 @@ const REJECTED_VERIFY_REPORT: VerifyReport = VerifyReport {
 };
 /// Configuration guardrails for proof verification (enabled flags + payload size caps).
 ///
-/// This struct is intentionally scalar-only so it can be sourced both from node configuration
-/// (`zk_guardrails::guardrails_from_config` in `iroha_core`) and from host-local verification caps
-/// (e.g. IVM host).
+/// This struct is intentionally scalar-only so it can be sourced both from the ZK settings a
+/// State froze for a block (`zk_guardrails::guardrails_from_config` in `iroha_core`; the switches
+/// and caps there are the committed `zk_validity_policy_v1` parameter or the protocol default)
+/// and from host-local verification caps (e.g. IVM host).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ZkVerifyGuardrails {
     /// Whether native PIPA-R verification is enabled.
@@ -3903,13 +3996,13 @@ pub fn verify_backend_with_timing(
     backend: &str,
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
-) -> VerifyReport {
+) -> Result<VerifyReport, VerificationRefusal> {
     let started = Instant::now();
-    let ok = verify_backend(backend, proof, vk);
-    VerifyReport {
+    let ok = verify_backend(backend, proof, vk)?;
+    Ok(VerifyReport {
         ok,
         elapsed: started.elapsed(),
-    }
+    })
 }
 /// Verify a backend under explicit configuration guardrails (enabled flags + payload size caps).
 ///
@@ -3920,34 +4013,34 @@ pub fn verify_backend_with_timing_guardrails(
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
     guardrails: ZkVerifyGuardrails,
-) -> VerifyReport {
+) -> Result<VerifyReport, VerificationRefusal> {
     if is_production_claim_backend_label(backend) {
         tracing::debug!(
             backend,
             "production-claim proof backends are not admitted by node verifier guardrails"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if is_trusted_setup_backend_label(backend) {
         tracing::debug!(
             backend,
             "trusted-setup proof backends are not admitted by node verifier guardrails"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if is_developer_only_backend_label(backend) {
         tracing::debug!(
             backend,
             "developer-only proof backends are not admitted by node verifier guardrails"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if !is_production_verify_backend_label(backend) {
         tracing::debug!(
             backend,
             "unsupported proof backends are not admitted by node verifier guardrails"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if proof.backend.as_str() != backend {
         tracing::debug!(
@@ -3955,7 +4048,7 @@ pub fn verify_backend_with_timing_guardrails(
             proof_backend = proof.backend.as_str(),
             "proof backend label does not match requested verifier backend"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if let Some(vk_box) = vk
         && vk_box.backend.as_str() != backend
@@ -3965,18 +4058,25 @@ pub fn verify_backend_with_timing_guardrails(
             vk_backend = vk_box.backend.as_str(),
             "verifying key backend label does not match requested verifier backend"
         );
-        return REJECTED_VERIFY_REPORT;
+        return Ok(REJECTED_VERIFY_REPORT);
     }
     if production_verify_backend_tag(backend)
         == Some(iroha_data_model::zk::BackendTag::NativePipaRPasta)
     {
         if !guardrails.pipa_r_enabled || proof.bytes.len() > guardrails.pipa_r_max_envelope_bytes {
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
-        let Ok(envelope) =
-            norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(&proof.bytes)
+        let Some(envelope) =
+            verification_attempt::completed_result(verification_attempt::codec_attempt(
+                || {
+                    norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
+                        &proof.bytes,
+                    )
+                },
+                |_| (),
+            ))?
         else {
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         };
         if envelope
             .validate_with_bounds(iroha_data_model::zk::OpenVerifyEnvelopeBounds {
@@ -3986,43 +4086,53 @@ pub fn verify_backend_with_timing_guardrails(
             .is_err()
             || native_pipa_r::validate_metadata(backend, &envelope).is_err()
         {
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
+        let Some(key) = vk else {
+            return Ok(REJECTED_VERIFY_REPORT);
+        };
+        let started = Instant::now();
+        let completed = verification_attempt::completed_result(native_pipa_r::verify_envelope(
+            backend, &envelope, key,
+        ))?;
+        return Ok(VerifyReport {
+            ok: completed.is_some(),
+            elapsed: started.elapsed(),
+        });
     }
     if is_stark_fri_v1_backend(backend) {
         if !guardrails.stark_enabled {
             tracing::debug!(
                 backend,
-                "stark verification is disabled in node configuration"
+                "stark verification is disabled by the committed ZK validity policy"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         if proof.bytes.len() > guardrails.stark_max_envelope_bytes {
             tracing::debug!(
                 backend,
-                "stark payload exceeds node-configured max_envelope_bytes"
+                "stark payload exceeds the committed max_envelope_bytes"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
-        let env = match norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
-            &proof.bytes,
-        ) {
-            Ok(env) => env,
-            Err(err) => {
-                tracing::debug!(
-                    backend,
-                    error = %err,
-                    "stark proof payload is not an OpenVerifyEnvelope"
-                );
-                return REJECTED_VERIFY_REPORT;
-            }
+        let Some(env) =
+            verification_attempt::completed_result(verification_attempt::codec_attempt(
+                || {
+                    norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
+                        &proof.bytes,
+                    )
+                },
+                |_| (),
+            ))?
+        else {
+            return Ok(REJECTED_VERIFY_REPORT);
         };
         if env.backend != iroha_data_model::zk::BackendTag::Stark {
             tracing::debug!(
                 backend,
                 "stark OpenVerifyEnvelope backend tag does not match verifier backend"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         if let Err(err) = env.validate_with_bounds(iroha_data_model::zk::OpenVerifyEnvelopeBounds {
             max_proof_bytes: guardrails.stark_max_envelope_bytes,
@@ -4033,7 +4143,7 @@ pub fn verify_backend_with_timing_guardrails(
                 error = %err,
                 "stark OpenVerifyEnvelope failed guardrail validation"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         if !stark_open_verify_circuit_id_matches_backend(backend, &env.circuit_id) {
             tracing::debug!(
@@ -4041,20 +4151,19 @@ pub fn verify_backend_with_timing_guardrails(
                 circuit_id = env.circuit_id.as_str(),
                 "stark OpenVerifyEnvelope circuit id does not match verifier backend"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
-        let open = match norito::decode_canonical::<iroha_data_model::zk::StarkFriOpenProofV1>(
-            &env.proof_bytes,
-        ) {
-            Ok(open) => open,
-            Err(err) => {
-                tracing::debug!(
-                    backend,
-                    error = %err,
-                    "stark OpenVerifyEnvelope wrapper payload is malformed"
-                );
-                return REJECTED_VERIFY_REPORT;
-            }
+        let Some(open) =
+            verification_attempt::completed_result(verification_attempt::codec_attempt(
+                || {
+                    norito::decode_canonical::<iroha_data_model::zk::StarkFriOpenProofV1>(
+                        &env.proof_bytes,
+                    )
+                },
+                |_| (),
+            ))?
+        else {
+            return Ok(REJECTED_VERIFY_REPORT);
         };
         if open.version != 1 {
             tracing::debug!(
@@ -4062,32 +4171,33 @@ pub fn verify_backend_with_timing_guardrails(
                 version = open.version,
                 "stark OpenVerifyEnvelope wrapper version is unsupported"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         if open.envelope_bytes.is_empty() {
             tracing::debug!(
                 backend,
                 "stark OpenVerifyEnvelope wrapper has empty native proof bytes"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
             tracing::debug!(
                 backend,
-                "stark envelope proof bytes exceed node-configured max_proof_bytes"
+                "stark envelope proof bytes exceed the committed max_proof_bytes"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
         #[cfg(feature = "zk-stark")]
         {
             let started = Instant::now();
             let mut limits = crate::stark::StarkVerifierLimits::default();
             limits.max_envelope_bytes = guardrails.stark_max_proof_bytes;
-            let ok = verify_stark_fri_open_verify_envelope_with_limits(backend, proof, vk, &limits);
-            return VerifyReport {
+            let ok =
+                verify_stark_fri_open_verify_envelope_with_limits(backend, proof, vk, &limits)?;
+            return Ok(VerifyReport {
                 ok,
                 elapsed: started.elapsed(),
-            };
+            });
         }
         #[cfg(not(feature = "zk-stark"))]
         {
@@ -4095,7 +4205,7 @@ pub fn verify_backend_with_timing_guardrails(
                 backend,
                 "stark/fri backend requested but binary was built without `zk-stark`"
             );
-            return REJECTED_VERIFY_REPORT;
+            return Ok(REJECTED_VERIFY_REPORT);
         }
     }
     verify_backend_with_timing(backend, proof, vk)
@@ -4115,7 +4225,7 @@ mod guardrails_tests {
     macro_rules! assert_guardrails_reject {
         ($backend:expr, $proof:expr, $vk:expr, $guardrails:expr $(, $message:literal)? $(,)?) => {{
             let report =
-                verify_backend_with_timing_guardrails($backend, $proof, $vk, $guardrails);
+                verify_backend_with_timing_guardrails($backend, $proof, $vk, $guardrails).expect("verification attempt must complete for this semantic fixture");
             assert!(!report.ok $(, $message)?);
             assert_eq!(report.elapsed, Duration::ZERO $(, $message)?);
         }};
@@ -4712,7 +4822,8 @@ mod guardrails_tests {
                 stark_max_proof_bytes: open.envelope_bytes.len(),
                 ..ENABLED_GUARDRAILS
             },
-        );
+        )
+        .expect("verification attempt must complete for this semantic fixture");
         assert!(report.ok);
     }
     #[cfg(feature = "zk-stark")]
@@ -4801,7 +4912,7 @@ mod preverify_tests {
                     Some($vk_hash),
                     Some($vk_hash),
                     true,
-                ),
+                ).expect("verification attempt must complete for this semantic fixture"),
                 $result
                 $(, $message)?
             )
@@ -4826,7 +4937,7 @@ mod preverify_tests {
                     $resolved,
                     $expected,
                     $active,
-                ),
+                ).expect("verification attempt must complete for this semantic fixture"),
                 $result
                 $(, $message)?
             )
@@ -5601,12 +5712,14 @@ mod preverify_tests {
             let mut dedup = DedupCache::new();
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend}"
             );
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend} should not poison dedup cache"
             );
@@ -5654,12 +5767,14 @@ mod preverify_tests {
             let mut dedup = DedupCache::new();
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend}"
             );
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend} should not poison dedup cache"
             );
@@ -5688,12 +5803,14 @@ mod preverify_tests {
             let mut dedup = DedupCache::new();
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend}"
             );
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend} should not poison dedup cache"
             );
@@ -5747,12 +5864,14 @@ mod preverify_tests {
             let mut dedup = DedupCache::new();
             let proof = ProofBox::new(backend.to_owned(), vec![1, 2, 3, 4]);
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend}"
             );
             assert_eq!(
-                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+                preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 PreverifyResult::UnsupportedBackend,
                 "case {backend} should not poison dedup cache"
             );
@@ -5763,11 +5882,13 @@ mod preverify_tests {
         let mut dedup = DedupCache::new();
         let proof = ProofBox::new(String::new(), vec![1, 2, 3, 4]);
         assert_eq!(
-            preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+            preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                .expect("verification attempt must complete for this semantic fixture"),
             PreverifyResult::UnsupportedBackend
         );
         assert_eq!(
-            preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true),
+            preverify_with_budget(&proof, None, &mut dedup, 0, None, None, true)
+                .expect("verification attempt must complete for this semantic fixture"),
             PreverifyResult::UnsupportedBackend,
             "unsupported proofs should keep failing as unsupported, not become dedup duplicates"
         );

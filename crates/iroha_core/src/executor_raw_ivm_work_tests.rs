@@ -145,11 +145,15 @@ mod raw_ivm_work {
         tx.world.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         let result =
             Executor::Initial.execute_transaction(&mut tx, &ALICE_ID, transaction, &mut cache);
-        assert_eq!(
-            result,
-            Err(ExecutionAttemptError::Deferred(expected.clone()))
+        assert!(
+            matches!(result, Err(ExecutionAttemptError::Deferred(original))
+            if original.reason() == expected.reason() && original.allocation_refusal() == expected.allocation_refusal())
         );
-        assert_eq!(tx.execution_deferral(), Some(expected));
+        assert!(tx.is_execution_deferred());
+        assert!(
+            tx.borrow_execution_deferral().is_none(),
+            "terminal exported the owner once"
+        );
         assert_eq!(tx.last_tx_gas_used, 0);
         assert_eq!(budget.peak_reserved_bytes(), 0);
         drop(tx);
@@ -168,7 +172,7 @@ mod raw_ivm_work {
                 signed_limit.min(block_limit - already_used)
             };
             let (vm_result, expected_gas, _) = run_vm(&program, effective);
-            assert_eq!(vm_result, Err(ivm::VMError::OutOfGas));
+            assert!(matches!(vm_result, Err(ivm::VMError::OutOfGas)));
             assert!((1..=effective).contains(&expected_gas));
             let state = fixture();
             let transaction = signed(&state, &program, signed_limit);

@@ -25,7 +25,15 @@
 //! verified its proof against an independently registered trust anchor.
 
 mod allocation;
-pub use allocation::{AllocatedAmxRecordProofV1, AmxProofAllocationErrorV1};
+mod approval;
+pub use approval::AmxDebitApprovalV1;
+pub mod approval_proof;
+pub use allocation::{
+    AllocatedAmxHandoffProofV1, AllocatedAmxRecordProofV1, AmxProofAllocationErrorV1,
+};
+pub use approval_proof::{
+    AmxDebitApprovalProofRefV1, AmxDebitApprovalProofV1, VerifiedAmxDebitApprovalV1,
+};
 mod participant;
 mod proof;
 mod state;
@@ -64,6 +72,24 @@ pub const MAX_AMX_LEG_BYTES: usize = 64 * 1024;
 /// Largest distance `d − b` between the `Begin` height `b` and the deadline `d`: escrow is
 /// bounded in global heights (§11.6).
 pub const MAX_AMX_DEADLINE_WINDOW: u64 = 7_200;
+
+/// Largest signed AMX time window under the original authenticated genesis cadence.
+///
+/// The extra cadence preserves an inclusive height deadline and the following Abort block.
+/// This is a ledger-time bound; it makes no promise about wall-clock commit latency.
+///
+/// # Errors
+/// A zero cadence or multiplication overflow is an invalid committed time policy.
+pub fn amx_max_time_window_ms(original_cadence_ms: u64) -> Result<u64, AmxError> {
+    if original_cadence_ms == 0 {
+        return Err(AmxError::State(
+            "AMX time policy requires a positive cadence",
+        ));
+    }
+    (MAX_AMX_DEADLINE_WINDOW + 1)
+        .checked_mul(original_cadence_ms)
+        .ok_or(AmxError::State("AMX time window overflows"))
+}
 /// Most transactions the global chain tracks before their deadlines pass.
 pub const MAX_AMX_PENDING: usize = 4_096;
 /// Most participant dataspaces the global chain registers.
@@ -72,7 +98,7 @@ pub const MAX_AMX_DATASPACES: usize = 256;
 pub const AMX_RECORD_WITNESS_KEY_BYTES: usize = 34;
 
 /// An invalid AMX input/transition or a local decoder resource refusal.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum AmxError {
     /// The transaction `X` is malformed.
     #[error("malformed AMX transaction: {0}")]
@@ -102,34 +128,30 @@ pub enum AmxError {
     Encoding(String),
     /// The original codec scope or allocator refused; no protocol verdict was produced.
     #[error("local AMX codec resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
 }
 
-fn proof_codec_error(error: &norito::Error, part: &str, outer_scope: bool) -> AmxError {
-    if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-        && let Some(resource) = error.decode_resource_error()
-    {
-        return AmxError::Resource(resource);
+fn proof_codec_error(error: norito::core::DecodeAttemptError, part: &str) -> AmxError {
+    if error.kind() != norito::core::DecodeAttemptErrorKind::Invalid {
+        return AmxError::Resource(error);
     }
     AmxError::Proof(format!("{part}: {error}"))
 }
 
-fn commitment_error(error: &crate::sumeragi_finality::CommitmentError) -> AmxError {
+fn certified_result_error(error: crate::sumeragi_finality::CertifiedResultError) -> AmxError {
     match error {
-        crate::sumeragi_finality::CommitmentError::Resource(resource) => {
-            AmxError::Resource(*resource)
-        }
+        crate::sumeragi_finality::CertifiedResultError::Body(
+            crate::sumeragi_finality::CommitmentError::Resource(resource),
+        ) => AmxError::Resource(resource),
         other => AmxError::Proof(format!("result preimage: {other}")),
     }
 }
 
-fn encoding(error: impl std::borrow::Borrow<norito::Error>) -> AmxError {
-    let error = error.borrow();
+fn encoding(error: norito::core::DecodeAttemptError) -> AmxError {
     if !cfg!(all(test, sumeragi_model_mutation = "DM9"))
-        && matches!(error, norito::Error::AllocationFailed { .. })
-        && let Some(resource) = error.decode_resource_error()
+        && error.kind() != norito::core::DecodeAttemptErrorKind::Invalid
     {
-        return AmxError::Resource(resource);
+        return AmxError::Resource(error);
     }
     AmxError::Encoding(error.to_string())
 }
@@ -186,6 +208,8 @@ pub struct AmxTransactionV1 {
     pub legs: Vec<AmxLegV1>,
     /// Global deadline height `d`.
     pub deadline: u64,
+    /// Exclusive expiry in the Global chain's authenticated Unix milliseconds.
+    pub expires_at_ms: u64,
     /// Client nonce.
     #[norito(
         with = "crate::json_helpers::fixed_bytes_hex",
@@ -222,6 +246,9 @@ impl AmxTransactionV1 {
         if self.deadline == 0 {
             return Err(AmxError::Transaction("deadline must be a positive height"));
         }
+        if self.expires_at_ms == 0 {
+            return Err(AmxError::Transaction("expiry must be a positive timestamp"));
+        }
         Ok(())
     }
 
@@ -234,15 +261,12 @@ impl AmxTransactionV1 {
         // DM5 restores only the retired canonical-frame scratch in this public API.
         #[cfg(all(test, sumeragi_model_mutation = "DM5"))]
         {
-            let bytes = norito::encode_canonical(self).map_err(encoding)?;
+            let bytes = norito::core::classify_decode_attempt(|| norito::encode_canonical(self))
+                .map_err(encoding)?;
             return Ok(Hash::new_from_chunks(&[AMX_TRANSACTION_DOMAIN, &bytes]).into());
         }
         #[cfg(not(all(test, sumeragi_model_mutation = "DM5")))]
-        streamed_transaction_id(self).map_err(|error| {
-            error
-                .decode_resource_error()
-                .map_or_else(|| encoding(&error), AmxError::Resource)
-        })
+        norito::core::classify_decode_attempt(|| streamed_transaction_id(self)).map_err(encoding)
     }
 
     /// The participant set, ascending.
@@ -269,6 +293,7 @@ impl AmxTransactionV1 {
             tx: self.id()?,
             participants: self.participants(),
             deadline: self.deadline,
+            expires_at_ms: self.expires_at_ms,
         })
     }
 }
@@ -301,6 +326,8 @@ pub struct AmxBeginV1 {
     pub participants: Vec<DataSpaceId>,
     /// Global deadline height `d`.
     pub deadline: u64,
+    /// Exclusive expiry in the Global chain's authenticated Unix milliseconds.
+    pub expires_at_ms: u64,
 }
 
 impl AmxBeginV1 {
@@ -319,7 +346,17 @@ impl AmxBeginV1 {
         if self.deadline == 0 {
             return Err(AmxError::Record("deadline must be a positive height"));
         }
+        if self.expires_at_ms == 0 {
+            return Err(AmxError::Record("expiry must be a positive timestamp"));
+        }
         Ok(())
+    }
+
+    /// Whether either signed boundary is due at the authenticated execution coordinates.
+    /// Height `d` permits Commit; time `expires_at_ms` does not.
+    #[must_use]
+    pub fn is_due(&self, height: u64, block_time_ms: u64) -> bool {
+        height > self.deadline || block_time_ms >= self.expires_at_ms
     }
 
     /// Whether `dataspace` takes part.
@@ -339,6 +376,7 @@ impl AmxBeginV1 {
         #[cfg(not(all(test, sumeragi_model_mutation = "DM6")))]
         {
             self.deadline == transaction.deadline
+                && self.expires_at_ms == transaction.expires_at_ms
                 && self
                     .participants
                     .iter()
@@ -579,7 +617,7 @@ impl AmxRecordV1 {
     /// # Errors
     /// A Norito encoding failure.
     pub fn witness_value(&self) -> Result<Vec<u8>, AmxError> {
-        norito::encode_canonical(self).map_err(encoding)
+        norito::core::classify_decode_attempt(|| norito::encode_canonical(self)).map_err(encoding)
     }
 
     /// Decode a witness value, checking that it is canonical and belongs under `key`.
@@ -587,15 +625,9 @@ impl AmxRecordV1 {
     /// # Errors
     /// The value is not one canonical, valid record of the key's kind and transaction.
     pub fn from_witness(key: &[u8], value: &[u8]) -> Result<Self, AmxError> {
-        let outer_scope = norito::core::decode_limits_active();
-        let record: Self = norito::decode_canonical(value).map_err(|error| {
-            if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-                && let Some(resource) = error.decode_resource_error()
-            {
-                return AmxError::Resource(resource);
-            }
-            encoding(&error)
-        })?;
+        let record: Self =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical(value))
+                .map_err(encoding)?;
         record.validate()?;
         if record.witness_key().as_slice() != key {
             return Err(AmxError::Record("witness key differs from the record"));
@@ -604,6 +636,26 @@ impl AmxRecordV1 {
             return Err(AmxError::Record("witness value is not canonical"));
         }
         Ok(record)
+    }
+}
+
+/// Classify the canonical key geometry owned by the AMX witness schema.
+/// Unrelated witness tags return `None`; malformed AMX keys are refused.
+///
+/// # Errors
+/// An AMX-tagged key has the wrong length or an unknown record kind.
+pub fn amx_record_witness_kind(key: &[u8]) -> Result<Option<AmxRecordKind>, AmxError> {
+    if key.first().copied() != Some(ExecutionWitnessKeyTagV1::AmxRecord as u8) {
+        return Ok(None);
+    }
+    if key.len() != AMX_RECORD_WITNESS_KEY_BYTES {
+        return Err(AmxError::Record("AMX witness key has the wrong length"));
+    }
+    match key[1] {
+        1 => Ok(Some(AmxRecordKind::Begin)),
+        2 => Ok(Some(AmxRecordKind::Prepared)),
+        3 => Ok(Some(AmxRecordKind::Decision)),
+        _ => Err(AmxError::Record("AMX witness key has an unknown kind")),
     }
 }
 

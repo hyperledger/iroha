@@ -287,8 +287,8 @@ fn compiled_strict_children_and_returns_share_prepaid_rows_and_snapshot_custody(
             input.precharge_vm(&mut vm).unwrap();
         }
         vm.run_with_host(&mut host).unwrap();
-        assert_eq!(vm.call_result_word_count(), Ok(1));
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.call_result_word_count(), Ok(1)));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         assert!(vm.contract_return_stack.is_empty());
         let log = vm.proof_register_log_handle().unwrap();
         assert!(log.lock().as_slice().len() > event_counts::root(RootArguments::Prepared, false));
@@ -390,7 +390,7 @@ fn actual_reserved_syscalls_prepay_restore_and_all_255_host_net_writes() {
             .unwrap();
         let result = vm.execute_syscall(&mut host, syscalls::SYSCALL_ABORT);
         if reject_prepare {
-            assert_eq!(result, Err(VMError::AssertionFailed));
+            assert!(matches!(result, Err(VMError::AssertionFailed)));
             assert_eq!(vm.registers.snapshot()[10], 7);
             assert!(vm.registers.tag(10));
             assert_eq!(log.lock().as_slice().len(), 5);
@@ -429,7 +429,7 @@ fn native_delayed_finish_uses_original_batch_and_preserves_every_original_packet
     };
     let plain = run();
     assert!(!IVM::native_register_trace_enabled_for_test());
-    let (traced, count) = IVM::with_native_register_trace_for_test(&run);
+    let (traced, count) = IVM::with_native_register_trace_for_test(run);
     assert!(!IVM::native_register_trace_enabled_for_test());
     assert_eq!(
         (

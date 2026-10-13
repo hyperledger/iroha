@@ -142,12 +142,13 @@ fn new_for_testing_seeds_reserved_universal_dataspace_name_record() {
     );
     let view = state.view();
     assert_eq!(
-        crate::sns::active_dataspace_owner_by_alias(
+        (crate::sns::active_dataspace_owner_by_alias(
             view.world(),
             crate::sns::RESERVED_UNIVERSAL_DATASPACE_ALIAS,
             0,
-        ),
-        Ok(Some(genesis_id))
+        ))
+        .expect("completed successful fixture"),
+        Some(genesis_id)
     );
 }
 #[test]

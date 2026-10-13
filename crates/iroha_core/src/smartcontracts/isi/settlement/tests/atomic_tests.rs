@@ -17,7 +17,7 @@ fn atomic_fixture_source_usage(
         TransferDeltaTranscript, TransferSmtWitness, TransferTranscript,
     };
     let entry = Hash::new(b"atomic-fixture-carrier");
-    let transcript = TransferTranscript {
+    let mut transcript = TransferTranscript {
         batch_hash: entry,
         authority_digest: Hash::new(b"atomic-fixture-authority-length"),
         poseidon_preimage_digest: None,
@@ -38,6 +38,10 @@ fn atomic_fixture_source_usage(
             })
             .collect(),
     };
+    if let [delta] = transcript.deltas.as_slice() {
+        transcript.poseidon_preimage_digest =
+            Some(crate::fastpq::poseidon_preimage_digest(delta, &entry));
+    }
     crate::fastpq::source_prefix_lengths::entry::measure_fastpq_source_entry_frame_usage(
         entry,
         [&transcript],
@@ -68,6 +72,7 @@ fn atomic_state_in_scope(
         u32::try_from(count)
             .expect("bounded movement count")
             .max(16),
+        Quantity::from(10_u32),
     )
 }
 fn atomic_state_in_scope_with_source_delta_limit(
@@ -75,6 +80,7 @@ fn atomic_state_in_scope_with_source_delta_limit(
     scope: AssetBalanceScope,
     policy: AssetBalancePolicy,
     max_deltas: u32,
+    source_balance: Quantity,
 ) -> (State, Vec<AtomicSettlementMovement>, AssetDefinitionId) {
     let domain_id = DomainId::try_new("atomic", "universal").expect("domain");
     let definition =
@@ -84,7 +90,11 @@ fn atomic_state_in_scope_with_source_delta_limit(
     let mut movements = Vec::new();
     for index in 0..count {
         let mut seed = vec![0xA5; 32];
-        seed[..2].copy_from_slice(&(index as u16).to_le_bytes());
+        seed[..2].copy_from_slice(
+            &u16::try_from(index)
+                .expect("fixture value fits u16")
+                .to_le_bytes(),
+        );
         let owner = AccountId::new(
             KeyPair::try_from_seed(seed, Algorithm::Ed25519)
                 .expect("fixture key")
@@ -93,7 +103,7 @@ fn atomic_state_in_scope_with_source_delta_limit(
         );
         accounts.push(Account::new(owner.clone()).build(&CARPENTER_ID));
         let source = AssetId::with_scope(definition.clone(), owner, scope);
-        assets.push(Asset::new(source.clone(), Quantity::from(10_u32)));
+        assets.push(Asset::new(source.clone(), source_balance.clone()));
         movements.push(AtomicSettlementMovement {
             source,
             recipient: CARPENTER_ID.clone(),
@@ -145,7 +155,8 @@ fn atomic_state_in_scope_with_source_delta_limit(
         .expect("finite atomic source profile");
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     (
@@ -164,7 +175,10 @@ fn atomic_instruction(
 ) -> SettleAtomic {
     SettleAtomic::new(
         stx.network_id.clone(),
-        "atomic_business".parse().expect("id"),
+        SettlementId::new(
+            movements[0].source.account().clone(),
+            "atomic_business".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical vector"),
         nonzero!(100_u64),
         Metadata::default(),
@@ -300,8 +314,89 @@ fn atomic_settlement_executes_three_and_255_exact_payments_once() {
 }
 
 #[test]
+fn atomic_settlement_single_global_payment_credits_250000_units_once() {
+    let (state, mut movements, definition) = atomic_state_in_scope_with_source_delta_limit(
+        1,
+        AssetBalanceScope::Global,
+        AssetBalancePolicy::Global,
+        16,
+        Quantity::from(500_000_u32),
+    );
+    movements[0].quantity = Quantity::from(250_000_u32);
+    let source = movements[0].source.clone();
+    let recipient = movements[0].destination();
+    let authority = source.account().clone();
+    let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+    block.admit_fastpq_source_for_testing(Hash::new(b"single-payment-retry-carrier"));
+    block.admit_fastpq_source_for_testing(Hash::new(b"single-payment-conflicting-carrier"));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"atomic-fixture-carrier"));
+    let mut instruction = atomic_instruction(&stx, movements);
+    instruction.metadata.insert(
+        "payment_reference".parse().expect("metadata key"),
+        Json::new("shared-asset-payment-250000"),
+    );
+    let transcripts = stx.pending_transfer_transcript_count_for_testing();
+    admission_validate_atomic(&authority, &mut stx, &instruction)
+        .expect("single payer authorizes its exact global debit");
+    instruction
+        .clone()
+        .execute(&authority, &mut stx)
+        .expect("single payment uses the existing atomic executor");
+    assert_eq!(
+        asset_balance_or_zero(&stx, &source),
+        Quantity::from(250_000_u32)
+    );
+    assert_eq!(
+        asset_balance_or_zero(&stx, &recipient),
+        Quantity::from(250_000_u32)
+    );
+    assert_eq!(recipient, AssetId::new(definition, CARPENTER_ID.clone()));
+    assert_eq!(
+        stx.pending_transfer_transcript_count_for_testing(),
+        transcripts + 1
+    );
+    let receipt = stx
+        .world
+        .settlement_receipts
+        .get(instruction.settlement_id())
+        .expect("one immutable business receipt");
+    assert_eq!(receipt.authority, authority);
+    assert_eq!(receipt.metadata, instruction.metadata);
+    assert!(matches!(&receipt.details,
+        SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash })
+        if movements == &instruction.movements.resolve().expect("exact movement")
+            && *intent_hash == instruction.intent_hash().expect("exact intent")));
+    assert_eq!(receipt.details.movements().count(), 1);
+
+    // Distinct admitted component carriers cannot create a second monetary effect,
+    // whether they repeat the exact intent or change its amount under the occupied ID.
+    let settled = atomic_observable_state(&stx);
+    for (amount, carrier) in [
+        (250_000_u32, Hash::new(b"single-payment-retry-carrier")),
+        (
+            125_000_u32,
+            Hash::new(b"single-payment-conflicting-carrier"),
+        ),
+    ] {
+        stx.tx_call_hash = Some(carrier);
+        let mut replay = instruction.clone();
+        let mut changed = replay.movements.as_slice().to_vec();
+        changed[0].quantity = Quantity::from(amount);
+        replay.movements = AtomicSettlementMovements::try_from(changed).expect("one movement");
+        assert!(
+            replay
+                .execute(&authority, &mut stx)
+                .expect_err("occupied business identifier refuses replay and conflicting terms")
+                .to_string()
+                .contains("already been committed")
+        );
+        assert_eq!(atomic_observable_state(&stx), settled);
+    }
+}
+
+#[test]
 fn atomic_settlement_missing_consent_at_every_position_changes_nothing() {
-    for count in [3, 255] {
+    for count in [1, 3, 255] {
         let (state, movements, _) = atomic_state(count);
         let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
         for omit in 0..count {
@@ -316,6 +411,31 @@ fn atomic_settlement_missing_consent_at_every_position_changes_nothing() {
             assert_eq!(atomic_observable_state(&stx), before);
         }
     }
+}
+
+#[test]
+fn atomic_settlement_cannot_consume_a_recipient_namespace() {
+    let (state, movements, _) = atomic_state(1);
+    let payer = movements[0].source.account().clone();
+    let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"foreign atomic namespace"));
+    let mut instruction = atomic_instruction(&stx, movements);
+    instruction.settlement_id.owner = CARPENTER_ID.clone();
+    let before = atomic_observable_state(&stx);
+    assert!(
+        admission_validate_atomic(&payer, &mut stx, &instruction)
+            .unwrap_err()
+            .to_string()
+            .contains("settlement id owner")
+    );
+    assert!(
+        instruction
+            .execute(&payer, &mut stx)
+            .unwrap_err()
+            .to_string()
+            .contains("settlement id owner")
+    );
+    assert_eq!(atomic_observable_state(&stx), before);
 }
 
 #[test]
@@ -367,7 +487,10 @@ fn atomic_settlement_wrong_network_or_expired_height_changes_nothing() {
         };
         let instruction = SettleAtomic::new(
             network,
-            "atomic_expiry".parse().expect("id"),
+            SettlementId::new(
+                movements[0].source.account().clone(),
+                "atomic_expiry".parse().expect("reference"),
+            ),
             AtomicSettlementMovements::try_from(movements.clone()).expect("canonical"),
             NonZeroU64::new(if expired { 1 } else { 100 }).expect("expiry"),
             Metadata::default(),
@@ -554,6 +677,7 @@ fn atomic_settlement_source_delta_refusal_preserves_every_observable_effect() {
         AssetBalanceScope::Global,
         AssetBalancePolicy::Global,
         254,
+        Quantity::from(10_u32),
     );
     let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"atomic-fixture-carrier"));
@@ -775,7 +899,8 @@ fn atomic_settlement_bootstrap_delta_limit_refuses_without_movement_or_receipt()
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::FastpqSource(
             FastpqSourcePolicyV1::bootstrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"atomic-fixture-carrier"));

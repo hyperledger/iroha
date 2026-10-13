@@ -37,7 +37,7 @@ use norito::{
 };
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     num::{NonZeroU32, NonZeroUsize},
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
@@ -81,7 +81,7 @@ struct PeerRecentSuppressionEntry {
     key: PeerRecentSendKey,
     expires_tick: u64,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PeerRecentSendKey {
     entrypoint_hash: EntrypointHash,
 }
@@ -314,7 +314,7 @@ pub struct TransactionGossiper {
     /// Deferred gossip hashes bucketed by resend tick.
     gossip_deferred: Vec<Vec<HashOf<TransactionEntrypoint>>>,
     /// Recently-sent wire identities tracked per peer to suppress duplicate fanout.
-    peer_recently_sent: BTreeMap<PeerId, HashMap<PeerRecentSendKey, u64>>,
+    peer_recently_sent: BTreeMap<PeerId, BTreeMap<PeerRecentSendKey, u64>>,
     /// Expiry ring for per-peer suppression entries (tick-based TTL).
     peer_recent_ring: Vec<Vec<PeerRecentSuppressionEntry>>,
     /// Subscriber and outbound TxGossip drop counter at the last backpressure observation.
@@ -467,7 +467,7 @@ impl TransactionGossiper {
         }
         let index = self.deferred_index();
         let slot = &mut self.gossip_deferred[index];
-        let mut seen: HashSet<_> = slot.iter().copied().collect();
+        let mut seen: BTreeSet<_> = slot.iter().copied().collect();
         for hash in hashes {
             if seen.insert(hash) {
                 slot.push(hash);
@@ -1424,6 +1424,17 @@ impl TransactionGossiper {
             plane,
         }: TransactionGossip,
     ) {
+        struct MaterializedGossipCandidate {
+            entrypoint: TransactionEntrypoint,
+            payload: Arc<Vec<u8>>,
+            entrypoint_hash: HashOf<TransactionEntrypoint>,
+            route: GossipRoute,
+            plan: RoutingPlan,
+            prepared: Option<PreparedTransactionMetadata>,
+            ed25519_prechecked: bool,
+            precheck_rejection: Option<AcceptTransactionFail>,
+        }
+
         iroha_logger::debug!(size = txs.len(), "received transaction gossip batch");
         let batch_txs = txs.len();
         if self.reject_oversized_incoming_batch(plane, batch_txs) {
@@ -1495,22 +1506,12 @@ impl TransactionGossiper {
             (params.sumeragi().max_clock_drift(), params.transaction())
         };
         let crypto_cfg = self.state.crypto();
-        let mut batch_seen_hashes = HashSet::with_capacity(batch_txs);
+        let mut batch_seen_hashes = BTreeSet::new();
         let state = self.state.as_ref();
         let committed_transactions = state.transactions.view();
-        let ed25519_batch_cap = self.state.pipeline.signature_batch_max_ed25519;
-        let stateless_cache_cap = self.state.pipeline.stateless_cache_cap;
+        let ed25519_batch_cap = self.state.installed_pipeline().signature_batch_max_ed25519;
+        let stateless_cache_cap = self.state.installed_pipeline().stateless_cache_cap;
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
-        struct MaterializedGossipCandidate {
-            entrypoint: TransactionEntrypoint,
-            payload: Arc<Vec<u8>>,
-            entrypoint_hash: HashOf<TransactionEntrypoint>,
-            route: GossipRoute,
-            plan: RoutingPlan,
-            prepared: Option<PreparedTransactionMetadata>,
-            ed25519_prechecked: bool,
-            precheck_rejection: Option<AcceptTransactionFail>,
-        }
         let mut materialized = Vec::with_capacity(batch_txs);
         for (idx, tx) in txs.into_iter().enumerate() {
             let Some(route) = routes.get(idx).copied() else {
@@ -1835,7 +1836,7 @@ impl TransactionGossiper {
                         batch_public_keys,
                         &mut scratch,
                     )
-                    .map_or_else(|| (0, err.to_string()), |bad| bad)
+                    .unwrap_or_else(|| (0, err.to_string()))
                 });
                 match batch_result {
                     Ok(()) => prechecked_indices.extend(batch.iter().map(|item| item.idx)),
@@ -2047,21 +2048,21 @@ impl TransactionGossiper {
         let txs = &gossip.txs;
         let routes = &gossip.routes;
         let plans = &gossip.plans;
-        let plane = gossip.plane;
+        let gossip_plane = gossip.plane;
         iroha_logger::debug!(size = txs.len(), "received transaction gossip batch");
         let batch_txs = txs.len();
-        if self.reject_oversized_incoming_batch(plane, batch_txs) {
+        if self.reject_oversized_incoming_batch(gossip_plane, batch_txs) {
             return;
         }
         if routes.is_empty() {
             iroha_logger::warn!("dropping transaction gossip without routing metadata");
             self.record_drop_metric(
-                plane,
+                gossip_plane,
                 DataSpaceId::UNIVERSAL,
                 &[],
                 "missing_routes",
                 &[],
-                self.target_cap_for_plane(plane),
+                self.target_cap_for_plane(gossip_plane),
                 batch_txs,
                 0,
             );
@@ -2084,12 +2085,12 @@ impl TransactionGossiper {
                 "dropping transaction gossip with unpaired routing metadata"
             );
             self.record_drop_metric(
-                plane,
+                gossip_plane,
                 DataSpaceId::UNIVERSAL,
                 &[],
                 reason,
                 &[],
-                self.target_cap_for_plane(plane),
+                self.target_cap_for_plane(gossip_plane),
                 batch_txs,
                 0,
             );
@@ -2119,7 +2120,7 @@ impl TransactionGossiper {
             (params.sumeragi().max_clock_drift(), params.transaction())
         };
         let crypto_cfg = self.state.crypto();
-        let mut batch_seen_hashes = HashSet::with_capacity(batch_txs);
+        let mut batch_seen_hashes = BTreeSet::new();
         let state = self.state.as_ref();
         let committed_transactions = state.transactions.view();
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
@@ -2127,12 +2128,12 @@ impl TransactionGossiper {
             let Some(route) = routes.get(idx).copied() else {
                 iroha_logger::warn!("route metadata missing for transaction gossip entry");
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     DataSpaceId::UNIVERSAL,
                     &[],
                     "missing_route_entry",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2141,12 +2142,12 @@ impl TransactionGossiper {
             let Some(advertised_plan) = plans.get(idx).cloned() else {
                 iroha_logger::warn!("routing plan metadata missing for transaction gossip entry");
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "missing_plan_entry",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2165,12 +2166,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to route/plan coordinator mismatch"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "route_plan_mismatch",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2187,12 +2188,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to invalid route"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2211,12 +2212,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to invalid routing plan"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2236,64 +2237,66 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to unknown dataspace"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "unknown_dataspace",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             };
-            if plane == GossipPlane::Restricted && route.dataspace_id == DataSpaceId::UNIVERSAL {
+            if gossip_plane == GossipPlane::Restricted
+                && route.dataspace_id == DataSpaceId::UNIVERSAL
+            {
                 iroha_logger::warn!(
                     lane_id = %route.lane_id,
                     "restricted plane reported universal dataspace; dropping entry"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "restricted_universal_dataspace",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             }
-            if expected_plane != plane {
+            if expected_plane != gossip_plane {
                 iroha_logger::warn!(
                     lane_id = %route.lane_id,
                     dataspace_id = %route.dataspace_id,
-                    plane = ?plane,
+                    plane = ?gossip_plane,
                     expected_plane = ?expected_plane,
                     "dropping transaction gossip entry due to plane mismatch"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "plane_mismatch",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             }
-            if plane == GossipPlane::Restricted
+            if gossip_plane == GossipPlane::Restricted
                 && let Err(reason) = self.validate_restricted_recipient(route)
             {
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2317,12 +2320,12 @@ impl TransactionGossiper {
                         "dropping transaction gossip entry due to invalid entrypoint payload"
                     );
                     self.record_drop_metric(
-                        plane,
+                        gossip_plane,
                         route.dataspace_id,
                         &[route.lane_id],
                         "invalid_entrypoint_payload",
                         &[],
-                        self.target_cap_for_plane(plane),
+                        self.target_cap_for_plane(gossip_plane),
                         1,
                         0,
                     );
@@ -2356,12 +2359,12 @@ impl TransactionGossiper {
                                     "dropping transaction gossip entry due to unresolved local route"
                                 );
                                 self.record_drop_metric(
-                                    plane,
+                                    gossip_plane,
                                     route.dataspace_id,
                                     &[route.lane_id],
                                     "route_unresolved",
                                     &[],
-                                    self.target_cap_for_plane(plane),
+                                    self.target_cap_for_plane(gossip_plane),
                                     1,
                                     0,
                                 );
@@ -2380,12 +2383,12 @@ impl TransactionGossiper {
                             "dropping transaction gossip entry due to routing mismatch"
                         );
                         self.record_drop_metric(
-                            plane,
+                            gossip_plane,
                             local_route.dataspace_id,
                             &[local_route.lane_id],
                             DROP_REASON_ROUTE_MISMATCH,
                             &[],
-                            self.target_cap_for_plane(plane),
+                            self.target_cap_for_plane(gossip_plane),
                             1,
                             0,
                         );
@@ -2399,12 +2402,12 @@ impl TransactionGossiper {
                             "dropping transaction gossip entry due to routing plan mismatch"
                         );
                         self.record_drop_metric(
-                            plane,
+                            gossip_plane,
                             local_route.dataspace_id,
                             &[local_route.lane_id],
                             DROP_REASON_ROUTE_MISMATCH,
                             &[],
-                            self.target_cap_for_plane(plane),
+                            self.target_cap_for_plane(gossip_plane),
                             1,
                             0,
                         );
@@ -2452,12 +2455,12 @@ impl TransactionGossiper {
                                 "Dropping gossiped transaction rejected by Nexus fee admission"
                             );
                             self.record_drop_metric(
-                                plane,
+                                gossip_plane,
                                 local_route.dataspace_id,
                                 &[local_route.lane_id],
                                 "nexus_fee_rejected",
                                 &[],
-                                self.target_cap_for_plane(plane),
+                                self.target_cap_for_plane(gossip_plane),
                                 1,
                                 0,
                             );
@@ -2474,12 +2477,12 @@ impl TransactionGossiper {
                                 "Dropping gossiped transaction due to invalid Nexus fee configuration"
                             );
                             self.record_drop_metric(
-                                plane,
+                                gossip_plane,
                                 local_route.dataspace_id,
                                 &[local_route.lane_id],
                                 "nexus_fee_config_invalid",
                                 &[],
-                                self.target_cap_for_plane(plane),
+                                self.target_cap_for_plane(gossip_plane),
                                 1,
                                 0,
                             );
@@ -2657,13 +2660,13 @@ fn decode_transaction_gossip_payload(
     let (txs, offset) = decode_bounded_len_prefixed_sequence::<GossipTransaction>(bytes, 0)?;
     let (routes, offset) = decode_bounded_len_prefixed_sequence::<GossipRoute>(bytes, offset)?;
     let (plans, offset) = decode_bounded_len_prefixed_sequence::<RoutingPlan>(bytes, offset)?;
-    let (plane, offset) = decode_len_prefixed_field::<GossipPlane>(bytes, offset)?;
+    let (gossip_plane, offset) = decode_len_prefixed_field::<GossipPlane>(bytes, offset)?;
     Ok((
         TransactionGossip {
             txs,
             routes,
             plans,
-            plane,
+            plane: gossip_plane,
         },
         offset,
     ))
@@ -2732,7 +2735,7 @@ impl Clone for GossipTransaction {
 const GOSSIP_TX_DECODE_CACHE_LIMIT: usize = 2048;
 const GOSSIP_TX_DECODE_CACHE_BYTE_LIMIT: usize = 8 * 1024 * 1024;
 const GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT: usize = 8192;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct GossipTxDecodeCacheKey {
     len: u32,
     prefix: u128,
@@ -2762,7 +2765,7 @@ struct GossipTxDecodeCacheEntry {
     consumed: usize,
 }
 struct GossipTxDecodeCache {
-    map: HashMap<GossipTxDecodeCacheKey, GossipTxDecodeCacheEntry>,
+    map: BTreeMap<GossipTxDecodeCacheKey, GossipTxDecodeCacheEntry>,
     bytes: usize,
     count_limit: usize,
     byte_limit: usize,
@@ -2776,7 +2779,7 @@ impl GossipTxDecodeCache {
     }
     fn with_limits(count_limit: usize, byte_limit: usize) -> Self {
         Self {
-            map: HashMap::new(),
+            map: BTreeMap::new(),
             bytes: 0,
             count_limit,
             byte_limit,
@@ -2810,18 +2813,18 @@ thread_local! {
 }
 #[derive(Default)]
 struct GossipKnownEntrypointHashCache {
-    known: HashMap<HashOf<TransactionEntrypoint>, ()>,
+    known: BTreeSet<HashOf<TransactionEntrypoint>>,
 }
 impl GossipKnownEntrypointHashCache {
     fn contains(&self, entrypoint_hash: HashOf<TransactionEntrypoint>) -> bool {
-        self.known.contains_key(&entrypoint_hash)
+        self.known.contains(&entrypoint_hash)
     }
     fn remember(&mut self, entrypoint_hash: HashOf<TransactionEntrypoint>) {
         if self.known.len() >= GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT {
             // Simple bounded cache: clear when full to keep overhead predictable.
             self.known.clear();
         }
-        self.known.insert(entrypoint_hash, ());
+        self.known.insert(entrypoint_hash);
     }
 }
 thread_local! {
@@ -2998,27 +3001,6 @@ impl GossipTransaction {
         let _ = self.entrypoint.set(Arc::clone(&entrypoint));
         Ok(self.entrypoint.get().map_or(entrypoint, Arc::clone))
     }
-    /// Borrow the transaction entrypoint payload.
-    pub fn as_entrypoint(&self) -> &TransactionEntrypoint {
-        if self.entrypoint.get().is_none() {
-            self.materialize_entrypoint()
-                .expect("decode gossip transaction entrypoint");
-        }
-        self.entrypoint
-            .get()
-            .expect("entrypoint materialized above")
-            .as_ref()
-    }
-    /// Borrow the signed transaction payload when this gossip item exposes one.
-    pub fn as_signed(&self) -> &SignedTransaction {
-        match self.as_entrypoint() {
-            TransactionEntrypoint::External(signed) => signed,
-            TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("gossip entrypoint is not a signed transaction")
-            }
-        }
-    }
     /// Return the entrypoint hash without rehashing.
     pub fn hash(&self) -> HashOf<TransactionEntrypoint> {
         self.entrypoint_hash
@@ -3028,6 +3010,10 @@ impl GossipTransaction {
         self.entrypoint_hash
     }
     /// Consume the wrapper and return its entrypoint and exact cached canonical frame.
+    ///
+    /// # Errors
+    /// Returns the original Norito error if the cached canonical frame cannot be
+    /// decoded into an entrypoint, including local decoder resource refusals.
     pub fn into_entrypoint_with_payload(
         self,
     ) -> Result<(TransactionEntrypoint, Arc<Vec<u8>>), ncore::Error> {
@@ -3115,7 +3101,7 @@ fn gossip_message_encoded_len(
     routes_payload_len: usize,
     plans_payload_len: usize,
 ) -> Option<usize> {
-    let plane_payload_len = gossip_plane_encoded_len()?;
+    let encoded_plane_len = gossip_plane_encoded_len()?;
     let mut total = ncore::len_prefix_len(txs_payload_len).checked_add(txs_payload_len)?;
     total = total
         .checked_add(ncore::len_prefix_len(routes_payload_len))?
@@ -3124,8 +3110,8 @@ fn gossip_message_encoded_len(
         .checked_add(ncore::len_prefix_len(plans_payload_len))?
         .checked_add(plans_payload_len)?;
     total = total
-        .checked_add(ncore::len_prefix_len(plane_payload_len))?
-        .checked_add(plane_payload_len)?;
+        .checked_add(ncore::len_prefix_len(encoded_plane_len))?
+        .checked_add(encoded_plane_len)?;
     Some(total)
 }
 #[allow(single_use_lifetimes)]
@@ -3362,9 +3348,11 @@ mod tests {
         // This component fixture needs explicit routing metadata; it has no signed
         // genesis, certified history or native publication authority.
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-            iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        ));
+        parameters
+            .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         world
     }
@@ -3557,7 +3545,10 @@ mod tests {
             Arc::ptr_eq(&first.encoded, &second.encoded),
             "encoded bytes must be reused from cache"
         );
-        assert_eq!(first.as_signed().hash(), signed.hash());
+        assert_eq!(
+            first.clone().into_entrypoint_with_payload().unwrap().0,
+            TransactionEntrypoint::External(signed.clone())
+        );
         assert!(first.is_entrypoint_materialized());
     }
     #[test]
@@ -5048,7 +5039,7 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
     #[test]
     fn gossip_rejects_changed_signature_after_exact_valid_envelope_warms_cache() {
         let gossiper = closed_test_gossiper(NonZeroU32::new(1).expect("nonzero resend ticks"));
-        assert!(gossiper.state.pipeline.stateless_cache_cap > 0);
+        assert!(gossiper.state.installed_pipeline().stateless_cache_cap > 0);
         let (valid, _) = build_transaction("signature-cache-identity");
         let (max_clock_drift, limits) = gossiper.state.transaction_admission_limits();
         let (_clock, time_source) = TimeSource::new_mock(valid.creation_time());
@@ -5226,10 +5217,12 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             },
         ])
         .expect("dataspace catalog");
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.lane_catalog = lane_catalog.clone();
-        nexus.lane_config = LaneGeometry::from_catalog(&lane_catalog);
-        nexus.dataspace_catalog = dataspace_catalog.clone();
+        let nexus = iroha_config::parameters::actual::Nexus {
+            lane_catalog: lane_catalog.clone(),
+            lane_config: LaneGeometry::from_catalog(&lane_catalog),
+            dataspace_catalog: dataspace_catalog.clone(),
+            ..Default::default()
+        };
         let state = Arc::new(State::new_with_nexus_for_testing(
             World::new(),
             nexus,
@@ -5290,6 +5283,55 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
     include!("gossiper_network_domain_tests.rs");
     include!("gossiper_restricted_route_tests.rs");
     #[test]
+    fn lazy_gossip_materialization_retains_every_complete_original_carrier() {
+        use iroha_data_model::transaction::signed::SealedTransactionReveal;
+        let (signed, _) = build_transaction("complete-gossip-carrier");
+        let inputs = [
+            TransactionEntrypoint::External(signed.clone()),
+            build_sealed_commitment_entrypoint(),
+            TransactionEntrypoint::SealedReveal(SealedTransactionReveal::new(
+                iroha_crypto::Hash::new(b"original-gossip-commitment"),
+                signed,
+                [0x91; 32],
+            )),
+        ];
+        for input in inputs {
+            let bytes = Arc::new(encode_transaction_entrypoint(&input));
+            let (decoded, used) =
+                <GossipTransaction as ncore::DecodeFromSlice>::decode_from_slice(&bytes)
+                    .expect("decode the canonical complete carrier");
+            assert_eq!(used, bytes.len());
+            assert!(!decoded.is_entrypoint_materialized());
+            assert_eq!(decoded.hash(), input.hash());
+            let original_frame = decoded.payload();
+            for _ in 0..2 {
+                let (retained, frame) = decoded.clone().into_entrypoint_with_payload().unwrap();
+                assert_eq!(retained, input);
+                assert_eq!(retained.hash(), input.hash());
+                assert_eq!(frame.as_slice(), bytes.as_slice());
+                assert!(Arc::ptr_eq(&frame, &original_frame));
+                assert!(decoded.is_entrypoint_materialized());
+            }
+        }
+    }
+    #[test]
+    fn lazy_gossip_decode_error_preserves_unmaterialized_original_for_retry() {
+        let (signed, _) = build_transaction("refused-gossip-carrier");
+        let original = Arc::new(vec![0_u8; ncore::Header::SIZE]);
+        let item = GossipTransaction::lazy_from_encoded(
+            Arc::clone(&original),
+            signed.hash_as_entrypoint(),
+        );
+        let identity = item.hash();
+        for _ in 0..2 {
+            assert!(item.clone().into_entrypoint_with_payload().is_err());
+            assert!(!item.is_entrypoint_materialized());
+            assert!(Arc::ptr_eq(&item.payload(), &original));
+            assert_eq!(item.payload().as_slice(), original.as_slice());
+            assert_eq!(item.hash(), identity);
+        }
+    }
+    #[test]
     fn native_gossip_item_is_one_canonical_frame_and_rejects_retired_prefixes() {
         let (signed, _) = build_transaction("native-gossip-frame");
         let frame = payload_for(&signed);
@@ -5301,7 +5343,10 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             <GossipTransaction as ncore::DecodeFromSlice>::decode_from_slice(&bytes)
                 .expect("canonical item");
         assert_eq!(used, bytes.len());
-        assert_eq!(decoded.as_signed(), &signed);
+        assert_eq!(
+            decoded.clone().into_entrypoint_with_payload().unwrap().0,
+            TransactionEntrypoint::External(signed.clone())
+        );
         for retired_tag in [0, 1] {
             let mut retired = vec![retired_tag];
             retired.extend_from_slice(&bytes);

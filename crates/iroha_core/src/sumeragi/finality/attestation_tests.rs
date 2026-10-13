@@ -120,7 +120,9 @@ fn check_original_attestation(chain: &CertifiedTestChain) {
     assert_eq!(produced.body.network_id, chain.network_id());
     assert_eq!(produced.body.genesis_block_hash, chain.genesis().hash());
     assert_eq!(produced.body.status.instance, chain.instance().0);
-    produced.verify().unwrap();
+    produced
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     if height == 10 {
         let native = CertifiedChain::new(&view)
             .unwrap()
@@ -143,7 +145,9 @@ fn check_original_attestation(chain: &CertifiedTestChain) {
         fresh.signature, produced.signature,
         "each actual challenge is separately signed"
     );
-    fresh.verify().unwrap();
+    fresh
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
 }
 
 #[test]
@@ -214,7 +218,9 @@ fn check_resource_retry(chain: &CertifiedTestChain) {
     );
     assert_eq!(retried.body.finality_proof, original.body.finality_proof);
     assert_eq!(retried.body.challenge, [44; 32]);
-    retried.verify().unwrap();
+    retried
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_eq!(budget.reserved_bytes(), reserved);
 }
 
@@ -323,7 +329,9 @@ fn check_original_tail(chain: &CertifiedTestChain) {
     );
     assert_eq!(finished.body.challenge, [47; 32]);
     assert_ne!(finished.signature, original.signature);
-    finished.verify().unwrap();
+    finished
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_eq!(budget.reserved_bytes(), reserved);
 
     let mut invalid_height = status(chain);
@@ -372,7 +380,9 @@ fn check_original_tail(chain: &CertifiedTestChain) {
     );
     assert_eq!(retried.body.finality_proof, original.body.finality_proof);
     assert_eq!(retried.body.challenge, [48; 32]);
-    retried.verify().unwrap();
+    retried
+        .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+        .unwrap();
     assert_eq!(budget.reserved_bytes(), reserved);
     assert_eq!(chain.height(), 10);
 }
@@ -387,16 +397,6 @@ fn attestation_tail_refuses_changed_native_genesis_before_status_and_retries_ori
 #[inline(never)]
 fn check_tail_source_retry(chain: &CertifiedTestChain) {
     use std::os::unix::fs::MetadataExt as _;
-    let original_height = chain.height();
-    let view = chain.state().view();
-    let original = capture(&view, chain, [49; 32], status(chain)).unwrap();
-    let source =
-        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
-    let saved = source.with_extension("attestation-tail-original");
-    let bytes = std::fs::read(&source).unwrap();
-    let original_identity = std::fs::metadata(&source).unwrap().ino();
-    let budget = view.execution_budget();
-    let reserved = budget.reserved_bytes();
     struct RestoreJournal<'a> {
         source: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -409,6 +409,16 @@ fn check_tail_source_retry(chain: &CertifiedTestChain) {
             std::fs::rename(self.saved, self.source).unwrap();
         }
     }
+    let original_height = chain.height();
+    let view = chain.state().view();
+    let original = capture(&view, chain, [49; 32], status(chain)).unwrap();
+    let source =
+        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+    let saved = source.with_extension("attestation-tail-original");
+    let bytes = std::fs::read(&source).unwrap();
+    let original_identity = std::fs::metadata(&source).unwrap().ino();
+    let budget = view.execution_budget();
+    let reserved = budget.reserved_bytes();
     for kind in ["missing", "same-bytes-replacement", "symlink"] {
         std::fs::rename(&source, &saved).unwrap();
         let restore = RestoreJournal {
@@ -464,7 +474,9 @@ fn check_tail_source_retry(chain: &CertifiedTestChain) {
         );
         assert_eq!(retried.body.finality_proof, original.body.finality_proof);
         assert_eq!(retried.body.challenge, [50; 32]);
-        retried.verify().unwrap();
+        retried
+            .verify(iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap();
         assert_eq!(budget.reserved_bytes(), reserved);
     }
     assert_eq!(chain.height(), original_height);

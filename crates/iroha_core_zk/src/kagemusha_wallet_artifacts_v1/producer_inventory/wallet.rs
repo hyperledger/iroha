@@ -541,12 +541,14 @@ mod tests {
         ] {
             let expected = error == Error::Unavailable;
             for nested in [
-                WalletSourcesErrorV1::Original(error),
-                WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Original(error)),
-                WalletSourcesErrorV1::Q(QQualificationErrorV1::Original(error)),
-                WalletSourcesErrorV1::Operation(OperationQualificationErrorV1::Original(error)),
+                WalletSourcesErrorV1::Original(error.clone()),
+                WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Original(error.clone())),
+                WalletSourcesErrorV1::Q(QQualificationErrorV1::Original(error.clone())),
+                WalletSourcesErrorV1::Operation(OperationQualificationErrorV1::Original(
+                    error.clone(),
+                )),
                 WalletSourcesErrorV1::Operation(OperationQualificationErrorV1::Bootstrap(
-                    BootstrapQualificationErrorV1::Original(error),
+                    BootstrapQualificationErrorV1::Original(error.clone()),
                 )),
                 WalletSourcesErrorV1::Omega(OmegaQualificationErrorV1::Original(error)),
             ] {

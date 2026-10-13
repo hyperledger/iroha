@@ -265,8 +265,8 @@ pub(super) fn selector_matches(
         return Ok(false);
     }
     let call = recognized.invocation;
-    Ok(selector.contract_address == call.contract_address
-        && selector.code_hash == call.expected_code_hash
+    Ok((&selector.contract_address, selector.code_hash)
+        == (&call.contract_address, call.expected_code_hash)
         && selector.entrypoints.contains(&call.entrypoint)
         && world.contract_aliases().get(&recognized.alias) == Some(&call.contract_address)
         && world.contract_instances().get(&call.contract_address) == Some(&call.expected_code_hash))

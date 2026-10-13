@@ -1,0 +1,279 @@
+"""Independent ARM64 instruction fixtures for conservative stack-region analysis."""
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+SCRIPT = Path(__file__).resolve().parents[1] / "parliament_ballot_stack_audit.py"
+SPEC = importlib.util.spec_from_file_location("ballot_stack_audit", SCRIPT)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+def function(lines, extra_starts=(), stubs=None):
+    """Place a small actual instruction sequence at a fixed ARM64 address."""
+    instructions = {0x1000 + 4 * i: (line.split(" ", 1)[0], line.partition(" ")[2])
+                    for i, line in enumerate(lines)}
+    starts = {0x1000: "root", **dict(extra_starts)}
+    return MODULE.analyze_function(0x1000, 0x1000 + 4 * len(lines), instructions,
+                                   starts, stubs or {}, "root")
+
+
+def test_actual_reservation_prologue_and_multiple_epilogues():
+    # Exact portable Reservation::verify prologue: 96-byte paired save plus
+    # 1936-byte local frame. Two ordinary exits restore both pieces.
+    result = function([
+        "stp x28, x27, [sp, #-0x60]!", "stp x26, x25, [sp, #0x10]",
+        "stp x24, x23, [sp, #0x20]", "stp x22, x21, [sp, #0x30]",
+        "stp x20, x19, [sp, #0x40]", "stp x29, x30, [sp, #0x50]",
+        "add x29, sp, #0x50", "sub sp, sp, #0x790",
+        "cbz x0, 0x1034 <second>", "add sp, sp, #0x790",
+        "ldp x29, x30, [sp, #0x50]", "ldp x28, x27, [sp], #0x60", "ret",
+        "add sp, sp, #0x790", "ldp x29, x30, [sp, #0x50]",
+        "ldp x28, x27, [sp], #0x60", "ret",
+    ])
+    assert result["maximum_sp_decrement_bytes"] == 2032
+    assert result["local_frame_plus_red_zone_bytes"] == 2160
+    assert not result["frame_errors"] and not result["gaps"]
+    assert result["visited_instructions"] == 17
+
+
+def test_worker_prologue_and_shifted_immediate():
+    result = function(["sub sp, sp, #0x150", "sub sp, sp, #0x1, lsl #12",
+                       "add sp, sp, #0x1, lsl #0xc", "add sp, sp, #0x150", "ret"])
+    assert result["maximum_sp_decrement_bytes"] == 4432
+    assert not result["frame_errors"]
+
+
+@pytest.mark.parametrize("store", ["stlur x9, [x8, #0x8]", "stlur w9, [x8, #-0x100]",
+                                  "stlur xzr, [x8, #255]", "stlur wzr, [sp]",
+                                  "stlur x29, [sp, #-8]"])
+def test_stlur_preserves_sp_fp_and_continues_after_control_publication(store):
+    result = function(["sub sp, sp, #16", "mov x29, sp", store,
+                       "sub sp, sp, #32", "mov sp, x29", "add sp, sp, #16", "ret"])
+    assert result["maximum_sp_decrement_bytes"] == 48
+    assert result["visited_instructions"] == 7
+    assert not result["frame_errors"] and not result["gaps"]
+
+
+@pytest.mark.parametrize("store", ["stlur x0, [sp, #-256]", "stlur x0, [sp], #16",
+                                  "stlur x0, [sp, #-16]!", "stlur x0, [x8, #256]",
+                                  "stlur x0, [x8, #-257]", "stlur x0, [x8, x1]",
+                                  "stlur sp, [x8]", "stlur x31, [x8]"])
+def test_stlur_does_not_bypass_operand_or_red_zone_checks(store):
+    result = function([store, "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+def test_actual_fatal_publication_keeps_exit_and_fallthrough_unknown():
+    # Both branches of the new fatal::exhausted body, with addresses relocated.
+    result = function([
+        "adrp x8, 0x7000", "add x8, x8, #0xd58", "ldapr x8, [x8]",
+        "cbz x8, 0x102c <invalid>", "ldapur x9, [x8, #0x8]", "cmp x9, #2",
+        "b.ne 0x102c <invalid>", "mov w9, #3", "stlur x9, [x8, #0x8]",
+        "mov w0, #0x49", "b 0x1030 <exit>", "mov w0, #0x4a",
+        "stp x29, x30, [sp, #-0x10]!", "mov x29, sp", "bl 0x9000 <_exit>",
+    ], stubs={0x9000: "__exit"})
+    assert result["maximum_sp_decrement_bytes"] == 16
+    assert result["visited_instructions"] == 15
+    assert not result["frame_errors"]
+    region = MODULE.call_region({0x1000: result}, 0x1000)
+    assert region["frontier_kind_counts"] == {"function_fallthrough": 1, "native_edge": 1}
+    assert region["complete_stack_bound_bytes"] is None
+
+
+@pytest.mark.parametrize("instruction", ["eon x10, x12, x10", "eon x11, x12, x11",
+                                        "eon w0, wzr, w29", "eon xzr, x29, x30",
+                                        "eon w0, w1, w2, lsl #31", "eon x0, x1, x2, lsr #63",
+                                        "eon x0, x1, x2, asr #0x3f", "eon w0, w1, w2, ror #0"])
+def test_eon_store_free_register_operation_preserves_unwritten_sp_fp(instruction):
+    result = function(["sub sp, sp, #16", "mov x29, sp", instruction,
+                       "sub sp, sp, #32", "mov sp, x29", "add sp, sp, #16", "ret"])
+    assert result["maximum_sp_decrement_bytes"] == 48
+    assert result["visited_instructions"] == 7
+    assert not result["frame_errors"] and not result["gaps"]
+
+
+@pytest.mark.parametrize("instruction", ["eon x29, x0, x1", "eon w29, w0, w1"])
+def test_eon_fp_destination_cannot_justify_later_stack_restore(instruction):
+    result = function(["sub sp, sp, #16", "mov x29, sp", instruction, "mov sp, x29", "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+@pytest.mark.parametrize("instruction", ["eon sp, x0, x1", "eon wsp, w0, w1",
+                                        "eon x0, sp, x1", "eon x0, x1, w2",
+                                        "eon x31, x0, x1", "eon x0, x1, #1",
+                                        "eon w0, w1, w2, lsl #32", "eon x0, x1, x2, lsr #64",
+                                        "eon x0, x1, x2, asr #-1", "eon x0, x1, x2, future #1",
+                                        "eon.future x0, x1, x2", "stlur.future x0, [x1]"])
+def test_new_scalar_opcodes_reject_unknown_forms_and_stack_pointer_operands(instruction):
+    result = function([instruction, "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+def test_fp_restore_and_unknown_fp_fail_closed():
+    valid = function(["stp x29, x30, [sp, #-0x10]!", "mov x29, sp",
+                      "sub sp, sp, #0x40", "mov sp, x29", "ldp x29, x30, [sp], #0x10", "ret"])
+    assert valid["maximum_sp_decrement_bytes"] == 80
+    assert not valid["frame_errors"]
+    invalid = function(["mov x29, x0", "mov sp, x29", "ret"])
+    assert invalid["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+
+
+@pytest.mark.parametrize("clobber", ["ldadd x0, x29, [x1]", "swpab w0, w29, [x1]",
+                                    "ldp w28, w29, [sp]", "ldr x0, [x29], #16"])
+def test_secondary_fp_destinations_cannot_keep_a_stale_known_offset(clobber):
+    result = function(["sub sp, sp, #16", "mov x29, sp", clobber, "mov sp, x29", "ret"])
+    assert any(e["kind"] == "unsupported_stack_effect" for e in result["frame_errors"])
+
+
+@pytest.mark.parametrize("instruction", ["sub sp, sp, x0", "mov sp, x9", "add wsp, wsp, #16",
+                                          "ld1 { v0.16b }, [sp], x0", "unknown x0, x1", "b.future 0x1004"])
+def test_unsupported_instructions_and_stack_writes_are_not_zero_cost(instruction):
+    result = function([instruction, "ret"])
+    assert result["frame_errors"]
+    region = MODULE.call_region({0x1000: result}, 0x1000)
+    assert not region["complete_ordinary_call_graph"]
+    assert region["complete_stack_bound_bytes"] is None
+
+
+def test_unproved_probe_loop_is_rejected_not_capped():
+    result = function(["sub sp, sp, #0x1, lsl #12", "cbnz x0, 0x1000 <loop>", "ret"])
+    assert {e["kind"] for e in result["frame_errors"]} == {"inconsistent_sp_merge", "unbalanced_return"}
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+def test_conditional_branch_explores_larger_frame_and_leaf_red_zone():
+    result = function(["cbz x0, 0x1010 <larger>", "sub sp, sp, #16", "add sp, sp, #16", "ret",
+                       "sub sp, sp, #64", "add sp, sp, #64", "ret"])
+    assert result["local_frame_plus_red_zone_bytes"] == 192
+    leaf = function(["str x0, [sp, #-8]", "ret"])
+    assert leaf["maximum_sp_decrement_bytes"] == 0
+    assert leaf["local_frame_plus_red_zone_bytes"] == 128
+
+
+@pytest.mark.parametrize("access", ["str x0, [sp, #-256]", "ldr x0, [sp, x1]",
+                                   "str x0, [x29, #-256]"])
+def test_direct_stack_access_cannot_silently_exceed_frame_or_red_zone(access):
+    result = function(["mov x29, sp", access, "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+
+
+def test_missing_target_instruction_and_unbalanced_return():
+    result = function(["b 0x9000 <missing>"])
+    assert result["frame_errors"][0]["kind"] == "missing_target"
+    instructions = {0x1000: ("b", "0x1004 <hole>"), 0x1008: ("ret", "")}
+    result = MODULE.analyze_function(0x1000, 0x100c, instructions, {0x1000: "root"}, {}, "root")
+    assert result["frame_errors"][0]["kind"] == "missing_instruction"
+    result = function(["sub sp, sp, #16", "ret"])
+    assert result["frame_errors"][0]["kind"] == "unbalanced_return"
+    for instruction in ["sub sp, sp, #8", "add sp, sp, #16"]:
+        result = function([instruction, "ret"])
+        assert result["frame_errors"][0]["kind"] == "invalid_sp_state"
+
+
+def image(blocks, stubs=None):
+    """Build separate functions with independent explicit address ranges."""
+    starts = {address: name for address, name, _ in blocks}
+    instructions = {address + 4 * i: (line.split(" ", 1)[0], line.partition(" ")[2])
+                    for address, _, lines in blocks for i, line in enumerate(lines)}
+    return {address: MODULE.analyze_function(address, address + 4 * len(lines), instructions,
+                                             starts, stubs or {}, name)
+            for address, name, lines in blocks}
+
+
+def test_direct_call_weight_tail_reuse_and_leaf_red_zone_not_repeated():
+    functions = image([
+        (0x1000, "root", ["sub sp, sp, #32", "bl 0x2000 <middle>", "add sp, sp, #32", "ret"]),
+        (0x2000, "middle", ["sub sp, sp, #16", "add sp, sp, #16", "b 0x3000 <leaf>"]),
+        (0x3000, "leaf", ["sub sp, sp, #64", "add sp, sp, #64", "ret"]),
+    ])
+    # 32 live caller bytes + 64 leaf bytes + one conservative 128-byte red zone.
+    result = MODULE.call_region(functions, 0x1000)
+    assert result["complete_stack_bound_bytes"] == 224
+    assert result["complete_ordinary_call_graph"]
+
+
+def test_zero_stack_tail_cycle_is_finite_positive_recursive_call_is_not():
+    tail = image([(0x1000, "root", ["b 0x2000 <second>"]),
+                  (0x2000, "second", ["b 0x1000 <root>"])])
+    assert MODULE.call_region(tail, 0x1000)["complete_stack_bound_bytes"] == 128
+    recursive = image([(0x1000, "root", ["sub sp, sp, #16", "bl 0x1000 <root>", "add sp, sp, #16", "ret"])])
+    result = MODULE.call_region(recursive, 0x1000)
+    assert result["complete_stack_bound_bytes"] is None
+    assert result["positive_weight_recursive_components"]
+
+
+def test_native_indirect_and_traps_remain_explicit():
+    functions = image([(0x1000, "root", ["sub sp, sp, #32", "bl 0x9000 <stub>", "blr x8", "brk #1"])],
+                      {0x9000: "_memcpy"})
+    result = MODULE.call_region(functions, 0x1000)
+    assert result["resolved_region_stack_bytes"] == 160
+    assert result["complete_stack_bound_bytes"] is None
+    assert result["frontier_kind_counts"] == {"exceptional_terminal": 1, "indirect_call": 1, "native_edge": 1}
+    assert result["frontiers"][0]["detail"] == "_memcpy"
+    assert all(f["caller_depth_bytes"] == 32 for f in result["frontiers"])
+    indirect = function(["br x8"])
+    assert indirect["gaps"][0]["kind"] == "indirect_branch"
+
+
+def test_call_at_function_end_does_not_invent_return_into_next_function():
+    functions = image([(0x1000, "root", ["bl 0x9000 <unknown_native>"]),
+                       (0x1004, "next", ["b 0x1000 <root>"])], {0x9000: "_exit"})
+    result = MODULE.call_region(functions, 0x1000)
+    assert result["direct_reachable_functions"] == 1
+    assert result["frontier_kind_counts"] == {"function_fallthrough": 1, "native_edge": 1}
+    assert result["complete_stack_bound_bytes"] is None
+    assert not result["positive_weight_recursive_components"]
+
+
+def test_parsers_do_not_consume_next_line_after_operandless_return():
+    text = """fixture: file format mach-o arm64
+Disassembly of section __TEXT,__text:
+0000000000001000 <root>:
+1000: ret
+0000000000001004 <next>:
+1004: sub sp, sp, #0x10
+1008: add sp, sp, #0x10 ; comment
+100c: ret
+Disassembly of section __TEXT,__stubs:
+9000: br x16
+"""
+    instructions, names = MODULE.parse_disassembly(text)
+    assert instructions == {0x1000: ("ret", ""), 0x1004: ("sub", "sp, sp, #0x10"),
+                            0x1008: ("add", "sp, sp, #0x10"), 0x100c: ("ret", "")}
+    assert names == {0x1000: "root", 0x1004: "next"}
+    starts = "0000000000001000 _root\n0000000000001004 _next\n"
+    stubs = "Indirect symbols for (__TEXT,__stubs) 1 entries\n0x0000000000009000 12 _read\nIndirect symbols for (__DATA,__got) 1 entries\n0x000000000000a000 13 _other\n"
+    assert MODULE.parse_starts(starts) == {0x1000: "_root", 0x1004: "_next"}
+    assert MODULE.parse_stubs(stubs) == {0x9000: "_read"}
+    result = MODULE.audit(text, starts, stubs, ["root", "next"])
+    assert [r["complete_stack_bound_bytes"] for r in result["roots"]] == [128, 144]
+    with pytest.raises(ValueError, match="missing requested roots"):
+        MODULE.audit(text, starts, stubs, ["absent"])
+    with pytest.raises(ValueError, match="Mach-O ARM64"):
+        MODULE.audit(text.replace("mach-o arm64", "mach-o 64-bit x86-64"), starts, stubs, ["root"])
+
+
+def test_bad_disassembly_inputs_are_rejected():
+    for text in ["", "Disassembly of section __TEXT,__text:\n"]:
+        with pytest.raises(ValueError):
+            MODULE.parse_disassembly(text)
+    with pytest.raises(ValueError):
+        MODULE.parse_starts("no function table")
+    with pytest.raises(ValueError, match="duplicate"):
+        MODULE.parse_starts("0000000000001000 a\n0000000000001000 b\n")
+    with pytest.raises(ValueError, match="duplicate"):
+        MODULE.parse_disassembly("Disassembly of section __TEXT,__text:\n1000: ret\n1000: ret\n")
+
+
+def test_integer_parser_accepts_only_constant_immediates():
+    assert MODULE.immediate("#-0x10") == -16
+    assert MODULE.immediate("#0x2, lsl #12") == 8192
+    for value in ["x0", "#16, lsl x0", "#1, lsl #16"]:
+        with pytest.raises(ValueError):
+            MODULE.immediate(value)

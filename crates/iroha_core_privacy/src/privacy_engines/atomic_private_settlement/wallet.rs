@@ -30,12 +30,13 @@ use iroha_data_model::nexus::{
     PrivateSettlementAuditCapsuleV1, PrivateSettlementAuditPlaintextV1,
     PrivateSettlementAuditPolicyV1, PrivateSettlementCommitteeAuthorityV1,
     PrivateSettlementDeltaV1, PrivateSettlementProofStatementV1,
-    PrivateSettlementProvisionalLegMaterialV1, private_settlement_proof_digest_v1,
+    PrivateSettlementProvisionalLegMaterialV1, PrivateSettlementSidecarAvailabilityBodyV1,
+    private_settlement_proof_digest_v1,
 };
 #[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::nexus::{
     PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1, PrivateSettlementAuditNoteOpeningV1,
-    PrivateSettlementAuditOutputV1, PrivateSettlementSidecarAvailabilityBodyV1,
+    PrivateSettlementAuditOutputV1,
 };
 #[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::privacy::{
@@ -376,7 +377,6 @@ impl core::fmt::Debug for AtomicPrivateSettlementProvisionalBundleV1 {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Content-address every proof-complete leg and finalize one provisional bundle.
 ///
 /// The supplied manifest is the public-intent skeleton used for proof creation.

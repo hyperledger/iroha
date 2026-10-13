@@ -1,0 +1,1 @@
+error: crates/iroha_core/src/queue.rs: missing modeled source binding(s): 'Executable::IvmProved(proved)'

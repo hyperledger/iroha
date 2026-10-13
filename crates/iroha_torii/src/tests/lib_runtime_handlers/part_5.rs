@@ -831,8 +831,18 @@ fn pipeline_fastpq_recovery_builder_paginates_and_bounds_encoding() {
     assert!(serialized.len() <= PIPELINE_FASTPQ_RECOVERY_MAX_RESPONSE_BYTES);
     let value: norito::json::Value =
         norito::json::from_str(&serialized).expect("decode FASTPQ recovery page");
-    assert_eq!(value.get("total_proofs").and_then(|v| v.as_u64()), Some(2));
-    assert_eq!(value.get("next_offset").and_then(|v| v.as_u64()), Some(1));
+    assert_eq!(
+        value
+            .get("total_proofs")
+            .and_then(norito::json::native::Value::as_u64),
+        Some(2)
+    );
+    assert_eq!(
+        value
+            .get("next_offset")
+            .and_then(norito::json::native::Value::as_u64),
+        Some(1)
+    );
     assert_eq!(
         value.get("proofs").and_then(|v| v.as_array()).map(Vec::len),
         Some(1)
@@ -1899,12 +1909,12 @@ fn native_ingress_app_for_test(keys: &[&KeyPair]) -> SharedAppState {
 }
 
 /// Build a local authoritative reader from an executed four-validator genesis.
-pub(crate) fn native_ingress_app_with_world_for_test(world: World) -> SharedAppState {
+pub fn native_ingress_app_with_world_for_test(world: World) -> SharedAppState {
     native_ingress_app_with_world_at_time_for_test(world, 1_000)
 }
 
 /// Build the reader at an actual certified genesis timestamp for lease observations.
-pub(crate) fn native_ingress_app_with_world_at_time_for_test(
+pub fn native_ingress_app_with_world_at_time_for_test(
     world: World,
     genesis_time_ms: u64,
 ) -> SharedAppState {
@@ -1915,7 +1925,7 @@ pub(crate) fn native_ingress_app_with_world_at_time_for_test(
 }
 
 /// Bind physical routing labels to the same genuine signed global committee.
-pub(crate) fn native_ingress_app_with_world_and_nexus_for_test(
+pub fn native_ingress_app_with_world_and_nexus_for_test(
     world: World,
     nexus: iroha_config::parameters::actual::Nexus,
 ) -> SharedAppState {
@@ -2102,8 +2112,11 @@ fn native_ingress_with_registered_route_peers_and_chain_for_test(
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             1_002,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             3,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -2210,8 +2223,11 @@ fn advance_registered_route_fixture_for_test(
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 draft.payload(),
                 created_ms,
+                iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original native quote time"),
                 height,
                 Some(DataSpaceId::UNIVERSAL),
             )
@@ -2336,8 +2352,11 @@ fn executed_history_test_fixture(
             view.world(),
             &nexus,
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             creation_time,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original native quote time"),
             2,
             Some(DataSpaceId::UNIVERSAL),
         )
@@ -2536,7 +2555,7 @@ async fn canonical_outcome_rejects_removed_membership_after_authentication() {
                 );
                 // Mutate the actual indexed store, not a detached State clone.
                 let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(HashSet::new(), anchor.height);
+                membership.insert_block(BTreeSet::new(), anchor.height);
                 membership
                     .commit()
                     .expect("remove latest fixture membership");
@@ -2908,6 +2927,7 @@ async fn transaction_details_http_sdk_preserves_exact_absence_and_authorization(
             key_pair,
             basic_auth: None,
             api_token: None,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: format!("http://{address}/").parse().unwrap(),
             torii_request_timeout: Duration::from_secs(5),
             transaction_ttl: Duration::from_secs(30),
@@ -3227,7 +3247,10 @@ async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other
         amount: Quantity::from(7_u32),
         status: AssetBatchTransferLegStatus::Applied,
     };
-    assert_eq!(output.result.batch_transfer_outcomes(), &[outcome.clone()]);
+    assert_eq!(
+        output.result.batch_transfer_outcomes(),
+        std::slice::from_ref(&outcome)
+    );
     {
         let view = app.state.view();
         assert_eq!(
@@ -3311,7 +3334,7 @@ async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other
         assert!(details_json.get("trigger_completions").is_none());
         assert_eq!(
             details.transaction.result().batch_transfer_outcomes(),
-            &[outcome.clone()]
+            std::slice::from_ref(&outcome)
         );
     }
     let error = match super::handler_pipeline_transaction_details(
@@ -3851,7 +3874,7 @@ async fn pipeline_status_rejects_uncertified_sealed_reveal_carrier_and_signed_al
     let height_nz = NonZeroUsize::new(height_usize).expect("height");
     let mut state_block = app.state.block(header.clone());
     state_block.block_hashes.push_for_tests(block_hash);
-    let entrypoint_hashes: HashSet<_> = [reveal_entry_hash, signed_entrypoint_alias]
+    let entrypoint_hashes: BTreeSet<_> = [reveal_entry_hash, signed_entrypoint_alias]
         .into_iter()
         .collect();
     state_block
@@ -4074,7 +4097,14 @@ async fn ledger_state_endpoints_return_exact_native_finality_in_json_and_norito(
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .root_scope()
+                .into(),
+        )
         .unwrap()
         .execution()
         .post_state_root;
@@ -4202,7 +4232,14 @@ async fn state_proof_http_roundtrip_supports_json_and_norito() {
     let (app, _) = native_ledger_state_app(iroha_core::sumeragi::test_chain::Signers::Quorum);
     let expected_proof = iroha_core::sumeragi::finality::build_proof(&app.state.view(), 2).unwrap();
     let expected_root = expected_proof
-        .decode_checked()
+        .decode_checked(
+            app.state
+                .view()
+                .native_execution_tip()
+                .unwrap()
+                .root_scope()
+                .into(),
+        )
         .unwrap()
         .execution()
         .post_state_root;
@@ -5094,7 +5131,7 @@ async fn pipeline_status_cached_applied_refuses_removed_original_membership() {
     let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
     assert_eq!(cached.block_height, Some(NonZeroU64::new(2).unwrap()));
     let mut membership = app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove only the actual latest membership generation");
@@ -5157,7 +5194,7 @@ async fn prepared_submit_outcome_cached_applied_refuses_removed_original_members
         .unwrap();
     let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
     let mut membership = app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove the original transaction membership without altering its carrier");
@@ -5308,7 +5345,7 @@ async fn prepared_submit_outcome_preserves_local_rejection_expiry_and_candidate_
         let transaction = original.block().external_transactions().next().unwrap();
         assert_eq!(transaction.hash(), hash);
         let mut membership = app.state.transactions.block_and_revert();
-        membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+        membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
         membership.commit().unwrap();
         assert!(
             canonical_transaction_anchor(&app.state, &hash)
@@ -5419,20 +5456,27 @@ async fn pipeline_status_pending_completion_reuses_original_carrier_and_leaves_o
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
     let frames = owner.cold_frames();
     let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
-    let refusal = frames.try_reserve_bytes(1).unwrap_err();
-    let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
+    let refusals = [
+        frames.try_reserve_bytes(1).unwrap_err(),
+        frames.try_reserve_bytes(1).unwrap_err(),
+    ];
+    let expected = refusals[1].clone(); // borrowed diagnostic leaf for the unrelated retained event
     drop(blocker);
-    for (pending_height, block_hash) in [
+    for ((pending_height, block_hash), refusal) in [
         (height, anchor.block_hash),
         (unrelated_height, unrelated_hash),
-    ] {
+    ]
+    .into_iter()
+    .zip(refusals)
+    {
+        let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
         app.pipeline_status_cache.record_pending_block(
             pending_height,
             PendingBlockStatus {
                 kind: PipelineStatusKind::Committed,
                 block_hash,
                 observed_at,
-                deferred: Some(deferred.clone().into()),
+                deferred: Some(deferred.into()),
             },
         );
     }
@@ -5476,7 +5520,20 @@ async fn pipeline_status_pending_completion_reuses_original_carrier_and_leaves_o
     assert_eq!(pending.kind, PipelineStatusKind::Committed);
     assert_eq!(pending.block_hash, unrelated_hash);
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, Some(deferred.into()));
+    let Some(PendingBlockDeferral::Execution(actual)) = pending.deferred.as_ref() else {
+        panic!("pending original execution owner must remain retained");
+    };
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert_eq!(actual.allocation_refusal(), Some(&expected));
+    assert!(
+        actual.decode_refusal().is_none()
+            && actual.allocator_refusal().is_none()
+            && actual.verification_refusal().is_none()
+    );
     assert_eq!(
         app.pipeline_status_cache.lookup(&hash).unwrap().kind,
         PipelineStatusKind::Committed
@@ -5507,15 +5564,16 @@ async fn pipeline_status_pending_foreign_or_absent_query_keeps_exact_deferred_so
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
     let frames = owner.cold_frames();
     let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
-    let deferred: iroha_core::execution_attempt::ExecutionDeferred =
-        frames.try_reserve_bytes(1).unwrap_err().into();
+    let refusal = frames.try_reserve_bytes(1).unwrap_err();
+    let expected = refusal.clone();
+    let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
     app.pipeline_status_cache.record_pending_block(
         height,
         PendingBlockStatus {
             kind: PipelineStatusKind::Applied,
             block_hash: original.block().hash(),
             observed_at,
-            deferred: Some(deferred.clone().into()),
+            deferred: Some(deferred.into()),
         },
     );
     let foreign = crate::history_producer::HistoryProducerOwner::for_test();
@@ -5556,7 +5614,20 @@ async fn pipeline_status_pending_foreign_or_absent_query_keeps_exact_deferred_so
     assert_eq!(pending.kind, PipelineStatusKind::Applied);
     assert_eq!(pending.block_hash, original.block().hash());
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, Some(deferred.into()));
+    let Some(PendingBlockDeferral::Execution(actual)) = pending.deferred.as_ref() else {
+        panic!("pending original execution owner must remain retained");
+    };
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert_eq!(actual.allocation_refusal(), Some(&expected));
+    assert!(
+        actual.decode_refusal().is_none()
+            && actual.allocator_refusal().is_none()
+            && actual.verification_refusal().is_none()
+    );
     assert_eq!(owner.allocation_context().consumed_allocated_bytes(), 0);
     assert_eq!(foreign.allocation_context().consumed_allocated_bytes(), 0);
     assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
@@ -5587,7 +5658,7 @@ async fn pipeline_status_pending_recheck_refuses_changed_membership_without_cach
                 reads += 1;
                 let retained = read_pipeline_transaction_carrier(&app, anchor)?;
                 let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+                membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
                 membership.commit().unwrap();
                 Ok(retained)
             })
@@ -5608,7 +5679,7 @@ async fn pipeline_status_pending_recheck_refuses_changed_membership_without_cach
     assert_eq!(pending.kind, PipelineStatusKind::Applied);
     assert_eq!(pending.block_hash, original.block().hash());
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, None);
+    assert!(pending.deferred.is_none());
     assert_eq!(
         app.pipeline_status_cache
             .pending_count
@@ -5682,7 +5753,7 @@ async fn pipeline_status_pending_replacement_and_foreign_carrier_cannot_retire_o
     assert_eq!(pending.kind, PipelineStatusKind::Committed);
     assert_eq!(pending.block_hash, changed);
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, None);
+    assert!(pending.deferred.is_none());
     assert_eq!(
         app.pipeline_status_cache
             .pending_count

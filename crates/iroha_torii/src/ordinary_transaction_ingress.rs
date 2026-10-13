@@ -14,7 +14,7 @@ use iroha_data_model::isi::consensus_keys::{
 ///
 /// # Errors
 /// Indexed history is unavailable, exceeds the query budget, or changes during authentication.
-pub(super) fn contains_exact_committed_input(
+pub fn contains_exact_committed_input(
     state: &CoreState,
     transaction: &TransactionEntrypoint,
 ) -> Result<bool, Error> {
@@ -69,7 +69,7 @@ pub(super) fn contains_exact_committed_input(
 }
 
 /// Recheck routing after authenticating a retry's original pending or committed custody.
-pub(super) fn validate_retry_route(
+pub fn validate_retry_route(
     app: &SharedAppState,
     transaction: &iroha_core::tx::AcceptedTransaction<'_>,
     expected: &RoutingPlan,
@@ -109,7 +109,7 @@ fn certificate(transaction: &SignedTransaction) -> Option<&ThresholdKeyLifecycle
         .map(|instruction| &instruction.certificate)
 }
 
-pub(super) fn authenticate(
+pub fn authenticate(
     app: &AppState,
     transaction: &TransactionEntrypoint,
     routing_plan: &RoutingPlan,
@@ -175,7 +175,7 @@ pub(super) fn authenticate(
     Ok(())
 }
 
-pub(super) async fn submit(
+pub async fn submit(
     app: SharedAppState,
     accepted: iroha_core::tx::AcceptedTransaction<'static>,
     routing_plan: RoutingPlan,

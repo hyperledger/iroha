@@ -10,6 +10,7 @@ struct Fields<'target, Admission> {
     external_event_buf: Option<Vec<EventBox>>,
     shells: Option<WorldJournalShellReservation>,
     admission: Option<Admission>,
+    refund_control: iroha_allocation::AllocationScopeControl,
 }
 
 enum Phase<'target, Admission> {
@@ -29,14 +30,15 @@ pub(in crate::state) struct WorldPublicationSlot<'target, Admission, Installatio
     released: bool,
     installation: Option<Installation>,
     shell_installation: Option<WorldJournalShellInstallation>,
+    refund_scope: Option<iroha_allocation::OwnedAllocationScope>,
 }
 
 impl<Admission> DetachedWorld<Admission> {
     /// Move the exact World into its caller without probing or allocating.
-    pub(in crate::state) fn publication_slot<'target, Installation>(
+    pub(in crate::state) fn publication_slot<Installation>(
         self,
-        target: &'target World,
-    ) -> WorldPublicationSlot<'target, Admission, Installation> {
+        target: &World,
+    ) -> WorldPublicationSlot<'_, Admission, Installation> {
         WorldPublicationSlot {
             target,
             phase: Some(Phase::Original(self)),
@@ -46,6 +48,7 @@ impl<Admission> DetachedWorld<Admission> {
             released: false,
             installation: None,
             shell_installation: None,
+            refund_scope: None,
         }
     }
 }
@@ -84,6 +87,13 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             }
         };
         self.installation = Some(installation);
+        self.refund_scope = match self.original().refund_control.try_activate() {
+            Ok(scope) => Some(scope),
+            Err(error) => {
+                self.retryable = true;
+                return Err(WorldPublicationError::RefundScope(error));
+            }
+        };
         // This is the existing admitted prepared Vec. The original stays in the
         // caller while allocating; its allocation becomes the exact retry Vec.
         let fields = PreparedWorldFields(Vec::with_capacity(self.original().fields.len()));
@@ -97,6 +107,7 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf,
             shells,
             admission,
+            refund_control,
         } = original;
         self.phase = Some(Phase::Fields(Fields {
             mode,
@@ -106,13 +117,21 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf: Some(external_event_buf),
             shells: Some(shells),
             admission: Some(admission),
+            refund_control,
         }));
         let Some(Phase::Fields(fields)) = self.phase.as_mut() else {
             unreachable!("installed original World fields");
         };
         fields.retry.reverse();
         while let Some(original) = fields.retry.pop() {
-            fields.fields.push(original.publication_slot(self.target));
+            fields.fields.push(
+                original.publication_slot(
+                    self.target,
+                    self.refund_scope
+                        .as_ref()
+                        .expect("admitted original refund scope"),
+                ),
+            );
         }
         // Every shell and its original journal is already in this caller before
         // the first physical acquisition or a native field preparation can panic.
@@ -162,6 +181,7 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf: fields.external_event_buf.take().expect("original events"),
             shells: fields.shells.take().expect("original shell capacity"),
             admission: fields.admission.take().expect("original capture admission"),
+            refund_control: fields.refund_control.clone(),
         }
     }
 
@@ -200,6 +220,8 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
                 .expect("original shell installation"),
             admission: fields.admission.expect("original capture admission"),
             installation: self.installation.take().expect("original installation"),
+            refund_control: fields.refund_control,
+            refund_scope: self.refund_scope.take().expect("original refund scope"),
         }
     }
 
@@ -222,6 +244,7 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             _fields: fields,
             _installation: self.installation.take(),
             _shell_installation: self.shell_installation.take(),
+            _refund_scope: self.refund_scope.take(),
         }
     }
 }

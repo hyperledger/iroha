@@ -225,8 +225,7 @@ mod tests {
         let job = PayloadBuild::new(source, budget.clone(), 127);
         let (job, error) = job
             .finish(|s| Ok(s.len()), |_, _| panic!("unfunded writer ran"))
-            .err()
-            .expect("funding must refuse");
+            .expect_err("funding must refuse");
         assert!(error.is_local_refusal());
         assert_eq!(job.source().as_ptr(), pointer);
         assert_eq!(budget.reserved_bytes(), 0);
@@ -262,8 +261,7 @@ mod tests {
                     Ok(())
                 },
             )
-            .err()
-            .expect("shared control must refuse");
+            .expect_err("shared control must refuse");
         assert!(error.is_local_refusal());
         let pointer = job.bytes.as_ref().unwrap().as_slice().as_ptr();
         let held = budget.reserved_bytes();
@@ -272,8 +270,7 @@ mod tests {
                 |_| panic!("count repeated"),
                 |_, _| panic!("encoding repeated"),
             )
-            .err()
-            .expect("refusal remains");
+            .expect_err("refusal remains");
         assert_eq!(job.bytes.as_ref().unwrap().as_slice().as_ptr(), pointer);
         assert_eq!(budget.reserved_bytes(), held);
         budget.set_limit_bytes(4096);
@@ -296,8 +293,7 @@ mod tests {
         let job = PayloadBuild::new(source(), budget.clone(), 126);
         let (_, error) = job
             .finish(|s| Ok(s.len()), |_, _| panic!("oversize writer ran"))
-            .err()
-            .expect("cap");
+            .expect_err("cap");
         assert!(matches!(error, PayloadBuildError::TooLarge));
         assert_eq!(budget.reserved_bytes(), 0);
     }
@@ -314,16 +310,14 @@ mod tests {
                     Err(norito::Error::LengthMismatch)
                 },
             )
-            .err()
-            .expect("writer failure");
+            .expect_err("writer failure");
         assert!(!error.is_local_refusal());
         let (job, error) = job
             .finish(
                 |_| panic!("failed source counted"),
                 |_, _| panic!("failed writer repeated"),
             )
-            .err()
-            .expect("poisoned");
+            .expect_err("poisoned");
         assert!(matches!(error, PayloadBuildError::Poisoned));
         assert_eq!(job.bytes.unwrap().as_slice(), &[1, 2, 3]);
     }
@@ -340,8 +334,7 @@ mod tests {
                         Ok(())
                     },
                 )
-                .err()
-                .expect("length mismatch");
+                .expect_err("length mismatch");
             assert!(matches!(error, PayloadBuildError::Encoding(_)));
         }
     }

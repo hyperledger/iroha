@@ -100,6 +100,11 @@ simd = ["iroha_primitives/simd-accel", "iroha_core_privacy/simd"]
 profiling = []
 # Enable FASTPQ GPU helper paths used by the daemon feature of the same name.
 fastpq-gpu = ["fastpq_prover/fastpq-gpu"]
+# Non-shipping: compile the State commitment candidate adapters of ZK delivery
+# plan task G.2 into this crate's unit tests so the keyed-commitment conformance
+# suite runs on the prototypes of `fastpq_prover::state_commitment_prototypes`.
+# TODO(G.3): remove with the prototypes.
+state-commitment-prototypes = ["fastpq_prover/dev-tools"]
 # Enable benchmark-only helpers used by this crate's Criterion targets.
 bench = []
 # ZK verifier feature flags ship enabled by default.
@@ -179,7 +184,7 @@ ivm_abi = { workspace = true }
 fastpq_prover = { path = "../fastpq_prover" }
 fastpq_isi = { path = "../fastpq_isi" }
 mv = { workspace = true }
-concread = { workspace = true, features = ["ebr", "maps", "foldhash"] }
+concread = { workspace = true, features = ["ebr", "maps"] }
 iroha_schema = { workspace = true }
 sorafs_manifest = { path = "../sorafs_manifest", features = ["pqc"] }
 settlement_router = { path = "../settlement_router" }
@@ -223,13 +228,16 @@ indexmap = "2.12.0"
 rustix = { version = "1.1.4", features = ["fs", "process"] }
 
 [dev-dependencies]
+# Actual native verification cancellation and scratch-budget ownership controls.
+iroha_plonk = { workspace = true }
+iroha_pasta = { workspace = true }
 mv = { workspace = true, features = ["test"] }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_core_timed_ovn = { workspace = true, features = ["test-utils"] }
 kotodama_lang = { workspace = true }
 iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_crypto = { workspace = true, default-features = false, features = ["bfv-test-fixtures"] }
-iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "test-fixtures"] }
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "test-fixtures", "privacy-exact12-conformance"] }
 crossbeam-epoch = "=0.9.20"
 futures = { workspace = true, features = ["std", "async-await"] }
 x509-parser = { version = "0.18.0", default-features = false, features = ["verify"] }
@@ -248,7 +256,7 @@ iroha_sumeragi = { workspace = true, features = ["sim"] }
 [[bench]]
 name = "validation"
 harness = false
-required-features = ["bench"]
+required-features = ["bench", "iroha-core-tests"]
 
 [[bench]]
 name = "kura"

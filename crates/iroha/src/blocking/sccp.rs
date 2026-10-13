@@ -1,19 +1,35 @@
 //! Public SCCP v1 reads on the client's reusable blocking runtime (`specs/sccp.md` §6).
 
+use crate::client::sccp::SccpFinalityAt;
+
 use super::{Client, RuntimeOwner};
 use crate::{
     Result,
-    client::sccp::{SccpAttestation, SccpDirection},
+    client::sccp::{SccpDirection, SccpProofHeightV1},
 };
 use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteV1};
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
-    SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
-    SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
+    SccpCapabilitiesV1, SccpCertificateV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpGenerationV1, SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1,
+    SccpLcCheckpointCoverV1, SccpLightClientDetailV1, SccpMessageProofBundleV1,
+    SccpMessageStatusV1, SccpOutboundPageV1, SccpRecentMessagesV1, SccpRotationV1,
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
+///
+/// Committee reads carry native BLS generation metadata; attestation roster reads are absent:
+///
+/// ```compile_fail,E0599
+/// fn removed_current_roster(api: &iroha::blocking::sccp::Sccp<'_>) {
+///     let _ = api.current_roster();
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// fn removed_roster(api: &iroha::blocking::sccp::Sccp<'_>) {
+///     let _ = api.roster(1);
+/// }
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Sccp<'a> {
     inner: crate::client::sccp::Sccp<'a>,
@@ -32,12 +48,45 @@ impl Client {
 }
 
 impl Sccp<'_> {
-    /// Read the Taira identity, parameters and attestation health.
+    /// Read the original native finality certificate selected by `at`.
+    ///
+    /// # Errors
+    /// Preserves the asynchronous client's source and transport failures.
+    pub fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
+        self.runtime.block_on(self.inner.finality(at))?
+    }
+
+    /// Read the Taira identity, parameters and light-client profiles.
     ///
     /// # Errors
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn capabilities(&self) -> Result<SccpCapabilitiesV1> {
         self.runtime.block_on(self.inner.capabilities())?
+    }
+
+    /// Read current committee metadata; authenticate its keys through signed history.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn current_committee(&self) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.current_committee())?
+    }
+
+    /// Read one generation's retained keys and current liability.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn committee(&self, generation: u64) -> Result<SccpGenerationV1> {
+        self.runtime.block_on(self.inner.committee(generation))?
+    }
+
+    /// Read native rotation certificates after an independently pinned generation.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn rotations(&self, after_generation: u64, limit: usize) -> Result<Vec<SccpRotationV1>> {
+        self.runtime
+            .block_on(self.inner.rotations(after_generation, limit))?
     }
 
     /// Read the nonzero per-subject governance revisions.
@@ -48,6 +97,14 @@ impl Sccp<'_> {
         &self,
     ) -> Result<Vec<iroha_data_model::sccp::governance::SccpGovernanceBaseRevisionV1>> {
         self.runtime.block_on(self.inner.governance_revisions())?
+    }
+
+    /// Read governance readiness at one committed state observation.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn governance_readiness(&self) -> Result<iroha_sccp::api::SccpGovernanceReadinessV1> {
+        self.runtime.block_on(self.inner.governance_readiness())?
     }
 
     /// Read every open SCCP governance proposal, oldest first.
@@ -88,6 +145,52 @@ impl Sccp<'_> {
     /// Returns the asynchronous operation error or a typed runtime rejection.
     pub fn registry(&self) -> Result<Vec<SccpRouteV1>> {
         self.runtime.block_on(self.inner.registry())?
+    }
+
+    /// Read effective revision holds and scalar reconciliation accounting.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn forgery_hold(
+        &self,
+        query: iroha_sccp::api::SccpForgeryHoldQuery,
+    ) -> Result<iroha_sccp::api::SccpForgeryHoldViewV1> {
+        self.runtime.block_on(self.inner.forgery_hold(query))?
+    }
+
+    /// Read original fast-pause state and explicit current-seat eligibility availability.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn fast_pause(&self) -> Result<iroha_sccp::api::SccpFastPauseViewV1> {
+        self.runtime.block_on(self.inner.fast_pause())?
+    }
+
+    /// Read a retained original anchor witness at one nonzero committed height.
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn anchor_witness(
+        &self,
+        height: std::num::NonZeroU64,
+    ) -> Result<iroha_sccp::api::SccpAnchorWitnessBundleV1> {
+        self.runtime.block_on(self.inner.anchor_witness(height))?
+    }
+
+    /// Read an exact original committed SCCP forgery report.
+    /// # Errors
+    /// Preserves the asynchronous operation or runtime error.
+    pub fn evidence(&self, id: &[u8; 32]) -> Result<iroha_sccp::api::SccpForgeryEvidenceStatusV1> {
+        self.runtime.block_on(self.inner.evidence(id))?
+    }
+
+    /// Read a bounded page after an exclusive original evidence id.
+    /// # Errors
+    /// Preserves the asynchronous operation or runtime error.
+    pub fn evidence_page(
+        &self,
+        after: Option<[u8; 32]>,
+        limit: usize,
+    ) -> Result<iroha_sccp::api::SccpForgeryEvidencePageV1> {
+        self.runtime
+            .block_on(self.inner.evidence_page(after, limit))?
     }
 
     /// Read the status union of one message id (outbound, inbound or unknown).
@@ -193,10 +296,10 @@ impl Sccp<'_> {
     pub fn message_proof(
         &self,
         message_id: &[u8; 32],
-        attestation: SccpAttestation,
+        at: SccpProofHeightV1,
     ) -> Result<SccpMessageProofBundleV1> {
         self.runtime
-            .block_on(self.inner.message_proof(message_id, attestation))?
+            .block_on(self.inner.message_proof(message_id, at))?
     }
 
     /// Read the proof bundle of one destination control.
@@ -208,38 +311,11 @@ impl Sccp<'_> {
         network: SccpNetworkV1,
         revision: u32,
         control_nonce: u64,
-        attestation: SccpAttestation,
+        at: SccpProofHeightV1,
     ) -> Result<SccpControlProofBundleV1> {
-        self.runtime.block_on(self.inner.control_proof(
-            network,
-            revision,
-            control_nonce,
-            attestation,
-        ))?
-    }
-
-    /// Read the current roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn current_roster(&self) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.current_roster())?
-    }
-
-    /// Read one roster generation.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn roster(&self, generation: u64) -> Result<SccpRosterViewV1> {
-        self.runtime.block_on(self.inner.roster(generation))?
-    }
-
-    /// Read the catch-up rotation chain.
-    ///
-    /// # Errors
-    /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn rotations(&self, after_generation: u64, limit: usize) -> Result<SccpRotationChainV1> {
-        self.runtime
-            .block_on(self.inner.rotations(after_generation, limit))?
+        self.runtime.block_on(
+            self.inner
+                .control_proof(network, revision, control_nonce, at),
+        )?
     }
 }

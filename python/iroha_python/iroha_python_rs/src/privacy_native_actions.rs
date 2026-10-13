@@ -881,33 +881,36 @@ fn statement_context(
         engine_manifest_digest: profile.engine_manifest_digest,
     }
 }
-/// Construct the canonical pre-proof envelope used only for transaction-intent
+/// Bind the one canonical envelope and require the compiled profile's identities.
+///
+/// `PrivacyProofEnvelopeV1::bind_v1` derives every envelope identity and the
+/// statement digest from the typed statement. This adapter additionally
+/// refuses a statement whose context was not built from `profile`.
+fn bind_envelope(
+    profile: CompiledPrivacyProfileV1,
+    statement: PrivacyStatementV1,
+    proof: PrivacyProofV1,
+    stage: &'static str,
+) -> Result<PrivacyProofEnvelopeV1, PrivacyNativeActionErrorV1> {
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(statement, proof)
+        .map_err(|_| PrivacyNativeActionErrorV1::at(stage))?;
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyNativeActionErrorV1::at(stage));
+    }
+    Ok(envelope)
+}
+/// Bind the canonical pre-proof envelope used only for transaction-intent
 /// projection.
 ///
-/// The intent algorithm is specified to erase proof bytes, the statement's
-/// intent digest, and this envelope digest before hashing. Supplying zero for
-/// the latter here therefore represents the protocol's exact unresolved
-/// derived field; it is never emitted as a verifier-visible envelope.
+/// The intent algorithm erases proof bytes, the statement's intent digest and
+/// the envelope's statement digest before hashing, so this proof-free envelope
+/// is never emitted as a verifier-visible envelope.
 fn intent_projection_envelope(
     profile: CompiledPrivacyProfileV1,
     statement: PrivacyStatementV1,
     proof: PrivacyProofV1,
-) -> PrivacyProofEnvelopeV1 {
-    PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement,
-        proof,
-    }
+) -> Result<PrivacyProofEnvelopeV1, PrivacyNativeActionErrorV1> {
+    bind_envelope(profile, statement, proof, "transaction-intent")
 }
 fn derive_intent(
     context: &PrivacyActionTransactionContextV1,
@@ -917,7 +920,7 @@ fn derive_intent(
 ) -> Result<PrivacyTransactionIntentDigestV1, PrivacyNativeActionErrorV1> {
     transaction_payload(
         context,
-        Some(intent_projection_envelope(profile, statement, proof)),
+        Some(intent_projection_envelope(profile, statement, proof)?),
     )?
     .privacy_transaction_intent_digest_v1()
     .map_err(|_| PrivacyNativeActionErrorV1::at("transaction-intent"))
@@ -941,21 +944,7 @@ fn finalize(
     .map_err(|_| PrivacyNativeActionErrorV1::at("statement-length"))?;
     let proof_bytes = u32::try_from(proof.bytes().as_bytes().len())
         .map_err(|_| PrivacyNativeActionErrorV1::at("proof-length"))?;
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement,
-        proof,
-    };
+    let envelope = bind_envelope(profile, statement, proof, "proof-envelope-validation")?;
     envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| PrivacyNativeActionErrorV1::at("proof-envelope-validation"))?;
@@ -2656,7 +2645,7 @@ mod tests {
     ) -> IrohaZkX509StarkP256StatementV1 {
         IrohaZkX509StarkP256StatementV1 {
             context: PrivacyStatementContextV1 {
-                network_id: context.network_id.clone(),
+                network_id: context.network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0; 32]),
                 parameter_id: PrivacyParameterIdV1::new([0x21; 32]),

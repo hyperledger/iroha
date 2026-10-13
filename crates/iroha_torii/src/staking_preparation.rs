@@ -4,7 +4,7 @@ use super::*;
 use iroha_data_model::nexus::PublicLanePreparationRequestV1;
 
 /// Resolve exact current monetary inputs from one committed state snapshot.
-pub(super) async fn handler_staking_preparation(
+pub async fn handler_staking_preparation(
     State(app): State<SharedAppState>,
     headers: axum::http::HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,

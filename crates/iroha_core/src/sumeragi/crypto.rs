@@ -1,7 +1,8 @@
 //! Production cryptography of the Sumeragi driver (`specs/sumeragi.md` §1, §3.4, §12.1): the
 //! chain hash `H` is [`iroha_crypto::Hash`] (32 bytes, least significant bit set, DECISIONS #4),
 //! signatures are BLS-normal (48-byte G1 keys, 96-byte G2 signatures), and the node signs with its
-//! key pair.
+//! key pair through the allowlisted SHA-256/DST_SIG consensus suite. Generic signatures
+//! cannot authenticate consensus messages.
 //!
 //! Aggregate verification is rogue-key safe only for keys whose proof of possession (`PoP`)
 //! verified. [`BlsCrypto`] therefore verifies a committee key's `PoP` once, when the height
@@ -9,38 +10,38 @@
 //! parsed key, and refuses every aggregate that names a key it has not admitted (fail closed).
 //! Individual signatures need no `PoP` and verify under any well-formed BLS-normal key.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
+use crate::execution_attempt::ExecutionDeferred;
 use iroha_crypto::{
-    Algorithm, BlsNormalAggregateScratch, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey,
-    PublicKey as IrohaPublicKey, Signature as IrohaSignature, bls_normal_aggregate_signatures,
-    verify_bls_normal_signature_borrowed,
+    Algorithm, BlsNormalPopVerifiedKey, Hash, KeyPair, PrivateKey, PublicKey as IrohaPublicKey,
+    bls::consensus::{self, ConsensusAggregateScratch, ConsensusDigest},
 };
 use iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1;
 use iroha_sumeragi::{
-    crypto::{Crypto, Signer},
-    types::{AggregateSignature, Hash32, PublicKey, SIGNATURE_LEN, Signature},
+    crypto::{AggregationError, Crypto, Signer, SigningError},
+    types::{AggregateSignature, Hash32, PublicKey, Signature},
 };
 use parking_lot::{Mutex, RwLock};
+
+pub(crate) mod funded;
 
 /// Request-local committee construction preserves resource refusal separately from bad keys.
 #[derive(Debug)]
 pub(crate) enum QueryCommitteeError {
-    Resource(norito::core::DecodeResourceError),
+    Resource(ExecutionDeferred),
     Member { index: usize, error: KeyError },
 }
 
-impl From<norito::core::DecodeResourceError> for QueryCommitteeError {
-    fn from(error: norito::core::DecodeResourceError) -> Self {
+impl From<ExecutionDeferred> for QueryCommitteeError {
+    fn from(error: ExecutionDeferred) -> Self {
         Self::Resource(error)
     }
 }
 
 fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
-    norito::core::DecodeResourceError::AllocationFailed {
-        bytes: u64::try_from(bytes).unwrap_or(u64::MAX),
-    }
-    .into()
+    let _ = bytes;
+    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
 }
 
 // Complete allocator-visible backing of the closed one-shot constructor below. No temporary
@@ -49,15 +50,15 @@ fn query_committee_allocation_bytes(
     members: &[ValidatorCommitteeMemberV1],
 ) -> Result<usize, QueryCommitteeError> {
     let overflow = || query_committee_allocation_failure(usize::MAX);
-    let map = norito::core::owned_hash_table_allocation_bytes::<(
-        PublicKey,
-        Arc<BlsNormalPopVerifiedKey>,
-    )>(members.len())
-    .map_err(|_| overflow())?;
+    let map =
+        norito::core::owned_btree_allocation_bytes::<PublicKey, Arc<BlsNormalPopVerifiedKey>>(
+            members.len(),
+        )
+        .map_err(|_| overflow())?;
     let credential = norito::core::owned_arc_allocation_bytes::<BlsNormalPopVerifiedKey>()
         .map_err(|_| overflow())?;
     let mut bytes = map
-        .checked_add(BlsNormalAggregateScratch::<()>::backing_bytes())
+        .checked_add(ConsensusAggregateScratch::<()>::backing_bytes())
         .ok_or_else(overflow)?;
     for member in members {
         let key = member.validator.public_key();
@@ -74,7 +75,7 @@ fn query_committee_key_error(
     index: usize,
     reason: &'static str,
     bad_pop: bool,
-    admit: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+    admit: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
 ) -> Result<QueryCommitteeError, QueryCommitteeError> {
     // Diagnostics belong to the same stage as its partially constructed authority. A refusal
     // to retain the exact message is local capacity, never a fabricated invalid-key verdict.
@@ -134,11 +135,8 @@ pub fn iroha_key(key: &PublicKey) -> Result<IrohaPublicKey, KeyError> {
 /// hundred bytes each); a key stays admitted, since certificates of old heights still name it.
 #[derive(Debug, Default)]
 pub struct BlsCrypto {
-    admitted: RwLock<HashMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
-    // Request readers admit this exact backing before a boolean relation can
-    // run. Ordinary node instances keep independent per-call scratch, retaining
-    // their existing ability to verify certificates in parallel.
-    aggregate_scratch: Option<Mutex<BlsNormalAggregateScratch>>,
+    admitted: RwLock<BTreeMap<PublicKey, Arc<BlsNormalPopVerifiedKey>>>,
+    aggregate_scratch: Option<Mutex<ConsensusAggregateScratch>>,
 }
 
 impl BlsCrypto {
@@ -147,17 +145,10 @@ impl BlsCrypto {
         Self::default()
     }
 
-    /// Construct one request-owned committee after admitting every retained allocation.
-    ///
-    /// The caller supplies its original physical custody and keeps that allowance through
-    /// this value's lifetime. This method creates neither a pool nor decoder credit. The
-    /// callback covers the exact hash table, core-key buffers, compact key clones, credential
-    /// Arc controls and reusable pairing context before any of them allocate. Partial failure
-    /// drops all completed backing; the caller decides when its prepaid stage can be reused.
-    /// Ordinary mutable node admission remains independent.
+    /// Construct a request-owned committee after admitting its exact backing.
     pub(crate) fn for_query_committee(
         members: &[ValidatorCommitteeMemberV1],
-        admit: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+        admit: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
     ) -> Result<Self, QueryCommitteeError> {
         if members.is_empty() || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
             return Err(query_committee_key_error(
@@ -169,10 +160,7 @@ impl BlsCrypto {
         }
         let demand = query_committee_allocation_bytes(members)?;
         admit(demand)?;
-        let mut admitted = HashMap::new();
-        admitted
-            .try_reserve(members.len())
-            .map_err(|_| query_committee_allocation_failure(demand))?;
+        let mut admitted = BTreeMap::new();
         for (index, member) in members.iter().enumerate() {
             let key = member.validator.public_key();
             let (algorithm, payload) = match key.borrowed_parts() {
@@ -223,9 +211,7 @@ impl BlsCrypto {
             };
             admitted.insert(core, Arc::new(verified));
         }
-        // The complete exact backing was admitted above. The no-op closure creates no new
-        // credit; the resulting scratch remains inside this request-owned crypto value.
-        let scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+        let scratch = ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
             .unwrap_or_else(|never| match never {});
         Ok(Self {
             admitted: RwLock::new(admitted),
@@ -233,25 +219,13 @@ impl BlsCrypto {
         })
     }
 
-    /// Use an already admitted, request-owned aggregate pairing context.
-    ///
-    /// The request must retain its original funding allowance through this
-    /// crypto owner's lifetime. This constructor does not fund the admitted-key
-    /// map, credentials or other caller-owned authority graphs.
-    #[must_use]
-    pub(crate) fn with_aggregate_scratch(scratch: BlsNormalAggregateScratch) -> Self {
-        Self {
-            admitted: RwLock::new(HashMap::new()),
-            aggregate_scratch: Some(Mutex::new(scratch)),
-        }
-    }
-
-    fn with_scratch(&self, verify: impl FnOnce(&mut BlsNormalAggregateScratch) -> bool) -> bool {
+    fn with_scratch(&self, verify: impl FnOnce(&mut ConsensusAggregateScratch) -> bool) -> bool {
         if let Some(scratch) = &self.aggregate_scratch {
             verify(&mut scratch.lock())
         } else {
+            // Dynamic node callers retain their original independent per-call scratch.
             let mut scratch =
-                BlsNormalAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+                ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
                     .unwrap_or_else(|never| match never {});
             verify(&mut scratch)
         }
@@ -346,44 +320,50 @@ impl BlsCrypto {
     }
 }
 
+// Both native crypto owners use the same allocation-free individual relation and
+// existing signature-formation kernel. The funded read path never forms signatures.
+fn verify_individual(pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
+    let Some(digest) = ConsensusDigest::from_preimage(msg) else {
+        return false;
+    };
+    let Ok(key) = <&[u8; 48]>::try_from(pk.as_bytes()) else {
+        return false;
+    };
+    // Single-key verification keeps its original allocation-free relation.
+    consensus::verify_public_key(key, &digest, &sig.0)
+}
+
+fn aggregate_signatures(sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
+    // Both owners preserve the local refusal without constructing a sentinel signature
+    // or allocating a second input graph.
+    consensus::aggregate(sigs.iter().map(|sig| &sig.0))
+        .map(AggregateSignature)
+        .map_err(|_| AggregationError::Refused)
+}
+
 impl Crypto for BlsCrypto {
     fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32 {
         Hash32(Hash::new_from_chunks(chunks).into())
     }
 
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
-        verify_bls_normal_signature_borrowed(pk.as_bytes(), &sig.0, msg).is_ok()
+        verify_individual(pk, msg, sig)
     }
 
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
-        let payloads: Vec<&[u8]> = sigs.iter().map(|sig| &sig.0[..]).collect();
-        // The core aggregates verified signatures only; a failure (none, or a malformed one)
-        // gives the all-zero aggregate, which never verifies.
-        bls_normal_aggregate_signatures(&payloads)
-            .ok()
-            .and_then(|bytes| <[u8; SIGNATURE_LEN]>::try_from(bytes).ok())
-            .map_or_else(
-                || {
-                    iroha_logger::error!(count = sigs.len(), "BLS aggregation failed");
-                    AggregateSignature([0; SIGNATURE_LEN])
-                },
-                AggregateSignature,
-            )
+    fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
+        aggregate_signatures(sigs)
     }
 
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {
-        let admitted = self.admitted.read();
-        if pks.iter().any(|key| !admitted.contains_key(*key)) {
+        let Some(digest) = ConsensusDigest::from_preimage(msg) else {
             return false;
-        }
-        self.with_scratch(|scratch| {
-            let keys = pks
-                .iter()
-                .filter_map(|key| admitted.get(*key).map(AsRef::as_ref));
-            scratch
-                .verify(core::iter::once((keys, msg)), &agg.0)
-                .is_ok()
-        })
+        };
+        let admitted = self.admitted.read();
+        let lookup = |key: &PublicKey| admitted.get(key).map(AsRef::as_ref);
+        let Some(input) = AggregateInput::prepare(pks, digest, lookup) else {
+            return false;
+        };
+        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
     }
 
     fn verify_aggregate_multi(
@@ -392,26 +372,76 @@ impl Crypto for BlsCrypto {
         agg: &AggregateSignature,
     ) -> bool {
         let admitted = self.admitted.read();
-        if groups
-            .iter()
-            .any(|(keys, _)| keys.iter().any(|key| !admitted.contains_key(*key)))
-        {
+        let lookup = |key: &PublicKey| admitted.get(key).map(AsRef::as_ref);
+        let Some(input) = AggregateGroups::prepare(groups, lookup) else {
             return false;
+        };
+        self.with_scratch(|scratch| input.verify(scratch, lookup, agg))
+    }
+}
+
+// Shared immutable preparation and relation for node and caller-funded owners.
+// Lookup borrows credentials for this operation; it cannot admit a new key.
+#[derive(Clone, Copy)]
+struct AggregateInput<'a> {
+    keys: &'a [&'a PublicKey],
+    digest: ConsensusDigest,
+}
+impl<'a> AggregateInput<'a> {
+    fn prepare<'credential>(
+        keys: &'a [&'a PublicKey],
+        digest: ConsensusDigest,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey>,
+    ) -> Option<Self> {
+        if keys.iter().any(|key| lookup(key).is_none()) {
+            return None;
         }
-        self.with_scratch(|scratch| {
-            scratch
-                .verify(
-                    groups.iter().map(|(keys, message)| {
-                        (
-                            keys.iter()
-                                .filter_map(|key| admitted.get(*key).map(AsRef::as_ref)),
-                            message.as_slice(),
-                        )
-                    }),
-                    &agg.0,
-                )
-                .is_ok()
-        })
+        Some(Self { keys, digest })
+    }
+    fn verify<'credential, O>(
+        &self,
+        scratch: &mut ConsensusAggregateScratch<O>,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey> + Copy,
+        aggregate: &AggregateSignature,
+    ) -> bool {
+        scratch.verify_fast_aggregate(
+            self.keys.iter().filter_map(|key| lookup(key)),
+            &self.digest,
+            &aggregate.0,
+        )
+    }
+}
+#[derive(Clone, Copy)]
+struct AggregateGroups<'a> {
+    groups: &'a [(Vec<&'a PublicKey>, Vec<u8>)],
+}
+impl<'a> AggregateGroups<'a> {
+    fn prepare<'credential>(
+        groups: &'a [(Vec<&'a PublicKey>, Vec<u8>)],
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey>,
+    ) -> Option<Self> {
+        if groups.iter().any(|(keys, message)| {
+            ConsensusDigest::from_preimage(message).is_none()
+                || keys.iter().any(|key| lookup(key).is_none())
+        }) {
+            return None;
+        }
+        Some(Self { groups })
+    }
+    fn verify<'credential, O>(
+        &self,
+        scratch: &mut ConsensusAggregateScratch<O>,
+        lookup: impl Fn(&PublicKey) -> Option<&'credential BlsNormalPopVerifiedKey> + Copy,
+        aggregate: &AggregateSignature,
+    ) -> bool {
+        scratch.verify_aggregate_multi(
+            self.groups.iter().filter_map(|(keys, message)| {
+                // The same immutable original key owner remains borrowed here.
+                ConsensusDigest::from_preimage(message)
+                    .map(|digest| (keys.iter().filter_map(move |key| lookup(key)), digest))
+            }),
+            &aggregate.0,
+        )
     }
 }
 
@@ -448,19 +478,14 @@ impl Signer for KeyPairSigner {
         &self.public
     }
 
-    fn sign(&self, preimage: &[u8]) -> Signature {
-        // Signing with a valid BLS-normal key does not fail; if it ever does, the all-zero
-        // signature is sent, which every verifier rejects (the message is lost, like a drop).
-        IrohaSignature::try_new(&self.private, preimage)
-            .ok()
-            .and_then(|sig| <[u8; SIGNATURE_LEN]>::try_from(sig.payload()).ok())
-            .map_or_else(
-                || {
-                    iroha_logger::error!("BLS signing failed");
-                    Signature([0; SIGNATURE_LEN])
-                },
-                Signature,
-            )
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
+        // Refusal is a local fault; it must never become a signature or enter a vote pool.
+        #[cfg(all(test, sumeragi_core_mutation = "SC4"))]
+        let signed = iroha_crypto::Signature::try_new(&self.private, preimage)
+            .map(|signature| signature.payload().try_into().expect("BLS signature size"));
+        #[cfg(not(all(test, sumeragi_core_mutation = "SC4")))]
+        let signed = consensus::sign_preimage(&self.private, preimage);
+        signed.map(Signature).map_err(|_| SigningError::Refused)
     }
 }
 
@@ -470,7 +495,7 @@ mod tests {
     use iroha_sumeragi::{
         crypto::{form_qc, form_tc},
         message::{Qc, TimeoutVote, Vote, VoteKind},
-        types::{Committee, EpochId, ValidatorIndex},
+        types::{Committee, EpochId, SIGNATURE_LEN, ValidatorIndex},
     };
 
     use super::*;
@@ -480,6 +505,18 @@ mod tests {
         epoch: 7,
         context: Hash32([0x51; 32]),
     };
+
+    fn message(view: u64) -> Vec<u8> {
+        iroha_sumeragi::preimage::vote_preimage(
+            VoteKind::Commit,
+            &I,
+            &EPOCH,
+            7,
+            view,
+            &Hash32([1; 32]),
+            &Hash32([2; 32]),
+        )
+    }
 
     fn key_pair(seed: u8) -> KeyPair {
         KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
@@ -503,9 +540,14 @@ mod tests {
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64)
     }
 
-    fn query_admission(bytes: usize) -> Result<(), norito::core::DecodeResourceError> {
-        norito::core::reserve_decode_allocation(bytes)
-            .map_err(|error| error.decode_resource_error().expect("allocation refusal"))
+    fn query_admission(bytes: usize) -> Result<(), ExecutionDeferred> {
+        norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(bytes))
+            .map_err(|error| {
+                error
+                    .into_local_refusal()
+                    .expect("allocation admission captures its actual enclosing refusal")
+                    .into()
+            })
     }
 
     #[test]
@@ -525,13 +567,17 @@ mod tests {
             .iter()
             .map(|pair| KeyPairSigner::new(pair).unwrap())
             .collect();
-        let signatures: Vec<_> = signers.iter().map(|signer| signer.sign(b"query")).collect();
-        let aggregate = BlsCrypto::new().aggregate(&signatures);
+        let signatures: Vec<_> = signers
+            .iter()
+            .map(|signer| signer.sign(&message(1)).unwrap())
+            .collect();
+        let aggregate = BlsCrypto::new().aggregate(&signatures).unwrap();
         let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
         let (_, usage) = norito::core::with_decode_limits_measured(query_limits(0), || {
-            assert!(crypto.verify_aggregate(&keys, b"query", &aggregate));
+            let preimage = message(1);
+            assert!(crypto.verify_aggregate(&keys, &preimage, &aggregate));
             assert!(!crypto.verify_aggregate(&keys, b"changed", &aggregate));
-            assert!(crypto.verify_aggregate(&keys, b"query", &aggregate));
+            assert!(crypto.verify_aggregate(&keys, &preimage, &aggregate));
         });
         assert_eq!(usage.total_allocated_bytes(), 0);
     }
@@ -652,7 +698,7 @@ mod tests {
             signer: index(committee, signer),
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        vote.sig = signer.sign(&vote.preimage());
+        vote.sig = signer.sign(&vote.preimage()).unwrap();
         vote
     }
 
@@ -664,6 +710,48 @@ mod tests {
             .collect();
         let refs: Vec<&Vote> = votes.iter().collect();
         form_qc(&crypto, committee.n(), &refs).unwrap()
+    }
+
+    #[test]
+    fn production_consensus_suite_refuses_generic_and_nonallowlisted_signatures() {
+        let pair = key_pair(1);
+        let signer = KeyPairSigner::new(&pair).unwrap();
+        let crypto = BlsCrypto::new();
+        let key = crypto.admit(pair.public_key(), &pop(&pair)).unwrap();
+        let preimage = message(3);
+        let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+        let signature = signer.sign(&preimage).unwrap();
+        assert_eq!(
+            signature.0,
+            consensus::sign(pair.private_key(), &digest).unwrap()
+        );
+        let generic = iroha_crypto::Signature::try_new(pair.private_key(), &preimage).unwrap();
+        let generic = Signature(generic.payload().try_into().unwrap());
+        assert!(!crypto.verify(&key, &preimage, &generic));
+        assert!(!crypto.verify_aggregate(&[&key], &preimage, &AggregateSignature(generic.0)));
+        assert!(
+            iroha_crypto::Signature::from_bytes(&signature.0)
+                .verify(pair.public_key(), &preimage)
+                .is_err()
+        );
+        let mut unsupported = preimage.clone();
+        unsupported[iroha_sumeragi::preimage::TAG_SIG.len()] = 0x06;
+        for invalid in [
+            unsupported.as_slice(),
+            &preimage[..preimage.len() - 1],
+            b"unscoped",
+        ] {
+            assert_eq!(signer.sign(invalid), Err(SigningError::Refused));
+            assert!(!crypto.verify(&key, invalid, &signature));
+            assert!(!crypto.verify_aggregate(&[&key], invalid, &AggregateSignature(signature.0)));
+            let groups = [
+                (vec![&key], preimage.clone()),
+                (vec![&key], invalid.to_vec()),
+            ];
+            assert!(!crypto.verify_aggregate_multi(&groups, &AggregateSignature(signature.0)));
+        }
+        let repeated = [(vec![&key], preimage.clone()), (vec![&key], preimage)];
+        assert!(!crypto.verify_aggregate_multi(&repeated, &AggregateSignature(signature.0)));
     }
 
     /// `H` is `iroha_crypto::Hash`: Blake2b-256 with the least significant bit set.
@@ -719,21 +807,36 @@ mod tests {
             .map(|seed| KeyPairSigner::new(&key_pair(seed)).unwrap())
             .collect::<Vec<_>>();
         let crypto = BlsCrypto::new();
-        let sig = signers[0].sign(b"preimage");
-        assert_eq!(sig, signers[0].sign(b"preimage"), "deterministic");
-        assert!(crypto.verify(signers[0].public_key(), b"preimage", &sig));
-        assert!(!crypto.verify(signers[0].public_key(), b"other", &sig));
-        assert!(!crypto.verify(signers[1].public_key(), b"preimage", &sig));
+        let sig = signers[0].sign(&message(1)).unwrap();
+        assert_eq!(sig, signers[0].sign(&message(1)).unwrap(), "deterministic");
+        assert!(crypto.verify(signers[0].public_key(), &message(1), &sig));
+        assert!(!crypto.verify(signers[0].public_key(), &message(2), &sig));
+        assert!(!crypto.verify(signers[1].public_key(), &message(1), &sig));
         let junk = PublicKey::new(vec![7; 48]).unwrap();
-        assert!(!crypto.verify(&junk, b"preimage", &sig));
+        assert!(!crypto.verify(&junk, &message(1), &sig));
         assert!(!crypto.verify(
             signers[0].public_key(),
-            b"preimage",
+            &message(1),
             &Signature([0xFF; SIGNATURE_LEN])
         ));
         assert!(format!("{:?}", signers[0]).contains("KeyPairSigner"));
         let ed = KeyPair::from_seed(vec![1; 32], Algorithm::Ed25519);
         assert!(KeyPairSigner::new(&ed).is_err());
+    }
+
+    #[test]
+    fn signer_refusal_is_a_typed_local_error() {
+        let signer = KeyPairSigner::new(&key_pair(1)).unwrap();
+        let signer: &dyn Signer = &signer;
+        assert_eq!(
+            signer.sign(b"unrecognized consensus context"),
+            Err(SigningError::Refused)
+        );
+        let preimage = message(1);
+        let signature = signer
+            .sign(&preimage)
+            .expect("valid context remains signable");
+        assert!(BlsCrypto::new().verify(signer.public_key(), &preimage, &signature));
     }
 
     /// Aggregates verify only under admitted keys (fail closed) and only for the signers and
@@ -743,27 +846,36 @@ mod tests {
         let signers = (1..=3)
             .map(|seed| KeyPairSigner::new(&key_pair(seed)).unwrap())
             .collect::<Vec<_>>();
-        let sigs: Vec<Signature> = signers.iter().map(|s| s.sign(b"m")).collect();
+        let sigs: Vec<Signature> = signers
+            .iter()
+            .map(|s| s.sign(&message(1)).unwrap())
+            .collect();
         let fresh = BlsCrypto::new();
-        let agg = fresh.aggregate(&sigs);
+        let agg = fresh.aggregate(&sigs).unwrap();
         let keys: Vec<&PublicKey> = signers.iter().map(Signer::public_key).collect();
-        assert!(!fresh.verify_aggregate(&keys, b"m", &agg), "not admitted");
+        assert!(
+            !fresh.verify_aggregate(&keys, &message(1), &agg),
+            "not admitted"
+        );
         let kps: Vec<KeyPair> = (1..=3).map(key_pair).collect();
         for kp in &kps[..2] {
             fresh.admit(kp.public_key(), &pop(kp)).unwrap();
         }
-        assert!(fresh.is_admitted(&keys[0]) && !fresh.is_admitted(&keys[2]));
+        assert!(fresh.is_admitted(keys[0]) && !fresh.is_admitted(keys[2]));
         assert!(
-            !fresh.verify_aggregate(&keys, b"m", &agg),
+            !fresh.verify_aggregate(&keys, &message(1), &agg),
             "one not admitted"
         );
         fresh.admit(kps[2].public_key(), &pop(&kps[2])).unwrap();
         assert_eq!(fresh.admitted_len(), 3);
-        assert!(fresh.verify_aggregate(&keys, b"m", &agg));
-        assert!(!fresh.verify_aggregate(&keys, b"n", &agg));
-        assert!(!fresh.verify_aggregate(&keys[..2], b"m", &agg));
-        assert_eq!(fresh.aggregate(&[]), AggregateSignature([0; SIGNATURE_LEN]));
-        assert!(!fresh.verify_aggregate(&keys, b"m", &fresh.aggregate(&[])));
+        assert!(fresh.verify_aggregate(&keys, &message(1), &agg));
+        assert!(!fresh.verify_aggregate(&keys, &message(2), &agg));
+        assert!(!fresh.verify_aggregate(&keys[..2], &message(1), &agg));
+        assert_eq!(fresh.aggregate(&[]), Err(AggregationError::Refused));
+        assert_eq!(
+            fresh.aggregate(&[Signature([0; SIGNATURE_LEN])]),
+            Err(AggregationError::Refused)
+        );
     }
 
     /// A proof of possession is verified at admission; a bad one admits nothing.
@@ -1021,7 +1133,7 @@ mod tests {
                 signer: index(&committee, signer),
                 sig: Signature([0; SIGNATURE_LEN]),
             };
-            t.sig = signer.sign(&t.preimage());
+            t.sig = signer.sign(&t.preimage()).unwrap();
             t
         };
         let timeouts = [
@@ -1074,21 +1186,37 @@ mod tests {
     #[test]
     fn borrowed_and_prepaid_crypto_preserve_parallel_and_reused_signature_verdicts() {
         let (signers, crypto, _) = validators(4);
-        let scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
-        let prepaid = BlsCrypto::with_aggregate_scratch(scratch);
-        for seed in 1..=4 {
-            let pair = key_pair(seed);
-            prepaid.admit(pair.public_key(), &pop(&pair)).unwrap();
-        }
+        let members: Vec<_> = (1..=4)
+            .map(|seed| {
+                let pair = key_pair(seed);
+                iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1 {
+                    validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+                    proof_of_possession: pop(&pair),
+                }
+            })
+            .collect();
+        let demand = funded::FundedBlsCommittee::allocation_demand(&members).unwrap();
+        let budget = iroha_allocation::AllocationBudget::new(demand);
+        let prepaid = funded::FundedBlsCommittee::admit(&members, &budget).unwrap();
+        assert_eq!(budget.reserved_bytes(), demand);
         let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
-        let first = b"first source certificate";
-        let second = b"second source certificate";
-        let first_signatures: Vec<_> = signers.iter().map(|signer| signer.sign(first)).collect();
-        let second_signatures: Vec<_> = signers.iter().map(|signer| signer.sign(second)).collect();
-        let first_aggregate = crypto.aggregate(&first_signatures);
-        let second_aggregate = crypto.aggregate(&second_signatures);
+        let first_message = message(1);
+        let first = first_message.as_slice();
+        let second_message = message(2);
+        let second = second_message.as_slice();
+        let first_signatures: Vec<_> = signers
+            .iter()
+            .map(|signer| signer.sign(first).unwrap())
+            .collect();
+        let second_signatures: Vec<_> = signers
+            .iter()
+            .map(|signer| signer.sign(second).unwrap())
+            .collect();
+        let first_aggregate = crypto.aggregate(&first_signatures).unwrap();
+        let second_aggregate = crypto.aggregate(&second_signatures).unwrap();
         std::thread::scope(|scope| {
-            for reader in [&crypto, &prepaid] {
+            let readers: [&(dyn Crypto + Sync); 2] = [&crypto, &prepaid];
+            for reader in readers {
                 for _ in 0..4 {
                     let keys = &keys;
                     let first_aggregate = &first_aggregate;
@@ -1110,5 +1238,239 @@ mod tests {
         let unadmitted = KeyPairSigner::new(&key_pair(11)).unwrap();
         assert!(!prepaid.verify_aggregate(&[unadmitted.public_key()], first, &first_aggregate));
         assert_eq!(prepaid.admitted_len(), 4);
+        assert!(prepaid.belongs_to(&budget));
+        drop(prepaid);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+    #[test]
+    fn consensus_signatures_refuse_generic_suite_and_retired_contexts() {
+        let pair = key_pair(1);
+        let signer = KeyPairSigner::new(&pair).unwrap();
+        let crypto = BlsCrypto::new();
+        let key = crypto.admit(pair.public_key(), &pop(&pair)).unwrap();
+        let preimage = message(9);
+        let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+        let signature = signer.sign(&preimage).unwrap();
+        assert_eq!(
+            signature.0,
+            consensus::sign(pair.private_key(), &digest).unwrap()
+        );
+        assert!(crypto.verify(&key, &preimage, &signature));
+        let generic = iroha_crypto::Signature::try_new(pair.private_key(), &preimage).unwrap();
+        let retired = Signature(generic.payload().try_into().unwrap());
+        assert!(!crypto.verify(&key, &preimage, &retired));
+        assert!(!crypto.verify_aggregate(&[&key], &preimage, &AggregateSignature(retired.0)));
+        assert!(!crypto.verify_aggregate_multi(
+            &[(vec![&key], preimage.clone())],
+            &AggregateSignature(retired.0)
+        ));
+        assert!(
+            iroha_crypto::Signature::from_bytes(&signature.0)
+                .verify(pair.public_key(), &preimage)
+                .is_err()
+        );
+        let mut retired_kind = preimage.clone();
+        retired_kind[iroha_sumeragi::preimage::TAG_SIG.len()] = 6;
+        for invalid in [
+            &[][..],
+            b"arbitrary application message",
+            &retired_kind,
+            &preimage[..164],
+        ] {
+            assert_eq!(signer.sign(invalid), Err(SigningError::Refused));
+            assert!(!crypto.verify(&key, invalid, &signature));
+            assert!(!crypto.verify_aggregate(&[&key], invalid, &AggregateSignature(signature.0)));
+            assert!(!crypto.verify_aggregate_multi(
+                &[(vec![&key], invalid.to_vec())],
+                &AggregateSignature(signature.0)
+            ));
+        }
+    }
+
+    #[test]
+    fn consensus_signature_matches_dst_sig_fixture() {
+        let fixture: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../../fixtures/sccp/bls_consensus_rust_v1.json"
+        ))
+        .unwrap();
+        let bytes = |value: &norito::json::Value| {
+            hex::decode(value.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
+        };
+        let crypto = BlsCrypto::new();
+        let signers: Vec<_> = fixture["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let private =
+                    PrivateKey::from_bytes(Algorithm::BlsNormal, &bytes(&row["iroha_private_key"]))
+                        .unwrap();
+                let public = IrohaPublicKey::from_private_key(&private).unwrap();
+                assert_eq!(
+                    public.borrowed_parts().unwrap().1,
+                    bytes(&row["public_key"])
+                );
+                let pair = KeyPair::new(public, private).unwrap();
+                crypto
+                    .admit(pair.public_key(), &bytes(&row["w3f_pop"]))
+                    .unwrap();
+                KeyPairSigner::new(&pair).unwrap()
+            })
+            .collect();
+        let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
+        let rows = fixture["allowlist"].as_array().unwrap();
+        assert_eq!(rows.len(), consensus::ConsensusContext::ALL.len());
+        for row in rows {
+            let preimage = bytes(&row["preimage"]);
+            let signatures: Vec<_> = signers
+                .iter()
+                .zip(row["signatures"].as_array().unwrap())
+                .map(|(signer, expected)| {
+                    let signature = signer.sign(&preimage).unwrap();
+                    assert_eq!(
+                        signature.0.as_slice(),
+                        bytes(expected),
+                        "context {}",
+                        row["context"].as_str().unwrap()
+                    );
+                    assert!(crypto.verify(signer.public_key(), &preimage, &signature));
+                    signature
+                })
+                .collect();
+            let aggregate = crypto.aggregate(&signatures).unwrap();
+            assert_eq!(aggregate.0.as_slice(), bytes(&row["aggregate"]));
+            assert!(crypto.verify_aggregate(&keys, &preimage, &aggregate));
+            assert!(crypto.verify_aggregate_multi(&[(keys.clone(), preimage)], &aggregate));
+        }
+        for row in fixture["allowlist_rejections"].as_array().unwrap() {
+            let preimage = bytes(&row["preimage"]);
+            assert_eq!(signers[0].sign(&preimage), Err(SigningError::Refused));
+        }
+    }
+
+    #[test]
+    fn native_signer_rejects_unallowlisted_and_old_transcript_inputs() {
+        let (signers, crypto, _) = validators(4);
+        let message = message(1);
+        let key = &signers[0];
+        let native = key.sign(&message).unwrap();
+        let old = iroha_crypto::Signature::try_new(&key.private, &message).unwrap();
+        let old = Signature(old.payload().try_into().unwrap());
+        assert!(!crypto.verify(key.public_key(), &message, &old));
+        assert!(!crypto.verify_aggregate(
+            &[key.public_key()],
+            &message,
+            &AggregateSignature(old.0)
+        ));
+        assert!(crypto.verify(key.public_key(), &message, &native));
+        let public = iroha_key(key.public_key()).unwrap();
+        assert!(
+            iroha_crypto::Signature::from_bytes(&native.0)
+                .verify(&public, &message)
+                .is_err()
+        );
+        for invalid in [
+            b"outside consensus".as_slice(),
+            &message[..message.len() - 1],
+        ] {
+            assert_eq!(key.sign(invalid), Err(SigningError::Refused));
+            assert!(!crypto.verify(key.public_key(), invalid, &native));
+            assert!(!crypto.verify_aggregate(
+                &[key.public_key()],
+                invalid,
+                &AggregateSignature(native.0)
+            ));
+            assert!(!crypto.verify_aggregate_multi(
+                &[(vec![key.public_key()], invalid.to_vec())],
+                &AggregateSignature(native.0)
+            ));
+        }
+        // An invalid group may not disappear while a valid group is still accepted.
+        assert!(!crypto.verify_aggregate_multi(
+            &[
+                (vec![key.public_key()], message),
+                (vec![key.public_key()], b"invalid".to_vec())
+            ],
+            &AggregateSignature(native.0),
+        ));
+    }
+
+    #[test]
+    fn actual_core_commit_output_verifies_independent_sccp_relation() {
+        use iroha_sccp::v1::finality::{
+            FLAG_ACTIVE, QcFixedV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1, outer_result,
+            verify_certificate,
+        };
+        let (signers, crypto, committee) = validators(4);
+        let keys: Vec<[u8; 48]> = committee
+            .members()
+            .iter()
+            .map(|key| key.as_bytes().try_into().unwrap())
+            .collect();
+        let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            network_id: [0x61; 32],
+            height: 7,
+            timestamp_ms: 7_000,
+            flags: FLAG_ACTIVE,
+            generation: 1,
+            committee_root: iroha_data_model::sumeragi_finality::certified_result::committee_root(
+                &keys,
+            )
+            .unwrap(),
+            ..Default::default()
+        })
+        .unwrap();
+        let fixed = QcFixedV1 {
+            epoch: EPOCH.epoch,
+            epoch_context: EPOCH.context.0,
+            view: 3,
+            block_hash: [1; 32],
+            result_body: [0x62; 32],
+            signers: signers[..committee.q()]
+                .iter()
+                .fold(0, |mask, signer| mask | (1 << index(&committee, signer))),
+        };
+        let result = outer_result(&x, &fixed.result_body);
+        let votes: Vec<_> = signers[..committee.q()]
+            .iter()
+            .map(|signer| {
+                let mut vote = vote(VoteKind::Commit, fixed.view, signer, &committee);
+                vote.result = result;
+                vote.sig = signer.sign(&vote.preimage()).unwrap();
+                vote
+            })
+            .collect();
+        let refs: Vec<_> = votes.iter().collect();
+        let output = form_qc(&crypto, committee.n(), &refs).unwrap();
+        let verified = verify_certificate(
+            &I.0,
+            &fixed.encode(),
+            x.as_bytes(),
+            &output.agg_sig.0,
+            &keys,
+        )
+        .unwrap();
+        assert_eq!(verified.result, result.0);
+        assert_eq!(
+            verified.message,
+            *ConsensusDigest::from_preimage(&output.preimage())
+                .unwrap()
+                .as_bytes()
+        );
+        let old: Vec<[u8; 96]> = signers[..committee.q()]
+            .iter()
+            .map(|signer| {
+                iroha_crypto::Signature::try_new(&signer.private, &output.preimage())
+                    .unwrap()
+                    .payload()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let old = consensus::aggregate(&old).unwrap();
+        assert_eq!(
+            verify_certificate(&I.0, &fixed.encode(), x.as_bytes(), &old, &keys),
+            Err(iroha_sccp::v1::finality::CertificateError::Signature)
+        );
     }
 }

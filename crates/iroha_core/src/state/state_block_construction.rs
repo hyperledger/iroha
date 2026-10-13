@@ -5,6 +5,10 @@ use super::*;
 impl State {
     /// Prepare metadata while the exact acquired writers remain jointly armed.
     /// The finish continuation receives an already armed executing owner.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     pub(super) fn construct_acquired_block<'state, R>(
         &'state self,
         acquired: canonical_runtime::AcquiredRuntimeBlock<'state>,
@@ -59,9 +63,18 @@ impl State {
             )
             .expect("persisted privacy consensus policy was validated before block construction"),
         );
+        // Validity-affecting ZK values are read from the committed policy of the
+        // acquired predecessor and frozen for this block; the installed value
+        // supplies local resources only. A policy committed inside the block
+        // governs the next one.
+        let effective_zk =
+            crate::zk_validity_policy::effective_zk(self.zk.clone(), acquired.world.parameters());
+        // Metering inside this block charges `effective_zk.gas`, read from the
+        // block's frozen settings by every caller; the gauges only report it.
+        crate::gas::publish_confidential_gas_gauges(&effective_zk.gas);
         runtime_policy = Some(canonical_runtime::CapturedRuntimePolicy::capture(
             &acquired.projection,
-            &self.zk,
+            &effective_zk,
             self.lane_compliance.read().clone(),
         ));
         pipeline_ivm_prepared_cache = Some(self.pipeline_ivm_prepared_cache.read().clone());
@@ -70,7 +83,13 @@ impl State {
         ));
         soracloud_runtime = Some(self.soracloud_runtime());
         accounts_snapshot_cache = Some(SyncOnceCell::new());
-        pipeline = Some(self.pipeline.clone());
+        // Execution limits are read from the committed pipeline validity policy
+        // of the acquired predecessor and frozen for this block, like the ZK
+        // policy above; the installed value supplies local resources.
+        pipeline = Some(crate::pipeline_validity_policy::effective_pipeline(
+            self.pipeline.clone(),
+            acquired.world.parameters.get(),
+        ));
         oracle = Some(self.oracle.clone());
         crypto = Some(self.crypto());
         lane_compliance = Some(
@@ -80,8 +99,11 @@ impl State {
                 .compliance
                 .clone(),
         );
-        fraud_monitoring = Some(self.fraud_monitoring.clone());
-        zk = Some(self.zk.clone());
+        fraud_monitoring = Some(crate::fraud_admission_policy::effective_fraud(
+            self.fraud_monitoring.clone(),
+            acquired.world.parameters.get(),
+        ));
+        zk = Some(effective_zk);
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());
         settlement = Some(self.settlement);
@@ -105,7 +127,7 @@ impl State {
         pending_public_lane_slash_observability = Some(Vec::new());
         #[cfg(feature = "zk-preverify")]
         {
-            zk_dedup = Some(Default::default());
+            zk_dedup = Some(iroha_core_zk::DedupCache::default());
         }
         // Every take below is checked while the joint owner is still armed.
         // The finishing closure borrows each Option, including metadata and the
@@ -158,6 +180,7 @@ impl State {
                 native_execution_tip,
                 projection,
                 block_hashes,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 da_rewind_releases,
             } = original
                 .take()
@@ -172,6 +195,7 @@ impl State {
                     .deferred_refund_batch(),
                 state_ref: self,
                 _read_releases: StateViewReleases::new(self),
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 _da_rewind_releases: da_rewind_releases,
                 canonical_runtime: block_field::BlockField::new(canonical_runtime),
                 native_execution_tip: block_field::BlockField::new(native_execution_tip),
@@ -283,6 +307,7 @@ impl State {
                 sumeragi_lanes_step: crate::sumeragi::lanes::step::LaneStep::Off,
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 state_write_lock: &self.state_write_lock,
                 da_commitments: &self.da_commitments,
                 da_receipt_cursors: &self.da_receipt_cursors,

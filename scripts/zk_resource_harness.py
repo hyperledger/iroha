@@ -28,23 +28,30 @@ Environment
     test or diagnostic adapter where to write public records.
 
 What is retained
-    Only public facts. The command's standard output and standard error are
+    The admitted evidence channel contains public facts. The command's standard output and standard error are
     hashed and counted, not stored: a prover that panics prints
     witness-dependent values. ``--retain-output-tail-bytes`` stores a bounded
     tail of each stream and is unsafe for a workload that handles private
     data. The argument vector is recorded as a digest unless
     ``--record-arguments`` is given; arguments are then stored verbatim and
     must be public. The record directory is the emitter's own public channel:
-    the harness binds what the command wrote there and does not rewrite it.
+    the harness admits only the closed record inventory and does not rewrite it.
+    Unknown child files remain private, rejected workload state; they are not
+    promoted into the evidence manifest. An arbitrary command can write private
+    data elsewhere: this harness provides no filesystem sandbox or witness-clearing
+    guarantee. Reviewed typed emitters own the public-only record contract.
     The hardware name, profile, configuration and cache policy are asserted
     by the operator; the report carries observed host facts beside them.
 
 Custody
-    The manifest binds every retained file by digest and is not signed. This
+    The manifest binds each admitted evidence file by digest and is not signed. This
     tool creates no signing or qualification authority. ``run`` prints the
     manifest's SHA-256; an operator who retains or signs that digest under the
     existing release-signing contract passes it to ``salvage`` with
-    ``--manifest-sha256`` to bind the manifest itself.
+    the required ``--manifest-sha256`` to bind the manifest itself. Salvage always
+    reproduces the original requirements before checking any consumer requirements.
+    Directories must remain owner-only. Native child files may be 0644 inside
+    them, but must be owned regular single-link files, unwritable by others.
 
 Safe defaults
     Output goes to a new owner-only directory under ``dist/zk-resource-harness``
@@ -86,6 +93,8 @@ if str(SCRIPTS) not in sys.path:
 
 import private_settlement_process_observer as observer
 import private_settlement_session_control as control
+from nexus import resource_process as native_process
+from nexus import resource_process_exit as native_exit
 
 SCHEMA_PATH = REPOSITORY / "crates" / "iroha_measurement" / "fixtures" / "record_schema_v1.json"
 DEFAULT_OUTPUT_ROOT = REPOSITORY / "dist" / "zk-resource-harness"
@@ -97,17 +106,19 @@ MAX_U64 = (1 << 64) - 1
 MAX_U32 = (1 << 32) - 1
 MAX_RECORD_BYTES = 16 * 1024 * 1024
 MAX_RECORDS = 64
+# Bound manifest/inventory intake independently of an attacker-controlled file list.
+MAX_EVIDENCE_FILES = 100_000
+MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
 OUTPUT_PLACEHOLDER = "{output_dir}"
 ARGUMENTS_DOMAIN = b"iroha.measurement.arguments.v1\0"
 # Most bytes of each output stream that --retain-output-tail-bytes may keep.
 MAX_OUTPUT_TAIL_BYTES = 64 * 1024
 # Most argument bytes --record-arguments may store verbatim.
 MAX_RECORDED_ARGUMENT_BYTES = 64 * 1024
-# How long the output readers may take to reach end of stream after the
-# command was reaped, and how long a process that just failed a sample may
-# take to be reaped before the failure counts as an observation failure.
+# Output readers may drain after reap. Only an immediate nonblocking reap
+# handles an unobserved short child. A bound native terminal proof handles the
+# Darwin pre-reap gap; a later exit never erases a genuine observation failure.
 OUTPUT_DRAIN_SECONDS = 5.0
-EXIT_GRACE_SECONDS = 1.0
 # Fixed reasons of the process observer that mean the running image is not
 # the pinned executable (for example a shell that re-executes another image).
 IMAGE_MISMATCH_REASONS = frozenset({
@@ -120,8 +131,7 @@ IMAGE_MISMATCH_REASONS = frozenset({
 # from retained files; a run that carries one was rejected.
 RUNTIME_ONLY_REASONS = ("address_space_limit_not_applied", "command_not_started",
                         "harness_failure:", "executable_changed_during_run",
-                        "address_space_limit_differs_from_kernel",
-                        "output_stream_not_closed:")
+                        "address_space_limit_differs_from_kernel")
 # Kernel rusage reports CPU in microseconds; a record read from the clock a
 # moment earlier may differ from the final total by at most this much.
 CPU_ROUNDING_SLACK_NS = 2_000_000
@@ -779,16 +789,6 @@ def _try_reap(pid: int) -> tuple[int, Any] | None:
     return (status, usage) if reaped == pid else None
 
 
-def _reap_within(pid: int, seconds: float) -> tuple[int, Any] | None:
-    """Reap ``pid`` if it exits within ``seconds``; never signals it."""
-    deadline = time.monotonic() + seconds
-    while True:
-        reaped = _try_reap(pid)
-        if reaped is not None or time.monotonic() >= deadline:
-            return reaped
-        time.sleep(0.02)
-
-
 def _kill_own_child(pid: int) -> tuple[int, Any]:
     """Kill the harness's own child after its deadline and take its totals."""
     try:
@@ -807,6 +807,14 @@ def _exit_fact(status: int) -> dict[str, Any]:
 def _image_differs(error: BaseException) -> bool:
     return (isinstance(error, observer.ProcessObservationError)
             and str(error) in IMAGE_MISMATCH_REASONS)
+
+
+def _owned_child_monitor(reader, pid, image):
+    """Register Darwin exec observation before admitting any live baseline."""
+    if sys.platform != "darwin":
+        return None
+    return native_exit.DarwinOwnedChildMonitor(pid, image, reader.reader,
+                                               reader.cpu_numer, reader.cpu_denom)
 
 
 def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, records: Any,
@@ -831,47 +839,101 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     sampled: dict[str, Any] = {"state": "failed", "reason": "not_started"}
     reaped: tuple[int, Any] | None = None
     reader = None
+    monitor = None
+    terminal = None
+    native_failure = None
+    registration_failure = None
+    timed_out = False
+
+    def reap_child():
+        """Poll only the original child and retain the first observed deadline breach."""
+        # Qualification needs a reap observed within the same overall budget.
+        # Check after wait4: a poll or terminal authentication may cross the
+        # deadline. A child already reaped must never be signalled afterward.
+        nonlocal timed_out
+        result = _try_reap(child.pid)
+        if result is not None and time.monotonic_ns() >= deadline:
+            timed_out = True
+        return result
+
     try:
         reader = observer.native_reader()
         scope = None
+        try:
+            monitor = _owned_child_monitor(reader, child.pid, image)
+        except (ValueError, OSError) as error:
+            error_number = getattr(error, 'errno', None)
+            registration_failure = {'operation': 'owned_child_monitor_registration',
+                'errno': error_number if type(error_number) is int and 0 <= error_number <= 4095 else None}
+            raise
         try:
             scope = observer.ProcessScope(
                 [{"label": "measured_command", "pid": child.pid, "ppid": os.getpid(),
                   "pgid": os.getpgid(child.pid), "image": "command"}], reader,
                 {"command": image})
         except (ValueError, OSError) as error:
-            if _image_differs(error):
-                sampled = {"state": "failed", "reason": "executable_image_differs"}
-            else:
-                reaped = _reap_within(child.pid, EXIT_GRACE_SECONDS)
+            if type(error) is native_process.NativeProcessUnavailable and error.pid == child.pid:
+                native_failure = error.fact()
+                native_exit.validate_failure(native_failure)
+                reaped = reap_child()
+                if reaped is not None and monitor is not None:
+                    # Even a command too short for a baseline must not hide an
+                    # exec observed by the registration that preceded it.
+                    monitor.check()
                 sampled = ({"state": "not_sampled", "reason": "exited_before_first_sample",
                             "observations": 0} if reaped is not None
                            else {"state": "failed", "reason": type(error).__name__})
+            else:
+                sampled = {"state": "failed", "reason": (
+                    "executable_image_differs" if _image_differs(error) else type(error).__name__)}
         if scope is not None:
             journal = observer.ResourceObservationJournal(records, "observations", policy)
             baseline = scope.initial
+            if monitor is not None:
+                monitor.bind_sample(reader.last_native_binding, baseline['processes'][0])
+                records.publish("observations/native-admission.json", control.canonical({
+                    "version": 1, "kind": "darwin_owned_child_admission",
+                    "identity": monitor.bound['identity'], "real_uid": monitor.bound['ruid'],
+                    "cpu_time_ns": monitor.bound['cpu_time_ns']}))
             journal.append(baseline)
             baseline_reference = records.publish("observations/baseline.json",
                                                  control.canonical(baseline))
             failure: str | None = None
             while reaped is None:
-                reaped = _try_reap(child.pid)
-                if reaped is not None or time.monotonic_ns() >= deadline:
+                if failure is None and monitor is not None:
+                    monitor.check()
+                reaped = reap_child()
+                if reaped is not None:
+                    if failure is None and monitor is not None:
+                        monitor.check()
+                    break
+                if time.monotonic_ns() >= deadline:
                     break
                 time.sleep(interval_ms / 1000)
                 if failure is not None:
                     continue
                 try:
-                    journal.append(scope.observe())
+                    observation = scope.observe()
                 except (ValueError, OSError) as error:
-                    if _image_differs(error):
-                        failure = "executable_image_differs"
-                        continue
-                    # The process may have exited between the reap check and
-                    # the sample. Only a failure while it stays alive is one.
-                    reaped = _reap_within(child.pid, EXIT_GRACE_SECONDS)
-                    if reaped is None:
-                        failure = journal.failure_reason or "process_observation_failed"
+                    if type(error) is native_process.NativeProcessUnavailable:
+                        native_failure = error.fact()
+                        if monitor is not None:
+                            try:
+                                terminal = monitor.authenticate(error)
+                            except (ValueError, OSError):
+                                failure = "native_terminal_authentication_failed"
+                            else:
+                                break
+                        else:
+                            failure = "process_observation_failed"
+                    else:
+                        failure = ("executable_image_differs" if _image_differs(error)
+                                   else "process_observation_failed")
+                    continue
+                # Storage, malformed observations and CPU failures are never terminal evidence.
+                if monitor is not None:
+                    monitor.bind_sample(reader.last_native_binding, observation['processes'][0])
+                journal.append(observation)
             if failure is None and not journal.failed:
                 journal.flush()
             if failure is not None or journal.failed:
@@ -911,13 +973,19 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     except (ValueError, OSError) as error:
         # Reader, journal or window failure: the run is still reaped and
         # reported; only a fixed reason is recorded.
-        sampled = {"state": "failed", "reason": type(error).__name__}
+        sampled = ({"state": "failed", "reason": "native_monitor_registration_failed",
+                    "monitor_failure": registration_failure} if registration_failure is not None
+                   else {"state": "failed", "reason": type(error).__name__})
     finally:
+        if monitor is not None:
+            try:
+                monitor.close()
+            except (ValueError, OSError):
+                sampled = {"state": "failed", "reason": "native_monitor_close_failed"}
         if reader is not None:
             reader.close()
-    timed_out = False
     while reaped is None:
-        reaped = _try_reap(child.pid)
+        reaped = reap_child()
         if reaped is None:
             if time.monotonic_ns() >= deadline:
                 timed_out = True
@@ -928,6 +996,19 @@ def observe_child(child: subprocess.Popen, image: observer.ExecutableImage, reco
     finished = time.monotonic_ns()
     child.returncode = (-os.WTERMSIG(status) if os.WIFSIGNALED(status)
                         else os.WEXITSTATUS(status))
+    if native_failure is not None:
+        sampled["native_failure"] = native_failure
+    if terminal is not None:
+        total_cpu = _rusage_ns(usage.ru_utime) + _rusage_ns(usage.ru_stime)
+        if (terminal['exit_status'] != status or timed_out
+                or terminal['terminal_cpu_time_ns'] > total_cpu + CPU_ROUNDING_SLACK_NS):
+            sampled = {"state": "failed", "reason": "native_terminal_reap_differs",
+                       "native_failure": native_failure}
+        try:
+            sampled['terminal'] = records.publish("observations/terminal.json", control.canonical(terminal))
+        except (ValueError, OSError):
+            sampled = {"state": "failed", "reason": "native_terminal_publication_failed",
+                       "native_failure": native_failure}
     return {"classification": "measured", "pid": child.pid, "exit": _exit_fact(status),
             "timed_out": timed_out, "wall_ns": finished - started,
             "cpu_user_ns": _rusage_ns(usage.ru_utime),
@@ -1015,8 +1096,276 @@ def process_reasons(process: dict[str, Any], output: dict[str, Any]) -> list[str
     return reasons
 
 
+def _file_identity(info: os.stat_result) -> tuple[int, ...]:
+    return tuple(getattr(info, key) for key in (
+        "st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink", "st_size",
+        "st_mtime_ns", "st_ctime_ns"))
+
+
+def _directory_identity(info: os.stat_result) -> tuple[int, ...]:
+    return tuple(getattr(info, key) for key in ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid"))
+
+
+def _evidence_kind(name: str, context_file: str) -> str | None:
+    """Closed first-release output paths; unknown workload state is never evidence."""
+    if name in {"report.json", "manifest.json", "harness_failure.json",
+                "stdout.tail.log", "stderr.tail.log"}:
+        return "harness"
+    parts = name.split("/")
+    if len(parts) != 2:
+        return None
+    directory, leaf = parts
+    if directory == "child":
+        if leaf == context_file:
+            return "context"
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.(json|norito)", leaf):
+            return "view" if leaf.endswith(".json") else "binary"
+    if directory == "observations" and (leaf in {"baseline.json", "window.json", "native-admission.json", "terminal.json"}
+            or re.fullmatch(r"chunk-[0-9]{20}\.json", leaf)):
+        return "observation"
+    return None
+
+
+class _EvidenceDirectory:
+    """Held-directory reads with the native emitter's explicit permission contract.
+
+    The existing session directory anchors owner-only parents. Child emitters use
+    ordinary file creation, so their owned 0644 files are accepted inside that
+    private tree; group/other write access, hard links and nonregular files are not.
+    """
+
+    def __init__(self, run: Path):
+        self.root = control.RecordDirectory(run)
+        self.directories: dict[str, tuple[int, tuple[int, ...]]] = {}
+
+    def _parent(self, name: str) -> int:
+        if not name:
+            return self.root.fd
+        if name not in {"child", "observations"}:
+            raise ValueError("evidence parent outside closed inventory")
+        if name not in self.directories:
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                         dir_fd=self.root.fd)
+            info = os.fstat(fd)
+            if not (stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                    and stat.S_IMODE(info.st_mode) & 0o077 == 0):
+                os.close(fd)
+                raise ValueError("evidence parent is not owner-only")
+            self.directories[name] = fd, _directory_identity(info)
+        return self.directories[name][0]
+
+    def _validate(self) -> None:
+        self.root.validate()
+        for name, (fd, identity) in self.directories.items():
+            if not (identity == _directory_identity(os.fstat(fd))
+                    == _directory_identity(os.stat(name, dir_fd=self.root.fd, follow_symlinks=False))):
+                raise ValueError("evidence parent identity changed")
+
+    def _names(self, directory: str) -> list[str]:
+        names = []
+        with os.scandir(self._parent(directory)) as entries:
+            for entry in entries:
+                if len(names) >= MAX_EVIDENCE_FILES:
+                    raise ValueError("evidence inventory exceeds bound")
+                names.append(entry.name)
+        return sorted(names)
+
+    def _read(self, name: str, maximum: int, retain: bool) -> tuple[dict[str, Any], bytes | None]:
+        self._validate()
+        directory, _, leaf = name.rpartition("/")
+        fd_parent = self._parent(directory)
+        named = os.stat(leaf, dir_fd=fd_parent, follow_symlinks=False)
+        # Inspect before opening to reject FIFOs/devices without touching them.
+        if not (stat.S_ISREG(named.st_mode) and named.st_uid == os.geteuid()
+                and named.st_nlink == 1 and stat.S_IMODE(named.st_mode) & 0o022 == 0):
+            raise ValueError("unsafe evidence file")
+        if not 0 <= named.st_size <= maximum:
+            raise ValueError("evidence file exceeds bound")
+        fd = os.open(leaf, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW,
+                     dir_fd=fd_parent)
+        try:
+            before = os.fstat(fd)
+            if _file_identity(before) != _file_identity(named):
+                raise ValueError("evidence file identity changed")
+            digest, chunks, remaining = hashlib.sha256(), [], before.st_size
+            while remaining:
+                raw = os.read(fd, min(remaining, 65536))
+                if not raw:
+                    raise ValueError("evidence file truncated")
+                digest.update(raw)
+                if retain:
+                    chunks.append(raw)
+                remaining -= len(raw)
+            if not (_file_identity(before) == _file_identity(os.fstat(fd))
+                    == _file_identity(os.stat(leaf, dir_fd=fd_parent, follow_symlinks=False))):
+                raise ValueError("evidence file changed during read")
+            self._validate()
+            return ({"path": name, "sha256": digest.hexdigest(), "bytes": before.st_size},
+                    b"".join(chunks) if retain else None)
+        finally:
+            os.close(fd)
+
+    def __enter__(self) -> _EvidenceDirectory:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        for fd, _identity in self.directories.values():
+            os.close(fd)
+        self.root.close()
+
+
+class _EvidenceSnapshot:
+    """One bounded byte snapshot: hashing and JSON decoding share the same reads."""
+
+    def __init__(self, directory: _EvidenceDirectory, descriptor: dict[str, Any]):
+        self.bindings: dict[str, dict[str, Any]] = {}
+        self.raw: dict[str, bytes] = {}
+        self.reasons: list[str] = []
+        self.child_names: list[str] = []
+        inventories: dict[str, list[str]] = {"": directory._names("")}
+        paths: list[str] = []
+        for index, name in enumerate(inventories[""]):
+            if name in {"child", "observations"}:
+                try:
+                    inventories[name] = directory._names(name)
+                except (OSError, ValueError):
+                    self.reasons.append(f"unsafe_evidence_directory:{index}")
+                    continue
+                paths.extend(f"{name}/{leaf}" for leaf in inventories[name])
+            elif name != "manifest.json":
+                paths.append(name)
+        if len(paths) > MAX_EVIDENCE_FILES:
+            raise ValueError("evidence inventory exceeds bound")
+        self.child_names = inventories.get("child", [])
+        allowed_child = set(self.child_names[:2 * MAX_RECORDS + 1])
+        if len(self.child_names) > 2 * MAX_RECORDS + 1:
+            self.reasons.append("too_many_child_entries")
+        views = [name for name in self.child_names if name.endswith(".json")
+                 and name != descriptor["context_file"]]
+        allowed_views = set(views[:MAX_RECORDS])
+        if len(views) > MAX_RECORDS:
+            self.reasons.append("too_many_records")
+        for index, path in enumerate(sorted(paths)):
+            if path.startswith("child/") and path[len("child/"):] not in allowed_child:
+                continue
+            kind = _evidence_kind(path, descriptor["context_file"])
+            if kind is None:
+                self.reasons.append(f"unexpected_evidence_entry:{index}")
+                continue
+            leaf = path.rsplit("/", 1)[-1]
+            if kind == "view" and leaf not in allowed_views:
+                continue
+            maximum = (native_exit.MAX_TERMINAL_BYTES if leaf in {"native-admission.json", "terminal.json"}
+                       else MAX_RECORD_BYTES if kind in {"view", "binary"} else MAX_EVIDENCE_BYTES)
+            try:
+                binding, raw = directory._read(path, maximum, kind in {"view", "context"}
+                                               or path in {"report.json", "observations/baseline.json",
+                                                           "observations/native-admission.json", "observations/terminal.json"})
+            except (OSError, ValueError):
+                self.reasons.append(f"unsafe_or_oversize_evidence:{index}")
+                continue
+            self.bindings[path] = binding
+            if raw is not None:
+                self.raw[path] = raw
+        for name, previous in inventories.items():
+            if directory._names(name) != previous:
+                self.reasons.append("evidence_inventory_changed")
+        directory._validate()
+
+
+def _terminal_evidence_reasons(process, snapshot):
+    """Replay the closed terminal proof from the same hashed evidence byte snapshot."""
+    try:
+        sampled = process['sampled']
+        if 'monitor_failure' in sampled:
+            fact = sampled['monitor_failure']
+            if (type(fact) is not dict or set(fact) != {'operation', 'errno'}
+                    or fact['operation'] != 'owned_child_monitor_registration'
+                    or (fact['errno'] is not None and not _unsigned(fact['errno'], 4095))
+                    or sampled['state'] != 'failed'
+                    or sampled['reason'] != 'native_monitor_registration_failed'):
+                return ["native_terminal_evidence_invalid"]
+        if 'native_failure'  in sampled:
+            native_exit.validate_failure(sampled['native_failure'])
+        reference = sampled.get('terminal')
+        terminal_path = "observations/terminal.json"
+        if reference is None:
+            return (["native_terminal_evidence_invalid"] if terminal_path in snapshot.bindings else [])
+        if (type(reference) is not dict or set(reference) != {'path', 'sha256', 'bytes'}
+                or reference.get('path') != terminal_path
+                or reference != snapshot.bindings.get(terminal_path)
+                or not _unsigned(reference['bytes'], native_exit.MAX_TERMINAL_BYTES)):
+            return ["native_terminal_evidence_invalid"]
+        # This proof consumes these outer process fields; enforce their exact
+        # types here instead of relying on numeric equality or truthiness.
+        if (not _unsigned(process['pid'], native_exit.PID_MAX) or process['pid'] <= 1
+                or type(process['timed_out']) is not bool
+                or not _unsigned(process['cpu_user_ns'], MAX_U64)
+                or not _unsigned(process['cpu_system_ns'], MAX_U64)
+                or type(sampled['state']) is not str
+                or sampled['state'] not in {'validated', 'not_sampled', 'failed'}):
+            return ["native_terminal_evidence_invalid"]
+        exit_fact = process['exit']
+        if type(exit_fact) is not dict:
+            return ["native_terminal_evidence_invalid"]
+        if exit_fact.get('kind') == 'exited':
+            valid_exit = set(exit_fact) == {'kind', 'code'} and _unsigned(exit_fact['code'], 255)
+        elif exit_fact.get('kind') == 'signaled':
+            valid_exit = (set(exit_fact) == {'kind', 'signal'}
+                          and _unsigned(exit_fact['signal'], 127) and exit_fact['signal'] > 0)
+        else:
+            valid_exit = False
+        if not valid_exit:
+            return ["native_terminal_evidence_invalid"]
+        proof = strict_json(snapshot.raw[terminal_path])
+        baseline = strict_json(snapshot.raw['observations/baseline.json'])
+        admission = strict_json(snapshot.raw['observations/native-admission.json'])
+        if (type(admission) is not dict or set(admission) != {
+                'version', 'kind', 'identity', 'real_uid', 'cpu_time_ns'}
+                or type(admission['version']) is not int or admission['version'] != 1
+                or admission['kind'] != 'darwin_owned_child_admission'
+                or len(baseline['processes']) != 1):
+            return ["native_terminal_evidence_invalid"]
+        sample = baseline['processes'][0]
+        if (not _unsigned(admission['cpu_time_ns'], MAX_U64)
+                or not _unsigned(sample['cpu_time_ns'], MAX_U64)
+                or type(admission['real_uid']) is not int
+                or proof['real_uid'] != admission['real_uid']
+                or admission['cpu_time_ns'] != sample['cpu_time_ns']
+                or proof['identity']['pid'] != process['pid']
+                or proof['failure'] != sampled.get('native_failure')):
+            return ["native_terminal_evidence_invalid"]
+        if sampled['state'] == 'validated':
+            if (not _unsigned(sampled['observations'], MAX_U64) or sampled['observations'] < 2
+                    or not _unsigned(sampled['sampled_cpu_time_ns'], MAX_U64)):
+                return ["native_terminal_evidence_invalid"]
+            last_cpu = sample['cpu_time_ns'] + sampled['sampled_cpu_time_ns']
+        elif sampled['state'] == 'not_sampled':
+            if type(sampled['observations']) is not int or sampled['observations'] != 1:
+                return ["native_terminal_evidence_invalid"]
+            last_cpu = sample['cpu_time_ns']
+        else:
+            # Rejected observations stay rejected independently; this only checks
+            # the retained diagnostic proof, never promotes a failed journal.
+            last_cpu = proof['last_sample_cpu_time_ns']
+        native_exit.validate_terminal(proof, sample['identity'], last_cpu)
+        # Validate the fixed identity shape before recursively comparing intake.
+        # Malformed equally nested JSON must not recurse beyond that schema.
+        if not native_exit._same_typed(admission['identity'], sample['identity']):
+            return ["native_terminal_evidence_invalid"]
+        if (not process['timed_out'] and sampled['state'] != 'failed'
+                and (_exit_fact(proof['exit_status']) != process['exit']
+                     or proof['terminal_cpu_time_ns'] > process['cpu_user_ns']
+                        + process['cpu_system_ns'] + CPU_ROUNDING_SLACK_NS)):
+            return ["native_terminal_evidence_invalid"]
+    except (KeyError, TypeError, ValueError, OSError):
+        return ["native_terminal_evidence_invalid"]
+    return []
+
+
 def judge_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any],
                   process: dict[str, Any], requirements: dict[str, Any],
+                  *, snapshot: _EvidenceSnapshot | None = None,
                   ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str],
                              list[dict[str, Any]]]:
     """Decode and judge every record the command wrote into ``run/child``.
@@ -1027,47 +1376,44 @@ def judge_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any]
     and the consumer's bound on the largest undivided phase. Read-only.
     """
     entries: list[dict[str, Any]] = []
-    reasons: list[str] = []
+    if snapshot is None:
+        with _EvidenceDirectory(run) as directory:
+            snapshot = _EvidenceSnapshot(directory, descriptor)
+    reasons: list[str] = list(snapshot.reasons) + _terminal_evidence_reasons(process, snapshot)
     decoded: list[dict[str, Any]] = []
-    child = run / "child"
-    present = sorted(os.listdir(child))
+    present = snapshot.child_names
     names = [name for name in present
-             if name.endswith(".json") and name != descriptor["context_file"]]
+             if name.endswith(".json") and name != descriptor["context_file"]
+             and f"child/{name}" in snapshot.raw]
+    try:
+        if strict_json(snapshot.raw["child/" + descriptor["context_file"]]) != context:
+            reasons.append("child_context_differs")
+    except (KeyError, RecordDecodeError):
+        reasons.append("child_context_unreadable")
     orphans = []
     for index, name in enumerate(name for name in present if name.endswith(".norito")
                                  and name[:-len(".norito")] + ".json" not in present):
-        digest, length = sha256_file(child / name)
-        orphans.append({"classification": "measured", "path": f"child/{name}",
-                        "sha256": digest, "bytes": length})
+        binding = snapshot.bindings.get(f"child/{name}")
+        if binding is not None:
+            orphans.append(dict(binding, classification="measured"))
         reasons.append(f"record_without_json_view:{index}")
-    if not names:
+    if not any(name.endswith(".json") and name != descriptor["context_file"] for name in present):
         reasons.append("no_record_emitted")
-    if len(names) > MAX_RECORDS:
-        reasons.append("too_many_records")
-        names = names[:MAX_RECORDS]
     limit = requirements["address_space_limit_bytes"]
     label = _grammar("", descriptor["limits"]["label_max_bytes"])
     for index, name in enumerate(names):
-        path = child / name
-        digest, length = sha256_file(path)
+        path = "child/" + name
         entry: dict[str, Any] = {
             "classification": "measured",
-            "json": {"path": f"child/{name}", "sha256": digest, "bytes": length},
+            "json": snapshot.bindings[path],
             "norito": None, "decoded": False, "findings": []}
         # TODO: the Norito sibling is bound by digest only. Decoding it here and
         # comparing it with the JSON view needs a Python Norito decoder for
         # this schema; the equality of both forms is proven on the Rust side.
-        sibling = path.with_suffix(".norito")
-        if sibling.is_file():
-            sibling_digest, sibling_length = sha256_file(sibling)
-            entry["norito"] = {"path": f"child/{sibling.name}", "sha256": sibling_digest,
-                               "bytes": sibling_length}
+        entry["norito"] = snapshot.bindings.get(path[:-len(".json")] + ".norito")
         entries.append(entry)
-        if length > MAX_RECORD_BYTES:
-            reasons.append(f"record_too_large:{index}")
-            continue
         try:
-            record = decode_record(descriptor, strict_json(path.read_bytes()))
+            record = decode_record(descriptor, strict_json(snapshot.raw[path]))
         except RecordDecodeError as error:
             entry["decode_error"] = error.path
             reasons.append(f"record_decode_error:{index}")
@@ -1124,25 +1470,29 @@ def judge_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any]
 
 def collect_records(descriptor: dict[str, Any], run: Path, context: dict[str, Any],
                     process: dict[str, Any], requirements: dict[str, Any],
+                    *, snapshot: _EvidenceSnapshot | None = None,
                     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Report entries, orphaned Norito files and reasons for one run directory."""
-    return judge_records(descriptor, run, context, process, requirements)[:3]
+    return judge_records(descriptor, run, context, process, requirements, snapshot=snapshot)[:3]
 
 
 def write_manifest(run: Path, records: Any, context: dict[str, Any],
-                   verdict: str) -> dict[str, Any]:
-    """Bind every retained file by digest so later salvage can prove it unchanged.
+                   verdict: str, *, snapshot: _EvidenceSnapshot | None = None) -> dict[str, Any]:
+    """Bind only the closed evidence inventory, retaining rejected private state in place.
 
     The manifest is not signed. Its own reference is returned so the caller
     can print the digest an operator retains or signs outside this tool.
     """
-    files = []
-    for directory, _, names in os.walk(run):
-        for name in names:
-            path = Path(directory) / name
-            digest, length = sha256_file(path)
-            files.append({"path": str(path.relative_to(run)), "sha256": digest, "bytes": length})
-    files.sort(key=lambda row: row["path"])
+    with _EvidenceDirectory(run) as directory:
+        current = _EvidenceSnapshot(directory, load_descriptor())
+    if verdict == "accepted" and current.reasons:
+        raise ValueError("accepted evidence inventory changed")
+    if snapshot is not None and any(current.bindings.get(name) != binding
+                                    for name, binding in snapshot.bindings.items()):
+        raise ValueError("evidence changed after judgment")
+    if snapshot is not None and set(current.bindings) - set(snapshot.bindings) != {"report.json"}:
+        raise ValueError("evidence added after judgment")
+    files = [current.bindings[name] for name in sorted(current.bindings)]
     return records.publish("manifest.json", control.canonical({
         "schema": MANIFEST_SCHEMA, "context": context, "verdict": verdict,
         "classification": "measured", "files": files}))
@@ -1150,10 +1500,40 @@ def write_manifest(run: Path, records: Any, context: dict[str, Any],
 
 def run_requirements(arguments: argparse.Namespace) -> dict[str, Any]:
     """Operator-stated requirements beyond the record schema's own rules."""
-    return {"classification": "engineering_target",
-            "address_space_limit_bytes": arguments.address_space_limit_bytes,
-            "thermal_state": bool(arguments.require_thermal_state),
-            "max_undivided_phase_ppm": arguments.max_undivided_phase_ppm}
+    return validate_requirements({"classification": "engineering_target",
+                                 "address_space_limit_bytes": arguments.address_space_limit_bytes,
+                                 "thermal_state": arguments.require_thermal_state,
+                                 "max_undivided_phase_ppm": arguments.max_undivided_phase_ppm})
+
+
+def validate_requirements(requirements: Any) -> dict[str, Any]:
+    """Validate the exact engineering-target contract without boolean/integer coercion."""
+    if (type(requirements) is not dict
+            or set(requirements) != {"classification", "address_space_limit_bytes",
+                                    "thermal_state", "max_undivided_phase_ppm"}
+            or requirements["classification"] != "engineering_target"
+            or type(requirements["thermal_state"]) is not bool):
+        raise HarnessRefusal("requirements have invalid fields or classification")
+    for field, maximum in (("address_space_limit_bytes", MAX_U64 // 2),
+                           ("max_undivided_phase_ppm", MAX_U32)):
+        value = requirements[field]
+        if value is not None and not (type(value) is int and 1 <= value <= maximum):
+            raise HarnessRefusal("requirement is outside its range: " + field)
+    return dict(requirements)
+
+
+def _consumer_reasons(original: dict[str, Any], consumer: dict[str, Any]) -> list[str]:
+    reasons = []
+    if (consumer["address_space_limit_bytes"] is not None
+            and consumer["address_space_limit_bytes"] != original["address_space_limit_bytes"]):
+        reasons.append("consumer_requirement_not_established:address_space_limit_bytes")
+    if consumer["thermal_state"] and not original["thermal_state"]:
+        reasons.append("consumer_requirement_not_established:thermal_state")
+    bound = consumer["max_undivided_phase_ppm"]
+    if bound is not None and (original["max_undivided_phase_ppm"] is None
+                             or original["max_undivided_phase_ppm"] > bound):
+        reasons.append("consumer_requirement_not_established:max_undivided_phase_ppm")
+    return reasons
 
 
 def run_command(arguments: argparse.Namespace) -> int:
@@ -1169,15 +1549,11 @@ def run_command(arguments: argparse.Namespace) -> int:
         raise HarnessRefusal("--interval-ms must be between 10 and 1000")
     if not 1 <= arguments.timeout_seconds <= 7 * 24 * 3600:
         raise HarnessRefusal("--timeout-seconds is outside its range")
-    limit = arguments.address_space_limit_bytes
-    if limit is not None and not 1 <= limit <= MAX_U64 // 2:
-        raise HarnessRefusal("--address-space-limit-bytes is outside its range")
+    requirements = run_requirements(arguments)
+    limit = requirements["address_space_limit_bytes"]
     tail_bytes = arguments.retain_output_tail_bytes
     if not 0 <= tail_bytes <= MAX_OUTPUT_TAIL_BYTES:
         raise HarnessRefusal("--retain-output-tail-bytes is outside its range")
-    bound = arguments.max_undivided_phase_ppm
-    if bound is not None and not 1 <= bound <= MAX_U32:
-        raise HarnessRefusal("--max-undivided-phase-ppm is outside its range")
     recorded_arguments = None
     if arguments.record_arguments:
         try:
@@ -1192,7 +1568,6 @@ def run_command(arguments: argparse.Namespace) -> int:
     context = build_context(descriptor, repository, executable_sha256, arguments.profile,
                             arguments.config, arguments.hardware, arguments.cache_policy)
     root = ensure_untracked_root(repository, Path(arguments.output_root))
-    requirements = run_requirements(arguments)
     run = new_run_directory(root)
     records = control.RecordDirectory(run)
     reasons: list[str] = []
@@ -1210,6 +1585,7 @@ def run_command(arguments: argparse.Namespace) -> int:
         "process": None, "output": None, "records": [], "orphans": [],
         "verdict": "rejected", "reasons": reasons}
     manifest_reference = None
+    snapshot = None
     try:
         records.publish("child/" + descriptor["context_file"], control.canonical(context))
         environment = dict(os.environ)
@@ -1260,8 +1636,10 @@ def run_command(arguments: argparse.Namespace) -> int:
                     image.validate()
                 except ValueError:
                     reasons.append("executable_changed_during_run")
+                with _EvidenceDirectory(run) as directory:
+                    snapshot = _EvidenceSnapshot(directory, descriptor)
                 entries, orphans, record_reasons = collect_records(
-                    descriptor, run, context, process, requirements)
+                    descriptor, run, context, process, requirements, snapshot=snapshot)
                 report["records"], report["orphans"] = entries, orphans
                 reasons.extend(record_reasons)
         if not reasons:
@@ -1271,7 +1649,8 @@ def run_command(arguments: argparse.Namespace) -> int:
     finally:
         try:
             records.publish("report.json", control.canonical(report))
-            manifest_reference = write_manifest(run, records, context, report["verdict"])
+            manifest_reference = write_manifest(run, records, context, report["verdict"],
+                                                snapshot=snapshot)
         except Exception as error:  # noqa: BLE001
             with open(run / "harness_failure.json", "xb") as stream:
                 stream.write(control.canonical(
@@ -1315,44 +1694,85 @@ REPORT_KEYS = frozenset({"schema", "context", "command", "limits", "requirements
                          "process", "output", "records", "orphans", "verdict", "reasons"})
 
 
-def _evidence_reasons(run: Path, manifest: dict[str, Any]) -> list[str] | None:
-    """Missing, changed and added files; ``None`` for a malformed file list."""
-    reasons: list[str] = []
+def _evidence_reasons(snapshot: _EvidenceSnapshot, manifest: dict[str, Any],
+                      descriptor: dict[str, Any]) -> list[str] | None:
+    """Compare the externally bound file set to the same bytes used for decoding."""
+    reasons = list(snapshot.reasons)
     listed = set()
-    for row in manifest["files"]:
+    if len(manifest["files"]) > MAX_EVIDENCE_FILES:
+        return None
+    for index, row in enumerate(manifest["files"]):
         if (type(row) is not dict or set(row) != {"path", "sha256", "bytes"}
                 or type(row["path"]) is not str or row["path"] in listed
-                or os.path.isabs(row["path"]) or ".." in Path(row["path"]).parts):
-            # Only files inside the run directory can be evidence of the run.
+                or row["path"] == "manifest.json"
+                or _evidence_kind(row["path"], descriptor["context_file"]) is None
+                or not _is_hex(row["sha256"], (64,))
+                or not _unsigned(row["bytes"], MAX_EVIDENCE_BYTES)):
             return None
         listed.add(row["path"])
-        path = run / row["path"]
-        if not path.is_file() or path.is_symlink():
-            reasons.append("evidence_missing:" + row["path"])
-        elif sha256_file(path) != (row["sha256"], row["bytes"]):
-            reasons.append("evidence_changed:" + row["path"])
-    for directory, _, names in os.walk(run):
-        for name in names:
-            relative = str((Path(directory) / name).relative_to(run))
-            if relative not in listed and relative != "manifest.json":
-                reasons.append("evidence_added:" + relative)
+        actual = snapshot.bindings.get(row["path"])
+        if actual is None:
+            reasons.append(f"evidence_missing:{index}")
+        elif actual != row:
+            reasons.append(f"evidence_changed:{index}")
+    for index, path in enumerate(sorted(snapshot.bindings)):
+        if path not in listed:
+            reasons.append(f"evidence_added:{index}")
     return reasons
 
 
+def _requirement_observations_match(report: dict[str, Any], requirements: dict[str, Any]) -> bool:
+    limit = requirements["address_space_limit_bytes"]
+    limits = report["limits"]
+    if (type(limits) is not dict
+            or set(limits) != {"classification", "timeout_ms", "sampling_interval_ms",
+                               "requested_address_space_bytes", "output_tail_bytes"}
+            or limits["classification"] != "local_scheduling"
+            or not _unsigned(limits["timeout_ms"], 7 * 24 * 3600 * 1000)
+            or limits["timeout_ms"] < 1000
+            or not _unsigned(limits["sampling_interval_ms"], 1000)
+            or limits["sampling_interval_ms"] < 10
+            or not _unsigned(limits["output_tail_bytes"], MAX_OUTPUT_TAIL_BYTES)
+            or type(limits["requested_address_space_bytes"]) is not type(limit)
+            or limits["requested_address_space_bytes"] != limit):
+        return False
+    process = report["process"]
+    if process is None:
+        return True  # Rejected as unobserved independently.
+    if type(process) is not dict or type(process.get("address_space")) is not dict:
+        return False
+    address = process["address_space"]
+    expected = address_space_enforcement(limit, None)
+    if set(address) != set(expected):
+        return False
+    if any(type(address[key]) is not type(value) or address[key] != value
+           for key, value in expected.items() if key != "kernel_observed"):
+        return False
+    kernel = address.get("kernel_observed")
+    if kernel is not None:
+        if (type(kernel) is not dict or set(kernel) != {"soft_limit_bytes", "hard_limit_bytes"}
+                or any(value is not None and not _unsigned(value, MAX_U64)
+                       for value in kernel.values())):
+            return False
+        if limit is not None and any(value != limit for value in kernel.values()):
+            return False
+    return True
+
+
 def _derived_reasons(descriptor: dict[str, Any], run: Path, report: dict[str, Any],
-                     scope: dict[str, Any]) -> list[str]:
-    """Judge the retained evidence again and compare it with what the report says."""
+                     scope: dict[str, Any], snapshot: _EvidenceSnapshot,
+                     consumer: dict[str, Any]) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Reproduce the original experiment before checking the separate consumer contract."""
     process, output, requirements = report["process"], report["output"], report["requirements"]
     if type(process) is not dict or type(output) is not dict:
-        # The command was never started or observed: nothing was measured.
-        return ["run_was_rejected"]
+        return ["run_was_rejected"], {}
     reasons: list[str] = []
     try:
         derived = process_reasons(process, output)
         entries, orphans, record_reasons, decoded = judge_records(
-            descriptor, run, report["context"], process, requirements)
+            descriptor, run, report["context"], process, requirements, snapshot=snapshot)
     except (KeyError, TypeError, ValueError, OSError):
-        return ["report_malformed"]
+        return ["report_malformed"], {}
     derived += record_reasons
     stated = report["reasons"]
     reproducible = [reason for reason in stated if not reason.startswith(RUNTIME_ONLY_REASONS)]
@@ -1367,86 +1787,156 @@ def _derived_reasons(descriptor: dict[str, Any], run: Path, report: dict[str, An
         reasons.append("run_was_rejected")
     for index, record in enumerate(decoded):
         for key in sorted(scope):
-            # The context's own schema name is not an identity field.
             if key != "schema" and record["identity"].get(key) != scope[key]:
                 reasons.append(f"record_scope_differs:{index}:{key}")
-    return reasons
+    reasons += _consumer_reasons(requirements, consumer)
+    # Even an established original requirement must be supported by the retained
+    # observations. Reuse the same captured bytes, never reopen record paths.
+    if consumer != requirements:
+        _, _, consumer_rejections, _ = judge_records(
+            descriptor, run, report["context"], process, consumer, snapshot=snapshot)
+        reasons += ["consumer_evidence_rejected:" + reason for reason in consumer_rejections]
+    documents = {entry["json"]["path"]: record
+                 for entry, record in zip((entry for entry in entries if entry["decoded"]), decoded)}
+    return reasons, documents
 
 
-def salvage_reasons(run: Path, scope: dict[str, Any],
-                    manifest_sha256: str | None = None) -> list[str]:
-    """Why an earlier run is not unchanged, accepted evidence for ``scope``.
-
-    The manifest only locates and binds the files. The verdict and the scope
-    are derived again from the evidence: the report must agree with the
-    manifest, every record is decoded and judged again, the result must be the
-    one the report states, and each record's own identity must equal the
-    scope. The manifest is not signed; ``manifest_sha256`` binds it to a
-    digest the operator retained or signed outside this tool.
-
-    Read-only: nothing in the run directory is modified, repaired or removed.
-    """
+def _inspect_pinned_run(run: Path, scope: dict[str, Any], manifest_sha256: str | None,
+                        consumer_requirements: dict[str, Any] | None = None,
+                        consumer_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {"reasons": [], "report": None, "documents": {},
+                              "manifest_sha256": manifest_sha256,
+                              "original_requirements": None, "consumer_requirements": None}
+    reasons = result["reasons"]
+    if manifest_sha256 is None:
+        reasons.append("manifest_digest_required")
+        return result
+    if not _is_hex(manifest_sha256, (64,)):
+        reasons.append("manifest_digest_invalid")
+        return result
+    descriptor = load_descriptor()
     try:
-        raw = (run / "manifest.json").read_bytes()
-        manifest = strict_json(raw)
-    except (OSError, RecordDecodeError):
-        return ["manifest_unreadable"]
+        with _EvidenceDirectory(run) as directory:
+            binding, raw = directory._read("manifest.json", MAX_EVIDENCE_BYTES, True)
+            if binding["sha256"] != manifest_sha256:
+                reasons.append("manifest_digest_differs")
+                return result
+            manifest = strict_json(raw)
+            snapshot = _EvidenceSnapshot(directory, descriptor)
+    except (OSError, ValueError):
+        reasons.append("manifest_or_evidence_unreadable")
+        return result
     if (type(manifest) is not dict
             or set(manifest) != {"schema", "context", "verdict", "classification", "files"}
             or manifest["schema"] != MANIFEST_SCHEMA or type(manifest["files"]) is not list
+            or manifest["classification"] != "measured"
+            or type(manifest["verdict"]) is not str
+            or manifest["verdict"] not in {"accepted", "rejected"}
             or type(manifest["context"]) is not dict):
-        return ["manifest_malformed"]
-    reasons: list[str] = []
-    if manifest_sha256 is not None and hashlib.sha256(raw).hexdigest() != manifest_sha256:
-        reasons.append("manifest_digest_differs")
-    evidence = _evidence_reasons(run, manifest)
+        reasons.append("manifest_malformed")
+        return result
+    evidence = _evidence_reasons(snapshot, manifest, descriptor)
     if evidence is None:
-        return reasons + ["manifest_malformed"]
+        reasons.append("manifest_malformed")
+        return result
     reasons += evidence
     if "report.json" not in {row["path"] for row in manifest["files"]}:
-        return reasons + ["report_not_bound"]
+        reasons.append("report_not_bound")
+        return result
     try:
-        report = strict_json((run / "report.json").read_bytes())
-    except (OSError, RecordDecodeError):
-        return reasons + ["report_unreadable"]
+        report = strict_json(snapshot.raw["report.json"])
+    except (KeyError, RecordDecodeError):
+        reasons.append("report_unreadable")
+        return result
     if (type(report) is not dict or set(report) != REPORT_KEYS
             or report["schema"] != REPORT_SCHEMA or type(report["reasons"]) is not list
-            or not all(type(reason) is str for reason in report["reasons"])
-            or type(report["requirements"]) is not dict
-            or set(report["requirements"]) != {"classification", "address_space_limit_bytes",
-                                               "thermal_state", "max_undivided_phase_ppm"}):
-        return reasons + ["report_malformed"]
+            or not all(type(reason) is str for reason in report["reasons"])):
+        reasons.append("report_malformed")
+        return result
+    try:
+        original = validate_requirements(report["requirements"])
+    except HarnessRefusal:
+        reasons.append("report_requirements_invalid")
+        return result
+    result.update(report=report, original_requirements=original)
+    try:
+        consumer = validate_requirements(original if consumer_requirements is None
+                                         else consumer_requirements)
+        if consumer_overrides is not None:
+            consumer = validate_requirements(dict(consumer, **consumer_overrides))
+    except HarnessRefusal:
+        reasons.append("consumer_requirements_invalid")
+        return result
+    result["consumer_requirements"] = consumer
+    if not _requirement_observations_match(report, original):
+        reasons.append("report_requirement_observations_differ")
     if report["verdict"] != manifest["verdict"]:
         reasons.append("manifest_verdict_differs_from_report")
     if report["context"] != manifest["context"]:
         reasons.append("manifest_context_differs_from_report")
     if not evidence:
-        # Changed or missing evidence cannot be judged again; it is already
-        # not salvageable.
-        reasons += _derived_reasons(load_descriptor(), run, report, scope)
+        derived, documents = _derived_reasons(descriptor, run, report, scope, snapshot, consumer)
+        reasons += derived
+        result["documents"] = documents
     for key in sorted(scope):
         if type(report["context"]) is not dict or report["context"].get(key) != scope[key]:
             reasons.append("scope_differs:" + key)
-    return reasons
+    return result
+
+
+def salvage_reasons(run: Path, scope: dict[str, Any], manifest_sha256: str | None = None,
+                    consumer_requirements: dict[str, Any] | None = None) -> list[str]:
+    """Read-only refusal reasons under a mandatory externally retained manifest pin.
+
+    A missing pin always refuses; there is no unsigned-success mode. The original
+    report and requirements are reproduced before optional consumer constraints.
+    Files that were hashed are the same held-FD bytes subsequently decoded.
+    """
+    return _inspect_pinned_run(run, scope, manifest_sha256, consumer_requirements)["reasons"]
+
+
+def read_pinned_run(run: Path, manifest_sha256: str, *, scope: dict[str, Any] | None = None,
+                    consumer_requirements: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return verified report/documents from one immutable byte snapshot, or refuse.
+
+    Consumers must use the returned ``report`` and ``documents`` (keyed by the
+    report's relative JSON paths), never reopen those paths after verification.
+    The external pin binds unchanged evidence, not honest execution or proof validity.
+    Omitted scope adds no new identity restriction; original context and requirements
+    are still reproduced. Omitted consumer requirements retain the original contract.
+    """
+    result = _inspect_pinned_run(run, {} if scope is None else scope,
+                                 manifest_sha256, consumer_requirements)
+    if result["reasons"]:
+        raise HarnessRefusal("pinned run refused: " + ",".join(result["reasons"]))
+    return result
 
 
 def salvage(arguments: argparse.Namespace) -> int:
-    """Report whether an earlier run is unchanged evidence for today's scope."""
+    """Report unchanged acceptance under original and separately requested conditions."""
     descriptor = load_descriptor()
     repository = Path(arguments.repository).resolve()
     run = Path(arguments.run_directory)
     pinned = arguments.manifest_sha256
-    if pinned is not None and not _is_hex(pinned, (64,)):
-        raise HarnessRefusal("--manifest-sha256 is not a SHA-256 digest")
+    if not _is_hex(pinned, (64,)):
+        raise HarnessRefusal("--manifest-sha256 must be an externally retained SHA-256 digest")
     executable = resolve_executable(arguments.executable)
     scope = build_context(descriptor, repository, sha256_file(executable)[0], arguments.profile,
                           arguments.config, arguments.hardware, arguments.cache_policy)
-    reasons = salvage_reasons(run, scope, pinned)
-    print(json.dumps({"run_directory": str(run), "salvageable": not reasons,
-                      "reasons": reasons,
-                      "manifest_binding": "unsigned" if pinned is None else "external_sha256"},
-                     sort_keys=True))
-    return 1 if reasons else 0
+    overrides = {key: value for key, value in {
+        "address_space_limit_bytes": arguments.address_space_limit_bytes,
+        "thermal_state": arguments.require_thermal_state,
+        "max_undivided_phase_ppm": arguments.max_undivided_phase_ppm,
+    }.items() if value is not None}
+    # Validate CLI values before reading evidence, including bool-as-int helper input.
+    validate_requirements(dict(classification="engineering_target", address_space_limit_bytes=None,
+                               thermal_state=False, max_undivided_phase_ppm=None) | overrides)
+    result = _inspect_pinned_run(run, scope, pinned, consumer_overrides=overrides)
+    print(json.dumps({"run_directory": str(run), "salvageable": not result["reasons"],
+                      "reasons": result["reasons"], "manifest_binding": "external_sha256",
+                      "original_requirements": result["original_requirements"],
+                      "consumer_requirements": result["consumer_requirements"]}, sort_keys=True))
+    return 1 if result["reasons"] else 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -1510,9 +2000,15 @@ def parser() -> argparse.ArgumentParser:
     scope(keep)
     keep.add_argument("--executable", required=True,
                       help="the executable whose current digest is the artifact scope")
-    keep.add_argument("--manifest-sha256", default=None,
+    keep.add_argument("--manifest-sha256", required=True,
                       help="SHA-256 of manifest.json that the operator retained or signed "
-                           "when the run was made; without it the manifest is unsigned")
+                           "when the run was made; required for every salvage claim")
+    keep.add_argument("--address-space-limit-bytes", type=int, default=None,
+                      help="require the exact originally applied address-space experiment")
+    keep.add_argument("--require-thermal-state", action="store_true", default=None,
+                      help="require that the original run required and observed thermal state")
+    keep.add_argument("--max-undivided-phase-ppm", type=int, default=None,
+                      help="require an original granularity bound no weaker than this one")
     keep.add_argument("run_directory", help="an earlier run directory")
     keep.set_defaults(handler=salvage)
     return top

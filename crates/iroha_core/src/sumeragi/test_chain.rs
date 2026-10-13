@@ -16,6 +16,8 @@
 mod lane_authority;
 /// Independent committed-State authority used by certified lane fixtures.
 pub use lane_authority::TestLaneStoreAuthorities;
+#[path = "test_chain/amx_approval.rs"]
+mod amx_approval;
 #[path = "test_chain/availability.rs"]
 mod availability;
 #[path = "test_chain/committee_custody.rs"]
@@ -25,6 +27,8 @@ mod genesis_policy;
 #[cfg(test)]
 pub(crate) mod kagemusha_setup;
 mod local_certificate;
+/// Genuine paid private-root approval source for downstream HTTP permission tests.
+pub use amx_approval::native_amx_approval_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]
@@ -57,7 +61,7 @@ use iroha_data_model::{
 use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
 use iroha_logger::Level;
 use iroha_model_base::{chain::ChainId, peer::PeerId};
-use iroha_primitives::time::TimeSource;
+use iroha_primitives::time::{MockTimeHandle, TimeSource};
 use iroha_sumeragi::{
     api::ExecOutcome,
     availability::AvailableBody,
@@ -155,7 +159,7 @@ pub struct TestChainConfig {
     pub lane_manifests: Option<Arc<LaneManifestRegistry>>,
     /// Signature algorithms admitted by the original signed genesis configuration.
     pub crypto: Option<iroha_config::parameters::actual::Crypto>,
-    /// Fraud admission configuration fixed before signed genesis execution.
+    /// Node-local fraud transport; admission is authored in `genesis_parameters`.
     pub fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring,
     /// The node's committed lane blocks, which the chain's blocks merge.
     pub lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
@@ -268,11 +272,18 @@ pub struct CertifiedTestChain {
     availability: Arc<dyn AvailabilitySchedule>,
     signers: Vec<KeyPairSigner>,
     validators: Vec<(PeerId, Vec<u8>)>,
+    // Original zeroizing DKG providers survive retained epochs; public replay cannot recreate them.
+    npos_beacon_signers: Option<Vec<crate::beacon::InMemoryGlobalThresholdBeaconPartialSignerV1>>,
     crypto: Arc<BlsCrypto>,
     instance: Hash32,
     /// Height, core block hash and `R` of the tip.
     tip: (u64, Hash32, Hash32),
     clock: KeyPair,
+    // Only the default synthetic fixture follows its original proposal time. Explicit
+    // caller clocks remain independent so real freshness refusal controls stay meaningful.
+    execution_clock: Option<MockTimeHandle>,
+    #[cfg(test)]
+    execution_time_source: TimeSource,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
 }
 
@@ -454,11 +465,29 @@ impl CertifiedTestChain {
     /// All authority and custody checks precede execution. The clock account must be present
     /// in the resulting original genesis state; no account or value is fabricated here.
     /// This four-seat fixture signs votes itself, but never supplies caller-authored R values.
+    /// Its local mock clock follows each original proposal's signed time. Use
+    /// [`Self::from_prepared_with_time_source`] to exercise independent clock observations.
     ///
     /// # Errors
     /// Rejects mismatched source manifest, State/Kura identity, applied state, committee or
     /// custody. Actual genesis execution failures return the same State for inspection.
     pub fn from_prepared(config: PreparedTestChainConfig) -> Result<Self, StartFailure> {
+        let (clock, source) = TimeSource::new_mock(config.genesis.block().header().creation_time());
+        let mut chain = Self::from_prepared_with_time_source(config, source)?;
+        chain.execution_clock = Some(clock);
+        Ok(chain)
+    }
+
+    /// Apply the same original prepared genesis with an explicit local executor clock.
+    /// Calendar and clock-guard tests control this source without altering signed block time,
+    /// validation rules or the certified execution/replay exemptions.
+    ///
+    /// # Errors
+    /// Returns the same preparation or original execution failures as [`Self::from_prepared`].
+    pub fn from_prepared_with_time_source(
+        config: PreparedTestChainConfig,
+        time_source: TimeSource,
+    ) -> Result<Self, StartFailure> {
         iroha_genesis::init_instruction_registry();
         let PreparedTestChainConfig {
             genesis: validated_genesis,
@@ -482,8 +511,8 @@ impl CertifiedTestChain {
         .map_err(|error| invalid(format!("original prepared manifest: {error:#}")))?;
         let genesis = validated_genesis.block().clone();
         let chain_id = manifest.chain_id().clone();
-        let epoch = super::epoch::authenticated_genesis(&genesis)
-            .map(|genesis| genesis.into_parts().0)
+        let (epoch, root_scope) = super::epoch::authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts())
             .map_err(|error| {
                 match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
                     invalid(error.to_string())
@@ -557,14 +586,13 @@ impl CertifiedTestChain {
             )
             .expect("fixture committee admits");
         let shared: SharedCrypto = crypto.clone();
-        let instance =
-            root_instance(&genesis, &chain_id.to_string()).map_err(|error| match error {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
-                    error: TestChainError::Deferred(reason),
-                    state: Arc::clone(&state),
-                },
-            })?;
+        let instance = root_instance(&genesis, chain_id.as_ref()).map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
+                error: TestChainError::Deferred(reason),
+                state: Arc::clone(&state),
+            },
+        })?;
         let availability: Arc<dyn AvailabilitySchedule> = Arc::new(
             super::runtime_availability::NativeGlobalAvailability::new(
                 Arc::clone(&state),
@@ -578,12 +606,16 @@ impl CertifiedTestChain {
             Arc::clone(&kura),
             shared,
             GENESIS_HEIGHT,
+            root_scope,
             staging.clone(),
             state.ivm_execution_budget(),
             Arc::clone(&availability),
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
+        #[cfg(test)]
+        let execution_time_source = time_source.clone();
         let executor = StateExecutor::spawn(ExecutorContext {
+            time_source,
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -598,6 +630,7 @@ impl CertifiedTestChain {
             events,
             genesis_account: genesis_account.clone(),
             consensus_mode: consensus_mode.into(),
+            root_scope,
             applied: (GENESIS_HEIGHT, tip.block_hash),
             crypto: Some(Arc::clone(&crypto)),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
@@ -623,12 +656,25 @@ impl CertifiedTestChain {
             availability,
             signers,
             validators,
+            npos_beacon_signers: None,
             crypto,
             instance,
             tip: (GENESIS_HEIGHT, tip.block_hash, tip.result),
             clock,
+            execution_clock: None,
+            #[cfg(test)]
+            execution_time_source,
             lane_blocks,
         })
+    }
+
+    /// Original immutable scope from the independently validated signed genesis bundle.
+    #[must_use]
+    pub fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.validated_genesis
+            .consensus_metadata()
+            .sumeragi_context
+            .root_scope
     }
 
     /// Replay the exact certified suffix of another chain through startup's native executor.
@@ -640,6 +686,13 @@ impl CertifiedTestChain {
     /// Foreign genesis/prefix, invalid original certificate, custody failure, or a replay result
     /// that differs from the certified execution. No replacement certificate is produced.
     pub fn replay_from(&mut self, source: &Self) -> Result<(), String> {
+        self.replay_through(source, source.height())
+    }
+
+    fn replay_through(&mut self, source: &Self, through: u64) -> Result<(), String> {
+        if through < self.height() || through > source.height() {
+            return Err("native replay height is outside the original certified suffix".into());
+        }
         if self.network_id() != source.network_id()
             || self.state.chain_id_ref() != source.state.chain_id_ref()
         {
@@ -655,7 +708,7 @@ impl CertifiedTestChain {
         {
             return Err("native replay prefix differs from the original applied State".into());
         }
-        for height in self.height() + 1..=source.height() {
+        for height in self.height() + 1..=through {
             let original = certified
                 .certified(height)
                 .map_err(|error| error.to_string())?;
@@ -699,21 +752,82 @@ impl CertifiedTestChain {
     /// this fixture does not claim transaction-driven ceremony or live-network qualification.
     /// The returned chain is ready to execute its ordinary exact-quorum boundary work at 10.
     pub fn npos_boundary_fixture() -> Self {
-        Self::npos_boundary_fixture_with_currency(true)
+        Self::npos_boundary_fixture_with_currency(true, false, true)
+    }
+
+    /// Build the real NPoS boundary fixture with an explicit genesis grant for AMX registration.
+    /// The original genesis authority may then register independently authenticated private roots.
+    /// DKG remains explicit proved component prestate, as in [`Self::npos_boundary_fixture`].
+    pub fn npos_amx_boundary_fixture() -> Self {
+        Self::npos_boundary_fixture_with_currency(true, true, true)
+    }
+
+    /// Replay the original first AMX NPoS boundary, including its explicit seeded DKG prestate.
+    ///
+    /// The prestate is a component fixture, not a transaction-driven ceremony. Its original
+    /// randomized encrypted transcript is reverified into the destination pool at H8, then
+    /// the exact original H9 pulse and H10 boundary replay through normal certificate checks.
+    ///
+    /// # Errors
+    /// A different fixture history, absent original DKG, original-pool refusal or failed replay.
+    pub fn restore_npos_amx_boundary_fixture(source: &Self) -> Result<Self, String> {
+        if source.height() != 10 {
+            return Err("first boundary replay requires exact original H10".into());
+        }
+        let mut restored = Self::npos_boundary_fixture_with_currency(true, true, false);
+        restored.replay_through(source, 8)?;
+        let view = source.state.view();
+        let id = *view
+            .world()
+            .global_beacon_active_session()
+            .get(&crate::state::GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
+            .ok_or("original component DKG active identity absent")?;
+        let original = view
+            .world()
+            .global_beacon_key_sessions()
+            .get(&id)
+            .ok_or("original component DKG record absent")?;
+        let record = original.session.record();
+        let binding = crate::beacon::GlobalThresholdBeaconSessionBindingV1 {
+            network_id: record.network_id,
+            session_id: record.session_id,
+            roster_hash: record.roster_hash,
+            transcript_hash: record.transcript_hash,
+        };
+        let session = crate::beacon::validate_global_threshold_beacon_session_v1(
+            record,
+            &binding,
+            &restored.state.ivm_execution_budget(),
+        )
+        .map_err(|error| error.to_string())?;
+        let original = crate::beacon::RetainedFinalizedGlobalThresholdBeaconSessionV1 {
+            session,
+            activated_at_height: original.activated_at_height,
+            retired_at_height: original.retired_at_height,
+        };
+        drop(view);
+        let prestate_time = 2_000.max(restored.committed(8).block_time_ms() + 1);
+        restored.setup_world_at(prestate_time, |transaction| {
+            transaction
+                .world
+                .global_beacon_key_sessions
+                .insert(id, original);
+            transaction
+                .world
+                .global_beacon_active_session
+                .insert(crate::state::GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, id);
+        });
+        restored.replay_from(source)?;
+        Ok(restored)
     }
 
     /// Build the same authentic prefix with or without the currency in signed genesis.
     /// The absent case reaches the real boundary check without corrupting World indexes.
-    fn npos_boundary_fixture_with_currency(include_currency: bool) -> Self {
-        use crate::beacon::{
-            GlobalThresholdBeaconPartialSignerV1 as _, GlobalThresholdBeaconPulseAggregatorV1,
-            RetainedFinalizedGlobalThresholdBeaconSessionV1,
-            prepared_session_and_signers_fixture_for_keys_v1,
-        };
-        use iroha_data_model::consensus::{
-            GLOBAL_THRESHOLD_BEACON_VERSION_V1, GlobalThresholdBeaconChainAnchorV1,
-            GlobalThresholdBeaconDkgSessionV1, GlobalThresholdBeaconPulseContextV1,
-        };
+    fn npos_boundary_fixture_with_currency(
+        include_currency: bool,
+        allow_amx_registration: bool,
+        advance: bool,
+    ) -> Self {
         use iroha_data_model::{
             asset::{AssetBalancePolicy, AssetDefinition},
             isi::Register,
@@ -721,6 +835,15 @@ impl CertifiedTestChain {
         use iroha_primitives::numeric::NumericSpec;
         let mut config = TestChainConfig::new(World::new(), 1_000);
         config.consensus_mode = SumeragiConsensusMode::Npos;
+        if allow_amx_registration {
+            config.genesis_instructions.push(
+                iroha_data_model::isi::Grant::account_permission(
+                    iroha_executor_data_model::permission::parameter::CanSetParameters,
+                    AccountId::new(config.genesis_key.public_key().clone()),
+                )
+                .into(),
+            );
+        }
         let policy = SumeragiNposParameters {
             epoch_length_blocks: NonZeroU64::new(10).unwrap(),
             epoch_seed: [0x61; 32],
@@ -750,15 +873,57 @@ impl CertifiedTestChain {
             Parameter::Custom(policy.into_custom_parameter()),
         ]);
         let mut chain = Self::start(config).expect("actual signed NPoS genesis");
-        while chain.height() < 8 {
-            chain.commit(Vec::new());
+        if advance {
+            chain.advance_to_npos_pre_boundary_fixture();
         }
-        let current = chain
+        chain
+    }
+
+    /// Advance this native NPoS component fixture to its next real pre-boundary pulse.
+    /// The adaptive DKG session is proved but seeded as explicit component prestate;
+    /// ordinary authored fixture work advances earlier heights. This helper makes no
+    /// transaction-driven DKG or idle-liveness claim. Subsequent retained epochs use
+    /// that same installed transcript and its original zeroizing signing providers.
+    /// Public chain replay does not restore private signing custody.
+    ///
+    /// # Panics
+    /// Missing NPoS authority or signing custody, changed fixture validators or an invalid real pulse.
+    pub fn advance_to_npos_pre_boundary_fixture(&mut self) {
+        use crate::beacon::{
+            GlobalThresholdBeaconPartialSignerV1 as _, GlobalThresholdBeaconPulseAggregatorV1,
+            RetainedFinalizedGlobalThresholdBeaconSessionV1,
+            prepared_session_and_signers_fixture_for_keys_v1,
+        };
+        use iroha_data_model::{
+            consensus::{
+                GLOBAL_THRESHOLD_BEACON_VERSION_V1, GlobalThresholdBeaconChainAnchorV1,
+                GlobalThresholdBeaconDkgSessionV1, GlobalThresholdBeaconPulseContextV1,
+            },
+            sumeragi::epoch::{BeaconEpochBindingV1, InstalledBeaconEpochBindingV1},
+        };
+        let boundary = self
             .state
             .view()
             .world()
             .consensus_schedule()
-            .ready(9)
+            .ready(self.height() + 1)
+            .unwrap()
+            .epoch
+            .authorization
+            .last_height;
+        assert!(
+            boundary >= self.height() + 2,
+            "fixture needs the next pre-boundary height"
+        );
+        while self.height() < boundary - 2 {
+            self.commit(Vec::new());
+        }
+        let current = self
+            .state
+            .view()
+            .world()
+            .consensus_schedule()
+            .ready(boundary - 1)
             .unwrap()
             .epoch
             .clone();
@@ -779,55 +944,101 @@ impl CertifiedTestChain {
                 .map(|member| member.validator.clone())
                 .collect::<Vec<_>>()
         );
-        let id: [u8; 32] =
-            iroha_crypto::Hash::new(b"native original BLS boundary fixture DKG").into();
-        let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
-            GlobalThresholdBeaconDkgSessionV1 {
-                version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
-                network_id: chain.network_id(),
+        if self.npos_beacon_signers.is_none() {
+            assert_eq!(
+                current.authorization.beacon,
+                BeaconEpochBindingV1::Bootstrap,
+                "an installed beacon requires its original private signing custody"
+            );
+            let id = iroha_crypto::Hash::new(b"native original BLS boundary fixture DKG").into();
+            let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
+                GlobalThresholdBeaconDkgSessionV1 {
+                    version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
+                    network_id: self.network_id(),
+                    session_id: id,
+                    attempt_id: id,
+                    authority_generation: current.authorization.authority_generation,
+                    roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                    committee_size: 4,
+                    threshold: 2,
+                    start_height: current.authorization.first_height,
+                    commitments_end_height: current.authorization.first_height + 1,
+                    deliveries_end_height: current.authorization.first_height + 2,
+                    acceptances_end_height: current.authorization.first_height + 3,
+                },
+                &pairs,
+                &self.state().ivm_execution_budget(),
+            );
+            let mut record = RetainedFinalizedGlobalThresholdBeaconSessionV1 {
+                session,
+                activated_at_height: None,
+                retired_at_height: None,
+            };
+            record
+                .activate(record.session.adaptive_dkg.finalized_at_height)
+                .unwrap();
+            let prestate_time = 2_000.max(self.committed(self.height()).block_time_ms() + 1);
+            self.setup_world_at(prestate_time, |transaction| {
+                transaction
+                    .world
+                    .global_beacon_key_sessions
+                    .insert(id, record);
+                transaction
+                    .world
+                    .global_beacon_active_session
+                    .insert(crate::state::GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, id);
+            });
+            self.npos_beacon_signers = Some(signers);
+        }
+        // Read authority from the current native World. Providers only supply the exact
+        // original shares: signing and native pulse admission both verify this session.
+        let session = {
+            let view = self.state.view();
+            let world = view.world();
+            let id = world
+                .active_global_beacon_key_session()
+                .expect("fixture has an installed beacon");
+            let record = world
+                .global_beacon_key_sessions()
+                .get(&id)
+                .expect("fixture has the original installed session");
+            assert!(
+                record.is_active_at(boundary - 1),
+                "original beacon lifecycle must still authorize height {}: activated {:?}, retired {:?}",
+                boundary - 1,
+                record.activated_at_height,
+                record.retired_at_height,
+            );
+            assert!(
+                record.session.adaptive_dkg.finalized_at_height <= boundary - 2,
+                "original DKG must be finalized before its pulse parent"
+            );
+            assert_eq!(
+                record.session.adaptive_dkg.session.authority_generation,
+                current.authorization.authority_generation
+            );
+            let installed = BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
                 session_id: id,
-                attempt_id: id,
-                authority_generation: current.authorization.authority_generation,
-                roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
-                committee_size: 4,
-                threshold: 2,
-                start_height: 1,
-                commitments_end_height: 2,
-                deliveries_end_height: 3,
-                acceptances_end_height: 4,
-            },
-            &pairs,
-            &chain.state().ivm_execution_budget(),
-        );
-        let mut record = RetainedFinalizedGlobalThresholdBeaconSessionV1 {
-            session: session.clone(),
-            activated_at_height: None,
-            retired_at_height: None,
+                transcript_hash: record.session.transcript_hash,
+            });
+            assert!(
+                current.authorization.beacon == BeaconEpochBindingV1::Bootstrap
+                    || current.authorization.beacon == installed,
+                "fixture signing session must match the native epoch authorization"
+            );
+            record.session.clone()
         };
-        record
-            .activate(session.record().adaptive_dkg.finalized_at_height)
-            .unwrap();
-        chain.setup_world_at(2_000, |transaction| {
-            transaction
-                .world
-                .global_beacon_key_sessions
-                .insert(id, record);
-            transaction
-                .world
-                .global_beacon_active_session
-                .insert(crate::state::GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, id);
-        });
-        let parent = chain.committed(8);
+        let parent = self.committed(boundary - 2);
         let epoch = super::schedule::core_epoch(&current).unwrap().id;
         let mut aggregate = GlobalThresholdBeaconPulseAggregatorV1::new(
             session,
-            9,
+            boundary - 1,
             GlobalThresholdBeaconChainAnchorV1 {
-                height: 8,
+                height: boundary - 2,
                 block_hash: parent.block_hash(),
             },
             GlobalThresholdBeaconPulseContextV1 {
-                instance: chain.instance.0,
+                instance: self.instance.0,
                 epoch: epoch.epoch,
                 epoch_context_id: epoch.context.0,
                 parent_consensus_hash: parent.core_hash().0,
@@ -835,17 +1046,32 @@ impl CertifiedTestChain {
             },
         )
         .unwrap();
-        for signer in signers.iter().take(2) {
+        for signer in self.npos_beacon_signers.as_ref().unwrap().iter().take(2) {
             let partial = signer
                 .sign_partial(aggregate.session(), aggregate.payload())
                 .unwrap();
             aggregate.accept_partial(partial).unwrap();
         }
         let pulse = aggregate.finalize().unwrap();
-        let control = super::epoch_beacon::control::encode(Some(pulse)).unwrap();
-        chain.commit_with_control(None, Vec::new(), Signers::Quorum, control);
-        assert_eq!(chain.height(), 9);
-        chain
+        assert_eq!(
+            pulse.transcript_hash,
+            aggregate.session().record().transcript_hash,
+            "the actual original pulse must retain its verified transcript"
+        );
+        let installed = BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+            session_id: pulse.session_id,
+            transcript_hash: pulse.transcript_hash,
+        });
+        assert!(
+            current.authorization.beacon == BeaconEpochBindingV1::Bootstrap
+                || current.authorization.beacon == installed,
+            "the actual pulse must match the authenticated epoch binding: current {:?}, pulse {:?}",
+            current.authorization.beacon,
+            installed,
+        );
+        let control = super::epoch_beacon::control::encode(Some(pulse).as_ref()).unwrap();
+        self.commit_with_control(None, Vec::new(), Signers::Quorum, control);
+        assert_eq!(self.height(), boundary - 1);
     }
 
     /// The State the chain applies to.
@@ -942,7 +1168,12 @@ impl CertifiedTestChain {
         transactions: Vec<SignedTransaction>,
         signers: Signers,
     ) -> Vec<bool> {
-        self.commit_with_control(time_ms, transactions, signers, Default::default())
+        self.commit_with_control(
+            time_ms,
+            transactions,
+            signers,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute and certify a block with its separately authenticated control witness.
@@ -1043,7 +1274,7 @@ impl CertifiedTestChain {
         let accepted = transactions
             .into_iter()
             .map(|tx| {
-                let accepted = AcceptedTransaction::accept_with_time_source(
+                AcceptedTransaction::accept_with_time_source(
                     tx,
                     &self.network_id(),
                     Duration::from_secs(1),
@@ -1051,14 +1282,14 @@ impl CertifiedTestChain {
                     &iroha_config::parameters::actual::Crypto::default(),
                     &time_source,
                 )
-                .expect("the fixture transaction is accepted");
-                accepted
+                .expect("the fixture transaction is accepted")
             })
             .collect::<Vec<_>>();
         let assembly = Assembly {
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: std::time::Duration::ZERO,
         };
         let proposal = payload::assemble_with_merges(&self.state, assembly, &accepted, &merges)
             .expect("assembly");
@@ -1094,12 +1325,16 @@ impl CertifiedTestChain {
             .ready(self.height() + 1)
             .expect("authenticated successor schedule");
         let cadence = Duration::from_millis(schedule.params.block_time_ms);
+        let merges =
+            crate::sumeragi::lanes::merge::propose(&view, &*self.lane_blocks, self.height() + 1)
+                .expect("original lane store is available while building fixture proposal");
         let validation_time = crate::block::creation_time_after_inputs(
             parent
                 .header()
                 .creation_time()
                 .checked_add(cadence)
-                .expect("fixture time fits"),
+                .expect("fixture time fits")
+                .max(Duration::from_millis(merges.time_floor_ms)),
             &entrypoints,
         )
         .expect("fixture input time fits");
@@ -1117,14 +1352,17 @@ impl CertifiedTestChain {
                 .expect("original entrypoint admission")
             })
             .collect::<Vec<_>>();
-        payload::assemble(
+        drop(view);
+        payload::assemble_with_merges(
             &self.state,
             Assembly {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &accepted,
+            &merges,
         )
         .expect("original entrypoint assembly")
     }
@@ -1138,7 +1376,11 @@ impl CertifiedTestChain {
         entrypoints: Vec<iroha_data_model::transaction::TransactionEntrypoint>,
     ) -> CommittedBlock {
         let proposal = self.proposal_entrypoints(entrypoints);
-        self.commit_proposal(proposal, Signers::Quorum, Default::default())
+        self.commit_proposal(
+            proposal,
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute, certify, publish and apply one original resultless proposal through the same
@@ -1162,6 +1404,19 @@ impl CertifiedTestChain {
             .expect("original execution publishes")
     }
 
+    /// The actual injected clock shared with the chain's native executor.
+    #[cfg(test)]
+    pub(crate) fn execution_time_source(&self) -> TimeSource {
+        self.execution_time_source.clone()
+    }
+
+    /// Set the fixture clock to a genuinely constructed proposal's canonical timestamp.
+    pub(crate) fn set_execution_time(&self, time: Duration) {
+        if let Some(clock) = &self.execution_clock {
+            clock.set(time);
+        }
+    }
+
     /// Retain one actual Worker execution before certification or publication.
     /// The returned owner exclusively borrows the chain until it is published or discarded.
     ///
@@ -1172,6 +1427,7 @@ impl CertifiedTestChain {
         proposal: SignedBlock,
         control_witness: iroha_sumeragi::types::ControlWitness,
     ) -> Result<PendingTestExecution<'_>, String> {
+        self.set_execution_time(proposal.header().creation_time());
         let height = self.tip.0 + 1;
         assert_eq!(
             proposal.header().height().get(),
@@ -1208,8 +1464,8 @@ impl CertifiedTestChain {
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
-        let result = match self.executor.execute(&block, &block_hash) {
-            Some(ExecOutcome::Valid(result)) => result,
+        let result = match self.executor.execute(&block, &block_hash, false) {
+            Ok(Some(ExecOutcome::Valid { result, .. })) => result,
             other => {
                 use iroha_data_model::events::{
                     EventBox,
@@ -1236,6 +1492,7 @@ impl CertifiedTestChain {
             block_hash,
             result,
             certificate: None,
+            appended: false,
             published: None,
         })
     }
@@ -1282,7 +1539,8 @@ impl CertifiedTestChain {
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
-                    .sign(&vote.preimage());
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -1311,7 +1569,8 @@ impl CertifiedTestChain {
                     block_hash,
                     result,
                     signers: signers_bitmap,
-                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs),
+                    agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs)
+                        .expect("genuine fixture signatures aggregate"),
                 }
             }
         }
@@ -1373,8 +1632,11 @@ impl CertifiedTestChain {
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 draft.payload(),
                 created_ms,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original committed fixture time"),
                 self.height() + 1,
                 Some(dataspace_id),
             )
@@ -1408,6 +1670,7 @@ pub struct PendingTestExecution<'chain> {
     block_hash: Hash32,
     result: Hash32,
     certificate: Option<(Signers, Qc)>,
+    appended: bool,
     published: Option<CommittedBlock>,
 }
 
@@ -1437,14 +1700,11 @@ impl PendingTestExecution<'_> {
             return Err("published source cannot prepare another inspection".into());
         }
         self.prepare(signers)?;
+        self.append_prepared().map_err(|error| error.to_string())?;
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("original certificate retained");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .prepare_publication_for_inspection(&self.block, qc)
@@ -1527,6 +1787,69 @@ impl PendingTestExecution<'_> {
         }
     }
 
+    /// Retain the actual prepared source handles for an append scheduler control.
+    #[cfg(test)]
+    pub(crate) fn prepared_commit_for_test(&self) -> super::driver::exec::Commit {
+        super::driver::exec::Commit {
+            block: self.block.clone(),
+            qc: self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+                .clone(),
+        }
+    }
+
+    /// Drive the real executor-thread append boundary for this exact original source.
+    #[cfg(test)]
+    pub(crate) fn run_original_append_for_test(
+        &mut self,
+        commit: Arc<super::driver::exec::Commit>,
+    ) -> super::driver::exec::ExecDone {
+        assert_eq!(commit.block, self.block);
+        assert_eq!(
+            &commit.qc,
+            &self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+        );
+        let done = super::driver::run_original_append_for_test(
+            &mut self.chain.executor,
+            &self.chain.blocks,
+            commit,
+        );
+        if matches!(
+            done,
+            super::driver::exec::ExecDone::Appended { durable: true, .. }
+        ) {
+            self.appended = true;
+        }
+        done
+    }
+
+    /// Durably append the exact prepared frame through the real Kura block store.
+    /// This separate fixture phase follows the driver's append-before-commit ordering;
+    /// retries after durability publish the retained overlay without another authority read.
+    ///
+    /// # Errors
+    /// The original certificate is not prepared, or its actual storage attempt refuses.
+    pub fn append_prepared(
+        &mut self,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        let (_, qc) = self.certificate.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "original certificate is not prepared",
+            )
+        })?;
+        self.chain.blocks.append(&self.block, qc)?;
+        self.appended = true;
+        Ok(())
+    }
+
     /// Persist and publish this exact original execution. Repeated completion returns the
     /// original committed block without repeating State changes or event delivery.
     ///
@@ -1544,14 +1867,13 @@ impl PendingTestExecution<'_> {
             return Ok(published.clone());
         }
         self.prepare(signers)?;
+        if !self.appended {
+            self.append_prepared().map_err(|error| error.to_string())?;
+        }
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("prepared original certificate");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .commit(&self.block, qc)
@@ -1671,7 +1993,7 @@ pub(super) fn prepare_configured_genesis(
             state.set_crypto(crypto.clone());
         }
         state.set_pipeline(pipeline.clone());
-        state.set_fraud_monitoring(fraud_monitoring.clone());
+        state.install_node_fraud_monitoring(fraud_monitoring.clone());
         let nexus = state.nexus_snapshot();
         let manifests = lane_manifests.cloned().unwrap_or_else(|| {
             Arc::new(LaneManifestRegistry::empty().rebind(&nexus.lane_catalog, &nexus.governance))
@@ -1786,14 +2108,22 @@ fn validate_fixture_genesis_policy(
     attempt: u8,
 ) -> Result<Option<(iroha_crypto::Hash, iroha_crypto::Hash)>, Box<crate::block::BlockValidationError>>
 {
-    let validation = crate::block::ValidBlock::validate_signed_genesis(
-        genesis,
-        topology,
-        account,
-        &TimeSource::new_system(),
-        state,
-        mode,
-    )
+    let validation = {
+        let selected_genesis = genesis;
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        crate::block::ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            topology,
+            account,
+            &TimeSource::new_system(),
+            state,
+            mode,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     match validation {
         Ok((valid, overlay)) => {
@@ -2159,7 +2489,7 @@ mod tests {
 
         // Omit the currency in the original signed genesis. Removing an authenticated
         // live definition would violate AXT incarnation custody before boundary execution.
-        let mut chain = CertifiedTestChain::npos_boundary_fixture_with_currency(false);
+        let mut chain = CertifiedTestChain::npos_boundary_fixture_with_currency(false, false, true);
         let currency = chain
             .state()
             .view()
@@ -2180,7 +2510,9 @@ mod tests {
         );
         let original = chain.committed(9);
         let proposal = chain.proposal(None, Vec::new());
-        let error = match chain.begin_proposal(proposal, Default::default()) {
+        let error = match chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        {
             Ok(_) => panic!("absent currency cannot authorize the native boundary"),
             Err(error) => error,
         };
@@ -2241,7 +2573,8 @@ mod tests {
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         initial.commit();
         config.genesis_instructions.push(
             RegisterPublicLaneValidator {
@@ -2250,7 +2583,7 @@ mod tests {
                 peer_id: peer.clone(),
                 stake_account: validator.clone(),
                 initial_stake: amount.clone(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                     source_asset.clone(),
                     escrow_asset.clone(),
@@ -2452,14 +2785,23 @@ mod tests {
                 if hash == HashOf::new(&expected) && actual == Some(HashOf::new(&wrong_policy))
         ));
         {
-            let validation = crate::block::ValidBlock::validate_signed_genesis(
-                wrong,
-                &topology,
-                &AccountId::new(key.public_key().clone()),
-                &TimeSource::new_system(),
-                &prepared.state,
-                ConsensusMode::Permissioned,
-            )
+            let validation = {
+                let selected_genesis = wrong;
+                let selected_scope =
+                    crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+                        .expect("signed fixture root scope")
+                        .into_parts()
+                        .1;
+                crate::block::ValidBlock::validate_signed_genesis(
+                    selected_genesis,
+                    &topology,
+                    &AccountId::new(key.public_key().clone()),
+                    &TimeSource::new_system(),
+                    &prepared.state,
+                    ConsensusMode::Permissioned,
+                    selected_scope,
+                )
+            }
             .unpack(|_| {});
             let (rejected, error) = match validation {
                 Ok(_) => panic!("signed policy outside the configured catalog must be rejected"),
@@ -2691,10 +3033,11 @@ mod tests {
                 Some(20_000),
                 Vec::new(),
                 Signers::Quorum,
-                Default::default(),
+                iroha_sumeragi::types::ControlWitness::default(),
                 |proposal| {
                     let mut context = proposal.execution_context().cloned().unwrap_or_default();
-                    context.lane_merge = Some(Default::default());
+                    context.lane_merge =
+                        Some(iroha_data_model::sumeragi_lanes::SumeragiLaneMergeSection::default());
                     proposal.set_execution_context(Some(context));
                 },
             );

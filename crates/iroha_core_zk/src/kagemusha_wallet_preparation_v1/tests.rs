@@ -199,6 +199,33 @@ fn load_originals() -> (Vec<KagemushaWalletRetainedInputV1>, [u8; 32]) {
 }
 
 #[test]
+fn retained_load_conversion_preserves_original_refusal_and_retry() {
+    let (inputs, digest) = load_originals();
+    let expected = retained_load_source(&inputs, digest).unwrap();
+    let unchanged = inputs.clone();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let error =
+            norito::with_decode_limits_scope(limits, || retained_load_source(&inputs, digest))
+                .unwrap_err();
+        assert!(
+            matches!(error, wallet_state::Error::DecodeResource(ref original)
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
+        );
+        assert_eq!(inputs, unchanged);
+        assert_eq!(retained_load_source(&inputs, digest).unwrap(), expected);
+    }
+    let mut malformed = inputs.clone();
+    malformed[1].bytes = vec![0];
+    assert!(matches!(
+        retained_load_source(&malformed, digest),
+        Err(wallet_state::Error::Proof(_))
+    ));
+}
+
+#[test]
 fn load_original_conversion_preserves_native_certificates_without_granting_finality() {
     let (inputs, digest) = load_originals();
     let (receipt, source) = retained_load_source(&inputs, digest).unwrap();
@@ -235,4 +262,69 @@ fn load_original_conversion_rejects_lost_ambiguous_corrupt_or_cross_receipt_cust
     finality.receipt_digest = Fp::ONE.to_repr();
     cross_finality[1].bytes = finality.to_canonical_bytes().unwrap();
     assert!(retained_load_source(&cross_finality, digest).is_err());
+}
+
+#[test]
+fn authority_original_readers_preserve_real_refusal_and_exact_retry() {
+    let all: norito::json::Value = norito::json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kagemusha/wallet_v1_vectors.json"
+    )))
+    .unwrap();
+    let bytes = |name: &str| {
+        let row = all["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["type"].as_str() == Some(name))
+            .unwrap();
+        hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()
+    };
+    let scheme: KagemushaWalletSchemeV1 =
+        norito::decode_canonical(&bytes("KagemushaWalletSchemeV1")).unwrap();
+    let manifest_bytes = bytes("KagemushaWalletArtifactManifestV1");
+    let manifest =
+        KagemushaWalletArtifactManifestV1::decode_canonical(&manifest_bytes, &scheme).unwrap();
+    let allowlist = bytes("KagemushaWalletVerifyingKeyAllowlistV1");
+    let credential = bytes("KagemushaWalletCredentialV1");
+    let certificate = bytes("KagemushaWalletSignerCertificateV1");
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    macro_rules! check {
+        ($read:expr) => {{
+            let expected = read_model($read).unwrap();
+            let error = norito::with_decode_limits_scope(limits, || read_model($read)).unwrap_err();
+            assert!(matches!(error, Error::DecodeResource(ref original)
+                if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            assert_eq!(read_model($read).unwrap(), expected);
+        }};
+    }
+    check!(|| KagemushaWalletArtifactManifestV1::decode_canonical(&manifest_bytes, &scheme));
+    check!(|| KagemushaWalletVerifyingKeyAllowlistV1::decode_canonical(&allowlist, &manifest.body));
+    check!(|| KagemushaWalletCredentialV1::decode_canonical(&credential, &scheme.scheme_id()));
+    check!(|| KagemushaWalletSignerCertificateV1::decode_canonical(&certificate, &scheme));
+    assert!(matches!(
+        read_model(|| KagemushaWalletCredentialV1::decode_canonical(&[0], &scheme.scheme_id())),
+        Err(Error::Authority)
+    ));
+    let original = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let error = norito::with_decode_limits_scope(limits, || {
+        read_original(|| {
+            norito::decode_canonical_with_limits::<Vec<u8>>(
+                &original,
+                norito::canonical_decode_limits(original.len()),
+            )
+        })
+    })
+    .unwrap_err();
+    assert!(matches!(error, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(
+        read_original(|| norito::decode_canonical_with_limits::<Vec<u8>>(
+            &original,
+            norito::canonical_decode_limits(original.len())
+        ))
+        .unwrap(),
+        vec![7; 128]
+    );
 }

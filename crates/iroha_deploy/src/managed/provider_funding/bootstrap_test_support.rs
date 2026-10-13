@@ -158,9 +158,11 @@ impl ProviderFundingBootstrap {
         let signed = capacity
             .funding_prepare(
                 policy,
-                &credit_stage.partition,
-                &intent.record,
-                verifier.checkpoint().height(),
+                crate::managed::provider_capacity::FundingSelection {
+                    partition: &credit_stage.partition,
+                    credit: &intent.record,
+                    minimum_height: verifier.checkpoint().height(),
+                },
                 child_utc,
                 &child_options,
                 &current,

@@ -66,8 +66,7 @@ impl Recorder {
         generation: u16,
         index: u32,
         write: bool,
-        before: u64,
-        after: u64,
+        [before, after]: [u64; 2],
     ) {
         let mut packet = NativePacket::zero();
         packet.space = space as u8;
@@ -84,10 +83,8 @@ impl Recorder {
         clock: usize,
         index: usize,
         write: bool,
-        before: u64,
-        after: u64,
-        before_tag: bool,
-        after_tag: bool,
+        (before, before_tag): (u64, bool),
+        (after, after_tag): (u64, bool),
     ) {
         if write && index == 0 {
             return;
@@ -147,8 +144,7 @@ impl Recorder {
             0,
             33,
             true,
-            before,
-            before - cost,
+            [before, before - cost],
         );
         self.gas_stage += 1;
         Ok(())
@@ -244,11 +240,18 @@ impl IVM {
         };
         // The VM was constructed here and has never been exposed to a caller.
         // Only these nonzero initial cells exist before native root installation.
-        recorder.word(0, PacketSpace::Owner, 0, 33, true, 0, initial_gas);
-        recorder.word(1, PacketSpace::Owner, 0, 32, true, 0, vm.pc);
-        recorder.word(2, PacketSpace::Owner, 0, 35, true, 0, 1);
-        recorder.word(3, PacketSpace::Owner, 0, 20, true, 0, vm.memory.stack_top());
-        recorder.word(4, PacketSpace::Owner, 0, 21, true, 0, Memory::HEAP_START);
+        recorder.word(0, PacketSpace::Owner, 0, 33, true, [0, initial_gas]);
+        recorder.word(1, PacketSpace::Owner, 0, 32, true, [0, vm.pc]);
+        recorder.word(2, PacketSpace::Owner, 0, 35, true, [0, 1]);
+        recorder.word(
+            3,
+            PacketSpace::Owner,
+            0,
+            20,
+            true,
+            [0, vm.memory.stack_top()],
+        );
+        recorder.word(4, PacketSpace::Owner, 0, 21, true, [0, Memory::HEAP_START]);
         vm.native_packets = Some(recorder);
         // Syscalls are refused at fetch before base gas or a host callback.
         // The ordinary no-argument root needs no host-provided input.
@@ -298,10 +301,8 @@ impl IVM {
                 16 + offset,
                 register,
                 true,
-                0,
-                self.registers.get(register),
-                false,
-                self.registers.tag(register),
+                (0, false),
+                (self.registers.get(register), self.registers.tag(register)),
             );
         }
         recorder.word(
@@ -310,14 +311,16 @@ impl IVM {
             0,
             21,
             true,
-            Memory::HEAP_START,
-            Memory::HEAP_START + self.memory.heap_allocated_len(),
+            [
+                Memory::HEAP_START,
+                Memory::HEAP_START + self.memory.heap_allocated_len(),
+            ],
         );
         // The bounded profile has exactly one successful frame generation. It
         // belongs to this run's optional owner, never to caller input or depth.
-        recorder.word(24, PacketSpace::Owner, 0, 1, true, 0, 1);
-        recorder.word(25, PacketSpace::Owner, 0, 0, true, 0, 1);
-        recorder.word(26, PacketSpace::Owner, 1, 2, true, 0, 0);
+        recorder.word(24, PacketSpace::Owner, 0, 1, true, [0, 1]);
+        recorder.word(25, PacketSpace::Owner, 0, 0, true, [0, 1]);
+        recorder.word(26, PacketSpace::Owner, 1, 2, true, [0, 0]);
         for (index, value) in recorder.descriptor.into_iter().enumerate() {
             recorder.word(
                 32 + index,
@@ -325,8 +328,7 @@ impl IVM {
                 1,
                 4 + index as u32,
                 true,
-                0,
-                value,
+                [0, value],
             );
         }
         recorder.word(
@@ -335,9 +337,11 @@ impl IVM {
             1,
             12,
             true,
-            0,
-            self.contract_outer_return_pc
-                .expect("root sentinel installed"),
+            [
+                0,
+                self.contract_outer_return_pc
+                    .expect("root sentinel installed"),
+            ],
         );
         recorder.root_committed = true;
         recorder.gas_stage = 0;
@@ -420,8 +424,7 @@ impl IVM {
                 0,
                 36,
                 false,
-                protected_depth,
-                protected_depth,
+                [protected_depth, protected_depth],
             );
         }
         recorder.word(
@@ -430,8 +433,7 @@ impl IVM {
             0,
             32,
             false,
-            self.pc,
-            self.pc,
+            [self.pc, self.pc],
         );
         recorder.word(
             first + clocks[1],
@@ -439,8 +441,7 @@ impl IVM {
             0,
             33,
             true,
-            self.gas_remaining,
-            self.gas_remaining - cost,
+            [self.gas_remaining, self.gas_remaining - cost],
         );
         let destination =
             if scalar.is_some() || matches!(opcode, wide::memory::LDI64 | wide::memory::LOAD64) {
@@ -452,7 +453,7 @@ impl IVM {
         let read = |recorder: &mut Recorder, offset, index| {
             let value = self.registers.get(index);
             let tag = self.registers.tag(index);
-            recorder.register(first + offset, index, false, value, value, tag, tag);
+            recorder.register(first + offset, index, false, (value, tag), (value, tag));
         };
         if let Some((left, right)) = scalar {
             read(recorder, clocks[15], left);
@@ -475,8 +476,7 @@ impl IVM {
                     1,
                     12,
                     false,
-                    protected,
-                    protected,
+                    [protected, protected],
                 );
             }
             _ => {}
@@ -539,8 +539,10 @@ impl IVM {
                 0,
                 36,
                 true,
-                pending.protected_depth,
-                self.contract_return_stack.len() as u64,
+                [
+                    pending.protected_depth,
+                    self.contract_return_stack.len() as u64,
+                ],
             );
         }
         if let Some((index, before, tag)) = pending.destination {
@@ -549,10 +551,8 @@ impl IVM {
                 pending.first + offset,
                 index,
                 true,
-                before,
-                self.registers.get(index),
-                tag,
-                self.registers.tag(index),
+                (before, tag),
+                (self.registers.get(index), self.registers.tag(index)),
             );
         }
         if let Some((address, before, initialized)) = pending.memory {
@@ -569,8 +569,7 @@ impl IVM {
                 1,
                 (address / 16) as u32,
                 write,
-                u64::from(initialized),
-                u64::from(after_initialized),
+                [u64::from(initialized), u64::from(after_initialized)],
             );
         }
         recorder.word(
@@ -579,8 +578,7 @@ impl IVM {
             0,
             32,
             true,
-            pending.pc,
-            self.pc,
+            [pending.pc, self.pc],
         );
         recorder.word(
             pending.first + clocks[19],
@@ -588,8 +586,7 @@ impl IVM {
             0,
             34,
             true,
-            pending.cycles,
-            self.cycles,
+            [pending.cycles, self.cycles],
         );
         recorder.word(
             pending.first + clocks[20],
@@ -597,8 +594,7 @@ impl IVM {
             0,
             35,
             true,
-            1,
-            u64::from(!self.halted),
+            [1, u64::from(!self.halted)],
         );
         #[cfg(test)]
         packets::tests::panic_if_requested();
@@ -615,10 +611,8 @@ impl IVM {
                 first + 15 + offset,
                 index,
                 false,
-                value,
-                value,
-                self.registers.tag(index),
-                self.registers.tag(index),
+                (value, self.registers.tag(index)),
+                (value, self.registers.tag(index)),
             );
         }
         for (offset, index) in [10, 11, 8, 9].into_iter().enumerate() {
@@ -629,8 +623,7 @@ impl IVM {
                 1,
                 index as u32,
                 false,
-                value,
-                value,
+                [value, value],
             );
         }
         let start = recorder.descriptor[4];
@@ -647,8 +640,7 @@ impl IVM {
                     1,
                     (address / 16) as u32,
                     false,
-                    u64::from(mask),
-                    u64::from(mask),
+                    [u64::from(mask), u64::from(mask)],
                 );
             }
         }
@@ -665,9 +657,9 @@ impl IVM {
             return;
         };
         let first = packets::RETURN_FIRST;
-        recorder.word(first + 45, PacketSpace::Owner, 0, 1, false, 1, 1);
-        recorder.word(first + 46, PacketSpace::Owner, 0, 0, true, 1, 0);
-        recorder.word(first + 47, PacketSpace::Owner, 1, 2, false, 0, 0);
+        recorder.word(first + 45, PacketSpace::Owner, 0, 1, false, [1, 1]);
+        recorder.word(first + 46, PacketSpace::Owner, 0, 0, true, [1, 0]);
+        recorder.word(first + 47, PacketSpace::Owner, 1, 2, false, [0, 0]);
         recorder.returned = true;
     }
 
@@ -681,8 +673,7 @@ impl IVM {
             0,
             33,
             true,
-            before_gas,
-            self.gas_remaining,
+            [before_gas, self.gas_remaining],
         );
         recorder.word(
             packets::PADDING_FIRST + 1,
@@ -690,8 +681,7 @@ impl IVM {
             0,
             34,
             true,
-            before_cycles,
-            self.cycles,
+            [before_cycles, self.cycles],
         );
     }
 }

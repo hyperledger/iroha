@@ -974,7 +974,7 @@ mod service_depth_tests {
         let refs = [&values[0], &values[1]];
         let source = KeySequenceRef(&refs);
         audit("[1,7]", |sink| source.json_serialize_to(sink));
-        assert!(std::ptr::eq(source.0[0], &values[0]));
+        assert!(std::ptr::eq(source.0[0], &raw const values[0]));
         let manual = RefusingLeaf {
             visits: std::cell::Cell::new(0),
         };

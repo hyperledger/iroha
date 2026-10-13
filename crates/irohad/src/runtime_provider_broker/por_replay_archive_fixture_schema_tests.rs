@@ -50,6 +50,8 @@ fn por_replay_archive_fixture_has_distinct_nominal_and_shared_root_frame() {
 
 #[test]
 fn por_replay_archive_fixture_rejects_foreign_root_frame() {
+    const SCHEMA_OFFSET: usize = 4 + 1 + 1;
+
     let record = por_replay_archive_record_fixture();
     let canonical = encode_por_replay_archive_record(&record).expect("valid production record");
     assert_eq!(
@@ -66,7 +68,6 @@ fn por_replay_archive_fixture_rejects_foreign_root_frame() {
     assert_ne!(foreign_schema, header.schema);
     let mut foreign = canonical;
     // Change only the fixed header identity. The valid payload and checksum stay exact.
-    const SCHEMA_OFFSET: usize = 4 + 1 + 1;
     foreign[SCHEMA_OFFSET..SCHEMA_OFFSET + foreign_schema.len()].copy_from_slice(&foreign_schema);
     assert!(matches!(
         norito::decode_canonical::<node::PorFinalizedReplayArchiveRecordV1>(&foreign),

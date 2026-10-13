@@ -242,11 +242,12 @@ async fn can_read_snapshot_after_writing() {
 }
 #[tokio::test]
 async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
-    let tmp_root = tempdir().expect("snapshot tempdir");
-    let store_dir = tmp_root.path().join("snapshot");
     use crate::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
     use iroha_data_model::parameter::system::SumeragiConsensusMode;
     use iroha_sumeragi::{message::Evidence as NativeEvidence, types::Hash32};
+
+    let tmp_root = tempdir().expect("snapshot tempdir");
+    let store_dir = tmp_root.path().join("snapshot");
     let mut config = TestChainConfig::new(crate::state::World::new(), 1_000);
     config.consensus_mode = SumeragiConsensusMode::Npos;
     config.genesis_parameters.push(Parameter::Custom(
@@ -274,7 +275,7 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
     chain.commit(Vec::new());
     chain.commit(Vec::new()); // H5 contains the actual finality-authorized marker.
     let state = chain.state();
-    crate::sumeragi::evidence::validate_persisted_records(&state)
+    crate::sumeragi::evidence::validate_persisted_records(state)
         .expect("original authenticated history and lifecycle");
     let original_tip = *state.view().native_execution_tip.get();
     {
@@ -294,7 +295,7 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
         original_tip,
         "negative snapshot mutation must not replace original native history"
     );
-    let invalid_lifecycle = crate::sumeragi::evidence::validate_persisted_records(&state)
+    let invalid_lifecycle = crate::sumeragi::evidence::validate_persisted_records(state)
         .expect_err("an overdue restored pending penalty must be rejected");
     assert!(
         invalid_lifecycle
@@ -1319,12 +1320,31 @@ async fn snapshot_missing_space_directory_section_rejects_without_manifest_histo
 }
 #[tokio::test]
 async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
+    use crate::state::WorldReadOnly as _;
+    use mv::storage::StorageReadOnly as _;
+
     let tmp_root = tempdir().unwrap();
     let store_dir = tmp_root.path().join("snapshot");
-    let state = state_factory();
+    let mut state = state_factory();
+    let parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
+    let mut nexus = state.nexus_snapshot();
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(
+        parameters
+            .committee_validity_ms
+            .checked_add(parameters.forgery_evidence_grace_ms)
+            .expect("fixture liability interval fits"),
+    );
+    nexus.staking.max_slash_bps = 1;
+    // The original writer and restore both use this exact pinned policy; a
+    // default delay cannot cover the retained generations' complete liability.
+    state.install_pre_genesis_nexus_for_testing(nexus);
     for seed in [1, 2] {
         let mut block = state.world.block();
-        crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(&mut block, seed);
+        crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(
+            &mut block,
+            seed,
+            &state.ivm_execution_budget(),
+        );
         block.commit();
     }
     let key_pair = checked_random_snapshot_keypair();
@@ -1365,13 +1385,15 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     let mut restored_envelope = String::new();
     crate::state::sccp_snapshot_state::serialize_envelope(&restored.world, &mut restored_envelope);
     assert_eq!(restored_envelope, original_envelope);
-    use crate::state::WorldReadOnly as _;
-    use mv::storage::StorageReadOnly as _;
     let world = restored.world.view();
-    assert_eq!(world.sccp_bridge_keys().len(), 2);
-    assert_eq!(world.sccp_rosters().len(), 2);
+    assert_eq!(world.sccp_committee_generations().len(), 2);
+    assert_eq!(world.sccp_anchor_chunks().len(), 2);
+    assert_eq!(world.sccp_anchor_open().as_slice().len(), 1);
     assert_eq!(world.sccp_block_leaves().len(), 2);
-    assert_eq!(*world.sccp_roster_current(), 2);
+    assert_eq!(*world.sccp_committee_current(), 2);
+    assert_eq!(world.sccp_block_commitments().len(), 2);
+    assert_eq!(world.sccp_history_leaves().len(), 2);
+    assert_eq!(*world.sccp_reset_nonce(), Some([3; 32]));
     assert!(world.sccp_parameters().is_some());
 }
 #[tokio::test]

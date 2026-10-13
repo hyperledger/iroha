@@ -1,12 +1,12 @@
-//! `ParamsIPA` parity: the native derivation and codec reproduce the vendored
-//! `halo2_proofs::poly::ipa::commitment::ParamsIPA::new(k)` followed by
-//! `write`, byte for byte.
+//! Parameter KATs against bytes captured before the external prover was retired.
 //!
-//! The SHA-256 digests below were exported from the vendored stack
-//! (vendor/halo2-axiom at the M1a baseline) by a scratch program that called
-//! `ParamsIPA::<EqAffine | EpAffine>::new(k).write(..)`. `iroha_pasta` cannot
-//! depend on the vendored crates; the `iroha_plonk_oracle` crate re-checks the
-//! same values directly. A changed digest is a format change, never a test
+//! The SHA-256 digests below were exported from vendor/halo2-axiom at the M1a
+//! baseline by a scratch program calling
+//! `ParamsIPA::<EqAffine | EpAffine>::new(k).write(..)`. Those sources and
+//! `iroha_plonk_oracle` are now deleted. These tests freshly derive native
+//! parameters, compare the retained digests and check the strict codec round
+//! trip. `params::tests::lagrange_basis_matches_naive_group_dft` separately
+//! checks the group IFFT. A changed digest is a format change, never a test
 //! update.
 
 use iroha_pasta::params::ParamsIpa;

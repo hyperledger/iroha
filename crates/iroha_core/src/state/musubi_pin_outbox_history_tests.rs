@@ -109,11 +109,8 @@ fn physical_failure_and_retry(kind: &str) {
         let (mut block, _recording) = recorded_network_block(&state, &source);
         let before = block.committed_fragment_count();
         let changed = ChangedHistory::new(&state, kind);
-        assert_eq!(
-            execute(&mut block, &source),
-            Err(ExecutionOutputAttemptError::Deferred(
-                ExecutionDeferral::CanonicalHistoryUnavailable.into()
-            )),
+        assert!(
+            matches!(&(execute(&mut block, &source)), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == ExecutionDeferral::CanonicalHistoryUnavailable && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none()),
             "{kind}"
         );
         assert_eq!(block.gas_used_in_block, 0);

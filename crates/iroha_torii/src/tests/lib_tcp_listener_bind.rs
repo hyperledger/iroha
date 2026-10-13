@@ -33,13 +33,17 @@ fn shutdown_guard_signals_when_start_future_is_dropped() {
 
 #[test]
 fn invalid_http_transport_is_rejected_before_serving() {
-    let mut config = ToriiHttpTransport::default();
-    config.max_connections = NonZeroUsize::new(1).expect("nonzero");
-    config.max_connections_per_ip = NonZeroUsize::new(2).expect("nonzero");
+    let config = ToriiHttpTransport {
+        max_connections: NonZeroUsize::new(1).expect("nonzero"),
+        max_connections_per_ip: NonZeroUsize::new(2).expect("nonzero"),
+        ..Default::default()
+    };
     assert!(ValidatedToriiHttpTransport::new(config).is_err());
 
-    let mut config = ToriiHttpTransport::default();
-    config.header_read_timeout = Duration::ZERO;
+    let config = ToriiHttpTransport {
+        header_read_timeout: Duration::ZERO,
+        ..Default::default()
+    };
     assert!(ValidatedToriiHttpTransport::new(config).is_err());
 }
 
@@ -309,9 +313,11 @@ async fn partial_http_head_is_closed_at_listener_deadline() {
         .await
         .expect("test listener should bind");
     let address = listener.local_addr().expect("test listener address");
-    let mut config = ToriiHttpTransport::default();
-    config.header_read_timeout = Duration::from_millis(25);
-    config.write_timeout = Duration::from_millis(100);
+    let config = ToriiHttpTransport {
+        header_read_timeout: Duration::from_millis(25),
+        write_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
     let shutdown = ShutdownSignal::new();
     let server_shutdown = shutdown.clone();
     let server = tokio::spawn(async move {
@@ -379,8 +385,10 @@ async fn shutdown_aborts_a_response_that_never_finishes() {
             }
         }),
     );
-    let mut config = ToriiHttpTransport::default();
-    config.write_timeout = Duration::from_millis(25);
+    let config = ToriiHttpTransport {
+        write_timeout: Duration::from_millis(25),
+        ..Default::default()
+    };
     let shutdown = ShutdownSignal::new();
     let server_shutdown = shutdown.clone();
     let server = tokio::spawn(async move {

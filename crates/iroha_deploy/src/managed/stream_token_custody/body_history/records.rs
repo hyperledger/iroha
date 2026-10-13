@@ -8,7 +8,7 @@ use std::borrow::Borrow;
 
 pub(super) const MAX_BODIES: u8 = 64;
 pub(super) const MAX_SELECTION_BYTES: usize = 128 * 1024;
-pub(super) const MAX_BODY_BYTES: usize = journal::MAX_ORIGINAL_BYTES + 128 * 1024;
+pub(in crate::managed) const MAX_BODY_BYTES: usize = journal::MAX_ORIGINAL_BYTES + 128 * 1024;
 pub(super) const MAX_ALL_BODY_BYTES: usize = 128 * 1024 * 1024;
 
 /// Stable native purpose and predecessor. No dispatch UTC or active body is authority here.
@@ -123,6 +123,8 @@ impl Selection {
         Ok(())
     }
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::SelectionDigest);
         attempts::semantic_digest(self, MAX_SELECTION_BYTES)
     }
 }
@@ -222,7 +224,7 @@ impl UnsignedEnrollment {
             .map_err(|_| invalid("unsigned enrollment checkpoint invalid"))?
             .verify_global_scope(
                 owner.authority.config.network_id,
-                &owner.authority.config.chain.to_string(),
+                owner.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("unsigned enrollment checkpoint changed Global scope"))
     }
@@ -351,6 +353,8 @@ pub(super) struct Reservation {
 }
 impl Reservation {
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::ReservationDigest);
         attempts::semantic_digest(self, MAX_BODY_BYTES)
     }
 }

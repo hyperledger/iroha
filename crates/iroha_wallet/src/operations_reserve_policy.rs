@@ -130,9 +130,10 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ReservePolicyExpectation<'a>(pub(super) &'a InitialReservePolicyRequest);
 impl ReservePolicyExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::InitialReservePolicy { plan, terms } = record.operation else {
             eyre::bail!("reserve journal differs from selected initial-policy purpose");
         };

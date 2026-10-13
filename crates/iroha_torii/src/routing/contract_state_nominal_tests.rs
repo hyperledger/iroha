@@ -683,11 +683,11 @@ routing_test! { async contract_state_endpoint_accepts_schema_bound_json_keys_wit
         state.network_id_ref(), &authority, 1, DataSpaceId::UNIVERSAL,
     ).unwrap();
     let code = kotodama_lang::compiler::Compiler::new().compile_source(
-        r#"seiyaku QueryKeys {
+        r"seiyaku QueryKeys {
             state StateMap<(int, string), bool> Pairs;
             state StateMap<string, bool> Labels;
             view fn ready() authorize(anyone) -> bool { return true; }
-        }"#,
+        }",
     ).expect("compile real schema-bearing artifact");
     let pair_key = r#"["7", "hello @#$ / world, \"quoted\""]"#;
     let label_key = r#"json-"hello @#$ / world, \"quoted\"""#;

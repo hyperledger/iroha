@@ -30,7 +30,7 @@ struct RequestOriginalOwner {
 }
 
 /// Canonical POST authentication covers the actual body; API-token alone is insufficient.
-pub(super) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
     request: axum::http::Request<Body>,
@@ -55,7 +55,7 @@ fn unavailable() -> Error {
 }
 
 fn target(method: &Method, uri: &Uri, headers: &HeaderMap) -> Result<(), Error> {
-    if method != &Method::POST
+    if method != Method::POST
         || uri.path() != NATIVE_AUTHORITY_ORIGINALS_ROUTE_V1
         || uri.query().is_some()
     {

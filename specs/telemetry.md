@@ -51,16 +51,17 @@ SM helper telemetry (Prometheus metrics)
 Settlement telemetry
 
 Consensus state contains only successful settlement receipts. Each
-`SettlementId` keys one immutable, fixed two-leg receipt in
-`settlement_receipts` and is consumed after the first successful DvP, PvP, or
-governed FX settlement. Rejected attempts do not create receipt state and
+owner-qualified `SettlementId { owner, reference }` keys one immutable typed
+receipt in `settlement_receipts` and is consumed after the first successful
+Atomic, DvP, PvP, or governed FX settlement. Atomic receipts hold 1 through 255
+movements; bilateral and FX receipts hold their exact pair. Rejected attempts do not create receipt state and
 therefore cannot retain account or asset-definition references. Operators can
 still observe failures through the bounded counters and last-event snapshots
 below; these diagnostics are local and do not participate in consensus.
 
-- `iroha_settlement_events_total{kind="dvp|pvp",outcome="success|failure",reason}` — settlement lifecycle counters labelled by instruction kind and failure reason (`insufficient_funds`, `counterparty_mismatch`, `unsupported_policy`, `zero_quantity`, `missing_entity`, `math_error`, `other`; success uses `reason="-"`).
+- `iroha_settlement_events_total{kind="dvp|pvp",outcome="success|failure",reason}` — settlement lifecycle counters labelled by instruction kind and failure reason (`insufficient_funds`, `counterparty_mismatch`, `zero_quantity`, `missing_entity`, `math_error`, `other`; success uses `reason="-"`).
 - `iroha_settlement_finality_events_total{kind="dvp|pvp",outcome="success|failure",final_state="none|delivery_only|payment_only|both|primary_only|counter_only"}` — finality counters grouped by settlement kind, execution outcome, and which legs remained committed. DvP reports `delivery_only|payment_only`, PvP reports `primary_only|counter_only`; `none` means both legs rolled back.
-- `iroha_settlement_fx_window_ms{kind="pvp",order,atomicity}` — histogram of observed PvP FX windows (milliseconds between committed legs) labelled by execution order (`delivery_then_payment`/`payment_then_delivery`) and atomicity policy (`all_or_nothing|commit_first_leg|commit_second_leg`).
+- `iroha_settlement_fx_window_ms{kind="pvp",order,atomicity}` — histogram of observed PvP FX windows (milliseconds between committed legs) labelled by execution order (`delivery_then_payment`/`payment_then_delivery`) and atomicity policy (`all_or_nothing`).
 
 Subscription telemetry
 - `iroha_subscription_billing_attempts_total{pricing="fixed|usage"}` — billing trigger invocations grouped by pricing kind.
@@ -573,7 +574,7 @@ proof, bundle and attestation routes.
 
 - `fraud_psp_assessments_total{tenant,band,lane,subnet}` — counter incremented whenever Torii admits a PSP assessment. Use it to monitor tenant activity and severity distribution.
 - `fraud_psp_attestation_total{tenant,engine,lane,subnet,status}` — attestation verifier outcomes (`status="verified"` on success). Alerts should trigger on non-verified statuses to catch PSP regressions or key rotation issues.
-- `fraud_psp_missing_assessment_total{tenant,lane,subnet,cause}` — counter for transactions missing metadata. `cause="missing"` means the host rejected the transaction; `cause="grace"` denotes temporary bypass via `missing_assessment_grace_secs`.
+- `fraud_psp_missing_assessment_total{tenant,lane,subnet,cause}` — counter for transactions missing metadata. `cause="missing"` means the host rejected the transaction; `cause="permitted"` means the committed `missing_assessment_permitted` policy allowed absent metadata; this is not a timer.
 - `fraud_psp_invalid_metadata_total{tenant,field,lane,subnet}` — counter tracking malformed metadata fields (e.g., missing tenant, non-numeric latency).
 - `fraud_psp_latency_ms{tenant,lane,subnet}` — histogram of PSP-reported scoring latency in milliseconds; buckets follow an exponential series (5 ms … ~1.3 s).
 - `fraud_psp_score_bps{tenant,band,lane,subnet}` — histogram of risk scores (0–10 000 bps) recorded after admission.
@@ -583,7 +584,7 @@ PromQL starters:
 
 - Tenant heartbeat: `sum by (tenant) (rate(fraud_psp_assessments_total[5m]))`
 - Latency P95 per tenant: `histogram_quantile(0.95, sum(rate(fraud_psp_latency_ms_bucket[10m])) by (le,tenant))`
-- Grace-window watchdog: `sum(rate(fraud_psp_missing_assessment_total{cause="grace"}[10m]))`
+- Committed missing-assessment allowance: `sum(rate(fraud_psp_missing_assessment_total{cause="permitted"}[10m]))`
 - Mismatch ratio: `sum(rate(fraud_psp_outcome_mismatch_total{direction="missed_fraud"}[1h])) / clamp_min(sum(rate(fraud_psp_assessments_total[1h])), 1)`
 
 Telemetry expects the following transaction metadata to be present when fraud monitoring is enabled: `fraud_assessment_band`, `fraud_assessment_tenant`, `fraud_assessment_score_bps`, `fraud_assessment_latency_ms`, and, once PSPs complete post-incident triage, `fraud_assessment_disposition` (values documented in `specs/fraud_monitoring_system.md`).

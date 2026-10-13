@@ -4,7 +4,7 @@
 //! gateway reloaded; the runtime owner must observe the actual reload before creating an ACK.
 use super::*;
 use crate::sorafs::gateway::ProductionGatewayComplianceFeedTransport;
-use ed25519_dalek::{Signer as _, SigningKey};
+use ed25519_dalek::SigningKey;
 
 fn empty_config() -> GatewayComplianceControllerConfig {
     let mut selected = config();

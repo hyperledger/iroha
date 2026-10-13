@@ -251,7 +251,10 @@ mod tests {
         assert_eq!(stack.len(), MAX_CONTRACT_CALL_DEPTH);
         assert_eq!(budget.reserved_bytes(), BACKING_BYTES);
         for _ in 0..2 {
-            assert_eq!(stack.try_push(u64::MAX), Err(VMError::AssertionFailed));
+            assert!(matches!(
+                stack.try_push(u64::MAX),
+                Err(VMError::AssertionFailed)
+            ));
             assert_eq!(stack.len(), MAX_CONTRACT_CALL_DEPTH);
             assert_eq!(budget.reserved_bytes(), BACKING_BYTES);
         }

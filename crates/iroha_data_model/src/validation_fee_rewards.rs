@@ -669,7 +669,7 @@ pub fn validate_exposure_page(page: &ValidationFeeExposurePage) -> Result<(), St
 pub fn validate_exposure_archive(archive: &ValidationFeeExposureArchive) -> Result<(), String> {
     validate_exposure_page(&archive.page)?;
     match &archive.previous {
-        None if archive.page.page_index == 0 => (),
+        None if archive.page.page_index == 0 => {}
         Some(previous)
             if previous.recorded_at_height > 0
                 && previous.page_index.checked_add(1) == Some(archive.page.page_index) => {}

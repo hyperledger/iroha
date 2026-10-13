@@ -4,19 +4,21 @@
  *
  * Demonstrates how to construct pacs.008 or pacs.009 payloads via the SDK
  * builder helpers so Node callers do not need to hand-write XML strings. The
- * template pulls identifier defaults from the ISO field mapping guide and can
- * merge overrides from environment variables or a JSON config file.
+ * template requires a payer-retained UETR and exact native settlement terms;
+ * envelope fields can come from environment variables or a JSON config file.
  *
  * Usage:
- *   ISO_KIND=pacs.009 ISO_AMOUNT=1250.50 ISO_CURRENCY=USD ISO_SUBMIT=1 \
- *     TORII_URL=http://localhost:8080 node ./recipes/iso_bridge_builder.mjs
+ *   ISO_BUILDER_CONFIG=/path/to/retained-payment.json \
+ *     node ./recipes/iso_bridge_builder.mjs
  *
  * Provide ISO_BUILDER_CONFIG=/path/to/options.json to merge structured fields
  * (shape documented in BuildPacs008Options / BuildPacs009Options).
  */
 
 import { readFile } from "node:fs/promises";
-import { buildPacs008Message, buildPacs009Message, ToriiClient } from "../dist/index.js";
+import { buildPacs008Message, buildPacs009Message } from "../dist/index.js";
+
+import { nativeIntentFromEnvironment, parseConfiguredNativeIntent, createIsoOperatorClient } from "./iso_bridge_context.mjs";
 
 const TORII_URL = process.env.TORII_URL ?? "http://localhost:8080";
 const ISO_KIND = (process.env.ISO_KIND ?? "pacs.008").toLowerCase();
@@ -69,6 +71,7 @@ function agentFromEnv(prefix) {
 function baseOptions() {
   const now = Date.now();
   return {
+    ...nativeIntentFromEnvironment(),
     messageId: env("ISO_MESSAGE_ID") ?? `iso-builder-${now}`,
     creationDateTime: env("ISO_CREATION_TIME") ?? new Date(now).toISOString(),
     instructionId: env("ISO_INSTRUCTION_ID") ?? `instr-${now}`,
@@ -120,6 +123,9 @@ async function loadConfigOverrides() {
 
 function mergeOptions(base, overrides) {
   const merged = { ...base, ...overrides };
+  if (overrides.nexusSettlement) {
+    merged.nexusSettlement = { ...base.nexusSettlement, ...overrides.nexusSettlement };
+  }
   if (overrides.amount) {
     merged.amount = { ...base.amount, ...overrides.amount };
   }
@@ -155,13 +161,16 @@ function mergeOptions(base, overrides) {
 
 async function main() {
   const overrides = await loadConfigOverrides();
-  const options = mergeOptions(baseOptions(), overrides);
+  if (!["pacs.008", "pacs.009"].includes(ISO_KIND)) {
+    throw new TypeError("ISO_KIND must be pacs.008 or pacs.009");
+  }
+  const options = parseConfiguredNativeIntent(mergeOptions(baseOptions(), overrides));
   const xml =
     ISO_KIND === "pacs.009" ? buildPacs009Message(options) : buildPacs008Message(options);
 
   if (!ISO_SUBMIT || ISO_DRY_RUN) {
     console.log(xml);
-    if (!ISO_SUBMIT) {
+    if (!ISO_SUBMIT || ISO_DRY_RUN) {
       return;
     }
   }
@@ -177,14 +186,15 @@ async function main() {
     },
   };
 
-  const client = new ToriiClient(TORII_URL);
+  const client = await createIsoOperatorClient(TORII_URL, options.nexusSettlement.networkId);
   const usePacs009 = ISO_KIND === "pacs.009";
   const response = usePacs009
     ? await client.submitIsoPacs009AndWait(xml, { wait: waitOptions })
     : await client.submitIsoPacs008AndWait(xml, { wait: waitOptions });
+  // This observation is not an independently verified monetary receipt.
   const txHash = response.transaction_hash ?? "<pending>";
   console.log(
-    `[iso-builder] ${ISO_KIND} ${response.message_id} resolved as ${
+    `[iso-builder] ${ISO_KIND} ${response.message_id} node-reported status ${
       response.status ?? "unknown"
     } tx=${txHash}`,
   );

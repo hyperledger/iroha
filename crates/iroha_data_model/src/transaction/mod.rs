@@ -7,6 +7,8 @@ pub mod executable;
 pub mod receipt;
 /// Signed transaction forms and helpers.
 pub mod signed;
+/// Ordered intent descriptors and signed inline attachment occurrences.
+pub mod signed_attachments;
 pub use crate::trigger::{DataTriggerSequence, DataTriggerStep};
 pub use executable::{
     Executable, ExecutableBatchItem, IvmBytecode, IvmProved, TransactionGasLimitError,
@@ -20,6 +22,12 @@ pub use signed::{
     FeeChargeLimit, FeePaymentIntent, FeePaymentIntentError, SignedTransaction, SponsorFeePayment,
     TransactionBuilder, TransactionDomain, TransactionEntrypoint, TransactionPayload,
     TransactionResult, TransactionResultInner, TransactionSignature,
+};
+pub use signed_attachments::{
+    ActionAuthorityBindingV1, ActionIntentV1, ActionInvocationBindingV1, ActionOperationV1,
+    ActionRoleV1, AttachmentKindV1, AttachmentReferenceV1, AttachmentRoleV1,
+    SignedAttachmentErrorV1, SignedAttachmentOccurrenceV1, SignedAttachmentPlanV1,
+    SignedAttachmentsV1,
 };
 /// Metadata key enabling consensus-owned consume-once handling for prepared faucet claims.
 pub const FAUCET_CLAIM_MARKER_VERSION_METADATA_KEY: &str = "taira_faucet_claim_marker_version";

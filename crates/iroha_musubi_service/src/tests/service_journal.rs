@@ -1396,6 +1396,7 @@ fn client() -> (Client, KeyPair) {
         chain: ChainId::from("musubi-runtime-test"),
         network_id: test_network_id(0xA5),
         account_chain_discriminant: 1,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: Url::parse("https://torii.example/").expect("Torii URL"),
         key_pair: key_pair.clone(),
         transaction_ttl: Duration::from_secs(10),

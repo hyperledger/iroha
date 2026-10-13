@@ -286,7 +286,7 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> norito::json::Value {
         .collect();
     norito::json!({
         "height": (block.height()),
-        "result_preimage_hex": (hex::encode(block.commitment().preimage().unwrap())),
+        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
         "result_hash_hex": (hex::encode(block.result().0)),
         "commit_vote_preimage_hex": (hex::encode(qc.preimage())),
         "qc_bitmap_hex": (hex::encode(qc.signers.as_bytes())),
@@ -317,8 +317,11 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
     for height in 1..=5 {
         let proof =
             crate::sumeragi::finality::build_proof(&setup.chain.state().view(), height).unwrap();
-        let verified = verifier.verify(&proof).unwrap();
-        assert_eq!(verified.result(), setup.chain.committed(height).result());
+        let authenticated = verifier.verify(&proof).unwrap();
+        assert_eq!(
+            authenticated.result(),
+            setup.chain.committed(height).result()
+        );
         originals.push(publish(
             output,
             &format!("block-{height}.wire"),
@@ -330,7 +333,7 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
             &norito::encode_canonical(&proof).unwrap(),
         ));
         if height > 1 {
-            blocks.push(block_capture(&verified));
+            blocks.push(block_capture(&authenticated));
         }
     }
     let mut cursor = crate::sumeragi::finality::NativeFinalityCursorV1::new();
@@ -387,7 +390,7 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
     object.insert(
         "load".into(),
         norito::json!({
-            "result_preimage_hex": (hex::encode(at.block().commitment().preimage().unwrap())),
+            "result_preimage_hex": (hex::encode(at.block().block().commit_certificate().unwrap().result_preimage())),
             "receipt_frame_hex": (hex::encode(&receipt_frame)),
             "receipt_transcript_hex": (hex::encode(receipt.transcript().unwrap())),
             "receipt_digest_hex": (hex::encode(receipt.receipt_digest().unwrap())),
@@ -415,6 +418,33 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
         .unwrap()
         .sync_all()
         .unwrap();
+}
+
+#[test]
+fn block_capture_preserves_original_certified_result_envelope() {
+    use iroha_data_model::sumeragi_finality::{
+        result_of_preimage, test_fixtures::NativeFinalityFixture,
+    };
+    let fixture = NativeFinalityFixture::new();
+    let block = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let row = block_capture(&block);
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        preimage,
+        block
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+    assert_eq!(result_of_preimage(&preimage), Some(block.result()));
+    assert_eq!(
+        result_of_preimage(&block.commitment().preimage().unwrap()),
+        None
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@ use super::recipe::InstalledSourceSealV1;
 use super::*;
 
 /// The complete route/catalog or original Omega source failed qualification.
-#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum OmegaQualificationErrorV1 {
     /// Installation, canonical inventory or bounded original mismatch.
     #[error(transparent)]

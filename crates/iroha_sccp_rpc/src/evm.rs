@@ -2,15 +2,15 @@
 //!
 //! [`EvmClient`] issues the `eth_*` calls the builders and wallet flows need:
 //! chain id and head, blocks by number (with transaction hashes), receipts one
-//! by one or per block, EIP-1186 proofs, code, `eth_call`, nonces, the priority
+//! by one or per block, raw signed transaction proofs, EIP-1186 proofs, code, `eth_call`, nonces, the priority
 //! fee and raw transaction submission.
 //!
 //! Blocks come back with every header field needed to re-encode the RLP
 //! header, including the London, Shanghai, Cancun and Prague fields when the
 //! block has them, plus the untouched JSON object for anything else (such as
 //! BSC's `milliTimestamp`). Receipts carry every field of the receipt trie
-//! encoding. Nothing is verified here: hashes, roots and proofs are checked by
-//! `iroha_sccp`.
+//! encoding. Builders check response consistency and reconstructed trie roots;
+//! source authority and proof inclusion are independently checked by `iroha_sccp`.
 //!
 //! Hex follows the Ethereum JSON-RPC encoding strictly: quantities are `0x`
 //! followed by at least one digit and no leading zero (`0x0` for zero); data is
@@ -590,6 +590,72 @@ impl EvmClient {
             })
     }
 
+    /// Read a bounded destination event range from one contract.
+    ///
+    /// The response is untrusted discovery DATA. Callers authenticate certificate bytes
+    /// against their original Taira state; RPC block positions provide no authority.
+    /// # Errors
+    /// Rejects ranges above 2,048 blocks, more than four selected topics, answers above
+    /// 4,096 logs, and logs outside the exact requested contract, range or event set.
+    pub fn destination_logs(
+        &self,
+        address: [u8; 20],
+        from: u64,
+        through: u64,
+        topics: &[[u8; 32]],
+    ) -> Result<Vec<EvmLog>, RpcError> {
+        if through.checked_sub(from).is_none_or(|range| range >= 2_048)
+            || topics.is_empty()
+            || topics.len() > 4
+        {
+            return Err(invalid_response("destination log query exceeds bounds"));
+        }
+        let mut filter = Map::new();
+        filter.insert("address".into(), Value::from(format_data(&address)));
+        filter.insert("fromBlock".into(), Value::from(format_quantity(from)));
+        filter.insert("toBlock".into(), Value::from(format_quantity(through)));
+        filter.insert(
+            "topics".into(),
+            Value::Array(vec![Value::Array(
+                topics
+                    .iter()
+                    .map(|topic| Value::from(format_data(topic)))
+                    .collect(),
+            )]),
+        );
+        self.transport
+            .json_rpc_then("eth_getLogs", vec![Value::Object(filter)], |value| {
+                let values = value
+                    .as_array()
+                    .filter(|logs| logs.len() <= 4_096)
+                    .ok_or_else(|| invalid_response("destination log result exceeds bounds"))?;
+                values
+                    .iter()
+                    .map(|value| {
+                        let log = parse_log(value)?;
+                        if log.address != address
+                            || !log
+                                .block_number
+                                .is_some_and(|height| (from..=through).contains(&height))
+                            || !log
+                                .topics
+                                .first()
+                                .is_some_and(|topic| topics.contains(topic))
+                            || log.topics.len() > 4
+                            || log.data.len() > 4_096
+                            || log.log_index.is_none()
+                            || log.block_hash.is_none()
+                        {
+                            return Err(invalid_response(
+                                "destination log does not match its query",
+                            ));
+                        }
+                        Ok(log)
+                    })
+                    .collect()
+            })
+    }
+
     /// `eth_getBlockByNumber`; `None` if the endpoint does not know the block.
     ///
     /// # Errors
@@ -643,13 +709,93 @@ impl EvmClient {
         )
     }
 
+    /// Retrieve an exact raw signed envelope with `eth_getRawTransactionByHash`.
+    ///
+    /// `None` means the endpoint does not know the transaction. The response is decoded
+    /// incrementally under the configured whole-body ceiling and attempt deadline, and
+    /// its Keccak hash must equal `hash`. This alone does not establish block inclusion.
+    /// # Errors
+    /// Any transport or decode error, an empty envelope, or a transaction-hash mismatch.
+    pub fn raw_transaction(&self, hash: &[u8; 32]) -> Result<Option<Vec<u8>>, RpcError> {
+        self.raw_transaction_bounded(hash, usize::MAX)
+    }
+
+    fn raw_transaction_bounded(
+        &self,
+        hash: &[u8; 32],
+        limit: usize,
+    ) -> Result<Option<Vec<u8>>, RpcError> {
+        self.transport.evm_stream(
+            "eth_getRawTransactionByHash",
+            hash,
+            |input, id, endpoint, cap| {
+                let raw = crate::receipt_stream::decode_raw_transaction(
+                    input,
+                    id,
+                    endpoint,
+                    cap.min(limit),
+                )?;
+                if raw
+                    .as_ref()
+                    .is_some_and(|raw| iroha_sccp::v1::hashes::keccak256(&[raw]) != *hash)
+                {
+                    return Err(invalid_response(
+                        "raw transaction differs from requested hash",
+                    ));
+                }
+                Ok(raw)
+            },
+        )
+    }
+
+    /// Build an inclusion proof of the signed transaction at `target` in this block.
+    ///
+    /// One raw envelope is decoded and released at a time. Unrelated leaves retain only
+    /// their hash or a short inline reference; the selected envelope and complete proof
+    /// must fit `max_proof_bytes`. Every response keeps the configured whole-body ceiling
+    /// and attempt deadline. RPC hashes and order are consistency hints: the reconstructed
+    /// trie must match `block.header.transactions_root`, and callers must independently
+    /// authenticate that header before treating the proof as authority.
+    /// # Errors
+    /// Refuses absent, substituted, over-budget or reordered transactions and root mismatch.
+    pub fn block_transaction_proof(
+        &self,
+        block: &EvmBlock,
+        target: u64,
+        max_proof_bytes: usize,
+    ) -> Result<iroha_sccp::ethereum_source::EthereumNativeMptProofV1, RpcError> {
+        let mut trie =
+            crate::receipt_trie::Trie::new(block.transactions.len(), target, max_proof_bytes)?;
+        for (index, hash) in block.transactions.iter().enumerate() {
+            let index = u64::try_from(index)
+                .map_err(|_| invalid_response("transaction index overflows"))?;
+            let raw = self
+                .raw_transaction_bounded(
+                    hash,
+                    if index == target {
+                        max_proof_bytes
+                    } else {
+                        usize::MAX
+                    },
+                )?
+                .ok_or_else(|| invalid_response("a selected block transaction is absent"))?;
+            trie.insert(index, &raw)?;
+        }
+        let (root, proof) = trie.finish()?;
+        if root != block.header.transactions_root {
+            return Err(invalid_response(
+                "raw transactions do not rebuild the block root",
+            ));
+        }
+        Ok(proof)
+    }
+
     /// `eth_getBlockReceipts`; `None` if the endpoint does not know the block.
     ///
     /// # Errors
     /// Any [`RpcError`].
-    // TODO(WP9): an adversarially log-filled block answers with more receipt
-    // JSON than the transport ceiling admits; proving events in such blocks
-    // needs a streaming receipt decoder instead of a `Value` tree.
+    /// This bulk diagnostic is capped as one response. Proof builders use
+    /// [`Self::block_receipt_proof`] to stream individual receipts and authenticate the trie.
     pub fn block_receipts(&self, block: BlockId) -> Result<Option<Vec<EvmReceipt>>, RpcError> {
         self.transport.json_rpc_then(
             "eth_getBlockReceipts",
@@ -668,6 +814,112 @@ impl EvmClient {
                     .map(Some)
             },
         )
+    }
+
+    /// Fetch one bounded receipt at a time in the block's transaction order.
+    ///
+    /// The visitor can encode/hash each receipt and release its JSON/decoded graph before the
+    /// next request. Every receipt is checked against the exact requested hash, block, index
+    /// and cumulative gas progression; no missing receipt or reorganized response is skipped.
+    /// Individual answers retain the transaction-receipt route and transport limits.
+    /// # Errors
+    /// Any transport, receipt consistency or visitor refusal. Callers must discard partial
+    /// output on error; the complete receipt trie root remains a separate cryptographic check.
+    pub fn visit_block_receipts(
+        &self,
+        block: &EvmBlock,
+        mut visit: impl FnMut(&EvmReceipt) -> Result<(), RpcError>,
+    ) -> Result<(), RpcError> {
+        let mut cumulative = 0_u64;
+        for (index, hash) in block.transactions.iter().enumerate() {
+            let receipt = self.transaction_receipt(hash)?.ok_or_else(|| {
+                invalid_response("a transaction in the selected block has no receipt")
+            })?;
+            let index =
+                u64::try_from(index).map_err(|_| invalid_response("receipt index overflows"))?;
+            if receipt.transaction_hash != *hash
+                || receipt.transaction_index != index
+                || receipt.block_hash != block.header.hash
+                || receipt.block_number != block.header.number
+                || receipt.cumulative_gas_used.checked_sub(cumulative) != Some(receipt.gas_used)
+                || receipt.cumulative_gas_used > block.header.gas_used
+            {
+                return Err(invalid_response(
+                    "receipt differs from the selected block, transaction order or gas progression",
+                ));
+            }
+            cumulative = receipt.cumulative_gas_used;
+            visit(&receipt)?;
+        }
+        if cumulative != block.header.gas_used {
+            return Err(invalid_response(
+                "complete receipt gas does not match the block",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Build the selected receipt proof while retaining only unrelated leaf hashes.
+    /// Receipt JSON is decoded incrementally under the transport's whole-response ceiling;
+    /// target canonical bytes and the final path also fit `max_proof_bytes`.
+    /// Each attempt retains the configured deadline and `HttpConfig::max_response_bytes`
+    /// ceiling (64 MiB by default), even without Content-Length. One receipt's canonical
+    /// RLP spool is released after its leaf is hashed; only the selected path and hashes
+    /// for the block's transactions survive the iteration. Transport limits can still
+    /// refuse a proof whose source receipt exceeds the configured ceiling.
+    /// # Errors
+    /// Refuses incomplete, changed or over-budget receipts and a trie root mismatch.
+    pub fn block_receipt_proof(
+        &self,
+        block: &EvmBlock,
+        target: u64,
+        max_proof_bytes: usize,
+    ) -> Result<iroha_sccp::ethereum_source::EthereumNativeMptProofV1, RpcError> {
+        let mut trie =
+            crate::receipt_trie::Trie::new(block.transactions.len(), target, max_proof_bytes)?;
+        let mut cumulative = 0;
+        for (index, hash) in block.transactions.iter().enumerate() {
+            let index = index as u64;
+            let receipt = self.transport.evm_stream(
+                "eth_getTransactionReceipt",
+                hash,
+                |input, id, endpoint, cap| {
+                    crate::receipt_stream::decode(
+                        input,
+                        id,
+                        endpoint,
+                        if index == target {
+                            cap.min(max_proof_bytes)
+                        } else {
+                            cap
+                        },
+                    )
+                },
+            )?;
+            if receipt.transaction_hash != *hash
+                || receipt.transaction_index != index
+                || receipt.block_hash != block.header.hash
+                || receipt.block_number != block.header.number
+                || receipt.cumulative_gas.checked_sub(cumulative) != Some(receipt.gas_used)
+                || receipt.cumulative_gas > block.header.gas_used
+            {
+                return Err(invalid_response(
+                    "streamed receipt differs from block, order or gas progression",
+                ));
+            }
+            cumulative = receipt.cumulative_gas;
+            trie.insert(index, &receipt.bytes)?;
+        }
+        if cumulative != block.header.gas_used {
+            return Err(invalid_response("streamed receipt gas differs from block"));
+        }
+        let (root, proof) = trie.finish()?;
+        if root != block.header.receipts_root {
+            return Err(invalid_response(
+                "streamed receipts do not rebuild the block root",
+            ));
+        }
+        Ok(proof)
     }
 
     /// `eth_getProof` of `address` and `storage_keys` at `block`.
@@ -940,7 +1192,7 @@ fn parse_log(value: &Value) -> Result<EvmLog, RpcError> {
     })
 }
 
-fn parse_receipt(value: &Value) -> Result<EvmReceipt, RpcError> {
+pub(crate) fn parse_receipt(value: &Value) -> Result<EvmReceipt, RpcError> {
     let what = "receipt";
     let map = expect_object(value, what)?;
     let status = optional_hex_field(map, "status", what, parse_quantity_u64)?

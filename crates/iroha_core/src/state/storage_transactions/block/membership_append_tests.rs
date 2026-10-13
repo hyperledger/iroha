@@ -333,7 +333,7 @@ fn original_preparation_replays_net_changes_with_old_and_rollback_roots_intact()
     block.insert_block([key(1), key(4)].into_iter().collect(), height(2));
     let prepared = block.prepare_commit().unwrap();
     let mut owned = attempt(&prepared, &baseline, disk);
-    // Fail after some new record output, then replay the same actual HashSets.
+    // Fail after some new record output, then replay the same actual BTreeSets.
     owned.store.io.cut = Some(FRAME_BYTES + 29);
     assert!(owned.prepare(&prepared).is_err());
     let retained_high_water = owned.store.complete;
@@ -573,9 +573,10 @@ fn real_kura_range_and_charged_append_remain_original_through_capacity_and_sync(
             let ended = catch_unwind(AssertUnwindSafe(|| {
                 let _release = release;
                 let _prepared = prepared;
-                if unwind {
-                    panic!("outer completion unwinds after retaining original cleanup");
-                }
+                assert!(
+                    !unwind,
+                    "outer completion unwinds after retaining original cleanup"
+                )
             }));
             assert_eq!(ended.is_err(), unwind);
             assert_eq!(probe.calls.load(Ordering::SeqCst), 2);

@@ -3,6 +3,7 @@ import Foundation
 public enum TransactionInputError: Error, LocalizedError, Equatable {
     case emptyAccountId(field: String)
     case malformedAccountId(field: String, value: String)
+    case accountChainDiscriminantMismatch(field: String, expected: UInt16, actual: UInt16)
     case emptyRwaId(field: String)
     case malformedRwaId(field: String, value: String)
     case emptyAssetDefinitionId
@@ -26,6 +27,8 @@ public enum TransactionInputError: Error, LocalizedError, Equatable {
             return "Account id for \(field) must not be empty."
         case let .malformedAccountId(field, value):
             return "Account id for \(field) must be a canonical bare I105 literal with no whitespace (received '\(value)')."
+        case let .accountChainDiscriminantMismatch(field, expected, actual):
+            return "Account id for \(field) must use chain discriminant \(expected) (received \(actual))."
         case let .emptyRwaId(field):
             return "RWA id for \(field) must not be empty."
         case let .malformedRwaId(field, value):
@@ -115,6 +118,16 @@ struct TransactionInputValidator {
                             authorityId: sanitizedAuthority,
                             assetDefinitionId: sanitizedAssetDefinitionId,
                             accountIds: sanitizedAccounts)
+    }
+
+    static func validateSameChainDiscriminant(authority: String, account: String, field: String) throws {
+        let expected = try AccountAddress.inspectI105NetworkPrefix(authority).chainDiscriminant
+        let actual = try AccountAddress.inspectI105NetworkPrefix(account).chainDiscriminant
+        guard expected == actual else {
+            throw TransactionInputError.accountChainDiscriminantMismatch(
+                field: field, expected: expected, actual: actual
+            )
+        }
     }
 
     static func sanitizeGovernanceSelector(_ value: String, field: String) throws -> String {
@@ -825,6 +838,11 @@ struct SwiftTransactionEncoder {
         guard let assetDefinitionId = ids.assetDefinitionId else {
             throw TransactionInputError.emptyAssetDefinitionId
         }
+        try TransactionInputValidator.validateSameChainDiscriminant(
+            authority: ids.authorityId,
+            account: ids.accountIds["destination"] ?? transfer.destination,
+            field: "destination"
+        )
         let frame = try NoritoNativeBridge.shared.encodeTransferInstructionFrame(
             authority: ids.authorityId, assetDefinitionId: assetDefinitionId,
             quantity: transfer.quantity, destination: ids.accountIds["destination"] ?? transfer.destination)

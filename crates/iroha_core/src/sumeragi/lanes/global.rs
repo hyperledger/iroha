@@ -11,17 +11,13 @@ use std::{
 };
 
 use iroha_crypto::HashOf;
-use iroha_data_model::{
-    NetworkId,
-    block::BlockHeader,
-    transaction::{SignedTransaction, TransactionEntrypoint},
-};
+use iroha_data_model::{NetworkId, block::BlockHeader, transaction::TransactionEntrypoint};
 use iroha_model_base::topology::LaneId;
 use parking_lot::{Condvar, Mutex};
 
 use super::{
     AnchorView, TransactionCheck,
-    executor::{AnchorSource, LaneTransactions},
+    executor::{AnchorSource, LaneSelectionError, LaneTransactions},
     routing::RoutingSnapshot,
 };
 use crate::{
@@ -140,11 +136,14 @@ impl AnchorView for GlobalAnchors {
             return Ok(None);
         };
         let view = self.state.view();
+        if height.get() > view.height() {
+            return Ok(None);
+        }
         let block = view
-            .kura()
-            .get_block(height, &view.execution_budget())
+            .canonical_history()
+            .executed_block(height, |_, _| Ok(()))
             .map_err(|error| error.map_rejection(std::io::Error::other))?;
-        Ok(block.and_then(|block| u64::try_from(block.header().creation_time().as_millis()).ok()))
+        Ok(u64::try_from(block.header().creation_time().as_millis()).ok())
     }
 }
 
@@ -180,11 +179,29 @@ impl StatelessChecks {
 }
 
 impl TransactionCheck for StatelessChecks {
-    fn check(&self, tx: &SignedTransaction, _anchor_time_ms: u64) -> Result<(), String> {
-        if tx.network_id() != Some(&self.network) {
-            return Err("the transaction belongs to another network".into());
+    fn check(&self, tx: &TransactionEntrypoint, _anchor_time_ms: u64) -> Result<(), String> {
+        match tx {
+            TransactionEntrypoint::External(signed)
+            | TransactionEntrypoint::SealedReveal(
+                iroha_data_model::transaction::signed::SealedTransactionReveal {
+                    signed_transaction: signed,
+                    ..
+                },
+            ) => {
+                if signed.network_id() != Some(&self.network) {
+                    return Err("the transaction belongs to another network".into());
+                }
+                signed.verify_signature().map_err(|error| error.to_string())
+            }
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                if commitment.payload().network_id != self.network {
+                    return Err("the transaction belongs to another network".into());
+                }
+                commitment
+                    .verify_signature()
+                    .map_err(|error| error.to_string())
+            }
         }
-        tx.verify_signature().map_err(|error| error.to_string())
     }
 }
 
@@ -194,17 +211,34 @@ pub struct QueueLaneTransactions {
     lane: LaneId,
     queue: Arc<Queue>,
     state: Arc<State>,
+    time_source: iroha_primitives::time::TimeSource,
 }
 
+/// Original Queue admission captured under the lane's execution allocation pool.
+/// Its private lease cannot be decoded or reconstructed from selected transaction hashes.
+pub struct QueueLaneLease(crate::queue::PendingPayloadLease);
+
 impl QueueLaneTransactions {
-    /// The share of `lane` in `queue`, routed with `state`.
+    /// The share of `lane` in `queue`, routed with `state` and paced by the proposer clock.
     #[must_use]
-    pub fn new(lane: LaneId, queue: Arc<Queue>, state: Arc<State>) -> Self {
-        Self { lane, queue, state }
+    pub fn new(
+        lane: LaneId,
+        queue: Arc<Queue>,
+        state: Arc<State>,
+        time_source: iroha_primitives::time::TimeSource,
+    ) -> Self {
+        Self {
+            lane,
+            queue,
+            state,
+            time_source,
+        }
     }
 }
 
 impl LaneTransactions for QueueLaneTransactions {
+    type Lease = Option<QueueLaneLease>;
+
     #[cfg(test)]
     fn empty_payload_answer(&self) {
         self.queue.record_empty_lane_payload();
@@ -215,38 +249,133 @@ impl LaneTransactions for QueueLaneTransactions {
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
-        let view = self.state.view();
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(Vec<TransactionEntrypoint>, Self::Lease), LaneSelectionError> {
+        let generation = self.state.state_view_generation();
+        let view = self
+            .state
+            .try_view_once()
+            .map_err(crate::sumeragi::driver::traits::PublicationError::from)?;
+        let selection = self
+            .queue
+            .begin_pending_payload_selection(&self.state, generation)
+            .ok_or(LaneSelectionError::Changed)?;
         let Some(pending) = self
             .queue
             .bounded_pending_snapshot(&view, crate::sumeragi::payload::MAX_QUEUE_SCAN)
         else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         };
         let routing = RoutingSnapshot::of(&view)?;
         let inputs = routing.inputs(view.world());
         let mut selected = Vec::new();
         let mut bytes = 0usize;
+        let wall_time = self.time_source.now();
+        let mut future = false;
         for transaction in pending {
-            if skip.contains(&transaction.hash_as_entrypoint())
-                || inputs.route(&transaction, height)? != Some(self.lane)
-            {
+            if skip.contains(&transaction.hash_as_entrypoint()) {
                 continue;
             }
-            let next = bytes.saturating_add(transaction.encoded_len());
+            if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
+                && transaction
+                    .entrypoint()
+                    .creation_time_ms()
+                    .is_some_and(|created| Duration::from_millis(created) > wall_time)
+            {
+                future = true;
+                continue;
+            }
+            if inputs.route(&transaction, height)? != Some(self.lane) {
+                continue;
+            }
+            // The lane carries the complete original enum, including a reveal
+            // commitment and salt. Admission's inner-variant length is a different bound.
+            let Some(next) = bytes.checked_add(transaction.entrypoint_bytes().len()) else {
+                continue;
+            };
             if next > max_bytes {
                 continue;
             }
             bytes = next;
-            selected.push(AsRef::<SignedTransaction>::as_ref(&transaction).clone());
+            selected.push(transaction);
         }
-        Ok(selected)
+        if selected.is_empty() && future {
+            return Err(LaneSelectionError::ClockAhead);
+        }
+        if selected.is_empty() {
+            return Ok((Vec::new(), None));
+        }
+        let lease = self
+            .queue
+            .capture_pending_payload_lease(&self.state, selection, &view, &selected, budget)
+            .map_err(|error| {
+                let original: crate::execution_attempt::ExecutionDeferred = match error {
+                    iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
+                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                        ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                    }
+                };
+                LaneSelectionError::Publication(
+                    crate::sumeragi::driver::traits::PublicationError::Deferred(original.into()),
+                )
+            })?
+            .ok_or(LaneSelectionError::Changed)?;
+        Ok((
+            selected
+                .iter()
+                .map(|transaction| transaction.entrypoint().clone())
+                .collect(),
+            Some(QueueLaneLease(lease)),
+        ))
+    }
+
+    fn retain_prefix(&self, lease: &mut Self::Lease, count: usize) {
+        if let Some(lease) = lease {
+            lease.0.retain_prefix(count);
+        }
+    }
+
+    fn lease_is_current(
+        &self,
+        lease: &Self::Lease,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        use crate::sumeragi::driver::traits::{PublicationDeferral, PublicationError};
+        let Some(lease) = lease.as_ref().filter(|lease| lease.0.belongs_to(budget)) else {
+            return Ok(false);
+        };
+        let view = self.state.try_view_once()?;
+        self.queue
+            .pending_payload_lease_wait(&self.state, &view, &lease.0)
+            .map(|wait| wait.is_some())
+            .map_err(|release| {
+                PublicationError::Deferred(PublicationDeferral::PublicationBusy(release))
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lane_anchor_time_requires_original_canonical_execution_history() {
+        crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-lane-anchor-clock-test")
+            .spawn(|| {
+                let chain = crate::sumeragi::test_chain::CertifiedTestChain::start(
+                    crate::sumeragi::test_chain::TestChainConfig::new(crate::state::World::new(), 1_000),
+                ).unwrap();
+                let anchors = GlobalAnchors::new(chain.state().clone(), Arc::new(AppliedWatch::new(1, None)));
+                let expected = u64::try_from(chain.committed(1).block().header().creation_time().as_millis()).unwrap();
+                assert_eq!(anchors.creation_time_ms(1).unwrap(), Some(expected));
+                assert_eq!(anchors.creation_time_ms(2).unwrap(), None);
+                chain.kura().corrupt_canonical_body_for_testing(NonZeroUsize::MIN).unwrap();
+                assert!(anchors.creation_time_ms(1).is_err(), "an applied anchor cannot derive clock authority from unavailable canonical execution bytes");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn original_runner_watch_keeps_preexisting_and_concurrent_admission_stop_and_height() {

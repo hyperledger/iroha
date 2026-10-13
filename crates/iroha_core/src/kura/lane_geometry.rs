@@ -18,13 +18,6 @@ use iroha_data_model::NetworkId;
 use iroha_data_model::block::BlockHeader;
 use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 use norito::codec::{Decode, Encode};
-#[cfg(any(
-    target_vendor = "apple",
-    target_os = "linux",
-    target_os = "android",
-    target_os = "redox"
-))]
-use rustix::fs::{RenameFlags, renameat_with};
 #[cfg(test)]
 use std::num::NonZeroUsize;
 use std::{
@@ -44,7 +37,7 @@ use prepared_journal::PreparedGeometryJournalTransition;
 pub(super) use raw_attempt::RawGeometryClaimGate;
 use raw_attempt::RawGeometryMutation;
 pub use raw_attempt::RawGeometryWait;
-pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase};
+pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase, RawGeometryReleases};
 
 #[cfg(test)]
 std::thread_local! {
@@ -120,8 +113,6 @@ enum LaneGeometryRecoveryCursor {
     #[cfg(test)]
     Catalog,
     AtHeight(u64),
-    #[cfg(test)]
-    BeforeTransition(u64),
     BeforeFirstTransitionAtHeight(u64),
 }
 #[derive(norito::NoritoSchema)]
@@ -143,64 +134,6 @@ impl GeometryEvidencePolicy {
             Self::FreshJournalIntent | Self::AllowJournalIntentProvisioning
         )
     }
-}
-#[cfg(any(
-    target_vendor = "apple",
-    target_os = "linux",
-    target_os = "android",
-    target_os = "redox"
-))]
-fn rename_geometry_path_noreplace_at(
-    source_parent: &File,
-    source_name: &std::ffi::OsStr,
-    target_parent: &File,
-    target_name: &std::ffi::OsStr,
-) -> std::io::Result<()> {
-    renameat_with(
-        source_parent,
-        source_name,
-        target_parent,
-        target_name,
-        RenameFlags::NOREPLACE,
-    )
-    .map_err(std::io::Error::from)
-}
-#[cfg(all(unix, not(any(target_os = "espidf", target_os = "redox"))))]
-fn geometry_stat_identity(stat: &rustix::fs::Stat) -> GeometryFileIdentity {
-    GeometryFileIdentity {
-        device: stat.st_dev as u64,
-        inode: stat.st_ino as u64,
-    }
-}
-#[cfg(windows)]
-fn rename_geometry_path_noreplace_at(
-    _source_parent: &File,
-    _source_name: &std::ffi::OsStr,
-    _target_parent: &File,
-    _target_name: &std::ffi::OsStr,
-) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        ErrorKind::Unsupported,
-        "atomic descriptor-relative lane geometry rename is unsupported on Windows",
-    ))
-}
-#[cfg(not(any(
-    target_vendor = "apple",
-    target_os = "linux",
-    target_os = "android",
-    target_os = "redox",
-    windows
-)))]
-fn rename_geometry_path_noreplace_at(
-    _source_parent: &File,
-    _source_name: &std::ffi::OsStr,
-    _target_parent: &File,
-    _target_name: &std::ffi::OsStr,
-) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        ErrorKind::Unsupported,
-        "atomic descriptor-relative lane geometry rename is unsupported on this platform",
-    ))
 }
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::kura::lane_geometry::LaneGeometryBinding")]
@@ -463,7 +396,7 @@ fn read_configured_catalog_journal_for_preflight(
             let displaced = store_root.join(JOURNAL_IDENTITY_DISPLACED_FILE_NAME);
             fs::rename(path, &displaced).map_err(|error| Error::IO(error, path.to_path_buf()))?;
             fs::rename(&replacement, path)
-                .map_err(|error| Error::IO(error, replacement.to_path_buf()))?;
+                .map_err(|error| Error::IO(error, replacement.clone()))?;
         }
     }
     #[cfg(not(test))]
@@ -995,8 +928,9 @@ fn require_pristine_configured_catalog_root(
     {
         let entry = entry.map_err(|error| Error::IO(error, store_root.to_path_buf()))?;
         let path = entry.path();
-        if path == lock_path && authenticated_lock_identity.is_some() {
-            let expected = authenticated_lock_identity.expect("authenticated lock identity exists");
+        if path == lock_path
+            && let Some(expected) = authenticated_lock_identity
+        {
             let metadata = secure_file_metadata::from_path(&path)
                 .map_err(|error| Error::IO(error, path.clone()))?;
             let file_type = entry
@@ -2309,13 +2243,13 @@ impl Kura {
             return Ok(());
         }
         self.ensure_nonzero_lineage_root(lineage_root)?;
-        let _prune_guard = self.prune_lock.lock();
+        let prune_guard = self.prune_lock.lock();
         self.ensure_prune_recovery_not_required()?;
-        let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        let canonical_chain_guard = self.canonical_chain_lock.lock();
         self.resolve_canonical_storage_before_mutation()?;
         let pending_canonical_bytes =
             self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?;
-        let _geometry_guard = self.lane_geometry_lock.lock();
+        let geometry_guard = self.lane_geometry_lock.lock();
         self.raw_geometry_claim.ensure_unclaimed()?;
         #[cfg(test)]
         if self
@@ -2354,9 +2288,9 @@ impl Kura {
         let lease = super::publication_lease::KuraPublicationLease::from_geometry_guards(
             self,
             self.sidecar_lock.lock(),
-            _geometry_guard,
-            _canonical_chain_guard,
-            _prune_guard,
+            geometry_guard,
+            canonical_chain_guard,
+            prune_guard,
             pending_canonical_bytes,
         );
         lease.publish_prepared_lane_geometry_catalog(
@@ -2416,21 +2350,6 @@ impl Kura {
             LaneGeometryRecoveryCursor::Catalog,
         )
     }
-    #[cfg(test)]
-    pub(crate) fn recover_lane_geometry_journal_at_height(
-        &self,
-        authoritative: &LaneConfig,
-        incarnations: &BTreeMap<LaneId, Hash>,
-        activation_heights: &BTreeMap<LaneId, u64>,
-        authoritative_height: u64,
-    ) -> Result<()> {
-        self.recover_lane_geometry_journal_inner(
-            authoritative,
-            incarnations,
-            activation_heights,
-            LaneGeometryRecoveryCursor::AtHeight(authoritative_height),
-        )
-    }
     /// Recover to the exact cursor before every retained transition at `transition_height`.
     #[cfg(test)]
     pub(crate) fn recover_lane_geometry_journal_before_first_transition_at_height(
@@ -2487,24 +2406,6 @@ impl Kura {
             activation_heights,
             lineage_root,
             LaneGeometryRecoveryCursor::AtHeight(authoritative_height),
-        )
-    }
-    /// Recover the authenticated cursor immediately before its transition.
-    #[cfg(test)]
-    pub(crate) fn recover_lane_geometry_journal_before_transition_with_lineage_root(
-        &self,
-        authoritative: &LaneConfig,
-        incarnations: &BTreeMap<LaneId, Hash>,
-        activation_heights: &BTreeMap<LaneId, u64>,
-        lineage_root: Hash,
-        transition_height: u64,
-    ) -> Result<()> {
-        self.recover_lane_geometry_journal_with_lineage_root_inner(
-            authoritative,
-            incarnations,
-            activation_heights,
-            lineage_root,
-            LaneGeometryRecoveryCursor::BeforeTransition(transition_height),
         )
     }
     /// Recover the authenticated cursor before every transition at one height.
@@ -2622,40 +2523,6 @@ impl Kura {
                     .iter()
                     .take_while(|record| record.transition_height < transition_height)
                     .count();
-                self.reconcile_lane_geometry_history_to_count(
-                    &mut journal,
-                    fingerprint,
-                    lineage_root,
-                    desired_applied_count,
-                )?;
-            }
-            #[cfg(test)]
-            LaneGeometryRecoveryCursor::BeforeTransition(transition_height) => {
-                let mut matching =
-                    journal
-                        .records
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, record)| {
-                            (record.transition_height == transition_height
-                                && record.previous_catalog == fingerprint
-                                && record.previous_lineage_root == lineage_root)
-                                .then_some(index)
-                        });
-                let candidate = matching.next();
-                if candidate.is_some() && matching.next().is_some() {
-                    return Err(self.geometry_error(
-                        ErrorKind::InvalidData,
-                        "authoritative geometry is ambiguous before transitions at the requested height",
-                    ));
-                }
-                let desired_applied_count = candidate.unwrap_or_else(|| {
-                    journal
-                        .records
-                        .iter()
-                        .take_while(|record| record.transition_height < transition_height)
-                        .count()
-                });
                 self.reconcile_lane_geometry_history_to_count(
                     &mut journal,
                     fingerprint,
@@ -3285,6 +3152,13 @@ impl Kura {
     }
     /// Return the exact active incarnation and activation height under the
     /// caller-held geometry lock.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained lane retirement and route consumers; preserve authenticated incarnation identity through historical storage ownership"
+        )
+    )]
     pub(super) fn active_lane_incarnation_marker(
         &self,
         entry: &LaneStorageEntry,
@@ -3403,6 +3277,13 @@ impl Kura {
     /// Revalidate a captured restart/recovery target against the exact retained
     /// journal references. This does not install it in the active State catalog
     /// and cannot authorize fresh lane production or a new proposal.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained lane retirement and route consumers; preserve authenticated incarnation identity through historical storage ownership"
+        )
+    )]
     pub(super) fn require_retained_lane_storage_entry(
         &self,
         entry: &LaneStorageEntry,
@@ -3421,6 +3302,10 @@ impl Kura {
     /// Require an exact current or retained target for existing durable work.
     /// Absence remains an error for terminal/readback consumers that already
     /// own a specific durable source.
+    #[expect(
+        dead_code,
+        reason = "TODO: connect retained lane retirement and route consumers; preserve authenticated incarnation identity through historical storage ownership"
+    )]
     pub(super) fn existing_work_lane_storage_entry_under_geometry_guard(
         &self,
         network_id: NetworkId,
@@ -3474,6 +3359,10 @@ impl Kura {
     /// Locate existing durable work by its original network, route and incarnation.
     /// Activation comes only from a unique retained authenticated catalog reference;
     /// a reused LaneId is never substituted. This is private recovery/read authority.
+    #[expect(
+        dead_code,
+        reason = "TODO: connect retained lane retirement and route consumers; preserve authenticated incarnation identity through historical storage ownership"
+    )]
     pub(super) fn retained_lane_storage_entry_for_route_under_geometry_guard(
         &self,
         network_id: NetworkId,
@@ -3565,21 +3454,6 @@ impl Kura {
             return Ok(());
         }
         self.install_lane_incarnation_marker_for_test(entry, incarnation, activation_height)
-    }
-    /// Inject marker identity corruption at the original physical object.
-    #[cfg(test)]
-    pub(super) fn substitute_lane_marker_identity_for_test(
-        &self,
-        entry: &LaneStorageEntry,
-        incarnation: Hash,
-        activation_height: u64,
-    ) -> Result<()> {
-        let _geometry = self.lane_geometry_lock.lock();
-        let path = entry.blocks_dir(&self.store_root).join(MARKER_FILE_NAME);
-        let mut marker = self.read_lane_marker(&path)?;
-        marker.incarnation = incarnation;
-        marker.activation_height = activation_height;
-        self.atomic_write_geometry_file(&path, &path.with_extension("norito.tmp"), &marker.encode())
     }
     /// Restore a structural storage fixture from its actual published journal.
     /// Tests supply the expected route catalog; no incarnation or predecessor
@@ -3756,28 +3630,14 @@ impl Kura {
         }))
     }
 
-    fn relative_geometry_path(&self, path: &Path) -> Result<String> {
-        let relative = path.strip_prefix(&self.store_root).map_err(|_| {
-            self.geometry_error(
-                ErrorKind::InvalidInput,
-                "lane geometry path escapes the Kura store root",
-            )
-        })?;
-        validate_relative_path(relative)?;
-        relative.to_str().map(str::to_owned).ok_or_else(|| {
-            self.geometry_error(
-                ErrorKind::InvalidInput,
-                "lane geometry path is not valid UTF-8",
-            )
-        })
+    fn binding_blocks_path(&self, binding: &LaneGeometryBinding) -> PathBuf {
+        self.store_root.join(&binding.blocks_path)
     }
+    #[cfg(test)]
     fn resolve_relative_path(&self, relative: &str) -> Result<PathBuf> {
         let relative = Path::new(relative);
         validate_relative_path(relative)?;
         Ok(self.store_root.join(relative))
-    }
-    fn binding_blocks_path(&self, binding: &LaneGeometryBinding) -> PathBuf {
-        self.store_root.join(&binding.blocks_path)
     }
 
     fn validate_path_kind(&self, path: &Path, directory: bool) -> Result<bool> {
@@ -3843,26 +3703,6 @@ impl Kura {
             ));
         }
         Ok(())
-    }
-    fn open_geometry_parent(&self, parent: &Path) -> Result<(File, GeometryFileIdentity)> {
-        let before = self.geometry_path_identity(parent, true)?;
-        let directory =
-            File::open(parent).map_err(|error| Error::IO(error, parent.to_path_buf()))?;
-        let opened = secure_file_metadata::from_file(&directory)
-            .map_err(|error| Error::IO(error, parent.to_path_buf()))?;
-        if !opened.is_dir()
-            || checked_geometry_file_identity(&opened, parent)? != before
-            || self.geometry_path_identity(parent, true)? != before
-        {
-            return Err(Error::IO(
-                std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    "lane geometry parent changed while being opened",
-                ),
-                parent.to_path_buf(),
-            ));
-        }
-        Ok((directory, before))
     }
     fn verify_open_geometry_file(&self, path: &Path, file: &File) -> Result<()> {
         let path_identity = self.geometry_path_identity(path, false)?;

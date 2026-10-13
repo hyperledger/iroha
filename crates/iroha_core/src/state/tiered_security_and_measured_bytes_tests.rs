@@ -249,8 +249,7 @@ fn measured_bytes_account_for_proof_attachment_list_capacity() {
         ProofBox::new("halo2/ipa".into(), vec![0xCA, 0xFE]),
         VerifyingKeyId::new("halo2/ipa", "tiered-capacity-fixture"),
     );
-    let mut compact = Vec::with_capacity(1);
-    compact.push(attachment.clone());
+    let compact = vec![attachment.clone()];
     let mut reserved = Vec::with_capacity(8);
     reserved.push(attachment);
     let compact = ProofAttachmentList::try_from(compact).expect("valid compact list");
@@ -479,21 +478,18 @@ fn anchored_axt_spend_nonce_persists_in_tiered_manifest_and_removal_diff() {
         transcript_index: 2,
         delta_index: 3,
     };
-    let source_record = AxtSourceTransferReplayRecordV1 { issuer_nonce: key, consumed_slot: 42 };
+    let source_record = AxtSourceTransferReplayRecordV1 {
+        issuer_nonce: key,
+        consumed_slot: 42,
+    };
     let mut world = World::default();
     world.axt_spend_nonce_ledger.insert(key, 42);
-    world.axt_source_transfer_replay_ledger.insert(source, source_record);
+    world
+        .axt_source_transfer_replay_ledger
+        .insert(source, source_record);
     let temp = tempdir().expect("temporary tiered spend nonce directory");
-    let mut backend = TieredStateBackend::new(
-        true,
-        0,
-        1,
-        0,
-        Some(temp.path().to_path_buf()),
-        None,
-        0,
-        0,
-    );
+    let mut backend =
+        TieredStateBackend::new(true, 0, 1, 0, Some(temp.path().to_path_buf()), None, 0, 0);
     backend
         .record_world_snapshot(&world)
         .expect("persist spend nonce snapshot");
@@ -508,13 +504,19 @@ fn anchored_axt_spend_nonce_persists_in_tiered_manifest_and_removal_diff() {
         .read_cold_payload(manifest.snapshot_index, entry)
         .expect("read spend nonce cold payload")
         .expect("spend nonce payload exists");
-    assert_eq!(json::from_slice::<u64>(&payload).expect("decode spend slot"), 42);
+    assert_eq!(
+        json::from_slice::<u64>(&payload).expect("decode spend slot"),
+        42
+    );
     let source_entry = manifest
         .cold_entries
         .iter()
         .find(|entry| entry.segment == TieredSegment::AxtSourceTransferReplayLedger)
         .expect("permanent source transfer is present");
-    assert_eq!(source_entry.key_payload, norito::codec::Encode::encode(&source));
+    assert_eq!(
+        source_entry.key_payload,
+        norito::codec::Encode::encode(&source)
+    );
     let source_payload = backend
         .read_cold_payload(manifest.snapshot_index, source_entry)
         .expect("read source transfer cold payload")
@@ -531,16 +533,16 @@ fn anchored_axt_spend_nonce_persists_in_tiered_manifest_and_removal_diff() {
         removed.axt_source_transfer_replay_ledger.remove(source),
         Some(source_record)
     );
-    assert!(removed
-        .tiered_snapshot_diff()
-        .entries()
-        .iter()
-        .any(|entry| matches!(entry, TieredKeyHandle::AxtSpendNonce(id) if *id == key)));
-    assert!(removed
-        .tiered_snapshot_diff()
-        .entries()
-        .iter()
-        .any(|entry| matches!(entry, TieredKeyHandle::AxtSourceTransferReplay(id) if *id == source)));
+    assert!(
+        removed
+            .tiered_snapshot_diff()
+            .entries()
+            .iter()
+            .any(|entry| matches!(entry, TieredKeyHandle::AxtSpendNonce(id) if *id == key))
+    );
+    assert!(removed.tiered_snapshot_diff().entries().iter().any(
+        |entry| matches!(entry, TieredKeyHandle::AxtSourceTransferReplay(id) if *id == source)
+    ));
 }
 #[test]
 fn axt_policy_and_replay_block_payloads_update_and_remove_entries() {

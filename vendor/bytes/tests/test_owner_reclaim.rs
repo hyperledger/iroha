@@ -174,9 +174,11 @@ fn mutable_conversion_frees_original_before_releasing_its_credit() {
 fn refusal_returns_both_unchanged_owners_without_running_user_code() {
     start();
     FAIL.with(|slot| slot.set(true));
-    let (original, token) = Bytes::try_from_owner_with_reclaim(payload(false, false), Token(0x51))
-        .err()
-        .expect("allocator refusal");
+    let Err((original, token)) =
+        Bytes::try_from_owner_with_reclaim(payload(false, false), Token(0x51))
+    else {
+        panic!("allocator refusal");
+    };
     assert_eq!(original.bytes, [0x5a; 64]);
     assert_eq!(token.0, 0x51);
     assert_eq!(AS_REFS.with(Cell::get), 0);

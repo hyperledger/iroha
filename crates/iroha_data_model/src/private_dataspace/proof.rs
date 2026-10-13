@@ -50,11 +50,11 @@ impl PrivateDataspaceRecordProof {
             bytes.len() <= MAX_PRIVATE_DATASPACE_RECORD_PROOF_BYTES,
             "record proof exceeds wire bound",
         )?;
-        let proof: Self = norito::decode_canonical_with_limits(
+        let proof: Self = norito::decode_canonical_for_admission(
             bytes,
             part_limits(MAX_PRIVATE_DATASPACE_RECORD_PROOF_BYTES),
         )
-        .map_err(failure)?;
+        .map_err(codec_failure)?;
         proof.validate_structure()?;
         Ok(proof)
     }
@@ -87,9 +87,11 @@ impl PrivateDataspaceRecordProof {
         record: PrivateDataspaceRecord,
     ) -> Result<Self, PrivateDataspaceAnchorError> {
         let (inclusion, value) =
-            AmxWriteProofV1::from_writes(writes, &record.witness_key()).map_err(failure)?;
+            AmxWriteProofV1::from_writes(writes, &record.witness_key()).map_err(amx_failure)?;
         require(
-            value == norito::encode_canonical(&record).map_err(failure)?,
+            value
+                == norito::core::classify_decode_attempt(|| norito::encode_canonical(&record))
+                    .map_err(codec_failure)?,
             "record differs from the archived final write",
         )?;
         let proof = Self {
@@ -126,11 +128,13 @@ impl PrivateDataspaceRecordProof {
                 && self.parent_result == parent.result().0,
             "record proof differs from independently authenticated parent execution",
         )?;
-        let value = norito::encode_canonical(&self.record).map_err(failure)?;
+        let value =
+            norito::core::classify_decode_attempt(|| norito::encode_canonical(&self.record))
+                .map_err(codec_failure)?;
         let root = self
             .inclusion
             .root(&self.record.witness_key(), &value)
-            .map_err(failure)?;
+            .map_err(amx_failure)?;
         require(
             root == parent.execution().ordinary_writes_root,
             "record is not included in certified parent writes",

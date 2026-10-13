@@ -23,6 +23,48 @@ fn query_asset_absence_openapi_requires_the_exact_selector() {
         "unavailable routes remain errors",
         "404 alone",
     ] {
-        assert!(description.contains(required), "missing contract: {required}");
+        assert!(
+            description.contains(required),
+            "missing contract: {required}"
+        );
+    }
+}
+
+#[test]
+fn query_settlement_receipt_absence_openapi_requires_the_exact_selector() {
+    let document = canonical_document();
+    let schemas = component_schemas(&document);
+    let details = component_properties(schemas, "ErrorDetails");
+    let selector = &details["query_settlement_receipt_not_found"];
+    assert_eq!(selector["type"].as_str(), Some("object"));
+    assert_eq!(selector["additionalProperties"].as_bool(), Some(false));
+    assert_eq!(
+        selector["properties"]["owner"]["type"].as_str(),
+        Some("string")
+    );
+    assert_eq!(
+        selector["properties"]["reference"]["type"].as_str(),
+        Some("string")
+    );
+    let required = selector["required"]
+        .as_array()
+        .expect("complete settlement identity");
+    assert_eq!(required.len(), 2);
+    for field in ["owner", "reference"] {
+        assert!(required.iter().any(|value| value.as_str() == Some(field)));
+    }
+    let operation = openapi_operation(&document, "/v1/query", "post");
+    let description = operation["responses"]["404"]["description"]
+        .as_str()
+        .unwrap();
+    for required in [
+        "query_settlement_receipt_not_found",
+        "details.query_settlement_receipt_not_found",
+        "non-execution",
+    ] {
+        assert!(
+            description.contains(required),
+            "missing receipt absence contract: {required}"
+        );
     }
 }

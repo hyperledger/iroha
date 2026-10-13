@@ -400,8 +400,10 @@ _PUBLIC_BASENAMES = frozenset({
 
 # Reviewed exact vendor roles: original Cargo manifests named by their normalized
 # owners, spelling ignore words consumed by Concread's Makefile, and deterministic
-# public BLS generator vectors included by the curve tests. This does not admit
-# any other .orig/.dat filename or override material/provider/alias refusal.
+# public BLS generator vectors included by the curve tests, and the public NESSIE
+# AES known-answer vectors read by the vendored aes 0.8.4 upstream tests. This
+# does not admit any other .orig/.dat/.blb filename or override
+# material/provider/alias refusal.
 _REVIEWED_PUBLIC_VENDOR_INPUTS = frozenset({
     "vendor/concread/.codespell_ignore",
     "vendor/axum-core/Cargo.toml.orig",
@@ -409,6 +411,9 @@ _REVIEWED_PUBLIC_VENDOR_INPUTS = frozenset({
     "vendor/http-body-util/Cargo.toml.orig",
     "vendor/concread/Cargo.toml.orig",
     "vendor/wayland-scanner-0.31.10/Cargo.toml.orig",
+    "vendor/aes/tests/data/aes128.blb",
+    "vendor/aes/tests/data/aes192.blb",
+    "vendor/aes/tests/data/aes256.blb",
 })
 
 # Exact public parser seeds reviewed from the Norito cargo-fuzz owners. The

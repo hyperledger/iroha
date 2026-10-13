@@ -19,7 +19,7 @@ macro_rules! effect_indexes {
             da_pin_intents: DaPinStore,
             lane_manifests: LaneManifestRegistryHandle,
             lane_privacy_registry: LanePrivacyRegistryHandle,
-            da_indexes_hydrated: Option<Result<(), DaIndexHydrationError>>,
+            da_indexes_hydrated: Option<Result<(), DaIndexHydrationFailure>>,
         }
     };
 }
@@ -31,7 +31,6 @@ macro_rules! define_indexes {
             target: &'state State,
             $(pub(in crate::state) $field: Option<PublicationRwLockWriteGuard<'state, $ty>> ,)*
             retired: [iroha_allocation::release::DeferredReleaseBatch; 9],
-            attempted: bool,
             complete: bool,
             retired_manifests: Option<LaneManifestRegistryHandle>,
             retired_privacy: Option<LanePrivacyRegistryHandle>,
@@ -44,7 +43,6 @@ macro_rules! define_indexes {
                     target,
                     $($field: None,)*
                     retired: [$(target.$field.deferred_releases(),)*],
-                    attempted: false,
                     complete: false,
                     retired_manifests: None,
                     retired_privacy: None,
@@ -53,9 +51,10 @@ macro_rules! define_indexes {
 
             /// Retain each acquired original guard before probing its successor.
             /// The returned waiter belongs to the actual reader/writer blocker.
+            /// Retry requires every previous physical guard to be released; the
+            /// same slot retains all original notices and displaced resources.
             pub(in crate::state) fn try_prepare(&mut self) -> Result<(), (&'static str, iroha_allocation::release::ReleaseWait)> {
-                assert!(!self.attempted, "effect lock preparation is one-shot");
-                self.attempted = true;
+                assert!(!self.complete $( && self.$field.is_none())*, "effect indexes must be released before retry");
                 self.prepare_inner()
             }
 
@@ -64,25 +63,6 @@ macro_rules! define_indexes {
                     .map_err(|wait| (stringify!($field), wait))?);)*
                 self.complete = true;
                 Ok(())
-            }
-
-            /// Complete the existing synchronous commit contract before visibility.
-            /// Never block while retaining an acquired index prefix: release that
-            /// prefix, wait by acquiring only the actual blocking lock, then retry
-            /// the full original inventory. Notification cleanup stays retained.
-            /// TODO: retire synchronous commit with the funded retained Apply owner.
-            pub(in crate::state) fn prepare_blocking(&mut self) {
-                assert!(!self.attempted, "effect lock preparation is one-shot");
-                self.attempted = true;
-                while let Err((field, _wait)) = self.prepare_inner() {
-                    self.release_writers();
-                    let names = [$(stringify!($field),)*];
-                    let index = names.iter().position(|name| *name == field).expect("original effect index");
-                    match field {
-                        $(stringify!($field) => assert!(self.target.$field.write().try_release_into(&mut self.retired[index]).is_ok(), "original effect wait source"),)*
-                        _ => unreachable!("only original effect locks can refuse"),
-                    }
-                }
             }
 
             /// Release only physical guards. Every original notification and

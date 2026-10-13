@@ -45,9 +45,8 @@ fn world() -> World {
     .into_iter()
     .enumerate()
     {
-        world
-            .proofs
-            .insert(id(tag as u8), record(tag as u8, status));
+        let tag = u8::try_from(tag).expect("fixture value fits u8");
+        world.proofs.insert(id(tag), record(tag, status));
     }
     proof_status_restore::rebuild(&mut world);
     world
@@ -113,10 +112,10 @@ fn restore_current_index(block: &mut StateBlock<'_>) {
     .into_iter()
     .enumerate()
     {
-        block
-            .world
-            .proofs_by_status
-            .insert(status, BTreeSet::from([id(tag as u8)]));
+        block.world.proofs_by_status.insert(
+            status,
+            BTreeSet::from([id(u8::try_from(tag).expect("fixture value fits u8"))]),
+        );
     }
 }
 

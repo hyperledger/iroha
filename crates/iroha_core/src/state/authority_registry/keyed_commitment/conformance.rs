@@ -1035,10 +1035,13 @@ fn incremental_equals_cold<C: KeyedStateCommitment>(
             let (table, key) = if workload.next(8) == 0 {
                 (CELL, CELL_KEY.to_vec())
             } else {
-                let table = tables[workload.next(tables.len() as u64) as usize];
+                let table = tables[usize::try_from(workload.next(tables.len() as u64))
+                    .expect("fixture value fits usize")];
                 (
                     table,
-                    keys[workload.next(keys.len() as u64) as usize].clone(),
+                    keys[usize::try_from(workload.next(keys.len() as u64))
+                        .expect("fixture value fits usize")]
+                    .clone(),
                 )
             };
             if !touched.insert((table, key.clone())) {
@@ -1047,7 +1050,11 @@ fn incremental_equals_cold<C: KeyedStateCommitment>(
             let value = match workload.next(4) {
                 0 => None,
                 1 => Some(Vec::new()),
-                size => Some(vec![workload.next(251) as u8; size as usize]),
+                size => Some(vec![
+                    u8::try_from(workload.next(251))
+                        .expect("fixture value fits u8");
+                    usize::try_from(size).expect("fixture value fits usize")
+                ]),
             };
             staged.push((table, key, value));
         }
@@ -1086,8 +1093,11 @@ fn incremental_equals_cold<C: KeyedStateCommitment>(
             );
         }
         let (table, key) = (
-            tables[workload.next(tables.len() as u64) as usize],
-            keys[workload.next(keys.len() as u64) as usize].clone(),
+            tables[usize::try_from(workload.next(tables.len() as u64))
+                .expect("fixture value fits usize")],
+            keys[usize::try_from(workload.next(keys.len() as u64))
+                .expect("fixture value fits usize")]
+            .clone(),
         );
         match model.get(&(table, key.clone())) {
             Some(value) => require!(

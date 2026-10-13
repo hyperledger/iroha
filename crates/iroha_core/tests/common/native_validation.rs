@@ -27,6 +27,7 @@ pub(super) fn proposal(chain: &CertifiedTestChain, txs: Vec<SignedTransaction>) 
             parent: chain.committed(chain.height()).block(),
             view: 0,
             cadence: Duration::from_millis(1),
+            proposed_time: std::time::Duration::ZERO,
         },
         &inputs,
     )
@@ -71,10 +72,13 @@ pub(super) fn validate(
         chain.genesis_account(),
         Duration::from_millis(scheduled.params.block_time_ms),
         iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+        chain.root_scope(),
         expansion,
         header,
         &bytes,
         chain.state(),
+        None,
+        None,
     )
     .unpack(|_| {})
     .map(|(valid, _)| valid)

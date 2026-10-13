@@ -24,7 +24,7 @@ use std::{
 };
 
 /// One provider's distinct owner, completion signer, and four native role identities.
-pub(super) struct ProviderFixture {
+pub struct ProviderFixture {
     pub id: ProviderId,
     pub owner_key: KeyPair,
     pub completion_key: KeyPair,
@@ -33,7 +33,7 @@ pub(super) struct ProviderFixture {
     credential_dir: PathBuf,
 }
 
-pub(super) fn set(table: &mut toml::Table, path: &[&str], value: impl Into<toml::Value>) {
+pub fn set(table: &mut toml::Table, path: &[&str], value: impl Into<toml::Value>) {
     let (last, prefix) = path.split_last().expect("nonempty fixture path");
     let mut cursor = table;
     for field in prefix {
@@ -179,7 +179,10 @@ impl ProviderFixture {
                 ("revision", 1_i64.into()),
                 (
                     "policy_digest_hex",
-                    hex::encode([index as u8 + 1; 32]).into(),
+                    hex::encode(
+                        [u8::try_from(index).expect("fixture provider index fits u8") + 1; 32],
+                    )
+                    .into(),
                 ),
             ] {
                 set(&mut layer, &[base.as_slice(), &[field]].concat(), value);
@@ -189,12 +192,11 @@ impl ProviderFixture {
         let completion = credential(&self.credential_dir, "completion.key", &self.completion_key)?;
         let base = ["sorafs", "storage", "provider_ingest_runtime"];
         let policy = self.completion_policy();
-        let sources = toml::Table::from_iter(
-            origins
-                .iter()
-                .filter(|(id, _)| *id != self.id)
-                .map(|(id, endpoint)| (hex::encode(id.as_bytes()), endpoint.clone().into())),
-        );
+        let sources = origins
+            .iter()
+            .filter(|(id, _)| *id != self.id)
+            .map(|(id, endpoint)| (hex::encode(id.as_bytes()), endpoint.clone().into()))
+            .collect::<toml::Table>();
         for (field, value) in [
             ("enabled", true.into()),
             (

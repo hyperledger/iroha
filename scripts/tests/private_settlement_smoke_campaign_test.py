@@ -13,6 +13,7 @@ import copy
 import hashlib
 import importlib.util
 import os
+import re
 from pathlib import Path
 import struct
 import tempfile
@@ -201,10 +202,27 @@ def request(index: int) -> dict:
     return value
 
 
+def size_evidence() -> dict:
+    """Return synthetic measurements only, never proof bytes or measured release evidence."""
+    return {
+        "prepared-artifact-sizes.json": {"legs": [{
+            "leg_ordinal": ordinal, "proof_bytes": 2_527_280, "proof_base64_bytes": 3_369_708,
+            "material_norito_bytes": 2_550_000, "availability_request_json_bytes": 3_500_000,
+            "upload_request_json_bytes": 3_600_000, "upload_request_norito_bytes": 2_560_000,
+            "capsule_norito_bytes": 8_192, "http_body_bound_bytes": 64_000_000,
+            "proof_bound_bytes": 8_388_608,
+        } for ordinal in range(3)]},
+        "verified-carrier-sizes.json": {
+            "signed_carrier_norito_bytes": 14_000, "signed_carrier_json_bytes": 20_000,
+            "public_receipt_norito_bytes": 12_000, "carrier_bound_bytes": 4_194_304,
+        },
+    }
+
+
 def evidence_fixture(index: int, validator_sha: str, *, authority_height: int = 302,
                      expiry_height: int = 1000, readiness_height: int = 301,
                      finalized_height: int = 306) -> tuple[dict, dict]:
-    """Build the 112-file contract entirely from explicitly synthetic test values."""
+    """Build the 114-file contract entirely from explicitly synthetic test values."""
     req = request(index)
     identities = [f"ea0130{index * 16 + peer + 1:096X}" for peer in range(16)]
     network = [hash_literal(900 + 2 * index)]
@@ -244,6 +262,7 @@ def evidence_fixture(index: int, validator_sha: str, *, authority_height: int = 
         "receipt.json": {"version": 1, "manifest": manifest, "authority_catalog": catalog,
                          "legs": legs, "finalized_height": finalized_height},
         "restarts.json": [{"peer_index": peer, "before_pid": 100+peer, "after_pid": 200+peer} for peer in range(16)]}
+    evidence.update(size_evidence())
     for phase in M.STATE_PHASES:
         evidence[f"state-{phase}.json"] = {"label": "after-finalized-retry" if phase == "replay" else f"smoke-{phase}",
             "validators": [observation(peer, phase in ("finalized", "replay"), baseline_height=authority_height, finalized_height=finalized_height)
@@ -303,7 +322,159 @@ class SmokeEvidenceTests(unittest.TestCase):
 
     def test_complete_synthetic_contract_and_live_staged_observation(self) -> None:
         self.assertEqual(self.validate()["continuous_checks"], 64)
-        self.assertEqual(len(M.EVIDENCE_NAMES), 112)
+        self.assertEqual(len(M.EVIDENCE_NAMES), 114)
+
+    def test_size_measurements_are_required_and_retained_hash_bound(self) -> None:
+        for name in size_evidence():
+            with self.subTest(artifact=name):
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                del self.evidence[name]
+                # Clear earlier files, so a previous iteration cannot hide absence.
+                for path in (self.root / "evidence").glob("*"):
+                    path.unlink()
+                with self.assertRaisesRegex(M.CampaignError, "incomplete or extra"):
+                    self.validate()
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                store_evidence(self.root, self.evidence, self.result)
+                artifact = self.root / "evidence" / name
+                artifact.write_bytes(artifact.read_bytes() + b" ")
+                with self.assertRaisesRegex(M.CampaignError, "byte/digest mismatch"):
+                    M.validate_run(self.root, request(0), self.sha)
+
+    def test_size_measurements_reject_malformed_leg_population_after_rehash(self) -> None:
+        for mutation in ("missing", "extra", "reversed", "duplicate", "extra field", "missing field"):
+            with self.subTest(mutation=mutation):
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                rows = self.evidence["prepared-artifact-sizes.json"]["legs"]
+                if mutation == "missing":
+                    rows.pop()
+                elif mutation == "extra":
+                    rows.append(copy.deepcopy(rows[0]))
+                elif mutation == "reversed":
+                    rows.reverse()
+                elif mutation == "duplicate":
+                    rows[2] = copy.deepcopy(rows[1])
+                elif mutation == "extra field":
+                    rows[1]["ignored_proof"] = 1
+                else:
+                    del rows[2]["proof_base64_bytes"]
+                with self.assertRaises(M.release_runner.RunnerError):
+                    self.validate()
+
+    def test_every_leg_size_and_recorded_bound_rejects_substitution_after_rehash(self) -> None:
+        substitutions = {
+            "leg_ordinal": (True, 3, -1, "0"),
+            "proof_bytes": (0, 2_527_279, 2_527_281, 8_388_609, True, "2527280"),
+            "proof_base64_bytes": (0, 3_369_707, 3_369_709, True, 3_369_708.0),
+            "material_norito_bytes": (0, -1, 2**64, True),
+            "upload_request_norito_bytes": (0, -1, 2**64, True),
+            "availability_request_json_bytes": (0, 3_369_708, 64_000_001, True),
+            "upload_request_json_bytes": (0, 3_369_708, 64_000_001, True),
+            "capsule_norito_bytes": (0, 1_048_577, True),
+            "http_body_bound_bytes": (0, 64_000_001, True),
+            "proof_bound_bytes": (0, 8_388_609, True),
+        }
+        original = copy.deepcopy(self.evidence)
+        for ordinal in range(3):
+            for field, values in substitutions.items():
+                for value in values:
+                    with self.subTest(leg=ordinal, field=field, value=value):
+                        self.evidence = copy.deepcopy(original)
+                        self.evidence["prepared-artifact-sizes.json"]["legs"][ordinal][field] = value
+                        with self.assertRaises(M.release_runner.RunnerError):
+                            self.validate()
+
+    def test_verified_carrier_sizes_reject_invalid_types_and_bounds_after_rehash(self) -> None:
+        for field, values in {
+            "signed_carrier_norito_bytes": (0, -1, 4_194_305, True, 14_000.0),
+            "signed_carrier_json_bytes": (0, 64_000_001, True, "20000"),
+            "public_receipt_norito_bytes": (0, -1, 4_194_305, True, "12000"),
+            "carrier_bound_bytes": (0, 4_194_305, True),
+        }.items():
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    self.evidence, self.result = evidence_fixture(0, self.sha)
+                    self.evidence["verified-carrier-sizes.json"][field] = value
+                    with self.assertRaises(M.release_runner.RunnerError):
+                        self.validate()
+
+    def test_canonical_material_lengths_do_not_infer_nested_frame_composition(self) -> None:
+        # Synthetic numeric controls only: these are not realizable proof
+        # encodings, measurements, or new canonical transport limits.
+        for material_bytes, upload_bytes in ((1, 2**64 - 1), (2**64 - 1, 1)):
+            with self.subTest(material=material_bytes, upload=upload_bytes):
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                for row in self.evidence["prepared-artifact-sizes.json"]["legs"]:
+                    row.update(material_norito_bytes=material_bytes,
+                               upload_request_norito_bytes=upload_bytes)
+                self.validate()
+
+    def test_receipt_and_signed_carrier_measurements_have_independent_bounds(self) -> None:
+        # These synthetic range controls establish no realizable encoding size.
+        # The Rust verifier, not comparison of reported lengths, authenticates
+        # the receipt/commit-bundle join and consensus-assigned finalized_height.
+        for carrier_bytes, receipt_bytes in ((1, 4_194_304), (4_194_304, 1), (4_194_304, 4_194_304)):
+            with self.subTest(carrier=carrier_bytes, receipt=receipt_bytes):
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                self.evidence["verified-carrier-sizes.json"].update(
+                    signed_carrier_norito_bytes=carrier_bytes, public_receipt_norito_bytes=receipt_bytes)
+                self.validate()
+
+    def test_self_consistent_forged_bounds_cannot_expand_the_source_contract(self) -> None:
+        for family in ("proof", "http", "carrier"):
+            with self.subTest(family=family):
+                self.evidence, self.result = evidence_fixture(0, self.sha)
+                if family == "carrier":
+                    row = self.evidence["verified-carrier-sizes.json"]
+                    row.update(carrier_bound_bytes=4_194_305, signed_carrier_norito_bytes=4_194_305)
+                else:
+                    row = self.evidence["prepared-artifact-sizes.json"]["legs"][2]
+                    if family == "proof":
+                        row.update(proof_bound_bytes=8_388_609, proof_bytes=8_388_609,
+                                   proof_base64_bytes=4 * ((8_388_609 + 2) // 3))
+                    else:
+                        row.update(http_body_bound_bytes=64_000_001,
+                                   upload_request_json_bytes=64_000_001)
+                with self.assertRaisesRegex(M.release_runner.RunnerError, "recorded"):
+                    self.validate()
+
+    def test_finite_proof_geometry_and_transport_boundaries_remain_distinct(self) -> None:
+        rows = self.evidence["prepared-artifact-sizes.json"]["legs"]
+        for row in rows:
+            row.update(capsule_norito_bytes=1_048_576,
+                       material_norito_bytes=3_600_000, upload_request_norito_bytes=3_610_000,
+                       availability_request_json_bytes=64_000_000, upload_request_json_bytes=64_000_000)
+        carrier = self.evidence["verified-carrier-sizes.json"]
+        carrier.update(signed_carrier_norito_bytes=4_194_304, signed_carrier_json_bytes=64_000_000)
+        self.validate()
+        # This is a synthetic boundary control, never measured maximum-carrier evidence.
+        self.assertEqual(rows[0]["proof_bytes"], 2_527_280)
+        self.assertLess(rows[0]["proof_bytes"], rows[0]["proof_bound_bytes"])
+        self.assertNotEqual(rows[0]["proof_bound_bytes"], carrier["carrier_bound_bytes"])
+
+    def test_size_contract_matches_canonical_rust_owners(self) -> None:
+        root = SCRIPT.parent.parent
+        model = (root / "crates/iroha_data_model/src/nexus/private_settlement.rs").read_text()
+        defaults = (root / "crates/iroha_config/src/parameters/defaults.rs").read_text()
+        private_defaults = defaults.split("pub mod atomic_private_settlement {", 1)[1]
+        def constant(source, name):
+            match = re.search(r"pub const " + name + r": (?:usize|u64) = ([0-9_ *]+);", source)
+            self.assertIsNotNone(match, f"missing literal canonical constant {name}")
+            result = 1
+            for term in match.group(1).split("*"):
+                result *= int(term.strip().replace("_", ""))
+            return result
+        self.assertEqual(M.PRIVATE_PROOF_BOUND_BYTES, constant(model, "PRIVATE_SETTLEMENT_MAX_PROOF_BYTES_V1"))
+        self.assertEqual(M.PRIVATE_CARRIER_BOUND_BYTES, constant(model, "PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1"))
+        self.assertEqual(M.PRIVATE_PROOF_BOUND_BYTES, constant(private_defaults, "MAX_PROOF_BYTES"))
+        self.assertEqual(M.PRIVATE_CARRIER_BOUND_BYTES, constant(private_defaults, "MAX_CARRIER_BYTES"))
+        self.assertEqual(M.PRIVATE_CAPSULE_BOUND_BYTES, constant(private_defaults, "MAX_CAPSULE_BYTES"))
+        self.assertEqual(M.HTTP_BODY_BOUND_BYTES, constant(defaults, "TORII_PROXY_MAX_INNER_BODY_BYTES_V1"))
+        self.assertIn("pub const MAX_CONTENT_LEN: Bytes = Bytes(TORII_PROXY_MAX_INNER_BODY_BYTES_V1);", defaults)
+        harness = (root / "integration_tests/tests/nexus/atomic_private_settlement_prepared_operation.rs").read_text()
+        self.assertIn("material.proof.len() == 2_527_280", harness)
+        self.assertIn("proof_base64_bytes == 3_369_708", harness)
+        self.assertEqual(M.APZ1_PROOF_BYTES, 2_527_280)
 
     def test_exact_retry_snapshot_requires_its_original_phase_and_all_validators(self) -> None:
         self.assertEqual(self.evidence["state-replay.json"]["label"], "after-finalized-retry")
@@ -345,14 +516,14 @@ class SmokeEvidenceTests(unittest.TestCase):
                 row["configuration_sha256"] = "9" * 64
         self.assertEqual(self.validate()["continuous_checks"], 64)
 
-    def test_genesis_readiness_height_one_keeps_all_112_artifacts_bound(self) -> None:
+    def test_genesis_readiness_height_one_keeps_all_114_artifacts_bound(self) -> None:
         self.evidence, self.result = evidence_fixture(
             0, self.sha, readiness_height=1, authority_height=4, finalized_height=8)
         summary = self.validate()
         self.assertEqual(M.validate_smoke_result_heights(self.result), (1, 4, 8))
         self.assertEqual(summary["finalized_height"], 8)
         self.assertEqual(summary["continuous_checks"], 64)
-        self.assertEqual(len(self.result["artifacts"]), 112)
+        self.assertEqual(len(self.result["artifacts"]), 114)
         self.assertEqual({row["name"] for row in self.result["artifacts"]}, M.EVIDENCE_NAMES)
 
     def test_low_height_readiness_type_and_strict_authority_order_fail_closed(self) -> None:

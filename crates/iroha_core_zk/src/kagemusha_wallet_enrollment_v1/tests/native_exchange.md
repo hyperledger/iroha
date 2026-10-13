@@ -11,6 +11,28 @@ pins and path inputs are mandatory. `KAGEMUSHA_NATIVE_SOURCE_SHA256` records the
 captured test candidate. All new paths must be absolute, inside this checkout's
 `target/qualification`; output directories must not exist.
 
+The A-target stage imports the proving DATA once into
+`<A-target>/source-admission/originals`. Its hash-pinned `public-target/target.json`
+exports a `sealed_originals` locator for that exact absolute directory. Exchange
+and either C-confirmation stage read this same pinned target and check its seven
+source pins before reopening the directory through strict `DirectoryOriginalsV1`
+admission. They independently reload the signed pack/inventory/genesis and repeat
+complete source reconstruction, active imports and all cancellation/corruption
+controls. Each writes fresh membership/acceptance evidence and
+`reopened-originals.norito` into its own fresh `source-admission` directory; no
+second `originals` copy or `sealed-transport.norito` is produced there. A missing,
+unsafe or corrupt selected source fails with no fallback. Keep the first sealed
+DATA directory intact for the entire chain. Wallet A/B/C journals and software
+keys remain in their own custody trees; no grant is serialized or reused between
+processes. This is a host test orchestration change, not a new source trust rule.
+
+The separately ignored
+`requalify_signed_wallet_catalog_from_retained_originals` helper test takes
+`KAGEMUSHA_WALLET_RETAINED_ORIGINALS` and a fresh
+`KAGEMUSHA_WALLET_ACCEPTANCE_OUTPUT`, plus the same independently pinned catalog
+and genesis inputs. The six-stage pipeline needs no new environment variable:
+its later stages obtain the locator from the already required pinned A target.
+
 Both tests also require `KAGEMUSHA_NATIVE_LEDGER_SETUP` (the executed setup's
 `setup.json`) and `KAGEMUSHA_NATIVE_LEDGER_SETUP_SHA256`. The fixed nine originals
 come from `iroha_core::sumeragi::test_chain::kagemusha_setup`: the separately

@@ -152,33 +152,27 @@ fn native_readback_proves_authority_wide_absence_and_complete_present_row() {
     false_absence.expected = MusubiPinOutboxCheckExpectationV1::Absent;
     false_absence.session_id = [0x81; 32];
     false_absence.inventory_digest = [0x82; 32];
-    assert_eq!(
-        begin_musubi_pin_outbox_check_v1(
-            Arc::clone(f.chain.state()),
-            false_absence,
-            Instant::now() + Duration::from_secs(60)
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::CurrentState
-        ))
-    );
+    assert!(matches!(begin_musubi_pin_outbox_check_v1(
+        Arc::clone(f.chain.state()),
+        false_absence,
+        Instant::now() + Duration::from_secs(60)
+    )
+    .err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::CurrentState
+    )));
     let mut changed_row = f.expected();
     let MusubiPinOutboxCheckExpectationV1::Present(row) = &mut changed_row.expected else {
         unreachable!()
     };
     row.transaction_hash = [0x83; 32];
-    assert_eq!(
-        begin_musubi_pin_outbox_check_v1(
-            Arc::clone(f.chain.state()),
-            changed_row,
-            Instant::now() + Duration::from_secs(60)
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::CurrentState
-        ))
-    );
+    assert!(matches!(begin_musubi_pin_outbox_check_v1(
+        Arc::clone(f.chain.state()),
+        changed_row,
+        Instant::now() + Duration::from_secs(60)
+    )
+    .err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::CurrentState
+    )));
 }
 
 #[test]
@@ -318,15 +312,13 @@ fn equal_byte_foreign_views_and_recipient_states_never_supply_original_authority
         .next()
         .unwrap()
         .unwrap();
-    assert_eq!(
-        proof.consume(&receipt),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(proof.consume(&receipt), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             NativeCheckErrorV1::Finality
         ))
     );
     drop(receipt);
     drop(foreign);
-    drop(proof);
     drop(foreign_view);
     drop(view);
     let pending = f.applied();
@@ -394,17 +386,14 @@ fn exact_binding_and_original_deadline_cannot_be_replaced() {
 fn original_floor_and_global_network_chain_are_independently_required() {
     let mut f = Fixture::genesis();
     let expected = f.expected();
-    assert_eq!(
-        begin_musubi_pin_outbox_check_v1(
-            Arc::clone(f.chain.state()),
-            f.expected(),
-            Instant::now() + Duration::from_secs(60)
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::Finality
-        ))
-    );
+    assert!(matches!(begin_musubi_pin_outbox_check_v1(
+        Arc::clone(f.chain.state()),
+        f.expected(),
+        Instant::now() + Duration::from_secs(60)
+    )
+    .err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::Finality
+    )));
     f.log();
     let prepared = begin_musubi_pin_outbox_check_v1(
         Arc::clone(f.chain.state()),
@@ -439,17 +428,19 @@ fn original_floor_and_global_network_chain_are_independently_required() {
             .is_err()
         );
     }
-    assert_eq!(
+    assert!(matches!(
         begin_musubi_pin_outbox_check_v1(
             Arc::clone(f.chain.state()),
             f.expected(),
-            Instant::now() - Duration::from_secs(1)
+            Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .expect("fixture clock supports the original expired deadline")
         )
         .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
             Error::Expired
         ))
-    );
+    ));
 }
 
 #[test]
@@ -474,10 +465,11 @@ fn completed_proof_retains_exact_original_backing_without_a_second_allocation() 
     let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128);
     let cut = match norito::with_decode_limits_scope(zero, || proof.finish()) {
         Ok(success) => success,
-        Err(_) => panic!("metadata-only finish must not allocate a second canonical frame"),
+        Err(error) => {
+            panic!("metadata-only finish must not allocate a second canonical frame: {error:?}")
+        }
     };
     assert_ne!(cut.check_block_hash(), [0; 32]);
-    drop(cut);
     drop(reader);
     drop(view);
     let pending = PendingMusubiPinOutboxCheckV1 {
@@ -601,7 +593,10 @@ fn genuine_private_root_with_native_floor_and_equal_chain_label_is_refused() {
     .unwrap();
     let receipt = reader
         .certified_from_execution(
-            std::num::NonZeroUsize::new(private.chain.height() as usize).unwrap(),
+            std::num::NonZeroUsize::new(
+                usize::try_from(private.chain.height()).expect("fixture value fits usize"),
+            )
+            .unwrap(),
             |_, _| Ok(()),
         )
         .unwrap();
@@ -615,17 +610,14 @@ fn genuine_private_root_with_native_floor_and_equal_chain_label_is_refused() {
             )
             .unwrap()
     );
-    assert_eq!(
-        begin_musubi_pin_outbox_check_v1(
-            Arc::clone(private.chain.state()),
-            private.expected(),
-            Instant::now() + Duration::from_secs(60)
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            Error::Finality
-        ))
-    );
+    assert!(matches!(begin_musubi_pin_outbox_check_v1(
+        Arc::clone(private.chain.state()),
+        private.expected(),
+        Instant::now() + Duration::from_secs(60)
+    )
+    .err(), Some(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
+        Error::Finality
+    )));
 }
 
 mod binding_custody;

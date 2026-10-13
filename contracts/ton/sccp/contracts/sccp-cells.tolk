@@ -11,6 +11,7 @@
 import "@stdlib/exotic-cells"
 import "sccp-constants"
 import "sccp-errors"
+import "sccp-messages"
 
 /// Opens one cell of a canonical shape. Exotic cells (library references,
 /// pruned branches, Merkle proofs and updates) throw `BadSnake`.
@@ -19,6 +20,36 @@ fun sccpBeginParseOrdinary(c: cell): slice {
     val (cs, isExotic) = c.beginParseSpecial();
     assert (!isExotic) throw SccpErrors.BadSnake;
     return cs;
+}
+
+/// Parses the complete SCCP burn payload before a wallet may debit or forward.
+/// The wrapper is ordinary, exactly the opcode and one reference; its recipient
+/// is an ordinary canonical snake of 1..=1024 bytes. Shape failures are
+/// `BadSnake`, a foreign opcode is `BadBurnPayload`, and excess recipient
+/// length is `BadRecipient`.
+fun sccpParseBurnToTaira(wrapper: cell): (array<slice>, int) {
+    var s = sccpBeginParseOrdinary(wrapper);
+    assert (
+        (s.remainingBitsCount() == 32) & (s.remainingRefsCount() == 1)
+    ) throw SccpErrors.BadSnake;
+    assert (s.loadUint(32) == 0x53434254) throw SccpErrors.BadBurnPayload;
+    return sccpParseSnakeBytes(
+        s.loadRef(),
+        SCCP_MAX_TAIRA_ACCOUNT_BYTES,
+        SccpErrors.BadRecipient,
+    );
+}
+
+/// Opens the bounded tail echoed by a consumption bucket. Authentication of
+/// the bucket is separate from admission of the exact ordinary cell format.
+fun sccpLoadConsumeTail(tail: cell): ConsumeTail {
+    var s = sccpBeginParseOrdinary(tail);
+    assert (s.remainingRefsCount() == 0) throw SccpErrors.BadSnake;
+    val bits = s.remainingBitsCount();
+    assert ((bits == 791) | (bits == 526)) throw SccpErrors.BadSnake;
+    val kind = s.preloadUint(1);
+    assert (bits == (kind == SCCP_CONSUME_KIND_MINT ? 791 : 526)) throw SccpErrors.BadSnake;
+    return ConsumeTail.fromSlice(s);
 }
 
 // ---------------------------------------------------------------------------
@@ -30,6 +61,7 @@ fun sccpBeginParseOrdinary(c: cell): slice {
 /// the last chunk holds 1..=127 bytes and no reference; every chunk is an
 /// ordinary cell. Returns the data-only slices of all chunks (in order) and
 /// the total byte length. A total above `maxBytes` throws `lengthError`.
+@inline_ref
 fun sccpParseSnakeBytes(root: cell, maxBytes: int, lengthError: int): (array<slice>, int) {
     var chunks: array<slice> = [];
     var total = 0;
@@ -125,6 +157,7 @@ fun sccpSnakeCellFromChunks(chunks: array<builder>): cell {
 /// Parses `(Maybe ^HashChunk)` holding exactly `pathLen` hashes, 3 per chunk
 /// except the last. Throws `BadProof` when `pathLen > maxLen` and `BadSnake`
 /// for any non-canonical shape, exotic chunks included.
+@inline_ref
 fun sccpLoadHashPath(path: cell?, pathLen: int, maxLen: int): array<int> {
     assert (pathLen <= maxLen) throw SccpErrors.BadProof;
     var hashes: array<int> = [];
@@ -134,7 +167,7 @@ fun sccpLoadHashPath(path: cell?, pathLen: int, maxLen: int): array<int> {
     }
     assert (path != null) throw SccpErrors.BadSnake;
     var remaining = pathLen;
-    var cs = sccpBeginParseOrdinary(path!);
+    var cs = sccpBeginParseOrdinary(path);
     while (true) {
         val k = min(remaining, SCCP_HASHES_PER_CHUNK);
         remaining -= k;
@@ -188,9 +221,11 @@ struct ParsedKeys {
 /// Parses a `^KeyChunk` list of exactly `n` compressed keys, 2 per chunk
 /// except the last (which holds 1 or 2). Every chunk must be an ordinary
 /// cell of exactly `384k + 1` bits with the Maybe bit set iff a next chunk
-/// follows; anything else throws `BadSnake`. `sccp_init` and key-changing
-/// rotations store a list only after this check, so the stored committee
-/// never depends on a masterchain library that could later be unpublished.
+/// follows; anything else throws `BadSnake`. `sccp_init` accepts its stored
+/// list only after this check and a key-changing rotation stores `next_keys`
+/// only after `sccpLoadKeysCounted`, so the stored committee never depends on
+/// a masterchain library that could later be unpublished.
+@inline_ref
 fun sccpLoadKeys(list: cell, n: int): ParsedKeys {
     var keys: array<slice> = [];
     var parts: array<slice> = [];
@@ -210,6 +245,43 @@ fun sccpLoadKeys(list: cell, n: int): ParsedKeys {
         if (more == 0) {
             return { keys, parts };
         }
+        cs = sccpBeginParseOrdinary(cs.preloadRef());
+    }
+}
+
+/// Parses a `^KeyChunk` list whose length the message does not state: the
+/// `next_keys` of a key-changing rotation (§5.3.3). Returns the list and its
+/// key count `n`.
+///
+/// The shape rule is the one of `sccpLoadKeys`: every chunk is an ordinary
+/// cell, a chunk with a next chunk holds exactly 2 keys and the last chunk 1
+/// or 2 (`BadSnake` otherwise). A list of more than `SCCP_MAX_KEY_CHUNKS`
+/// chunks holds more keys than any committee and throws `BadCommittee` before
+/// the next chunk is loaded, so the walk is bounded. The caller checks that
+/// `n` is a committee size.
+@inline_ref
+fun sccpLoadKeysCounted(list: cell): (ParsedKeys, int) {
+    var keys: array<slice> = [];
+    var parts: array<slice> = [];
+    var chunks = 0;
+    var cs = sccpBeginParseOrdinary(list);
+    while (true) {
+        chunks += 1;
+        val bits = cs.remainingBitsCount();
+        val more = cs.remainingRefsCount();
+        val full = bits == SCCP_KEYS_PER_CHUNK * SCCP_KEY_BITS + 1;
+        assert (more <= 1) throw SccpErrors.BadSnake;
+        assert (full | ((bits == SCCP_KEY_BITS + 1) & (more == 0))) throw SccpErrors.BadSnake;
+        val k = full ? SCCP_KEYS_PER_CHUNK : 1;
+        parts.push(cs.preloadBits(k * SCCP_KEY_BITS));
+        repeat (k) {
+            keys.push(cs.loadBits(SCCP_KEY_BITS));
+        }
+        assert (cs.loadUint(1) == more) throw SccpErrors.BadSnake;
+        if (more == 0) {
+            return ({ keys, parts }, keys.size());
+        }
+        assert (chunks < SCCP_MAX_KEY_CHUNKS) throw SccpErrors.BadCommittee;
         cs = sccpBeginParseOrdinary(cs.preloadRef());
     }
 }

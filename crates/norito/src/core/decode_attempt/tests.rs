@@ -30,6 +30,31 @@ fn canonical_refusal_retries_original_frame_and_preserves_bytes() {
 }
 
 #[test]
+fn borrowed_error_keeps_the_original_scope_after_its_budget_retires() {
+    let original = with_decode_limits_scope(allocation_limit(0), || {
+        classify_decode_attempt(|| super::super::reserve_decode_allocation(1))
+    })
+    .unwrap_err();
+    assert_eq!(original.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    assert!(std::ptr::eq(original.error(), &original.error));
+    let fields = original.error().decode_resource_error();
+    assert_eq!(
+        fields,
+        Some(DecodeResourceError::TotalAllocationExceeded {
+            attempted: 1,
+            limit: 0
+        })
+    );
+    with_decode_limits_scope(allocation_limit(0), || {
+        assert!(std::ptr::eq(original.error(), &original.error));
+        assert!(!super::super::decode_error_matches_active_limits(
+            original.error()
+        ));
+    });
+    assert_eq!(original.into_error().decode_resource_error(), fields);
+}
+
+#[test]
 fn equal_protocol_limit_is_not_relabelled_by_an_enclosing_scope() {
     let failure = with_decode_limits_scope(allocation_limit(8), || {
         classify_decode_attempt(|| {
@@ -566,4 +591,120 @@ fn observer_boundary_sequence_exhaustion_never_wraps() {
     assert_eq!(super::next_boundary(&sequence), None);
     assert_eq!(super::next_boundary(&sequence), None);
     assert_eq!(sequence.load(super::super::Ordering::Relaxed), u64::MAX);
+}
+
+// Keep the inline error small enough to pair with an existing String/PathBuf
+// diagnostic on 64-bit targets, without allocating another error owner.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<ScopedDecodeResourceError>() <= 88);
+    assert!(std::mem::size_of::<Error>() <= 96);
+};
+
+#[test]
+fn same_resource_protocol_errors_preserve_distinct_original_layers() {
+    let (first, second) = classify_decode_attempt(|| {
+        let first = with_decode_limits_scope(allocation_limit(8), || {
+            super::super::reserve_decode_allocation(9)
+        })
+        .unwrap_err();
+        let second = with_decode_limits_scope(allocation_limit(usize::MAX), || {
+            with_decode_limits_scope(allocation_limit(8), || {
+                super::super::reserve_decode_allocation(9)
+            })
+        })
+        .unwrap_err();
+        let (Error::ScopedDecodeResource(first), Error::ScopedDecodeResource(second)) =
+            (first, second)
+        else {
+            panic!("protocol errors retain their original scoped provenance")
+        };
+        assert_eq!(first.resource(), second.resource());
+        assert!(first.family.same(&second.family));
+        assert_eq!(first.identity, second.identity);
+        assert_eq!((first.layer, second.layer), (0, 1));
+        assert_ne!(
+            first, second,
+            "distinct protocol layers remain distinct errors"
+        );
+        assert_eq!(first, first.clone());
+        assert_eq!(second, second.clone());
+        Ok((first, second))
+    })
+    .unwrap();
+    for original in [first, second] {
+        with_decode_limits_scope(allocation_limit(8), || {
+            let error = Error::ScopedDecodeResource(original);
+            assert!(!super::super::decode_error_matches_active_limits(&error));
+            let replay = classify_decode_attempt(|| {
+                // Even fresh same-valued pressure cannot lend this later root to
+                // an already completed protocol refusal.
+                drop(super::super::reserve_decode_allocation(9).unwrap_err());
+                assert!(!super::super::decode_error_matches_active_limits(&error));
+                Err::<(), _>(error)
+            })
+            .unwrap_err();
+            assert_eq!(replay.kind(), DecodeAttemptErrorKind::Invalid);
+            assert_eq!(replay.local_refusal(), None);
+            assert_eq!(
+                replay.error().decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 9,
+                    limit: 8,
+                })
+            );
+        });
+    }
+}
+
+#[cfg(feature = "json")]
+#[test]
+fn nested_protocol_origin_survives_json_and_equal_budget_replay() {
+    let mut saved = None;
+    let failure = with_decode_limits_scope(allocation_limit(8), || {
+        classify_decode_attempt(|| {
+            with_decode_limits_scope(allocation_limit(8), || {
+                let inner = classify_decode_attempt(|| super::super::reserve_decode_allocation(9))
+                    .unwrap_err();
+                assert_eq!(inner.kind(), DecodeAttemptErrorKind::Invalid);
+                assert_eq!(inner.local_refusal(), None);
+                let Error::ScopedDecodeResource(original) = inner.into_error() else {
+                    panic!("nested protocol refusal must remain scoped")
+                };
+                saved = Some(original.clone());
+                let error =
+                    crate::json::Error::from_decode_resource(Error::ScopedDecodeResource(original))
+                        .into_core_error();
+                let error =
+                    crate::json::BoundedJsonError::from_decode_resource(error).into_core_error();
+                let Error::ScopedDecodeResource(returned) = &error else {
+                    panic!("both JSON conversions retain the exact scoped cause")
+                };
+                assert_eq!(Some(returned), saved.as_ref());
+                assert!(!super::super::decode_error_matches_active_limits(&error));
+                Err::<(), _>(error)
+            })
+        })
+    })
+    .unwrap_err();
+    assert_eq!(failure.kind(), DecodeAttemptErrorKind::Invalid);
+    let Error::ScopedDecodeResource(original) = failure.into_error() else {
+        panic!("outer capture must retain the same protocol error")
+    };
+    assert_eq!(Some(&original), saved.as_ref());
+    with_decode_limits_scope(allocation_limit(8), || {
+        let error = Error::ScopedDecodeResource(original);
+        assert!(!super::super::decode_error_matches_active_limits(&error));
+        let replay = classify_decode_attempt(|| {
+            drop(super::super::reserve_decode_allocation(9).unwrap_err());
+            Err::<(), _>(error)
+        })
+        .unwrap_err();
+        assert_eq!(replay.kind(), DecodeAttemptErrorKind::Invalid);
+        assert_eq!(replay.local_refusal(), None);
+        let Error::ScopedDecodeResource(returned) = replay.into_error() else {
+            panic!("replay must preserve original protocol provenance")
+        };
+        assert_eq!(Some(&returned), saved.as_ref());
+    });
 }

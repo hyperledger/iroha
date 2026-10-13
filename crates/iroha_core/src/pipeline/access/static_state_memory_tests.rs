@@ -29,7 +29,7 @@ pub(super) fn fixture() -> (State, IvmBytecode, ContractManifest, ContractArtifa
         crate::kura::Kura::blank_kura_for_testing(),
         crate::query::store::LiveQueryStore::start_test(),
     );
-    state.pipeline.access_set_cache_enabled = false;
+    state.edit_pipeline_for_testing(|pipeline| pipeline.access_set_cache_enabled = false);
     (state, IvmBytecode::from_compiled(bytes), manifest, artifact)
 }
 
@@ -103,7 +103,7 @@ fn final_key_publication_refusal_keeps_original_state_fence_and_retries() {
     let limit = budget.limit_bytes();
     budget.set_limit_bytes(baseline + demand - 1);
     assert!(matches!(
-        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), &budget),
+        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), budget),
         Err(ivm::VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. }))
         if requested_bytes == output_bytes
     ));
@@ -316,7 +316,7 @@ fn canonical_text_index_refusal_keeps_the_actual_state_fence_and_retries() {
     let limit = budget.limit_bytes();
     budget.set_limit_bytes(baseline + preceding + text_bytes - 1);
     assert!(matches!(
-        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), &budget),
+        ivm::analysis::analyze_prepared_static_state_accesses(&prepared, Some("write_one"), budget),
         Err(ivm::VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. }))
             if requested_bytes == text_bytes
     ));

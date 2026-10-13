@@ -11,7 +11,6 @@ use crate::{
         InstallationV1, InstalledVerifierPackV1,
         producer_inventory::{
             DirectoryOriginalsV1, PROVING_KEY_MAX_BYTES_V1, QualifiedWalletSourcesV1,
-            open_pinned_engineering_wallet_sources,
         },
     },
     kagemusha_wallet_state_v1::{
@@ -53,6 +52,8 @@ mod send_recovery;
 mod settlement;
 #[path = "native_exchange/setup.rs"]
 mod setup;
+#[path = "native_exchange/source_reuse.rs"]
+mod source_reuse;
 use setup::LedgerSetup;
 
 const TARGET_SCHEMA: &str = "iroha.kagemusha.native-load-target.v1";
@@ -76,18 +77,6 @@ struct Sources {
     originals: PathBuf,
 }
 impl Sources {
-    fn admit(output: &Path) -> Self {
-        let (installed, qualified, genesis, originals) =
-            open_pinned_engineering_wallet_sources(output);
-        let path = originals.root().unwrap().to_path_buf();
-        drop(originals);
-        Self {
-            installed,
-            qualified,
-            genesis: Arc::new(genesis),
-            originals: path,
-        }
-    }
     fn fixture(&self, setup: &LedgerSetup, index: usize) -> Fixture {
         let mut f = fixture();
         f.config.scheme = *self.installed.verifier().scheme();
@@ -133,6 +122,18 @@ impl Sources {
             },
             MemoryBudget::DEFAULT,
         );
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let failure = norito::with_decode_limits_scope(limits, || {
+            runtime.begin(&frames[0], &frames[1], &frames[2], &frames[3])
+        })
+        .err()
+        .expect("genuine installed pre-challenge read refusal");
+        let (runtime, error) = failure.into_parts();
+        assert!(matches!(error, state::NativeOpenErrorV1::Intake(
+            crate::kagemusha_wallet_intake_v1::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        // The same Ready/BeginFailed owner and four originals retry; no challenge
+        // was sampled on the refused preparation read and no provider is reopened.
         let pending = runtime
             .begin(&frames[0], &frames[1], &frames[2], &frames[3])
             .unwrap();
@@ -431,6 +432,7 @@ fn export_actual_a_load_target_with_retained_native_custody() {
         "schema": TARGET_SCHEMA,
         "scope": "Actual native A with real host storage and proofs; simulated payment hardware and engineering issuer. Target DATA is not a finalized receipt or settlement verdict.",
         "source_pins": (source_pins()),
+        "sealed_originals": (source_reuse::locator(&sources.originals)),
         "executed_ledger_setup_sha256": (setup.manifest_sha256),
         "native_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
         "native_binary_sha256": (executable_hash()),
@@ -578,7 +580,7 @@ fn require_payment_bound(bytes: &[u8], scheme: &[u8; 32]) {
 #[ignore = "requires exported SAME A custody, genuine full52 grant and an independently pinned finalized Load for its exact target"]
 fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let output = fresh_output("KAGEMUSHA_NATIVE_EXCHANGE_OUTPUT");
-    let sources = Sources::admit(&output.join("source-admission"));
+    let sources = Sources::requalify(&output.join("source-admission"));
     let setup = LedgerSetup::read(&sources);
     let f = sources.fixture(&setup, 0);
     let path = selected_path("KAGEMUSHA_NATIVE_LOAD_TARGET");

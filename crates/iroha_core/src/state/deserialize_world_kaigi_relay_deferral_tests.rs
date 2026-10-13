@@ -1,7 +1,6 @@
 //! Actual World relay-registry restore boundaries and original snapshot retry.
 
 use super::*;
-use crate::execution_attempt::ExecutionDeferred;
 use iroha_data_model::{
     kaigi::{KaigiRelayAllowlist, KaigiRelayRegistration, kaigi_relay_metadata_key},
     prelude::{Account, AssetDefinition, Domain, Json},
@@ -118,20 +117,23 @@ fn restore_refusal(with_allowlist: bool) {
             "Kaigi relay registry snapshot refusal must preserve ExecutionDeferred before World publication: {error:?}"
         );
     };
-    assert_eq!(
-        reason,
-        ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity)
-    );
+    assert_eq!(reason.reason(), ExecutionDeferral::ActiveMemoryCapacity);
     assert!(
         reason.allocation_refusal().is_none(),
         "codec quota cannot invent a pool release owner"
     );
+    let original_reason = reason.reason();
+    let original_decode = reason.decode_refusal().cloned();
+    let original_phase = reason.phase();
     let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
-        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(reason.clone()))
+        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(reason))
     else {
         panic!("snapshot export must retain the exact original registry deferral")
     };
-    assert_eq!(reason, exported);
+    assert_eq!(exported.reason(), original_reason);
+    assert_eq!(exported.decode_refusal(), original_decode.as_ref());
+    assert_eq!(exported.phase(), original_phase);
+    assert!(exported.allocation_refusal().is_none());
     assert_eq!(encoded.as_ptr(), pointer);
     assert_eq!(json::to_json(&world).unwrap(), encoded);
     let before_retry = context.consumed_allocated_bytes();

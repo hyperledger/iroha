@@ -548,7 +548,7 @@ async fn privacy_ingest_rejects_when_disabled() {
     .await
     .expect("handler executes");
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let disabled = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["event", "disabled"])
@@ -576,7 +576,7 @@ async fn privacy_ingest_denies_without_allowlist() {
     .await
     .expect("handler executes");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let blocked = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["event", "namespace_blocked"])
@@ -628,7 +628,7 @@ async fn privacy_ingest_enforces_operator_namespace_and_rate() {
     .await
     .expect("handler executes");
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let retired = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["event", "retired_token"])
@@ -691,7 +691,7 @@ async fn privacy_ingest_denies_without_namespace_allowlist() {
     .await
     .expect("handler executes");
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let blocked = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["event", "namespace_blocked"])
@@ -901,7 +901,7 @@ async fn privacy_ingest_blocks_without_allowlist() {
     .await
     .expect("handler executes");
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let namespace_blocked = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["event", "namespace_blocked"])
@@ -1024,7 +1024,7 @@ async fn privacy_share_ingest_enforces_policy() {
     .await
     .expect("handler executes");
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let retired = metrics
         .soranet_privacy_ingest_reject_total
         .get_metric_with_label_values(&["share", "retired_token"])
@@ -1781,6 +1781,10 @@ fn store_block(app: &SharedAppState, block: SignedBlock) -> HashOf<BlockHeader> 
         .expect("store block");
     hash
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "The fixture transfers its header into the committed header cache."
+)]
 fn record_committed_block_hash_for_test(
     app: &SharedAppState,
     header: BlockHeader,
@@ -1810,7 +1814,7 @@ fn make_empty_signed_block(
     block
 }
 
-pub(crate) fn record_latest_committed_header_for_test(
+pub fn record_latest_committed_header_for_test(
     app: &SharedAppState,
     height: u64,
     creation_time_ms: u64,

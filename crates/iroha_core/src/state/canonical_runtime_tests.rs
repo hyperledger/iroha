@@ -102,7 +102,7 @@ fn replay_probe_keeps_configured_governance_before_manifest_rebind() {
         lane_manifests: live.lane_manifests.read().clone(),
         query_handle: live.query_handle.clone(),
         #[cfg(feature = "telemetry")]
-        telemetry: Default::default(),
+        telemetry: crate::telemetry::StateTelemetry::default(),
     }
     .into_state_from_json_str_with_configured_nexus_without_durable_recovery(
         captured.as_json(),

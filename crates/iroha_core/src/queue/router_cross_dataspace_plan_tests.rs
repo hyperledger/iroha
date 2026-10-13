@@ -58,7 +58,6 @@ fn opaque_asset_transfer_with_universal_and_private_account_scope_uses_default_r
     );
 }
 
-
 #[test]
 fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
     let (authority_id, authority_keypair) = gen_account_in("wonderland");
@@ -105,49 +104,89 @@ fn strict_scoped_permission_decision_apis_match_full_plan_rejection() {
         second_dataspace_id: ordinary_dataspace,
     };
 
-    assert_eq!(router.try_route(&tx), Err(expected_error()));
-    assert_eq!(router.try_route_plan(&tx), Err(expected_error()));
-    assert_eq!(router.try_route_without_state(&tx), Ok(None));
-    assert_eq!(router.try_route_plan_without_state(&tx), Ok(None));
-    assert_eq!(
-        evaluate_policy_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx),
-        Err(expected_error())
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
+    );
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_plan(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
     assert_eq!(
-        evaluate_policy_plan_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx),
-        Err(expected_error())
+        (router.try_route_without_state(&tx))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
+    );
+    assert_eq!(
+        (router.try_route_plan_without_state(&tx))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
+    );
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
+    );
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_plan_with_catalog(&policy, &lane_catalog, &dataspace_catalog, &tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
 
     let mut state = blank_state();
     install_router_nexus(&mut state, &router);
     let state_view = state.view();
-    assert_eq!(
-        router.try_route_with_view(&tx, &state_view),
-        Err(expected_error())
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_with_view(&tx, &state_view))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        router.try_route_plan_with_view(&tx, &state_view),
-        Err(expected_error())
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_plan_with_view(&tx, &state_view))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        evaluate_policy_with_catalog_and_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
             &tx,
             state_view.world(),
-        ),
-        Err(expected_error())
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        evaluate_policy_plan_with_catalog_and_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_plan_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
             &tx,
             state_view.world(),
-        ),
-        Err(expected_error())
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(expected_error()),
+        format_args!("completed routing rejection"),
     );
 }
 
@@ -198,33 +237,45 @@ fn explicit_universal_target_is_not_rewritten_by_authority_account_rule() {
     };
     let state_view = state.view();
 
-    assert_eq!(
-        router.try_route_plan_with_view(&tx, &state_view),
-        Err(expected_error.clone())
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_plan_with_view(&tx, &state_view))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        router.try_route_with_view(&tx, &state_view),
-        Err(expected_error.clone())
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_with_view(&tx, &state_view))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(expected_error),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        evaluate_policy_plan_with_catalog_and_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_plan_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
             &tx,
             state_view.world(),
-        ),
-        Err(expected_error.clone())
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(expected_error),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        evaluate_policy_with_catalog_and_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (evaluate_policy_with_catalog_and_world(
             &policy,
             &lane_catalog,
             &dataspace_catalog,
             &tx,
             state_view.world(),
-        ),
-        Err(expected_error)
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(expected_error),
+        format_args!("completed routing rejection"),
     );
 }
 
@@ -331,7 +382,6 @@ fn explicit_lane_rule_infers_target_dataspace_for_domain_write() {
     );
 }
 
-
 #[test]
 fn primary_alias_compare_and_set_same_dataspace_stays_single_route() {
     let (authority_id, authority_keypair) = gen_account_in("wonderland");
@@ -403,14 +453,15 @@ fn strict_amx_policy_rejects_cross_dataspace_primary_alias_compare_and_set() {
         vec![InstructionBox::from(instruction)],
         metadata,
     );
-    assert_eq!(
-        router.try_route_plan(&tx),
-        Err(
-            RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                first_dataspace_id: first_dataspace,
-                second_dataspace_id: second_dataspace,
-            }
-        )
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_plan(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+            first_dataspace_id: first_dataspace,
+            second_dataspace_id: second_dataspace,
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -445,14 +496,15 @@ fn strict_amx_policy_rejects_mixed_domain_write_targets() {
         ],
         metadata,
     );
-    assert_eq!(
-        router.try_route(&tx),
-        Err(
-            RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                first_dataspace_id: first_dataspace,
-                second_dataspace_id: second_dataspace,
-            }
-        )
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+            first_dataspace_id: first_dataspace,
+            second_dataspace_id: second_dataspace,
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -487,14 +539,15 @@ fn strict_amx_policy_rejects_mixed_proved_overlay_write_targets() {
         ]),
         metadata,
     );
-    assert_eq!(
-        router.try_route(&tx),
-        Err(
-            RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                first_dataspace_id: first_dataspace,
-                second_dataspace_id: second_dataspace,
-            }
-        )
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+            first_dataspace_id: first_dataspace,
+            second_dataspace_id: second_dataspace,
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -529,14 +582,15 @@ fn strict_amx_policy_value_is_trimmed_and_case_insensitive() {
         ],
         metadata,
     );
-    assert_eq!(
-        router.try_route(&tx),
-        Err(
-            RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                first_dataspace_id: first_dataspace,
-                second_dataspace_id: second_dataspace,
-            }
-        )
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+            first_dataspace_id: first_dataspace,
+            second_dataspace_id: second_dataspace,
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -581,12 +635,15 @@ fn strict_amx_policy_rejects_mixed_dataspace_scoped_permissions() {
         ],
         metadata,
     );
-    assert_eq!(
-        router.try_route(&tx),
-        Err(RoutingResolveError::ConflictingDataspaceScopedPermissions {
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::ConflictingDataspaceScopedPermissions {
             first_dataspace_id: first_dataspace,
             second_dataspace_id: second_dataspace,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -628,11 +685,14 @@ fn mixed_dataspace_scoped_permissions_without_universal_lane_fail_closed() {
             )),
         ],
     );
-    assert_eq!(
-        router.try_route(&tx),
-        Err(RoutingResolveError::NoLaneForDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route(&tx))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::NoLaneForDataspace {
             dataspace_id: DataSpaceId::UNIVERSAL,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]
@@ -976,18 +1036,20 @@ fn resolve_query_routing_decision_rejects_autoscale_owned_default_lane_without_s
         default_lane_config(),
         autoscale_elastic_lane_config(LaneId::new(1), DataSpaceId::UNIVERSAL, 7),
     ]);
-    assert_eq!(
-        resolve_query_routing_decision(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (resolve_query_routing_decision(
             &policy,
             &lane_catalog,
             &DataSpaceCatalog::default(),
             &alice_id,
             None,
-        ),
-        Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::AutoscaleOwnedDefaultLane {
             lane_id: LaneId::new(1),
         }),
-        "state-free query routing must not accept autoscale-owned default lanes"
+        format_args!("state-free query routing must not accept autoscale-owned default lanes"),
     );
 }
 #[test]
@@ -1010,18 +1072,22 @@ fn resolve_query_routing_decision_rejects_autoscale_owned_rule_lane_without_stat
         default_lane_config(),
         autoscale_elastic_lane_config(LaneId::new(1), DataSpaceId::UNIVERSAL, 7),
     ]);
-    assert_eq!(
-        resolve_query_routing_decision(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (resolve_query_routing_decision(
             &policy,
             &lane_catalog,
             &DataSpaceCatalog::default(),
             &alice_id,
             None,
-        ),
-        Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::AutoscaleOwnedRuleLane {
             lane_id: LaneId::new(1),
         }),
-        "state-free query routing must not accept autoscale-owned explicit rule lanes"
+        format_args!(
+            "state-free query routing must not accept autoscale-owned explicit rule lanes"
+        ),
     );
 }
 #[test]

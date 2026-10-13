@@ -4,6 +4,25 @@
 /// Exact error classification, implemented explicitly for each native source family.
 pub(crate) trait NativeProofError {
     fn is_cancelled(&self) -> bool;
+    /// Move an actual unfinished original read through the native proof boundary.
+    fn into_read_refusal(self) -> Option<norito::core::DecodeLocalRefusal>
+    where
+        Self: Sized,
+    {
+        None
+    }
+}
+
+impl NativeProofError for super::Error {
+    fn is_cancelled(&self) -> bool {
+        self.is_cancelled()
+    }
+    fn into_read_refusal(self) -> Option<norito::core::DecodeLocalRefusal> {
+        match self {
+            Self::DecodeResource(original) => Some(original),
+            _ => None,
+        }
+    }
 }
 
 macro_rules! cancellable {
@@ -14,7 +33,6 @@ macro_rules! cancellable {
     )+};
 }
 cancellable!(
-    super::Error,
     iroha_plonk::keys::KeyError,
     iroha_plonk::pcs::ipa::IpaError,
     iroha_plonk::VerifyError,
@@ -32,7 +50,24 @@ macro_rules! cancellable_copy {
         }
     )+};
 }
-cancellable_copy!(
+cancellable_copy!(iroha_kagemusha_proof::omega::native::Error);
+
+// Native checkpoint families own the captured refusal; do not reconstruct its
+// diagnostic error after the decoder observer and enclosing scope have retired.
+macro_rules! checkpoint_error {
+    ($($ty:ty),+ $(,)?) => {$(
+        impl NativeProofError for $ty {
+            fn is_cancelled(&self) -> bool { <$ty>::is_cancelled(self) }
+            fn into_read_refusal(self) -> Option<norito::core::DecodeLocalRefusal> {
+                match self {
+                    Self::DecodeResource(original) => Some(original),
+                    _ => None,
+                }
+            }
+        }
+    )+};
+}
+checkpoint_error!(
     iroha_kagemusha_proof::a_relation::native::bootstrap::Error,
     iroha_kagemusha_proof::a_relation::native::load::Error,
     iroha_kagemusha_proof::a_relation::native::send::Error,
@@ -40,7 +75,6 @@ cancellable_copy!(
     iroha_kagemusha_proof::a_relation::native::archive::Error,
     iroha_kagemusha_proof::a_relation::native::consuming::Error,
     iroha_kagemusha_proof::a_relation::native::refresh::Error,
-    iroha_kagemusha_proof::omega::native::Error,
 );
 
 // These APIs decode fixed metadata or derive pinned parameters during trusted

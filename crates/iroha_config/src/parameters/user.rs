@@ -64,6 +64,8 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+mod amx_relay;
+pub use amx_relay::{AmxRelay, AmxRelayRoute};
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
     KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
@@ -73,7 +75,7 @@ mod musubi_publication_installation;
 pub use musubi_publication_installation::MusubiPublicationInstallation;
 mod sccp;
 pub use sccp::{
-    SccpAttestor, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
 };
 type Result<T, E> = core::result::Result<T, Report<[E]>>;
 type KyberKeyInputs = (Vec<u8>, ParameterOrigin, Vec<u8>, ParameterOrigin);
@@ -960,6 +962,8 @@ pub struct Root {
     #[config(nested)]
     musubi_publication: MusubiPublication,
     #[config(nested)]
+    amx_relay: AmxRelay,
+    #[config(nested)]
     sorafs: Sorafs,
     #[config(nested)]
     pipeline: Pipeline,
@@ -1001,7 +1005,7 @@ pub struct Root {
     /// Concurrency settings for thread pools.
     #[config(nested)]
     concurrency: Concurrency,
-    /// Node-local SCCP attestor and light-client keeper (`[sccp.*]`, file-only).
+    /// Node-local SCCP keeper and its light-client duty (`[sccp.*]`, file-only).
     #[config(nested)]
     sccp: SccpNode,
     /// Node data directory: state paths default under `<data_dir>/state/` and secret files
@@ -1065,6 +1069,9 @@ pub enum ParseError {
     /// Settlement engine configuration was invalid or incomplete.
     #[error("Invalid settlement configuration")]
     InvalidSettlementConfig,
+    /// Invalid native AMX relay custody, trust or local scheduling configuration.
+    #[error("invalid AMX relay configuration")]
+    InvalidAmxRelayConfig,
     /// Cryptography configuration contained invalid or unsupported values.
     #[error("Invalid crypto configuration")]
     InvalidCryptoConfig,
@@ -1104,7 +1111,7 @@ pub enum ParseError {
     /// Genesis trust-root configuration was absent, ambiguous, or invalid.
     #[error("Invalid genesis trust-root configuration")]
     InvalidGenesisConfig,
-    /// Node-local SCCP attestor or light-client keeper configuration was invalid.
+    /// Node-local SCCP keeper configuration was invalid.
     #[error("Invalid SCCP node configuration")]
     InvalidSccpConfig,
 }
@@ -1499,6 +1506,7 @@ impl Root {
         }
         let crypto = self.crypto.parse(&mut emitter);
         let settlement = self.settlement.parse(&mut emitter);
+        let amx_relay = self.amx_relay.parse(&mut emitter);
         if let Err(err) = concurrency.validate() {
             emitter.emit(err);
         }
@@ -1508,26 +1516,8 @@ impl Root {
         if let Err(message) = snapshot.validate_read_buffer_budget() {
             emitter.emit(Report::new(ParseError::InvalidSnapshotConfig).attach(message));
         }
-        zk.max_proof_size_bytes = confidential.max_proof_size_bytes;
-        zk.max_nullifiers_per_tx = confidential.max_nullifiers_per_tx;
-        zk.max_commitments_per_tx = confidential.max_commitments_per_tx;
-        zk.max_confidential_ops_per_block = confidential.max_confidential_ops_per_block;
+        // The verification attempt budget is the one local value `[confidential]` gives ZK.
         zk.verify_timeout = confidential.verify_timeout;
-        zk.max_anchor_age_blocks = confidential.max_anchor_age_blocks;
-        zk.max_proof_bytes_block = confidential.max_proof_bytes_block;
-        zk.max_verify_calls_per_tx = confidential.max_verify_calls_per_tx;
-        zk.max_verify_calls_per_block = confidential.max_verify_calls_per_block;
-        zk.max_public_inputs = confidential.max_public_inputs;
-        zk.reorg_depth_bound = confidential.reorg_depth_bound;
-        zk.policy_transition_delay_blocks = confidential.policy_transition_delay_blocks;
-        zk.policy_transition_window_blocks = confidential.policy_transition_window_blocks;
-        zk.policy_transition_max_per_height = confidential.policy_transition_max_per_height;
-        zk.tree_roots_history_len = confidential.tree_roots_history_len;
-        zk.tree_frontier_checkpoint_interval = confidential.tree_frontier_checkpoint_interval;
-        zk.registry_max_vk_entries = confidential.registry_max_vk_entries;
-        zk.registry_max_params_entries = confidential.registry_max_params_entries;
-        zk.registry_max_delta_per_block = confidential.registry_max_delta_per_block;
-        zk.gas = confidential.gas;
         emitter.into_result()?;
         soracloud_runtime.assert_runtime_posture();
         let sumeragi =
@@ -1559,6 +1549,7 @@ impl Root {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,
@@ -1760,25 +1751,6 @@ fn parse_telemetry_signing_key(raw: &str) -> core::result::Result<[u8; 32], Stri
     let mut key = [0_u8; 32];
     key.copy_from_slice(&bytes);
     Ok(key)
-}
-/// Verifying key reference (user view)
-/// User-level configuration container for `VerifyingKeyRef`.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct VerifyingKeyRef {
-    /// Backend identifier, e.g., "pipa-r/pasta".
-    #[config(env = "GOV_VK_BACKEND", default)]
-    pub backend: String,
-    /// Name within backend namespace, e.g., "ballot_v1".
-    #[config(env = "GOV_VK_NAME", default)]
-    pub name: String,
-}
-impl VerifyingKeyRef {
-    fn parse(self) -> actual::VerifyingKeyRef {
-        actual::VerifyingKeyRef {
-            backend: self.backend,
-            name: self.name,
-        }
-    }
 }
 /// One governed Ed25519 signer authorized to approve SoraFS pin manifests.
 #[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
@@ -2385,12 +2357,13 @@ impl Default for ParliamentTleKeyLifecycle {
     }
 }
 /// Governance configuration (user view).
+///
+/// The ballot and tally verifying keys of a ZK election select its proof
+/// relations. Each election commits its own keys (`CreateElection`); a node
+/// configuration names no default for them, so `vk_ballot` and `vk_tally` are
+/// not keys of this schema.
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Governance {
-    /// Default ZK ballot verifying key (backend/name). Optional.
-    pub vk_ballot: Option<VerifyingKeyRef>,
-    /// Default ZK tally verifying key (backend/name). Optional.
-    pub vk_tally: Option<VerifyingKeyRef>,
     /// Asset definition id used for governance bonds and voting locks.
     #[config(
         env = "GOV_VOTING_ASSET_ID",
@@ -2598,7 +2571,8 @@ pub struct Governance {
     /// Alternates retained for each attempt-local Parliament body draw.
     #[config(default = "crate::parameters::defaults::governance::PARLIAMENT_ALTERNATE_SIZE")]
     pub parliament_alternate_size: usize,
-    /// Exact nonzero delay from a committed Parliament sortition request to its beacon pulse.
+    /// Minimum nonzero delay from a committed Parliament sortition request to its beacon pulse,
+    /// which is the first consensus-native `NPoS` pulse height at or after that delay.
     #[config(
         default = "crate::parameters::defaults::governance::PARLIAMENT_SORTITION_PULSE_DELAY_BLOCKS"
     )]
@@ -2684,8 +2658,6 @@ pub struct Governance {
 impl Default for Governance {
     fn default() -> Self {
         Self {
-            vk_ballot: None,
-            vk_tally: None,
             voting_asset_id: defaults::governance::voting_asset_id(),
             citizenship_asset_id: defaults::governance::citizenship_asset_id(),
             citizenship_bond_amount: defaults::governance::citizenship_bond_amount(),
@@ -2889,8 +2861,9 @@ impl Governance {
         let jdg_signature_schemes = normalize_jdg_signature_schemes(self.jdg_signature_schemes);
         let runtime_upgrade_provenance = self.runtime_upgrade_provenance.parse();
         actual::Governance {
-            vk_ballot: self.vk_ballot.map(VerifyingKeyRef::parse),
-            vk_tally: self.vk_tally.map(VerifyingKeyRef::parse),
+            // Relation-selecting keys are committed per election; a node names none.
+            vk_ballot: None,
+            vk_tally: None,
             voting_asset_id: self
                 .voting_asset_id
                 .parse()
@@ -3739,15 +3712,17 @@ impl Nts {
     }
 }
 /// User-level configuration container for `Pipeline`.
-#[derive(Debug, ReadConfig)]
+///
+/// Local resources of this node. Fee policy comes from the committed
+/// pipeline gas parameters. The execution limits of the pipeline (overlay size, IVM
+/// cycle and decoded-program bounds, the quarantine lane, query limits, the AMX
+/// budget model and the access-set derivation mode) are committed chain policy:
+/// the `pipeline_validity_policy_v1` parameter
+/// (`iroha_data_model::pipeline_validity_policy`). They are not keys of this
+/// schema, so a configuration that names one fails to load.
+#[derive(Debug, Clone, Copy, ReadConfig)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Pipeline {
-    /// Enable dynamic prepass for IVM access-set derivation.
-    #[config(
-        env = "PIPELINE_DYNAMIC_PREPASS",
-        default = "defaults::pipeline::DYNAMIC_PREPASS"
-    )]
-    pub dynamic_prepass: bool,
     /// Enable caching of derived access sets for IVM manifest hints.
     #[config(
         env = "PIPELINE_ACCESS_SET_CACHE_ENABLED",
@@ -3851,105 +3826,12 @@ pub struct Pipeline {
         default = "defaults::pipeline::IVM_PROVER_THREADS"
     )]
     pub ivm_prover_threads: usize,
-    /// Maximum instructions allowed per overlay (0 = unlimited).
-    #[config(
-        env = "PIPELINE_OVERLAY_MAX_INSTRUCTIONS",
-        default = "defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS"
-    )]
-    pub overlay_max_instructions: usize,
-    /// Maximum serialized Norito bytes allowed per overlay (0 = unlimited).
-    #[config(
-        env = "PIPELINE_OVERLAY_MAX_BYTES",
-        default = "defaults::pipeline::OVERLAY_MAX_BYTES"
-    )]
-    pub overlay_max_bytes: u64,
-    /// Execute overlay instructions in chunks of this size (at least 1).
-    #[config(
-        env = "PIPELINE_OVERLAY_CHUNK_INSTRUCTIONS",
-        default = "defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS"
-    )]
-    pub overlay_chunk_instructions: usize,
-    /// Gas-fee configuration (accepted assets, conversion, and tech account).
-    #[config(nested)]
-    pub gas: Gas,
-    /// Mandatory admission-time ceiling for `ProgramMetadata.max_cycles`.
-    ///
-    /// This consensus-relevant policy is intentionally file-configured only;
-    /// production environment variables must not alter artifact admission.
-    #[config(default = "defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND")]
-    pub ivm_max_cycles_upper_bound: NonZeroU64,
-    /// Maximum decoded Kotodama instructions accepted during admission (0 = unlimited).
-    #[config(
-        env = "PIPELINE_IVM_MAX_DECODED_INSTRUCTIONS",
-        default = "defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS"
-    )]
-    pub ivm_max_decoded_instructions: u64,
-    /// Maximum decoded Kotodama byte length accepted during admission (0 = unlimited).
-    #[config(
-        env = "PIPELINE_IVM_MAX_DECODED_BYTES",
-        default = "defaults::pipeline::IVM_MAX_DECODED_BYTES"
-    )]
-    pub ivm_max_decoded_bytes: u64,
-    /// Maximum transactions allowed in the quarantine lane per block (0 = disabled).
-    #[config(
-        env = "PIPELINE_QUARANTINE_MAX_TXS_PER_BLOCK",
-        default = "defaults::pipeline::QUARANTINE_MAX_TXS_PER_BLOCK"
-    )]
-    pub quarantine_max_txs_per_block: usize,
-    /// Per-transaction cycle cap in the quarantine lane (0 = unlimited).
-    #[config(
-        env = "PIPELINE_QUARANTINE_TX_MAX_CYCLES",
-        default = "defaults::pipeline::QUARANTINE_TX_MAX_CYCLES"
-    )]
-    pub quarantine_tx_max_cycles: u64,
     /// Default cursor mode for server-facing query endpoints: "ephemeral" or "stored".
     #[config(
         env = "PIPELINE_QUERY_DEFAULT_CURSOR_MODE",
         default = "defaults::pipeline::QUERY_DEFAULT_CURSOR_MODE.parse().unwrap()"
     )]
     pub query_default_cursor_mode: QueryCursorMode,
-    /// Maximum fetch size for iterable queries executed inside the IVM.
-    #[config(
-        env = "PIPELINE_QUERY_MAX_FETCH_SIZE",
-        default = "defaults::pipeline::QUERY_MAX_FETCH_SIZE"
-    )]
-    pub query_max_fetch_size: u64,
-    /// Minimum gas units required to use stored cursor mode (0 = disabled).
-    #[config(
-        env = "PIPELINE_QUERY_STORED_MIN_GAS_UNITS",
-        default = "defaults::pipeline::QUERY_STORED_MIN_GAS_UNITS"
-    )]
-    pub query_stored_min_gas_units: u64,
-    /// AMX per-dataspace execution budget in milliseconds.
-    #[config(
-        env = "PIPELINE_AMX_PER_DATASPACE_BUDGET_MS",
-        default = "defaults::pipeline::AMX_PER_DATASPACE_BUDGET_MS"
-    )]
-    pub amx_per_dataspace_budget_ms: u64,
-    /// AMX group execution budget across dataspaces in milliseconds.
-    #[config(
-        env = "PIPELINE_AMX_GROUP_BUDGET_MS",
-        default = "defaults::pipeline::AMX_GROUP_BUDGET_MS"
-    )]
-    pub amx_group_budget_ms: u64,
-    /// Estimated nanoseconds per instruction used for AMX budgeting.
-    #[config(
-        env = "PIPELINE_AMX_PER_INSTRUCTION_NS",
-        default = "defaults::pipeline::AMX_PER_INSTRUCTION_NS"
-    )]
-    pub amx_per_instruction_ns: u64,
-    /// Estimated nanoseconds per memory access used for AMX budgeting.
-    #[config(
-        env = "PIPELINE_AMX_PER_MEMORY_ACCESS_NS",
-        default = "defaults::pipeline::AMX_PER_MEMORY_ACCESS_NS"
-    )]
-    pub amx_per_memory_access_ns: u64,
-    /// Estimated nanoseconds per syscall used for AMX budgeting.
-    #[config(
-        env = "PIPELINE_AMX_PER_SYSCALL_NS",
-        default = "defaults::pipeline::AMX_PER_SYSCALL_NS"
-    )]
-    pub amx_per_syscall_ns: u64,
 }
 /// User-level configuration container for `TieredState`.
 #[derive(Debug, ReadConfig, Clone)]
@@ -4593,9 +4475,12 @@ impl Oracle {
     }
 }
 impl Pipeline {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Pipeline {
+    fn parse(self, _emitter: &mut Emitter<ParseError>) -> actual::Pipeline {
+        // Execution limits are committed chain policy
+        // (`pipeline_validity_policy_v1`); the settings value a node builds
+        // holds their protocol defaults.
         actual::Pipeline {
-            dynamic_prepass: self.dynamic_prepass,
+            dynamic_prepass: defaults::pipeline::DYNAMIC_PREPASS,
             access_set_cache_enabled: self.access_set_cache_enabled,
             parallel_overlay: self.parallel_overlay,
             workers: self.workers,
@@ -4614,23 +4499,23 @@ impl Pipeline {
             ivm_execution_max_bytes: self.ivm_execution_max_bytes,
             ivm_prover_threads: self.ivm_prover_threads,
             signature_batch_max_bls: self.signature_batch_max_bls,
-            overlay_max_instructions: self.overlay_max_instructions,
-            overlay_max_bytes: self.overlay_max_bytes,
-            overlay_chunk_instructions: self.overlay_chunk_instructions,
-            gas: self.gas.parse(emitter),
-            ivm_max_cycles_upper_bound: self.ivm_max_cycles_upper_bound,
-            ivm_max_decoded_instructions: self.ivm_max_decoded_instructions,
-            ivm_max_decoded_bytes: self.ivm_max_decoded_bytes,
-            quarantine_max_txs_per_block: self.quarantine_max_txs_per_block,
-            quarantine_tx_max_cycles: self.quarantine_tx_max_cycles,
+            overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
+            overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
+            overlay_chunk_instructions: defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS,
+            gas: actual::Gas::default(),
+            ivm_max_cycles_upper_bound: defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND,
+            ivm_max_decoded_instructions: defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS,
+            ivm_max_decoded_bytes: defaults::pipeline::IVM_MAX_DECODED_BYTES,
+            quarantine_max_txs_per_block: defaults::pipeline::QUARANTINE_MAX_TXS_PER_BLOCK,
+            quarantine_tx_max_cycles: defaults::pipeline::QUARANTINE_TX_MAX_CYCLES,
             query_default_cursor_mode: self.query_default_cursor_mode.into_actual(),
-            query_max_fetch_size: self.query_max_fetch_size,
-            query_stored_min_gas_units: self.query_stored_min_gas_units,
-            amx_per_dataspace_budget_ms: self.amx_per_dataspace_budget_ms,
-            amx_group_budget_ms: self.amx_group_budget_ms,
-            amx_per_instruction_ns: self.amx_per_instruction_ns,
-            amx_per_memory_access_ns: self.amx_per_memory_access_ns,
-            amx_per_syscall_ns: self.amx_per_syscall_ns,
+            query_max_fetch_size: defaults::pipeline::QUERY_MAX_FETCH_SIZE,
+            query_stored_min_gas_units: defaults::pipeline::QUERY_STORED_MIN_GAS_UNITS,
+            amx_per_dataspace_budget_ms: defaults::pipeline::AMX_PER_DATASPACE_BUDGET_MS,
+            amx_group_budget_ms: defaults::pipeline::AMX_GROUP_BUDGET_MS,
+            amx_per_instruction_ns: defaults::pipeline::AMX_PER_INSTRUCTION_NS,
+            amx_per_memory_access_ns: defaults::pipeline::AMX_PER_MEMORY_ACCESS_NS,
+            amx_per_syscall_ns: defaults::pipeline::AMX_PER_SYSCALL_NS,
         }
     }
 }
@@ -4674,7 +4559,6 @@ mod pipeline_tests {
     use crate::parameters::defaults;
     fn pipeline_with_debug(trace_scheduler_inputs: bool, trace_tx_eval: bool) -> Pipeline {
         Pipeline {
-            dynamic_prepass: defaults::pipeline::DYNAMIC_PREPASS,
             access_set_cache_enabled: defaults::pipeline::ACCESS_SET_CACHE_ENABLED,
             parallel_overlay: defaults::pipeline::PARALLEL_OVERLAY,
             workers: defaults::pipeline::WORKERS,
@@ -4693,29 +4577,30 @@ mod pipeline_tests {
             ivm_cache_max_bytes: defaults::pipeline::IVM_CACHE_MAX_BYTES,
             ivm_execution_max_bytes: defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ivm_prover_threads: defaults::pipeline::IVM_PROVER_THREADS,
-            overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
-            overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
-            overlay_chunk_instructions: defaults::pipeline::OVERLAY_CHUNK_INSTRUCTIONS,
-            gas: Gas {
-                tech_account_id: defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_string(),
-                accepted_assets: Vec::new(),
-                units_per_gas: Vec::new(),
-            },
-            ivm_max_cycles_upper_bound: defaults::pipeline::IVM_MAX_CYCLES_UPPER_BOUND,
-            ivm_max_decoded_instructions: defaults::pipeline::IVM_MAX_DECODED_INSTRUCTIONS,
-            ivm_max_decoded_bytes: defaults::pipeline::IVM_MAX_DECODED_BYTES,
-            quarantine_max_txs_per_block: defaults::pipeline::QUARANTINE_MAX_TXS_PER_BLOCK,
-            quarantine_tx_max_cycles: defaults::pipeline::QUARANTINE_TX_MAX_CYCLES,
             query_default_cursor_mode: QueryCursorMode::Ephemeral,
-            query_max_fetch_size: defaults::pipeline::QUERY_MAX_FETCH_SIZE,
-            query_stored_min_gas_units: defaults::pipeline::QUERY_STORED_MIN_GAS_UNITS,
-            amx_per_dataspace_budget_ms: defaults::pipeline::AMX_PER_DATASPACE_BUDGET_MS,
-            amx_group_budget_ms: defaults::pipeline::AMX_GROUP_BUDGET_MS,
-            amx_per_instruction_ns: defaults::pipeline::AMX_PER_INSTRUCTION_NS,
-            amx_per_memory_access_ns: defaults::pipeline::AMX_PER_MEMORY_ACCESS_NS,
-            amx_per_syscall_ns: defaults::pipeline::AMX_PER_SYSCALL_NS,
         }
     }
+    #[test]
+    fn pipeline_gas_is_not_node_configuration() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        for source in [
+            "[gas]\ntech_account_id = \"local\"",
+            "[gas]\naccepted_assets = []",
+            "[[gas.units_per_gas]]\nasset = \"local\"\nunits_per_gas = 1",
+        ] {
+            let table: toml::Table = toml::from_str(source).unwrap();
+            let error = ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                .read_and_complete::<Pipeline>()
+                .expect_err("fee policy is committed, not node configuration");
+            assert!(format!("{error:?}").contains("unknown parameter"));
+        }
+        let mut emitter = Emitter::new();
+        let parsed = pipeline_with_debug(false, false).parse(&mut emitter);
+        emitter.into_result().unwrap();
+        assert_eq!(parsed.gas, actual::Gas::default());
+    }
+
     #[test]
     fn pipeline_parse_maps_debug_flags() {
         let mut emitter = Emitter::new();
@@ -4733,6 +4618,14 @@ mod pipeline_tests {
     }
 }
 /// Zero-knowledge configuration section.
+///
+/// This section holds local resource settings only: diagnostic trace workers,
+/// queues, retries, polynomial-opening bounds and the FASTPQ prover
+/// settings. Every validity-affecting ZK value of a chain (proof limits,
+/// windows, registry caps, relation-selecting keys, verification gas) is the
+/// committed `zk_validity_policy_v1` parameter, or the protocol default, never
+/// this file and never an environment variable. A configuration that names
+/// such a value fails to load with an unknown-parameter error.
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Zk {
     #[config(nested)]
@@ -4741,111 +4634,37 @@ pub struct Zk {
     #[config(nested)]
     /// Bounds for the diagnostic native polynomial-opening endpoint.
     pub ipa_commitment: IpaCommitment,
-    /// Maximum proofs accepted by one host batch-verification syscall.
-    #[config(default = "defaults::zk::MAX_VERIFY_BATCH")]
-    pub max_verify_batch: u32,
-    #[config(nested)]
-    /// Native PIPA-R verification policy.
-    pub pipa_r: PipaR,
     #[config(nested)]
     /// FASTPQ prover configuration.
     pub fastpq: Fastpq,
-    #[config(nested)]
-    /// Native STARK/FRI verification configuration.
-    pub stark: Stark,
-    #[config(nested)]
-    /// SCCP proof-admission and deterministic verifier-work limits.
-    pub sccp: Sccp,
-    /// Maximum number of recent ballot ciphertexts kept per election.
-    #[config(
-        env = "ZK_BALLOT_HISTORY_CAP",
-        default = "defaults::zk::vote::BALLOT_HISTORY_CAP"
-    )]
-    pub ballot_history_cap: usize,
-    /// Maximum accepted proof size for stateless pre-verification (bytes).
-    #[config(
-        env = "ZK_PREVERIFY_MAX_BYTES",
-        default = "defaults::zk::preverify::MAX_BYTES"
-    )]
-    pub preverify_max_bytes: usize,
-    /// Soft byte-budget for stateless pre-verification (0 = unlimited).
-    #[config(
-        env = "ZK_PREVERIFY_BUDGET_BYTES",
-        default = "defaults::zk::preverify::BUDGET_BYTES"
-    )]
-    pub preverify_budget_bytes: u64,
-    /// Maximum number of recent proof records to retain per backend (0 = unlimited).
-    #[config(
-        env = "ZK_PROOF_HISTORY_CAP",
-        default = "defaults::zk::proof::RECORD_HISTORY_CAP"
-    )]
-    pub proof_history_cap: usize,
-    /// Minimum number of recent blocks to retain for proof records (age-based pruning).
-    #[config(
-        env = "ZK_PROOF_RETENTION_GRACE_BLOCKS",
-        default = "defaults::zk::proof::RETENTION_GRACE_BLOCKS"
-    )]
-    pub proof_retention_grace_blocks: u64,
-    /// Maximum number of proof records pruned in one pass (0 = unlimited).
-    #[config(
-        env = "ZK_PROOF_PRUNE_BATCH",
-        default = "defaults::zk::proof::PRUNE_BATCH_SIZE"
-    )]
-    pub proof_prune_batch: usize,
-    /// Maximum length of a bridge proof range (`end_height - start_height + 1`, 0 = unlimited).
-    #[config(
-        env = "ZK_BRIDGE_PROOF_MAX_RANGE_LEN",
-        default = "defaults::zk::proof::BRIDGE_MAX_RANGE_LEN"
-    )]
-    pub bridge_proof_max_range_len: u64,
-    /// Maximum age (in blocks) a bridge proof's end height may trail the current block (0 = unlimited).
-    #[config(
-        env = "ZK_BRIDGE_PROOF_MAX_PAST_AGE_BLOCKS",
-        default = "defaults::zk::proof::BRIDGE_MAX_PAST_AGE_BLOCKS"
-    )]
-    pub bridge_proof_max_past_age_blocks: u64,
-    /// Maximum future drift (in blocks) a bridge proof's end height may lead the current block (0 = unlimited).
-    #[config(
-        env = "ZK_BRIDGE_PROOF_MAX_FUTURE_DRIFT_BLOCKS",
-        default = "defaults::zk::proof::BRIDGE_MAX_FUTURE_DRIFT_BLOCKS"
-    )]
-    pub bridge_proof_max_future_drift_blocks: u64,
-    /// Poseidon parameter set identifier to embed into confidential policies (if any).
-    #[config(env = "ZK_POSEIDON_PARAMS_ID")]
-    pub poseidon_params_id: Option<u32>,
-    /// Pedersen parameter set identifier to embed into confidential policies (if any).
-    #[config(env = "ZK_PEDERSEN_PARAMS_ID")]
-    pub pedersen_params_id: Option<u32>,
-    /// Governed verifying key for every final Kaigi authorization action.
-    pub kaigi_authorization_vk: Option<VerifyingKeyRef>,
-
-    /// Optional verifying key reference used for Kaigi usage commitment proofs.
-    pub kaigi_usage_vk: Option<VerifyingKeyRef>,
 }
 impl Zk {
+    /// The runtime settings value: this node's local resources, with every
+    /// validity-affecting value at the protocol default. Core replaces those
+    /// with the committed ZK validity policy.
     fn parse(self) -> actual::Zk {
         actual::Zk {
             trace: self.trace.parse(),
             ipa_commitment: self.ipa_commitment.parse(),
-            max_verify_batch: self.max_verify_batch,
-            pipa_r: self.pipa_r.parse(),
+            max_verify_batch: defaults::zk::MAX_VERIFY_BATCH,
+            pipa_r: actual::PipaR::default(),
             fastpq: self.fastpq.parse(),
-            stark: self.stark.parse(),
-            sccp: self.sccp.parse(),
-            ballot_history_cap: self.ballot_history_cap,
-            preverify_max_bytes: self.preverify_max_bytes,
-            preverify_budget_bytes: self.preverify_budget_bytes,
-            proof_history_cap: self.proof_history_cap,
-            proof_retention_grace_blocks: self.proof_retention_grace_blocks,
-            proof_prune_batch: self.proof_prune_batch,
-            bridge_proof_max_range_len: self.bridge_proof_max_range_len,
-            bridge_proof_max_past_age_blocks: self.bridge_proof_max_past_age_blocks,
-            bridge_proof_max_future_drift_blocks: self.bridge_proof_max_future_drift_blocks,
-            poseidon_params_id: self.poseidon_params_id,
-            pedersen_params_id: self.pedersen_params_id,
-            kaigi_authorization_vk: self.kaigi_authorization_vk.map(VerifyingKeyRef::parse),
-
-            kaigi_usage_vk: self.kaigi_usage_vk.map(VerifyingKeyRef::parse),
+            stark: actual::Stark::default(),
+            sccp: actual::Sccp::default(),
+            ballot_history_cap: defaults::zk::vote::BALLOT_HISTORY_CAP,
+            preverify_max_bytes: defaults::zk::preverify::MAX_BYTES,
+            preverify_budget_bytes: defaults::zk::preverify::BUDGET_BYTES,
+            proof_history_cap: defaults::zk::proof::RECORD_HISTORY_CAP,
+            proof_retention_grace_blocks: defaults::zk::proof::RETENTION_GRACE_BLOCKS,
+            proof_prune_batch: defaults::zk::proof::PRUNE_BATCH_SIZE,
+            bridge_proof_max_range_len: defaults::zk::proof::BRIDGE_MAX_RANGE_LEN,
+            bridge_proof_max_past_age_blocks: defaults::zk::proof::BRIDGE_MAX_PAST_AGE_BLOCKS,
+            bridge_proof_max_future_drift_blocks:
+                defaults::zk::proof::BRIDGE_MAX_FUTURE_DRIFT_BLOCKS,
+            poseidon_params_id: defaults::confidential::POSEIDON_PARAMS_ID,
+            pedersen_params_id: defaults::confidential::PEDERSEN_PARAMS_ID,
+            kaigi_authorization_vk: None,
+            kaigi_usage_vk: None,
             max_proof_size_bytes: defaults::confidential::MAX_PROOF_SIZE_BYTES,
             max_nullifiers_per_tx: defaults::confidential::MAX_NULLIFIERS_PER_TX,
             max_commitments_per_tx: defaults::confidential::MAX_COMMITMENTS_PER_TX,
@@ -4878,232 +4697,90 @@ impl Zk {
         }
     }
 }
-/// SCCP proof-admission and deterministic verifier-work limits.
-///
-/// These are consensus execution limits. They deliberately have no environment-variable aliases:
-/// every validator must obtain the same values from its configuration file.
-#[derive(Debug, ReadConfig, Clone, Copy)]
-#[allow(
-    clippy::struct_field_names,
-    reason = "the max_ prefix is part of the public SCCP configuration schema"
-)]
-pub struct Sccp {
-    /// Maximum closed SCCP proofs in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_PROOFS_PER_TRANSACTION")]
-    pub max_proofs_per_transaction: NonZeroU32,
-    /// Maximum closed SCCP proofs committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_PROOFS_PER_BLOCK")]
-    pub max_proofs_per_block: NonZeroU32,
-    /// Maximum canonical bytes retained for one closed SCCP proof.
-    #[config(default = "defaults::zk::sccp::MAX_PROOF_BYTES_PER_PROOF")]
-    pub max_proof_bytes_per_proof: NonZeroU64,
-    /// Maximum aggregate SCCP proof bytes in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_PROOF_BYTES_PER_TRANSACTION")]
-    pub max_proof_bytes_per_transaction: NonZeroU64,
-    /// Maximum aggregate SCCP proof bytes committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_PROOF_BYTES_PER_BLOCK")]
-    pub max_proof_bytes_per_block: NonZeroU64,
-    /// Maximum native-finality continuation headers in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_NATIVE_HEADERS_PER_TRANSACTION")]
-    pub max_native_headers_per_transaction: NonZeroU32,
-    /// Maximum native-finality continuation headers committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_NATIVE_HEADERS_PER_BLOCK")]
-    pub max_native_headers_per_block: NonZeroU32,
-    /// Maximum Ethereum light-client updates in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_ETHEREUM_LIGHT_CLIENT_UPDATES_PER_TRANSACTION")]
-    pub max_ethereum_light_client_updates_per_transaction: NonZeroU32,
-    /// Maximum Ethereum light-client updates committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_ETHEREUM_LIGHT_CLIENT_UPDATES_PER_BLOCK")]
-    pub max_ethereum_light_client_updates_per_block: NonZeroU32,
-    /// Maximum framed native-finality header bytes in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION")]
-    pub max_native_header_bytes_per_transaction: NonZeroU64,
-    /// Maximum framed native-finality header bytes committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK")]
-    pub max_native_header_bytes_per_block: NonZeroU64,
-    /// Maximum secp256k1 recoveries in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION")]
-    pub max_secp256k1_recoveries_per_transaction: NonZeroU32,
-    /// Maximum secp256k1 recoveries committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK")]
-    pub max_secp256k1_recoveries_per_block: NonZeroU32,
-    /// Maximum Ed25519 signature checks in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION")]
-    pub max_ed25519_signature_checks_per_transaction: NonZeroU32,
-    /// Maximum Ed25519 signature checks committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_BLOCK")]
-    pub max_ed25519_signature_checks_per_block: NonZeroU32,
-    /// Maximum BSC fast-finality vote attestations (fast-aggregate BLS checks) in one
-    /// transaction.
-    #[config(default = "defaults::zk::sccp::MAX_BLS_VOTE_ATTESTATIONS_PER_TRANSACTION")]
-    pub max_bls_vote_attestations_per_transaction: NonZeroU32,
-    /// Maximum BSC fast-finality vote attestations (fast-aggregate BLS checks) committed in one
-    /// block.
-    #[config(default = "defaults::zk::sccp::MAX_BLS_VOTE_ATTESTATIONS_PER_BLOCK")]
-    pub max_bls_vote_attestations_per_block: NonZeroU32,
-}
-impl Default for Sccp {
-    fn default() -> Self {
-        Self {
-            max_proofs_per_transaction: defaults::zk::sccp::MAX_PROOFS_PER_TRANSACTION,
-            max_proofs_per_block: defaults::zk::sccp::MAX_PROOFS_PER_BLOCK,
-            max_proof_bytes_per_proof: defaults::zk::sccp::MAX_PROOF_BYTES_PER_PROOF,
-            max_proof_bytes_per_transaction: defaults::zk::sccp::MAX_PROOF_BYTES_PER_TRANSACTION,
-            max_proof_bytes_per_block: defaults::zk::sccp::MAX_PROOF_BYTES_PER_BLOCK,
-            max_native_headers_per_transaction:
-                defaults::zk::sccp::MAX_NATIVE_HEADERS_PER_TRANSACTION,
-            max_native_headers_per_block: defaults::zk::sccp::MAX_NATIVE_HEADERS_PER_BLOCK,
-            max_ethereum_light_client_updates_per_transaction:
-                defaults::zk::sccp::MAX_ETHEREUM_LIGHT_CLIENT_UPDATES_PER_TRANSACTION,
-            max_ethereum_light_client_updates_per_block:
-                defaults::zk::sccp::MAX_ETHEREUM_LIGHT_CLIENT_UPDATES_PER_BLOCK,
-            max_native_header_bytes_per_transaction:
-                defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION,
-            max_native_header_bytes_per_block:
-                defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK,
-            max_secp256k1_recoveries_per_transaction:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION,
-            max_secp256k1_recoveries_per_block:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK,
-            max_ed25519_signature_checks_per_transaction:
-                defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION,
-            max_ed25519_signature_checks_per_block:
-                defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_BLOCK,
-            max_bls_vote_attestations_per_transaction:
-                defaults::zk::sccp::MAX_BLS_VOTE_ATTESTATIONS_PER_TRANSACTION,
-            max_bls_vote_attestations_per_block:
-                defaults::zk::sccp::MAX_BLS_VOTE_ATTESTATIONS_PER_BLOCK,
-        }
-    }
-}
-impl Sccp {
-    fn parse(self) -> actual::Sccp {
-        fn require_json_safe(value: NonZeroU64, name: &str) {
-            assert!(
-                value.get() <= iroha_data_model::parliament_types::FIRST_RELEASE_MAX_EXACT_JSON_U64,
-                "zk.sccp.{name} must not exceed the SCCP V1 JSON-safe integer maximum"
-            );
-        }
-        fn require_order<T: Ord + Debug + Copy>(
-            transaction: T,
-            block: T,
-            transaction_name: &str,
-            block_name: &str,
-        ) {
-            assert!(
-                transaction <= block,
-                "zk.sccp.{transaction_name} must not exceed zk.sccp.{block_name}"
-            );
-        }
-        require_json_safe(self.max_proof_bytes_per_proof, "max_proof_bytes_per_proof");
-        require_json_safe(
-            self.max_proof_bytes_per_transaction,
-            "max_proof_bytes_per_transaction",
-        );
-        require_json_safe(self.max_proof_bytes_per_block, "max_proof_bytes_per_block");
-        require_json_safe(
-            self.max_native_header_bytes_per_transaction,
-            "max_native_header_bytes_per_transaction",
-        );
-        require_json_safe(
-            self.max_native_header_bytes_per_block,
-            "max_native_header_bytes_per_block",
-        );
-        require_order(
-            self.max_proofs_per_transaction,
-            self.max_proofs_per_block,
-            "max_proofs_per_transaction",
-            "max_proofs_per_block",
-        );
-        assert!(
-            self.max_proof_bytes_per_proof <= self.max_proof_bytes_per_transaction,
-            "zk.sccp.max_proof_bytes_per_proof must not exceed zk.sccp.max_proof_bytes_per_transaction"
-        );
-        require_order(
-            self.max_proof_bytes_per_transaction,
-            self.max_proof_bytes_per_block,
-            "max_proof_bytes_per_transaction",
-            "max_proof_bytes_per_block",
-        );
-        require_order(
-            self.max_native_headers_per_transaction,
-            self.max_native_headers_per_block,
-            "max_native_headers_per_transaction",
-            "max_native_headers_per_block",
-        );
-        require_order(
-            self.max_ethereum_light_client_updates_per_transaction,
-            self.max_ethereum_light_client_updates_per_block,
-            "max_ethereum_light_client_updates_per_transaction",
-            "max_ethereum_light_client_updates_per_block",
-        );
-        require_order(
-            self.max_native_header_bytes_per_transaction,
-            self.max_native_header_bytes_per_block,
-            "max_native_header_bytes_per_transaction",
-            "max_native_header_bytes_per_block",
-        );
-        require_order(
-            self.max_secp256k1_recoveries_per_transaction,
-            self.max_secp256k1_recoveries_per_block,
-            "max_secp256k1_recoveries_per_transaction",
-            "max_secp256k1_recoveries_per_block",
-        );
-        require_order(
-            self.max_ed25519_signature_checks_per_transaction,
-            self.max_ed25519_signature_checks_per_block,
-            "max_ed25519_signature_checks_per_transaction",
-            "max_ed25519_signature_checks_per_block",
-        );
-        require_order(
-            self.max_bls_vote_attestations_per_transaction,
-            self.max_bls_vote_attestations_per_block,
-            "max_bls_vote_attestations_per_transaction",
-            "max_bls_vote_attestations_per_block",
-        );
-        actual::Sccp {
-            max_proofs_per_transaction: self.max_proofs_per_transaction,
-            max_proofs_per_block: self.max_proofs_per_block,
-            max_proof_bytes_per_proof: self.max_proof_bytes_per_proof,
-            max_proof_bytes_per_transaction: self.max_proof_bytes_per_transaction,
-            max_proof_bytes_per_block: self.max_proof_bytes_per_block,
-            max_native_headers_per_transaction: self.max_native_headers_per_transaction,
-            max_native_headers_per_block: self.max_native_headers_per_block,
-            max_ethereum_light_client_updates_per_transaction: self
-                .max_ethereum_light_client_updates_per_transaction,
-            max_ethereum_light_client_updates_per_block: self
-                .max_ethereum_light_client_updates_per_block,
-            max_native_header_bytes_per_transaction: self.max_native_header_bytes_per_transaction,
-            max_native_header_bytes_per_block: self.max_native_header_bytes_per_block,
-            max_secp256k1_recoveries_per_transaction: self.max_secp256k1_recoveries_per_transaction,
-            max_secp256k1_recoveries_per_block: self.max_secp256k1_recoveries_per_block,
-            max_ed25519_signature_checks_per_transaction: self
-                .max_ed25519_signature_checks_per_transaction,
-            max_ed25519_signature_checks_per_block: self.max_ed25519_signature_checks_per_block,
-            max_bls_vote_attestations_per_transaction: self
-                .max_bls_vote_attestations_per_transaction,
-            max_bls_vote_attestations_per_block: self.max_bls_vote_attestations_per_block,
-        }
-    }
-}
 #[cfg(test)]
-mod sccp_limit_tests {
+mod zk_node_schema_tests {
     use super::*;
     use iroha_config_base::{read::ConfigReader, toml::TomlSource};
-    #[test]
-    fn canonical_limit_key_reads() {
-        let canonical: toml::Table =
-            toml::from_str("max_proofs_per_block = 17").expect("parse canonical SCCP key");
-        let decoded = ConfigReader::new()
-            .with_toml_source(TomlSource::inline(canonical))
-            .read_and_complete::<Sccp>()
-            .expect("read canonical SCCP key");
-        assert_eq!(decoded.max_proofs_per_block.get(), 17);
+
+    fn read_zk(source: &str) -> core::result::Result<Zk, String> {
+        let table: toml::Table = toml::from_str(source).expect("test TOML parses");
+        ConfigReader::new()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<Zk>()
+            .map_err(|error| format!("{error:?}"))
     }
+
     #[test]
-    fn defaults_are_nonzero_ordered_and_preserved() {
-        let user = Sccp::default();
-        let actual = user.parse();
+    fn local_resource_keys_read() {
+        let zk = read_zk("[trace]\nworker_threads = 3\nqueue_cap = 9")
+            .expect("local verifier resources are node configuration");
+        let actual = zk.parse();
+        assert_eq!(actual.trace.worker_threads, 3);
+        assert_eq!(actual.trace.queue_cap, 9);
+        // Every validity value is the protocol default.
+        assert_eq!(
+            actual.pipa_r.max_proof_bytes,
+            defaults::zk::pipa_r::MAX_PROOF_BYTES
+        );
+        assert_eq!(
+            actual.sccp.max_proof_bytes_per_proof,
+            defaults::zk::sccp::MAX_PROOF_BYTES_PER_PROOF
+        );
+        assert!(actual.kaigi_authorization_vk.is_none());
+    }
+
+    #[test]
+    fn validity_keys_are_not_node_configuration() {
+        // Each of these was a `[zk]` key; a chain sets it in `zk_validity_policy_v1`.
+        for source in [
+            "[sccp]\nmax_proofs_per_block = 17",
+            "[stark]\nenabled = false",
+            "[stark]\nmax_proof_bytes = 1",
+            "[pipa_r]\nenabled = false",
+            "max_verify_batch = 3",
+            "[pipa_r]\nmax_proof_bytes = 1",
+            "ballot_history_cap = 1",
+            "preverify_max_bytes = 1",
+            "preverify_budget_bytes = 1",
+            "proof_history_cap = 1",
+            "bridge_proof_max_past_age_blocks = 1",
+            "poseidon_params_id = 1",
+            "[kaigi_usage_vk]\nbackend = \"pipa-r/pasta\"\nname = \"local\"",
+        ] {
+            let error = read_zk(source).expect_err("a validity key is not a node setting");
+            assert!(error.contains("unknown parameter"), "{source}: {error}");
+        }
+    }
+
+    #[test]
+    fn confidential_validity_keys_are_not_node_configuration() {
+        let read = |source: &str| -> core::result::Result<Confidential, String> {
+            let table: toml::Table = toml::from_str(source).expect("test TOML parses");
+            ConfigReader::new()
+                .with_toml_source(TomlSource::inline(table))
+                .read_and_complete::<Confidential>()
+                .map_err(|error| format!("{error:?}"))
+        };
+        let local = read("verify_timeout_ms = 5").expect("the local budget is node configuration");
+        assert_eq!(local.parse().verify_timeout, Duration::from_millis(5));
+        for source in [
+            "max_proof_size_bytes = 1",
+            "max_nullifiers_per_tx = 1",
+            "max_commitments_per_tx = 1",
+            "max_verify_calls_per_block = 1",
+            "max_anchor_age_blocks = 1",
+            "tree_roots_history_len = 1",
+            "registry_max_vk_entries = 1",
+            "[gas]\nproof_base = 1",
+        ] {
+            let error = read(source).expect_err("a validity key is not a node setting");
+            assert!(error.contains("unknown parameter"), "{source}: {error}");
+        }
+    }
+
+    #[test]
+    fn sccp_defaults_are_nonzero_ordered_and_preserved() {
+        let actual = actual::Sccp::default();
         assert_eq!(
             actual.max_proof_bytes_per_proof,
             defaults::zk::sccp::MAX_PROOF_BYTES_PER_PROOF
@@ -5115,55 +4792,28 @@ mod sccp_limit_tests {
             actual.max_bls_vote_attestations_per_transaction
                 <= actual.max_bls_vote_attestations_per_block
         );
+        // The order and exact-JSON rules of these limits are enforced where the
+        // values are authored: `ZkValidityPolicyV1::validate`.
+        iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default()
+            .validate()
+            .expect("the protocol default satisfies the SCCP rules");
     }
     #[test]
-    fn rejects_byte_limits_outside_the_exact_json_integer_range() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
-        let maximum = iroha_data_model::parliament_types::FIRST_RELEASE_MAX_EXACT_JSON_U64;
-        let exact = NonZeroU64::new(maximum).expect("JSON-safe maximum is nonzero");
-        let over = NonZeroU64::new(maximum + 1).expect("one above maximum is nonzero");
-        let mut boundary = Sccp::default();
-        boundary.max_proof_bytes_per_proof = exact;
-        boundary.max_proof_bytes_per_transaction = exact;
-        boundary.max_proof_bytes_per_block = exact;
-        boundary.max_native_header_bytes_per_transaction = exact;
-        boundary.max_native_header_bytes_per_block = exact;
-        let _ = boundary.parse();
-        let mutations: [fn(&mut Sccp, NonZeroU64); 5] = [
-            |value, limit| value.max_proof_bytes_per_proof = limit,
-            |value, limit| value.max_proof_bytes_per_transaction = limit,
-            |value, limit| value.max_proof_bytes_per_block = limit,
-            |value, limit| value.max_native_header_bytes_per_transaction = limit,
-            |value, limit| value.max_native_header_bytes_per_block = limit,
-        ];
-        for mutate in mutations {
-            let mut hostile = boundary;
-            mutate(&mut hostile, over);
+    fn retired_secp256k1_recovery_limits_are_not_part_of_the_schema() {
+        for key in [
+            "max_secp256k1_recoveries_per_transaction",
+            "max_secp256k1_recoveries_per_block",
+        ] {
+            let retired: toml::Table =
+                toml::from_str(&format!("[sccp]\n{key} = 1")).expect("parse retired SCCP key");
             assert!(
-                catch_unwind(AssertUnwindSafe(|| hostile.parse())).is_err(),
-                "SCCP byte limit above the JSON-safe maximum must reject"
+                ConfigReader::new()
+                    .with_toml_source(TomlSource::inline(retired))
+                    .read_and_complete::<Zk>()
+                    .is_err(),
+                "{key} belonged to the removed TRON light client"
             );
         }
-    }
-    #[test]
-    #[should_panic(
-        expected = "zk.sccp.max_proof_bytes_per_proof must not exceed zk.sccp.max_proof_bytes_per_transaction"
-    )]
-    fn rejects_per_proof_limit_above_transaction_limit() {
-        let mut limits = Sccp::default();
-        limits.max_proof_bytes_per_transaction = NonZeroU64::new(1).expect("one is nonzero");
-        let _ = limits.parse();
-    }
-    #[test]
-    #[should_panic(
-        expected = "zk.sccp.max_secp256k1_recoveries_per_transaction must not exceed zk.sccp.max_secp256k1_recoveries_per_block"
-    )]
-    fn rejects_transaction_work_limit_above_block_limit() {
-        let mut limits = Sccp::default();
-        limits.max_secp256k1_recoveries_per_transaction =
-            NonZeroU32::new(2).expect("two is nonzero");
-        limits.max_secp256k1_recoveries_per_block = NonZeroU32::new(1).expect("one is nonzero");
-        let _ = limits.parse();
     }
 }
 /// Execution mode override for the FASTPQ prover.
@@ -5822,118 +5472,28 @@ impl StreamingCodec {
         Some(accel)
     }
 }
-/// User-level enumeration translating `FraudRiskBand` settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum FraudRiskBand {
-    /// Indicates low fraud risk assessments.
-    Low,
-    /// Indicates medium fraud risk assessments.
-    Medium,
-    /// Indicates high fraud risk assessments.
-    High,
-    /// Indicates critical fraud risk assessments.
-    Critical,
-}
-impl json::JsonSerialize for FraudRiskBand {
-    fn json_serialize(&self, out: &mut String) {
-        json::write_json_string(&self.to_string(), out);
-    }
-}
-impl json::JsonDeserialize for FraudRiskBand {
-    fn json_deserialize(
-        parser: &mut json::Parser<'_>,
-    ) -> ::core::result::Result<Self, json::Error> {
-        let raw = parser.parse_string()?;
-        Self::from_str(&raw).map_err(|err| json::Error::InvalidField {
-            field: "fraud_monitoring.required_minimum_band".into(),
-            message: err.to_string(),
-        })
-    }
-}
-/// User-level configuration container for `FraudMonitoring`.
+/// Node-local transport for obtaining assessment material.
+/// Admission policy is the committed `fraud_admission_policy_v1` parameter.
 #[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub struct FraudMonitoring {
-    #[config(
-        env = "FRAUD_MONITORING_ENABLED",
-        default = "defaults::fraud_monitoring::ENABLED"
-    )]
-    /// Master enable switch for the fraud monitoring client.
-    pub enabled: bool,
+    /// Assessment endpoints; these cannot authorize or reject ledger effects.
     #[config(default = "Vec::new()")]
-    /// Fraud monitoring REST endpoints the node should query.
     pub service_endpoints: Vec<Url>,
-    #[config(
-        env = "FRAUD_MONITORING_CONNECT_TIMEOUT_MS",
-        default = "defaults::fraud_monitoring::CONNECT_TIMEOUT.into()"
-    )]
-    /// Connection timeout for reaching a fraud monitoring endpoint.
+    /// HTTP connection timeout.
+    #[config(default = "defaults::fraud_monitoring::CONNECT_TIMEOUT.into()")]
     pub connect_timeout_ms: DurationMs,
-    #[config(
-        env = "FRAUD_MONITORING_REQUEST_TIMEOUT_MS",
-        default = "defaults::fraud_monitoring::REQUEST_TIMEOUT.into()"
-    )]
-    /// Timeout applied to an in-flight fraud monitoring request.
+    /// HTTP request timeout.
+    #[config(default = "defaults::fraud_monitoring::REQUEST_TIMEOUT.into()")]
     pub request_timeout_ms: DurationMs,
-    #[config(
-        env = "FRAUD_MONITORING_MISSING_ASSESSMENT_GRACE_SECS",
-        default = "defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS"
-    )]
-    /// Grace period (seconds) tolerated without an updated risk assessment.
-    pub missing_assessment_grace_secs: u64,
-    /// Lowest acceptable risk band before flagging an account as non-compliant.
-    pub required_minimum_band: Option<FraudRiskBand>,
-    #[config(default = "Vec::new()")]
-    /// Registered attesters whose signatures must verify assessment envelopes.
-    pub attesters: Vec<FraudAttester>,
 }
 impl FraudMonitoring {
     fn parse(self) -> actual::FraudMonitoring {
         actual::FraudMonitoring::new(
-            self.enabled,
             self.service_endpoints,
             self.connect_timeout_ms.get(),
             self.request_timeout_ms.get(),
-            self.missing_assessment_grace_secs,
-            self.required_minimum_band.map(actual::FraudRiskBand::from),
-            self.attesters
-                .into_iter()
-                .map(|attester| actual::FraudAttester {
-                    engine_id: attester.engine_id,
-                    public_key: attester.public_key,
-                })
-                .collect(),
         )
-    }
-}
-/// User-level definition of a fraud assessment attester.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct FraudAttester {
-    /// Engine identifier embedded in signed assessments.
-    pub engine_id: String,
-    /// Public key used to verify signatures (hex/base64 supported by PublicKey parser).
-    pub public_key: iroha_crypto::PublicKey,
-}
-/// File-only native PIPA-R verification policy.
-#[derive(Debug, ReadConfig, Clone, Copy)]
-pub struct PipaR {
-    /// Enable verification of exact compiled native circuits.
-    #[config(default = "defaults::zk::pipa_r::ENABLED")]
-    pub enabled: bool,
-    /// Maximum canonical outer envelope length in bytes.
-    #[config(default = "defaults::zk::pipa_r::MAX_ENVELOPE_BYTES")]
-    pub max_envelope_bytes: usize,
-    /// Maximum canonical proof-payload length in bytes.
-    #[config(default = "defaults::zk::pipa_r::MAX_PROOF_BYTES")]
-    pub max_proof_bytes: usize,
-}
-impl PipaR {
-    fn parse(self) -> actual::PipaR {
-        actual::PipaR {
-            enabled: self.enabled,
-            max_envelope_bytes: self.max_envelope_bytes,
-            max_proof_bytes: self.max_proof_bytes,
-        }
     }
 }
 /// File-only diagnostic polynomial-opening bounds.
@@ -6001,170 +5561,6 @@ impl DiagnosticTrace {
             retry_ring_cap: self.retry_ring_cap,
             retry_max_attempts: self.retry_max_attempts,
             retry_tick_ms: self.retry_tick_ms,
-        }
-    }
-}
-/// Native STARK/FRI verification configuration (user view).
-/// User-level configuration container for `Stark`.
-#[derive(Debug, ReadConfig, Clone, Copy)]
-pub struct Stark {
-    /// Enable native STARK/FRI verification in hosts.
-    ///
-    /// Note: runtime enablement requires binaries built with `zk-stark`.
-    #[config(env = "ZK_STARK_ENABLED", default = "defaults::zk::stark::ENABLED")]
-    pub enabled: bool,
-    /// Maximum accepted outer STARK OpenVerifyEnvelope length (bytes).
-    #[config(
-        env = "ZK_STARK_MAX_ENVELOPE_BYTES",
-        default = "defaults::zk::stark::MAX_ENVELOPE_BYTES"
-    )]
-    pub max_envelope_bytes: usize,
-    /// Maximum accepted proof payload length (bytes).
-    #[config(
-        env = "ZK_STARK_MAX_PROOF_BYTES",
-        default = "defaults::zk::stark::MAX_PROOF_BYTES"
-    )]
-    pub max_proof_bytes: usize,
-}
-impl Stark {
-    fn parse(self) -> actual::Stark {
-        actual::Stark {
-            enabled: self.enabled,
-            max_envelope_bytes: self.max_envelope_bytes,
-            max_proof_bytes: self.max_proof_bytes,
-        }
-    }
-}
-/// User-level configuration container for `Gas`.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct Gas {
-    /// System-owned technical account that receives gas fee transfers.
-    #[config(
-        env = "PIPELINE_GAS_TECH_ACCOUNT_ID",
-        default = "defaults::pipeline::GAS_TECH_ACCOUNT_ID.to_string()"
-    )]
-    pub tech_account_id: String,
-    /// Allowlist of accepted gas assets (Asset IDs strings, e.g., "asset:gas/G_exit@ivm.core/v2").
-    #[config(default)]
-    pub accepted_assets: Vec<String>,
-    /// Deterministic conversion: minimal asset units per one gas unit for each accepted asset.
-    #[config(default)]
-    #[allow(clippy::struct_field_names)]
-    pub units_per_gas: Vec<GasRate>,
-}
-impl Gas {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Gas {
-        actual::Gas {
-            tech_account_id: self.tech_account_id,
-            accepted_assets: self.accepted_assets,
-            units_per_gas: self
-                .units_per_gas
-                .into_iter()
-                .filter_map(|r| {
-                    let asset = r.asset;
-                    let twap = r.twap_local_per_xor.as_deref().map_or_else(
-                        || Some(Numeric::one()),
-                        |value| match Numeric::from_str(value) {
-                            Ok(parsed) if parsed > Numeric::zero() => Some(parsed),
-                            Ok(_) => {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "pipeline.gas.units_per_gas twap `{value}` for asset `{asset}` must be positive"
-                                    )),
-                                );
-                                None
-                            }
-                            Err(error) => {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas twap `{value}` for asset `{asset}`: {error}"
-                                    )),
-                                );
-                                None
-                            }
-                        },
-                    );
-                    let liquidity = r.liquidity_profile.as_deref().map_or_else(
-                        || Some(actual::GasLiquidity::default()),
-                        |value| actual::GasLiquidity::from_str(value).map_or_else(
-                            |()| {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas liquidity `{value}` for asset `{asset}`; expected exactly `tier1`, `tier2`, or `tier3`"
-                                    )),
-                                );
-                                None
-                            }, Some),
-                    );
-                    let volatility = r.volatility_class.as_deref().map_or_else(
-                        || Some(actual::GasVolatility::default()),
-                        |value| actual::GasVolatility::from_str(value).map_or_else(
-                            |()| {
-                                emitter.emit(
-                                    Report::new(ParseError::InvalidPipelineConfig).attach(format!(
-                                        "invalid pipeline.gas.units_per_gas volatility `{value}` for asset `{asset}`; expected exactly `stable`, `elevated`, or `dislocated`"
-                                    )),
-                                );
-                                None
-                            }, Some),
-                    );
-                    let (Some(twap), Some(liquidity), Some(volatility)) =
-                        (twap, liquidity, volatility)
-                    else {
-                        return None;
-                    };
-                    Some(actual::GasRate {
-                        asset,
-                        units_per_gas: r.units_per_gas,
-                        twap_local_per_xor: twap,
-                        liquidity,
-                        volatility,
-                    })
-                })
-                .collect(),
-        }
-    }
-}
-/// User-level configuration container for `GasRate`.
-#[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
-pub struct GasRate {
-    /// Asset ID string (must be present in accepted_assets)
-    pub asset: String,
-    /// Asset minimal units per one gas unit (deterministic integer mapping)
-    pub units_per_gas: u64,
-    /// Override for the TWAP in local units per XOR.
-    pub twap_local_per_xor: Option<String>,
-    /// Override for the liquidity profile (`tier1`, `tier2`, `tier3`).
-    pub liquidity_profile: Option<String>,
-    /// Override for the volatility bucket (`stable`, `elevated`, `dislocated`).
-    pub volatility_class: Option<String>,
-}
-#[cfg(test)]
-mod gas_parse_error_tests {
-    use super::*;
-
-    #[test]
-    fn invalid_gas_rate_labels_emit_errors_without_unwinding() {
-        for (twap, liquidity, volatility) in [
-            (Some("invalid"), Some("tier1"), Some("stable")),
-            (Some("1"), Some("deep"), Some("stable")),
-            (Some("1"), Some("tier1"), Some("calm")),
-        ] {
-            let gas = Gas {
-                tech_account_id: "system".to_owned(),
-                accepted_assets: vec!["xor#universal".to_owned()],
-                units_per_gas: vec![GasRate {
-                    asset: "xor#universal".to_owned(),
-                    units_per_gas: 1,
-                    twap_local_per_xor: twap.map(str::to_owned),
-                    liquidity_profile: liquidity.map(str::to_owned),
-                    volatility_class: volatility.map(str::to_owned),
-                }],
-            };
-            let mut emitter = Emitter::new();
-            let parsed = gas.parse(&mut emitter);
-            assert!(parsed.units_per_gas.is_empty());
-            assert!(emitter.into_result().is_err());
         }
     }
 }
@@ -8286,7 +7682,9 @@ pub struct Network {
     pub low_priority_burst: Option<NonZeroU32>,
     /// Low-priority per-peer bytes/sec budget. If unset, no byte rate limiting.
     pub low_priority_bytes_per_sec: Option<NonZeroU32>,
-    /// Low-priority per-peer bytes burst.
+    /// Low-priority per-peer burst in complete canonical plaintext-frame bytes.
+    /// If unset, P2P admits at least one maximum eligible Low-priority topic frame while
+    /// preserving the configured byte rate. An explicit smaller burst is rejected at startup.
     pub low_priority_bytes_burst: Option<NonZeroU32>,
     /// Require peer keys to appear in `allow_keys`; a non-empty `allow_cidrs`
     /// independently restricts inbound addresses in either mode.
@@ -8789,9 +8187,15 @@ impl Default for Router {
     }
 }
 /// User-level configuration container for `Confidential`.
+///
+/// Node-local settings only. Confidential proof limits, windows, registry caps
+/// and the verification gas schedule are chain policy (`zk_validity_policy_v1`).
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Confidential {
     /// Enables confidential asset features for this node.
+    // TODO(F.4): the plan author decided `enabled` and `assume_valid` are
+    // deleted together with their P2P handshake comparison (verification is
+    // always on); they remain node-local switches until that change lands.
     #[config(default = "defaults::confidential::ENABLED")]
     pub enabled: bool,
     /// Allows observers to accept confidential blocks without verification (validators must keep false).
@@ -8800,107 +8204,9 @@ pub struct Confidential {
     /// Preferred verifier backend identifier.
     #[config(default = "defaults::confidential::VERIFIER_BACKEND.to_string()")]
     pub verifier_backend: String,
-    /// Maximum proof size accepted from a single confidential operation.
-    #[config(default = "defaults::confidential::MAX_PROOF_SIZE_BYTES")]
-    pub max_proof_size_bytes: u32,
-    /// Maximum number of nullifiers a transaction may consume.
-    #[config(default = "defaults::confidential::MAX_NULLIFIERS_PER_TX")]
-    pub max_nullifiers_per_tx: u32,
-    /// Maximum number of commitments a transaction may create.
-    #[config(default = "defaults::confidential::MAX_COMMITMENTS_PER_TX")]
-    pub max_commitments_per_tx: u32,
-    /// Maximum confidential operations allowed in a block.
-    #[config(default = "defaults::confidential::MAX_CONFIDENTIAL_OPS_PER_BLOCK")]
-    pub max_confidential_ops_per_block: u32,
-    /// Verifier timeout for confidential proofs.
+    /// Local wall-clock budget of one confidential proof verification attempt.
     #[config(default = "defaults::confidential::VERIFY_TIMEOUT.into()")]
     pub verify_timeout_ms: DurationMs,
-    /// Maximum age (in blocks) for anchors referenced by confidential proofs.
-    #[config(default = "defaults::confidential::MAX_ANCHOR_AGE_BLOCKS")]
-    pub max_anchor_age_blocks: u64,
-    /// Aggregate proof bytes allowed per block.
-    #[config(default = "defaults::confidential::MAX_PROOF_BYTES_BLOCK")]
-    pub max_proof_bytes_block: u64,
-    /// Maximum verification calls allowed per transaction.
-    #[config(default = "defaults::confidential::MAX_VERIFY_CALLS_PER_TX")]
-    pub max_verify_calls_per_tx: u32,
-    /// Maximum verification calls allowed per block.
-    #[config(default = "defaults::confidential::MAX_VERIFY_CALLS_PER_BLOCK")]
-    pub max_verify_calls_per_block: u32,
-    /// Maximum public inputs accepted per proof.
-    #[config(default = "defaults::confidential::MAX_PUBLIC_INPUTS")]
-    pub max_public_inputs: u32,
-    /// Configured reorg depth bound for retaining commitment tree checkpoints.
-    #[config(default = "defaults::confidential::REORG_DEPTH_BOUND")]
-    pub reorg_depth_bound: u64,
-    /// Minimum delay (in blocks) between policy change request and activation.
-    #[config(default = "defaults::confidential::POLICY_TRANSITION_DELAY_BLOCKS")]
-    pub policy_transition_delay_blocks: u64,
-    /// Grace window (in blocks) around policy activation for conversions.
-    #[config(default = "defaults::confidential::POLICY_TRANSITION_WINDOW_BLOCKS")]
-    pub policy_transition_window_blocks: u64,
-    /// Maximum confidential-policy transitions that may share one effective height.
-    #[config(default = "defaults::confidential::POLICY_TRANSITION_MAX_PER_HEIGHT")]
-    pub policy_transition_max_per_height: NonZeroU32,
-    /// Non-zero commitment tree root history length to retain.
-    #[config(default = "defaults::confidential::TREE_ROOTS_HISTORY_LEN")]
-    pub tree_roots_history_len: NonZeroUsize,
-    /// Interval (in blocks) between frontier checkpoints.
-    #[config(default = "defaults::confidential::TREE_FRONTIER_CHECKPOINT_INTERVAL")]
-    pub tree_frontier_checkpoint_interval: u64,
-    /// Maximum active verifier entries allowed in registry.
-    #[config(default = "defaults::confidential::REGISTRY_MAX_VK_ENTRIES")]
-    pub registry_max_vk_entries: u32,
-    /// Maximum active parameter sets allowed in registry.
-    #[config(default = "defaults::confidential::REGISTRY_MAX_PARAMS_ENTRIES")]
-    pub registry_max_params_entries: u32,
-    /// Maximum number of registry mutations allowed per block.
-    #[config(default = "defaults::confidential::REGISTRY_MAX_DELTA_PER_BLOCK")]
-    pub registry_max_delta_per_block: u32,
-    /// Confidential verification gas schedule.
-    #[config(nested)]
-    pub gas: ConfidentialGas,
-}
-/// User-level configuration container for confidential verification gas schedule.
-#[derive(Debug, ReadConfig, Clone, Copy)]
-pub struct ConfidentialGas {
-    /// Base verify cost for a confidential proof.
-    #[config(default = "defaults::confidential::gas::PROOF_BASE")]
-    pub proof_base: u64,
-    /// Cost per public input field element.
-    #[config(default = "defaults::confidential::gas::PER_PUBLIC_INPUT")]
-    pub per_public_input: u64,
-    /// Cost per proof byte.
-    #[config(default = "defaults::confidential::gas::PER_PROOF_BYTE")]
-    pub per_proof_byte: u64,
-    /// Cost per nullifier.
-    #[config(default = "defaults::confidential::gas::PER_NULLIFIER")]
-    pub per_nullifier: u64,
-    /// Cost per commitment.
-    #[config(default = "defaults::confidential::gas::PER_COMMITMENT")]
-    pub per_commitment: u64,
-}
-impl Default for ConfidentialGas {
-    fn default() -> Self {
-        Self {
-            proof_base: defaults::confidential::gas::PROOF_BASE,
-            per_public_input: defaults::confidential::gas::PER_PUBLIC_INPUT,
-            per_proof_byte: defaults::confidential::gas::PER_PROOF_BYTE,
-            per_nullifier: defaults::confidential::gas::PER_NULLIFIER,
-            per_commitment: defaults::confidential::gas::PER_COMMITMENT,
-        }
-    }
-}
-impl ConfidentialGas {
-    fn parse(self) -> actual::ConfidentialGas {
-        actual::ConfidentialGas {
-            proof_base: self.proof_base,
-            per_public_input: self.per_public_input,
-            per_proof_byte: self.per_proof_byte,
-            per_nullifier: self.per_nullifier,
-            per_commitment: self.per_commitment,
-        }
-    }
 }
 impl Settlement {
     /// Convert this user configuration into the runtime representation.
@@ -8976,29 +8282,7 @@ impl Default for Confidential {
             enabled: defaults::confidential::ENABLED,
             assume_valid: defaults::confidential::ASSUME_VALID,
             verifier_backend: defaults::confidential::VERIFIER_BACKEND.to_string(),
-            max_proof_size_bytes: defaults::confidential::MAX_PROOF_SIZE_BYTES,
-            max_nullifiers_per_tx: defaults::confidential::MAX_NULLIFIERS_PER_TX,
-            max_commitments_per_tx: defaults::confidential::MAX_COMMITMENTS_PER_TX,
-            max_confidential_ops_per_block: defaults::confidential::MAX_CONFIDENTIAL_OPS_PER_BLOCK,
             verify_timeout_ms: defaults::confidential::VERIFY_TIMEOUT.into(),
-            max_anchor_age_blocks: defaults::confidential::MAX_ANCHOR_AGE_BLOCKS,
-            max_proof_bytes_block: defaults::confidential::MAX_PROOF_BYTES_BLOCK,
-            max_verify_calls_per_tx: defaults::confidential::MAX_VERIFY_CALLS_PER_TX,
-            max_verify_calls_per_block: defaults::confidential::MAX_VERIFY_CALLS_PER_BLOCK,
-            max_public_inputs: defaults::confidential::MAX_PUBLIC_INPUTS,
-            reorg_depth_bound: defaults::confidential::REORG_DEPTH_BOUND,
-            policy_transition_delay_blocks: defaults::confidential::POLICY_TRANSITION_DELAY_BLOCKS,
-            policy_transition_window_blocks:
-                defaults::confidential::POLICY_TRANSITION_WINDOW_BLOCKS,
-            policy_transition_max_per_height:
-                defaults::confidential::POLICY_TRANSITION_MAX_PER_HEIGHT,
-            tree_roots_history_len: defaults::confidential::TREE_ROOTS_HISTORY_LEN,
-            tree_frontier_checkpoint_interval:
-                defaults::confidential::TREE_FRONTIER_CHECKPOINT_INTERVAL,
-            registry_max_vk_entries: defaults::confidential::REGISTRY_MAX_VK_ENTRIES,
-            registry_max_params_entries: defaults::confidential::REGISTRY_MAX_PARAMS_ENTRIES,
-            registry_max_delta_per_block: defaults::confidential::REGISTRY_MAX_DELTA_PER_BLOCK,
-            gas: ConfidentialGas::default(),
         }
     }
 }
@@ -9009,26 +8293,7 @@ impl Confidential {
             enabled: self.enabled,
             assume_valid: self.assume_valid,
             verifier_backend: self.verifier_backend,
-            max_proof_size_bytes: self.max_proof_size_bytes,
-            max_nullifiers_per_tx: self.max_nullifiers_per_tx,
-            max_commitments_per_tx: self.max_commitments_per_tx,
-            max_confidential_ops_per_block: self.max_confidential_ops_per_block,
             verify_timeout: self.verify_timeout_ms.0,
-            max_anchor_age_blocks: self.max_anchor_age_blocks,
-            max_proof_bytes_block: self.max_proof_bytes_block,
-            max_verify_calls_per_tx: self.max_verify_calls_per_tx,
-            max_verify_calls_per_block: self.max_verify_calls_per_block,
-            max_public_inputs: self.max_public_inputs,
-            reorg_depth_bound: self.reorg_depth_bound,
-            policy_transition_delay_blocks: self.policy_transition_delay_blocks,
-            policy_transition_window_blocks: self.policy_transition_window_blocks,
-            policy_transition_max_per_height: self.policy_transition_max_per_height,
-            tree_roots_history_len: self.tree_roots_history_len,
-            tree_frontier_checkpoint_interval: self.tree_frontier_checkpoint_interval,
-            registry_max_vk_entries: self.registry_max_vk_entries,
-            registry_max_params_entries: self.registry_max_params_entries,
-            registry_max_delta_per_block: self.registry_max_delta_per_block,
-            gas: self.gas.parse(),
         }
     }
 }
@@ -14679,6 +13944,9 @@ pub struct Torii {
     /// Maximum complete working set for one query, independent of aggregate capacity.
     #[config(default = "defaults::torii::QUERY_FANOUT_MAX_WORKING_SET_BYTES")]
     pub query_fanout_max_working_set_bytes: Bytes,
+    /// Bytes retained by this node's authenticated SCCP history-node cache.
+    #[config(default = "defaults::torii::SCCP_HISTORY_CACHE_MAX_BYTES")]
+    pub sccp_history_cache_max_bytes: Bytes,
     /// Absolute deadline for reading one admitted App API routed-read body.
     #[config(default = "app_routed_read_config::default_body_timeout()")]
     pub app_api_routed_read_body_read_timeout_ms: DurationMs,
@@ -15054,6 +14322,10 @@ impl core::fmt::Debug for Torii {
             .field(
                 "query_fanout_max_working_set_bytes",
                 &self.query_fanout_max_working_set_bytes,
+            )
+            .field(
+                "sccp_history_cache_max_bytes",
+                &self.sccp_history_cache_max_bytes,
             )
             .field("require_api_token", &self.require_api_token)
             .field("api_tokens", &self.api_tokens)
@@ -16055,6 +15327,19 @@ impl Torii {
                 "torii.query_fanout_max_working_set_bytes must be greater than zero",
             );
         }
+        let sccp_history_cache_max_bytes = self.sccp_history_cache_max_bytes.get();
+        if sccp_history_cache_max_bytes == 0 {
+            emit_torii_config_error(
+                emitter,
+                "torii.sccp_history_cache_max_bytes must be greater than zero",
+            );
+        }
+        if usize::try_from(sccp_history_cache_max_bytes).is_err() {
+            emit_torii_config_error(
+                emitter,
+                "torii.sccp_history_cache_max_bytes must fit the platform address space",
+            );
+        }
         app_routed_read_config::validate(&self, emitter);
         if usize::try_from(max_content_len).is_err() {
             emit_torii_config_error(
@@ -16151,6 +15436,7 @@ impl Torii {
             query_heavy_max_inflight: self.query_heavy_max_inflight,
             query_fanout_max_retained_bytes: self.query_fanout_max_retained_bytes,
             query_fanout_max_working_set_bytes: self.query_fanout_max_working_set_bytes,
+            sccp_history_cache_max_bytes: self.sccp_history_cache_max_bytes,
             app_api_routed_read_body_read_timeout,
             query_queue_timeout: self.query_queue_timeout_ms.get(),
             tx_rate_per_authority_per_sec: self
@@ -34725,8 +34011,6 @@ mod configuration_regression_tests {
     #[test]
     fn governance_parliament_fields_roundtrip() {
         let cfg = Governance {
-            vk_ballot: None,
-            vk_tally: None,
             voting_asset_id: defaults::governance::voting_asset_id(),
             citizenship_asset_id: defaults::governance::citizenship_asset_id(),
             citizenship_bond_amount: Quantity::from(99_u64),
@@ -34800,33 +34084,15 @@ mod configuration_regression_tests {
     }
 
     #[test]
-    fn pipa_r_file_policy_defaults_and_explicit_caps_parse_exactly() {
-        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
-        let defaults = ConfigReader::new()
-            .with_toml_source(TomlSource::inline(toml::Table::new()))
-            .read_and_complete::<PipaR>()
-            .unwrap()
-            .parse();
-        assert!(defaults.enabled);
+    fn pipa_r_defaults_match_committed_policy() {
+        let actual = actual::PipaR::default();
+        let policy = iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+        assert_eq!(actual.enabled, policy.pipa_r.enabled);
         assert_eq!(
-            defaults.max_envelope_bytes,
-            defaults::zk::pipa_r::MAX_ENVELOPE_BYTES
+            actual.max_envelope_bytes as u64,
+            policy.pipa_r.max_envelope_bytes
         );
-        assert_eq!(
-            defaults.max_proof_bytes,
-            defaults::zk::pipa_r::MAX_PROOF_BYTES
-        );
-        let table = "enabled = false\nmax_envelope_bytes = 999\nmax_proof_bytes = 777\n"
-            .parse::<toml::Table>()
-            .unwrap();
-        let configured = ConfigReader::new()
-            .with_toml_source(TomlSource::inline(table))
-            .read_and_complete::<PipaR>()
-            .unwrap()
-            .parse();
-        assert!(!configured.enabled);
-        assert_eq!(configured.max_envelope_bytes, 999);
-        assert_eq!(configured.max_proof_bytes, 777);
+        assert_eq!(actual.max_proof_bytes as u64, policy.pipa_r.max_proof_bytes);
     }
 
     #[test]
@@ -34901,7 +34167,6 @@ mod configuration_regression_tests {
         use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 
         let table = r"
-            max_verify_batch = 7
             [trace]
             enabled = false
             max_batch = 3
@@ -34924,7 +34189,7 @@ mod configuration_regression_tests {
             .read_and_complete::<Zk>()
             .unwrap()
             .parse();
-        assert_eq!(configured.max_verify_batch, 7);
+        assert_eq!(configured.max_verify_batch, defaults::zk::MAX_VERIFY_BATCH);
         assert!(!configured.trace.enabled);
         assert_eq!(configured.trace.max_batch, 3);
         assert_eq!(configured.trace.worker_threads, 2);

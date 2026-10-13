@@ -204,3 +204,86 @@ fn lane_payload_classifies_typed_decode_refusal_without_masking_invalid_source()
     assert!(!LanePayloadError::Commitment.is_local_refusal());
     assert!(!LanePayloadError::Admission(AllocationRefusal::DemandOverflow).is_local_refusal());
 }
+
+#[test]
+fn genuine_sccp_delta_preimage_and_original_write_root_are_both_required() {
+    let (chain, _) = crate::smartcontracts::isi::sccp::forgery::tests::active_member_chain();
+    for mutation in 0..7 {
+        let budget = AllocationBudget::new(64 << 20);
+        let mut bytes = source(&chain, 2, &budget);
+        let mut projection: NativeExecutionProjectionV1 =
+            norito::decode_canonical(bytes.as_slice()).unwrap();
+        assert!(!projection.sccp_delta.is_empty());
+        let key = crate::smartcontracts::isi::sccp::witness::SCCP_STATE_DELTA_WITNESS_KEY_V1;
+        match mutation {
+            0 => {}
+            1 => projection.sccp_delta.clear(),
+            2 => projection.sccp_delta[0] ^= 1,
+            3 => projection.ordinary_writes.retain(|write| write.key != key),
+            4 => {
+                let duplicate = projection
+                    .ordinary_writes
+                    .iter()
+                    .find(|write| write.key == key)
+                    .unwrap()
+                    .clone();
+                projection.ordinary_writes.push(duplicate);
+            }
+            5 => {
+                projection.sccp_delta[0] ^= 1;
+                let replacement =
+                    crate::smartcontracts::isi::sccp::witness::state_delta_witness_write(
+                        2,
+                        &projection.sccp_delta,
+                    )
+                    .unwrap();
+                *projection
+                    .ordinary_writes
+                    .iter_mut()
+                    .find(|write| write.key == key)
+                    .unwrap() = replacement;
+            }
+            6 => {
+                let replacement =
+                    crate::smartcontracts::isi::sccp::witness::state_delta_witness_write(
+                        3,
+                        &projection.sccp_delta,
+                    )
+                    .unwrap();
+                *projection
+                    .ordinary_writes
+                    .iter_mut()
+                    .find(|write| write.key == key)
+                    .unwrap() = replacement;
+            }
+            _ => unreachable!(),
+        }
+        if mutation != 0 {
+            let changed = norito::encode_canonical(&projection).unwrap();
+            bytes = ChargedBuffer::new(changed.len(), &budget).unwrap();
+            bytes.append(&changed).unwrap();
+        }
+        let pointer = bytes.as_slice().as_ptr();
+        let read = LanePayloadRead::new(
+            bytes,
+            budget.clone(),
+            chain.network_id(),
+            &chain.committed(2),
+        );
+        let result = read.authenticate();
+        if mutation == 0 {
+            let owner = result.unwrap_or_else(|(_, error)| panic!("genuine SCCP archive: {error}"));
+            assert_eq!(owner.bytes.as_slice().as_ptr(), pointer);
+            assert_eq!(owner.carrier().1, 2);
+            drop(owner);
+        } else {
+            let (read, error) = result
+                .err()
+                .expect("substituted/omitted delta cannot authenticate");
+            assert!(!error.is_local_refusal(), "case {mutation}: {error}");
+            assert_eq!(read.bytes.as_slice().as_ptr(), pointer);
+            drop(read);
+        }
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}

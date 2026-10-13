@@ -72,10 +72,14 @@ fn world(
     {
         let mut parameters = world.parameters.block();
         if let Some(scope) = scope {
-            parameters.set_parameter(test_support::metadata(scope));
+            parameters
+                .set_parameter(test_support::metadata(scope))
+                .expect("valid fixture parameters");
         }
         if let Some(policy) = admission {
-            parameters.set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()));
+            parameters
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter().unwrap()))
+                .expect("valid fixture parameters");
         }
         parameters.commit();
     }
@@ -368,4 +372,59 @@ fn parent_receipt_uses_original_certified_archive_and_survives_native_replay() {
         private_dataspace_record_proof(&replayed.state().view(), 2, id).unwrap(),
         Some(receipt)
     );
+}
+
+#[test]
+fn private_profile_resource_refusal_retains_instruction_attempt_and_invalid_does_not() {
+    let allocator = norito::core::classify_decode_attempt(|| {
+        Err::<(), _>(norito::Error::AllocationFailed { bytes: 1 })
+    })
+    .unwrap_err();
+    let capacity = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(2)),
+    )
+    .unwrap_err();
+    for (resource, expected) in [
+        (
+            allocator,
+            ivm::error::ExecutionDeferral::AllocationUnavailable,
+        ),
+        (
+            capacity,
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+        ),
+    ] {
+        let parent = state(Some(SumeragiRootScope::Global), Some(policy()));
+        let mut block = parent.block(header(2));
+        let mut transaction = block.transaction();
+        let error = profile_error(
+            PrivateDataspaceAnchorError::Resource(resource),
+            &mut transaction,
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("local instruction read did not complete")
+        );
+        let retained = transaction
+            .borrow_execution_deferral()
+            .expect("original typed refusal retained");
+        assert_eq!(retained.reason(), expected);
+        assert!(
+            retained.allocation_refusal().is_none(),
+            "decoder limits provide no pool release owner"
+        );
+        assert!(transaction.world.private_dataspaces().records().is_empty());
+    }
+    let parent = state(Some(SumeragiRootScope::Global), Some(policy()));
+    let mut block = parent.block(header(2));
+    let mut transaction = block.transaction();
+    let error = profile_error(
+        PrivateDataspaceAnchorError::Invalid("invalid original".into()),
+        &mut transaction,
+    );
+    assert!(error.to_string().contains("invalid original"));
+    assert!(transaction.borrow_execution_deferral().is_none());
+    assert!(transaction.world.private_dataspaces().records().is_empty());
 }

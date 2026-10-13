@@ -166,14 +166,28 @@ fn fee_registered_home_domain_uses_canonical_json_and_preserves_refusal() {
             .unwrap()
             .metadata
             .remove(&spec_key());
-        assert!(matches!(
-            limited(|| validate_registered_account_state(
+        let original_metadata = tx
+            .world
+            .accounts
+            .get(&native.account_id)
+            .unwrap()
+            .metadata()
+            .clone();
+        assert_actual_fee_decoder_owner(limited(|| {
+            validate_registered_account_state(
                 &tx.world,
                 native.account_id.clone(),
                 with_domain.clone(),
-            )),
-            Err(Attempt::Deferred(_))
-        ));
+            )
+        }));
+        assert_eq!(
+            tx.world
+                .accounts
+                .get(&native.account_id)
+                .unwrap()
+                .metadata(),
+            &original_metadata
+        );
         assert_eq!(
             read_registered_account_state(&tx.world, &native.account_id).unwrap(),
             Some(with_domain.clone())
@@ -618,10 +632,24 @@ fn fee_registered_metadata_refusal_retains_original_json_attempt() {
         // Start after the canonical binary decode to exercise the actual optional JSON reader.
         let state = native.clone();
         let account = native.account_id.clone();
-        assert!(matches!(
-            limited(|| validate_registered_account_state(&tx.world, account, state)),
-            Err(Attempt::Deferred(_))
-        ));
+        let original_metadata = tx
+            .world
+            .accounts
+            .get(&native.account_id)
+            .unwrap()
+            .metadata()
+            .clone();
+        assert_actual_fee_decoder_owner(limited(|| {
+            validate_registered_account_state(&tx.world, account, state)
+        }));
+        assert_eq!(
+            tx.world
+                .accounts
+                .get(&native.account_id)
+                .unwrap()
+                .metadata(),
+            &original_metadata
+        );
         assert_eq!(
             validate_registered_account_state(&tx.world, native.account_id.clone(), native.clone())
                 .unwrap(),
@@ -682,5 +710,201 @@ fn fee_terminal_comparison_checks_every_field_and_approved_body() {
                 "field {field}"
             );
         }
+    });
+}
+
+fn assert_actual_fee_decoder_owner<T: core::fmt::Debug>(
+    result: Result<T, Attempt<ValidationFail>>,
+) {
+    let Err(Attempt::Deferred(original)) = result else {
+        panic!("actual local decoder refusal must remain deferred: {result:?}");
+    };
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    let observed = original
+        .decode_refusal()
+        .expect("actual canonical reader observer")
+        .clone();
+    assert!(original.allocation_refusal().is_none());
+    assert!(original.verification_refusal().is_none());
+    let returned =
+        crate::execution_attempt::ExecutionDeferred::try_from_vm_error(original.into_vm_error())
+            .expect("consuming VM roundtrip retains the one original decoder cause");
+    assert_eq!(returned.decode_refusal(), Some(&observed));
+}
+
+#[test]
+fn registered_fee_reader_keeps_actual_binary_decoder_owner_and_unchanged_retry() {
+    with_fixture(|tx, native| {
+        let key = multisig_account_state_key(&native.account_id);
+        let original = tx.world.smart_contract_state.get(&key).unwrap().clone();
+        assert_actual_fee_decoder_owner(limited(|| {
+            read_registered_account_state(&tx.world, &native.account_id)
+        }));
+        assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
+        assert_eq!(
+            read_registered_account_state(&tx.world, &native.account_id).unwrap(),
+            Some(native.clone()),
+        );
+    });
+}
+
+#[test]
+fn settled_fee_reader_keeps_each_actual_binary_decoder_owner_and_same_evidence_retry() {
+    use norito::core::DecodeBudgetContext;
+    with_fixture(|tx, native| {
+        let proposal = proposal(&native.account_id);
+        let terminal = terminal(&proposal);
+        let hash = *Hash::new(b"three original settled fee decoders").as_ref();
+        install_terminal(tx, &terminal, hash);
+        let keys = [
+            multisig_proposal_terminal_state_key(&native.account_id, &proposal.instructions_hash),
+            multisig_proposal_terminal_execution_state_key(
+                hash,
+                &native.account_id,
+                &proposal.instructions_hash,
+            ),
+            multisig_approval_outcome_state_key(
+                hash,
+                &native.account_id,
+                &proposal.instructions_hash,
+            ),
+        ];
+        let original = keys
+            .each_ref()
+            .map(|key| tx.world.smart_contract_state.get(key).unwrap().clone());
+        // Measure only the actual preceding canonical reads and approved-body hash.
+        // Funding exactly that prefix forces the next reader to refuse, so all
+        // three producer sites are exercised through the real settlement entry.
+        let measured = DecodeBudgetContext::new(norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+        ));
+        let (terminal_cost, execution_cost) = measured.with(|| {
+            let decoded =
+                norito::decode_from_bytes::<MultisigProposalTerminalState>(&original[0]).unwrap();
+            HashOf::try_new(&decoded.proposal.instructions).unwrap();
+            let terminal_cost = measured.consumed_allocated_bytes();
+            norito::decode_from_bytes::<MultisigProposalTerminalExecutionStateV1>(&original[1])
+                .unwrap();
+            (terminal_cost, measured.consumed_allocated_bytes())
+        });
+        assert!(terminal_cost > 0);
+        assert!(execution_cost > terminal_cost);
+        for funded_prefix in [0, terminal_cost, execution_cost] {
+            let context = DecodeBudgetContext::new(norito::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::try_from(funded_prefix).unwrap(),
+                usize::MAX,
+            ));
+            let refused = context.with(|| {
+                read_settled_fee_proposal(
+                    &tx.world,
+                    &native.account_id,
+                    &proposal.instructions_hash,
+                    hash,
+                    1,
+                )
+            });
+            assert_eq!(
+                context.consumed_allocated_bytes(),
+                funded_prefix,
+                "earlier readers complete under their measured exact funding"
+            );
+            assert_actual_fee_decoder_owner(refused);
+            for (key, bytes) in keys.iter().zip(&original) {
+                assert_eq!(tx.world.smart_contract_state.get(key), Some(bytes));
+            }
+            assert_eq!(
+                read_settled_fee_proposal(
+                    &tx.world,
+                    &native.account_id,
+                    &proposal.instructions_hash,
+                    hash,
+                    1
+                )
+                .unwrap(),
+                Some(proposal.instructions.clone()),
+            );
+        }
+    });
+}
+
+#[test]
+fn fee_metadata_completed_invalid_json_keeps_original_diagnostics() {
+    with_fixture(|tx, native| {
+        let malformed = Json::new(17_u64);
+        let account = &native.account_id;
+        let expected = norito::json::from_str::<MultisigSpec>(malformed.get().as_str())
+            .unwrap_err()
+            .to_string();
+        tx.world
+            .accounts
+            .get_mut(account)
+            .unwrap()
+            .metadata
+            .insert(spec_key(), malformed.clone());
+        let Err(Attempt::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
+            actual,
+        )))) = validate_registered_account_state(&tx.world, account.clone(), native.clone())
+        else {
+            panic!("intrinsically invalid spec must remain completed rejection");
+        };
+        assert_eq!(
+            actual,
+            format!("invalid multisig/spec metadata for `{account}`: {expected}")
+        );
+        tx.world
+            .accounts
+            .get_mut(account)
+            .unwrap()
+            .metadata
+            .remove(&spec_key());
+        let expected = norito::json::from_str::<Option<iroha_model_base::domain::DomainId>>(
+            malformed.get().as_str(),
+        )
+        .unwrap_err()
+        .to_string();
+        tx.world
+            .accounts
+            .get_mut(account)
+            .unwrap()
+            .metadata
+            .insert(home_domain_key(), malformed);
+        let Err(Attempt::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
+            actual,
+        )))) = validate_registered_account_state(&tx.world, account.clone(), native.clone())
+        else {
+            panic!("intrinsically invalid domain must remain completed rejection");
+        };
+        assert_eq!(
+            actual,
+            format!("invalid multisig home-domain metadata for `{account}`: {expected}")
+        );
+    });
+}
+
+#[test]
+fn fee_terminal_hashes_stream_canonical_body_without_decoder_budget() {
+    with_fixture(|_, native| {
+        let proposal = proposal(&native.account_id);
+        let terminal = terminal(&proposal);
+        // Encoding owns a streaming hash writer and must not consume decoder budget.
+        // TODO: qualify an actual checked-writer failure separately; this successful
+        // control does not pretend a decoder limit denies physical writer allocation.
+        norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            assert_eq!(
+                HashOf::try_new(&proposal.instructions).unwrap(),
+                proposal.instructions_hash
+            );
+            assert!(same_terminal_evidence(&terminal, &terminal).unwrap());
+        });
     });
 }

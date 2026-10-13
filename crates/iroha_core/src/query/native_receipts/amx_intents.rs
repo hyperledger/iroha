@@ -4,8 +4,12 @@
 //! Original `.ami` bytes are only coordinates: the existing native proof reader authenticates
 //! the actual carrier, complete writes and Prepared record. No selector, filename, scalar
 //! projection or zero authority byte grants permission to sign, pay or submit a transaction.
-//! TODO(S6): connect delivery to an explicitly authorized, funded parent transaction journal
-//! with restart/rejection/idempotency ownership. There is no autonomous validator relayer here.
+//! The daemon's supervised relay consumes this Prepared owner alongside the source-bound
+//! Begin and Decision readers, with separately configured account custody, fee funding and
+//! the existing exact-transaction workflow journal.
+//! Boundary delivery shares this owner and the existing exact-identity journal.
+//! TODO(S6): qualify complete autonomous
+//! PvP and idle-obligation progress on independent real roots.
 
 use super::{
     NativeAmxRecordProofErrorV1, NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1,
@@ -21,10 +25,133 @@ use crate::{
 use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
-    block::BlockHeader,
+    NetworkId,
+    block::{BlockHeader, consensus::SumeragiRootScope},
     isi::{AmxInstructionAdmissionErrorV1, InstructionBox, PendingAmxInstructionV1},
-    sumeragi_amx::{AllocatedAmxRecordProofV1, AmxRecordKind, AmxRecordV1},
+    sumeragi_amx::{
+        AMX_RECORD_WITNESS_KEY_BYTES, AllocatedAmxRecordProofV1, AmxRecordKind, AmxRecordV1,
+    },
 };
+
+/// Exact authenticated source kind in one retained certified carrier.
+///
+/// This selector provides durable identity only. Neither variant is standalone authority.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_core::query::native_receipts::NativeAmxRelaySourceV1")]
+pub enum NativeAmxRelaySourceV1 {
+    /// An authenticated ordinary-write record, including its kind and transaction id.
+    Record {
+        /// Complete original ordinary-write key.
+        key: [u8; AMX_RECORD_WITNESS_KEY_BYTES],
+    },
+    /// A certified final-epoch execution authorizing the exact adjacent context.
+    EpochBoundary {
+        /// Incumbent source epoch.
+        epoch: u64,
+        /// Adjacent epoch authorized by the original result.
+        next_epoch: u64,
+    },
+}
+
+/// Exact relay coordinates for durable identity and independently configured route selection.
+///
+/// These copyable coordinates never authorize signing, funding or proof reconstruction.
+/// Only the accompanying move-only [`NativeAmxRelayIntentV1`] retains the original
+/// authenticated instruction graph. A journal containing these fields must authenticate
+/// the source again before preparing a new signed carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeAmxRelayDescriptorV1 {
+    pub(super) source_network: NetworkId,
+    pub(super) source_scope: SumeragiRootScope,
+    pub(super) source_height: u64,
+    pub(super) source_carrier: HashOf<BlockHeader>,
+    pub(super) source: NativeAmxRelaySourceV1,
+    pub(super) target_network: NetworkId,
+    pub(super) target_scope: SumeragiRootScope,
+    pub(super) target_instance: [u8; 32],
+    pub(super) ready_at_ms: Option<u64>,
+}
+
+impl NativeAmxRelayDescriptorV1 {
+    /// Genesis identity of the authenticated source root.
+    #[must_use]
+    pub const fn source_network(&self) -> NetworkId {
+        self.source_network
+    }
+    /// Exact signed scope of the source root.
+    #[must_use]
+    pub const fn source_scope(&self) -> SumeragiRootScope {
+        self.source_scope
+    }
+    /// Original certified height, independent of the current tip.
+    #[must_use]
+    pub const fn source_height(&self) -> u64 {
+        self.source_height
+    }
+    /// Original certified carrier selected by authenticated retained history.
+    #[must_use]
+    pub const fn source_carrier(&self) -> HashOf<BlockHeader> {
+        self.source_carrier
+    }
+    /// Original record or final-epoch boundary, never an inferred witness key.
+    #[must_use]
+    pub const fn source(&self) -> NativeAmxRelaySourceV1 {
+        self.source
+    }
+    /// Signed ledger-time wake coordinate of a Global expiry carrier, when present.
+    /// Local time may schedule work from this term but cannot authorize an Abort.
+    #[must_use]
+    pub const fn ready_at_ms(&self) -> Option<u64> {
+        self.ready_at_ms
+    }
+    /// Exact genesis identity of the intended destination root.
+    #[must_use]
+    pub const fn target_network(&self) -> NetworkId {
+        self.target_network
+    }
+    /// Exact destination scope from the retained authenticated parent or registration.
+    #[must_use]
+    pub const fn target_scope(&self) -> SumeragiRootScope {
+        self.target_scope
+    }
+    /// Authenticated destination consensus instance, including its original chain label.
+    #[must_use]
+    pub const fn target_instance(&self) -> [u8; 32] {
+        self.target_instance
+    }
+}
+
+/// One source-bound relay instruction retaining its original funded proof graph.
+///
+/// There is no public constructor, clone or decoder. Delivery is not a signed submission
+/// or durable acknowledgement. The service must still select an explicitly authorized,
+/// funded account and retain its exact signed transaction through outcome reconciliation.
+#[derive(Debug)]
+#[must_use = "retain the original relay instruction until signing admission or explicit retirement"]
+pub struct NativeAmxRelayIntentV1 {
+    pub(super) descriptor: NativeAmxRelayDescriptorV1,
+    pub(super) instruction: InstructionBox,
+}
+
+impl NativeAmxRelayIntentV1 {
+    /// Borrow exact source and destination coordinates without exporting proof authority.
+    #[must_use]
+    pub const fn descriptor(&self) -> &NativeAmxRelayDescriptorV1 {
+        &self.descriptor
+    }
+    /// Borrow the same admitted instruction for inspection or canonical payload preparation.
+    #[must_use]
+    pub const fn instruction(&self) -> &InstructionBox {
+        &self.instruction
+    }
+    /// Move the exact original instruction into its account payload owner, without decoding it.
+    #[must_use]
+    pub fn into_parts(self) -> (NativeAmxRelayDescriptorV1, InstructionBox) {
+        (self.descriptor, self.instruction)
+    }
+}
 
 /// Exact original acquisition, decode, proof or instruction refusal; never record absence.
 #[derive(Debug, thiserror::Error)]
@@ -55,7 +182,7 @@ pub enum NativeAmxPreparedRelayPollV1 {
     /// The same source/proof job made bounded progress; no row was delivered.
     Pending,
     /// Exact funded Relay instruction, still lacking signing/fee/submission authority.
-    Relay(InstructionBox),
+    Relay(NativeAmxRelayIntentV1),
     /// Every distinct original row was delivered once by this in-memory owner.
     Complete,
 }
@@ -100,10 +227,10 @@ pub struct NativeAmxPreparedRelayReadV1<'v, V: StateReadOnly> {
 ///
 /// # Errors
 /// The height is genesis/outside the captured history, or the original archive cannot open.
-pub fn prepared_amx_relays<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn prepared_amx_relays<V: StateReadOnly>(
+    view: &V,
     height: u64,
-) -> Result<NativeAmxPreparedRelayReadV1<'v, V>, NativeAmxPreparedRelayErrorV1> {
+) -> Result<NativeAmxPreparedRelayReadV1<'_, V>, NativeAmxPreparedRelayErrorV1> {
     let index = height
         .checked_sub(1)
         .and_then(|index| usize::try_from(index).ok())
@@ -147,7 +274,7 @@ pub fn prepared_amx_relays<'v, V: StateReadOnly>(
     })
 }
 
-fn record_hash(record: &AmxRecordV1) -> Result<Hash, NativeAmxPreparedRelayErrorV1> {
+pub(super) fn record_hash(record: &AmxRecordV1) -> Result<Hash, NativeAmxPreparedRelayErrorV1> {
     let mut cause = None;
     let hash = Hash::new_from_writer(|writer| {
         norito::core::write_canonical_to_writer(record, writer).map_err(|error| {
@@ -160,7 +287,7 @@ fn record_hash(record: &AmxRecordV1) -> Result<Hash, NativeAmxPreparedRelayError
     }
     hash.map_err(|_| NativeAmxPreparedRelayErrorV1::Source("record digest writer refused"))
 }
-impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
+impl<V: StateReadOnly> NativeAmxPreparedRelayReadV1<'_, V> {
     fn recheck(&self) -> Result<(), NativeAmxPreparedRelayErrorV1> {
         self.read.recheck_namespace()?;
         let index = usize::try_from(self.height - 1).map_err(|_| {
@@ -294,7 +421,7 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
                 .proof_read
                 .as_ref()
                 .expect("original verified record job")
-                .authenticated_prepared_count()?
+                .authenticated_relay_record_count()?
                 != projection.record_count()
             {
                 return Err(Error::Source(
@@ -313,7 +440,7 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
                 .expect("original verifier")
                 .matches_completed_execution(self.carrier, projection.ordinary_writes_root)
                 || !matches!(&proof.record, AmxRecordV1::Prepared(prepared)
-                    if prepared.tx == row.tx && prepared.participant == row.participant)
+                    if prepared.tx == row.tx && Some(prepared.participant) == row.participant)
                 || proof.record.witness_key() != row.key
                 || record_hash(&proof.record)? != row.value
             {
@@ -350,6 +477,25 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
         // No fallible operation follows delivery of that same original allocation.
         #[cfg(not(all(test, sumeragi_core_mutation = "HC217")))]
         self.recheck()?;
+        let row = self.row.as_ref().expect("delivered original row").0;
+        let projection = self
+            .projection
+            .as_ref()
+            .expect("authenticated original frame");
+        let descriptor = NativeAmxRelayDescriptorV1 {
+            source_network: *self.view.network_id(),
+            source_scope: SumeragiRootScope::Dataspace {
+                parent_network_id: projection.parent_network(),
+                dataspace_id: row.participant.expect("authenticated Prepared participant"),
+            },
+            source_height: self.height,
+            source_carrier: self.carrier,
+            source: NativeAmxRelaySourceV1::Record { key: row.key },
+            target_network: projection.parent_network(),
+            target_scope: SumeragiRootScope::Global,
+            target_instance: projection.parent_instance(),
+            ready_at_ms: None,
+        };
         let instruction = self
             .instruction
             .take()
@@ -360,7 +506,10 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
         self.previous_key = Some(row.key);
         self.offset = next;
         self.index += 1;
-        Ok(Poll::Relay(instruction))
+        Ok(Poll::Relay(NativeAmxRelayIntentV1 {
+            descriptor,
+            instruction,
+        }))
     }
 
     /// Complete one original row without replacing any source after refusal.
@@ -369,7 +518,7 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
     /// The same precise refusal returned by `poll`; the original job remains pending.
     pub fn complete_next(
         &mut self,
-    ) -> Result<Option<InstructionBox>, NativeAmxPreparedRelayErrorV1> {
+    ) -> Result<Option<NativeAmxRelayIntentV1>, NativeAmxPreparedRelayErrorV1> {
         loop {
             match self.poll()? {
                 NativeAmxPreparedRelayPollV1::Pending => {}
@@ -378,9 +527,12 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
             }
         }
     }
+}
+
+#[cfg(test)]
+impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
     // Observes the actual completed instruction before its final original-source join.
     // It cannot install coordinates, proof fields, graph backing or a guard verdict.
-    #[cfg(test)]
     pub(crate) fn probe_instruction_prepared_once(
         &mut self,
         probe: impl FnOnce(&InstructionBox) + 'v,
@@ -388,15 +540,12 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
         assert!(self.prepared_probe.is_none() && self.instruction.is_none() && self.index == 0);
         self.prepared_probe = Some(Box::new(probe));
     }
-    #[cfg(test)]
     pub(crate) fn retained_instruction(&self) -> Option<&InstructionBox> {
         self.instruction.as_ref()
     }
-    #[cfg(test)]
     pub(crate) fn acquired_frame_is_complete(&self) -> bool {
         self.bytes.is_some()
     }
-    #[cfg(test)]
     pub(crate) fn acquired_frame(&self) -> Option<&[u8]> {
         self.bytes
             .as_ref()

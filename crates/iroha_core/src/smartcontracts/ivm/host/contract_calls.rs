@@ -23,7 +23,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         {
             return Err(ivm::VMError::DecodeError);
         }
-        value_record::validate_return_destination(vm, vm.register(14), vm.register(15) as usize)?;
+        value_record::validate_return_destination(
+            vm,
+            vm.register(14),
+            usize::try_from(vm.register(15)).map_err(|_| ivm::VMError::DecodeError)?,
+        )?;
         address_bytes
             .checked_add(binding_bytes)
             .ok_or(ivm::VMError::OutOfGas)
@@ -159,11 +163,13 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let budget = self.prepared_contract_cache.execution_budget().clone();
         // Authenticate identity, lifecycle, permissions and exact schemas before copying input.
         let arguments = if let Some(schema) = descriptor.argument_schema.as_ref() {
+            let argument_words = usize::try_from(vm.register(13))
+                .map_err(|_| meter(boundary_gas, ivm::VMError::DecodeError))?;
             let quote = value_record::quote_argument_record(
                 vm,
                 schema,
                 vm.register(12),
-                vm.register(13) as usize,
+                argument_words,
                 vm.remaining_gas().saturating_sub(boundary_gas),
             )
             .map_err(|error| meter(boundary_gas, error))?;
@@ -176,7 +182,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     vm,
                     schema,
                     vm.register(12),
-                    vm.register(13) as usize,
+                    argument_words,
                     &budget,
                 )
                 .map_err(|error| meter(boundary_gas, error))?,

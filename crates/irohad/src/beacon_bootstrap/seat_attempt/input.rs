@@ -12,7 +12,7 @@ use std::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FrameReadError {
+pub enum FrameReadError {
     #[error(transparent)]
     Admission(#[from] AllocationRefusal),
     #[error(transparent)]

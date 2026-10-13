@@ -21,11 +21,11 @@ use super::{
 };
 
 /// Why a requested original table has no usable scoped encoder.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub(in crate::state) struct FrozenTableCaptureError(#[from] Failure);
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum Failure {
     /// The requested identity is not a canonical table in the closed catalog.
     #[error("requested original State table is not declared in the canonical catalog")]
@@ -223,7 +223,7 @@ pub(in crate::state) fn capture_original_table_once(
 }
 
 /// A grouped refusal never exposes a partial root or drops its frontier.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub(in crate::state) struct FrozenMembershipCaptureError(#[from] MembershipFailure);
 
@@ -239,7 +239,7 @@ impl FrozenMembershipCaptureError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum MembershipFailure {
     #[error(transparent)]
     Catalog(#[from] TableCaptureError),

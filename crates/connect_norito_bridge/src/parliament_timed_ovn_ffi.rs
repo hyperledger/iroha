@@ -1214,7 +1214,7 @@ mod tests {
         let evaluated_block_hash = hex::encode(tip.block_header.hash().as_ref());
         assert!(
             witness.verify(
-                tip.decode_checked()
+                tip.decode_checked(verified.tip().root_scope().into())
                     .unwrap()
                     .execution()
                     .ordinary_writes_root

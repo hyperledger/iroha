@@ -51,14 +51,19 @@ state_test! { sync apply_without_execution_indexes_sealed_commitment_entrypoint_
     // any execution. No supplied output, result, witness or certificate grants trust.
     let proposal = payload::assemble(
         chain.state(),
-        Assembly { parent: parent.block(), view: 0, cadence },
+        Assembly {
+            parent: parent.block(),
+            view: 0,
+            cadence,
+            proposed_time: std::time::Duration::ZERO,
+        },
         &[accepted],
     ).expect("assemble the exact original sealed entrypoint");
     assert!(!proposal.has_results());
     assert_eq!(proposal.network_entrypoint_count(), 1);
     assert_eq!(proposal.network_entrypoint_at(0).unwrap().hash(), entrypoint_hash);
     assert!(!chain.state().has_committed_entrypoint(entrypoint_hash));
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(proposal, Signers::Quorum, iroha_sumeragi::types::ControlWitness::default());
     assert_eq!(committed.block().network_entrypoint_count(), 1);
     assert_eq!(committed.block().network_entrypoint_at(0).unwrap().hash(), entrypoint_hash);
     assert!(committed.block().network_output_at(0).unwrap().1.result.is_ok());

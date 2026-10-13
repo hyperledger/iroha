@@ -30,7 +30,7 @@ use crate::{
     trigger::{Trigger, TriggerId},
 };
 use derive_more::Constructor;
-use iroha_crypto::{Hash, HashOf, MerkleProof, PublicKey, SignatureOf};
+use iroha_crypto::{HashOf, MerkleProof, PublicKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_model_base::domain::DomainId;
@@ -2295,7 +2295,8 @@ impl CommittedTransaction {
     pub fn result(&self) -> &crate::transaction::TransactionResult {
         self.output.result()
     }
-    /// Verify exact wire binding against an independently authenticated execution commitment.
+    /// Verify executed-wire binding against an independently authenticated execution commitment.
+    /// The execution identity excludes the certificate that attests to that same identity.
     /// The caller owns QC/finality authentication; a self-asserted commitment is not authority.
     #[must_use]
     pub fn verify_inclusion_in_authenticated_execution(
@@ -2311,11 +2312,11 @@ impl CommittedTransaction {
         {
             return false;
         }
-        let Ok(wire) = block.encode_wire() else {
+        let Ok((wire_len, wire_hash)) = block.executed_block_wire_identity() else {
             return false;
         };
-        u64::try_from(wire.len()).ok() == Some(commitment.executed_block_wire_len)
-            && Hash::new(&wire) == commitment.executed_block_wire_hash
+        wire_len == commitment.executed_block_wire_len
+            && wire_hash == commitment.executed_block_wire_hash
             && block
                 .execution_context()
                 .is_none_or(crate::block::BlockExecutionContextBundle::has_current_version)
@@ -3144,6 +3145,8 @@ impl QueryRequest {
     }
     #[cfg(test)]
     fn with_test_authority(self, authority: AccountId) -> QueryRequestWithAuthority {
+        use iroha_crypto::Hash;
+
         let genesis_hash = HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
             Hash::prehashed([0xA5; Hash::LENGTH]),
         );

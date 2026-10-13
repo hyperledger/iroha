@@ -9,12 +9,12 @@ fn prepared_public_arguments_decode_once_ignore_guest_descriptors_and_require_pr
     );
     let (program, _) = compiler
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku PreparedArguments { permission Invoke;
   kotoage fn invoke(int count, Name label) authorize(Invoke) {
   }
 }
-"#,
+",
         )
         .expect("compile parameterized contract");
     let metadata = ivm::ProgramMetadata::parse(&program).expect("parse contract metadata");
@@ -71,7 +71,10 @@ seiyaku PreparedArguments { permission Invoke;
     let mut unpaid = IVM::new(100_000);
     unpaid.load_program(&program).unwrap();
     unpaid.set_program_counter(entry_pc).unwrap();
-    assert_eq!(unpaid.run_with_host(&mut host), Err(VMError::DecodeError));
+    assert!(matches!(
+        (&(unpaid.run_with_host(&mut host)), &(VMError::DecodeError)),
+        (Err(VMError::DecodeError), VMError::DecodeError)
+    ));
     assert!(unpaid.call_result_word_count().is_err());
     assert_eq!(ivm::argument_record_decode_count(), 1);
 }
@@ -81,14 +84,14 @@ seiyaku PreparedArguments { permission Invoke;
 fn prepared_root_arguments_and_trigger_event_json_remain_distinct() {
     let (program, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku PreparedArgumentEventProbe {
   error enum ProbeError { WrongCount = 1 }
   kotoage fn invoke(int count) authorize(anyone) {
     require(count == 7, ProbeError::WrongCount);
   }
 }
-"#,
+",
         )
         .expect("compile parameter-consuming root probe");
     let metadata = ivm::ProgramMetadata::parse(&program).expect("parse root probe");
@@ -189,9 +192,12 @@ seiyaku PreparedArgumentEventProbe {
     record_only_host
         .prepare_syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &absent_vm)
         .expect("quote missing event");
-    assert_eq!(
-        record_only_host.syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &mut absent_vm),
-        Err(VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(record_only_host.syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &mut absent_vm)),
+            &(VMError::PermissionDenied)
+        ),
+        (Err(VMError::PermissionDenied), VMError::PermissionDenied)
+    ));
     assert_eq!(ivm::argument_record_decode_count(), 1);
 }

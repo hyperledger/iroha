@@ -55,10 +55,10 @@ fn serve_inventory_once(
             request.extend_from_slice(&buffer[..count]);
             assert!(request.len() <= 8192);
         }
-        let (status, body) = match original {
-            Some(original) => ("200 OK", norito::encode_canonical(&original).unwrap()),
-            None => ("204 No Content", Vec::new()),
-        };
+        let (status, body) = original.map_or_else(
+            || ("204 No Content", Vec::new()),
+            |original| ("200 OK", norito::encode_canonical(&original).unwrap()),
+        );
         write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/x-norito\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(&body).unwrap();
         request

@@ -197,7 +197,7 @@ fn prepare_scheduled_reward_fixture(
                     stake_account: validator.clone(),
                     total_stake: Quantity::from(100_u32),
                     self_stake: stakes[validator].clone(),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                     status: PublicLaneValidatorStatus::Active,
                     activation_height: 1,
                     election_exit_height: None,
@@ -213,7 +213,7 @@ fn prepare_scheduled_reward_fixture(
                         staker: staker.clone(),
                         bonded: bonded.clone(),
                         pending_unbonds: BTreeMap::new(),
-                        metadata: Default::default(),
+                        metadata: iroha_model_base::metadata::Metadata::default(),
                     },
                 );
             }

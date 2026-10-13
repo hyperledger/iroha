@@ -6,21 +6,22 @@
 //! ([`admission::classify`]), fee quoting ([`crate::executor::quote_nexus_fee_admission_payload`]),
 //! the per-block cap count ([`admission::exempt_class_of_entrypoint`]) and execution
 //! ([`fees::exempt_class_in_block`]). No test override stands in for a classifier. The
-//! self-claim fee is charged only to exempt self-claims.
+//! self-claim fee is charged only to exempt self-claims. A keeper advance is eligible from any
+//! authority, registered or not, and only such an advance admits an absent authority.
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    bridge_keys, escrow, fees,
+    escrow, fees,
     inbound::{SccpProvenInboundV1, record_proven},
     settle::{self, execute_settle},
     store,
     test_support::{
-        ONE_XOR, assert_escrow_invariant, funded_xor_state, header, install_value_route, peer,
-        sample_bridge_key_state, xor_balance,
+        ONE_XOR, assert_escrow_invariant, funded_xor_state, header, install_value_route,
+        xor_balance,
     },
 };
 use crate::state::{State, StateReadOnly, StateTransaction};
-use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::{Account, AccountAddress, AccountId},
@@ -40,13 +41,15 @@ use iroha_model_base::topology::DataSpaceId;
 use iroha_primitives::numeric::Quantity;
 use iroha_sccp::{
     light_client::{
+        bsc::BscLcAdvanceV1,
         ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
         proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
     },
-    v1::{key_file::SccpBridgeKeyFileV1, payload::SccpTransferPayloadV1},
+    v1::payload::SccpTransferPayloadV1,
 };
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
+const BSC: SccpNetworkV1 = SccpNetworkV1::BscMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 /// `inbound_self_claim_fee` of the Taira default parameters.
 const FEE: u128 = SccpParametersV1::taira_default().inbound_self_claim_fee;
@@ -54,6 +57,8 @@ const FEE: u128 = SccpParametersV1::taira_default().inbound_self_claim_fee;
 const RELAYER: u8 = 1;
 const RECIPIENT: u8 = 0x21;
 const STRANGER: u8 = 0x22;
+/// A node's keeper key: an Ed25519 key whose account is never registered or funded.
+const KEEPER: u8 = 0x31;
 
 fn ed25519(seed: u8) -> KeyPair {
     KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("deterministic seed")
@@ -132,30 +137,6 @@ fn set_enabled(stx: &mut StateTransaction<'_, '_>, enabled: bool) {
     store::parameters::set(stx, Some(params));
 }
 
-/// Register `key` as the active bridge key of `peer`, faulted or not.
-fn register_bridge_key(
-    stx: &mut StateTransaction<'_, '_>,
-    key: &SccpBridgeKeyFileV1,
-    peer: iroha_model_base::peer::PeerId,
-    faulted: bool,
-) {
-    let address = key.address().expect("address");
-    let mut binding = sample_bridge_key_state(1);
-    let active = binding.active.as_mut().expect("active key");
-    active.public_key = key.public_key().expect("public key");
-    active.address = address;
-    active.faulted = faulted;
-    store::bridge_key_owners::insert(stx, address, peer.clone()).expect("owner");
-    store::bridge_keys::insert(stx, peer, binding).expect("binding");
-}
-
-fn bridge_key_pair(key: &SccpBridgeKeyFileV1) -> KeyPair {
-    KeyPair::from_private_key(
-        PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret()).expect("bridge scalar"),
-    )
-    .expect("bridge key pair")
-}
-
 /// The committed parent World every case is judged against.
 struct Parent {
     state: State,
@@ -166,14 +147,10 @@ struct Parent {
     at_fee: [u8; 32],
     /// TON message to the recipient held by a liability shortfall.
     shortfall: [u8; 32],
-    keeper: SccpBridgeKeyFileV1,
-    faulted_keeper: SccpBridgeKeyFileV1,
 }
 
 fn parent() -> Parent {
     let state = funded_xor_state(&account(RELAYER), 1_000 * ONE_XOR);
-    let keeper = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("keeper key");
-    let faulted_keeper = SccpBridgeKeyFileV1::new([0x32; 32], 0).expect("faulted key");
     let recipient = account(RECIPIENT);
     let (settleable, at_fee, shortfall);
     {
@@ -183,11 +160,13 @@ fn parent() -> Parent {
         {
             let mut stx = block.transaction();
             // Fee quoting needs the explicit immutable root scope of the network.
-            stx.world.parameters.get_mut().set_parameter(
-                crate::sumeragi::lanes::routing::test_support::metadata(
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                ),
-            );
+                ))
+                .expect("fixture global metadata");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -215,8 +194,6 @@ fn parent() -> Parent {
             at_fee = prove(&mut stx, ETH, 1, FEE, &recipient);
             set_enabled(&mut stx, true);
             shortfall = prove(&mut stx, TON, 0, 10 * ONE_XOR, &recipient);
-            register_bridge_key(&mut stx, &keeper, peer(1), false);
-            register_bridge_key(&mut stx, &faulted_keeper, peer(2), true);
             stx.apply();
         }
         block
@@ -228,9 +205,64 @@ fn parent() -> Parent {
         settleable,
         at_fee,
         shortfall,
-        keeper,
-        faulted_keeper,
     }
+}
+
+#[test]
+fn reconciliation_self_claim_eligibility_uses_original_rate_and_refund_reserve() {
+    use super::{reconciliation, reconciliation_store};
+    use iroha_data_model::sccp::native::SccpQuarantineV1;
+
+    let parent = parent();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    {
+        let mut block = parent.state.block(header(2));
+        let mut stx = block.transaction();
+        let mut route = store::routes::get(&*stx.world, &ETH).cloned().unwrap();
+        route.revisions.get_mut(&1).unwrap().quarantine = Some(SccpQuarantineV1 {
+            certificate_id: [1; 32],
+            since_height: 2,
+        });
+        store::routes::insert(&mut stx, ETH, route).unwrap();
+        reconciliation::open(&mut stx, ETH, 1, 1).unwrap();
+        stx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+    }
+    {
+        let mut block = parent.state.block(header(3));
+        let mut stx = block.transaction();
+        assert!(reconciliation::end_one(&mut stx, ETH, 1).unwrap());
+        assert_eq!(
+            fees::exempt_class(&*stx.world, transaction.payload(), None),
+            Some(SccpExemptClassV1::SelfClaim),
+            "the closed rate has positive payout despite permanent quarantine"
+        );
+        assert_eq!(
+            fees::exempt_class_in_block(&stx, transaction.payload()).unwrap(),
+            None,
+            "same-block close cannot exempt a claim held in the original parent"
+        );
+        stx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+    }
+    let mut block = parent.state.block(header(4));
+    let mut stx = block.transaction();
+    // Test data reserves all remaining backing; the production classifier reads the
+    // indexed sum without scanning or copying the pending-refund history.
+    reconciliation_store::add_pending_refund(&mut stx, (ETH, 1), 100 * ONE_XOR).unwrap();
+    assert_eq!(
+        fees::exempt_class(&*stx.world, transaction.payload(), None),
+        None,
+        "a zero payout is not an exempt self-claim"
+    );
+    assert_eq!(
+        fees::exempt_class_in_block(&stx, transaction.payload()).unwrap(),
+        Some(SccpExemptClassV1::SelfClaim),
+        "execution uses the original parent's rate and refund reserve"
+    );
 }
 
 fn signed(signer: &KeyPair, instructions: Vec<InstructionBox>) -> SignedTransaction {
@@ -256,24 +288,31 @@ fn submit(network: SccpNetworkV1, amount: u128, recipient: Vec<u8>) -> Instructi
     .into()
 }
 
-fn advance(backfill: bool) -> InstructionBox {
+/// A decodable advance of `network` (ETH or BSC) that proves nothing, or an ETH `Backfill`.
+fn advance_of(network: SccpNetworkV1, backfill: bool) -> InstructionBox {
     let advance = if backfill {
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
                 headers: Vec::new(),
             }),
         }
+    } else if network == BSC {
+        SccpLcAdvanceV1::Bsc(BscLcAdvanceV1 { steps: Vec::new() })
     } else {
         SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
             updates: Vec::new(),
         })
     };
     AdvanceSccpLightClientV1 {
-        network: ETH,
+        network,
         expected_state_hash: None,
         advance: advance.to_bytes().expect("bounded advance"),
     }
     .into()
+}
+
+fn advance(backfill: bool) -> InstructionBox {
+    advance_of(ETH, backfill)
 }
 
 fn self_registration(account: &AccountId) -> InstructionBox {
@@ -315,8 +354,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     let parent = parent();
     let recipient = account(RECIPIENT);
     let to_recipient = address_bytes(&recipient);
-    let keeper = bridge_key_pair(&parent.keeper);
-    let faulted_keeper = bridge_key_pair(&parent.faulted_keeper);
+    let keeper = ed25519(KEEPER);
     let self_claim = SccpExemptClassV1::SelfClaim;
     let keeper_advance = SccpExemptClassV1::KeeperAdvance { network: ETH };
     let ten = 10 * ONE_XOR;
@@ -355,14 +393,14 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "canonical recipient claim with advances (TODO(ws41))",
+            "recipient claim with an invalid bundled advance",
             ed25519(RECIPIENT),
             vec![
                 self_registration(&recipient),
                 advance(false),
                 submit(ETH, ten, to_recipient.clone()),
             ],
-            Expected::Ordinary,
+            Expected::Rejected(self_claim),
         ),
         (
             "recipient settle that progresses",
@@ -401,7 +439,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "keeper advance (the light client is not installed)",
+            "advance from an unregistered keeper key (the light client is not installed)",
             keeper.clone(),
             vec![advance(false)],
             Expected::Rejected(keeper_advance),
@@ -413,15 +451,15 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             Expected::Ordinary,
         ),
         (
-            "standalone advance by anyone",
-            ed25519(STRANGER),
-            vec![advance(false)],
-            Expected::Ordinary,
+            "standalone advance by a registered account (the light client is not installed)",
+            ed25519(RELAYER),
+            vec![advance_of(BSC, false)],
+            Expected::Rejected(SccpExemptClassV1::KeeperAdvance { network: BSC }),
         ),
         (
-            "advance by a faulted bridge key",
-            faulted_keeper,
-            vec![advance(false)],
+            "two advances in one transaction",
+            keeper,
+            vec![advance(false), advance(false)],
             Expected::Ordinary,
         ),
     ];
@@ -436,12 +474,22 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         let payload = transaction.payload();
         // Eligibility.
         assert_eq!(
-            fees::exempt_class(world, payload),
+            fees::exempt_class(
+                world,
+                payload,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original parent time")
+            ),
             expected.class(),
             "{name}: eligibility"
         );
         assert_eq!(
-            fees::exempt_on_success(world, payload),
+            fees::exempt_on_success(
+                world,
+                payload,
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                    .expect("original parent time")
+            ),
             expected.class().is_some(),
             "{name}: exemption on success"
         );
@@ -449,11 +497,11 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         let classified = admission::classify(world, &view, 3, &transaction);
         match expected {
             Expected::Ordinary => {
-                assert_eq!(classified, Ok(None), "{name}: admitted as ordinary");
+                assert_eq!(classified.unwrap(), None, "{name}: admitted as ordinary");
             }
             Expected::Admitted(class) => assert_eq!(
-                classified.map(|keys| keys.map(|keys| keys.class)),
-                Ok(Some(*class)),
+                classified.unwrap().map(|keys| keys.class),
+                Some(*class),
                 "{name}: admitted as exempt"
             ),
             Expected::Rejected(_) => {
@@ -465,8 +513,11 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             world,
             &nexus,
             &pipeline,
+            &view.zk().gas,
             payload,
             0,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             3,
             Some(DataSpaceId::UNIVERSAL),
         );
@@ -480,6 +531,8 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         if let Some(class) = admission::exempt_class_of_entrypoint(
             world,
             &TransactionEntrypoint::External(transaction),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original parent time"),
         ) {
             counted.push(class);
         }
@@ -489,6 +542,10 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     }
     assert_eq!(counted, expected_counted);
     assert!(admission::block_exempt_cap_ok(world, &counted));
+    assert!(
+        !admission::block_exempt_cap_ok(world, &[keeper_advance, keeper_advance]),
+        "one exempt advance per network per block, whoever signs it"
+    );
     drop(view);
     // Execution of the next block judges the same predicate against the same parent World,
     // whatever the block itself writes first.
@@ -498,7 +555,8 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
     for (name, signer, instructions, expected) in cases {
         let transaction = signed(&signer, instructions);
         assert_eq!(
-            fees::exempt_class_in_block(&stx, transaction.payload()),
+            fees::exempt_class_in_block(&stx, transaction.payload())
+                .expect("original parent source"),
             expected.class(),
             "{name}: execution"
         );
@@ -596,8 +654,8 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
     );
     let view = parent.state.view();
     assert_eq!(
-        admission::classify(view.world(), &view, 3, &transaction),
-        Ok(None),
+        admission::classify(view.world(), &view, 3, &transaction).unwrap(),
+        None,
         "a relayer proof is admitted as an ordinary transaction"
     );
     let mut nexus = nexus();
@@ -607,8 +665,11 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
         view.world(),
         &nexus,
         &iroha_config::parameters::actual::Pipeline::default(),
+        &view.zk().gas,
         transaction.payload(),
         0,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture time"),
         3,
         Some(DataSpaceId::UNIVERSAL),
     )
@@ -622,7 +683,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
     let mut block = parent.state.block(header(3));
     let stx = block.transaction();
     assert_eq!(
-        fees::exempt_class_in_block(&stx, transaction.payload()),
+        fees::exempt_class_in_block(&stx, transaction.payload()).expect("original parent source"),
         None,
         "execution charges the ordinary fee and marks no exempt self-claim"
     );
@@ -630,11 +691,269 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
 }
 
 #[test]
-fn a_bridge_key_is_recognised_by_its_secp256k1_account() {
-    let key = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("key");
-    let pair = bridge_key_pair(&key);
+fn only_an_eligible_advance_admits_an_absent_authority() {
+    use crate::state::WorldReadOnly as _;
+    let parent = parent();
+    let keeper = account(KEEPER);
+    assert!(
+        parent.state.view().world().account(&keeper).is_err(),
+        "the keeper key has no account"
+    );
+    let admits = |instructions: Vec<InstructionBox>| {
+        let transaction = signed(&ed25519(KEEPER), instructions);
+        let sccp = admission::allows_unregistered_authority(transaction.instructions());
+        // The SCCP rule is the only one that can admit these shapes.
+        assert_eq!(
+            crate::tx::allows_unregistered_authority(
+                transaction.instructions(),
+                transaction.authority()
+            ),
+            sccp
+        );
+        sccp
+    };
+    assert!(admits(vec![advance(false)]));
+    assert!(admits(vec![advance_of(BSC, false)]));
+    assert!(
+        !admits(vec![advance(true)]),
+        "a Backfill pays the ordinary fee, so its authority must exist"
+    );
+    assert!(!admits(vec![advance(false), advance(false)]));
+    assert!(!admits(vec![SettleSccpV1::inbound([1; 32]).into()]));
+    assert!(!admits(vec![submit(
+        ETH,
+        10 * ONE_XOR,
+        address_bytes(&keeper)
+    )]));
+    assert!(!admits(vec![SettleSccpV1::refund(ETH, 1, 0).into()]));
+}
+
+#[test]
+fn self_claim_pause_eligibility_uses_parent_time_not_fee_observation_horizon() {
+    use super::test_support::install_consumer_fast_pause;
+    let parent = parent();
+    let mut block = parent.state.block(header(2));
+    let mut stx = block.transaction();
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now + 1);
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    let payload = transaction.payload();
+    let world = &*stx.world;
+    let entry = TransactionEntrypoint::External(transaction.clone());
+    // Controlled original-time inputs to the pure World classifier. Full native source
+    // binding is independently exercised by hold::tests; no proof authority is fabricated.
+    for (parent_time, expected) in [
+        (Some(now), None),
+        (None, None),
+        (Some(now + 1), Some(SccpExemptClassV1::SelfClaim)),
+    ] {
+        assert_eq!(fees::exempt_class(world, payload, parent_time), expected);
+        assert_eq!(
+            admission::exempt_class_of_entrypoint(world, &entry, parent_time),
+            expected
+        );
+        for fee_observation_ms in [0, now, now + 1, u64::MAX] {
+            let quote = crate::executor::quote_nexus_fee_admission_payload(
+                world,
+                &nexus(),
+                &iroha_config::parameters::actual::Pipeline::default(),
+                &stx.zk.gas,
+                payload,
+                fee_observation_ms,
+                parent_time,
+                3,
+                Some(DataSpaceId::UNIVERSAL),
+            );
+            assert_eq!(
+                matches!(quote, Ok(quote) if quote.charges.is_empty()),
+                expected.is_some(),
+                "fee horizon must not expire a committed pause"
+            );
+        }
+    }
+    let proof = signed(
+        &ed25519(RECIPIENT),
+        vec![submit(
+            ETH,
+            10 * ONE_XOR,
+            address_bytes(&account(RECIPIENT)),
+        )],
+    );
     assert_eq!(
-        AccountId::new(pair.public_key().clone()),
-        bridge_keys::account_of(&key.public_key().expect("public key")).expect("account")
+        fees::exempt_class(world, proof.payload(), Some(now)),
+        Some(SccpExemptClassV1::SelfClaim),
+        "hold preserves proof admission eligibility; verification is still required"
+    );
+    let keeper = signed(&ed25519(KEEPER), vec![advance(false)]);
+    assert_eq!(
+        fees::exempt_class(world, keeper.payload(), Some(now)),
+        Some(SccpExemptClassV1::KeeperAdvance { network: ETH })
+    );
+}
+
+#[test]
+fn charged_parent_self_claim_is_not_reclassified_by_expired_executing_world() {
+    use super::test_support::install_consumer_fast_pause;
+    let parent = parent();
+    let execution_time = u64::try_from(header(3).creation_time().as_millis()).unwrap();
+    {
+        let mut block = parent.state.block(header(2));
+        let mut stx = block.transaction();
+        install_consumer_fast_pause(&mut stx, ETH, true, vec![2], execution_time);
+        stx.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("component parent precondition");
+    }
+    let mut block = parent.state.block(header(3));
+    let mut stx = block.transaction();
+    stx.nexus.fees = nexus().fees;
+    stx.nexus.fees.fee_asset_id =
+        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().canonical_address();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    assert_eq!(
+        fees::exempt_class_in_block(&stx, transaction.payload()).expect("original empty source"),
+        None,
+        "this independent World fixture has no native committed time and cannot expire its parent's pause"
+    );
+    assert_eq!(
+        fees::exempt_class(
+            &*stx.world,
+            transaction.payload(),
+            Some(stx.block_unix_timestamp_ms())
+        ),
+        Some(SccpExemptClassV1::SelfClaim),
+        "the executing time has reached expiry"
+    );
+    let before = store::inbound_messages::get(&*stx.world, &parent.settleable)
+        .unwrap()
+        .clone();
+    crate::executor::validate_transaction_fee_admission(&mut stx, &transaction)
+        .expect_err("charged parent decision must enforce signed fee limits instead of quoting zero against the executing World");
+    assert_eq!(
+        store::inbound_messages::get(&*stx.world, &parent.settleable),
+        Some(&before)
+    );
+    assert_eq!(stx.sccp_exempt_self_claim, None);
+}
+
+#[test]
+fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
+    use super::eligibility::{BlockParent, Current, TransactionParent};
+    let parent = parent();
+    let budget = parent.state.view().execution_budget();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    let expected = Some(SccpExemptClassV1::SelfClaim);
+    let check = |source: &dyn super::eligibility::EligibilityRead| {
+        assert!(
+            source.parameters().unwrap().enabled,
+            "eligibility must retain the original pre-block parameters through local and sibling writes"
+        );
+        assert!(
+            source
+                .parameters()
+                .unwrap()
+                .max_exempt_transactions_per_block
+                > 0
+        );
+        assert_eq!(
+            source.route(ETH).unwrap().revisions[&1].activation,
+            SccpRouteActivationV1::Bidirectional
+        );
+        assert!(
+            source
+                .inbound(&parent.settleable)
+                .unwrap()
+                .status
+                .is_pending()
+        );
+        assert!(source.pause(ETH).is_none());
+        assert_eq!(
+            fees::exempt_class_from(source, transaction.payload(), None),
+            expected
+        );
+    };
+    check(&Current(&parent.state.world_view()));
+    let mut block = parent
+        .state
+        .world
+        .try_block(&budget)
+        .expect("original World admission");
+    for apply in [false, true] {
+        let mut tx = block.transaction_without_telemetry(
+            iroha_config::parameters::actual::LaneConfig::default(),
+            0,
+        );
+        let parameters = tx.sccp_parameters.get_mut().as_mut().unwrap();
+        parameters.enabled = false;
+        parameters.max_exempt_transactions_per_block = 0;
+        tx.sccp_routes
+            .get_mut(&ETH)
+            .unwrap()
+            .revisions
+            .get_mut(&1)
+            .unwrap()
+            .activation = SccpRouteActivationV1::Paused;
+        tx.sccp_inbound_messages
+            .get_mut(&parent.settleable)
+            .unwrap()
+            .status =
+            SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 {
+                height: 2,
+                payout: 1,
+            });
+        let pause = super::pause_record::RetainedSccpFastPause::admit(
+            &super::test_support::sample_fast_pause(1),
+            &budget,
+        )
+        .unwrap();
+        tx.sccp_fast_pauses.insert(ETH, pause);
+        assert_eq!(fees::exempt_class(&*tx, transaction.payload(), None), None);
+        check(&TransactionParent(&tx));
+        if apply {
+            tx.apply();
+        } else {
+            drop(tx);
+        }
+        check(&BlockParent(&block));
+    }
+    assert_eq!(
+        fees::exempt_class(&block, transaction.payload(), None),
+        None
+    );
+    block.commit();
+    assert_eq!(
+        fees::exempt_class(&parent.state.world_view(), transaction.payload(), None),
+        None,
+        "the still-published successor is held"
+    );
+    // A replacement's exact baseline is the reverted predecessor, not a fresh view of the
+    // held successor above. No native receipt/authority is invented by this World-only test.
+    let mut replacement = parent
+        .state
+        .world
+        .try_block_and_revert(&budget)
+        .expect("original replacement admission");
+    check(&BlockParent(&replacement));
+    let mut tx = replacement
+        .transaction_without_telemetry(iroha_config::parameters::actual::LaneConfig::default(), 0);
+    tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
+    check(&TransactionParent(&tx));
+    drop(tx);
+    check(&BlockParent(&replacement));
+    drop(replacement);
+    assert_eq!(
+        fees::exempt_class(&parent.state.world_view(), transaction.payload(), None),
+        None,
+        "dropping replacement preserves the original committed successor"
     );
 }

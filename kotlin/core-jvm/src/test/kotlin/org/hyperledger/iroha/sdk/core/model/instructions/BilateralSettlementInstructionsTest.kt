@@ -9,6 +9,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import org.hyperledger.iroha.sdk.address.AccountAddress
 import org.hyperledger.iroha.sdk.core.model.WirePayload
 
@@ -34,7 +35,7 @@ class BilateralSettlementInstructionsTest {
         val repo = repo()
 
         assertWireFixture(repo.toInstructionBox(), "iroha.repo", fixtures.getProperty("repo.payload_base64"))
-        assertEquals("daily_repo", repo.settlementId())
+        assertEquals(BilateralSettlementInstructions.SettlementId(REPO_INITIATOR, "daily_repo"), repo.settlementId())
         assertContentEquals(
             hex(fixtures.getProperty("repo.initiation_intent_hash_hex")),
             repo.initiationIntentHash(),
@@ -66,7 +67,7 @@ class BilateralSettlementInstructionsTest {
         }
         assertFailsWith<IllegalArgumentException> {
             BilateralSettlementInstructions.Dvp(
-                "not_reciprocal",
+                BilateralSettlementInstructions.SettlementId(ALICE, "not_reciprocal"),
                 BilateralSettlementInstructions.SettlementLeg(BOND, "1", ALICE, BOB),
                 BilateralSettlementInstructions.SettlementLeg(USD, "1", ALICE, BOB),
             )
@@ -89,9 +90,41 @@ class BilateralSettlementInstructionsTest {
         }
     }
 
+    @Test
+    fun `settlement identity retains owner and rejects bare or alternate text`() {
+        val id = BilateralSettlementInstructions.SettlementId(ALICE, "payment-42")
+        assertEquals(id, BilateralSettlementInstructions.SettlementId.parse(id.toString()))
+        assertNotEquals(id, BilateralSettlementInstructions.SettlementId(BOB, "payment-42"))
+        val alternate = AccountAddress.fromI105(ALICE, null).toI105(1)
+        assertEquals(id, BilateralSettlementInstructions.SettlementId(alternate, "payment-42"))
+        for (invalid in listOf("payment-42", "payment-42\$", "\$$ALICE", "payment-42\$$alternate")) {
+            assertFailsWith<IllegalArgumentException> {
+                BilateralSettlementInstructions.SettlementId.parse(invalid)
+            }
+        }
+        for (reference in listOf("payment\u00a042", "payment\u200742", "payment\u202f42", "e\u0301")) {
+            assertFailsWith<IllegalArgumentException> {
+                BilateralSettlementInstructions.SettlementId(ALICE, reference)
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            BilateralSettlementInstructions.Dvp(
+                BilateralSettlementInstructions.SettlementId(REPO_CUSTODIAN, "not-a-payer"),
+                dvp().deliveryLeg,
+                dvp().paymentLeg,
+            )
+        }
+        val otherOwner = BilateralSettlementInstructions.Dvp(
+            BilateralSettlementInstructions.SettlementId(BOB, "dvp_trade_1"),
+            dvp().deliveryLeg,
+            dvp().paymentLeg,
+        )
+        assertNotEquals(dvp().intentHash().toList(), otherOwner.intentHash().toList())
+    }
+
     private fun dvp(): BilateralSettlementInstructions.Dvp =
         BilateralSettlementInstructions.Dvp(
-            "dvp_trade_1",
+            BilateralSettlementInstructions.SettlementId(ALICE, "dvp_trade_1"),
             BilateralSettlementInstructions.SettlementLeg(BOND, "1000", ALICE, BOB),
             BilateralSettlementInstructions.SettlementLeg(USD, "1005", BOB, ALICE),
             BilateralSettlementInstructions.ExecutionOrder.DELIVERY_THEN_PAYMENT,
@@ -99,7 +132,7 @@ class BilateralSettlementInstructionsTest {
 
     private fun pvp(): BilateralSettlementInstructions.Pvp =
         BilateralSettlementInstructions.Pvp(
-            "pvp_fx_1",
+            BilateralSettlementInstructions.SettlementId(ALICE, "pvp_fx_1"),
             BilateralSettlementInstructions.SettlementLeg(USD, "1000", ALICE, BOB),
             BilateralSettlementInstructions.SettlementLeg(EUR, "920", BOB, ALICE),
             BilateralSettlementInstructions.ExecutionOrder.PAYMENT_THEN_DELIVERY,

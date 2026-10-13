@@ -2831,7 +2831,7 @@ evidence.
 				  verifier commitment helper verifies the adapter FastPQ proof and
 				  transcript before returning metadata; strict SCCP production builders now
 				  require non-SORA bundles to satisfy the production source-proof gate
-				  before packaging destination submissions, and Rust EVM/TRON Groth16
+				  before packaging destination submissions, and Rust EVM Groth16
 				  proof requests now require canonical bundle bytes plus non-empty
 				  source-proof witness bytes for non-SORA source bundles; SCCP
 				  Rust TON native-recursive proof requests now apply the same canonical
@@ -8149,7 +8149,7 @@ redistributable schemas, and official trust/revocation bundles.
     `Signature::try_new`, `SignatureOf::try_from_hash`, and
     `TransactionBuilder::try_sign` helpers, with a wrong-key BLS block-signature
     regression covering adversarial verification failure;
-    SCCP BSC, TON, TRON, Solana, Ethereum sync committee, Nexus finality, and
+    SCCP BSC, TON, Solana, Ethereum sync committee, Nexus finality, and
     EVM attestor fixture key families now share checked seed derivation before
     source-proof and submission-package regressions consume them; Kagami Kura
     block-store test fixtures now use checked transaction and block signing,

@@ -122,6 +122,10 @@ enum NoritoBridgeLoader {
         "soranet_mldsa_sign",
         "soranet_mldsa_verify"
     ]
+    static let chainDiscriminantScopeRequiredSymbols = [
+        "connect_norito_chain_discriminant_scope_enter",
+        "connect_norito_chain_discriminant_scope_exit"
+    ]
     private static let requiredSymbols = [
         "connect_norito_bridge_abi_version",
         "connect_norito_free",
@@ -156,7 +160,7 @@ enum NoritoBridgeLoader {
         "connect_norito_private_settlement_committee_proof_response_verify_v1",
         "connect_norito_private_settlement_auditor_capsule_response_verify_with_request_v1",
         "connect_norito_private_settlement_audit_approval_response_verify_v1"
-    ] + parliamentTimedOvnWalletRequiredSymbols + accelerationRequiredSymbols + mldsaRequiredSymbols
+    ] + chainDiscriminantScopeRequiredSymbols + parliamentTimedOvnWalletRequiredSymbols + accelerationRequiredSymbols + mldsaRequiredSymbols
 
     private typealias BridgeAbiVersionFn = @convention(c) () -> UInt32
 

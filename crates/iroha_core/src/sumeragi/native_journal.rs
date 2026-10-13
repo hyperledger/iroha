@@ -179,17 +179,23 @@ pub fn with_verified_native_journal<T>(
 ///
 /// Each advancement is verified by the same native journal reader. The retained tip is
 /// only a continuity pin; it never supplies a new epoch roster.
+/// The independently configured root scope must match the scope authenticated by genesis.
 /// Refusal leaves the previous tip intact. Initial genesis authority has no finalized receipt:
 /// at least H2 must genuinely certify its parent result before this clock can advance.
 pub struct NativeJournalCursor {
     chain_id: ChainId,
     network: NetworkId,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     limits: NativeFinalityLimits,
     budget: AllocationBudget,
     tip: Option<super::certified_chain::CommittedBlock>,
 }
 impl NativeJournalCursor {
-    /// Pin an operation to independently configured chain/network and explicit resource caps.
+    /// Pin an operation to independently configured chain/network, expected root scope and
+    /// explicit resource caps. Each advancement checks the signed genesis against that scope.
+    ///
+    /// # Errors
+    /// Rejects invalid resource caps or a root scope claiming a universal private dataspace.
     pub fn new(
         chain_id: ChainId,
         network: NetworkId,
@@ -198,13 +204,11 @@ impl NativeJournalCursor {
         budget: &AllocationBudget,
     ) -> Result<Self, NativeJournalError> {
         limits.validate()?;
-        // The configured root scope must derive this operation's native instance.
-        root_scope
-            .instance_id(&super::crypto::BlsCrypto::new(), network, chain_id.as_str())
-            .map_err(|error| error.to_string())?;
+        root_scope.validate().map_err(|error| error.to_string())?;
         Ok(Self {
             chain_id,
             network,
+            root_scope,
             limits,
             budget: budget.clone(),
             tip: None,
@@ -232,7 +236,14 @@ impl NativeJournalCursor {
         self.limits
     }
 
-    /// Authenticate a strictly advancing complete prefix and retain its exact native tip.
+    /// Authenticate a strictly advancing complete prefix of the configured root scope and
+    /// retain its exact native tip. A scope mismatch leaves the previous tip unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a nonadvancing journal, invalid certified history,
+    /// a root-scope mismatch, replacement of the retained tip, or exhausted
+    /// reader resources. The previous tip remains unchanged on failure.
     pub fn advance(
         &mut self,
         journal: NativeFinalitySource<'_>,
@@ -248,6 +259,11 @@ impl NativeJournalCursor {
             self.limits,
             &self.budget,
             |reader| {
+                if reader.root_scope() != self.root_scope {
+                    return Err(
+                        "native phase journal differs from the configured root scope".into(),
+                    );
+                }
                 if let Some(tip) = &self.tip {
                     let retained = reader.certified(tip.height())?;
                     if retained.block_hash() != tip.block_hash()
@@ -274,6 +290,11 @@ impl NativeJournalCursor {
 ///
 /// No execution preimage or height-one QC is accepted as authority here. This is the initial
 /// DKG authorization root; phase clocks require a genuine H2+ journal before any advancement.
+///
+/// # Errors
+///
+/// Returns an error for invalid limits, oversized or malformed wire data, a
+/// foreign network genesis, or invalid genesis signatures or validator epoch.
 pub fn authenticate_signed_genesis(
     wire: &[u8],
     network: NetworkId,
@@ -456,6 +477,47 @@ mod tests {
         assert!(
             authenticate_signed_genesis(&initial.blocks[0].block_wire, wrong, limits()).is_err()
         );
+    }
+
+    #[test]
+    fn native_cursor_rejects_signed_genesis_outside_its_expected_root_scope() {
+        use iroha_data_model::block::consensus::SumeragiRootScope;
+        use iroha_model_base::topology::DataSpaceId;
+
+        let (chain, journal) = fixture();
+        let budget = AllocationBudget::new(limits().allocated_bytes);
+        let mut mismatched = NativeJournalCursor::new(
+            ChainId::from("sumeragi-certified-test-chain"),
+            chain.network_id(),
+            SumeragiRootScope::Dataspace {
+                parent_network_id: chain.network_id(),
+                dataspace_id: DataSpaceId::new(1),
+            },
+            limits(),
+            &budget,
+        )
+        .unwrap();
+        let error = mismatched.advance((&journal).into()).unwrap_err();
+        assert!(matches!(
+            error,
+            NativeJournalError::Invalid(message)
+                if message == "native phase journal differs from the configured root scope"
+        ));
+        assert!(mismatched.tip().is_none());
+
+        // The same independently pinned source is valid for its actual signed scope.
+        let mut matching = NativeJournalCursor::new(
+            ChainId::from("sumeragi-certified-test-chain"),
+            chain.network_id(),
+            SumeragiRootScope::Global,
+            limits(),
+            &budget,
+        )
+        .unwrap();
+        let tip = matching.advance((&journal).into()).unwrap();
+        assert_eq!(tip.height(), 3);
+        assert_eq!(tip.root_scope(), SumeragiRootScope::Global);
+        assert_eq!(tip.result(), chain.committed(3).result());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Genuine native component helpers; no production constructors, source mutators or proof stubs.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_fs::PublishMode;
 impl ManagedReserveTopUpApproval {
     pub(in crate::managed) fn funding_prepare(
@@ -20,7 +21,7 @@ impl ManagedReserveTopUpApproval {
         if current.height() != tip.height()
             || current.context_id() != tip.context_id()
             || current.block_time_ms() != tip.header().creation_time_ms
-            || &current.policy().policy != &intent.policy
+            || current.policy().policy != intent.policy
         {
             return Err(invalid("fixture current cut differs"));
         }
@@ -36,7 +37,7 @@ impl ManagedReserveTopUpApproval {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(history, &original)?;
-        let directory = self.authority.directory.ensure_child("approval")?;
+        let directory = metadata::ensure_operation(&self.authority.directory, "approval")?;
         journal::publish_intent(&directory, &original)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("fixture wallet"))?;
@@ -49,7 +50,7 @@ impl ManagedReserveTopUpApproval {
                 &directory.path().join("transaction"),
             )
             .map_err(|_| invalid("fixture wallet prepare"))?;
-        self.verify_wallet(&directory, &original, options.deadline)
+        self.verify_wallet(directory, &original, options.deadline)
     }
     pub(in crate::managed) fn funding_retain(
         &self,
@@ -61,7 +62,7 @@ impl ManagedReserveTopUpApproval {
         let original = journal::required_original(&directory)?;
         self.validate_original(history, &original)?;
         let directory = original.directory();
-        let signed = self.verify_wallet(&directory, &original, deadline)?;
+        let signed = self.verify_wallet(directory, &original, deadline)?;
         self.historical_binding(history, &original, &signed, verifier)?;
         directory.write_atomic(
             "carrier.nrt",

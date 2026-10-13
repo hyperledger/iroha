@@ -57,8 +57,12 @@ async fn vote_tally_handler_returns_finalized_tally() {
     let kura = Kura::blank_kura_for_testing();
     let query = LiveQueryStore::start_test();
     let mut core_state = CoreState::new_for_testing(World::new(), kura, query);
-    core_state.zk.pipa_r.enabled = true;
-    core_state.zk.verify_timeout = Duration::ZERO;
+    core_state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
+    core_state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
+        .expect("fixture ZK settings install");
     let mut state = Arc::new(core_state);
     // Seed one finalized election via ISIs
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -118,7 +122,8 @@ async fn vote_tally_handler_returns_finalized_tally() {
     )
     .expect("grant CanEnactGovernance");
     let report =
-        iroha_core_zk::verify_backend_with_timing(TALLY_FIXTURE_BACKEND, &proof_box, Some(&vk_box));
+        iroha_core_zk::verify_backend_with_timing(TALLY_FIXTURE_BACKEND, &proof_box, Some(&vk_box))
+            .expect("completed verification fixture");
     assert!(report.ok, "vote tally proof must verify: {report:?}");
     execute_tally_component(
         &mut stx,

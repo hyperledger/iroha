@@ -559,7 +559,7 @@ fn parliament_terminal_effect_failure_retains_atomic_rollback_and_exact_outcome(
         let DueParliamentCertificateExecutionV1::EffectFailed { failure_root } = result else {
             panic!("an absent account cannot receive the certified provider ownership: {result:?}");
         };
-        assert!(execution.execution_deferral().is_none());
+        assert!(!execution.is_execution_deferred());
         assert!(execution.world.provider_owners.get(&provider_id).is_none());
         assert_eq!(
             execution
@@ -588,7 +588,7 @@ fn parliament_terminal_effect_failure_retains_atomic_rollback_and_exact_outcome(
         &mut failure,
     )
     .expect("record the exact deterministic failure after rollback");
-    assert!(failure.execution_deferral().is_none());
+    assert!(!failure.is_execution_deferred());
     assert_eq!(
         failure
             .world

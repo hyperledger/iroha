@@ -232,9 +232,13 @@ fn build_faucet_test_context_with_authority(
     );
     {
         let mut block = world.block();
-        block.parameters.get_mut().set_parameter(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        block
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(
+                SumeragiNposParameters::default().into_custom_parameter(),
+            ))
+            .expect("valid default consensus parameters");
         block.commit();
     }
     if let Some(selector) = faucet_selector {

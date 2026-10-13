@@ -115,7 +115,7 @@ fn actual_compiled_root_captures_staged_gas_store_initialization_return_and_padd
     ordinary.select_entrypoint("main").unwrap();
     ordinary.set_trace_mode(TraceMode::PcOnly);
     ordinary.run().unwrap();
-    assert_eq!(ordinary.public_call_result_word(0), Ok(0));
+    assert!(matches!(ordinary.public_call_result_word(0), Ok(0)));
     let budget = budget();
     let mut parent = parent(&budget);
     let output =
@@ -340,7 +340,7 @@ fn child_calls_are_local_component_refusal_and_do_not_change_ordinary_validity()
     ordinary.select_entrypoint("main").unwrap();
     ordinary.set_trace_mode(TraceMode::PcOnly);
     ordinary.run().unwrap();
-    assert_eq!(ordinary.public_call_result_word(0), Ok(0));
+    assert!(matches!(ordinary.public_call_result_word(0), Ok(0)));
     assert_eq!(executed_child_calls(&contract, &ordinary), 2);
     let budget = budget();
     let mut parent = parent(&budget);
@@ -362,7 +362,7 @@ fn inlined_private_helper_is_an_actual_leaf_and_matches_ordinary_execution() {
     ordinary.select_entrypoint("main").unwrap();
     ordinary.set_trace_mode(TraceMode::PcOnly);
     ordinary.run().unwrap();
-    assert_eq!(ordinary.public_call_result_word(0), Ok(0));
+    assert!(matches!(ordinary.public_call_result_word(0), Ok(0)));
     assert_eq!(executed_child_calls(&contract, &ordinary), 0);
     let budget = budget();
     let mut parent = parent(&budget);
@@ -415,9 +415,19 @@ fn short_credit_wrong_pool_and_native_faults_never_publish_partial_owners() {
         ),
     ] {
         let mut parent = super::tests::parent(&budget);
-        assert!(
-            matches!(NativeInvocation::run_public_leaf_root(contract,"main",gas,&mut parent,&budget),Err(CaptureError::Execution(error)) if error == expected)
-        );
+        assert!(matches!(
+            (
+                NativeInvocation::run_public_leaf_root(contract, "main", gas, &mut parent, &budget),
+                expected
+            ),
+            (
+                Err(CaptureError::Execution(VMError::OutOfGas)),
+                VMError::OutOfGas
+            ) | (
+                Err(CaptureError::Execution(VMError::ExceededMaxCycles)),
+                VMError::ExceededMaxCycles,
+            )
+        ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }
@@ -485,7 +495,10 @@ fn compiled_public_bool_leaves_use_the_same_original_capture_and_geometry() {
         ordinary.load_prepared(&artifact).unwrap();
         ordinary.select_entrypoint("main").unwrap();
         ordinary.run().unwrap();
-        assert_eq!(ordinary.public_call_result_word(0), Ok(expected));
+        assert_eq!(
+            (ordinary.public_call_result_word(0)).expect("expected successful fixture result"),
+            expected
+        );
         let budget = budget();
         let mut parent = parent(&budget);
         let native =

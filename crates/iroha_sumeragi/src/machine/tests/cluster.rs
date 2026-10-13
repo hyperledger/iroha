@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use super::{G_HASH, G_RESULT, I, W, initial_record, result_of};
 use crate::{
-    api::{Action, CommittedTip, Event, ExecOutcome, HaltReason, Init, LocalParams},
+    api::{Action, CommittedTip, Event, HaltReason, Init, LocalParams},
     availability::{
         AvailabilityFrame, AvailableBody, BodyRestoration, PayloadAcquisition, PayloadAuthoring,
         PayloadBytes, RowBytes,
@@ -282,7 +282,7 @@ impl Cluster {
                         Event::Executed {
                             block_hash: bh,
                             req,
-                            outcome: ExecOutcome::Valid(result_of(&block)),
+                            outcome: crate::testing::valid_execution(result_of(&block)),
                         },
                     );
                 }

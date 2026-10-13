@@ -10,10 +10,12 @@ mod epochs;
 mod fuzz;
 mod handlers;
 mod liveness;
+mod recovery;
 mod regressions;
 mod review;
 mod revision4;
 mod safety;
+mod signing;
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -346,7 +348,7 @@ impl H {
                             queue.push_back(Event::Executed {
                                 block_hash: bh,
                                 req: *req,
-                                outcome: ExecOutcome::Valid(result_of(block)),
+                                outcome: crate::testing::valid_execution(result_of(block)),
                             });
                         } else {
                             self.pending_exec.push((bh, *req, block.clone()));
@@ -591,7 +593,7 @@ impl H {
             all.extend(self.fire(Event::Executed {
                 block_hash: bh,
                 req,
-                outcome: ExecOutcome::Valid(result_of(&block)),
+                outcome: crate::testing::valid_execution(result_of(&block)),
             }));
         }
         all
@@ -644,7 +646,9 @@ impl H {
     }
 
     fn sign_as(&self, index: ValidatorIndex, msg: &[u8]) -> Signature {
-        self.signer_of(&self.key_at(index)).sign(msg)
+        self.signer_of(&self.key_at(index))
+            .sign(msg)
+            .expect("fixture signing succeeds")
     }
 
     /// The core's index in the current committee.
@@ -809,7 +813,11 @@ impl H {
             block_hash: value.0,
             result: value.1,
             signers: Bitmap::from_indices(self.committee().n(), sorted.iter().copied()).unwrap(),
-            agg_sig: self.v.crypto.aggregate(&sigs),
+            agg_sig: self
+                .v
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
         }
     }
 
@@ -919,7 +927,11 @@ impl H {
                     hq: t.hq(),
                 })
                 .collect(),
-            agg_sig: self.v.crypto.aggregate(&sigs),
+            agg_sig: self
+                .v
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
             high_pqc,
         }
     }
@@ -1009,7 +1021,14 @@ impl H {
             &value.1,
         );
 
-        let sigs: Vec<Signature> = keys.iter().map(|k| self.signer_of(k).sign(&msg)).collect();
+        let sigs: Vec<Signature> = keys
+            .iter()
+            .map(|k| {
+                self.signer_of(k)
+                    .sign(&msg)
+                    .expect("fixture signing succeeds")
+            })
+            .collect();
         let indices = keys.iter().filter_map(|k| committee.index_of(k));
         let signers = Bitmap::from_indices(committee.n(), indices).unwrap();
         Qc {
@@ -1021,7 +1040,11 @@ impl H {
             block_hash: value.0,
             result: value.1,
             signers,
-            agg_sig: self.v.crypto.aggregate(&sigs),
+            agg_sig: self
+                .v
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
         }
     }
 

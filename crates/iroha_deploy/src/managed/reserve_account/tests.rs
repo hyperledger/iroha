@@ -3,6 +3,7 @@
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     NetworkId,
@@ -163,7 +164,8 @@ fn codec_original() -> Original {
 #[test]
 fn registration_original_roundtrip_admits_large_checkpoint_without_proof_claim() {
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("register")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "register").unwrap();
     let original = codec_original();
     let terms = Terms::new(now_ms().unwrap() + 600_000, &options()).unwrap();
     assert!(original.checkpoint.len() > 4096);
@@ -264,7 +266,8 @@ fn expired_registration_retains_original_utc_and_fees_across_fresh_io_deadline()
     assert!(restored_terms == terms);
     original.validate().unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("register")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "register").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let retained = directory.read("original.nrt", 256 * 1024).unwrap();
     let original = journal::read_intent(&directory).unwrap().unwrap();
@@ -399,6 +402,21 @@ fn selected_recovery_distinguishes_absent_empty_and_dirty_without_http() {
     );
     assert!(!owner.authority.directory.path().join("register").exists());
     let directory = owner.authority.directory.ensure_child("register").unwrap();
+    assert!(matches!(
+        owner
+            .recover_selected_if_present(
+                &policy,
+                &underwriting,
+                &Fees::from_options(&options).unwrap(),
+                options.deadline
+            )
+        , Err(crate::managed::Error::Invalid(message)) if message == "operation metadata image is absent"
+    ));
+    crate::managed::native_operation::require_empty(&directory).unwrap();
+    let path = directory.path().to_path_buf();
+    drop(directory);
+    std::fs::remove_dir(&path).unwrap();
+    let directory = metadata::ensure_operation(&owner.authority.directory, "register").unwrap();
     assert!(
         owner
             .recover_selected_if_present(
@@ -410,7 +428,7 @@ fn selected_recovery_distinguishes_absent_empty_and_dirty_without_http() {
             .unwrap()
             .is_none()
     );
-    require_empty(&directory).unwrap();
+    metadata::require_unselected(&directory).unwrap();
     directory
         .write_atomic("incomplete.nrt", &[1], iroha_fs::PublishMode::CreateNew)
         .unwrap();
@@ -444,7 +462,10 @@ pub(super) fn retain_explicit_request(
     journal::publish_intent(directory, original).unwrap();
     assert_eq!(
         directory.entries(3).unwrap(),
-        vec![std::ffi::OsString::from("original.nrt")]
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("original.nrt"),
+        ]
     );
     assert!(
         journal::required_original(directory).is_err(),

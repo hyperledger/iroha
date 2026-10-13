@@ -211,7 +211,11 @@ fn semantic_memory_refusal_preserves_original_pool_release_owner() {
 
 #[test]
 fn semantic_catalog_keeps_exact_order_and_actual_catalog_capacity_gate() {
-    assert_eq!(require_exact_table_materializers(FIELDS, READERS), Ok(3));
+    assert_eq!(
+        (require_exact_table_materializers(FIELDS, READERS))
+            .expect("exact complete catalog admitted"),
+        3
+    );
     assert!(matches!(
         require_exact_table_materializers(FIELDS, &[READERS[1], READERS[0], READERS[2]]),
         Err(TableCaptureError::DisplacedMaterializer(

@@ -166,6 +166,9 @@ mod tests {
 
     #[test]
     fn refusal_codes_are_the_closed_stable_design_table() {
+        use KagemushaWalletEnrollmentRefusalClassV1 as Class;
+        use KagemushaWalletEnrollmentRefusalV1 as Reason;
+
         let codes: Vec<u16> = KagemushaWalletEnrollmentRefusalV1::ALL
             .iter()
             .map(|reason| reason.code())
@@ -180,8 +183,6 @@ mod tests {
         for code in [0, 13, 255, u16::MAX] {
             assert_eq!(KagemushaWalletEnrollmentRefusalV1::from_code(code), None);
         }
-        use KagemushaWalletEnrollmentRefusalClassV1 as Class;
-        use KagemushaWalletEnrollmentRefusalV1 as Reason;
         let expected = [
             (Reason::KeyNotInSecureHardware, false, Class::Phone),
             (Reason::AttestationWithoutAppIdentity, false, Class::Phone),

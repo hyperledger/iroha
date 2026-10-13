@@ -780,6 +780,8 @@ fn test_parliament_authorization(
         },
         TEST_PARLIAMENT_POLICY_VERSION,
         10,
+        // Height 20, the fixture's sortition slot, is the first native pulse height.
+        21,
         proposal_kind.effect_preimage_hash_v1(),
         expected_head,
         requirements.clone(),
@@ -1136,7 +1138,8 @@ fn install_canonical_post_enactment_validation_fee_state(
         .world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .expect("valid fixture parameters");
     state_transaction.apply();
     block
         .commit_world_overlay_for_testing()

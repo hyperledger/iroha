@@ -4,12 +4,31 @@
 fn original_staking_state(
     component: State,
     nexus: iroha_config::parameters::actual::Nexus,
+    mode: iroha_data_model::parameter::system::SumeragiConsensusMode,
 ) -> State {
     use crate::sumeragi::{
         startup,
         test_chain::{CertifiedTestChain, TestChainConfig},
     };
+    use iroha_data_model::parameter::system::{SumeragiConsensusMode, SumeragiParameter};
     let mut config = TestChainConfig::new(component.world, 0);
+    config.consensus_mode = mode;
+    let npos_epoch_length = if mode == SumeragiConsensusMode::Npos {
+        let policy = config
+            .world
+            .view()
+            .sumeragi_npos_parameters()
+            .expect("fixture policy read completes")
+            .expect("NPoS fixture owns an explicit policy");
+        let length = policy.epoch_length_blocks;
+        config.genesis_parameters.extend([
+            Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(length)),
+            Parameter::Custom(policy.into_custom_parameter()),
+        ]);
+        Some(length.get())
+    } else {
+        None
+    };
     config.chain_id = component.chain_id;
     config.nexus = Some(nexus);
     config.governance = Some(component.gov);
@@ -26,6 +45,11 @@ fn original_staking_state(
         None,
     )
     .expect("apply original authenticated staking genesis");
+    if let Some(length) = npos_epoch_length {
+        let (_, authority) = crate::state::validator_committee::current_authority(&state.view())
+            .expect("fixture owns authenticated NPoS scheduling authority");
+        assert_eq!((authority.first_height, authority.last_height), (1, length));
+    }
     state
 }
 
@@ -45,7 +69,11 @@ fn staking_initial_fixture_owns_original_root_and_retains_epoch_policy() {
     set_epoch_length(&mut component, 6);
     let nexus = component.nexus_snapshot();
     let original_lanes = nexus.lane_catalog.clone();
-    let state = original_staking_state(component, nexus);
+    let state = original_staking_state(
+        component,
+        nexus,
+        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
+    );
     let parent = state
         .view()
         .latest_block_hash()
@@ -89,7 +117,7 @@ fn signed_candidate(
         validator.clone(),
         Quantity::from(stake),
         Metadata::default(),
-        fixture_registration_plan(&stx, lane_id, &validator, Quantity::from(stake)),
+        fixture_registration_plan(stx, lane_id, validator, Quantity::from(stake)),
     );
     let registered = stx
         .world
@@ -141,15 +169,17 @@ fn initial_executor_candidate_bonds_after_key_lead_without_joining_current_topol
     let mut state = setup_state();
     set_epoch_length(&mut state, 6);
     let nexus = state.nexus_snapshot();
-    let state = original_staking_state(state, nexus);
+    let state = original_staking_state(
+        state,
+        nexus,
+        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
+    );
     let mut block = state.block(original_staking_header(&state));
     let mut stx = block.transaction_for_callback_testing();
     let (validator, _, escrow, definition) = prepare_accounts(&mut stx);
-    stx.world
-        .parameters
-        .get_mut()
-        .sumeragi
-        .key_activation_lead_blocks = 7;
+    let mut consensus = stx.world.parameters.sumeragi().clone();
+    consensus.key_activation_lead_blocks = 7;
+    stx.world.parameters.get_mut().set_sumeragi(consensus);
     let peer_key = checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let candidate = signed_candidate(&stx, &validator, &peer_key, 1000, LaneId::new(42));
     let peer = candidate.registration.peer_id.clone();
@@ -225,7 +255,11 @@ fn candidate_rejects_other_authority_tampered_consent_and_invalid_pop() {
 fn failed_candidate_transaction_rolls_back_peer_key_and_stake() {
     let component = setup_state();
     let nexus = component.nexus_snapshot();
-    let state = original_staking_state(component, nexus);
+    let state = original_staking_state(
+        component,
+        nexus,
+        iroha_data_model::parameter::system::SumeragiConsensusMode::Permissioned,
+    );
     let mut block = state.block(original_staking_header(&state));
     let (validator, delegator, escrow, definition, nexus) = {
         let mut stx = block.transaction_for_callback_testing();
@@ -551,9 +585,9 @@ fn candidate_requires_committed_schedule_and_rejects_expired_tenure_consent() {
     let (validator, _, _, _) = prepare_accounts(&mut stx);
     let peer_key = checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let candidate = signed_candidate(&stx, &validator, &peer_key, 1000, LaneId::new(42));
-    let mut stale = candidate.clone();
-    stale.activation_height += 1;
-    let error = stale
+    let mut outdated = candidate.clone();
+    outdated.activation_height += 1;
+    let error = outdated
         .execute(&validator, &mut stx)
         .expect_err("consent for another boundary");
     assert!(
@@ -564,8 +598,7 @@ fn candidate_requires_committed_schedule_and_rejects_expired_tenure_consent() {
     stx.world
         .parameters
         .get_mut()
-        .custom
-        .remove(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
     let error = candidate
         .execute(&validator, &mut stx)
         .expect_err("missing committed schedule");

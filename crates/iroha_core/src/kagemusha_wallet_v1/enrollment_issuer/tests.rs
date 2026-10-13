@@ -1117,6 +1117,8 @@ fn a_retained_worker_refusal_is_answered_without_live_dependencies_and_after_reo
 
 #[test]
 fn a_cached_worker_refusal_is_answered_only_when_it_matches_its_retained_original() {
+    use crate::kagemusha_wallet_v1::enrollment_journal::WorkerRefusalTamperForTests as Tamper;
+
     let (_temp, mut owner, dispatch) = fixture();
     let mut stale = authenticate(&mut owner, &dispatch);
     owner.pre_key_permit(&mut stale).unwrap();
@@ -1146,7 +1148,6 @@ fn a_cached_worker_refusal_is_answered_only_when_it_matches_its_retained_origina
     // another exchange of the same request and configuration, and a record whose retained
     // exchange selection was altered: none is ever answered as a refusal, by the current
     // cursor, by a cursor that predates the change, or by a reopened issuer.
-    use crate::kagemusha_wallet_v1::enrollment_journal::WorkerRefusalTamperForTests as Tamper;
     let mismatch = KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch;
     let genuine = owner.journal.read(&key).unwrap().unwrap();
     let frame = genuine.worker_result().unwrap().to_vec();

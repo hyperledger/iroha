@@ -480,12 +480,12 @@ function decodeTransactionReceiptPayload(payload, nativeRuntime) {
 
 const HEADER_SORA_PDP_COMMITMENT = "sora-pdp-commitment";
 
-const EVIDENCE_KIND = "NativeSumeragiEvidence";
+const EVIDENCE_KINDS = new Set(["NativeSumeragiEvidence", "SccpForgeryEvidence"]);
 const EVIDENCE_CLASS_VALUES = new Set([
   "proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates",
 ]);
-const EVIDENCE_RECORD_FIELDS = Object.freeze([
-  "kind", "class", "instance", "height", "epoch", "context_id", "authority_generation",
+const NATIVE_EVIDENCE_FIELDS = Object.freeze([
+  "scope", "class", "instance", "height", "epoch", "context_id", "authority_generation",
   "offenders", "safety_violation", "native_frame_hash", "recorded_height", "recorded_view",
   "recorded_ms", "consensus_admitted_height", "penalty_status",
 ]);
@@ -6954,8 +6954,8 @@ export class ToriiClient {
     }
     if (resolvedOptions.kind !== undefined && resolvedOptions.kind !== null) {
       const kind = requireExactNonEmptyString(resolvedOptions.kind, "kind");
-      if (kind !== EVIDENCE_KIND) {
-        rejectRange(`kind must be ${EVIDENCE_KIND}`);
+      if (!EVIDENCE_KINDS.has(kind)) {
+        rejectRange("kind must be NativeSumeragiEvidence or SccpForgeryEvidence");
       }
       params.kind = kind;
     }
@@ -6979,6 +6979,7 @@ export class ToriiClient {
       payload,
       params.limit ?? 50,
       params.offset ?? 0,
+      params.kind,
     );
   }
 
@@ -8724,6 +8725,7 @@ export class ToriiClient {
 
   /**
    * Fetch ISO 20022 message status (`GET /v1/iso20022/messages/{msg_id}`).
+   * This node observation does not independently verify monetary settlement.
    * @param {string} messageId
    * @param {{signal?: AbortSignal}} [options]
    * @returns {Promise<Record<string, unknown> | null>}
@@ -8742,7 +8744,8 @@ export class ToriiClient {
   }
 
   /**
-   * Wait for an ISO bridge message to reach a terminal state.
+   * Poll until the node reports a terminal ISO status.
+   * The result is an observation, not an independently verified monetary receipt.
    * @param {string} messageId
    * @param {IsoMessageWaitOptions} [options]
    * @returns {Promise<Record<string, unknown>>}
@@ -26962,7 +26965,7 @@ function normalizeProverReportRecord(value, context) {
   };
 }
 
-function normalizeSumeragiEvidenceListResponse(payload, limit, offset) {
+function normalizeSumeragiEvidenceListResponse(payload, limit, offset, requestedKind) {
   const record = ensureRecord(payload, "sumeragi evidence response");
   assertExactSumeragiEvidenceFields(record, "sumeragi evidence response", [
     "total",
@@ -26977,6 +26980,9 @@ function normalizeSumeragiEvidenceListResponse(payload, limit, offset) {
   );
   if (items.length > limit) {
     rejectRange(`sumeragi evidence response.items must contain at most ${limit} records`);
+  }
+  if (requestedKind !== undefined && items.some((item) => item.kind !== requestedKind)) {
+    rejectRange("sumeragi evidence response item kind differs from the requested filter");
   }
   const total = requireSumeragiEvidenceUnsigned(
     record.total,
@@ -27062,11 +27068,160 @@ function normalizeSumeragiEvidencePenaltyStatus(value, context) {
 
 function normalizeSumeragiEvidenceRecord(value, context) {
   const record = ensureRecord(value, context);
-  assertExactSumeragiEvidenceFields(record, context, EVIDENCE_RECORD_FIELDS);
+  assertExactSumeragiEvidenceFields(record, context, ["kind", "value"]);
   const kind = requireExactNonEmptyString(record.kind, `${context}.kind`);
-  if (kind !== EVIDENCE_KIND) {
-    rejectRange(`${context}.kind must be ${EVIDENCE_KIND}`);
+  if (!EVIDENCE_KINDS.has(kind)) {
+    rejectRange(`${context}.kind must be NativeSumeragiEvidence or SccpForgeryEvidence`);
   }
+  return {
+    kind,
+    value: kind === "NativeSumeragiEvidence"
+      ? normalizeSumeragiNativeEvidence(record.value, `${context}.value`)
+      : normalizeSccpForgeryEvidence(record.value, `${context}.value`),
+  };
+}
+
+function requireSumeragiFixedHex(value, context, bytes) {
+  if (typeof value !== JS_TYPE_STRING || value.length !== bytes * 2 || !/^[0-9A-Fa-f]+$/u.test(value)) {
+    rejectType(`${context} must be an exact ${bytes}-byte hexadecimal string`);
+  }
+  return value;
+}
+
+function normalizeSumeragiEvidenceScope(value, context, material) {
+  const scope = ensureRecord(value, context);
+  assertExactSumeragiEvidenceFields(scope, context, ["kind", "value"]);
+  if (material === "sccp") {
+    if (scope.kind !== "sccp_generation") {
+      rejectRange(`${context}.kind must be sccp_generation`);
+    }
+    const detail = ensureRecord(scope.value, `${context}.value`);
+    assertExactSumeragiEvidenceFields(detail, `${context}.value`, ["generation"]);
+    return { kind: scope.kind, value: {
+      generation: requireSumeragiEvidenceUnsigned(detail.generation, `${context}.value.generation`),
+    } };
+  }
+  if (scope.kind === "root") {
+    if (scope.value !== null) rejectType(`${context}.value must be null for root scope`);
+    return { kind: scope.kind, value: null };
+  }
+  if (scope.kind !== "lane") rejectRange(`${context}.kind must be root or lane`);
+  const lane = ensureRecord(scope.value, `${context}.value`);
+  assertExactSumeragiEvidenceFields(lane, `${context}.value`, [
+    "lane", "incarnation", "created_at", "admission_parent_height", "admission_parent_hash",
+    "admission_parent_core_hash", "admission_parent_result",
+  ]);
+  const hash = lane.admission_parent_hash;
+  if (typeof hash !== JS_TYPE_STRING || !/^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u.test(hash)) {
+    rejectType(`${context}.value.admission_parent_hash must be a canonical Norito hash literal`);
+  }
+  parseHashLiteralToHex(hash, `${context}.value.admission_parent_hash`);
+  return { kind: scope.kind, value: {
+    lane: requireSumeragiEvidenceUnsigned(lane.lane, `${context}.value.lane`, 0xffff_ffff),
+    incarnation: requireSumeragiFixedHex(lane.incarnation, `${context}.value.incarnation`, 32),
+    created_at: requireSumeragiEvidenceUnsigned(lane.created_at, `${context}.value.created_at`),
+    admission_parent_height: requireSumeragiEvidenceUnsigned(lane.admission_parent_height, `${context}.value.admission_parent_height`),
+    admission_parent_hash: hash,
+    admission_parent_core_hash: requireSumeragiFixedHex(lane.admission_parent_core_hash, `${context}.value.admission_parent_core_hash`, 32),
+    admission_parent_result: requireSumeragiFixedHex(lane.admission_parent_result, `${context}.value.admission_parent_result`, 32),
+  } };
+}
+
+function normalizeSccpForgeryEvidence(value, context) {
+  // This is exact model DATA. Parsing never authenticates signatures or historical attribution.
+  const audit = ensureRecord(value, context);
+  assertExactSumeragiEvidenceFields(audit, context, [
+    "record", "attribution", "recorded_height", "recorded_view", "recorded_ms",
+    "consensus_admitted_height", "penalty_status",
+  ]);
+  const recordContext = `${context}.record`;
+  const record = ensureRecord(audit.record, recordContext);
+  assertExactSumeragiEvidenceFields(record, recordContext, ["evidence", "rule", "generation", "start_height", "offenders"]);
+  const evidenceContext = `${recordContext}.evidence`;
+  const evidence = ensureRecord(record.evidence, evidenceContext);
+  assertExactSumeragiEvidenceFields(evidence, evidenceContext, ["qc", "header", "aggregate_signature", "anchor"]);
+  let anchor = null;
+  if (evidence.anchor !== null) {
+    const anchorContext = `${evidenceContext}.anchor`;
+    const source = ensureRecord(evidence.anchor, anchorContext);
+    assertExactSumeragiEvidenceFields(source, anchorContext, ["core_hash", "result", "path"]);
+    if (!Array.isArray(source.path) || source.path.length !== 12) rejectRange(`${anchorContext}.path must contain exactly 12 siblings`);
+    anchor = {
+      core_hash: requireSumeragiFixedHex(source.core_hash, `${anchorContext}.core_hash`, 32),
+      result: requireSumeragiFixedHex(source.result, `${anchorContext}.result`, 32),
+      path: source.path.map((entry, index) => requireSumeragiFixedHex(entry, `${anchorContext}.path[${index}]`, 32)),
+    };
+  }
+  const rule = ensureRecord(record.rule, `${recordContext}.rule`);
+  assertExactSumeragiEvidenceFields(rule, `${recordContext}.rule`, ["rule", "detail"]);
+  if (!["E1", "E2", "E3", "E4"].includes(rule.rule) || rule.detail !== null) rejectType(`${recordContext}.rule must be an exact E1..E4 rule with null detail`);
+  const generation = requireSumeragiEvidenceUnsigned(record.generation, `${recordContext}.generation`);
+  const startHeight = requireSumeragiEvidenceUnsigned(record.start_height, `${recordContext}.start_height`);
+  if (generation === 0 || startHeight === 0) rejectRange(`${recordContext} generation and start_height must be nonzero`);
+  if (!Array.isArray(record.offenders) || record.offenders.length === 0 || record.offenders.length > 31) rejectRange(`${recordContext}.offenders must contain between 1 and 31 entries`);
+  let previousSigner = -1;
+  const registrations = new Set();
+  const offenders = record.offenders.map((source, index) => {
+    const where = `${recordContext}.offenders[${index}]`;
+    const offender = ensureRecord(source, where);
+    assertExactSumeragiEvidenceFields(offender, where, ["signer", "lane_id", "validator", "activation_height"]);
+    const signer = requireSumeragiEvidenceUnsigned(offender.signer, `${where}.signer`, 30);
+    if (signer <= previousSigner) rejectRange(`${where}.signer must increase strictly`);
+    previousSigner = signer;
+    const lane = requireSumeragiEvidenceUnsigned(offender.lane_id, `${where}.lane_id`, 0xffff_ffff);
+    const validator = requireExactAccountId(offender.validator, `${where}.validator`);
+    const registration = `${lane}:${validator}`;
+    if (registrations.has(registration)) rejectRange(`${where} validator registration must be unique`);
+    registrations.add(registration);
+    const activation = requireSumeragiEvidenceUnsigned(offender.activation_height, `${where}.activation_height`);
+    if (activation === 0 || BigInt(activation) > BigInt(startHeight)) rejectRange(`${where}.activation_height must be within the generation start`);
+    return { signer, lane_id: lane, validator, activation_height: activation };
+  });
+  const where = `${context}.attribution`;
+  const attribution = ensureRecord(audit.attribution, where);
+  assertExactSumeragiEvidenceFields(attribution, where, ["scope", "instance", "height", "epoch", "context_id", "authority_generation", "offenders", "safety_violation"]);
+  const scope = normalizeSumeragiEvidenceScope(attribution.scope, `${where}.scope`, "sccp");
+  const height = requireSumeragiEvidenceUnsigned(attribution.height, `${where}.height`);
+  if (BigInt(scope.value.generation) !== BigInt(generation) || BigInt(height) !== BigInt(startHeight)) rejectRange(`${where} must match the recorded generation and liability start`);
+  if (!Array.isArray(attribution.offenders) || attribution.offenders.length !== offenders.length) rejectRange(`${where}.offenders must match the recorded signers`);
+  const attributed = attribution.offenders.map((source, index) => {
+    const at = `${where}.offenders[${index}]`;
+    const offender = ensureRecord(source, at);
+    assertExactSumeragiEvidenceFields(offender, at, ["signer", "peer_id", "lane_stake"]);
+    const signer = requireSumeragiEvidenceUnsigned(offender.signer, `${at}.signer`, 30);
+    const peer = requireExactNonEmptyString(offender.peer_id, `${at}.peer_id`);
+    if (signer !== offenders[index].signer || offender.lane_stake !== null) rejectRange(`${at} must retain the SCCP signer and null lane_stake`);
+    if (!/^ea0130[0-9A-F]{96}$/u.test(peer)) rejectType(`${at}.peer_id must be a canonical BLS-normal public key`);
+    return { signer, peer_id: peer, lane_stake: null };
+  });
+  return {
+    record: {
+      evidence: {
+        qc: requireSumeragiFixedHex(evidence.qc, `${evidenceContext}.qc`, 116),
+        header: requireSumeragiFixedHex(evidence.header, `${evidenceContext}.header`, 221),
+        aggregate_signature: requireSumeragiFixedHex(evidence.aggregate_signature, `${evidenceContext}.aggregate_signature`, 96),
+        anchor,
+      },
+      rule: { rule: rule.rule, detail: null }, generation, start_height: startHeight, offenders,
+    },
+    attribution: {
+      scope, instance: requireSumeragiFixedHex(attribution.instance, `${where}.instance`, 32),
+      height, epoch: requireSumeragiEvidenceUnsigned(attribution.epoch, `${where}.epoch`),
+      context_id: requireSumeragiFixedHex(attribution.context_id, `${where}.context_id`, 32),
+      authority_generation: requireSumeragiFixedHex(attribution.authority_generation, `${where}.authority_generation`, 32),
+      offenders: attributed, safety_violation: requireExactBoolean(attribution.safety_violation, `${where}.safety_violation`),
+    },
+    recorded_height: requireSumeragiEvidenceUnsigned(audit.recorded_height, `${context}.recorded_height`),
+    recorded_view: requireSumeragiEvidenceUnsigned(audit.recorded_view, `${context}.recorded_view`),
+    recorded_ms: requireSumeragiEvidenceUnsigned(audit.recorded_ms, `${context}.recorded_ms`),
+    consensus_admitted_height: requireSumeragiEvidenceUnsigned(audit.consensus_admitted_height, `${context}.consensus_admitted_height`),
+    penalty_status: normalizeSumeragiEvidencePenaltyStatus(audit.penalty_status, `${context}.penalty_status`),
+  };
+}
+
+function normalizeSumeragiNativeEvidence(value, context) {
+  const record = ensureRecord(value, context);
+  assertExactSumeragiEvidenceFields(record, context, NATIVE_EVIDENCE_FIELDS);
   const evidenceClass = requireExactNonEmptyString(record.class, `${context}.class`);
   if (!EVIDENCE_CLASS_VALUES.has(evidenceClass)) {
     rejectRange(`${context}.class must be one of ${Array.from(EVIDENCE_CLASS_VALUES).join(", ")}`);
@@ -27101,7 +27256,7 @@ function normalizeSumeragiEvidenceRecord(value, context) {
     return { signer, peer_id: peerId };
   });
   return {
-    kind,
+    scope: normalizeSumeragiEvidenceScope(record.scope, `${context}.scope`, "native"),
     class: evidenceClass,
     instance: requireSumeragiEvidenceHash(record.instance, `${context}.instance`),
     height: requireSumeragiEvidenceUnsigned(record.height, `${context}.height`),

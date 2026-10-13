@@ -131,9 +131,9 @@ fn validate_archive_cut(
         row.validate()
             .map_err(|_| invalid(cut, REFERENCES, "invalid reverse-reference row"))?;
         for release_id in &row.releases {
-            if !releases
+            if releases
                 .get(release_id)
-                .is_some_and(|release| release.manifest.archive_id == *archive_id)
+                .is_none_or(|release| release.manifest.archive_id != *archive_id)
             {
                 return Err(invalid(
                     cut,

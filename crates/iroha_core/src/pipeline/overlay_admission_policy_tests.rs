@@ -3,26 +3,36 @@ fn analysis_refusals_keep_their_original_owner_in_overlay() {
     let budget = iroha_allocation::AllocationBudget::new(1);
     let occupied = budget.try_reserve_bytes(1).unwrap();
     let refusal = budget.try_reserve_bytes(1).unwrap_err();
-    for original in [
-        IvmError::AllocationDeferred(refusal),
-        IvmError::ExecutionDeferred(ivm::error::ExecutionDeferral::AllocationUnavailable),
-    ] {
-        let expected = crate::execution_attempt::ExecutionDeferred::from_vm_error(&original);
-        for metadata in [false, true] {
-            let error = if metadata {
-                ProgramAnalysisError::Metadata(original.clone())
+    for metadata in [false, true] {
+        for allocation in [true, false] {
+            let original = if allocation {
+                IvmError::AllocationDeferred(refusal.clone())
             } else {
-                ProgramAnalysisError::Decode(original.clone())
+                IvmError::ExecutionDeferred(ivm::error::ExecutionDeferral::AllocationUnavailable)
+            };
+            let expected_reason = original.execution_deferral().unwrap();
+            let error = if metadata {
+                ProgramAnalysisError::Metadata(original)
+            } else {
+                ProgramAnalysisError::Decode(original)
             };
             let mapped = map_program_analysis_error(error);
             assert!(matches!(mapped, OverlayBuildError::IvmLoad(_)));
-            assert_eq!(mapped.execution_deferral(), expected);
+            let retained = mapped.into_execution_deferral().unwrap();
+            assert_eq!(retained.reason(), expected_reason);
+            assert_eq!(
+                retained.allocation_refusal(),
+                allocation.then_some(&refusal)
+            );
         }
     }
     let malformed =
         map_program_analysis_error(ProgramAnalysisError::Metadata(IvmError::InvalidMetadata));
     assert!(matches!(malformed, OverlayBuildError::IvmHeaderParse));
-    assert_eq!(malformed.execution_deferral(), None);
+    assert!(matches!(
+        malformed.into_execution_deferral(),
+        Err(OverlayBuildError::IvmHeaderParse)
+    ));
     drop(occupied);
     assert_eq!(budget.reserved_bytes(), 0);
 }
@@ -45,14 +55,20 @@ fn generic_preparation_preserves_original_pool_refusal_in_overlay() {
         PreparedContractCache::with_execution_budget(0, budget.clone()),
     );
     let original = cache.summarize_executable(&program).unwrap_err();
-    let expected = crate::execution_attempt::ExecutionDeferred::from_vm_error(&original).unwrap();
-    assert!(matches!(
-        expected.allocation_refusal(),
-        Some(AllocationRefusal::Capacity { .. })
-    ));
+    let expected = match &original {
+        IvmError::AllocationDeferred(original) => original.clone(),
+        _ => panic!("original allocation refusal"),
+    };
+    assert!(matches!(expected, AllocationRefusal::Capacity { .. }));
     let mapped = map_program_summary_error(original);
     assert!(matches!(mapped, OverlayBuildError::IvmLoad(_)));
-    assert_eq!(mapped.execution_deferral(), Some(expected));
+    assert_eq!(
+        mapped
+            .into_execution_deferral()
+            .unwrap()
+            .allocation_refusal(),
+        Some(&expected)
+    );
     drop(occupied);
     assert!(cache.summarize_executable(&program).is_ok());
     assert_eq!(budget.reserved_bytes(), 0);

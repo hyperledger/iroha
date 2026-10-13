@@ -279,12 +279,43 @@ fn global_source_graph_error(
         GraphError::Allocator { .. } => ExecutionAttemptError::Deferred(
             ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
         ),
-        GraphError::Codec(resource) => {
-            crate::execution_attempt::norito_decode_attempt_error(resource.into(), |error| {
-                invalid(error.to_string())
-            })
-        }
+        GraphError::Codec(original) => ExecutionAttemptError::Deferred(original.into()),
         invalid_graph => invalid(invalid_graph.to_string()).into(),
+    }
+}
+
+#[cfg(test)]
+mod graph_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn global_source_refusal_keeps_classification_after_original_scope_retires() {
+        use crate::execution_attempt::ExecutionAttemptError;
+        let original = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(1)),
+        )
+        .unwrap_err();
+        let expected = original.local_refusal().unwrap();
+        let graph = GraphError::from(AmxError::Resource(original));
+        let mapped = global_source_graph_error(graph);
+        let ExecutionAttemptError::Deferred(local) = mapped else {
+            panic!("captured graph refusal lost its origin: {mapped:?}");
+        };
+        assert_eq!(
+            local.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(local.allocation_refusal().is_none());
+        assert_eq!(local.decode_refusal(), Some(&expected));
+        let vm_error = local.into_vm_error();
+        let same =
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(vm_error).unwrap();
+        assert_eq!(same.decode_refusal(), Some(&expected));
+        assert!(matches!(
+            global_source_graph_error(GraphError::Invalid("completed".into())),
+            ExecutionAttemptError::Rejected(_)
+        ));
     }
 }
 
@@ -608,6 +639,59 @@ pub(crate) fn execute_prepare_original(
     result
 }
 
+/// A foreign Begin proves requested terms, never consent to debit a bank account.
+/// Grant/revoke authority belongs only to the exact local balance owner. Direct permission
+/// lookup deliberately excludes roles and the carrier's ability to sign the debit account.
+fn has_exact_debit_approval(
+    state: &StateTransaction<'_, '_>,
+    authority: &AccountId,
+    source: &NativeAmxParticipantStateV1,
+    transfer: &iroha_data_model::sumeragi_amx::AmxTransferLegV1,
+    tx: [u8; 32],
+) -> Result<bool, AmxError> {
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: source.participant.global.current.network_id,
+        dataspace_id: source.participant.dataspace,
+    };
+    let instance = scope
+        .instance_id(
+            &crate::sumeragi::crypto::BlsCrypto::new(),
+            *state.network_id(),
+            state.chain_id().as_str(),
+        )
+        .map_err(|_| AmxError::State("native AMX approval root is invalid"))?;
+    let Some(permissions) = state.world.account_permissions.get(authority) else {
+        return Ok(false);
+    };
+    for permission in permissions {
+        if permission.name() != "CanPrepareAmx" {
+            continue;
+        }
+        let token = norito::core::classify_decode_attempt(|| {
+            permission
+                .payload()
+                .try_into_any::<iroha_executor_data_model::permission::amx::CanPrepareAmx>()
+        })
+        .map_err(|error| {
+            if error.kind() == norito::core::DecodeAttemptErrorKind::Invalid {
+                AmxError::State("native AMX stored approval is malformed")
+            } else {
+                AmxError::Resource(error)
+            }
+        })?;
+        if token.approval.transaction_id == tx
+            && token.approval.debited_asset == transfer.source
+            && token
+                .approval
+                .validate_root(*state.network_id(), scope, instance.0)
+                .is_ok()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn execute_prepare_with_transfer(
     instruction: &PrepareAmxV1,
     authority: &AccountId,
@@ -618,15 +702,14 @@ fn execute_prepare_with_transfer(
 ) -> Result<(), Error> {
     #[cfg(test)]
     retry_probe::borrowed(transfer);
-    if (!cfg!(all(test, sumeragi_core_mutation = "HC95")) && transfer.source.account() != authority)
-        || transfer.source.scope() != &AssetBalanceScope::Dataspace(instruction.dataspace)
+    if transfer.source.scope() != &AssetBalanceScope::Dataspace(instruction.dataspace)
         || transfer.source.account() == &transfer.destination
         || transfer.amount.is_zero()
         || transfer.source.account() == &source.custody
         || transfer.destination == source.custody
     {
         return Err(invalid(
-            "native AMX transfer requires its exact signed local source and positive distinct-party leg",
+            "native AMX transfer requires its exact local balance scope and positive distinct-party leg",
         ));
     }
     state.world.account(authority)?;
@@ -635,6 +718,14 @@ fn execute_prepare_with_transfer(
         .transaction
         .id()
         .map_err(|error| super::amx_error(error, state))?;
+    if !cfg!(all(test, sumeragi_core_mutation = "HC95"))
+        && !has_exact_debit_approval(state, authority, source, transfer, tx)
+            .map_err(|error| super::amx_error(error, state))?
+    {
+        return Err(invalid(
+            "native AMX Prepare requires the debit owner's exact current direct approval",
+        ));
+    }
     let held = source
         .participant
         .held
@@ -718,41 +809,13 @@ fn execute_prepare_with_transfer(
 #[cfg(test)]
 mod tests;
 
-/// Test-only finite admission of an untouched native Cell writer.
-/// Nested authority remains shared with its original graph; these controls admit only the two
-/// actual EBR allocations used by World acquisition/publication contention tests.
-#[cfg(test)]
-pub(crate) trait NativeAmxCellFixtureBlock {
-    /// Acquire this exact field independently without acquiring other World writers.
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge>;
-}
-#[cfg(test)]
-impl NativeAmxCellFixtureBlock for Cell<RetainedNativeAmx, AllocationCharge> {
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge> {
-        let budget = AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        );
-        let [current, undo] = Self::allocation_layouts();
-        let mut original = budget
-            .try_reserve_layouts([current, undo])
-            .expect("native fixture EBR capacity");
-        let charges = mv::cell::CellAllocationCharges::new(
-            original
-                .try_split(current)
-                .expect("native fixture current EBR"),
-            original.try_split(undo).expect("native fixture undo EBR"),
-        );
-        self.block_charged(charges)
-    }
-}
-
 impl Execute for SettleAmxV1 {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_settle_original(&self, _authority, state)
+        execute_settle_original(&self, authority, state)
     }
 }
 
@@ -850,7 +913,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
             ));
         }
         let boundary = verified
-            .commitment
+            .commitment()
             .schedule
             .boundary
             .as_ref()
@@ -878,6 +941,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         participant.held.retain(|held| {
             held.height.saturating_add(MAX_AMX_DEADLINE_WINDOW) >= participant.global_height
         });
+        participant.prune_decision_contexts();
         let next = candidate
             .finish()
             .map_err(|error| graph_error(error, state))?
@@ -925,4 +989,15 @@ pub(crate) fn with_paid_prepare_pruning_fixture(
     ),
 ) {
     tests::with_paid_prepare_pruning_fixture(test);
+}
+
+/// Run a Worker control on an actual signed and funded Global Begin source.
+#[cfg(test)]
+pub(crate) fn with_paid_global_begin_fixture(
+    test: impl FnOnce(
+        &crate::sumeragi::test_chain::CertifiedTestChain,
+        iroha_data_model::transaction::SignedTransaction,
+    ),
+) {
+    tests::with_paid_global_begin_fixture(test);
 }

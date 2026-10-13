@@ -129,9 +129,9 @@ function consensusPolicy() {
       max_actions_per_transaction: 1,
       max_actions_per_block: 2,
       max_proof_bytes_per_action: 9 * 1024 * 1024,
-      max_action_bytes: 9 * 1024 * 1024,
-      max_privacy_bytes_per_transaction: 9 * 1024 * 1024,
-      max_privacy_bytes_per_block: 18 * 1024 * 1024,
+      max_action_bytes: 9 * 1024 * 1024 + 256 * 1024 + 512,
+      max_privacy_bytes_per_transaction: 9 * 1024 * 1024 + 256 * 1024 + 512,
+      max_privacy_bytes_per_block: 16 * 1024 * 1024 - 64 * 1024,
       max_statement_and_encrypted_output_bytes_per_transaction: 256 * 1024,
       max_nullifiers_per_action: 8,
       max_commitments_per_action: 8,
@@ -448,6 +448,26 @@ test("canonical decoder preserves immutable bytes and the closed Exact12 mapping
       },
     });
   });
+});
+
+test("privacy consensus maxima match Rust transport fixtures and reject one over", async () => {
+  const limits = JSON.parse(readFileSync(new URL(
+    "../../../fixtures/zk/signed_attachments_v1/vectors.json", import.meta.url,
+  ), "utf8")).privacy_frame_limits;
+  await withNative(fakeNative(), () => {
+    const policy = decodePrivacyExact12CapabilityManifestV1(ARCHIVE).consensus_policy.current_limits;
+    assert.equal(policy.max_proof_bytes_per_action, 9_437_184);
+    assert.equal(policy.max_action_bytes, limits.envelope_bytes);
+    assert.equal(policy.max_privacy_bytes_per_transaction, limits.envelope_bytes);
+    assert.equal(policy.max_privacy_bytes_per_block, limits.block_privacy_bytes);
+  });
+  for (const key of ["max_action_bytes", "max_privacy_bytes_per_transaction", "max_privacy_bytes_per_block"]) {
+    const payload = manifestPayload();
+    payload.consensus_policy.current_limits[key] += 1;
+    await withNative(fakeNative(payload), () => {
+      assert.throws(() => decodePrivacyExact12CapabilityManifestV1(ARCHIVE), /hard maximum/u);
+    });
+  }
 });
 
 test("only authenticated transport grants admission; archived qualified evidence remains inspection-only", async () => {

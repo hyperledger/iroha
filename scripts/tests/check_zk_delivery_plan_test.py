@@ -31,12 +31,18 @@ SCOPE = "Structural consistency only; not code or cryptographic qualification."
 SUPPORTED_SDKS = ["Rust", "Kotlin/Java/Android", "Swift", "JavaScript", "Python", "C#"]
 REPORT_KEYS = {
     "ok", "scope", "errors", "task_count", "delivery_count", "roots", "status_counts", "progress",
-    "complete_deliveries",
+    "complete_deliveries", "open_platform_todos", "open_platform_todo_total", "open_platform_todo_items",
 }
+FIXTURE_TASKS = ["B.1", "C.1", "H.3", "P.5", "R.1", "V.4", "V.6"]
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 ARTIFACT = "specs/artifact.json"
 COMMAND = "python3 -m unittest plan_test"
 SENTENCES = ("Concrete artifact.", "Observable acceptance.", "Second observable result.")
+# A check that only another platform can execute, and the TODO that its evidence file carries.
+DEFERRED = "cargo test -p plan --features linux"
+MARKER = "TODO: run the plan tests on Linux"
+REASON = "No Linux host is attached to the development Mac."
+TODO_FILE = f"// {MARKER}.\n"
 PATH_RULE = "B.1.evidence.paths must be repository files outside ignored build and archive trees: "
 COUNTS_RULE = (
     "reconciliation.counts must equal the recorded inventories: requirements 119, r6_findings 23, "
@@ -165,6 +171,51 @@ def evidence(**overrides: object) -> dict:
     return record
 
 
+def platform_todo(**overrides: object) -> dict:
+    """Return one complete deferred platform execution, with selected fields replaced."""
+    record = {
+        "platform": "linux", "reason": REASON, "todo_site": {"path": ARTIFACT, "marker": MARKER}, "owner": "H.3",
+    }
+    record.update(overrides)
+    return record
+
+
+def deferred(command: str = DEFERRED, outcome: str = "not_run", **overrides: object) -> dict:
+    """Return a command entry whose execution is deferred to another platform."""
+    return {"command": command, "outcome": outcome, "platform_todo": platform_todo(**overrides)}
+
+
+def deferring(*entries: dict, state: str = "partial", **overrides: object) -> dict:
+    """Return evidence whose third sentence rests on these deferred commands beside the passing one."""
+    proof = " and ".join(f"`{entry['command']}`" for entry in entries)
+    record = evidence(
+        commands=[{"command": COMMAND, "outcome": "passed"}, *entries],
+        acceptance=[
+            clause(0, proof=f"{ARTIFACT} is produced and `{COMMAND}` reads it"), clause(1),
+            clause(2, state, f"{proof} must still run on the other platform"),
+        ],
+    )
+    record.update(overrides)
+    return record
+
+
+def open_item(identifier: str, entry: dict) -> dict:
+    """Return the report item of one open platform TODO, written out field by field."""
+    todo = entry["platform_todo"]
+    return {
+        "task": identifier, "command": entry["command"], "outcome": entry["outcome"], "platform": todo["platform"],
+        "reason": todo["reason"], "todo_site": {"path": todo["todo_site"]["path"], "marker": todo["todo_site"]["marker"]},
+        "owner": todo["owner"],
+    }
+
+
+def no_todos(**counts: int) -> dict:
+    """Return the per-task open TODO counts of the fixture graph: zero unless named, as B_1=2."""
+    result = dict.fromkeys(FIXTURE_TASKS, 0)
+    result.update({name.replace("_", "."): count for name, count in counts.items()})
+    return result
+
+
 def cited(path: str) -> list[dict]:
     """Return a met entry for every fixture sentence whose proof cites this path and the command."""
     return [clause(index, proof=f"{path} and `{COMMAND}`") for index in range(3)]
@@ -267,6 +318,9 @@ class GraphTests(CheckerCase):
             "status_counts": {"planned": 7, "in_progress": 0, "implemented": 0},
             "progress": [],
             "complete_deliveries": [],
+            "open_platform_todos": {"B.1": 0, "C.1": 0, "H.3": 0, "P.5": 0, "R.1": 0, "V.4": 0, "V.6": 0},
+            "open_platform_todo_total": 0,
+            "open_platform_todo_items": [],
         })
         self.assertEqual(CHECKER.SCOPE, SCOPE)
 
@@ -2297,6 +2351,631 @@ class EvidenceTests(CheckerCase):
                 self.assertEqual(set(report), REPORT_KEYS)
 
 
+class PlatformTodoTests(CheckerCase):
+    """Deferred platform execution: its record, the statuses it admits, the review owners and the report."""
+
+    LABEL = "B.1.evidence.commands[1].platform_todo"
+    STATUSES = ("in_progress", "implemented")
+    JSON_VALUES = (None, True, False, 0, 7, 1.5, "", "text", [], ["text"], {}, {"text": 1})
+    PLATFORM_RULE = LABEL + ".platform must be windows, linux, physical_x86_64 or cuda"
+    REASON_RULE = LABEL + ".reason must be a nonempty string"
+    SITE_RULE = LABEL + ".todo_site must be an object with path and marker"
+    SITE_PATH_RULE = LABEL + ".todo_site.path must be one of the task's evidence.paths"
+    MARKER_RULE = LABEL + ".todo_site.marker must be text containing the literal TODO:"
+    OWNER_RULE = LABEL + ".owner must be H.3 or V.4"
+    COUNT_RULE = LABEL + f".todo_site.marker must occur exactly once in {ARTIFACT}: found "
+    UNEXECUTED = "B.1 cannot be implemented with a failed or unexecuted check: "
+    PARTIAL = "B.1 cannot be implemented with a clause that is partial: Second observable result."
+    HELD = "{} cannot be implemented while a platform TODO is open: {}"
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = Path(directory.name)
+        self.root = self.directory / "repository"
+        (self.root / "specs").mkdir(parents=True)
+        self.site = self.root / ARTIFACT
+        self.site.write_text(TODO_FILE, encoding="utf-8")
+
+    def with_todo(self, status: str = "in_progress", identifier: str = "B.1", **overrides: object) -> dict:
+        """Return the fixture with one task whose second command is deferred to another platform."""
+        graph = fixture()
+        find(graph, identifier).update(status=status, evidence=deferring(deferred(**overrides)))
+        return graph
+
+    def todo_of(self, graph: dict, identifier: str = "B.1", index: int = 1) -> dict:
+        return find(graph, identifier)["evidence"]["commands"][index]["platform_todo"]
+
+    def assert_everywhere(self, messages: str | list[str], change) -> None:
+        """The change yields exactly these errors under both statuses, with and without a root to examine."""
+        for status in self.STATUSES:
+            for root in (None, self.root):
+                graph = self.with_todo(status)
+                change(graph)
+                self.assert_only(messages, graph, root=root)
+
+    def test_vocabularies_are_pinned(self) -> None:
+        self.assertEqual(CHECKER.COMMAND_FIELDS, ("command", "outcome", "platform_todo"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_FIELDS, ("platform", "reason", "todo_site", "owner"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_SITE_FIELDS, ("path", "marker"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_PLATFORMS, ("windows", "linux", "physical_x86_64", "cuda"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_OWNERS, ("H.3", "V.4"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_LITERAL, "TODO:")
+        self.assertEqual(CHECKER.IMPLEMENTED_OUTCOMES, ("passed",))
+        self.assertEqual(CHECKER.IMPLEMENTED_DEFERRED_OUTCOMES, ("passed", "not_run"))
+        for status in self.STATUSES:
+            for platform in ("windows", "linux", "physical_x86_64", "cuda"):
+                with self.subTest(status=status, platform=platform):
+                    report = self.assert_valid(self.with_todo(status, platform=platform), root=self.root)
+                    self.assertEqual([item["platform"] for item in report["open_platform_todo_items"]], [platform])
+            for owner in ("H.3", "V.4"):
+                with self.subTest(status=status, owner=owner):
+                    report = self.assert_valid(self.with_todo(status, owner=owner), root=self.root)
+                    self.assertEqual([item["owner"] for item in report["open_platform_todo_items"]], [owner])
+        # The words are exact: no other platform, owner, case or spacing is one of them.
+        for platform in (
+            "Linux", "LINUX", "linux ", " linux", "macos", "darwin", "x86_64", "physical-x86_64", "physical_x86", "gpu", "CUDA",
+            "win", "windows,linux", "",
+        ):
+            with self.subTest(platform=platform):
+                self.assert_everywhere(self.PLATFORM_RULE, lambda graph: self.todo_of(graph).update(platform=platform))
+        for owner in ("H.1", "H.2", "V.1", "V.3", "V.5", "V.6", "B.1", "h.3", "v.4", "H.3 ", " V.4", "H3", "H.3, V.4", ""):
+            with self.subTest(owner=owner):
+                self.assert_everywhere(self.OWNER_RULE, lambda graph: self.todo_of(graph).update(owner=owner))
+
+    def test_every_field_is_required(self) -> None:
+        fields = {
+            "platform": self.PLATFORM_RULE, "reason": self.REASON_RULE, "todo_site": self.SITE_RULE, "owner": self.OWNER_RULE,
+        }
+        self.assertEqual(list(fields), list(platform_todo()))
+        for field, message in fields.items():
+            with self.subTest(field=field):
+                self.assert_everywhere(message, lambda graph: self.todo_of(graph).pop(field))
+        # A record without any field lacks each one, in the order of the rule.
+        self.assert_everywhere(list(fields.values()), lambda graph: self.todo_of(graph).clear())
+        site = {"path": self.SITE_PATH_RULE, "marker": self.MARKER_RULE}
+        self.assertEqual(list(site), list(platform_todo()["todo_site"]))
+        for field, message in site.items():
+            with self.subTest(field=field):
+                self.assert_everywhere(message, lambda graph: self.todo_of(graph)["todo_site"].pop(field))
+        self.assert_everywhere(list(site.values()), lambda graph: self.todo_of(graph)["todo_site"].clear())
+        for reason in ("", " ", "\n\t "):
+            with self.subTest(reason=reason):
+                self.assert_everywhere(self.REASON_RULE, lambda graph: self.todo_of(graph).update(reason=reason))
+        # Every defect of one record is reported, in the order of the rule.
+        self.assert_everywhere(
+            [self.PLATFORM_RULE, self.REASON_RULE, self.SITE_PATH_RULE, self.MARKER_RULE, self.OWNER_RULE],
+            lambda graph: self.todo_of(graph).update(
+                platform="macos", reason="", todo_site={"path": "specs/other.json", "marker": "later"}, owner="V.6",
+            ),
+        )
+
+    def test_unknown_fields_are_errors_at_every_level(self) -> None:
+        entry = "B.1.evidence.commands[1] has an unknown field: "
+
+        def command(graph: dict, index: int = 1) -> dict:
+            return find(graph, "B.1")["evidence"]["commands"][index]
+
+        self.assert_everywhere(entry + "note", lambda graph: command(graph).update(note="ran on the Mac"))
+        # A record one level too high is refused as well: on the evidence object and on an acceptance entry.
+        misplaced = {"platform": "linux", "reason": "r", "todo_site": {"path": "p", "marker": "TODO: m"}, "owner": "V.4"}
+        self.assert_everywhere(
+            "B.1.evidence has an unknown field: platform_todo",
+            lambda graph: find(graph, "B.1")["evidence"].update(platform_todo=dict(misplaced)),
+        )
+        self.assert_everywhere(
+            "B.1.evidence.acceptance[1] has an unknown field: platform_todo",
+            lambda graph: find(graph, "B.1")["evidence"]["acceptance"][1].update(platform_todo=dict(misplaced)),
+        )
+        self.assert_everywhere(
+            ["B.1.evidence has an unknown field: open", "B.1.evidence.acceptance[0] has an unknown field: note"],
+            lambda graph: (
+                find(graph, "B.1")["evidence"].update(open=["later"]),
+                find(graph, "B.1")["evidence"]["acceptance"][0].update(note="x"),
+            ),
+        )
+        self.assert_everywhere(
+            "B.1.evidence.commands[0] has an unknown field: platform", lambda graph: command(graph, 0).update(platform="linux"),
+        )
+        self.assert_everywhere(self.LABEL + " has an unknown field: issue", lambda graph: self.todo_of(graph).update(issue=7))
+        self.assert_everywhere(
+            self.LABEL + ".todo_site has an unknown field: line", lambda graph: self.todo_of(graph)["todo_site"].update(line=3),
+        )
+        # Each unknown key is named, in recorded order, before the fields of its own level and beside every other defect.
+        self.assert_everywhere(
+            [entry + "zeta", entry + "alpha", self.LABEL + " has an unknown field: zulu", self.LABEL + " has an unknown field: bravo",
+             self.PLATFORM_RULE, self.LABEL + ".todo_site has an unknown field: yankee",
+             self.LABEL + ".todo_site has an unknown field: charlie", self.MARKER_RULE],
+            lambda graph: (
+                command(graph).update(zeta=1, alpha=2), self.todo_of(graph).update(zulu=1, bravo=2, platform="macos"),
+                self.todo_of(graph)["todo_site"].update(yankee=1, charlie=2, marker="later"),
+            ),
+        )
+        # An unknown key is seen wherever it stands in its record, the first place included.
+        def leading(graph: dict) -> None:
+            commands = find(graph, "B.1")["evidence"]["commands"]
+            todo = commands[1]["platform_todo"]
+            commands[1] = {"note": 1, **commands[1], "platform_todo": {"issue": 2, **todo, "todo_site": {"line": 3, **todo["todo_site"]}}}
+
+        self.assert_everywhere(
+            [entry + "note", self.LABEL + " has an unknown field: issue", self.LABEL + ".todo_site has an unknown field: line"], leading,
+        )
+        # No spelling marks a key as a comment or as private.
+        for name in ("_comment", "_", "__note", "$schema", "//", "#", "", " ", "x-note", "Command", "PATH", "Marker"):
+            with self.subTest(name=name):
+                self.assert_everywhere(entry + name, lambda graph: command(graph).update({name: "x"}))
+                self.assert_everywhere(
+                    f"{self.LABEL} has an unknown field: {name}", lambda graph: self.todo_of(graph).update({name: "x"}),
+                )
+                self.assert_everywhere(
+                    f"{self.LABEL}.todo_site has an unknown field: {name}",
+                    lambda graph: self.todo_of(graph)["todo_site"].update({name: "x"}),
+                )
+        # A key in another spelling defers nothing: it is unknown, and the command stands as recorded.
+        for name in ("platform_todos", "platformTodo", "platform-todo", "Platform_todo", "PLATFORM_TODO", "platform_todo ", "todo"):
+            with self.subTest(name=name):
+                for root in (None, self.root):
+                    graph = self.with_todo("in_progress")
+                    command(graph)[name] = command(graph).pop("platform_todo")
+                    report = self.assert_only(entry + name, graph, root=root)
+                    self.assertEqual(report["open_platform_todo_total"], 0)
+                    graph = self.with_todo("implemented")
+                    command(graph)[name] = command(graph).pop("platform_todo")
+                    self.assert_only([entry + name, self.UNEXECUTED + DEFERRED, self.PARTIAL], graph, root=root)
+
+    def test_malformed_records_of_every_json_type_are_reports(self) -> None:
+        shape = self.LABEL + " must be an object with platform, reason, todo_site and owner"
+        every = [self.PLATFORM_RULE, self.REASON_RULE, self.SITE_RULE, self.OWNER_RULE]
+        for value in self.JSON_VALUES + ([platform_todo()], "linux", [[]], 1e308, -1):
+            with self.subTest(value=value):
+                if value == {}:
+                    expected = every
+                elif value == {"text": 1}:
+                    expected = [self.LABEL + " has an unknown field: text"] + every
+                else:
+                    expected = [shape]
+
+                def replace(graph: dict) -> None:
+                    find(graph, "B.1")["evidence"]["commands"][1]["platform_todo"] = value
+
+                self.assert_everywhere(expected, replace)
+        for value in self.JSON_VALUES:
+            with self.subTest(field="platform", value=value):
+                self.assert_everywhere(self.PLATFORM_RULE, lambda graph: self.todo_of(graph).update(platform=value))
+            with self.subTest(field="owner", value=value):
+                self.assert_everywhere(self.OWNER_RULE, lambda graph: self.todo_of(graph).update(owner=value))
+            with self.subTest(field="reason", value=value):
+                if value == "text":
+                    for status in self.STATUSES:
+                        self.assert_valid(self.with_todo(status, reason=value), root=self.root)
+                else:
+                    self.assert_everywhere(self.REASON_RULE, lambda graph: self.todo_of(graph).update(reason=value))
+            with self.subTest(field="todo_site", value=value):
+                if value == {}:
+                    expected = [self.SITE_PATH_RULE, self.MARKER_RULE]
+                elif value == {"text": 1}:
+                    expected = [self.LABEL + ".todo_site has an unknown field: text", self.SITE_PATH_RULE, self.MARKER_RULE]
+                else:
+                    expected = [self.SITE_RULE]
+                self.assert_everywhere(expected, lambda graph: self.todo_of(graph).update(todo_site=value))
+            with self.subTest(field="path", value=value):
+                self.assert_everywhere(self.SITE_PATH_RULE, lambda graph: self.todo_of(graph)["todo_site"].update(path=value))
+            with self.subTest(field="marker", value=value):
+                self.assert_everywhere(self.MARKER_RULE, lambda graph: self.todo_of(graph)["todo_site"].update(marker=value))
+
+    def test_every_command_entry_is_validated(self) -> None:
+        run = {"command": COMMAND, "outcome": "passed"}
+        other = {"command": "cargo fmt --check", "outcome": "passed"}
+        for status in self.STATUSES:
+            for position in (0, 1, 2):
+                with self.subTest(status=status, position=position):
+                    commands = [dict(run), dict(other)]
+                    commands.insert(position, deferred(platform="macos"))
+                    graph = fixture()
+                    find(graph, "B.1").update(status=status, evidence=evidence(commands=commands, acceptance=[
+                        clause(0, proof=f"{ARTIFACT} and `{COMMAND}`"), clause(1, proof="`cargo fmt --check`"),
+                        clause(2, "partial", f"`{DEFERRED}` is deferred"),
+                    ]))
+                    self.assert_only(
+                        f"B.1.evidence.commands[{position}].platform_todo.platform must be windows, linux, physical_x86_64 or cuda",
+                        graph, root=self.root,
+                    )
+                    commands[position]["platform_todo"]["platform"] = "linux"
+                    commands[(position + 1) % 3]["note"] = "x"
+                    self.assert_only(f"B.1.evidence.commands[{(position + 1) % 3}] has an unknown field: note", graph, root=self.root)
+        # Every task is held to the rule, whatever its place in the graph.
+        for identifier in FIXTURE_TASKS:
+            for status in self.STATUSES:
+                graph = self.with_todo(status, identifier, owner="V.6")
+                if status == "implemented":
+                    implement(graph, *find(graph, identifier)["requires"])
+                self.assert_only(f"{identifier}.evidence.commands[1].platform_todo.owner must be H.3 or V.4", graph, root=self.root)
+        # A list that is malformed as a whole is one error; no entry of it is examined further.
+        graph = self.with_todo("in_progress")
+        find(graph, "B.1")["evidence"]["commands"].append({"command": COMMAND})
+        self.todo_of(graph).update(platform="macos")
+        self.assert_only("B.1.evidence.commands must record each command with outcome passed, failed or not_run", graph)
+
+    def test_todo_site_path_is_one_of_the_evidence_paths(self) -> None:
+        (self.root / "specs/other.json").write_text(TODO_FILE, encoding="utf-8")
+        for path in (
+            "specs/other.json", "specs/missing.json", "specs/Artifact.json", "SPECS/ARTIFACT.JSON", "./specs/artifact.json",
+            "specs/artifact.json ", "specs//artifact.json", "artifact.json", "specs", str(self.site), [ARTIFACT], {"path": ARTIFACT},
+        ):
+            with self.subTest(path=path):
+                self.assert_everywhere(self.SITE_PATH_RULE, lambda graph: self.todo_of(graph)["todo_site"].update(path=path))
+        # Any recorded path will do, whichever one it is.
+        paths = [ARTIFACT, "specs/second.json", "specs/third.json"]
+        for path in paths:
+            (self.root / path).write_text(TODO_FILE, encoding="utf-8")
+        for path in paths:
+            with self.subTest(path=path):
+                graph = self.with_todo("in_progress", todo_site={"path": path, "marker": MARKER})
+                find(graph, "B.1")["evidence"]["paths"] = paths
+                for root in (None, self.root):
+                    report = self.assert_valid(graph, root=root)
+                    self.assertEqual(report["open_platform_todo_items"][0]["todo_site"], {"path": path, "marker": MARKER})
+        # The marker is looked for in the site's own file, not in another recorded one.
+        (self.root / "specs/second.json").write_text("// nothing is deferred here\n", encoding="utf-8")
+        for path, others in (("specs/second.json", [ARTIFACT, "specs/third.json"]), (ARTIFACT, ["specs/second.json"])):
+            for paths in ([path] + others, others + [path]):
+                with self.subTest(path=path, paths=paths):
+                    graph = self.with_todo("in_progress", todo_site={"path": path, "marker": MARKER})
+                    find(graph, "B.1")["evidence"]["paths"] = paths
+                    if path == ARTIFACT:
+                        self.assert_valid(graph, root=self.root)
+                    else:
+                        self.assert_only(
+                            f"{self.LABEL}.todo_site.marker must occur exactly once in specs/second.json: found 0", graph, root=self.root,
+                        )
+        # The site cannot be judged against a malformed path list, so it adds no second error.
+        for paths in ([], None, [5], ARTIFACT):
+            for path in (ARTIFACT, "specs/other.json", None, 5):
+                with self.subTest(paths=paths, path=path):
+                    self.assert_everywhere(
+                        "B.1.evidence.paths must be a nonempty list of path strings",
+                        lambda graph: (
+                            find(graph, "B.1")["evidence"].update(paths=paths), self.todo_of(graph)["todo_site"].update(path=path),
+                        ),
+                    )
+
+    def test_todo_marker_contains_the_literal(self) -> None:
+        for marker in (
+            "run the plan tests on Linux", "todo: run the plan tests on Linux", "Todo: run", "TODO run", "TODO :", "TODO;",
+            "TO DO:", "TODO", "T ODO:", "FIXME: run", "XXX", " ",
+        ):
+            with self.subTest(marker=marker):
+                self.site.write_text(f"// {marker}.\n", encoding="utf-8")
+                self.assert_everywhere(self.MARKER_RULE, lambda graph: self.todo_of(graph)["todo_site"].update(marker=marker))
+        # The literal may stand anywhere in the marker.
+        for marker in ("TODO:", MARKER, "// TODO: run", "(windows) TODO:", "TODO:TODO:", "# TODO: テスト — later"):
+            with self.subTest(marker=marker):
+                self.site.write_text(f"fn main() {{}} // {marker}\n", encoding="utf-8")
+                for status in self.STATUSES:
+                    for root in (None, self.root):
+                        self.assert_valid(self.with_todo(status, todo_site={"path": ARTIFACT, "marker": marker}), root=root)
+
+    def test_todo_marker_occurs_exactly_once_in_its_file(self) -> None:
+        for content, found in (
+            ("", 0), ("// todo: run the plan tests on linux.\n", 0), (MARKER[:-1], 0), (MARKER.replace(" ", "\n"), 0),
+            (TODO_FILE * 2, 2), (MARKER + MARKER, 2), (TODO_FILE * 3, 3), (f"x\n{TODO_FILE}y\n# {MARKER} again\n", 2),
+        ):
+            with self.subTest(content=content):
+                self.site.write_text(content, encoding="utf-8")
+                for status in self.STATUSES:
+                    self.assert_only(self.COUNT_RULE + str(found), self.with_todo(status), root=self.root)
+                    # A closed TODO is held to its site as an open one is.
+                    self.assert_only(
+                        [self.COUNT_RULE + str(found)] + [self.PARTIAL] * (status == "implemented"),
+                        self.with_todo(status, outcome="passed"), root=self.root,
+                    )
+                    # Without a root the file system is not examined.
+                    self.assert_valid(self.with_todo(status))
+        # One occurrence is enough wherever it stands, beside other TODO lines and bytes that are not text.
+        for content in (
+            MARKER.encode("utf-8"), f"// TODO: something else.\n{TODO_FILE}// TODO: a third.\n".encode("utf-8"),
+            b"\xff\xfe\x00 not text " + MARKER.encode("utf-8") + b"\x00\xff", f"{MARKER[:-1]} {MARKER}".encode("utf-8"),
+        ):
+            with self.subTest(content=content):
+                self.site.write_bytes(content)
+                for status in self.STATUSES:
+                    self.assert_valid(self.with_todo(status), root=self.root)
+        # An overlapping occurrence is a second one.
+        overlapping = {"path": ARTIFACT, "marker": "x TODO: x"}
+        self.site.write_text("x TODO: x TODO: y", encoding="utf-8")
+        self.assert_valid(self.with_todo(todo_site=overlapping), root=self.root)
+        self.site.write_text("x TODO: x TODO: x", encoding="utf-8")
+        self.assert_only(self.COUNT_RULE + "2", self.with_todo(todo_site=overlapping), root=self.root)
+        self.site.write_text("TODO:TODO:TODO:", encoding="utf-8")
+        self.assert_only(self.COUNT_RULE + "2", self.with_todo(todo_site={"path": ARTIFACT, "marker": "TODO:TODO:"}), root=self.root)
+        # A short marker names every TODO of its file; a longer one names its own.
+        self.site.write_text(f"// TODO: run on Windows.\n{TODO_FILE}", encoding="utf-8")
+        self.assert_only(self.COUNT_RULE + "2", self.with_todo(todo_site={"path": ARTIFACT, "marker": "TODO:"}), root=self.root)
+        self.assert_only(self.COUNT_RULE + "2", self.with_todo(todo_site={"path": ARTIFACT, "marker": "TODO: run"}), root=self.root)
+        self.assert_valid(self.with_todo(), root=self.root)
+        # The marker is matched as its UTF-8 bytes, and letter for letter.
+        for marker, content, found in (
+            ("TODO: テスト — Linux", "// TODO: テスト — Linux\n", 1),
+            ("TODO: テスト — Linux", "// TODO: テスト - Linux\n", 0),
+            ("TODO: a.c (x)* [y]", "// TODO: a.c (x)* [y]\n// TODO: abc (x)* [y]\n", 1),
+            ("TODO: a.c", "// TODO: abc\n", 0),
+            # Spaces at either end of the marker are part of it.
+            ("TODO: a.c ", "// TODO: a.c\n", 0), (" TODO: a.c", "//TODO: a.c\n", 0), ("\tTODO: a.c\n", "// TODO: a.c\n", 0),
+            (" TODO: a.c ", "// TODO: a.c \n", 1),
+            ("TODO: \ud800", "// TODO: ?\n", 0),
+            ("TODO: line one\n// line two", "// TODO: line one\n// line two\n", 1),
+        ):
+            with self.subTest(marker=marker):
+                self.site.write_bytes(content.encode("utf-8"))
+                graph = self.with_todo(todo_site={"path": ARTIFACT, "marker": marker})
+                if found == 1:
+                    self.assert_valid(graph, root=self.root)
+                else:
+                    self.assert_only(self.COUNT_RULE + str(found), graph, root=self.root)
+
+    def test_todo_site_is_examined_only_among_admitted_paths(self) -> None:
+        outside = self.directory / "outside.txt"
+        outside.write_text(TODO_FILE * 2, encoding="utf-8")
+        os.symlink(outside, self.root / "specs/outside_link")
+        (self.root / "specs/directory").mkdir()
+        for path, message in (
+            ("specs/missing.json", "B.1.evidence path does not exist: specs/missing.json"),
+            ("specs/directory", "B.1.evidence path is not a regular file: specs/directory"),
+            ("specs/outside_link", "B.1.evidence path resolves outside the repository or into an ignored tree: specs/outside_link"),
+            ("dist/site.rs", PATH_RULE + "dist/site.rs"),
+        ):
+            for paths in ([ARTIFACT, path], [path, ARTIFACT]):
+                with self.subTest(path=path, paths=paths):
+                    # The refused path is reported once, whether it is the site or stands beside it.
+                    for site in (path, ARTIFACT):
+                        graph = self.with_todo(todo_site={"path": site, "marker": "TODO: absent from every file"})
+                        find(graph, "B.1")["evidence"]["paths"] = paths
+                        self.assert_only(message, graph, root=self.root)
+        # A file that cannot be read is one ordinary error beside the others.
+        graph = self.with_todo()
+        find(graph, "B.1")["evidence"]["commands"].append(deferred("cargo test --features cuda", platform="gpu"))
+        with mock.patch.object(Path, "read_bytes", side_effect=PermissionError(errno.EACCES, "Permission denied")):
+            self.assert_only([
+                self.LABEL + f".todo_site cannot be examined: {ARTIFACT}",
+                "B.1.evidence.commands[2].platform_todo.platform must be windows, linux, physical_x86_64 or cuda",
+                f"B.1.evidence.commands[2].platform_todo.todo_site cannot be examined: {ARTIFACT}",
+            ], graph, root=self.root)
+        self.todo_of(graph, index=2).update(platform="cuda")
+        self.assert_valid(graph, root=self.root)
+
+    def test_platform_todo_is_admitted_under_both_statuses(self) -> None:
+        for outcome, total in (("not_run", 1), ("failed", 1), ("passed", 0)):
+            with self.subTest(outcome=outcome):
+                report = self.assert_valid(self.with_todo("in_progress", outcome=outcome), root=self.root)
+                self.assertEqual(report["status_counts"], {"planned": 6, "in_progress": 1, "implemented": 0})
+                self.assertEqual(report["open_platform_todo_total"], total)
+                self.assertEqual(report["progress"], ["B.1 in_progress: 2 of 3 clauses met"])
+        report = self.assert_valid(self.with_todo("implemented"), root=self.root)
+        self.assertEqual(report["status_counts"], {"planned": 6, "in_progress": 0, "implemented": 1})
+        self.assertEqual(report["open_platform_todo_total"], 1)
+        # A deferred check is never a passed check or a met clause: the clause count says so.
+        self.assertEqual(report["progress"], ["B.1 implemented: 2 of 3 clauses met"])
+
+    def test_implemented_admits_no_failed_check_and_only_deferred_unexecuted_ones(self) -> None:
+        self.assert_only(self.UNEXECUTED + DEFERRED, self.with_todo("implemented", outcome="failed"))
+        self.assert_valid(self.with_todo("in_progress", outcome="failed"))
+        # A deferred check that has passed is closed, and its clause is met.
+        graph = fixture()
+        find(graph, "B.1").update(status="implemented", evidence=deferring(deferred(outcome="passed"), state="met"))
+        report = self.assert_valid(graph)
+        self.assertEqual((report["open_platform_todo_total"], report["progress"]), (0, ["B.1 implemented: 3 of 3 clauses met"]))
+        # Each command is judged on its own record, and the first one refused is named.
+        later = {"command": "cargo bench -p plan", "outcome": "not_run"}
+        broken = {"command": "cargo doc -p plan", "outcome": "failed"}
+        windows = deferred("cargo test -p plan --features windows", platform="windows")
+        cuda = deferred("cargo test -p plan --features cuda", "failed", platform="cuda", owner="V.4")
+        for entries, named in (
+            ([deferred(), later], later), ([later, deferred()], later), ([deferred(), broken], broken),
+            ([deferred(), windows, later, broken], later), ([deferred(), windows, cuda, later], cuda),
+            ([windows, deferred(), broken, cuda], broken), ([deferred(), cuda], cuda), ([cuda, deferred()], cuda),
+        ):
+            with self.subTest(entries=entries):
+                graph = fixture()
+                find(graph, "B.1").update(status="implemented", evidence=deferring(*entries))
+                self.assert_only(self.UNEXECUTED + named["command"], graph)
+                find(graph, "B.1")["status"] = "in_progress"
+                self.assert_valid(graph)
+        graph = fixture()
+        find(graph, "B.1").update(status="implemented", evidence=deferring(deferred(), windows))
+        self.assertEqual(self.assert_valid(graph)["open_platform_todos"], no_todos(B_1=2))
+
+    def test_implemented_partial_clause_cites_an_open_platform_todo(self) -> None:
+        self.assert_valid(self.with_todo("implemented"))
+        # A partial clause that cites no deferred command is refused, whatever else its proof cites.
+        for proof in (
+            f"`{COMMAND}` covers the Mac", f"{ARTIFACT} holds the TODO", f"{ARTIFACT} and `{COMMAND}`", f"{MARKER} in {ARTIFACT}",
+            f"`{DEFERRED[:-1]}` and {ARTIFACT}", f"`{DEFERRED.upper()}` and `{COMMAND}`", f"`{DEFERRED.replace(' ', '  ')}`, {ARTIFACT}",
+            f"linux, H.3 and {ARTIFACT}",
+        ):
+            with self.subTest(proof=proof):
+                graph = self.with_todo("implemented")
+                entries = find(graph, "B.1")["evidence"]["acceptance"]
+                # A met clause cites the deferred command, so every recorded command is still cited.
+                entries[1]["proof"] = f"`{COMMAND}` and `{DEFERRED}`"
+                entries[2]["proof"] = proof
+                self.assert_only(self.PARTIAL, graph)
+                find(graph, "B.1")["status"] = "in_progress"
+                self.assert_valid(graph)
+        # An unmet clause is refused even where it cites the deferred command.
+        graph = fixture()
+        find(graph, "B.1").update(status="implemented", evidence=deferring(deferred(), state="unmet"))
+        self.assert_only("B.1 cannot be implemented with a clause that is unmet: Second observable result.", graph)
+        # A closed TODO covers no remaining gap, and a failed one is refused as a failed check.
+        self.assert_only(self.PARTIAL, self.with_todo("implemented", outcome="passed"))
+        self.assert_only(self.UNEXECUTED + DEFERRED, self.with_todo("implemented", outcome="failed"))
+        # One open TODO of several is enough, and each partial clause rests on its own proof.
+        windows = deferred("cargo test -p plan --features windows", platform="windows")
+        closed = deferred("cargo test -p plan --features cuda", "passed", platform="cuda")
+        for first, second, errors in (
+            (f"`{COMMAND}`, `{windows['command']}` and `{closed['command']}`", f"`{DEFERRED}`", []),
+            (f"`{COMMAND}`, `{DEFERRED}` and `{closed['command']}`", f"`{windows['command']}`", []),
+            (f"`{COMMAND}`, `{DEFERRED}` and `{windows['command']}`", f"`{closed['command']}`", [self.PARTIAL]),
+            (f"`{COMMAND}`, `{DEFERRED}` and `{windows['command']}`", f"`{closed['command']}` and {ARTIFACT}", [self.PARTIAL]),
+        ):
+            with self.subTest(second=second):
+                graph = fixture()
+                record = deferring(deferred(), windows, closed)
+                record["acceptance"][1]["proof"], record["acceptance"][2]["proof"] = first, second
+                find(graph, "B.1").update(status="implemented", evidence=record)
+                if errors:
+                    self.assert_only(errors, graph)
+                else:
+                    self.assert_valid(graph)
+        graph = self.with_todo("implemented")
+        entries = find(graph, "B.1")["evidence"]["acceptance"]
+        entries[0]["state"] = entries[1]["state"] = "partial"
+        self.assert_only([
+            "B.1 cannot be implemented with a clause that is partial: Concrete artifact.",
+            "B.1 cannot be implemented with a clause that is partial: Observable acceptance.",
+        ], graph)
+        entries[1]["proof"] = f"`{DEFERRED}` also covers this"
+        self.assert_only("B.1 cannot be implemented with a clause that is partial: Concrete artifact.", graph)
+        entries[0]["proof"] = f"{ARTIFACT} is produced, `{COMMAND}` reads it and `{DEFERRED}` is deferred"
+        self.assertEqual(self.assert_valid(graph)["progress"], ["B.1 implemented: 0 of 3 clauses met"])
+        # Deferred commands cannot be judged in a malformed list, so a partial clause is refused there.
+        graph = self.with_todo("implemented")
+        find(graph, "B.1")["evidence"]["commands"].append(None)
+        self.assert_only(
+            ["B.1.evidence.commands must record each command with outcome passed, failed or not_run", self.PARTIAL], graph,
+        )
+        # Every sentence still needs its entry, and every recorded command its citation.
+        graph = self.with_todo("implemented")
+        del find(graph, "B.1")["evidence"]["acceptance"][2]
+        self.assert_only([
+            "B.1 cannot be implemented without evidence for: Second observable result.",
+            f"B.1 cannot be implemented with evidence that no proof cites: {DEFERRED}",
+        ], graph)
+
+    def test_implemented_task_with_an_open_todo_satisfies_prerequisites(self) -> None:
+        graph = self.with_todo("implemented")
+        implement(graph, "P.5", "C.1", "R.1")
+        report = self.assert_valid(graph)
+        self.assertEqual(report["status_counts"], {"planned": 3, "in_progress": 0, "implemented": 4})
+        self.assertEqual(report["complete_deliveries"], ["D.1"])
+        # The deferred check is still reported, once, under the task that recorded it.
+        self.assertEqual(report["open_platform_todos"], no_todos(B_1=1))
+        self.assertEqual(report["open_platform_todo_items"], [open_item("B.1", deferred())])
+
+    def test_review_owners_wait_for_every_open_platform_todo(self) -> None:
+        for owner in ("H.3", "V.4"):
+            for status in self.STATUSES:
+                for outcome in ("not_run",) if status == "implemented" else ("not_run", "failed"):
+                    for recorded in ("H.3", "V.4"):
+                        with self.subTest(owner=owner, status=status, outcome=outcome, recorded=recorded):
+                            # Any open TODO holds both reviews back, whichever of them owns it.
+                            graph = self.with_todo(status, outcome=outcome, owner=recorded)
+                            implement(graph, owner)
+                            self.assert_only(self.HELD.format(owner, "B.1"), graph)
+                            find(graph, owner)["status"] = "in_progress"
+                            self.assert_valid(graph)
+        graph = self.with_todo()
+        implement(graph, "V.4", "H.3")
+        self.assert_only([self.HELD.format("H.3", "B.1"), self.HELD.format("V.4", "B.1")], graph)
+        # No other task is held back.
+        graph = self.with_todo()
+        implement(graph, "V.6", "R.1")
+        self.assertEqual(self.assert_valid(graph)["status_counts"], {"planned": 4, "in_progress": 1, "implemented": 2})
+        # A closed TODO holds nothing back.
+        graph = self.with_todo(outcome="passed")
+        implement(graph, "H.3", "V.4", "V.6")
+        report = self.assert_valid(graph)
+        self.assertEqual((report["open_platform_todo_total"], report["complete_deliveries"]), (0, ["D.EVIDENCE"]))
+        # A review that records an open TODO of its own is held back by it.
+        for owner in ("H.3", "V.4"):
+            self.assert_only(self.HELD.format(owner, owner), self.with_todo("implemented", owner))
+            self.assert_valid(self.with_todo("in_progress", owner))
+        # A review that is not a task of the graph is the ordinary error: the rule is judged among known tasks.
+        graph = self.with_todo()
+        implement(graph, "V.4")
+        graph["tasks"] = [record for record in graph["tasks"] if record["id"] != "H.3"]
+        graph["start_immediately"].remove("H.3")
+        find(graph, "D.EVIDENCE")["requires"].remove("H.3")
+        self.assert_only("admission constraints contain unknown task H.3", graph)
+        graph["deliveries"].append({"id": "H.3", "title": "Not a task", "requires": ["R.1"], "kind": "evidence"})
+        self.assert_only("admission constraints contain unknown task H.3", graph)
+        # Every task that holds an open TODO is named once, in order.
+        graph = fixture()
+        graph["tasks"].extend(task(name, []) for name in reversed(NAMES))
+        graph["start_immediately"].extend(NAMES)
+        find(graph, "D.EVIDENCE")["requires"].extend(NAMES)
+        for name in NAMES:
+            find(graph, name).update(status="in_progress", evidence=deferring(deferred(), deferred("cargo test --features cuda", platform="cuda")))
+        implement(graph, "H.3")
+        self.assert_only(self.HELD.format("H.3", ", ".join(NAMES)), graph)
+
+    def test_report_counts_each_open_platform_todo_once(self) -> None:
+        first = deferred()
+        second = deferred("cargo test -p plan --features cuda", "failed", platform="cuda", owner="V.4", reason="No CUDA device.")
+        closed = deferred("cargo test -p plan --features windows", "passed", platform="windows")
+        graph = fixture()
+        find(graph, "B.1").update(status="in_progress", evidence=deferring(first, closed, second))
+        # The same command, deferred by another task, is that task's own open item.
+        find(graph, "R.1").update(status="in_progress", evidence=deferring(deferred()))
+        find(graph, "V.6").update(status="in_progress", evidence=evidence())
+        for root in (None, self.root):
+            report = self.assert_valid(graph, root=root)
+            # Every task is counted, the owners and the dependents of B.1 at zero.
+            self.assertEqual(report["open_platform_todos"], {"B.1": 2, "C.1": 0, "H.3": 0, "P.5": 0, "R.1": 1, "V.4": 0, "V.6": 0})
+            self.assertEqual(report["open_platform_todo_total"], 3)
+            self.assertEqual(report["open_platform_todo_items"], [
+                {
+                    "task": "B.1", "command": "cargo test -p plan --features linux", "outcome": "not_run", "platform": "linux",
+                    "reason": "No Linux host is attached to the development Mac.",
+                    "todo_site": {"path": "specs/artifact.json", "marker": "TODO: run the plan tests on Linux"}, "owner": "H.3",
+                },
+                {
+                    "task": "B.1", "command": "cargo test -p plan --features cuda", "outcome": "failed", "platform": "cuda",
+                    "reason": "No CUDA device.",
+                    "todo_site": {"path": "specs/artifact.json", "marker": "TODO: run the plan tests on Linux"}, "owner": "V.4",
+                },
+                open_item("R.1", first),
+            ])
+            self.assertEqual(report["progress"], [
+                "B.1 in_progress: 2 of 3 clauses met", "R.1 in_progress: 2 of 3 clauses met", "V.6 in_progress: 3 of 3 clauses met",
+            ])
+        # One command text deferred to two platforms is two entries and two open items.
+        graph = fixture()
+        find(graph, "B.1").update(status="implemented", evidence=deferring(deferred(), deferred(platform="windows", owner="V.4")))
+        report = self.assert_valid(graph)
+        self.assertEqual(report["open_platform_todos"], no_todos(B_1=2))
+        self.assertEqual([item["platform"] for item in report["open_platform_todo_items"]], ["linux", "windows"])
+        self.assertEqual(report["open_platform_todo_total"], 2)
+        # Tasks and their items are reported in order, whatever the order of the graph.
+        graph = fixture()
+        graph["tasks"].extend(task(name, []) for name in reversed(NAMES))
+        graph["start_immediately"].extend(NAMES)
+        find(graph, "D.EVIDENCE")["requires"].extend(NAMES)
+        for name in NAMES:
+            record = deferring(deferred(f"cargo test {name} second"), deferred(f"cargo test {name} first"))
+            # A deferred command is counted wherever it stands in its list, the first place included.
+            record["commands"].append(record["commands"].pop(0))
+            self.assertEqual([command["outcome"] for command in record["commands"]], ["not_run", "not_run", "passed"])
+            find(graph, name).update(status="in_progress", evidence=record)
+        report = self.assert_valid(graph)
+        self.assertEqual(list(report["open_platform_todos"]), sorted(FIXTURE_TASKS + NAMES))
+        self.assertEqual(report["open_platform_todos"], {**no_todos(), **dict.fromkeys(NAMES, 2)})
+        self.assertEqual(report["open_platform_todo_total"], 18)
+        self.assertEqual(
+            [(item["task"], item["command"]) for item in report["open_platform_todo_items"]],
+            [(name, f"cargo test {name} {position}") for name in NAMES for position in ("second", "first")],
+        )
+        # A report that fails before the graph is walked counts nothing.
+        report = self.check(self.with_todo(platform="macos"))
+        self.assertEqual(
+            (report["open_platform_todos"], report["open_platform_todo_total"], report["open_platform_todo_items"]), ({}, 0, []),
+        )
+        # A graph that is walked is counted, also where a later check fails.
+        graph = self.with_todo()
+        implement(graph, "H.3")
+        report = self.assert_only(self.HELD.format("H.3", "B.1"), graph)
+        self.assertEqual((report["open_platform_todos"], report["open_platform_todo_total"]), (no_todos(B_1=1), 1))
+
+
 class CommandLineTests(unittest.TestCase):
     """One validator backs both output formats."""
 
@@ -2351,7 +3030,21 @@ class CommandLineTests(unittest.TestCase):
             f"{report['task_count']} tasks, {report['delivery_count']} deliveries; graph and plan agree.",
             f"Recorded status: {counts['planned']} planned, {counts['in_progress']} in progress, "
             f"{counts['implemented']} implemented; {len(report['complete_deliveries'])} deliveries complete.",
-        ] + [f"- {line}" for line in report["progress"]])
+        ] + [f"- {line}" for line in report["progress"]] + [
+            f"Open platform TODOs: {report['open_platform_todo_total']} in total; an open TODO is never a passed check.",
+            "- open_platform_todos: " + ", ".join(
+                f"{identifier} {report['open_platform_todos'][identifier]}" for identifier in sorted(report["open_platform_todos"])
+            ),
+        ] + [
+            f"- {item['task']} open platform TODO, {item['platform']}, owner {item['owner']}, outcome {item['outcome']}: "
+            f"command {json.dumps(item['command'])}; reason {json.dumps(item['reason'])}; "
+            f"site {json.dumps(item['todo_site']['path'])} marker {json.dumps(item['todo_site']['marker'])}"
+            for item in report["open_platform_todo_items"]
+        ])
+        # The counts cover every task, and the total counts each open item once.
+        self.assertEqual(len(report["open_platform_todos"]), report["task_count"])
+        self.assertEqual(sum(report["open_platform_todos"].values()), report["open_platform_todo_total"])
+        self.assertEqual(len(report["open_platform_todo_items"]), report["open_platform_todo_total"])
         return report
 
     def test_both_formats_render_the_same_passing_report(self) -> None:
@@ -2366,12 +3059,15 @@ class CommandLineTests(unittest.TestCase):
             "status_counts": {"planned": 5, "in_progress": 1, "implemented": 1},
             "progress": ["B.1 implemented: 3 of 3 clauses met", "R.1 in_progress: 0 of 3 clauses met"],
             "complete_deliveries": [],
+            "open_platform_todos": no_todos(), "open_platform_todo_total": 0, "open_platform_todo_items": [],
         })
         self.assertEqual(self.run_format(arguments, "json"), (0, json.dumps(report, indent=2, sort_keys=True) + "\n"))
         self.assertEqual(self.run_format(arguments, "text"), (0, "\n".join([
             "PASS", SCOPE, "7 tasks, 2 deliveries; graph and plan agree.",
             "Recorded status: 5 planned, 1 in progress, 1 implemented; 0 deliveries complete.",
-            "- B.1 implemented: 3 of 3 clauses met", "- R.1 in_progress: 0 of 3 clauses met", "",
+            "- B.1 implemented: 3 of 3 clauses met", "- R.1 in_progress: 0 of 3 clauses met",
+            "Open platform TODOs: 0 in total; an open TODO is never a passed check.",
+            "- open_platform_todos: B.1 0, C.1 0, H.3 0, P.5 0, R.1 0, V.4 0, V.6 0", "",
         ])))
 
     def test_both_formats_report_every_failure_identically(self) -> None:
@@ -2393,6 +3089,124 @@ class CommandLineTests(unittest.TestCase):
         ):
             with self.subTest(errors=errors):
                 self.assertEqual(self.run_both(self.arguments(*inputs))["errors"], errors)
+
+    def test_both_formats_report_open_platform_todos_identically(self) -> None:
+        (self.root / ARTIFACT).write_text(TODO_FILE, encoding="utf-8")
+        # Free text may hold quotes, line breaks and characters that a stream cannot encode.
+        awkward = deferred(
+            'cargo test -- "quoted"\n  --second-line', "failed", platform="cuda", owner="V.4",
+            reason="No CUDA device;\tnone — here\u2028or there.",
+        )
+        closed = deferred("cargo test -p plan --features windows", "passed", platform="windows")
+        graph = fixture()
+        graph["tasks"][0].update(status="implemented", evidence=deferring(deferred()))
+        graph["tasks"][1].update(status="in_progress", evidence=deferring(closed, awkward))
+        arguments = self.arguments(graph)
+        report = self.run_both(arguments)
+        self.assertEqual(report, {
+            "ok": True, "scope": SCOPE, "errors": [], "task_count": 7, "delivery_count": 2,
+            "roots": ["B.1", "H.3", "R.1", "V.4", "V.6"],
+            "status_counts": {"planned": 5, "in_progress": 1, "implemented": 1},
+            "progress": ["B.1 implemented: 2 of 3 clauses met", "R.1 in_progress: 2 of 3 clauses met"],
+            "complete_deliveries": [],
+            "open_platform_todos": {"B.1": 1, "C.1": 0, "H.3": 0, "P.5": 0, "R.1": 1, "V.4": 0, "V.6": 0},
+            "open_platform_todo_total": 2,
+            "open_platform_todo_items": [open_item("B.1", deferred()), open_item("R.1", awkward)],
+        })
+        self.assertEqual(self.run_format(arguments, "json"), (0, json.dumps(report, indent=2, sort_keys=True) + "\n"))
+        # The text names the total, every task's count and each open item on one line of its own.
+        self.assertEqual(self.run_format(arguments, "text"), (0, "\n".join([
+            "PASS", SCOPE, "7 tasks, 2 deliveries; graph and plan agree.",
+            "Recorded status: 5 planned, 1 in progress, 1 implemented; 0 deliveries complete.",
+            "- B.1 implemented: 2 of 3 clauses met", "- R.1 in_progress: 2 of 3 clauses met",
+            "Open platform TODOs: 2 in total; an open TODO is never a passed check.",
+            "- open_platform_todos: B.1 1, C.1 0, H.3 0, P.5 0, R.1 1, V.4 0, V.6 0",
+            '- B.1 open platform TODO, linux, owner H.3, outcome not_run: command "cargo test -p plan --features linux"; '
+            'reason "No Linux host is attached to the development Mac."; '
+            'site "specs/artifact.json" marker "TODO: run the plan tests on Linux"',
+            '- R.1 open platform TODO, cuda, owner V.4, outcome failed: command "cargo test -- \\"quoted\\"\\n  --second-line"; '
+            'reason "No CUDA device;\\tnone \\u2014 here\\u2028or there."; '
+            'site "specs/artifact.json" marker "TODO: run the plan tests on Linux"',
+            "",
+        ])))
+        # A stream that cannot encode a character still receives every line.
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="ascii")
+        with redirect_stdout(stream):
+            self.assertEqual(CHECKER.main(arguments), 0)
+        stream.flush()
+        self.assertEqual(raw.getvalue().decode("ascii"), self.run_format(arguments, "text")[1])
+        # Text that is not valid Unicode is escaped in both formats.
+        graph["tasks"][1]["evidence"]["commands"][2]["platform_todo"]["reason"] = "No device \ud800 here."
+        report = self.run_both(self.arguments(graph))
+        self.assertEqual(report["open_platform_todo_items"][1]["reason"], "No device \ud800 here.")
+        self.assertIn('reason "No device \\ud800 here."', self.run_format(self.arguments(graph), "text")[1])
+
+    def test_both_formats_report_platform_todo_failures_identically(self) -> None:
+        (self.root / ARTIFACT).write_text(TODO_FILE, encoding="utf-8")
+        label = "B.1.evidence.commands[1].platform_todo"
+
+        def graph_with(status: str = "in_progress", **overrides: object) -> dict:
+            graph = fixture()
+            graph["tasks"][0].update(status=status, evidence=deferring(deferred(**overrides)))
+            return graph
+
+        held = graph_with()
+        implement(held, "V.4", "H.3")
+        unknown = graph_with()
+        unknown["tasks"][0]["evidence"]["commands"][1]["platform_todos"] = {}
+        for graph, errors in (
+            (graph_with(platform="macos"), [label + ".platform must be windows, linux, physical_x86_64 or cuda"]),
+            (graph_with(owner="V.6", reason=" "), [label + ".reason must be a nonempty string", label + ".owner must be H.3 or V.4"]),
+            (graph_with(todo_site={"path": "specs/other.json", "marker": "later", "line": 3}), [
+                label + ".todo_site has an unknown field: line", label + ".todo_site.path must be one of the task's evidence.paths",
+                label + ".todo_site.marker must be text containing the literal TODO:",
+            ]),
+            (unknown, ["B.1.evidence.commands[1] has an unknown field: platform_todos"]),
+            # Only the file system distinguishes these two, so neither format may skip the root.
+            (graph_with(todo_site={"path": ARTIFACT, "marker": "TODO: absent"}), [
+                label + f".todo_site.marker must occur exactly once in {ARTIFACT}: found 0",
+            ]),
+            (graph_with(todo_site={"path": ARTIFACT, "marker": "TODO:"}, outcome="passed"), []),
+            (graph_with("implemented", outcome="failed"), [f"B.1 cannot be implemented with a failed or unexecuted check: {DEFERRED}"]),
+            (graph_with("implemented", outcome="passed"), ["B.1 cannot be implemented with a clause that is partial: Second observable result."]),
+            (held, [
+                "H.3 cannot be implemented while a platform TODO is open: B.1",
+                "V.4 cannot be implemented while a platform TODO is open: B.1",
+            ]),
+        ):
+            with self.subTest(errors=errors):
+                self.assertEqual(self.run_both(self.arguments(graph))["errors"], errors)
+        # A record of any JSON type is a report in both formats, never an exception.
+        shape = label + " must be an object with platform, reason, todo_site and owner"
+        for value in (None, True, False, 0, 7, 1.5, "", "linux", [], ["linux"], [{}]):
+            with self.subTest(value=value):
+                graph = graph_with()
+                graph["tasks"][0]["evidence"]["commands"][1]["platform_todo"] = value
+                self.assertEqual(self.run_both(self.arguments(graph))["errors"], [shape])
+        for field in ("platform", "reason", "todo_site", "owner"):
+            for value in (None, True, 7, 1.5, "", [], ["x"], {}, {"x": 1}):
+                with self.subTest(field=field, value=value):
+                    report = self.run_both(self.arguments(graph_with(**{field: value})))
+                    self.assertIs(report["ok"], False)
+                    self.assertTrue(all(error.startswith(f"{label}.{field}") for error in report["errors"]), report["errors"])
+        for field in ("path", "marker"):
+            for value in (None, True, 7, 1.5, "", [], ["x"], {}, {"x": 1}):
+                with self.subTest(field=field, value=value):
+                    site = {"path": ARTIFACT, "marker": MARKER, field: value}
+                    report = self.run_both(self.arguments(graph_with(todo_site=site)))
+                    self.assertEqual(len(report["errors"]), 1)
+                    self.assertTrue(report["errors"][0].startswith(f"{label}.todo_site.{field} must be "), report["errors"])
+        # The script itself ends such a run with exit status 1 and nothing on standard error.
+        graph = graph_with()
+        graph["tasks"][0]["evidence"]["commands"][1]["platform_todo"] = [None, {"platform": 5}]
+        arguments = self.arguments(graph)
+        for output_format in ("text", "json"):
+            process = subprocess.run(
+                [sys.executable, str(SCRIPT), *arguments, "--format", output_format], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual((process.returncode, process.stderr), (1, ""))
+            self.assertIn(shape, process.stdout)
 
     def test_unreadable_inputs_are_reports_in_both_formats(self) -> None:
         valid = json.dumps(fixture())
@@ -2420,6 +3234,7 @@ class CommandLineTests(unittest.TestCase):
                 self.assertEqual({key: value for key, value in report.items() if key != "errors"}, {
                     "ok": False, "scope": SCOPE, "task_count": 0, "delivery_count": 0, "roots": [],
                     "status_counts": {"planned": 0, "in_progress": 0, "implemented": 0}, "progress": [], "complete_deliveries": [],
+                    "open_platform_todos": {}, "open_platform_todo_total": 0, "open_platform_todo_items": [],
                 })
         # Finite numbers load; an unvalidated extra field does not change the verdict.
         finite = valid.replace('"revision": 8', '"revision": 8, "extra": [1.5, -2.5e3, 1e308, 0.0, 12345678901234567890]')
@@ -2669,6 +3484,10 @@ class CommandLineTests(unittest.TestCase):
             "--root ROOT repository that evidence paths resolve against",
             "--format {text,json} render the one validation report as text or JSON",
             "A clause is exactly one whole sentence",
+            "A command entry may add `platform_todo`",
+            "platform `windows`, `linux`, `physical_x86_64` or `cuda` and owner `H.3` or `V.4`",
+            "Neither H.3 nor V.4 is `implemented` while a platform TODO is open anywhere in the graph.",
+            "an open TODO is never a passed check",
         ):
             self.assertIn(expected, text)
         # A usage error keeps argparse's own message and exit status, and validates nothing.
@@ -2715,6 +3534,10 @@ class RepositoryFileTests(unittest.TestCase):
         self.assertEqual(report["roots"], sorted(self.graph["start_immediately"]))
         self.assertEqual(len(report["roots"]), 15)
         self.assertEqual(sum(report["status_counts"].values()), 91)
+        # Every task is counted, and the total is the number of open items.
+        self.assertEqual(list(report["open_platform_todos"]), sorted(record["id"] for record in self.graph["tasks"]))
+        self.assertEqual(sum(report["open_platform_todos"].values()), report["open_platform_todo_total"])
+        self.assertEqual(len(report["open_platform_todo_items"]), report["open_platform_todo_total"])
         for output_format, first in (("text", "PASS\n"), ("json", "{\n")):
             output = io.StringIO()
             with redirect_stdout(output):
@@ -2738,6 +3561,39 @@ class RepositoryFileTests(unittest.TestCase):
         self.assertEqual(
             [len(ledger[name]) for name in ("requirements", "findings", "prior_findings", "original_tasks")], [119, 23, 133, 52],
         )
+
+    def test_recorded_platform_todos_are_counted_and_do_not_certify_themselves(self) -> None:
+        report = CHECKER.check_plan(self.graph, self.plan, self.ledger, REPOSITORY)
+        recorded = [
+            (record["id"], entry) for record in self.graph["tasks"]
+            for entry in record.get("evidence", {}).get("commands", []) if "platform_todo" in entry
+        ]
+        still_open = sorted((identifier, entry["command"]) for identifier, entry in recorded if entry["outcome"] != "passed")
+        self.assertEqual(sorted((item["task"], item["command"]) for item in report["open_platform_todo_items"]), still_open)
+        self.assertEqual(report["open_platform_todo_total"], len(still_open))
+        statuses = {record["id"]: record["status"] for record in self.graph["tasks"]}
+        if still_open:
+            self.assertNotIn("implemented", (statuses["H.3"], statuses["V.4"]))
+        for identifier, entry in recorded:
+            with self.subTest(task=identifier, command=entry["command"]):
+                # The graph holds every marker as JSON text, so it cannot be the site of its own TODO.
+                self.assertNotEqual(entry["platform_todo"]["todo_site"]["path"], "specs/zk_delivery_graph.json")
+
+    def test_plan_states_the_platform_todo_rule_that_the_checker_enforces(self) -> None:
+        prose = " ".join(self.plan.split())
+        for statement in (
+            "`platform` (`windows`, `linux`, `physical_x86_64` or `cuda`)", "`owner` (`H.3` or `V.4`)",
+            "The TODO path must appear in evidence.paths; its marker must uniquely identify literal `TODO:` text in that file.",
+            "Failed checks prohibit `implemented`.",
+            "Neither H.3 nor V.4 may be `implemented` while any TODO remains open anywhere in the graph.",
+            "print `open_platform_todos` counts for every task, including zero, and a global total, counting each originating "
+            "command once",
+            "TODOs never count as passed checks or platform qualification.",
+        ):
+            with self.subTest(statement=statement):
+                self.assertEqual(prose.count(statement), 1)
+        self.assertEqual(CHECKER.PLATFORM_TODO_PLATFORMS, ("windows", "linux", "physical_x86_64", "cuda"))
+        self.assertEqual(CHECKER.PLATFORM_TODO_OWNERS, ("H.3", "V.4"))
 
     def test_task_text_splits_into_whole_sentences(self) -> None:
         for record in self.graph["tasks"]:

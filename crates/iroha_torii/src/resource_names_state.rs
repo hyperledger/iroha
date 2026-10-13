@@ -19,7 +19,7 @@ use iroha_torii_shared::resource_names_state::{
 const ROUTE: &str = "/v1/ledger/resource-names/{challenge}";
 
 /// Full-original carrier requires real native signed read authority; API-token access alone never suffices.
-pub(super) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path(challenge): axum::extract::Path<String>,
     headers: HeaderMap,
@@ -251,7 +251,7 @@ fn validate_request_target(
     challenge_literal: &str,
 ) -> Result<[u8; 32], Error> {
     let challenge = bridge_finality_challenge(headers)?;
-    if method != &Method::GET
+    if method != Method::GET
         || uri.query().is_some()
         || challenge_literal != hex::encode(challenge)
         || uri.path() != format!("{NATIVE_RESOURCE_NAMES_STATE_ROUTE_PREFIX_V1}{challenge_literal}")

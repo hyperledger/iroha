@@ -273,6 +273,12 @@ pub enum FinalityError {
     /// Original checkpoint decoder fields; the caller owns retry and format-limit policy.
     #[error("native checkpoint decoder resource: {0}")]
     DecodeResource(#[source] norito::core::DecodeAttemptError),
+    /// Original finite portable availability scratch policy refusal, without a pool.
+    #[error("native availability scratch policy: {0}")]
+    ScratchLimit(#[source] iroha_allocation::AllocationRefusal),
+    /// Original bounded vector reservation failure before any finality verdict.
+    #[error("native canonical finality allocator: {0}")]
+    Allocator(#[source] iroha_allocation::AllocatorRefusal),
     /// A zero challenge permits replay.
     #[error("the attestation challenge must be nonzero")]
     ZeroChallenge,
@@ -321,6 +327,8 @@ impl From<iroha_data_model::sumeragi_finality::FinalityReadError> for FinalityEr
             FinalityReadError::Invalid(error) => Self::Native(error),
             FinalityReadError::Genesis(error) => Self::Genesis(error),
             FinalityReadError::DecodeResource(resource) => Self::DecodeResource(resource),
+            FinalityReadError::ScratchLimit(original) => Self::ScratchLimit(original),
+            FinalityReadError::Allocator(original) => Self::Allocator(original),
         }
     }
 }
@@ -369,7 +377,7 @@ pub struct FinalityVerifier {
     checkpoint: Arc<SumeragiFinalityCheckpoint>,
     /// Successors an observation verified before its budget ran out, awaiting a fresh quorum.
     /// The next observation continues from here. The durable runtime owner may explicitly
-    /// retain them as a certificate-only checkpoint while still returning CatchingUp.
+    /// retain them as a certificate-only checkpoint while still returning `CatchingUp`.
     pending: Option<SumeragiFinalityCheckpoint>,
     /// Successful authentication of this exact immutable checkpoint's original tip only.
     /// Clones share the derived capability until one publishes a different checkpoint.
@@ -464,12 +472,22 @@ impl FinalityVerifier {
         )?
     }
 
+    /// Original signed-genesis scope retained by this independently authenticated prefix.
+    ///
+    /// # Errors
+    /// The retained checkpoint's native authentication or original decoder admission fails.
+    pub fn root_scope(
+        &self,
+    ) -> Result<iroha_data_model::block::consensus::SumeragiRootScope, FinalityError> {
+        Ok(self.verified_tip_ref()?.root_scope())
+    }
+
     /// Complete native checkpoint to persist for independently authenticated restart.
     pub fn checkpoint(&self) -> &SumeragiFinalityCheckpoint {
         self.checkpoint.as_ref()
     }
     /// Move only previously native-verified successors into the durable owner's certified prefix.
-    /// This supplies no fresh attestation quorum; the owner must retain the CatchingUp refusal.
+    /// This supplies no fresh attestation quorum; the owner must retain the `CatchingUp` refusal.
     pub(crate) fn promote_verified_progress(&mut self) -> bool {
         let Some(pending) = self.pending.take() else {
             return false;
@@ -647,7 +665,12 @@ impl FinalityVerifier {
         challenge: &[u8; 32],
         attestation: &SumeragiFinalityAttestation,
     ) -> Result<AttestedTip, FinalityError> {
-        verify_identity(self.checkpoint.network_id(), challenge, attestation)?;
+        verify_identity(
+            self.checkpoint.network_id(),
+            challenge,
+            attestation,
+            self.root_scope()?,
+        )?;
         if !self.members().contains(&attestation.body.node_id) {
             return Err(FinalityError::NotInCommittee {
                 peer: Box::new(attestation.body.node_id.clone()),
@@ -725,7 +748,7 @@ impl FinalityVerifier {
     /// [`FinalityError::CatchingUp`] and keeps the successors it verified for the next
     /// observation, which continues from them. This method changes its checkpoint only on fresh
     /// quorum success; a durable owner may separately retain the verified prefix while returning
-    /// CatchingUp and requiring a new challenged observation for readiness.
+    /// `CatchingUp` and requiring a new challenged observation for readiness.
     ///
     /// # Errors
     /// Zero challenge, peer budget exhaustion, [`FinalityError::CatchingUp`], or insufficient
@@ -745,7 +768,11 @@ impl FinalityVerifier {
     ) -> Result<AttestationQuorum, FinalityError> {
         require_challenge(challenge)?;
         let network = self.checkpoint.network_id();
-        let mut prefix = Prefix::new(self.pending.as_ref().unwrap_or(self.checkpoint.as_ref()))?;
+        let mut prefix = Prefix::new(
+            self.pending
+                .as_ref()
+                .unwrap_or_else(|| self.checkpoint.as_ref()),
+        )?;
         let mut reads = BTreeMap::new();
         // Why a member's own proof could not extend the prefix: invalid or over budget.
         let mut unverified = BTreeMap::new();
@@ -833,6 +860,7 @@ impl Read {
         peer: &PeerId,
         challenge: &[u8; 32],
         network: NetworkId,
+        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     ) -> Self {
         match response {
             Err(error) => Self::Unreachable(error),
@@ -846,13 +874,20 @@ impl Read {
                     return Self::Invalid(Box::new(error));
                 }
                 match attestation {
-                    FinalityAttestation::Raw(attestation) => match attestation.verify() {
-                        Ok(()) => Self::Claim(Box::new(attestation)),
-                        Err(error) => Self::Invalid(Box::new(error.into())),
-                    },
+                    FinalityAttestation::Raw(attestation) => {
+                        match attestation.verify(root_scope.into()) {
+                            Ok(()) => Self::Claim(Box::new(attestation)),
+                            Err(error) => Self::Invalid(Box::new(error.into())),
+                        }
+                    }
                     // The private SDK carrier retains the exact statement it already checked.
                     // Request rebinding above and trusted prefix placement below remain fresh.
                     FinalityAttestation::Authenticated(attestation) => {
+                        if attestation.root_scope() != root_scope {
+                            return Self::Invalid(Box::new(NativeFinalityError(
+                                "SDK attestation result scope differs from selected native root".into()
+                            ).into()));
+                        }
                         Self::Claim(Box::new(attestation.into_attestation()))
                     }
                 }
@@ -891,6 +926,7 @@ fn read_members<S: FinalitySource + ?Sized>(
             &peer,
             challenge,
             network,
+            prefix.native.root_scope(),
         );
         reads.insert(peer, read);
     }
@@ -1149,9 +1185,10 @@ fn verify_identity(
     network: NetworkId,
     challenge: &[u8; 32],
     attestation: &SumeragiFinalityAttestation,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(), FinalityError> {
     verify_request_binding(network, challenge, attestation)?;
-    attestation.verify()?;
+    attestation.verify(root_scope.into())?;
     // Structural consistency binds the decoded genesis to the selected network; the tip
     // still requires exact retained-decision or contiguous-successor authentication.
     Ok(())

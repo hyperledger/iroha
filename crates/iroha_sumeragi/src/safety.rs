@@ -13,13 +13,27 @@ use crate::{
     api::{HaltReason, LocalFault},
     crypto::Crypto,
     message::{self, Qc, TimeoutCert, VoteKind},
-    types::{Committee, EpochConfig, EpochId, Hash32, PublicKey, ValidatorIndex},
+    types::{Committee, EpochConfig, EpochId, Hash32, PublicKey, Signature, ValidatorIndex},
 };
 
 /// Largest accepted record encoding (a record at `n = 1024` stays far below this).
 pub const MAX_RECORD_BYTES: usize = 1 << 20;
 
-/// `(view, block_hash, justify)` of the last proposal signed at the record's height.
+// Current protocol identities, not negotiated versions. A changed suite or certified-result
+// contract must change its identity here; records from another identity are never migrated.
+const SIGNATURE_SUITE: &[u8] = b"sumeragi/safety/signature-suite/v1\0SHA-256(preimage)\0BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_\0consensus-and-rs16-allowlist/v1";
+const CERTIFIED_RESULT_CONTRACT: &[u8] = b"sumeragi/safety/certified-result/v1\0SHA-256(RESULT_TAG||SccpFinalityHeaderV1||H_iroha(RESULT_BODY_TAG||ExecutionResultCommitment))";
+
+/// Current-only durable envelope. The checksum covers the identities and the entire record.
+#[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_sumeragi::SafetyRecordEnvelope")]
+struct RecordEnvelope {
+    signature_suite: Hash32,
+    certified_result_contract: Hash32,
+    record: SafetyRecord,
+}
+
+/// `(view, block_hash, justify)` of the last proposal reserved for signing at the record's height.
 #[derive(Clone, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedProposal {
     /// View of the proposal.
@@ -30,7 +44,7 @@ pub struct RecordedProposal {
     pub justify: Option<TimeoutCert>,
 }
 
-/// `(view, block_hash, result)` of the last Prepare vote signed.
+/// `(view, block_hash, result)` of the last Prepare vote reserved for signing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedVote {
     /// View of the vote.
@@ -41,7 +55,7 @@ pub struct RecordedVote {
     pub result: Hash32,
 }
 
-/// `(view, exact PrepareQC carried)` of the last timeout signed.
+/// `(view, exact PrepareQC carried)` of the last timeout reserved for signing.
 #[derive(Clone, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedTimeout {
     /// Timed-out view.
@@ -71,11 +85,13 @@ pub struct SafetyRecord {
     pub height: u64,
     /// `CommitQC` of `height − 1` (`None` at `g + 1`).
     pub parent_commit_qc: Option<Qc>,
-    /// Last proposal signed.
+    /// Last proposal reserved for signing, including a refused attempt.
     pub proposal: Option<RecordedProposal>,
-    /// Last Prepare signed.
+    /// Last Prepare reserved for signing, including a refused attempt.
     pub prepare: Option<RecordedVote>,
-    /// Last timeout signed.
+    /// Exact successfully produced Prepare signature; absent for an unsigned reservation.
+    pub prepare_signature: Option<Signature>,
+    /// Last timeout reserved for signing, including a refused attempt.
     pub timeout: Option<RecordedTimeout>,
     /// Lock (`high_pqc`) at write time; also the record of every Commit (§6.5: a Commit at
     /// `(h, v)` is always for the lock of view `v`, durable before the vote leaves).
@@ -101,25 +117,34 @@ impl SafetyRecord {
             parent_commit_qc,
             proposal: None,
             prepare: None,
+            prepare_signature: None,
             timeout: None,
             lock: None,
             high_tc: None,
         }
     }
 
-    /// Encoding for the durable file: the canonical Norito frame followed by `H(frame)`.
+    /// Encoding for the durable file: the current protocol envelope as a canonical Norito
+    /// frame followed by `H(frame)`. The envelope binds the signature suite and the
+    /// certified-result contract, including the SCCP finality header.
     ///
     /// # Errors
     /// Propagates a Norito serialization failure.
     pub fn encode(&self, crypto: &dyn Crypto) -> Result<Vec<u8>, RecordError> {
-        let mut bytes = norito::encode_canonical(self).map_err(|_| RecordError::Encode)?;
+        let envelope = RecordEnvelope {
+            signature_suite: crypto.hash(SIGNATURE_SUITE),
+            certified_result_contract: crypto.hash(CERTIFIED_RESULT_CONTRACT),
+            record: self.clone(),
+        };
+        let mut bytes = norito::encode_canonical(&envelope).map_err(|_| RecordError::Encode)?;
         let checksum = crypto.hash(&bytes);
         bytes.extend_from_slice(checksum.as_bytes());
         Ok(bytes)
     }
 
     /// Decode and check a record read from disk: size, checksum `H(frame)`, canonical Norito
-    /// frame, size limits and internal consistency (R1). Never panics.
+    /// envelope, current protocol identities, size limits and internal consistency (R1).
+    /// Other identities and bare records are refused without migration. Never panics.
     ///
     /// # Errors
     /// [`RecordError`] describing the corruption.
@@ -132,9 +157,45 @@ impl SafetyRecord {
         if crypto.hash(frame).as_bytes()[..] != checksum[..] {
             return Err(RecordError::Checksum);
         }
-        let record: Self = norito::decode_canonical(frame).map_err(|_| RecordError::Decode)?;
+        let envelope: RecordEnvelope =
+            norito::decode_canonical(frame).map_err(|_| RecordError::Decode)?;
+        if !cfg!(sumeragi_mutation = "MS56")
+            && (envelope.signature_suite != crypto.hash(SIGNATURE_SUITE)
+                || envelope.certified_result_contract != crypto.hash(CERTIFIED_RESULT_CONTRACT))
+        {
+            return Err(RecordError::WrongProtocol);
+        }
+        let record = envelope.record;
         record.check_consistency()?;
+        if !record.prepare_signature_verifies(crypto) {
+            return Err(RecordError::Inconsistent);
+        }
         Ok(record)
+    }
+
+    /// Verify an actual retained signature against its exact original signing identity.
+    /// An unsigned reservation supplies no first-signature authority.
+    pub fn prepare_signature_verifies(&self, crypto: &dyn Crypto) -> bool {
+        if cfg!(sumeragi_mutation = "MS73") {
+            return true;
+        }
+        match (self.prepare, self.prepare_signature) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(vote), Some(signature)) => crypto.verify(
+                &self.key,
+                &crate::preimage::vote_preimage(
+                    VoteKind::Prepare,
+                    &self.instance,
+                    &self.epoch,
+                    self.height,
+                    vote.view,
+                    &vote.block_hash,
+                    &vote.result,
+                ),
+                &signature,
+            ),
+        }
     }
 
     /// Internal consistency of a decoded record.
@@ -156,7 +217,8 @@ impl SafetyRecord {
                 && tc.epoch == self.epoch
                 && message::check_tc(tc).is_ok()
         };
-        let valid = self.key.is_well_formed()
+        let valid = (self.prepare_signature.is_none() || self.prepare.is_some())
+            && self.key.is_well_formed()
             && self.parent_commit_qc.as_ref().is_none_or(|qc| {
                 qc.kind == VoteKind::Commit
                     && qc.instance == self.instance
@@ -217,6 +279,8 @@ pub enum RecordError {
     Checksum,
     /// The frame is not a canonical Norito encoding of a record.
     Decode,
+    /// The checksummed envelope belongs to another signature suite or result contract.
+    WrongProtocol,
     /// Decoded, but contradicts itself.
     Inconsistent,
     /// Belongs to another instance.
@@ -461,9 +525,10 @@ pub fn select_signer(
 mod tests {
     use super::*;
     use crate::{
+        api::{Action, CommittedTip, Init, LocalParams},
         message::TcEntry,
         testing::{FakeCrypto, FakeValidators},
-        types::{AggregateSignature, SIGNATURE_LEN},
+        types::{AggregateSignature, ChainParams, ConfigSlot, HeightConfig, SIGNATURE_LEN},
     };
 
     const I: Hash32 = Hash32([0x11; 32]);
@@ -511,6 +576,7 @@ mod tests {
                 block_hash: h(2),
                 result: h(3),
             }),
+            prepare_signature: None,
             timeout: Some(RecordedTimeout {
                 view: 4,
                 high_pqc: Some(lock.clone()),
@@ -535,6 +601,80 @@ mod tests {
             let back: SafetyRecord = norito::decode_canonical(&frame).unwrap();
             assert_eq!(back, record);
         }
+    }
+
+    #[test]
+    fn det_s56_safety_record_refuses_other_protocol_identity() {
+        let v = FakeValidators::new(4, 1, None);
+        let record = full_record(&v, 10);
+        for different_suite in [true, false] {
+            let envelope = RecordEnvelope {
+                signature_suite: v.crypto.hash(if different_suite {
+                    b"another consensus signature suite"
+                } else {
+                    SIGNATURE_SUITE
+                }),
+                certified_result_contract: v.crypto.hash(if different_suite {
+                    CERTIFIED_RESULT_CONTRACT
+                } else {
+                    b"another certified-result contract"
+                }),
+                record: record.clone(),
+            };
+            let mut bytes = norito::encode_canonical(&envelope).unwrap();
+            bytes.extend_from_slice(v.crypto.hash(&bytes.clone()).as_bytes());
+            let state = RecordState::Present(bytes.clone());
+            assert_eq!(
+                read_record(&v.crypto, &I, &record.key, &state),
+                Err(RecordError::WrongProtocol)
+            );
+            let config = HeightConfig {
+                epoch: Box::new(crate::testing::TEST_EPOCH),
+                committee: v.committee.clone(),
+                params: ChainParams::default(),
+            };
+            let init = Init {
+                instance: I,
+                records: vec![(record.key.clone(), state.clone(), false)],
+                genesis_height: 0,
+                demotion_window: 128,
+                nonce: 1,
+                tip: CommittedTip {
+                    height: 0,
+                    block_hash: h(8),
+                    result: h(9),
+                    header: None,
+                    commit_qc: None,
+                },
+                configs: vec![
+                    (1, ConfigSlot::Ready(config.clone())),
+                    (2, ConfigSlot::Ready(config)),
+                ],
+                recent_headers: Vec::new(),
+            };
+            let (_, actions) = crate::Core::new(
+                LocalParams::default(),
+                init,
+                vec![std::sync::Arc::new(v.signer(1).clone())],
+                Box::new(v.crypto.clone()),
+                iroha_allocation::AllocationBudget::new(1 << 30),
+                0,
+            )
+            .unwrap();
+            assert_eq!(actions, vec![Action::Halt(HaltReason::SafetyRecordCorrupt)]);
+            assert_eq!(
+                state,
+                RecordState::Present(bytes),
+                "refused bytes stay intact"
+            );
+        }
+        // The pre-envelope format is not a second accepted on-disk representation.
+        let mut bare = norito::encode_canonical(&record).unwrap();
+        bare.extend_from_slice(v.crypto.hash(&bare.clone()).as_bytes());
+        assert_eq!(
+            SafetyRecord::decode(&v.crypto, &bare),
+            Err(RecordError::Decode)
+        );
     }
 
     #[test]
@@ -571,8 +711,7 @@ mod tests {
             Err(RecordError::Decode)
         );
         // Appended trailing data inside the checksummed frame is non-canonical.
-        let record = full_record(&v, 10);
-        let mut frame = norito::encode_canonical(&record).unwrap();
+        let mut frame = bytes[..bytes.len() - 32].to_vec();
         frame.push(0);
         let checksum = v.crypto.hash(&frame);
         frame.extend_from_slice(checksum.as_bytes());
@@ -633,6 +772,7 @@ mod tests {
                 ..base.clone()
             },
             SafetyRecord {
+                prepare_signature: None,
                 timeout: Some(RecordedTimeout {
                     view: 2,
                     high_pqc: base.lock.clone(),
@@ -640,6 +780,7 @@ mod tests {
                 ..base.clone()
             },
             SafetyRecord {
+                prepare_signature: None,
                 timeout: Some(RecordedTimeout {
                     view: 5,
                     high_pqc: Some(other_height),
@@ -737,6 +878,7 @@ mod tests {
                 block_hash: h(2),
                 result: h(3),
             }),
+            prepare_signature: None,
             timeout: Some(RecordedTimeout {
                 view: 4,
                 high_pqc: Some(lock.clone()),

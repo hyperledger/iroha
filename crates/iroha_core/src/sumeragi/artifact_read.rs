@@ -42,10 +42,37 @@ impl std::error::Error for ArtifactReadError {
     }
 }
 
+// A body store may legitimately retire a whole height while its exact file remains open.
+// Keep its original root and file, joining the fixed child name at completion; do not pin
+// a Windows non-delete-sharing height handle across the asynchronous read lifetime.
+enum ReadDirectory {
+    Direct(iroha_fs::OwnerDirectory),
+    Child {
+        parent: iroha_fs::OwnerDirectory,
+        name: String,
+    },
+}
+impl ReadDirectory {
+    fn require_original_file(&self, name: &std::ffi::OsStr, file: &File) -> io::Result<()> {
+        match self {
+            Self::Direct(directory) => directory.require_same_regular_file(name, file),
+            Self::Child {
+                parent,
+                name: child,
+            } => {
+                let directory = parent.open_child(child)?;
+                directory.require_same_regular_file(name, file)?;
+                parent.revalidate()
+            }
+        }
+    }
+}
+
 /// One open source and, after admission, one non-growing charged destination.
 pub(super) struct ArtifactRead {
     path: PathBuf,
     file: File,
+    directory: Option<ReadDirectory>,
     length: usize,
     bytes: Option<ChargedBuffer<u8>>,
 }
@@ -87,9 +114,78 @@ impl ArtifactRead {
         Ok(Some(Self {
             path: path.into(),
             file,
+            directory: None,
             length,
             bytes: None,
         }))
+    }
+
+    /// Open through an already retained store directory; absence never recaptures a path.
+    pub(super) fn open_in(
+        directory: &iroha_fs::OwnerDirectory,
+        name: &str,
+        max_bytes: usize,
+    ) -> io::Result<Option<Self>> {
+        let Some(file) = directory.open_regular_optional(name)? else {
+            return Ok(None);
+        };
+        Self::from_retained_file(
+            file,
+            directory.path().join(name),
+            ReadDirectory::Direct(directory.retain()?),
+            max_bytes,
+        )
+        .map(Some)
+    }
+
+    /// Open a fixed child artifact under a retained root, keeping the exact native file.
+    /// The child may be genuinely pruned; completion still joins the original file against
+    /// the same root and fixed child/name, without reopening bytes or granting absence late.
+    pub(super) fn open_in_child(
+        parent: &iroha_fs::OwnerDirectory,
+        child: &str,
+        name: &str,
+        max_bytes: usize,
+    ) -> io::Result<Option<Self>> {
+        let Some(directory) = parent.open_child_optional(child)? else {
+            return Ok(None);
+        };
+        let Some(file) = directory.open_regular_optional(name)? else {
+            return Ok(None);
+        };
+        Self::from_retained_file(
+            file,
+            directory.path().join(name),
+            ReadDirectory::Child {
+                parent: parent.retain()?,
+                name: child.to_owned(),
+            },
+            max_bytes,
+        )
+        .map(Some)
+    }
+
+    fn from_retained_file(
+        file: File,
+        path: PathBuf,
+        directory: ReadDirectory,
+        max_bytes: usize,
+    ) -> io::Result<Self> {
+        let length = usize::try_from(file.metadata()?.len())
+            .map_err(|_| invalid("artifact length overflow"))?;
+        if length > max_bytes {
+            return Err(invalid(
+                "artifact type or length exceeds the storage boundary",
+            ));
+        }
+        directory.require_original_file(path.file_name().expect("admitted file name"), &file)?;
+        Ok(Self {
+            path,
+            file,
+            directory: Some(directory),
+            length,
+            bytes: None,
+        })
     }
 
     /// Complete into the same original byte allocation. Every refusal returns this exact job;
@@ -147,6 +243,22 @@ impl ArtifactRead {
             }
         }
         let opened = self.file.metadata().map_err(ArtifactReadError::Io)?;
+        if let Some(directory) = &self.directory {
+            if opened.len()
+                != u64::try_from(self.length)
+                    .map_err(|_| ArtifactReadError::Io(invalid("artifact length overflow")))?
+            {
+                return Err(ArtifactReadError::Io(invalid(
+                    "artifact source changed during read",
+                )));
+            }
+            return directory
+                .require_original_file(
+                    self.path.file_name().expect("original admitted file name"),
+                    &self.file,
+                )
+                .map_err(ArtifactReadError::Io);
+        }
         let current = fs::symlink_metadata(&self.path).map_err(ArtifactReadError::Io)?;
         if opened.len() != self.length as u64 || !current.file_type().is_file() {
             return Err(ArtifactReadError::Io(invalid(

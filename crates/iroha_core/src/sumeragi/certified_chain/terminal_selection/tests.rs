@@ -14,6 +14,23 @@ fn chain() -> CertifiedTestChain {
     chain.commit_at(3_000, Vec::new());
     chain
 }
+
+#[test]
+fn terminal_result_scope_comes_from_the_signed_root() {
+    let chain = chain();
+    let view = chain.state().view();
+    let context = decoder(&view.execution_budget());
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+            terminal.committed().root_scope()
+        ),
+        CertifiedResultScope::TairaGlobal
+    );
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
 fn decoder(budget: &AllocationBudget) -> norito::core::DecodeBudgetContext {
     norito::core::DecodeBudgetContext::try_new_owned(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
@@ -66,6 +83,7 @@ fn terminal_certifier_refusal_retains_original_target_gap_decoder_and_public_res
     // tighter inherited decoder layer specifically on the sole certificate verifier.
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();
@@ -232,6 +250,7 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
         .with(|| {
             PrefixVerifierContext {
                 instance: reader.instance,
+                root_scope: reader.root_scope,
             }
             .prepare_advance(prefix, gap.borrowed(), None)
         })
@@ -243,19 +262,22 @@ fn terminal_schedule_failure_after_valid_qc_cannot_deliver_original_target() {
     pending.gap = None;
     // Adversarial private-path corruption after frame validation leaves the genuine header/R
     // and QC untouched, so only the required later schedule advancement can reject this graph.
-    let original_height = pending.target.borrowed().commitment.schedule.height;
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height += 1;
+    let (original_x, mut corrupt_body) = pending
+        .target
+        .borrowed()
+        .certified_result
+        .clone()
+        .into_parts();
+    corrupt_body.schedule.height += 1;
+    let original_result = std::mem::replace(
+        &mut pending.target.committed.as_mut().unwrap().as_mut_slice()[0].certified_result,
+        CertifiedResultV1::from_parts_unvalidated(original_x, corrupt_body),
+    );
     drop(cursor);
     let (refused, counts) =
         relation_counts::measure(|| context.with(|| reader.certified_terminal_amx(3)));
     let pending = reader.terminal.as_mut().unwrap();
-    pending.target.committed.as_mut().unwrap().as_mut_slice()[0]
-        .commitment
-        .schedule
-        .height = original_height;
+    pending.target.committed.as_mut().unwrap().as_mut_slice()[0].certified_result = original_result;
     assert!(matches!(
         refused,
         Err(ExecutionAttemptError::Rejected(ChainReadError::Committee {
@@ -304,6 +326,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
 
     let verifier = PrefixVerifierContext {
         instance: reader.instance,
+        root_scope: reader.root_scope,
     };
     let mut cursor = reader.prefix.lock();
     let prefix = cursor.as_mut().unwrap();
@@ -345,7 +368,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     });
     let codec = context.consumed_allocated_bytes() - before_codec;
     let header = gap.borrowed().header().unwrap();
-    let verified = iroha_sumeragi::availability::verify_availability(
+    let authenticated = iroha_sumeragi::availability::verify_availability(
         header.instance,
         &config,
         header,
@@ -353,7 +376,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
         &prefix.authority.crypto,
     )
     .unwrap();
-    let shape = verified.shape();
+    let shape = authenticated.shape();
     let scratch = shape
         .encoded_bytes()
         .checked_add(
@@ -380,7 +403,6 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     } else {
         codec.checked_add(payload).unwrap() - 1
     };
-    drop(verified);
     drop(table);
 
     // Only the RS16 control supplies the existing funded artifact owner; this eliminates
@@ -471,4 +493,200 @@ fn terminal_amx_prefix_refuses_original_payload_scratch_without_advancing() {
 #[test]
 fn terminal_amx_prefix_refuses_original_rs16_scratch_without_advancing() {
     terminal_amx_original_scratch_admission(true);
+}
+
+// The genuine terminal reader owns the target and each missing predecessor. This control
+// completes only earlier production stages before applying pressure at the actual receipt /
+// result allocation boundary; it supplies no fabricated receipt, QC or authority.
+fn terminal_late_result_slot(gap: bool, cancel: bool) {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use std::{
+        future::Future,
+        mem::size_of,
+        task::{Context, Poll},
+    };
+
+    // Only this operation or the explicit pressure owner may refund its measured pool.
+    let _retirement_pin = crossbeam_epoch::pin();
+    let chain = chain();
+    let expected = chain.committed(3);
+    let expected_hash = expected.block_hash();
+    let expected_result = expected.result();
+    drop(expected);
+    let view = chain.state().view();
+    let budget = view.execution_budget();
+    let baseline = budget.reserved_bytes();
+    let context = decoder(&budget);
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let mut cursor = reader.prefix.lock();
+    context
+        .with(|| reader.prepare_certificate_prefix(&mut cursor, 3))
+        .unwrap();
+    let prefix = cursor.as_mut().unwrap();
+    assert_eq!(prefix.tip.height(), 1);
+    let original_tip = prefix.tip.id();
+    let original_authority = Arc::as_ptr(&prefix.authority);
+    let mut target = OriginalReceipt::new(&view, 3, &budget).unwrap();
+    context.with(|| target.acquire_body()).unwrap();
+    let target_body = target.body.as_ref().unwrap().clone();
+    let mut original_gap = None;
+    if gap {
+        context.with(|| target.decode(3, prefix, &budget)).unwrap();
+        let mut predecessor = OriginalReceipt::new(&view, 2, &budget).unwrap();
+        context.with(|| predecessor.acquire_body()).unwrap();
+        original_gap = Some(predecessor);
+    }
+    drop(cursor);
+    reader.terminal = Some(TerminalSelection {
+        target,
+        gap: original_gap,
+        height: 3,
+        delivered: false,
+        budget: budget.clone(),
+    });
+    let pending = reader.terminal.as_ref().unwrap();
+    let selected = if gap {
+        pending.gap.as_ref().unwrap()
+    } else {
+        &pending.target
+    };
+    let selected_body = selected.body.as_ref().unwrap().clone();
+    let selected_wire = selected.acquisition.bytes_for_test().unwrap().as_slice();
+    let wire_pointer = selected_wire.as_ptr();
+    let wire_length = selected_wire.len();
+    let mut prepaid = budget
+        .try_reserve_bytes(ReleaseRegistration::allocation_layout().size())
+        .unwrap();
+    let mut registration = ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+    drop(prepaid);
+    assert!(registration.belongs_to(&budget));
+    let controls = budget.reserved_bytes();
+    let receipt_bytes = size_of::<CommittedBlock>();
+    let result_bytes = size_of::<CertifiedResultV1>();
+    let occupied_bytes = budget.limit_bytes() - controls - receipt_bytes;
+    let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
+    let AllocationRefusal::Capacity {
+        release: expected_release,
+        ..
+    } = budget
+        .try_reserve_bytes(receipt_bytes + result_bytes)
+        .unwrap_err()
+    else {
+        panic!("the original pool has real temporary capacity pressure");
+    };
+    let Err(ExecutionAttemptError::Deferred(original)) =
+        context.with(|| reader.certified_terminal_amx(3))
+    else {
+        panic!("the actual terminal result slot must refuse");
+    };
+    let Some(AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        release,
+    }) = original.allocation_refusal()
+    else {
+        panic!("preserve the original physical allocation refusal");
+    };
+    assert_eq!(*requested_bytes, result_bytes);
+    assert_eq!(*reserved_bytes, budget.limit_bytes());
+    assert_eq!(*limit_bytes, budget.limit_bytes());
+    assert_eq!(release, &expected_release);
+    let mut wait = Box::pin(release.clone().wait_for_release(&mut registration));
+    let mut poll = Context::from_waker(std::task::Waker::noop());
+    assert_eq!(
+        wait.as_mut().poll(&mut poll),
+        Poll::Pending,
+        "a late terminal result refusal must retain its earlier receipt slot instead of self-waking"
+    );
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    let selected = if gap {
+        reader.terminal.as_ref().unwrap().gap.as_ref().unwrap()
+    } else {
+        &reader.terminal.as_ref().unwrap().target
+    };
+    assert!(selected.committed.is_none());
+    assert!(SharedSignedBlock::ptr_eq(
+        selected.body.as_ref().unwrap(),
+        &selected_body
+    ));
+    let wire = selected.acquisition.bytes_for_test().unwrap().as_slice();
+    assert_eq!(wire.as_ptr(), wire_pointer);
+    assert_eq!(wire.len(), wire_length);
+    let cursor = reader.prefix.lock();
+    assert_eq!(cursor.as_ref().unwrap().tip.id(), original_tip);
+    assert_eq!(
+        Arc::as_ptr(&cursor.as_ref().unwrap().authority),
+        original_authority
+    );
+    drop(cursor);
+    assert!(!reader.terminal.as_ref().unwrap().delivered);
+    let Err(ExecutionAttemptError::Deferred(repeated)) =
+        context.with(|| reader.certified_terminal_amx(3))
+    else {
+        panic!("the same original target must remain pending");
+    };
+    assert_eq!(repeated.allocation_refusal(), original.allocation_refusal());
+    assert_eq!(wait.as_mut().poll(&mut poll), Poll::Pending);
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+
+    if cancel {
+        // Cancellation is the explicit retirement of this original operation. It is allowed
+        // to wake the observed release, and must refund every real frame/slot/control owner.
+        drop(reader);
+        assert_eq!(wait.as_mut().poll(&mut poll), Poll::Ready(()));
+        drop(wait);
+        drop(registration);
+        drop(context);
+        drop(target_body);
+        drop(selected_body);
+        assert_eq!(budget.reserved_bytes(), baseline + occupied_bytes);
+        drop(occupied);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        return;
+    }
+
+    drop(occupied);
+    assert_eq!(wait.as_mut().poll(&mut poll), Poll::Ready(()));
+    drop(wait);
+    let delivered = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    assert_eq!(delivered.height(), 3);
+    assert_eq!(delivered.block_hash(), expected_hash);
+    assert_eq!(delivered.result(), expected_result);
+    assert_eq!(delivered.verification(), QcVerification::Verified);
+    assert!(SharedSignedBlock::ptr_eq(delivered.block(), &target_body));
+    let cursor = reader.prefix.lock();
+    assert_eq!(cursor.as_ref().unwrap().tip.height(), 2);
+    if gap {
+        assert!(SharedSignedBlock::ptr_eq(
+            cursor.as_ref().unwrap().tip.block(),
+            &selected_body
+        ));
+    }
+    drop(cursor);
+    assert!(matches!(
+        context.with(|| reader.certified_terminal_amx(3)),
+        Err(ExecutionAttemptError::Rejected(ChainReadError::NotInView {
+            height: 3
+        }))
+    ));
+    drop(delivered);
+    drop(reader);
+    drop(context);
+    drop(registration);
+    drop(target_body);
+    drop(selected_body);
+    assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+#[test]
+fn terminal_target_result_slot_refusal_keeps_original_wait_and_refunds_on_cancel() {
+    terminal_late_result_slot(false, false);
+    terminal_late_result_slot(false, true);
+}
+
+#[test]
+fn terminal_gap_result_slot_refusal_keeps_original_wait_and_refunds_on_cancel() {
+    terminal_late_result_slot(true, false);
+    terminal_late_result_slot(true, true);
 }

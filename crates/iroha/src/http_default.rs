@@ -21,6 +21,7 @@ const RESPONSE_READ_BUFFER_BYTES: usize = 16 * 1024;
 pub struct DefaultHttpTransport {
     inner: Arc<dyn HttpTransport>,
     deadline: Option<std::time::Instant>,
+    policy: crate::config::HttpTransportPolicy,
 }
 
 impl std::fmt::Debug for DefaultHttpTransport {
@@ -53,6 +54,7 @@ impl DefaultHttpTransport {
         Self {
             inner: Arc::new(ReqwestHttpTransport::default()),
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
         }
     }
 
@@ -60,12 +62,30 @@ impl DefaultHttpTransport {
         Self {
             inner: transport,
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
+        }
+    }
+
+    pub(crate) fn with_policy(mut self, policy: crate::config::HttpTransportPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub(crate) fn policy(&self) -> crate::config::HttpTransportPolicy {
+        self.policy
+    }
+
+    pub(crate) fn with_inner(&self, inner: Arc<dyn HttpTransport>) -> Self {
+        Self {
+            inner,
+            ..self.clone()
         }
     }
 
     pub(crate) fn with_deadline(&self, deadline: std::time::Instant) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            policy: self.policy,
             deadline: Some(
                 self.deadline
                     .map_or(deadline, |current| current.min(deadline)),
@@ -88,6 +108,12 @@ impl DefaultHttpTransport {
                     .timeout
                     .map_or(remaining, |limit| limit.min(remaining)),
             );
+        }
+        if self.policy == crate::config::HttpTransportPolicy::DirectLoopback
+            || request.direct_loopback
+        {
+            require_direct_loopback(&request.url)?;
+            request.direct_loopback = true;
         }
         Ok(request)
     }
@@ -132,8 +158,18 @@ impl DefaultHttpTransport {
         Self {
             inner: Arc::new(MockHttpTransport { responder }),
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
         }
     }
+}
+
+fn require_direct_loopback(url: &Url) -> Result<()> {
+    if !crate::config::HttpTransportPolicy::DirectLoopback.permits_url(url) {
+        return Err(eyre!(
+            "direct cleartext HTTP is restricted to exact localhost, 127/8, or ::1 without URL credentials or fragments"
+        ));
+    }
+    Ok(())
 }
 
 pub fn request_deadline_elapsed() -> Error {
@@ -264,17 +300,7 @@ impl DefaultRequestBuilder {
     /// Require a direct, proxy-free cleartext connection to an exact loopback host.
     pub(crate) fn direct_loopback(self) -> Self {
         self.and_then(|mut pending| {
-            let loopback = match pending.url.host() {
-                Some(url::Host::Domain(domain)) => domain == "localhost",
-                Some(url::Host::Ipv4(address)) => address.is_loopback(),
-                Some(url::Host::Ipv6(address)) => address.is_loopback(),
-                None => false,
-            };
-            if pending.url.scheme() != "http" || !loopback {
-                return Err(eyre!(
-                    "direct cleartext HTTP is restricted to exact localhost, 127/8, or ::1 loopback hosts"
-                ));
-            }
+            require_direct_loopback(&pending.url)?;
             pending.direct_loopback = true;
             Ok(pending)
         })
@@ -662,30 +688,55 @@ fn async_http_client_builder() -> reqwest::ClientBuilder {
         .timeout(std::time::Duration::from_secs(60))
 }
 fn build_direct_loopback_http_client() -> BlockingClient {
+    direct_loopback_http_client_builder()
+        .build()
+        .expect("Failed to build direct loopback HTTP client")
+}
+fn direct_loopback_http_client_builder() -> reqwest::blocking::ClientBuilder {
     let addresses = [
         std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
         std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
     ];
-    blocking_http_client_builder()
+    let builder = blocking_http_client_builder()
         .no_proxy()
-        .resolve_to_addrs("localhost", &addresses)
-        .build()
-        .expect("Failed to build direct loopback HTTP client")
+        .resolve_to_addrs("localhost", &addresses);
+    // This separate pool accepts only cleartext loopback requests and never follows
+    // redirects. Loading trust roots cannot protect these requests.
+    #[cfg(any(
+        feature = "tls-native",
+        feature = "tls-native-vendored",
+        feature = "tls-rustls-native-roots",
+        feature = "tls-rustls-webpki-roots"
+    ))]
+    let builder = builder.tls_built_in_root_certs(false);
+    builder
 }
 fn build_direct_loopback_async_http_client() -> crate::Result<reqwest::Client> {
     #[cfg(test)]
     lazy_tests::record_construction();
-    let addresses = [
-        std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
-        std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
-    ];
-    async_http_client_builder()
-        .no_proxy()
-        .resolve_to_addrs("localhost", &addresses)
+    direct_loopback_async_http_client_builder()
         .build()
         .map_err(|error| crate::Error::TransportConstruction {
             details: error.to_string(),
         })
+}
+fn direct_loopback_async_http_client_builder() -> reqwest::ClientBuilder {
+    let addresses = [
+        std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+        std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
+    ];
+    let builder = async_http_client_builder()
+        .no_proxy()
+        .resolve_to_addrs("localhost", &addresses);
+    // Keep this policy confined to the cleartext pool; HTTPS uses the ordinary pool.
+    #[cfg(any(
+        feature = "tls-native",
+        feature = "tls-native-vendored",
+        feature = "tls-rustls-native-roots",
+        feature = "tls-rustls-webpki-roots"
+    ))]
+    let builder = builder.tls_built_in_root_certs(false);
+    builder
 }
 struct ClientResponse {
     response: reqwest::blocking::Response,
@@ -958,6 +1009,10 @@ mod tests {
             "http://example.com/v1/fees/quote",
             "http://[::2]/v1/fees/quote",
             "https://localhost:8080/v1/fees/quote",
+            "https://127.0.0.1:8080/v1/fees/quote",
+            "https://[::1]:8080/v1/fees/quote",
+            "http://localhost.example/v1/fees/quote",
+            "ftp://localhost/v1/fees/quote",
         ] {
             assert!(
                 owned_request_builder(
@@ -1085,10 +1140,18 @@ mod tests {
 
     #[test]
     fn owned_http_client_does_not_follow_signed_body_redirects() {
-        for (status_code, reason) in [
+        for (status_code, reason, direct, asynchronous) in [
             (307_u16, "Temporary Redirect"),
             (308_u16, "Permanent Redirect"),
-        ] {
+        ]
+        .into_iter()
+        .flat_map(|(status, reason)| {
+            [
+                (status, reason, false, false),
+                (status, reason, true, false),
+                (status, reason, true, true),
+            ]
+        }) {
             let redirect_listener = TcpListener::bind("127.0.0.1:0").expect("redirect listener");
             let redirect_addr = redirect_listener.local_addr().expect("redirect address");
             let target_listener = TcpListener::bind("127.0.0.1:0").expect("target listener");
@@ -1133,11 +1196,30 @@ mod tests {
                     }
                 }
             });
-            let response = build_http_client()
-                .post(format!("http://{redirect_addr}/query"))
+            let builder = owned_request_builder(
+                Method::POST,
+                format!("http://{redirect_addr}/query").parse().unwrap(),
+            );
+            let builder = if direct {
+                builder.direct_loopback()
+            } else {
+                builder
+            };
+            let request = builder
                 .body(vec![0x01, 0x02, 0x03])
-                .send()
-                .expect("redirect response");
+                .timeout(Duration::from_secs(2))
+                .build()
+                .expect("redirect request");
+            let response = if asynchronous {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("redirect runtime")
+                    .block_on(request.send())
+            } else {
+                request.send_blocking()
+            }
+            .expect("redirect response");
             redirect_server.join().expect("redirect server");
             let followed = target_server.join().expect("target server");
             assert_eq!(response.status().as_u16(), status_code);
@@ -1573,3 +1655,7 @@ mod tests {
 #[cfg(test)]
 #[path = "http_default/lazy_tests.rs"]
 mod lazy_tests;
+
+#[cfg(all(test, feature = "tls-rustls-native-roots"))]
+#[path = "http_default/loopback_tls_tests.rs"]
+mod loopback_tls_tests;

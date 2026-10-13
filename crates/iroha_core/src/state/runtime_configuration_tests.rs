@@ -384,7 +384,8 @@ fn runtime_nexus_setter_requires_exact_protected_dataspace_projection() {
                 runtime
                     .into_custom_parameter()
                     .expect("bounded cumulative DS fixture"),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         assert!(matches!(
             state.try_nexus_snapshot_once(),
@@ -457,7 +458,7 @@ fn ordinary_nexus_setter_rejects_pre_genesis_dataspace_drift_before_publication(
     run_runtime_configuration_test(|| {
         let mut state = State::new_with_pre_genesis_nexus_for_testing(
             World::new(),
-            Default::default(),
+            iroha_config::parameters::actual::Nexus::default(),
             LiveQueryStore::start_test(),
         );
         assert_eq!(state.committed_height(), 0);
@@ -687,7 +688,7 @@ fn configured_dataspace_projection_preserves_description_only_identity() {
     run_runtime_configuration_test(|| {
         let mut state = State::new_with_pre_genesis_nexus_for_testing(
             World::new(),
-            Default::default(),
+            iroha_config::parameters::actual::Nexus::default(),
             LiveQueryStore::start_test(),
         );
         // Select the restored-state guard without claiming a signed import.

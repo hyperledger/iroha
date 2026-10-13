@@ -41,6 +41,8 @@ pub(in crate::state) struct FieldRefusal {
 pub(in crate::state) enum WorldPublicationError<E> {
     /// Complete installation resources were refused before any writer acquisition.
     Admission(E),
+    /// Original capture or publication cleanup still retains its active refund scope.
+    RefundScope(iroha_allocation::AllocationScopeActive),
     /// A previous installation still owns its original delayed cleanup shells.
     ShellsNotRetired(resources::ShellsNotRetired),
     /// One exact original owner could not be prepared.
@@ -162,6 +164,7 @@ where
 pub(super) fn storage_slot<'target, K: Key, V: Value, M: WorldStorageMode<K, V>>(
     mut original: Box<RetainedStorage<K, V, M>>,
     world: &'target World,
+    scope: &iroha_allocation::OwnedAllocationScope,
 ) -> Box<dyn PreparedWorldField + 'target>
 where
     M::Charge: Send + Sync + 'static,
@@ -171,7 +174,7 @@ where
     // Inert shell construction precedes every field's physical preparation.
     Box::new(PreparedStorage {
         original: Some(original),
-        phase: FieldPhase::Preparing(M::publication_slot(journal, target)),
+        phase: FieldPhase::Preparing(M::publication_slot(journal, target, scope)),
         published: None,
         aborted: None,
         released: false,
@@ -455,6 +458,7 @@ pub(in crate::state) struct AbortedWorld<'target, Installation> {
     _fields: PreparedWorldFields<'target>,
     _installation: Option<Installation>,
     _shell_installation: Option<WorldJournalShellInstallation>,
+    _refund_scope: Option<iroha_allocation::OwnedAllocationScope>,
 }
 
 /// All original World writers retained together, with no State authorization.
@@ -473,6 +477,8 @@ pub(in crate::state) struct PreparedWorld<'target, Admission, Installation> {
     shell_installation: WorldJournalShellInstallation,
     admission: Admission,
     installation: Installation,
+    refund_control: iroha_allocation::AllocationScopeControl,
+    refund_scope: iroha_allocation::OwnedAllocationScope,
 }
 
 /// Original field boxes and containers retained after physical publication.
@@ -482,6 +488,7 @@ pub(in crate::state) struct WorldRetirement<'target> {
     _retry: Vec<Box<dyn RetainedWorldField>>,
     _shells: WorldJournalShellReservation,
     _shell_installation: WorldJournalShellInstallation,
+    _refund_scope: iroha_allocation::OwnedAllocationScope,
 }
 
 #[path = "world_preparation.rs"]
@@ -489,16 +496,16 @@ mod preparation;
 
 impl<Admission> DetachedWorld<Admission> {
     /// Prepare through the same caller-owned aggregate used by State publication.
-    pub(in crate::state) fn try_prepare_publication<'target, Installation, E>(
+    pub(in crate::state) fn try_prepare_publication<Installation, E>(
         self,
-        target: &'target World,
+        target: &World,
         admit: impl FnOnce(&Self, &World) -> Result<Installation, E>,
     ) -> Result<
-        PreparedWorld<'target, Admission, Installation>,
+        PreparedWorld<'_, Admission, Installation>,
         (
             Self,
             WorldPublicationError<E>,
-            AbortedWorld<'target, Installation>,
+            AbortedWorld<'_, Installation>,
         ),
     > {
         let mut slot = self.publication_slot(target);
@@ -546,6 +553,8 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             shell_installation,
             admission: retained_admission,
             installation: retained_installation,
+            refund_control,
+            refund_scope,
         } = self;
         installation = retained_installation;
         admission = retained_admission;
@@ -555,6 +564,7 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             _fields: fields,
             _installation: Some(installation),
             _shell_installation: Some(shell_installation),
+            _refund_scope: Some(refund_scope),
         };
         (
             DetachedWorld {
@@ -564,6 +574,7 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
                 external_event_buf,
                 shells,
                 admission,
+                refund_control,
             },
             retirement,
         )
@@ -592,9 +603,12 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             shell_installation,
             admission: retained_admission,
             installation: retained_installation,
+            refund_control,
+            refund_scope,
         } = self;
         installation = retained_installation;
         admission = retained_admission;
+        drop(refund_control);
         for field in fields.iter_mut() {
             field.publish();
         }
@@ -603,6 +617,7 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             _retry: retry,
             _shells: shells,
             _shell_installation: shell_installation,
+            _refund_scope: refund_scope,
         };
         (
             dataspace_catalog,

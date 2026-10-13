@@ -965,7 +965,8 @@ fn install_recipient_lookup_policy_for_test(app: &SharedAppState) {
         .world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .expect("install the recipient lookup policy fixture");
     block
         .commit_world_overlay_for_testing()
         .expect("commit should persist recipient lookup policy");
@@ -1499,7 +1500,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
     for invalid_body in [
         format!(r#"{{"account_id":"{target}","extra":true}}"#).into_bytes(),
         format!(r#"{{"account_id":"{target}","account_id":"{target}"}}"#).into_bytes(),
-        br#"[]"#.to_vec(),
+        br"[]".to_vec(),
     ] {
         let headers =
             signed_app_headers(&caller, &caller_keypair, &method, &route_uri, &invalid_body);
@@ -1511,7 +1512,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
             axum::body::Bytes::from(invalid_body),
         )
         .await
-        .map_or_else(IntoResponse::into_response, |response| response);
+        .unwrap_or_else(IntoResponse::into_response);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     let lookup_uri: axum::http::Uri = "/v1/retail/recipients/lookup"
@@ -1524,7 +1525,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
             r#"{{"account_id":"{target}","alias_fqn":"payee@hbl.sbp","alias_fqn":"payee@hbl.sbp"}}"#
         )
         .into_bytes(),
-        br#"[]"#.to_vec(),
+        br"[]".to_vec(),
     ] {
         let headers = signed_app_headers(
             &caller,
@@ -1541,7 +1542,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
             axum::body::Bytes::from(invalid_body),
         )
         .await
-        .map_or_else(IntoResponse::into_response, |response| response);
+        .unwrap_or_else(IntoResponse::into_response);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     let program_id =
@@ -1592,7 +1593,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
     for invalid_body in [
         format!(r#"{{"program_id":"{program_id}","extra":true}}"#).into_bytes(),
         format!(r#"{{"program_id":"{program_id}","program_id":"{program_id}"}}"#).into_bytes(),
-        br#"[]"#.to_vec(),
+        br"[]".to_vec(),
     ] {
         let headers = signed_app_headers(
             &caller,
@@ -1609,7 +1610,7 @@ async fn retail_recipient_route_and_sponsor_program_reject_noncanonical_or_malfo
             axum::body::Bytes::from(invalid_body),
         )
         .await
-        .map_or_else(IntoResponse::into_response, |response| response);
+        .unwrap_or_else(IntoResponse::into_response);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     let quote_uri: axum::http::Uri = "/v1/fees/quote".parse().expect("fee quote uri");

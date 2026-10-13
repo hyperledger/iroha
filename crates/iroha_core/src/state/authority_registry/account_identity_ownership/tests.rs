@@ -232,7 +232,7 @@ fn work_charges_physical_tombstones_and_each_source_and_reverse_member() {
         );
     }
     drop(without_allocations(|| CheckedAccountIdentities::capture(&world, exact)).unwrap());
-    let mut world = World::default();
+    let mut world = World::new();
     world.accounts =
         Storage::from_snapshot_parts(BTreeMap::new(), BTreeMap::from([(ALICE_ID.clone(), None)]));
     world.uaid_accounts =
@@ -362,6 +362,10 @@ fn exact_identity_reference_keeps_implicit_accounts_and_complete_controller_work
 #[test]
 fn every_physical_mask_and_lookup_candidate_is_prepaid_after_a_match() {
     let other = UniversalAccountId::from_hash(Hash::new(b"physical tail"));
+    #[expect(
+        clippy::zero_sized_map_values,
+        reason = "Storage snapshot parts encode current unit-valued membership rows and their separate undo map"
+    )]
     let rows = Storage::from_snapshot_parts(
         BTreeMap::from([(uaid(), ())]),
         BTreeMap::from([(uaid(), None), (other, None)]),

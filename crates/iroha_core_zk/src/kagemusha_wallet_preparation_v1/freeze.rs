@@ -6,10 +6,64 @@
 
 use crate::kagemusha_wallet_state_v1::FrozenTransition;
 use iroha_kagemusha_proof::tree::IndexedInsert;
+use rand::rand_core::TryRngCore as _;
+use zeroize::Zeroizing;
 
 use super::*;
 
 type Retained = KagemushaWalletRetainedInputV1;
+
+/// Exact validated body and authenticated credential, before independent opening entropy.
+pub(crate) struct PreparedRecoveryV1 {
+    credential: KagemushaWalletCredentialV1,
+    body: KagemushaWalletFrozenRecoveryBodyV1,
+}
+
+fn sample_opening(
+    mut fill: impl FnMut(&mut [u8; 32]) -> Result<(), Error>,
+) -> Result<Zeroizing<[u8; 32]>, Error> {
+    for _ in 0..128 {
+        let mut opening = Zeroizing::new([0; 32]);
+        fill(&mut opening)?;
+        // Fp's modulus is in [2^254, 2^255). Each accepted scalar has exactly two
+        // uniform 256-bit preimages after discarding only this unused top bit.
+        // Canonical rejection (never reduction) keeps zero and every other scalar
+        // equiprobable; each fill succeeds with probability at least 1/2.
+        opening[31] &= 0x7f;
+        if bool::from(Fp::from_repr(*opening).is_some()) {
+            return Ok(opening);
+        }
+    }
+    Err(Error::Entropy)
+}
+
+impl PreparedRecoveryV1 {
+    /// Consume this fixed body and sample one independent opening before custody publication.
+    pub(crate) fn seal_fresh(self) -> Result<FrozenTransition, Error> {
+        let opening = sample_opening(|bytes| {
+            rand::rngs::OsRng
+                .try_fill_bytes(bytes)
+                .map_err(|_| Error::Entropy)
+        })?;
+        // A zero public commitment or any seal failure is returned immediately. No resealing.
+        let capsule = authority(self.body.seal(*opening))?;
+        let frozen = FrozenTransition {
+            credential: self.credential,
+            capsule,
+        };
+        frozen.validate().map_err(|_| Error::Authority)?;
+        Ok(frozen)
+    }
+
+    /// Check an existing validated wrapper without drawing entropy or changing its opening.
+    pub(crate) fn require_matches(&self, frozen: &FrozenTransition) -> Result<(), Error> {
+        frozen.validate().map_err(|_| Error::Authority)?;
+        if self.credential != frozen.credential || self.body.body() != frozen.capsule.body() {
+            return Err(Error::Authority);
+        }
+        Ok(())
+    }
+}
 
 struct CapsuleFields<'a> {
     manifest: [u8; 32],
@@ -49,7 +103,7 @@ fn assemble(
     credential: KagemushaWalletCredentialV1,
     input: CapsuleFields<'_>,
     proof: KagemushaWalletStepProofV1,
-) -> Result<FrozenTransition, Error> {
+) -> Result<PreparedRecoveryV1, Error> {
     let kind = input.statement.effect.kind();
     if kind.consumes_lineage() != input.predecessor.is_some() {
         return Err(Error::Authority);
@@ -81,27 +135,32 @@ fn assemble(
         &input.payment,
     ))?;
     let wallet_id = credential.body.wallet_id;
-    let frozen = FrozenTransition {
-        credential,
-        capsule: KagemushaWalletRecoveryCapsuleV1 {
-            version: KAGEMUSHA_WALLET_VERSION_V1,
-            scheme_id: input.statement.scheme_id,
-            wallet_id,
-            operation_id: authority(input.statement.operation_id(&wallet_id))?,
-            kind,
-            predecessor_capsule_digest: input.source,
-            successor_state: *input.state,
-            statement: *input.statement,
-            predecessor_lineage: lineage,
-            step_proof: proof,
-            payment_digest: input.payment,
-            map_openings: input.openings,
-            retained_inputs: input.retained,
-            output,
-        },
+    let body = KagemushaWalletRecoveryBodyV1 {
+        version: KAGEMUSHA_WALLET_VERSION_V1,
+        scheme_id: input.statement.scheme_id,
+        wallet_id,
+        operation_id: authority(input.statement.operation_id(&wallet_id))?,
+        kind,
+        predecessor_capsule_digest: input.source,
+        successor_state: *input.state,
+        statement: *input.statement,
+        predecessor_lineage: lineage,
+        step_proof: proof,
+        payment_digest: input.payment,
+        map_openings: input.openings,
+        retained_inputs: input.retained,
+        output,
     };
-    frozen.validate().map_err(|_| Error::Authority)?;
-    Ok(frozen)
+    authority(credential.validate())?;
+    authority(body.successor_state.validate_for_credential(&credential))?;
+    authority(body.statement.validate_for_credential(&credential))?;
+    if credential.body.wallet_id != body.wallet_id {
+        return Err(Error::Authority);
+    }
+    Ok(PreparedRecoveryV1 {
+        credential,
+        body: authority(body.freeze())?,
+    })
 }
 
 impl PreparationV1<'_> {
@@ -111,31 +170,29 @@ impl PreparationV1<'_> {
         input: CapsuleFields<'_>,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         self.credential_owner(owner)?;
         if input.manifest != self.installed.verifier().manifest_digest() {
             return Err(Error::Authority);
         }
         self.statement_fields(owner, input.statement)?;
         let frozen = assemble(owner.credential, input, proof)?;
-        self.installed
-            .verifier()
-            .verify_capsule_proofs_cancellable(
-                &frozen.capsule,
-                &frozen.credential,
-                budget,
-                self.cancellation,
-            )?;
+        self.installed.verifier().verify_body_proofs_cancellable(
+            frozen.body.body(),
+            &frozen.credential,
+            budget,
+            self.cancellation,
+        )?;
         Ok(frozen)
     }
 
-    pub(crate) fn freeze_bootstrap(
+    pub(crate) fn body_bootstrap(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &BootstrapStepV1,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         self.freeze(
             owner,
             CapsuleFields {
@@ -159,14 +216,14 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Foreign installation/owner/fold, invalid proof, altered source, or invalid capsule.
-    pub(crate) fn freeze_monetary(
+    pub(crate) fn body_monetary(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &MonetaryStepV1,
         predecessor: Option<&FoldedStateV1>,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         let payment = step.retained_payment_digest()?;
         self.freeze(
             owner,
@@ -190,13 +247,13 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Foreign installation/owner, invalid proof, inconsistent prepared state or capsule.
-    pub fn freeze_load(
+    pub(crate) fn body_load(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &LoadStepV1,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         let (retained, openings) = step.originals();
         self.freeze(
             owner,
@@ -215,13 +272,13 @@ impl PreparationV1<'_> {
         )
     }
 
-    pub(crate) fn freeze_archive(
+    pub(crate) fn body_archive(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &ArchiveStepV1,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         let (retained, openings) = step.originals();
         self.freeze(
             owner,
@@ -245,13 +302,13 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Foreign installation/owner, invalid proof, wrong renewal owner or invalid capsule.
-    pub fn freeze_refresh(
+    pub(crate) fn body_refresh(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &RefreshStepV1,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         let (retained, openings) = step.originals();
         self.freeze(
             owner,
@@ -276,14 +333,14 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Foreign installation/owner/fold, invalid proof, changed source or invalid capsule.
-    pub fn freeze_consuming(
+    pub(crate) fn body_consuming(
         &self,
         owner: &AuthenticatedCredentialV1,
         step: &ConsumingStepV1,
         predecessor: &FoldedStateV1,
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
+    ) -> Result<PreparedRecoveryV1, Error> {
         self.freeze(
             owner,
             CapsuleFields {
@@ -299,6 +356,60 @@ impl PreparationV1<'_> {
             proof,
             budget,
         )
+    }
+    pub(crate) fn freeze_bootstrap(
+        &self,
+        owner: &AuthenticatedCredentialV1,
+        step: &BootstrapStepV1,
+        proof: KagemushaWalletStepProofV1,
+        budget: MemoryBudget,
+    ) -> Result<FrozenTransition, Error> {
+        self.body_bootstrap(owner, step, proof, budget)?
+            .seal_fresh()
+    }
+
+    /// Verify the exact prepared body, then seal it once with independent OS entropy.
+    ///
+    /// # Errors
+    /// Returns source/proof, body-bound, entropy or commitment errors before publication.
+    pub fn freeze_load(
+        &self,
+        owner: &AuthenticatedCredentialV1,
+        step: &LoadStepV1,
+        proof: KagemushaWalletStepProofV1,
+        budget: MemoryBudget,
+    ) -> Result<FrozenTransition, Error> {
+        self.body_load(owner, step, proof, budget)?.seal_fresh()
+    }
+
+    /// Verify the exact prepared body, then seal it once with independent OS entropy.
+    ///
+    /// # Errors
+    /// Returns source/proof, body-bound, entropy or commitment errors before publication.
+    pub fn freeze_refresh(
+        &self,
+        owner: &AuthenticatedCredentialV1,
+        step: &RefreshStepV1,
+        proof: KagemushaWalletStepProofV1,
+        budget: MemoryBudget,
+    ) -> Result<FrozenTransition, Error> {
+        self.body_refresh(owner, step, proof, budget)?.seal_fresh()
+    }
+
+    /// Verify the exact prepared body, then seal it once with independent OS entropy.
+    ///
+    /// # Errors
+    /// Returns source/proof, body-bound, entropy or commitment errors before publication.
+    pub fn freeze_consuming(
+        &self,
+        owner: &AuthenticatedCredentialV1,
+        step: &ConsumingStepV1,
+        predecessor: &FoldedStateV1,
+        proof: KagemushaWalletStepProofV1,
+        budget: MemoryBudget,
+    ) -> Result<FrozenTransition, Error> {
+        self.body_consuming(owner, step, predecessor, proof, budget)?
+            .seal_fresh()
     }
 }
 

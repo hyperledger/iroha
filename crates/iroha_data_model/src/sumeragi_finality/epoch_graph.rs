@@ -6,7 +6,7 @@ use crate::{
     sumeragi::epoch::{ValidatorEpochBoundaryV1, ValidatorEpochContextV1},
 };
 use iroha_sumeragi::types::{
-    AppliedConfig, ConfigSlot, EpochConfig, EpochId, Hash32, HeightConfig,
+    AppliedConfig, ChainParams, ConfigSlot, EpochConfig, EpochId, Hash32, HeightConfig,
 };
 use norito::{
     NoritoDeserialize, NoritoSerialize,
@@ -53,15 +53,7 @@ impl ScheduledConfig {
         &self,
         validation: &mut EpochValidationScope,
     ) -> Result<HeightConfig, ScheduleError> {
-        let epoch = validation.core_epoch(&self.epoch)?;
-        if self.height < self.epoch.authorization.first_height
-            || self.height > self.epoch.authorization.last_height
-        {
-            return Err(ScheduleError::Epoch(
-                "scheduled height is outside its authenticated epoch".into(),
-            ));
-        }
-        self.params.validate().map_err(ScheduleError::Params)?;
+        let (epoch, params) = self.core_parameters_with_validation(validation)?;
         let committee = global_committee(
             self.epoch
                 .committee
@@ -72,11 +64,38 @@ impl ScheduledConfig {
         let config = HeightConfig {
             epoch: Box::new(epoch),
             committee,
-            params: self.params.to_core(),
+            params,
         };
         iroha_sumeragi::pacemaker::validate_height(&config, super::CHAIN_TRANSPORT_FRAME_LIMIT)
             .map_err(ScheduleError::Params)?;
         Ok(config)
+    }
+
+    /// Borrow the original scheduling context and validate its inline core fields.
+    ///
+    /// This is the same epoch, exact-height and ordinary-parameter preflight used by
+    /// [`Self::height_config_with_validation`]. It creates no owned committee or epoch
+    /// box. A consumer must still build the canonical committee and call the shared
+    /// `pacemaker::validate_height_parts` transport/layout relation. This projection
+    /// supplies no source or certificate authority and does not fund the mandatory
+    /// context validator's existing scratch allocations.
+    ///
+    /// # Errors
+    /// Returns the original epoch, containment or parameter error in the same order.
+    pub fn core_parameters_with_validation(
+        &self,
+        validation: &mut EpochValidationScope,
+    ) -> Result<(EpochConfig, ChainParams), ScheduleError> {
+        let epoch = validation.core_epoch(&self.epoch)?;
+        if self.height < self.epoch.authorization.first_height
+            || self.height > self.epoch.authorization.last_height
+        {
+            return Err(ScheduleError::Epoch(
+                "scheduled height is outside its authenticated epoch".into(),
+            ));
+        }
+        self.params.validate().map_err(ScheduleError::Params)?;
+        Ok((epoch, self.params.to_core()))
     }
 }
 
@@ -90,7 +109,10 @@ pub fn core_epoch(context: &ValidatorEpochContextV1) -> Result<EpochConfig, Sche
 
 /// Bounded pure epoch validation work for one operation or source-bound proof walk.
 ///
-/// At most two complete, immutable, fully validated contexts are retained. A hit requires
+/// At most two complete, immutable, fixed-size snapshots of validated contexts are retained.
+/// The bounded native committee stores its ordered key/PoP bytes inline; no heap graph is
+/// encoded, decoded or cloned for this optional cache. Its enclosing owner pays for the
+/// inline scope itself. A hit requires
 /// exact value equality, never a caller-provided hash or epoch number. This has no certificate,
 /// source, freshness or authority verdict; consumers must still authenticate each current
 /// source and its signatures. One operation may borrow it for independently selected checkpoint
@@ -102,8 +124,116 @@ pub struct EpochValidationScope {
     validations: usize,
 }
 struct ValidatedEpoch {
-    context: ValidatorEpochContextV1,
+    context: ExactEpoch,
     core: EpochConfig,
+}
+// This is a local exact-value cache, never a wire object or certificate authority. Explicit
+// exhaustive destructuring makes a newly added context field require a projection decision.
+// The same native validator bounds both Global and Dataspace committees at MAX_VALIDATORS.
+struct ExactEpoch {
+    da_layout: iroha_sumeragi::availability::DataAvailabilityLayout,
+    version: u16,
+    network_id: crate::NetworkId,
+    mode: ConsensusMode,
+    authorization: crate::sumeragi::epoch::ValidatorEpochAuthorizationV1,
+    committee: [ExactCredential; crate::sumeragi::epoch::MAX_VALIDATORS],
+    committee_len: usize,
+    leader_seed: [u8; 32],
+}
+#[derive(Clone, Copy)]
+struct ExactCredential {
+    key: [u8; 48],
+    proof: [u8; 96],
+}
+impl ExactCredential {
+    const EMPTY: Self = Self {
+        key: [0; 48],
+        proof: [0; 96],
+    };
+
+    fn capture(member: &crate::sumeragi::epoch::ValidatorCommitteeMemberV1) -> Option<Self> {
+        let crate::sumeragi::epoch::ValidatorCommitteeMemberV1 {
+            validator,
+            proof_of_possession,
+        } = member;
+        let (algorithm, payload) = validator.public_key().borrowed_parts().ok()?;
+        if algorithm != iroha_crypto::Algorithm::BlsNormal {
+            return None;
+        }
+        Some(Self {
+            key: payload.try_into().ok()?,
+            proof: proof_of_possession.as_slice().try_into().ok()?,
+        })
+    }
+
+    fn matches(&self, member: &crate::sumeragi::epoch::ValidatorCommitteeMemberV1) -> bool {
+        let crate::sumeragi::epoch::ValidatorCommitteeMemberV1 {
+            validator,
+            proof_of_possession,
+        } = member;
+        validator
+            .public_key()
+            .borrowed_parts()
+            .is_ok_and(|(algorithm, payload)| {
+                algorithm == iroha_crypto::Algorithm::BlsNormal && payload == self.key
+            })
+            && proof_of_possession.as_slice() == self.proof
+    }
+}
+impl ExactEpoch {
+    // Only called after complete native validation. A representation mismatch declines this
+    // optional cache insertion; it cannot turn failed input into an accepted epoch.
+    fn capture(context: &ValidatorEpochContextV1) -> Option<Self> {
+        let ValidatorEpochContextV1 {
+            da_layout,
+            version,
+            network_id,
+            mode,
+            authorization,
+            committee,
+            leader_seed,
+        } = context;
+        if committee.len() > crate::sumeragi::epoch::MAX_VALIDATORS {
+            return None;
+        }
+        let mut members = [ExactCredential::EMPTY; crate::sumeragi::epoch::MAX_VALIDATORS];
+        for (target, source) in members.iter_mut().zip(committee) {
+            *target = ExactCredential::capture(source)?;
+        }
+        Some(Self {
+            da_layout: *da_layout,
+            version: *version,
+            network_id: *network_id,
+            mode: *mode,
+            authorization: *authorization,
+            committee: members,
+            committee_len: committee.len(),
+            leader_seed: *leader_seed,
+        })
+    }
+
+    fn matches(&self, context: &ValidatorEpochContextV1) -> bool {
+        let ValidatorEpochContextV1 {
+            da_layout,
+            version,
+            network_id,
+            mode,
+            authorization,
+            committee,
+            leader_seed,
+        } = context;
+        self.da_layout == *da_layout
+            && self.version == *version
+            && self.network_id == *network_id
+            && self.mode == *mode
+            && self.authorization == *authorization
+            && self.leader_seed == *leader_seed
+            && self.committee_len == committee.len()
+            && self.committee[..self.committee_len]
+                .iter()
+                .zip(committee)
+                .all(|(original, supplied)| original.matches(supplied))
+    }
 }
 impl Default for EpochValidationScope {
     fn default() -> Self {
@@ -142,7 +272,7 @@ impl EpochValidationScope {
             .entries
             .iter()
             .flatten()
-            .any(|entry| entry.context == *context)
+            .any(|entry| entry.context.matches(context))
         {
             Ok(())
         } else {
@@ -157,14 +287,13 @@ impl EpochValidationScope {
             .entries
             .iter()
             .flatten()
-            .find(|entry| entry.context == *context)
+            .find(|entry| entry.context.matches(context))
         {
             return Ok(entry.core);
         }
         // context_id validates every original BLS proof and the authorized generation first.
-        // Invalid inputs never enter retained ownership. A native roundtrip admits the exact
-        // frame and every decoded allocation under the caller's original cumulative context;
-        // an ordinary graph clone would allocate outside that owner.
+        // Invalid inputs never enter retained ownership. The optional exact snapshot below
+        // copies only bounded inline fields; it creates no detached committee/key/PoP graph.
         let context_id = context.context_id()?;
         let core = EpochConfig {
             da_layout: context.da_layout,
@@ -178,12 +307,18 @@ impl EpochValidationScope {
             last_height: context.authorization.last_height,
             leader_seed: Hash32(context.leader_seed),
         };
-        // This cache is optional pure validation reuse. Capacity refusal declines insertion;
-        // it never changes the validated epoch, tip, signatures or consensus identity.
-        let encoded = norito::core::to_bytes_bounded(context, usize::MAX);
-        if let Ok(encoded) = encoded
-            && let Ok(context) = norito::decode_canonical::<ValidatorEpochContextV1>(&encoded)
-        {
+        // Optional pure validation reuse. This original exact snapshot cannot borrow mutable
+        // input and cannot consume or replenish the caller's cumulative decoder allowance.
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM34")))]
+        let snapshot = ExactEpoch::capture(context);
+        // DM34 restores only the removed owning canonical cache snapshot. The exact-value
+        // comparison and all original validation still run; no authority check is bypassed.
+        #[cfg(all(test, sumeragi_model_mutation = "DM34"))]
+        let snapshot = norito::core::to_bytes_bounded(context, usize::MAX)
+            .ok()
+            .and_then(|encoded| norito::decode_canonical::<ValidatorEpochContextV1>(&encoded).ok())
+            .and_then(|owned| ExactEpoch::capture(&owned));
+        if let Some(context) = snapshot {
             self.entries[0] = self.entries[1].take();
             self.entries[1] = Some(ValidatedEpoch { context, core });
         }

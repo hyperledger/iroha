@@ -373,8 +373,17 @@ fn world_read_trait_borrows_frozen_original_cell_fields_without_execution_deref(
     }
     // This tests the actual read trait on its same original field inventory.
     // It deliberately does not claim the full State Deferred cursor is wired.
+    original.parameters.begin_freeze();
+    original
+        .parameters
+        .try_finish_freeze(|_| Ok::<_, ()>(()))
+        .unwrap();
+    // The read trait borrows the canonical input inside the same frozen owner.
+    assert!(std::ptr::eq(
+        original.parameters(),
+        &raw const **original.parameters.get()
+    ));
     freeze_cells!(
-        parameters,
         consensus_schedule,
         peers,
         executor,

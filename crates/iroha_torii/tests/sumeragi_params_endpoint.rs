@@ -29,13 +29,42 @@ impl ToriiTestHarness {
 }
 #[cfg(feature = "telemetry")]
 fn torii_test_harness(cfg: Root) -> ToriiTestHarness {
+    torii_test_harness_with_zk_policy(cfg, None)
+}
+/// The verification gas schedule of a chain that commits no ZK validity policy.
+#[cfg(feature = "telemetry")]
+fn protocol_default_gas() -> ConfidentialGas {
+    iroha_core::state::default_zk_config().gas
+}
+#[cfg(feature = "telemetry")]
+fn torii_test_harness_with_zk_policy(
+    cfg: Root,
+    policy: Option<iroha_core::zk_validity_policy::ZkValidityPolicyV1>,
+) -> ToriiTestHarness {
     let (kiso, kiso_child) = iroha_core::kiso::KisoHandle::start(cfg.clone());
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let state = std::sync::Arc::new(iroha_core::state::State::new_for_testing(
-        iroha_core::state::World::default(),
-        kura.clone(),
-        iroha_core::query::store::LiveQueryStore::start_test(),
-    ));
+    let world = iroha_core::state::World::default();
+    if let Some(policy) = policy {
+        let mut block = world.block();
+        block
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter(),
+            ))
+            .expect("valid fixture proof policy");
+        block.commit();
+    }
+    // The State carries the same genesis-derived network identity Torii is given.
+    let state = std::sync::Arc::new(
+        iroha_core::state::State::new_with_chain_and_network_id_for_testing(
+            world,
+            kura.clone(),
+            iroha_core::query::store::LiveQueryStore::start_test(),
+            iroha_model_base::chain::ChainId::from("test-chain"),
+            iroha_torii::test_utils::signed_query_network_id(),
+        ),
+    );
     let queue_cfg = iroha_config::parameters::actual::Queue::default();
     let events: iroha_core::EventsSender = tokio::sync::broadcast::channel(1).0;
     let queue = std::sync::Arc::new(iroha_core::queue::Queue::from_config(queue_cfg, events));
@@ -460,7 +489,7 @@ async fn configuration_endpoint_accepts_query_when_signature_covers_query() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = collect_body(resp).await;
     let dto: Configuration = norito::json::from_slice(&body).unwrap();
-    assert_confidential_gas_matches(dto.confidential_gas, harness.cfg.confidential.gas);
+    assert_confidential_gas_matches(dto.confidential_gas, protocol_default_gas());
     harness.shutdown().await;
 }
 #[cfg(feature = "telemetry")]
@@ -540,17 +569,24 @@ async fn configuration_endpoint_unversioned_path_is_not_registered() {
 }
 #[cfg(feature = "telemetry")]
 #[tokio::test]
-async fn configuration_endpoint_uses_configured_confidential_gas_values() {
-    let mut cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    cfg.confidential.gas = ConfidentialGas {
+async fn configuration_endpoint_reports_the_committed_confidential_gas_schedule() {
+    // The schedule a node reports is the one State charges: the committed ZK
+    // validity policy, not a value of the node configuration.
+    let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
+    let mut policy = iroha_core::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+    policy.gas.proof_base = 11;
+    policy.gas.per_public_input = 22;
+    policy.gas.per_proof_byte = 33;
+    policy.gas.per_nullifier = 44;
+    policy.gas.per_commitment = 55;
+    let expected = ConfidentialGas {
         proof_base: 11,
         per_public_input: 22,
         per_proof_byte: 33,
         per_nullifier: 44,
         per_commitment: 55,
     };
-    let expected = cfg.confidential.gas;
-    let harness = torii_test_harness(cfg);
+    let harness = torii_test_harness_with_zk_policy(cfg, Some(policy));
     let resp = signed_get_configuration(&harness).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_content_type_starts_with(&resp, "application/json");
@@ -563,7 +599,7 @@ async fn configuration_endpoint_uses_configured_confidential_gas_values() {
 #[tokio::test]
 async fn configuration_endpoint_rejects_confidential_gas_update_via_post() {
     let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    let initial_gas = cfg.confidential.gas;
+    let initial_gas = protocol_default_gas();
     let harness = torii_test_harness(cfg);
     let updated = ConfidentialGas {
         proof_base: 101,
@@ -666,7 +702,7 @@ async fn configuration_endpoint_rejects_signed_non_json_content_type() {
 #[tokio::test]
 async fn configuration_endpoint_rejects_update_without_required_logger() {
     let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    let initial_gas = cfg.confidential.gas;
+    let initial_gas = protocol_default_gas();
     let harness = torii_test_harness(cfg);
     let body_bytes = configuration_update_without_logger_body();
     let req = signed_post_configuration(
@@ -688,7 +724,7 @@ async fn configuration_endpoint_rejects_update_without_required_logger() {
 #[tokio::test]
 async fn configuration_endpoint_rejects_invalid_logger_level_and_preserves_gas() {
     let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    let initial_gas = cfg.confidential.gas;
+    let initial_gas = protocol_default_gas();
     let harness = torii_test_harness(cfg);
     let body_bytes = configuration_update_with_logger_level_body("VERBOSE");
     let req = signed_post_configuration(
@@ -710,7 +746,7 @@ async fn configuration_endpoint_rejects_invalid_logger_level_and_preserves_gas()
 #[tokio::test]
 async fn configuration_endpoint_rejects_incomplete_confidential_gas_and_preserves_state() {
     let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    let initial_gas = cfg.confidential.gas;
+    let initial_gas = protocol_default_gas();
     let harness = torii_test_harness(cfg);
     let body_bytes = configuration_update_missing_per_commitment_body(ConfidentialGas {
         proof_base: 31,
@@ -738,7 +774,7 @@ async fn configuration_endpoint_rejects_incomplete_confidential_gas_and_preserve
 #[tokio::test]
 async fn configuration_endpoint_rejects_malformed_json_update() {
     let cfg = iroha_torii::test_utils::mk_minimal_root_cfg();
-    let initial_gas = cfg.confidential.gas;
+    let initial_gas = protocol_default_gas();
     let harness = torii_test_harness(cfg);
     let body_bytes = b"{".to_vec();
     let req = signed_post_configuration(

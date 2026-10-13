@@ -1195,3 +1195,32 @@ fn release_sdk_inventory_requires_separate_java_source_kotlin_evidence() {
         Err(PrivacyExact12ReleaseManifestValidationErrorV1::SdkPackage)
     );
 }
+
+#[test]
+fn release_manifest_carrying_another_catalog_commitment_fails_to_decode() {
+    let release = synthetic_valid_release_manifest();
+    assert_eq!(release.validate(), Ok(()));
+    let encoded = release.encode();
+    let commitment = PrivacyExact12CatalogCommitmentV1::canonical()
+        .digest()
+        .to_le_bytes();
+    let offset = encoded
+        .windows(commitment.len())
+        .position(|window| window == commitment)
+        .expect("the manifest carries the canonical catalog commitment");
+    assert_eq!(
+        PrivacyExact12ReleaseManifestV1::decode(&mut encoded.as_slice())
+            .expect("the unchanged bytes decode"),
+        release
+    );
+    // The bare codec has no checksum: a one-bit change of the commitment is
+    // refused by the commitment type itself, which decodes only the compiled value.
+    for bit in [0_u8, 7] {
+        let mut substituted = encoded.clone();
+        substituted[offset] ^= 1 << bit;
+        assert!(
+            PrivacyExact12ReleaseManifestV1::decode(&mut substituted.as_slice()).is_err(),
+            "a release manifest with another catalog commitment must not decode"
+        );
+    }
+}

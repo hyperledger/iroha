@@ -59,7 +59,7 @@ pub(super) fn record_attempt(directory: &PrivateDirectory) {
     });
 }
 pub(super) fn after_descendants() -> Result<()> {
-    let action = AFTER_DESCENDANTS.with(|state| state.take());
+    let action = AFTER_DESCENDANTS.with(std::cell::RefCell::take);
     action.map_or(Ok(()), |action| action())
 }
 fn counted<T>(action: impl FnOnce() -> T) -> (T, Census) {

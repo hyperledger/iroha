@@ -35,7 +35,23 @@ pub enum ExportError {
     Scope(String),
     /// The bounded public private-root profile is invalid.
     #[error(transparent)]
-    Profile(#[from] PrivateDataspaceAnchorError),
+    Profile(PrivateDataspaceAnchorError),
+}
+
+impl From<PrivateDataspaceAnchorError> for ExportError {
+    fn from(error: PrivateDataspaceAnchorError) -> Self {
+        match error {
+            PrivateDataspaceAnchorError::Resource(resource) => {
+                match crate::execution_attempt::canonical_decode_attempt_error(resource, |error| {
+                    PrivateDataspaceAnchorError::Invalid(error.to_string())
+                }) {
+                    ExecutionAttemptError::Deferred(original) => Self::Deferred(original),
+                    ExecutionAttemptError::Rejected(invalid) => Self::Profile(invalid),
+                }
+            }
+            invalid => Self::Profile(invalid),
+        }
+    }
 }
 
 impl From<ExecutionAttemptError<ChainReadError>> for ExportError {

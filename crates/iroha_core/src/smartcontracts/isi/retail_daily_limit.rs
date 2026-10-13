@@ -61,11 +61,11 @@ impl Execute for ActivateRetailDailyLimitV1 {
         if dataspace == DataSpaceId::UNIVERSAL
             || stx.current_dataspace_id != Some(dataspace)
             || stx.world.current_dataspace_id != Some(dataspace)
-            || !stx
+            || stx
                 .nexus
                 .dataspace_catalog
                 .by_id(dataspace)
-                .is_some_and(|entry| entry.alias == owning_domain.dataspace().as_ref())
+                .is_none_or(|entry| entry.alias != owning_domain.dataspace().as_ref())
         {
             return Err(retail_reject(
                 "retail DAY activation requires the exact physical dataspace lane and owning domain",
@@ -137,7 +137,7 @@ impl Execute for BindRetailIdentityV1 {
                 "retail identity binding requires the policy's exact issuer account authority",
             ));
         }
-        if &body.account_id == &policy.reserve_account {
+        if body.account_id == policy.reserve_account {
             return Err(retail_reject(
                 "retail identity binding cannot turn the monetary reserve into a retail account",
             ));

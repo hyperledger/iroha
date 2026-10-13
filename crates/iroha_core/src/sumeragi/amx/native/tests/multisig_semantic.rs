@@ -26,14 +26,14 @@ fn native_multisig_semantic_cause_is_terminal_and_preserves_exact_diagnostic() {
             .try_block(BlockHeader::new(NonZeroU64::MIN, None, None, 1, 0))
             .unwrap();
         let mut attempt = block.try_transaction().unwrap();
-        assert!(attempt.execution_deferral().is_none());
+        assert!(!attempt.is_execution_deferred());
         let diagnostic = leg_decode_error(AmxLegDecodeErrorV1::Multisig(original), &mut attempt);
         let Error::InvariantViolation(message) = diagnostic else {
             panic!("same terminal instruction diagnostic");
         };
         assert_eq!(message.as_ref(), original.to_string());
         assert!(
-            attempt.execution_deferral().is_none(),
+            !attempt.is_execution_deferred(),
             "intrinsic multisig rejection cannot acquire a local retry origin"
         );
         drop(attempt);

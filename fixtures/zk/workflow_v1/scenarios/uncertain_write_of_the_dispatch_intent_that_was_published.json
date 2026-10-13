@@ -1,0 +1,164 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "uncertain_write_of_the_dispatch_intent_that_was_published",
+  "category": "uncertain_write",
+  "rules": [
+    "persist_before_effect",
+    "reconcile_before_decide",
+    "identical_bytes_only"
+  ],
+  "description": "The write of the dispatch ordinal fails after it was published. The runner cannot know and stops before any effect, so nothing is sent. The next run finds `submitting`, treats the outcome as unknown and only reads. The caller may then authorize the identical bytes.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "uncertain-write-of-the-dispatch-intent-that-was-published",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ]
+      },
+      "storage_fault": {
+        "store": 6,
+        "mode": "published"
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "store",
+          "progress": "last_validated"
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "submitting"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 0
+            }
+          ]
+        },
+        "sequence": 6
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "statuses": [
+          "absent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "SubmissionOutcomeUnknown",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "outcome_unknown"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retransmit_identical_bytes": true
+      },
+      "script": {
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "absent",
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "status:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 2,
+              "possible_admissions": 2,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

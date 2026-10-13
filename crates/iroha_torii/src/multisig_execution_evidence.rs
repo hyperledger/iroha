@@ -18,7 +18,7 @@ use std::str::FromStr;
 const ROUTE: &str =
     iroha_torii_shared::multisig_execution_evidence::MULTISIG_EXECUTION_EVIDENCE_PATH_V1;
 
-pub(super) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path((account, entrypoint, proposal, instructions)): axum::extract::Path<(
         String,

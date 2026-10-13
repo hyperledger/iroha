@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Original shared-shell allocation, refusal, initialization and retirement.
 
-use super::{Allocation, Reserved, Shared};
+use super::{Allocation, ErasedShared, Reserved, Shared};
 use crate::test_support::{
     Charge, all_refunded, prepaid, record, refusing_allocation, without_allocations,
 };
@@ -13,6 +13,74 @@ use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 #[repr(align(512))]
 struct Aligned(u64);
+
+trait Value: Send + Sync {
+    fn value(&self) -> u64;
+}
+
+impl Value for Aligned {
+    fn value(&self) -> u64 {
+        self.0
+    }
+}
+
+#[test]
+fn erased_trait_projection_retains_exact_prepaid_control_and_vtable_without_allocation() {
+    let mut funding = prepaid();
+    let layout = Shared::<Aligned, Charge>::layout();
+    let owner = Shared::new(Aligned(53), funding.take_allocation_charge(layout));
+    let pointer = std::ptr::from_ref(&*owner).cast::<()>();
+    let erased = without_allocations(|| owner.project::<dyn Value>(|value| value));
+    assert_eq!(erased.strong_count(), 1);
+    assert_eq!(std::ptr::from_ref(&*erased).cast::<()>(), pointer);
+    assert_eq!(erased.value(), 53);
+    let copy = without_allocations(|| erased.clone());
+    assert!(ErasedShared::ptr_eq(&erased, &copy));
+    assert_eq!(copy.strong_count(), 2);
+    without_allocations(|| drop(erased));
+    assert!(!record(0).freed);
+    without_allocations(|| drop(copy));
+    all_refunded(&funding);
+}
+
+#[test]
+fn erased_slice_projection_preserves_original_owner_and_releases_hidden_payload() {
+    struct Payload([u8; 5], Arc<AtomicUsize>);
+    impl Drop for Payload {
+        fn drop(&mut self) {
+            assert!(record(0).freed);
+            assert!(!record(0).refunded);
+            assert_eq!(self.1.fetch_add(1, SeqCst), 0);
+        }
+    }
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let mut funding = prepaid();
+    let charge = funding.take_allocation_charge(Shared::<Payload, Charge>::layout());
+    let owner = Shared::new(Payload(*b"slice", Arc::clone(&dropped)), charge);
+    let original = owner.clone();
+    let pointer = owner.0[1..4].as_ptr();
+    let erased = without_allocations(|| owner.project(|value| &value.0[1..4]));
+    assert_eq!(&*erased, b"lic");
+    assert_eq!(erased.as_ptr(), pointer);
+    assert_eq!(erased.strong_count(), 2);
+    without_allocations(|| drop(original));
+    assert_eq!(dropped.load(SeqCst), 0);
+    without_allocations(|| drop(erased));
+    assert_eq!(dropped.load(SeqCst), 1);
+    all_refunded(&funding);
+}
+
+#[test]
+fn projection_callback_unwind_retires_the_original_charge() {
+    let mut funding = prepaid();
+    let charge = funding.take_allocation_charge(Shared::<u64, Charge>::layout());
+    let owner = Shared::new(89_u64, charge);
+    let failure = catch_unwind(AssertUnwindSafe(|| {
+        owner.project::<u64>(|_| panic!("projection refused"))
+    }));
+    assert!(failure.is_err());
+    all_refunded(&funding);
+}
 
 #[test]
 fn exact_padded_shell_initializes_and_clones_without_allocation() {

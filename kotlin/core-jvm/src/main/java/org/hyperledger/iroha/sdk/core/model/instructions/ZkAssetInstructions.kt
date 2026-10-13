@@ -273,6 +273,8 @@ class ProofAttachment(
         }
     }
 
+    internal val proofByteCount: Int get() = _proofBytes.size
+
     val proofBytes: ByteArray get() = _proofBytes.copyOf()
 
     val verifyingKeyCommitment: ByteArray? get() = _verifyingKeyCommitment?.copyOf()

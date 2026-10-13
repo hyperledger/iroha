@@ -1,0 +1,31 @@
+{
+  "binary_sha256": {
+    "rust-accel": "58bfa60a31c48432f59a9dacc548b6591d67a88d9da8e089cd214938889d82ec",
+    "rust-portable": "c9e8f8a0bcd7150ac907866bde6f7ad1468c20ce6891ddf785d806f116cc8f90"
+  },
+  "build_commands": [
+    "scripts/cargo_fast.sh --target-slot parliament-backend --incremental -- build --release --locked -p iroha_zkp_vole --example faest_cross_verify",
+    "cp target/cargo-fast/parliament-backend/release/examples/faest_cross_verify /tmp/parliament-faest-cross/rust-portable",
+    "scripts/cargo_fast.sh --target-slot parliament-backend --incremental -- build --release --locked -p iroha_zkp_vole --example faest_cross_verify --features accel",
+    "cp target/cargo-fast/parliament-backend/release/examples/faest_cross_verify /tmp/parliament-faest-cross/rust-accel"
+  ],
+  "build_environment": {
+    "CARGO_BUILD_TARGET": null,
+    "CARGO_ENCODED_RUSTFLAGS": null,
+    "IROHA_GIT_COMMIT_HASH": null,
+    "RUSTC_WRAPPER": null,
+    "RUSTFLAGS": null,
+    "VERGEN_GIT_SHA": null
+  },
+  "build_inputs_sha256": {
+    ".cargo/config.toml": "99ccdf420c7fd6f7c4abcb1908a653b832791cb169d020448fb23cda85b40014",
+    "Cargo.lock": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+    "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+    "crates/iroha_zkp_vole/Cargo.toml": "8923f40e240a57f812939f6e432155064e3a712902652dbc9f77c80442b9227c",
+    "rust-toolchain.toml": "b1de581368035db80c693eda64567b0e59252e3584d3749361d837c757b809e7",
+    "vendor/aes/Cargo.toml": "717f1a1a4a0aaaa7f96ef0576ca8c4813e1e69b75ff40fde5edb4fea15b4c048"
+  },
+  "hardware": "Apple M2 Ultra",
+  "scope": "Controlled local diagnostic build receipt, not build attestation. Both executables were compiled immediately before the campaign and copied into this task-owned directory. No shared production source changes were made for this diagnostic.",
+  "upstream_config_sha256": "2ef07319db4839e04b4bc600ac8fc2e16ecb25e4ab8c3e4221a9d4ecd9603d3c"
+}

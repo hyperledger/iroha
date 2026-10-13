@@ -39,21 +39,23 @@ fn observed(
     retained: Option<&History>,
 ) -> (Result<History>, parse_digest_tests::Counts) {
     let counter = parse_digest_tests::Counter::begin();
-    let result = match retained {
-        Some(prior) => History::read_retained(
-            &fixture.operation,
-            Purpose::ReservePolicy,
-            fixture.semantic,
-            &HistoryScope::FixedBody,
-            prior,
-        ),
-        None => fixture.history(),
-    };
+    let result = retained.map_or_else(
+        || fixture.history(),
+        |prior| {
+            History::read_retained(
+                &fixture.operation,
+                Purpose::ReservePolicy,
+                fixture.semantic,
+                &HistoryScope::FixedBody,
+                prior,
+            )
+        },
+    );
     (result, counter.finish())
 }
 
 fn require_three_rows(counts: parse_digest_tests::Counts) {
-    assert_eq!(counts.reads, 15);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 12);
     assert_eq!(counts.requested, 10);
     assert_eq!(counts.computed, 3);
@@ -78,19 +80,28 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
     let root = shared.root.as_ref().unwrap();
     let root_names = root.entries(MAX_ATTEMPTS).unwrap();
     let first = &shared.attempts[0];
-    let authorization = first
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
-    let observation = first
-        .directory
-        .read("observation.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
+    let observation =
+        metadata::test_read_component(&fixture.operation, Some(first.ordinal()), "observation.nrt")
+            .unwrap()
+            .unwrap();
     let wallet = std::fs::read(shared.attempts[2].wallet_path().join("preparation.json")).unwrap();
     let mut reopened = fixture.history().unwrap();
-    reopened.root = Some(PrivateDirectory::open(reopened.root.as_ref().unwrap().path()).unwrap());
-    for attempt in &mut reopened.attempts {
-        attempt.directory = PrivateDirectory::open(attempt.directory.path()).unwrap();
+    {
+        // This fresh parser result owns its records; retained immutable predecessors stay sealed.
+        let HistoryRecordsOwner::Owned(records) = &mut reopened.records else {
+            panic!("the fresh parser must own its records");
+        };
+        records.root = Some(PrivateDirectory::open(records.root.as_ref().unwrap().path()).unwrap());
+        for attempt in &mut records.attempts {
+            attempt.directory = PrivateDirectory::open(attempt.directory.path()).unwrap();
+        }
     }
     // Independently reopened owners share no native Arc prefix with the selected root.
     let (fallback, counts) = observed(&fixture, Some(&reopened));
@@ -109,61 +120,78 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 3);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 1);
     std::fs::remove_file(first.directory.path().join("foreign.nrt")).unwrap();
     let mut changed = first.authorization.clone();
     changed.semantic = [0x93; 32];
-    first
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
-    first
-        .directory
-        .write_atomic("observation.nrt", b"not canonical", PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "observation.nrt",
+        Some(b"not canonical"),
+    )
+    .unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(
         matches!(&refused, Err(Error::Invalid(message)) if message == "dispatch authorization changed its original purpose, intent or predecessor"),
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 4);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 2);
     assert_eq!(counts.computed, 0);
-    first
-        .directory
-        .write_atomic("authorization.nrt", &authorization, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        Some(&authorization),
+    )
+    .unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(
         matches!(&refused, Err(Error::Invalid(message)) if message == "invalid canonical dispatch custody record"),
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 5);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 2);
-    first
-        .directory
-        .write_atomic("observation.nrt", &observation, PublishMode::Replace)
-        .unwrap();
-    std::fs::remove_file(first.directory.path().join("authorization.nrt")).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "observation.nrt",
+        Some(&observation),
+    )
+    .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        None,
+    )
+    .unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(
         matches!(&refused, Err(Error::Invalid(message)) if message == "dispatch material exists without its authorization"),
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 4);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 1);
-    first
-        .directory
-        .write_atomic("authorization.nrt", &authorization, PublishMode::CreateNew)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        Some(&authorization),
+    )
+    .unwrap();
     let extra = root.create_child("0042").unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(
@@ -171,11 +199,11 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 15);
+    assert_eq!(counts.reads, 1);
     drop(extra);
     std::fs::remove_dir(root.path().join("0042")).unwrap();
     let original_middle = root.path().join("0002");
-    let held_middle = fixture._temporary.path().join("held-middle");
+    let held_middle = fixture.temporary.path().join("held-middle");
     std::fs::rename(&original_middle, &held_middle).unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(
@@ -183,7 +211,7 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 7);
+    assert_eq!(counts.reads, 1);
     std::fs::rename(&held_middle, &original_middle).unwrap();
     let (retried, counts) = observed(&fixture, Some(&shared));
     require_three_rows(counts);
@@ -193,10 +221,13 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
         .unwrap();
     assert_eq!(root.entries(MAX_ATTEMPTS).unwrap(), root_names);
     assert_eq!(
-        first
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(first.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         authorization
     );
     assert_eq!(
@@ -224,10 +255,13 @@ fn fresh_parse_tree_keeps_late_active_allocation_refusal_and_exact_cap_retry() {
     let _resources = crate::managed::native_test_guard();
     let fixture = Fixture::new();
     let attempt = fixture.reserve();
-    let authorization = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let wide = norito::DecodeLimits::new(
         MAX_RECORD_BYTES,
         MAX_RECORD_BYTES,
@@ -238,9 +272,9 @@ fn fresh_parse_tree_keeps_late_active_allocation_refusal_and_exact_cap_retry() {
     let dispatch_budget = norito::core::DecodeBudgetContext::new(wide);
     dispatch_budget
         .with(|| {
-            fixture
-                .operation
-                .read_scope(|reader| read_record_in_scope::<Dispatch>(reader, "dispatch.nrt"))
+            fixture.operation.read_scope(|reader| {
+                metadata::load_in_scope(reader).and_then(|image| image.read::<Dispatch>(None, 0))
+            })
         })
         .unwrap();
     let dispatch_charge = usize::try_from(dispatch_budget.consumed_allocated_bytes()).unwrap();
@@ -261,14 +295,14 @@ fn fresh_parse_tree_keeps_late_active_allocation_refusal_and_exact_cap_retry() {
             "{:?}",
             refused.as_ref().err()
         );
-        assert_eq!(counts.reads, 4);
+        assert_eq!(counts.reads, 1);
         assert_eq!(counts.decoded, 1);
         assert_eq!(counts.computed, 0);
     }
     let full_budget = norito::core::DecodeBudgetContext::new(wide);
     let (accepted, counts) = full_budget.with(|| observed(&fixture, None));
     assert_eq!(accepted.unwrap().reserved_attempt_count(), 1);
-    assert_eq!(counts.reads, 7);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 2);
     let exact_charge = usize::try_from(full_budget.consumed_allocated_bytes()).unwrap();
     assert!(exact_charge > dispatch_charge + 1);
@@ -284,10 +318,13 @@ fn fresh_parse_tree_keeps_late_active_allocation_refusal_and_exact_cap_retry() {
     assert_eq!(retried.unwrap().reserved_attempt_count(), 1);
     assert_eq!(exact_counts, counts);
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         authorization
     );
     assert!(!attempt.wallet_path().exists());
@@ -303,16 +340,22 @@ fn fresh_parse_tree_anchor_exit_closes_real_row_results_and_restores_original_so
     let history = fixture.history().unwrap();
     let root = history.root.as_ref().unwrap();
     let attempt = &history.attempts[0];
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     for kind in ["present", "absence", "decoder_error", "native_not_found"] {
         if kind == "decoder_error" {
-            attempt
-                .directory
-                .write_atomic("authorization.nrt", b"not canonical", PublishMode::Replace)
-                .unwrap();
+            metadata::test_replace_component(
+                &fixture.operation,
+                Some(attempt.ordinal()),
+                "authorization.nrt",
+                Some(b"not canonical"),
+            )
+            .unwrap();
         }
         let refused: Result<Option<Authorization>> = root.read_tree_scope(|tree| {
             let result: Result<Option<Authorization>> = tree.read_scope(&attempt.directory, |reader| {
@@ -320,7 +363,7 @@ fn fresh_parse_tree_anchor_exit_closes_real_row_results_and_restores_original_so
                         return reader.read("missing.nrt", MAX_RECORD_BYTES, decode_record::<Authorization>)
                             .map_err(Error::from).and_then(|value| value.map(Some));
                     }
-                    read_record_in_scope::<Authorization>(reader, if kind == "absence" { "missing.nrt" } else { "authorization.nrt" })
+                    metadata::load(&fixture.operation).and_then(|image| image.read::<Authorization>(Some(attempt.ordinal()), usize::from(kind == "absence")))
                 });
             match kind {
                 "present" => assert!(result.as_ref().unwrap().as_ref() == Some(&attempt.authorization)),
@@ -338,16 +381,20 @@ fn fresh_parse_tree_anchor_exit_closes_real_row_results_and_restores_original_so
         );
         fs::set_permissions(fixture.operation.path(), fs::Permissions::from_mode(0o700)).unwrap();
         if kind == "decoder_error" {
-            attempt
-                .directory
-                .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-                .unwrap();
+            metadata::test_replace_component(
+                &fixture.operation,
+                Some(attempt.ordinal()),
+                "authorization.nrt",
+                Some(&original),
+            )
+            .unwrap();
         }
         assert_eq!(fixture.history().unwrap().reserved_attempt_count(), 1);
     }
     let suffix_refused: Result<Option<Authorization>> = root.read_tree_scope(|tree| {
-        tree.read_scope(&attempt.directory, |reader| {
-            let result = read_record_in_scope::<Authorization>(reader, "authorization.nrt");
+        tree.read_scope(&attempt.directory, |_reader| {
+            let result = metadata::load(&fixture.operation)
+                .and_then(|image| image.read::<Authorization>(Some(attempt.ordinal()), 0));
             assert!(result.as_ref().unwrap().as_ref() == Some(&attempt.authorization));
             fs::set_permissions(attempt.directory.path(), fs::Permissions::from_mode(0o755))
                 .unwrap();
@@ -360,8 +407,9 @@ fn fresh_parse_tree_anchor_exit_closes_real_row_results_and_restores_original_so
     fs::set_permissions(attempt.directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let restored: Option<Authorization> = root
         .read_tree_scope(|tree| {
-            let result = tree.read_scope(&attempt.directory, |reader| {
-                read_record_in_scope::<Authorization>(reader, "authorization.nrt")
+            let result = tree.read_scope(&attempt.directory, |_reader| {
+                metadata::load(&fixture.operation)
+                    .and_then(|image| image.read::<Authorization>(Some(attempt.ordinal()), 0))
             })?;
             fs::set_permissions(fixture.operation.path(), fs::Permissions::from_mode(0o755))
                 .unwrap();
@@ -373,10 +421,13 @@ fn fresh_parse_tree_anchor_exit_closes_real_row_results_and_restores_original_so
     // Entry/exit consolidation intentionally cannot observe a fully restored interior change.
     assert!(restored.as_ref() == Some(&attempt.authorization));
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     history.require_current_local(None).unwrap();

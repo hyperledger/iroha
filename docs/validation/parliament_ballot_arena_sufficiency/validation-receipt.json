@@ -1,0 +1,120 @@
+{
+  "sources": {
+    "crates/iroha_parliament_ballot_proof/examples/arena_trace_replay.rs": "04029bc253717018706355dd9bae5112e256a7632a585369f92e6f5a1f5243bc",
+    "docs/validation/parliament_ballot_arena_sufficiency/run_validation.py": "abf437c36d6083ac1b1db4f10c887967ac5c7b623a3bde068e51b9f5239256ec",
+    "scripts/check_parliament_ballot_arena_oracle.py": "369dba4b633bee191261bd06196ad75b8f67371b98f64ed3b1f30d58d642e2d7",
+    "scripts/check_parliament_ballot_arena_sufficiency.py": "5652a6475c9074d3a98d602be6fd5f4f0c54377c4a90b0762ca20961aea0b83a",
+    "scripts/parliament_ballot_arena_backend.py": "fa36699604949a1e870b43f260592e7c9f9a31be715c1baf28d5acdf38e76b48",
+    "scripts/parliament_ballot_arena_frontend.py": "ff47c90b8a031dd2f3a3a842b1d3011f141e342e52da7ed3b6c1effe03783f95",
+    "scripts/parliament_ballot_arena_model.py": "e19cc5c1860cb48e47899455a50b3fb9660d56f0c5fa94f68aadfae3ac5d9872",
+    "scripts/parliament_ballot_stack_audit.py": "a14cfb28a381e9bcaa449f01e5a8b8fcc4ac04f134d1fc0cb5522c87961d452f",
+    "scripts/tests/parliament_ballot_arena_backend_test.py": "cdf24ed041cdd1d22e3b0bf3233447893b7362a6191c610526a3107764d6d8a0",
+    "scripts/tests/parliament_ballot_arena_frontend_test.py": "3c5826b977a9624ecf033c3585431dab12f8ad0887417cbaba9a959e01ad1b38",
+    "scripts/tests/parliament_ballot_arena_model_test.py": "fc1d11d58aeaaee39319d53855102994263ec087f2fc41f6fe4a5417344995a8",
+    "scripts/tests/parliament_ballot_arena_oracle_test.py": "be51491d34ec123c700f1e59c658870993494e8911cc7260e89cf7ac25dccf2a",
+    "scripts/tests/parliament_ballot_arena_sufficiency_test.py": "ea6be240cd28677d6d7fb6ed3a5cce944116c9a6f19aa41e013e7c44c423cbc7",
+    "scripts/tests/parliament_ballot_stack_audit_test.py": "019be367b0d6c8f1407f0821c1282453ff98e331729e98d8175a6bcd7f0b5b33"
+  },
+  "commands": [
+    {
+      "label": "source-model",
+      "command": [
+        "python3.11",
+        "scripts/check_parliament_ballot_arena_sufficiency.py",
+        "--rustdoc-root",
+        "/Users/mtakemiya/.rustup/toolchains/1.93.1-aarch64-apple-darwin/share/doc/rust/html/src",
+        "--output",
+        "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_arena_sufficiency/source-model.json",
+        "--require-qualified"
+      ],
+      "started_utc": "2026-10-13T06:52:27.523222+00:00",
+      "elapsed_seconds": 112.01922645792365,
+      "exit": 2,
+      "expected_exit": 2,
+      "source_changes": {},
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "native-oracle",
+      "command": [
+        "python3.11",
+        "scripts/check_parliament_ballot_arena_oracle.py",
+        "--oracle",
+        "/tmp/parliament-arena-trace-replay",
+        "--output",
+        "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_arena_sufficiency/native-oracle.json"
+      ],
+      "started_utc": "2026-10-13T06:54:19.542755+00:00",
+      "elapsed_seconds": 0.9260665408801287,
+      "exit": 0,
+      "expected_exit": 0,
+      "source_changes": {},
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "python-tests",
+      "command": [
+        "python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "scripts/tests/parliament_ballot_arena_model_test.py",
+        "scripts/tests/parliament_ballot_arena_backend_test.py",
+        "scripts/tests/parliament_ballot_arena_frontend_test.py",
+        "scripts/tests/parliament_ballot_arena_sufficiency_test.py",
+        "scripts/tests/parliament_ballot_arena_oracle_test.py",
+        "scripts/tests/parliament_ballot_stack_audit_test.py"
+      ],
+      "started_utc": "2026-10-13T06:54:20.469262+00:00",
+      "elapsed_seconds": 0.820107958978042,
+      "exit": 0,
+      "expected_exit": 0,
+      "source_changes": {},
+      "log_sha256": "873cf305d353b593c5ba5438ea2749fd4f8812d75529ebeb7033cca6c7059e06"
+    },
+    {
+      "label": "rustfmt",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "crates/iroha_parliament_ballot_proof/examples/arena_trace_replay.rs"
+      ],
+      "started_utc": "2026-10-13T06:54:21.289748+00:00",
+      "elapsed_seconds": 0.04753558384254575,
+      "exit": 0,
+      "expected_exit": 0,
+      "source_changes": {},
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "codec",
+      "command": [
+        "bash",
+        "scripts/check_no_legacy_codec.sh"
+      ],
+      "started_utc": "2026-10-13T06:54:21.337806+00:00",
+      "elapsed_seconds": 2.17818879080005,
+      "exit": 0,
+      "expected_exit": 0,
+      "source_changes": {},
+      "log_sha256": "379b917f97fed5e8d99dd739ced15cb1d38e3cb7d1fe36e7655a12abe1ee8969"
+    },
+    {
+      "label": "core-source-contract",
+      "command": [
+        "python3.11",
+        "scripts/formal/check_sora_parliament_source_contract.py"
+      ],
+      "started_utc": "2026-10-13T06:54:23.516397+00:00",
+      "elapsed_seconds": 3.2088218750432134,
+      "exit": 1,
+      "expected_exit": null,
+      "source_changes": {},
+      "log_sha256": "215294a754c15e8cecacff883cd4a969425d7818713f0275b6616eadcc5d2857"
+    }
+  ],
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

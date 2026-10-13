@@ -72,7 +72,7 @@ impl fmt::Debug for ResolverPool {
             .debug_struct("ResolverPool")
             .field("worker_count", &self.worker_count)
             .field("queue_capacity", &self.queue_capacity)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl ResolverPool {
@@ -483,10 +483,10 @@ fn validate_dns_hostname(hostname: &str) -> Result<(), GatewayComplianceError> {
         || !hostname.contains('.')
         || hostname.ends_with('.')
         || hostname == "localhost"
-        || hostname.ends_with(".localhost")
-        || hostname.ends_with(".local")
-        || hostname.ends_with(".internal")
-        || hostname.ends_with(".onion")
+        || matches!(
+            hostname.rsplit_once('.'),
+            Some((_, "localhost" | "local" | "internal" | "onion"))
+        )
         || hostname.parse::<IpAddr>().is_ok()
         || hostname.bytes().any(|byte| byte.is_ascii_uppercase())
     {
@@ -1046,9 +1046,7 @@ mod tests {
                 iroha_panic_hook::is_suppressed(),
                 "resolver provider panic must not trigger the process panic hook"
             );
-            if call_index == 0 {
-                panic!("injected resolver provider panic");
-            }
+            assert!(call_index != 0, "injected resolver provider panic");
             Ok(vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))])
         });
         let pool = ResolverPool::new_with(1, 1, resolver).expect("bounded resolver");

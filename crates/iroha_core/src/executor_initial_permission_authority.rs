@@ -1,5 +1,5 @@
 fn initial_permission_is_genesis_only(permission: &Permission) -> bool {
-    INITIAL_GENESIS_ONLY_PERMISSION_NAMES.contains(&permission.name().as_ref())
+    INITIAL_GENESIS_ONLY_PERMISSION_NAMES.contains(&permission.name())
 }
 fn invalid_initial_permission_payload(
     permission: &Permission,
@@ -46,7 +46,7 @@ fn validate_initial_permission_payload_constraints(
             }
         }};
     }
-    match permission.name().as_ref() {
+    match permission.name() {
         "CanReadCertifiedOriginals" => {
             validate_exact_unit_permission!(executor_permission::query::CanReadCertifiedOriginals)
         }
@@ -202,6 +202,39 @@ fn validate_initial_permission_payload_constraints(
     }
     Ok(())
 }
+// Unlike generic payload shape checks, this read must preserve local codec refusals.
+fn decode_exact_amx_approval_permission(
+    permission: &Permission,
+) -> Result<
+    executor_permission::amx::CanPrepareAmx,
+    crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+> {
+    let invalid = |error| invalid_initial_permission_payload(permission, error);
+    let token = norito::core::classify_decode_attempt(|| {
+        permission
+            .payload()
+            .try_into_any::<executor_permission::amx::CanPrepareAmx>()
+    })
+    .map_err(|error| crate::execution_attempt::canonical_decode_attempt_error(error, invalid))?;
+    let exact = token
+        .approval
+        .matches_permission(permission)
+        .map_err(|error| match error {
+            iroha_data_model::sumeragi_amx::AmxError::Resource(original) => {
+                crate::execution_attempt::canonical_decode_attempt_error(original, invalid)
+            }
+            other => invalid_initial_permission_payload(permission, other).into(),
+        })?;
+    if !exact {
+        return Err(invalid_initial_permission_payload(
+            permission,
+            "permission requires the exact AMX approval scope",
+        )
+        .into());
+    }
+    Ok(token)
+}
+
 fn sns_permission_attempt_error(
     error: crate::sns::SnsError,
 ) -> crate::execution_attempt::ExecutionAttemptError<ValidationFail> {
@@ -340,11 +373,11 @@ fn initial_asset_definition_alias_exact_grant_authority(
     else {
         return Ok(false);
     };
-    if !state_transaction
+    if state_transaction
         .world
         .asset_definition_alias_bindings()
         .get(asset_definition_id)
-        .is_some_and(|binding| binding.alias == alias.canonical_name)
+        .is_none_or(|binding| binding.alias != alias.canonical_name)
     {
         return Ok(false);
     }
@@ -407,7 +440,7 @@ fn initial_permission_capability_root_authority(
                 .map_err(|error| invalid_initial_permission_payload(permission, error))?
         };
     }
-    let result = match permission.name().as_ref() {
+    let result = match permission.name() {
         "CanReadCertifiedOriginals" => {
             let _ = decode!(executor_permission::query::CanReadCertifiedOriginals);
             authority_has_permission(
@@ -681,6 +714,30 @@ fn initial_permission_capability_root_authority(
             authority,
             permission,
         )?,
+        "CanPrepareAmx" => {
+            let token = decode_exact_amx_approval_permission(permission)?;
+            let scope =
+                crate::sumeragi::lanes::routing::read_routing_root_scope(&state_transaction.world)
+                    .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+                    .ok_or_else(|| {
+                        invalid_initial_permission_payload(
+                            permission,
+                            "AMX approval requires immutable bank scope",
+                        )
+                    })?;
+            let instance = scope
+                .instance_id(
+                    &crate::sumeragi::crypto::BlsCrypto::new(),
+                    *state_transaction.network_id(),
+                    state_transaction.chain_id().as_str(),
+                )
+                .map_err(|error| invalid_initial_permission_payload(permission, error))?;
+            token
+                .approval
+                .validate_root(*state_transaction.network_id(), scope, instance.0)
+                .map_err(|error| invalid_initial_permission_payload(permission, error))?;
+            token.approval.debited_asset.account() == authority
+        }
         "CanExecuteSettlement" => {
             let token = decode!(executor_permission::settlement::CanExecuteSettlement);
             token.debited_asset.account() == authority
@@ -904,13 +961,14 @@ fn initial_permission_delegation_allowed(
         )
     } else {
         !matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanManageSmartContractCode"
                 | "CanReadAccountData"
                 | "CanReadCertifiedOriginals"
                 | "CanResolveAccountAlias"
                 | "CanIssueSoranetVpnQuote"
                 | "CanExecuteSettlement"
+                | "CanPrepareAmx"
                 | "CanSetFxCorridorPolicy"
                 | "CanManageFeeSponsorProgram"
                 | "CanGrantDpnUserForAccountDomain"
@@ -1035,9 +1093,14 @@ fn validate_initial_account_permission_destination(
     is_genesis: bool,
     _is_revoke: bool,
 ) -> Result<(), ValidationFail> {
+    if permission.name() == "CanPrepareAmx" && is_genesis {
+        return Err(ValidationFail::NotPermitted(
+            "AMX debit approval requires a post-genesis owner grant".to_owned(),
+        ));
+    }
     if is_genesis
         && matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
         )
     {
@@ -2287,8 +2350,8 @@ fn validate_initial_native_instruction_authority(
         )
         .into());
     }
-    if !initial_native_instruction_is_explicitly_admitted(instruction)
-        && !(is_genesis && initial_genesis_instruction_is_explicitly_admitted(instruction))
+    if !(initial_native_instruction_is_explicitly_admitted(instruction)
+        || is_genesis && initial_genesis_instruction_is_explicitly_admitted(instruction))
     {
         return Err(ValidationFail::NotPermitted(format!(
             "Initial executor does not admit unclassified native instruction `{}`",
@@ -2968,10 +3031,15 @@ fn normalize_role_permission_for_initial_executor(
             "{permission:?}: Unknown permission"
         )));
     }
+    if permission.name() == "CanPrepareAmx" {
+        return Err(ValidationFail::NotPermitted(
+            "AMX debit approval requires a direct owner-issued account permission".to_owned(),
+        ));
+    }
     validate_initial_permission_payload_constraints(permission)?;
     if is_initial_genesis_context(state_transaction)
         && matches!(
-            permission.name().as_ref(),
+            permission.name(),
             "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
         )
     {
@@ -3048,6 +3116,7 @@ const INITIAL_EXECUTOR_PERMISSION_NAMES: &[&str] = &[
     "CanInvokeContractEntrypoint",
     "CanUseContractPermission",
     "CanExecuteSettlement",
+    "CanPrepareAmx",
     "CanManageFxCorridors",
     "CanSetFxCorridorPolicy",
     "CanGrantDpnUserForAccountDomain",
@@ -3180,5 +3249,67 @@ mod kagemusha_permission_tests {
         assert!(!initial_permission_delegation_allowed(&tx, &stranger, &permission).unwrap());
         assert!(!initial_permission_delegation_allowed(&tx, &delegate, &unrelated).unwrap());
         assert!(initial_permission_revocation_allowed(&tx, &owner, &permission).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod initial_amx_approval_permission_tests {
+    use super::*;
+
+    #[test]
+    fn exact_amx_grant_codec_refusal_is_deferred_and_extra_fields_are_rejected() {
+        use iroha_data_model::{
+            asset::{AssetBalanceScope, AssetDefinitionId, AssetId},
+            sumeragi_amx::AmxDebitApprovalV1,
+        };
+        use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
+        let dataspace = DataSpaceId::new(7);
+        let approval = AmxDebitApprovalV1 {
+            global_network: iroha_data_model::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(b"parent")),
+            ),
+            participant_network: iroha_data_model::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(b"bank")),
+            ),
+            participant_instance: [7; 32],
+            dataspace,
+            transaction_id: [8; 32],
+            debited_asset: AssetId::with_scope(
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("bank", "universal").unwrap(),
+                    "cash".parse().unwrap(),
+                ),
+                iroha_test_samples::ALICE_ID.clone(),
+                AssetBalanceScope::Dataspace(dataspace),
+            ),
+        };
+        let permission = approval.permission().unwrap();
+        assert_eq!(
+            decode_exact_amx_approval_permission(&permission)
+                .unwrap()
+                .approval,
+            approval
+        );
+        let result = norito::core::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || decode_exact_amx_approval_permission(&permission),
+        );
+        assert!(
+            matches!(
+                result,
+                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))
+            ),
+            "a local approval decode refusal cannot become a committed permission rejection"
+        );
+        let mut value: norito::json::Value = permission.payload().try_into_any().unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("extra".into(), norito::json::Value::Bool(true));
+        let extra = Permission::new("CanPrepareAmx".into(), Json::try_new(value).unwrap());
+        assert!(matches!(
+            decode_exact_amx_approval_permission(&extra),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(_))
+        ));
     }
 }

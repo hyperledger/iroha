@@ -53,6 +53,13 @@ pub(in super::super) fn measure<T>(
     drift: Arc<AtomicBool>,
     action: impl FnOnce() -> T,
 ) -> (T, Audit) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PROBE.with_borrow_mut(|slot| *slot = None);
+        }
+    }
+
     PROBE.with_borrow_mut(|slot| {
         assert!(slot.is_none());
         *slot = Some(Probe {
@@ -66,12 +73,6 @@ pub(in super::super) fn measure<T>(
             injected: false,
         });
     });
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            PROBE.with_borrow_mut(|slot| *slot = None);
-        }
-    }
     let reset = Reset;
     let result = action();
     let probe = PROBE.with_borrow_mut(|slot| slot.take().unwrap());
@@ -81,7 +82,7 @@ pub(in super::super) fn measure<T>(
 fn output_identity(output: &Output<'_>) -> Identity {
     Identity {
         request: std::ptr::from_ref(output.request) as usize,
-        request_bytes: output.request.payload.to_vec(),
+        request_bytes: output.request.payload.clone(),
         frame: output.request_frame.as_ptr() as usize,
         frame_bytes: output.request_frame.to_vec(),
         inbound_permit: output
@@ -130,10 +131,8 @@ pub(super) fn before_dispatch(deadline: BrokerDeadlineV1) {
         slot.as_ref()
             .is_some_and(|probe| probe.mode == Mode::ExpireBeforeDispatch)
     });
-    if expire {
-        if let Ok(remaining) = deadline.remaining() {
-            std::thread::sleep(remaining);
-        }
+    if expire && let Ok(remaining) = deadline.remaining() {
+        std::thread::sleep(remaining);
     }
 }
 fn reply(owner: &CompletedReply<'_>) -> (usize, Vec<u8>) {
@@ -208,10 +207,10 @@ pub(super) fn advance(owner: &mut CompletedReply<'_>) -> Result<(), AttemptError
         }
         Mode::None
     });
-    if action == Mode::ExpireAfterFrame {
-        if let Ok(remaining) = owner.deadline.remaining() {
-            std::thread::sleep(remaining);
-        }
+    if action == Mode::ExpireAfterFrame
+        && let Ok(remaining) = owner.deadline.remaining()
+    {
+        std::thread::sleep(remaining);
     }
     let previous = owner.phase;
     let result = if action == Mode::RefuseObservation {

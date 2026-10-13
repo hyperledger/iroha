@@ -104,10 +104,10 @@ fn require_released_originals(
     let released = steps.last().unwrap();
     let capsule = &released.frozen.capsule;
     let (sequence, operation, digest) = selected.head().unwrap();
-    assert_eq!(capsule.kind, KagemushaWalletOperationKindV1::Load);
-    assert_eq!(capsule.statement.sequence, sequence);
-    assert_eq!(capsule.operation_id, operation);
-    assert_eq!(capsule.capsule_digest().unwrap(), digest);
+    assert_eq!(capsule.body().kind, KagemushaWalletOperationKindV1::Load);
+    assert_eq!(capsule.body().statement.sequence, sequence);
+    assert_eq!(capsule.body().operation_id, operation);
+    assert_eq!(capsule.custody_digest(), digest);
     assert_eq!(
         Some(released.retained.selected_generation),
         selected.selected_generation()
@@ -121,6 +121,7 @@ fn require_released_originals(
         (KagemushaWalletRetainedInputRoleV1::LoadFinality, finality),
     ] {
         let retained: Vec<_> = capsule
+            .body()
             .retained_inputs
             .iter()
             .filter(|input| input.role == role)

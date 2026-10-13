@@ -12,7 +12,53 @@ struct ToriiRoutedReadRequestDecodePlan {
     typed_limits: norito::DecodeLimits,
 }
 impl ToriiRoutedReadMemoryBudget {
+    #[cfg(feature = "app_api")]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_plan(&self) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
+        let bytes = self.route_body_limit();
+        if !self.app_request_phases_fit(bytes) {
+            return Err(torii_routed_read_request_capacity_response(
+                "application request high-water",
+                bytes,
+                self.envelope.route_body_bytes,
+            ));
+        }
+        self.request_decode_plan_with_path_fixed(app_routed_read_url_parameter_fixed_bytes())
+    }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
+    fn request_decode_plan_for_path(
+        &self,
+        path: &str,
+    ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
+        let mut parameters = 0usize;
+        let mut key_bytes = 0usize;
+        for segment in path.split('/') {
+            if let Some(key) = segment
+                .strip_prefix('{')
+                .and_then(|segment| segment.strip_suffix('}'))
+            {
+                parameters = parameters.saturating_add(1);
+                key_bytes = key_bytes.saturating_add(key.len());
+            }
+        }
+        self.request_decode_plan_with_path_fixed(routed_read_url_parameter_fixed_bytes(
+            parameters, key_bytes,
+        ))
+    }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
+    fn request_decode_plan_with_path_fixed(
+        &self,
+        path_fixed: Option<usize>,
+    ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
         let phase_bytes = self.envelope.request_decode_allocated_bytes;
         if phase_bytes == 0 {
             return Err(torii_routed_read_request_capacity_response(
@@ -21,21 +67,40 @@ impl ToriiRoutedReadMemoryBudget {
                 0,
             ));
         }
-        let raw_input_limit_bytes = self.route_body_limit();
-        if !self.app_request_phases_fit(raw_input_limit_bytes) {
+        let baseline_fixed = app_routed_read_url_parameter_fixed_bytes();
+        let fits = |bytes: usize| {
+            self.app_request_high_water_bytes(bytes)
+                .and_then(|total| total.checked_sub(baseline_fixed?))
+                .and_then(|total| total.checked_add(path_fixed?))
+                .is_some_and(|total| total <= self.envelope.working_set_bytes)
+        };
+        if !fits(0) {
             return Err(torii_routed_read_request_capacity_response(
-                "application request high-water",
-                raw_input_limit_bytes,
-                self.envelope.route_body_bytes,
+                "request path geometry",
+                usize::MAX,
+                self.envelope.working_set_bytes,
             ));
         }
+        // Shrink the accepted target if the exact path graph requires more
+        // space. The original total and every response/decode phase stay fixed.
+        let mut low = 0usize;
+        let mut high = self.route_body_limit();
+        while low < high {
+            let mid = low + (high - low) / 2 + 1;
+            if fits(mid) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        let raw_input_limit_bytes = low;
         Ok(ToriiRoutedReadRequestDecodePlan {
             raw_input_limit_bytes,
             // Form decoding can expand percent-decoded controls when they are
             // escaped into JSON. The exact two-unit final-body phase is idle
             // during request decoding and bounds that intermediate document.
             expanded_query_limit_bytes: self.envelope.final_body_bytes,
-            component_limit_bytes: self.route_body_limit(),
+            component_limit_bytes: raw_input_limit_bytes,
             typed_limits: norito::DecodeLimits::new(
                 phase_bytes,
                 phase_bytes,
@@ -47,6 +112,11 @@ impl ToriiRoutedReadMemoryBudget {
     }
 }
 /// Configuration geometry only validates framing before acquiring the owner.
+#[cfg(all(test, feature = "app_api"))]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_request_preflight_plan(
     app: &SharedAppState,
 ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
@@ -56,6 +126,11 @@ fn torii_routed_read_request_preflight_plan(
     )?
     .request_decode_plan()
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_request_decode_plan(
     app: &SharedAppState,
 ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
@@ -66,6 +141,10 @@ fn torii_routed_read_request_decode_plan(
     .request_decode_plan()
 }
 impl ToriiRoutedReadRequestDecodePlan {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_raw_input(self, bytes: usize) -> Result<(), Response> {
         if bytes > self.raw_input_limit_bytes {
             return Err(torii_routed_read_request_capacity_response(
@@ -76,6 +155,11 @@ impl ToriiRoutedReadRequestDecodePlan {
         }
         Ok(())
     }
+    #[cfg(feature = "app_api")]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn preflight_json(self, bytes: &[u8]) -> Result<norito::json::JsonPreflightProfile, Response> {
         self.admit_raw_input(bytes.len())?;
         norito::json::preflight_slice(
@@ -88,6 +172,11 @@ impl ToriiRoutedReadRequestDecodePlan {
         .map_err(torii_routed_read_request_preflight_response)
     }
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_json_body<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     body: &[u8],
@@ -99,6 +188,11 @@ where
     let _profile = plan.preflight_json(body)?;
     decode_torii_routed_read_typed_json(plan, body, label)
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_query<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -108,6 +202,11 @@ where
 {
     decode_torii_proxy_query_with_coercion(plan, query_string, true)
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_string_query<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -117,6 +216,11 @@ where
 {
     decode_torii_proxy_query_with_coercion(plan, query_string, false)
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_query_with_coercion<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -161,6 +265,7 @@ where
         })?;
     decode_torii_routed_read_typed_json(plan, &json, "query parameters")
 }
+#[cfg(feature = "app_api")]
 fn decode_current_app_routed_read_json<T>(body: &[u8]) -> Option<Result<T, Response>>
 where
     T: norito::json::JsonDeserializeOwned,
@@ -172,6 +277,7 @@ where
         decode_app_routed_read_typed_json(plan, body, "request JSON")
     })
 }
+#[cfg(feature = "app_api")]
 macro_rules! decode_admitted_app_routed_read_json {
     ($body:expr, $fallback:expr) => {{
         match decode_current_app_routed_read_json($body) {
@@ -181,6 +287,7 @@ macro_rules! decode_admitted_app_routed_read_json {
         }
     }};
 }
+#[cfg(feature = "app_api")]
 fn decode_current_app_routed_read_norito<T>(body: &[u8]) -> Option<Result<T, Response>>
 where
     T: crate::utils::extractors::SupportsNoritoDecode + 'static,
@@ -261,6 +368,10 @@ where
         decode_app_routed_read_typed_json(plan, &json, "query parameters")
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_app_routed_read_form(
     raw: &[u8],
     plan: ToriiRoutedReadRequestDecodePlan,
@@ -330,6 +441,10 @@ fn validate_app_routed_read_form(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_app_routed_read_form_component(raw: &[u8]) -> Result<(), Response> {
     // Ordinary RFC 3986 / HTML-form spelling; see `utils::decode_component`.
     let mut index = 0;
@@ -358,6 +473,10 @@ fn validate_app_routed_read_form_component(raw: &[u8]) -> Result<(), Response> {
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_app_routed_read_typed_json<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     bytes: &[u8],
@@ -449,6 +568,11 @@ fn app_routed_read_form_encode_response(
         ),
     }
 }
+#[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_routed_read_typed_json<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     bytes: &[u8],
@@ -487,6 +611,7 @@ where
         )),
     }
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_request_preflight_response(
     error: norito::json::JsonPreflightError,
 ) -> Response {
@@ -516,6 +641,7 @@ fn torii_routed_read_request_capacity_response(
         ),
     )
 }
+#[cfg(feature = "app_api")]
 fn torii_routed_read_form_encode_response(
     error: norito::json::BoundedJsonError,
     limit: usize,
@@ -756,7 +882,7 @@ fn torii_canonical_negative_decimal(raw: &str) -> bool {
     raw.strip_prefix('-')
         .is_some_and(|magnitude| magnitude != "0" && torii_canonical_unsigned_decimal(magnitude))
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "app_api"))]
 mod torii_routed_read_request_tests {
     use super::*;
     #[test]
@@ -972,7 +1098,7 @@ mod torii_routed_read_request_tests {
     fn production_form_decoder_does_not_reintroduce_allocating_url_parser() {
         let source = include_str!("torii_app_routed_read_request.rs");
         let production = source
-            .split_once("#[cfg(test)]")
+            .split_once(r#"#[cfg(all(test, feature = "app_api"))]"#)
             .map_or(source, |(production, _)| production);
         assert!(!production.contains("url::form_urlencoded"));
         assert!(!production.contains("norito::json::Map"));
@@ -980,7 +1106,7 @@ mod torii_routed_read_request_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "app_api"))]
 mod service_request_depth_tests {
     //! Owning checked service writers keep the caller depth on exact refusals.
     use super::*;

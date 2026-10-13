@@ -229,7 +229,8 @@ fn complete_reader_selects_closed_wallet_roster_only() {
         wallet: &wallet,
         wallet_blobs: &wallet_blobs,
     };
-    for (blob, expected) in [(wallet_blob, wallet_bytes.as_slice())] {
+    {
+        let (blob, expected) = (wallet_blob, wallet_bytes.as_slice());
         let mut bytes = Vec::new();
         source
             .open(blob.sha256)

@@ -1029,17 +1029,15 @@ fn provider_ingest_completion_signer_rejects_signed_envelope_sidecars() {
         ensure_provider_ingest_completion_transaction(&exact, &context, &server_test_network_id(),),
         Ok(())
     );
-    let attachments = iroha_data_model::proof::ProofAttachmentList::try_from(vec![
-        iroha_data_model::proof::ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-            iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "vk_1"),
-        ),
-    ])
-    .expect("one attachment is a valid bounded proof list");
+    let attachments = vec![iroha_data_model::proof::ProofAttachment::new_ref(
+        "halo2/ipa".into(),
+        iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+        iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "vk_1"),
+    )];
     let attached = iroha_data_model::transaction::TransactionBuilder::from_payload(payload)
         .expect("rebuild attached provider-ingest payload")
-        .with_attachments(attachments)
+        .with_proof_attachments(attachments)
+        .expect("valid proof carriers")
         .try_sign(keypair.private_key())
         .expect("sign attached provider-ingest completion");
     assert_eq!(

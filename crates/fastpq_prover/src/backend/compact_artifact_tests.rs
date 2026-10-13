@@ -108,7 +108,7 @@ fn fixed_profile_and_nominal_route_cannot_be_chosen_by_artifact() {
         verify_effect(
             &norito::encode_canonical(&wrong).unwrap(),
             &expected,
-            limits()
+            &limits()
         ),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::ProfileMismatch
@@ -118,7 +118,7 @@ fn fixed_profile_and_nominal_route_cannot_be_chosen_by_artifact() {
         verify_effect(
             &norito::encode_canonical(&axt).unwrap(),
             &expected,
-            limits()
+            &limits()
         ),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::Norito(_)
@@ -146,7 +146,7 @@ fn raw_cap_precedes_decode_and_outer_budget_cannot_be_relaxed() {
     policy.transport.max_wire_bytes = bytes.len() - 1;
     let zero = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32);
     let (result, usage) = norito::core::with_decode_limits_measured(zero, || {
-        verify_effect(&bytes, &expected, policy)
+        verify_effect(&bytes, &expected, &policy)
     });
     assert!(matches!(
         result,
@@ -156,7 +156,11 @@ fn raw_cap_precedes_decode_and_outer_budget_cannot_be_relaxed() {
     ));
     assert_eq!(usage.total_allocated_bytes(), 0);
     assert!(matches!(
-        norito::core::with_decode_limits_scope(zero, || verify_effect(&bytes, &expected, limits())),
+        norito::core::with_decode_limits_scope(zero, || verify_effect(
+            &bytes,
+            &expected,
+            &limits()
+        )),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::Norito(norito::Error::TotalAllocationExceeded { .. })
         ))
@@ -164,7 +168,7 @@ fn raw_cap_precedes_decode_and_outer_budget_cannot_be_relaxed() {
     let mut policy = limits();
     policy.total_decode = zero;
     assert!(matches!(
-        verify_effect(&bytes, &expected, policy),
+        verify_effect(&bytes, &expected, &policy),
         Err(ArtifactError::Transport(
             FastpqCompactArtifactDecodeError::Norito(norito::Error::TotalAllocationExceeded { .. })
         ))
@@ -191,7 +195,7 @@ fn all_public_expectations_are_checked_before_child_decoding() {
             verify_effect(
                 &norito::encode_canonical(&altered).unwrap(),
                 &expected,
-                limits()
+                &limits()
             ),
             Err(ArtifactError::Verify(Error::PublicIoMismatch {
                 field: "compact_artifact_public_statement_digest"
@@ -204,7 +208,7 @@ fn all_public_expectations_are_checked_before_child_decoding() {
         verify_effect(
             &norito::encode_canonical(&artifact).unwrap(),
             &expected,
-            policy
+            &policy
         ),
         Err(ArtifactError::Verify(Error::VerifierLimitExceeded {
             limit: "max_execution_effect_rows",
@@ -312,7 +316,7 @@ fn canonical_model_transport_is_independent_of_ambient_flags() {
     for flags in (u8::MIN..=u8::MAX).filter(|&f| norito::core::validate_header_flags(f).is_ok()) {
         let _ambient = norito::core::DecodeFlagsGuard::enter(flags);
         assert_eq!(norito::encode_canonical(&artifact).unwrap(), bytes);
-        let result = verify_effect(&bytes, &expected, limits());
+        let result = verify_effect(&bytes, &expected, &limits());
         // Valid model facts reach the intentionally absent child carrier.
         assert!(
             matches!(result, Err(ArtifactError::Verify(Error::Encode(_)))),

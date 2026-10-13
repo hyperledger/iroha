@@ -11,7 +11,8 @@ the concrete PLONK system, C12, native finality or the implementation refinement
 
 For wallet i, let Bᵢ be its committed core balance, Dᵢ its last completed lineage's
 burned total, and Eᵢ the amounts that its committed, not-yet-folded Receive steps
-will deterministically burn. Eᵢ is a specification ghost value. A wallet does not
+will deterministically burn, including defensive duplicate-intake effects.
+Eᵢ is a specification ghost value. A wallet does not
 learn or spend against a guessed future verdict. Define the accounting balance
 
 `Nᵢ = Bᵢ − Dᵢ − Eᵢ`.
@@ -26,7 +27,9 @@ may remove a core descriptor before its lineage verdict is known. A failed
 Archive keeps the adjusted descriptor. Send, Unload and Retiring take that
 adjusted set from their folded predecessor and write it back into the core.
 Collection requires a successful Archive covered by a durable fold, and keeps
-the independent unpaid fee original. Neither Archive branch affects value.
+the independent unpaid fee original. Matching evidence of either a credited or
+burned first credit permits successful Archive. Evidence for another Payment
+digest cannot replace that first credit. Neither Archive branch affects value.
 
 ## Disjoint reserve categories
 
@@ -45,13 +48,27 @@ amounts removed from an existing backed in-flight credit.
 
 The per-wallet equality is also checked independently:
 
-`Bᵢ = absorbed Loadsᵢ + first Receive amountsᵢ − gross Sendsᵢ − Unload facesᵢ`.
+`Bᵢ = absorbed Loadsᵢ + first Receive amountsᵢ + committed duplicate intake amountsᵢ − gross Sendsᵢ − Unload facesᵢ`.
 
 This prevents a transfer between unrelated wallet states from passing merely
 because the aggregate sum stays constant. First credit identities remain
 permanent; changing a consumed credit's original is rejected, and exact retry
 does not append another effect. Load, Send and Unload ordinals are checked per
 wallet. Ledger payouts and fees have permanent paid identities.
+
+The separate `contain_duplicate_receive` transition represents the canonical
+post-commit nonmembership-failure branch, not a second ordinary Receive.
+It identifies a distinct committed receiver operation by sequence and adds its
+optimistic amount to both Bᵢ and Eᵢ. Its exact replay changes nothing; a conflicting
+effect at that sequence rejects. The permanent first credit retains its exact
+digest name and burned flag, including when the duplicate proposes another
+digest with a different amount. The same `(key, digest)` original requires the
+same amount across the first credit and every later duplicate effect, including
+repeated alternate originals. A separate invariant checks that identity even
+when an altered amount is paired with equal balance and burn adjustments.
+Neither the first Payment's backing category nor K changes.
+The committed core transition, receipt binding and admissible consumed-root
+shape are premises; the model does not construct their proofs.
 
 ## Transition induction
 
@@ -66,6 +83,7 @@ atomic model transition, the following deltas preserve the invariant:
 | First accepted Receive | T -= a; Nⱼ += a. |
 | First backed Receive with failing lineage input | T -= a; K += a. Bⱼ and Eⱼ both increase by a, leaving Nⱼ unchanged. |
 | Rejected unbacked Receive input | Bⱼ and Eⱼ both increase by a; no reserve category changes. |
+| Distinct committed duplicate Receive intake | Bⱼ and Eⱼ both increase by its optimistic amount; the first credit and all reserve categories remain unchanged. |
 | Completed fold | Dᵢ += Eᵢ; Eᵢ becomes zero; Nᵢ is unchanged. |
 | Unload face a | Nᵢ -= a; U += a. |
 | First Unload payout | R -= a; U -= a. The bound account receives a−c and the quoted beneficiary receives c, with 0 ≤ c ≤ a. |
@@ -92,8 +110,12 @@ resynchronization, independent fee custody, pre-closure Load races, late Receive
 after Retiring, checked integer boundaries and eight deliberately invalid state
 mutations. `schedules.py` adds exhaustive finite accounting graphs and reachable
 transition-mutation counterexamples; the exact completed bounds and counts are
-recorded in the [model README](README.md). Its larger three-wallet graph exhausts
-the declared one-Load/two-Payment/one-Unload vocabulary. Neither those finite graphs nor the
+recorded in the [model README](README.md). The Archive-corrected three-wallet
+graph completes, and final-source revalidation including the additional amount
+invariant completes all four profiles without a violation. The explicit duplicate
+containment transition has focused schedule and mutation coverage; it is not
+enumerated by the ordinary-operation finite graphs or the one-Send product.
+Neither those finite graphs nor the
 example schedules exhaust the full monetary state graph. The provider model's
 exhaustive counts apply only to that separate provider abstraction.
 

@@ -197,7 +197,8 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Changed receipt, anchor, source state, finality originals or recovery root;
-    /// missing/reordered paths, occupied insertion slot, or another operation.
+    /// missing/reordered paths, occupied insertion slot, or another operation. Local
+    /// decoder refusals retain their original cause and permit an unchanged retry.
     #[allow(clippy::too_many_arguments)]
     pub fn load_native_inputs(
         &self,
@@ -207,7 +208,7 @@ impl PreparationV1<'_> {
         public: &KagemushaWalletLineagePublicV1,
         q: [load::QInput; 3],
         budget: MemoryBudget,
-    ) -> Result<load::Inputs, Error> {
+    ) -> Result<load::Inputs, wallet_state::Error> {
         self.load_fold_fields(owner, step, predecessor, public, budget)
             .map(|fields| fields.with_q(q))
     }
@@ -221,15 +222,19 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
         budget: MemoryBudget,
-    ) -> Result<LoadFoldFieldsV1, Error> {
+    ) -> Result<LoadFoldFieldsV1, wallet_state::Error> {
         let capsule = &step.frozen.capsule;
         let fields = self.load_fields(owner, step, predecessor, public, budget)?;
-        let insertion = load_recovery(
-            &capsule.statement.effect,
-            &capsule.map_openings,
+        let insertion = super::dispatch::proof(load_recovery(
+            &capsule.body().statement.effect,
+            &capsule.body().map_openings,
             &predecessor.source_state.core.load_redeem_recovery_root,
-            &capsule.successor_state.core.load_redeem_recovery_root,
-        )?;
+            &capsule
+                .body()
+                .successor_state
+                .core
+                .load_redeem_recovery_root,
+        ))?;
         Ok(LoadFoldFieldsV1 {
             state: fields.state,
             sigma: fields.sigma,
@@ -273,7 +278,7 @@ impl PreparationV1<'_> {
         public: &KagemushaWalletLineagePublicV1,
         budget: MemoryBudget,
     ) -> Result<BootstrapFoldFieldsV1, Error> {
-        no_map_openings(&step.frozen.capsule.map_openings)?;
+        no_map_openings(&step.frozen.capsule.body().map_openings)?;
         let fields = self.bootstrap_fields(owner, step, public, budget)?;
         Ok(BootstrapFoldFieldsV1 {
             state: fields.state,
@@ -315,13 +320,23 @@ impl PreparationV1<'_> {
         budget: MemoryBudget,
     ) -> Result<ConsumingFoldFieldsV1, Error> {
         let capsule = &step.frozen.capsule;
-        let fields =
-            self.consuming_fields(capsule.kind, owner, step, predecessor, public, budget)?;
+        let fields = self.consuming_fields(
+            capsule.body().kind,
+            owner,
+            step,
+            predecessor,
+            public,
+            budget,
+        )?;
         let recovery = consuming_recovery(
-            &capsule.statement.effect,
-            &capsule.map_openings,
+            &capsule.body().statement.effect,
+            &capsule.body().map_openings,
             &predecessor.source_state.core.load_redeem_recovery_root,
-            &capsule.successor_state.core.load_redeem_recovery_root,
+            &capsule
+                .body()
+                .successor_state
+                .core
+                .load_redeem_recovery_root,
         )?;
         Ok(ConsumingFoldFieldsV1 {
             state: fields.state,

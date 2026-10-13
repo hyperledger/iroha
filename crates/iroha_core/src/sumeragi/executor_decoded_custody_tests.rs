@@ -17,6 +17,7 @@ fn original_attempt(worker: &Worker<'_>, block: &AvailableBody) -> SignatureDeco
         decoded: None,
         returned_refusal: None,
         amx_legs: None,
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
     }
 }
 
@@ -181,19 +182,71 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
                 .external_entrypoints_slice()
                 .as_ptr();
             worker.signature_decode = Some(attempt);
-            let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+            // Routing now authenticates the root metadata before the lane policy.
+            // Fund only that exact completed prefix so this control still reaches
+            // the policy reader rather than comparing two different JSON operations.
+            let prefix = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                64,
+            ));
+            prefix.with(|| {
+                assert!(worker.state.view().latest_block().unwrap().is_some());
+                assert!(
+                    super::super::lanes::routing::read_routing_root_scope(
+                        worker.state.view().world(),
+                    )
+                    .unwrap()
+                    .is_some()
+                );
+            });
+            let prefix_bytes = usize::try_from(prefix.consumed_allocated_bytes()).unwrap();
+            assert!(
+                prefix_bytes > 0,
+                "the actual root reader consumes its measured prefix"
+            );
+            let limits =
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, prefix_bytes, 64);
             let original = norito::with_decode_limits_scope(limits, || {
+                assert!(worker.state.view().latest_block().unwrap().is_some());
+                assert!(
+                    super::super::lanes::routing::read_routing_root_scope(
+                        worker.state.view().world(),
+                    )
+                    .unwrap()
+                    .is_some()
+                );
                 super::super::lanes::lane_policy(worker.state.view().world()).unwrap_err()
             });
             assert_eq!(
                 original.reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
             );
-            assert!(
-                matches!(norito::with_decode_limits_scope(limits, || worker.run_execution(&block, hash)),
-                Err(PublicationError::Deferred(ref source)) if source.execution() == Some(&original))
+            let routed_budget = norito::core::DecodeBudgetContext::new(limits);
+            let failure = routed_budget
+                .with(|| worker.run_execution(&block, hash, false))
+                .unwrap_err();
+            assert_eq!(
+                routed_budget.consumed_allocated_bytes(),
+                u64::try_from(prefix_bytes).unwrap(),
+                "the actual root prefix completes before the lane policy refuses"
             );
-            assert_eq!(worker.routing_refusal.as_ref(), Some(&original));
+            let PublicationError::Deferred(ref source) = failure else {
+                panic!("actual typed original policy refusal");
+            };
+            let retained = source.execution().unwrap();
+            assert_eq!(retained.reason(), original.reason());
+            assert_eq!(
+                retained.decode_refusal().unwrap().resource_error(),
+                original.decode_refusal().unwrap().resource_error()
+            );
+            assert_ne!(
+                retained.decode_refusal(),
+                original.decode_refusal(),
+                "separate actual operations retain separate scope identity"
+            );
             let attempt = worker.signature_decode.as_ref().unwrap();
             assert_eq!(
                 attempt
@@ -217,8 +270,8 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
             assert!(events.try_recv().is_err());
             assert_eq!(worker.state.view().height(), 1);
             assert!(matches!(
-                worker.execute(&block, hash),
-                Some(ExecOutcome::Valid(_))
+                worker.execute(&block, hash, false),
+                Ok(Some(ExecOutcome::Valid { .. }))
             ));
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase
             else {
@@ -229,7 +282,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
                 entries
             );
             assert!(worker.signature_decode.is_none());
-            assert!(worker.routing_refusal.is_none());
+
             assert_eq!(worker.state.view().height(), 1);
         },
     );
@@ -378,7 +431,7 @@ fn explicit_completed_decoded_rejection_retires_only_original_height_view_hash()
         );
         worker.reject(block.header().height, block.header().origin_view, hash);
         assert!(worker.signature_decode.is_none());
-        assert!(worker.routing_refusal.is_none());
+
         assert!(worker.results.is_empty());
         assert!(events.try_recv().is_err());
         assert_eq!(worker.state.view().height(), 1);

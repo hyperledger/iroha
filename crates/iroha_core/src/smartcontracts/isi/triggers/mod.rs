@@ -471,15 +471,13 @@ pub mod isi {
         )
         .summarize_executable(bytecode)
         .map_err(|error| {
-            if let Some(reason) = crate::execution_attempt::ExecutionDeferred::from_vm_error(&error)
-            {
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason)
-            } else {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(Error::InvalidParameter(
-                    InvalidParameterError::SmartContract(format!(
+            match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                Ok(original) => crate::execution_attempt::ExecutionAttemptError::Deferred(original),
+                Err(error) => crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    Error::InvalidParameter(InvalidParameterError::SmartContract(format!(
                         "invalid IVM trigger program: {error}"
-                    )),
-                ))
+                    ))),
+                ),
             }
         })?;
         if matches!(
@@ -1227,6 +1225,96 @@ pub mod isi {
         use super::*;
 
         #[test]
+        fn instruction_payload_of_exactly_the_bound_is_admitted_and_one_byte_more_is_refused() {
+            use crate::{
+                kura::Kura,
+                query::store::LiveQueryStore,
+                state::{State, World},
+            };
+            use iroha_data_model::parameter::{CustomParameter, CustomParameterId, Parameter};
+            use iroha_primitives::json::Json;
+            use std::str::FromStr as _;
+
+            /// A JSON array document of exactly `bytes` bytes: `["xx..x"]`.
+            fn payload(bytes: usize) -> Json {
+                let value = Json::new(vec!["x".repeat(bytes - 4)]);
+                assert_eq!(value.get().len(), bytes, "the fixture has the asked size");
+                value
+            }
+            /// A bare JSON string whose content, without its quotes, has `bytes` bytes.
+            fn string_payload(bytes: usize) -> Json {
+                let value = Json::new("x".repeat(bytes));
+                assert_eq!(
+                    value.get().len(),
+                    bytes + 2,
+                    "two quotes surround the content"
+                );
+                value
+            }
+
+            let state = State::new_for_testing(
+                World::default(),
+                Kura::blank_kura_for_testing(),
+                LiveQueryStore::start_test(),
+            );
+            let header = iroha_data_model::block::BlockHeader::new(
+                core::num::NonZeroU64::MIN,
+                None,
+                None,
+                0,
+                0,
+            );
+            let mut block = state.block(header);
+            let mut transaction = block.transaction();
+            let refused = |error: Error, expected: &str| {
+                assert!(
+                    matches!(
+                        &error,
+                        Error::InvalidParameter(InvalidParameterError::SmartContract(message))
+                            if message == expected
+                    ),
+                    "unexpected refusal: {error:?}"
+                );
+            };
+            // No custom parameter is committed: the default (1 MiB) applies and a payload
+            // of exactly the default is admitted. The default is also the largest JSON
+            // document the data model can hold, so no payload of one byte more exists.
+            enforce_payload_limit(&mut transaction, &payload(1_048_576))
+                .expect("a payload of exactly the default bound is admitted");
+            assert_eq!(iroha_primitives::json::MAX_JSON_BYTES, 1_048_576);
+            assert!(Json::try_new(vec!["x".repeat(1_048_576 - 3)]).is_err());
+            // A committed custom parameter replaces the default: exactly its value is
+            // admitted and one byte more is refused.
+            let name = CustomParameterId::from_str("max_instruction_payload_bytes")
+                .expect("parameter name");
+            transaction
+                .world
+                .parameters_mut_for_testing()
+                .get_mut()
+                .set_parameter(Parameter::Custom(CustomParameter::new(
+                    name,
+                    Json::new(64_u64),
+                )))
+                .expect("valid fixture parameters");
+            enforce_payload_limit(&mut transaction, &payload(64))
+                .expect("a payload of exactly the committed bound is admitted");
+            refused(
+                enforce_payload_limit(&mut transaction, &payload(65))
+                    .expect_err("a payload one byte above the committed bound is refused"),
+                "Instruction payload too large: 65 > 64 bytes",
+            );
+            // The length compared is that of `Json::as_ref`: the document, or for a bare
+            // string its content without the two quotes.
+            enforce_payload_limit(&mut transaction, &string_payload(64))
+                .expect("a bare string is measured without its quotes");
+            refused(
+                enforce_payload_limit(&mut transaction, &string_payload(65))
+                    .expect_err("a bare string of one content byte above the bound is refused"),
+                "Instruction payload too large: 65 > 64 bytes",
+            );
+        }
+
+        #[test]
         fn contract_trigger_registration_requires_event_supplied_arguments() {
             use crate::execution_attempt::ExecutionAttemptError;
             use crate::smartcontracts::ivm::cache::PreparedContractCache;
@@ -1393,21 +1481,6 @@ pub mod query {
         }
         best
     }
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn trigger_candidate_ids_are_intersected() {
-            let rose_id: TriggerId = "intersect_rose".parse().unwrap();
-            let tulip_id: TriggerId = "intersect_tulip".parse().unwrap();
-            let iris_id: TriggerId = "intersect_iris".parse().unwrap();
-            let mut candidates = None;
-            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), tulip_id]));
-            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), iris_id]));
-            assert_eq!(candidates, Some(BTreeSet::from([rose_id])));
-        }
-    }
     fn trigger_alias_values(trigger: &Trigger, field: &str) -> Vec<String> {
         match field {
             "id" => vec![trigger.id().to_string()],
@@ -1517,6 +1590,21 @@ pub mod query {
                 .trigger_by_id_bounded(self.trigger_id())?
                 .ok_or_else(|| Error::Find(FindError::Trigger(self.trigger_id().clone())))?;
             Ok(trigger)
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn trigger_candidate_ids_are_intersected() {
+            let rose_id: TriggerId = "intersect_rose".parse().unwrap();
+            let tulip_id: TriggerId = "intersect_tulip".parse().unwrap();
+            let iris_id: TriggerId = "intersect_iris".parse().unwrap();
+            let mut candidates = None;
+            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), tulip_id]));
+            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), iris_id]));
+            assert_eq!(candidates, Some(BTreeSet::from([rose_id])));
         }
     }
 }
@@ -3503,7 +3591,11 @@ mod tests {
             .unwrap();
         let id = CustomParameterId::from_str("max_metadata_value_bytes").unwrap();
         let param = Parameter::Custom(CustomParameter::new(id, Json::new(4u32)));
-        stx.world.parameters.get_mut().set_parameter(param);
+        stx.world
+            .parameters
+            .get_mut()
+            .set_parameter(param)
+            .expect("valid fixture parameters");
         let mut metadata = Metadata::default();
         metadata.insert("oversized".parse().unwrap(), Json::new("0123456789"));
         let trigger = Trigger::new(

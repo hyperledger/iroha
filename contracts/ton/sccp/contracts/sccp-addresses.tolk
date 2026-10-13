@@ -3,6 +3,7 @@
 // off-chain tool computes them from code hash and depth alone.
 
 import "sccp-constants"
+import "sccp-recovery"
 import "sccp-storage"
 
 /// StateInit destination of the Jetton wallet of `owner` (zero balance).
@@ -11,6 +12,7 @@ fun sccpWalletDeployment(owner: address, minter: address, walletCode: cell): Aut
         jettonBalance: 0,
         ownerAddress: owner,
         minterAddress: minter,
+        recovery: RecoveryReceipts.empty().toCell(),
     };
     return { workchain: SCCP_WORKCHAIN, stateInit: { code: walletCode, data: data.toCell() } };
 }
@@ -29,11 +31,13 @@ fun sccpBucketDeployment(minter: address, index: int, bucketCode: cell): AutoDep
         activated: false,
         bitsHi: 0,
         bitsLo: 0,
+        recovery: RecoveryReceipts.empty().toCell(),
     };
     return { workchain: SCCP_WORKCHAIN, stateInit: { code: bucketCode, data: data.toCell() } };
 }
 
 /// Address of bucket `index` (nonces `index·512 .. index·512 + 511`).
+@inline_ref
 fun sccpBucketAddress(minter: address, index: int, bucketCode: cell): address {
     return sccpBucketDeployment(minter, index, bucketCode).calculateAddress();
 }

@@ -93,9 +93,8 @@ async fn diagnostic_openings_require_compute_admission_when_native_operations_di
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .pipa_r
-        .enabled = false;
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();
@@ -128,9 +127,8 @@ async fn diagnostic_openings_require_compute_admission_when_native_operations_en
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .pipa_r
-        .enabled = true;
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();
@@ -917,7 +915,8 @@ impl iroha_core::soracloud_runtime::SoracloudRuntime for TestLocalReadRuntime {
         iroha_core::soracloud_runtime::SoracloudOrderedMailboxExecutionResult,
         iroha_core::soracloud_runtime::SoracloudRuntimeExecutionError,
     > {
-        let message = if self.state_dir == PathBuf::from("/tmp/soracloud/runtime") {
+        let message = if self.state_dir.as_path() == std::path::Path::new("/tmp/soracloud/runtime")
+        {
             "test runtime handle does not implement mailbox execution"
         } else {
             "test runtime does not implement mailbox execution"
@@ -936,7 +935,8 @@ impl iroha_core::soracloud_runtime::SoracloudRuntime for TestLocalReadRuntime {
         iroha_core::soracloud_runtime::SoracloudApartmentExecutionResult,
         iroha_core::soracloud_runtime::SoracloudRuntimeExecutionError,
     > {
-        let message = if self.state_dir == PathBuf::from("/tmp/soracloud/runtime") {
+        let message = if self.state_dir.as_path() == std::path::Path::new("/tmp/soracloud/runtime")
+        {
             "test runtime handle does not implement apartment execution"
         } else {
             "test runtime does not implement apartment execution"
@@ -1426,8 +1426,7 @@ fn seed_public_soracloud_world() -> World {
 #[cfg(feature = "app_api")]
 fn hosted_http_runtime_plan(
     materialization_dir: &Path,
-    service_name: &str,
-    service_version: &str,
+    (service_name, service_version): (&str, &str),
     materialized_bundle_hash: String,
     role: iroha_core::soracloud_runtime::SoracloudRuntimeRevisionRole,
     traffic_percent: u8,
@@ -2295,16 +2294,17 @@ fn seed_public_hosted_http_current_app_with_replica_plans_and_snapshot_peer_id(
         &candidate_assignments,
     );
     let baseline_dir = temp.path().join("service-baseline");
-    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot::default();
-    snapshot.local_peer_id = snapshot_local_peer_id;
+    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot {
+        local_peer_id: snapshot_local_peer_id,
+        ..Default::default()
+    };
     snapshot.services.insert(
         service_name.to_owned(),
         BTreeMap::from([(
             baseline_version.to_owned(),
             hosted_http_runtime_plan(
                 &baseline_dir,
-                service_name,
-                baseline_version,
+                (service_name, baseline_version),
                 baseline_bundle.container.bundle_hash.to_string(),
                 iroha_core::soracloud_runtime::SoracloudRuntimeRevisionRole::Active,
                 100,
@@ -2591,19 +2591,15 @@ async fn run_public_local_read_route_case(case: PublicLocalReadRouteCase) {
     use tower::ServiceExt as _;
     let spec = public_local_read_route_spec(case);
     let world = seed_public_soracloud_world();
-    let bindings = match spec.artifact_hash_seed {
-        Some(seed) => vec![iroha_core::soracloud_runtime::SoracloudLocalReadBinding {
+    let bindings = spec.artifact_hash_seed.map_or_else(Vec::new, |seed| {
+        vec![iroha_core::soracloud_runtime::SoracloudLocalReadBinding {
             binding_name: None,
             state_key: None,
             payload_commitment: None,
             artifact_hash: Some(Hash::new(seed)),
-        }],
-        None => Vec::new(),
-    };
-    let cache_control = match spec.cache_control {
-        Some(value) => Some(value.to_owned()),
-        None => None,
-    };
+        }]
+    });
+    let cache_control = spec.cache_control.map(str::to_owned);
     let captured_requests = Arc::new(std::sync::Mutex::new(Vec::new()));
     let runtime = TestLocalReadRuntime::with_result(
         iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot::default(),
@@ -2962,16 +2958,17 @@ async fn travel_split_topology_fixture(mode: TravelSplitVaultMode) -> TravelSpli
             iroha_data_model::soracloud::SoraServiceHealthStatusV1::Healthy,
         )],
     );
-    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot::default();
-    snapshot.local_peer_id = Some(live_peer_id.to_string());
+    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot {
+        local_peer_id: Some(live_peer_id.to_string()),
+        ..Default::default()
+    };
     snapshot.services.insert(
         "travel_ops_live".to_owned(),
         BTreeMap::from([(
             "2026.04.0".to_owned(),
             hosted_http_runtime_plan(
                 &live_materialization_dir,
-                "travel_ops_live",
-                "2026.04.0",
+                ("travel_ops_live", "2026.04.0"),
                 live_bundle.container.bundle_hash.to_string(),
                 iroha_core::soracloud_runtime::SoracloudRuntimeRevisionRole::Active,
                 100,
@@ -3082,7 +3079,7 @@ async fn soracloud_public_split_app_routes_hosted_live_and_local_vault_on_one_no
     upstream_task.abort();
 }
 
-pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) -> SharedAppState {
+pub fn app_with_root_scope_for_handler_test(world: World, private: bool) -> SharedAppState {
     use iroha_data_model::{
         block::consensus::SumeragiRootScope,
         parameter::{
@@ -3126,7 +3123,8 @@ pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) 
         .set_parameter(Parameter::Custom(CustomParameter::new(
             consensus_metadata::handshake_meta_id(),
             Json::new(metadata),
-        )));
+        )))
+        .expect("valid fixture parameters");
     transaction.apply();
     block.commit_world_overlay_for_testing().unwrap();
     app

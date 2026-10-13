@@ -42,7 +42,7 @@ fn cancel_and_resume(payment: bool) {
     let mut wallet = wallet();
     wallet.proofs.checkpoint_stages = 3;
     let boot = bootstrap();
-    let operation = boot.capsule.operation_id;
+    let operation = boot.capsule.body().operation_id;
     let completion = wallet.commit(boot).expect("real signed mock completion");
     let scheduler = wallet.scheduler();
     scheduler.set_activity(true, false);

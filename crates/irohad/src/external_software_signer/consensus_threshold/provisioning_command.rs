@@ -82,7 +82,7 @@ struct Receipt {
     catalog_hash: Hash,
 }
 
-pub(crate) fn dispatch_if_requested() -> bool {
+pub fn dispatch_if_requested() -> bool {
     let mut args = std::env::args_os();
     let _ = args.next();
     if args.next().as_deref() != Some(OsStr::new("beacon-prepare-custody")) {
@@ -351,14 +351,14 @@ pub(super) fn validate_retained_incumbent(
     incumbent_index: Option<u16>,
     active: iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1,
 ) -> Result<(), &'static str> {
-    if let Some(index) = incumbent_index {
-        if !retained.iter().any(|entry| {
+    if let Some(index) = incumbent_index
+        && !retained.iter().any(|entry| {
             entry.signer_index() == index
                 && entry.public_session().session_id == active.session_id
                 && entry.public_session().transcript_hash == active.transcript_hash
-        }) {
-            return Err("retained credential omits exact incumbent session custody");
-        }
+        })
+    {
+        return Err("retained credential omits exact incumbent session custody");
     }
     Ok(())
 }

@@ -67,9 +67,14 @@ fn original_native_history_authenticates_every_certificate_intersection_signer()
     let evidence = Evidence::from_native(&conflict(&chain, 2)).unwrap();
     let view = chain.state().view();
     let generation = chain.state().state_view_generation();
-    let mut read =
-        admission::AdmissionRead::capture(chain.state(), &view, generation, 3, &[evidence.clone()])
-            .unwrap();
+    let mut read = admission::AdmissionRead::capture(
+        chain.state(),
+        &view,
+        generation,
+        3,
+        std::slice::from_ref(&evidence),
+    )
+    .unwrap();
     read.complete().unwrap();
     let admissions = read.finish().unwrap();
     let attribution = admissions.as_slice()[0].attribution();
@@ -90,8 +95,14 @@ fn original_native_history_authenticates_every_certificate_intersection_signer()
         );
     }
     assert!(
-        admission::AdmissionRead::capture(chain.state(), &view, generation, 2, &[evidence.clone()])
-            .is_err()
+        admission::AdmissionRead::capture(
+            chain.state(),
+            &view,
+            generation,
+            2,
+            std::slice::from_ref(&evidence)
+        )
+        .is_err()
     );
     assert!(
         admission::AdmissionRead::capture(
@@ -156,10 +167,15 @@ fn captured_admission_uses_the_original_parent_even_after_successor_admission() 
     let generation = state.state_view_generation();
     let parent = state.view();
     assert_eq!(parent.height(), 2);
-    let mut captured =
-        admission::AdmissionRead::capture(&state, &parent, generation, 3, &[evidence.clone()])
-            .unwrap();
-    assert!(captured.matches(generation, 3, &[evidence.clone()]));
+    let mut captured = admission::AdmissionRead::capture(
+        &state,
+        &parent,
+        generation,
+        3,
+        std::slice::from_ref(&evidence),
+    )
+    .unwrap();
+    assert!(captured.matches(generation, 3, std::slice::from_ref(&evidence)));
     chain.commit(Vec::new());
     assert!(
         state
@@ -204,7 +220,7 @@ fn original_carrier_admits_then_finality_terminalizes_exact_parent_evidence() {
                 &view,
                 chain.state().state_view_generation(),
                 4,
-                &[record.evidence.clone()]
+                &[record.native_evidence().unwrap().clone()]
             )
             .is_err()
         );
@@ -355,10 +371,8 @@ pub(super) fn vote_pair(
             sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
         };
         vote.sig = Signature(
-            iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };
@@ -441,14 +455,18 @@ fn lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_in
     // Predicate-only records: raw proof bytes and claimed attribution grant no admission.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let original = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [0x31; 32],
@@ -476,7 +494,9 @@ fn lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_in
         admission_parent_result: [0x34; 32],
     };
     let mut record = EvidenceRecord {
-        evidence: Evidence { native: Vec::new() },
+        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(Evidence {
+            native: Vec::new(),
+        }),
         attribution: EvidenceAttribution {
             scope: EvidenceScope::Lane(scope),
             instance: original.instance,
@@ -606,9 +626,14 @@ fn original_lane_history_refusal_reaches_evidence_without_recovery_or_rejection(
     let Attempt::Deferred(original) = &error else {
         panic!("original history was erased: {error:?}")
     };
-    let original = original.clone();
-    let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
-        original.allocation_refusal()
+    let original_reason = original.reason();
+    let original_phase = original.phase();
+    assert!(original.decode_refusal().is_none() && original.verification_refusal().is_none());
+    let original = original
+        .allocation_refusal()
+        .expect("original pool cause")
+        .clone();
+    let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) = Some(&original)
     else {
         panic!("actual original archive capacity")
     };
@@ -616,7 +641,7 @@ fn original_lane_history_refusal_reaches_evidence_without_recovery_or_rejection(
     let mut context = Context::from_waker(std::task::Waker::noop());
     assert!(registration.poll_wait(&wait, &mut context).is_pending());
     assert!(
-        matches!(classify(EvidenceAdmissionError::Source(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained == original)
+        matches!(classify(EvidenceAdmissionError::Source(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained.reason() == original_reason && retained.phase() == original_phase && retained.allocation_refusal() == Some(&original) && retained.decode_refusal().is_none() && retained.verification_refusal().is_none())
     );
     drop(occupied);
     assert!(registration.poll_wait(&wait, &mut context).is_ready());
@@ -641,14 +666,18 @@ fn local_lane_observations_use_inclusive_retirement_and_never_a_native_height_cl
     // Local queue predicates only: these deliberately raw frames grant no proposal authority.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let row = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [31; 32],
@@ -892,13 +921,18 @@ fn original_signed_evidence_root_scope_refusal_stays_local_and_retries_same_stat
         else {
             panic!("original signed root decode refusal was erased: {error:?}")
         };
-        assert_eq!(local, &original_local);
+        assert_eq!(local.reason(), original_local.reason());
+        let original_reason = local.reason();
+        let original_decode = local.decode_refusal().cloned();
+        let original_allocation = local.allocation_refusal().cloned();
         let admission = EvidenceAdmissionError::from(error);
         assert!(admission::retryable(&admission));
         let classified = classify(admission);
         assert!(
             matches!(classified, crate::block::BlockValidationError::ExecutionDeferred(local)
-                if local == original_local),
+                if local.reason() == original_reason
+                    && local.decode_refusal() == original_decode.as_ref()
+                    && local.allocation_refusal() == original_allocation.as_ref()),
             "root refusal must not become signed-input rejection or storage recovery"
         );
         assert_eq!(execution_pool.reserved_bytes(), expected_reserved);
@@ -966,7 +1000,7 @@ fn original_root_observation_refusal_keeps_pending_bytes_and_same_state_retry() 
     let error = norito::with_decode_limits_scope(limits(policy_bytes), || observe(state, &native))
         .unwrap_err();
     assert!(
-        matches!(&error, EvidenceAdmissionError::History(Attempt::Deferred(local)) if *local == expected),
+        matches!(&error, EvidenceAdmissionError::History(Attempt::Deferred(local)) if local.reason() == expected.reason() && local.allocation_refusal().is_none()),
         "real root observation lost original decode refusal: {error:?}"
     );
     assert!(admission::retryable(&error));
@@ -1075,4 +1109,43 @@ fn global_verified_offender_graph_retains_original_pool_through_closed_move() {
     drop(attribution);
     assert_eq!(budget.reserved_bytes(), baseline);
     assert_eq!(preparation.reserved_bytes(), preparation_baseline);
+}
+
+#[test]
+fn unsupported_generation_scope_is_neither_native_pruning_clock_nor_admission() {
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    let chain = chain();
+    let view = chain.state().view();
+    // A standalone canonical claim is DATA; no supported World owner admits it.
+    let mut record = EvidenceRecord {
+        evidence: RecordedEvidenceV1::Native(Evidence { native: Vec::new() }),
+        attribution: EvidenceAttribution {
+            scope: EvidenceScope::SccpGeneration { generation: 1 },
+            instance: [1; 32],
+            height: 1,
+            epoch: 0,
+            context_id: [2; 32],
+            authority_generation: [3; 32],
+            offenders: Vec::new(),
+            safety_violation: false,
+        },
+        recorded_at_height: 2,
+        recorded_at_view: 0,
+        recorded_at_ms: 2000,
+        penalty_status: EvidencePenaltyStatus::Pending,
+    };
+    assert!(
+        !committed_evidence_record_is_prunable(view.world(), &record, u64::MAX).unwrap(),
+        "pending claim must not lose its fence"
+    );
+    record.penalty_status = EvidencePenaltyStatus::Applied { height: 4 };
+    assert!(
+        matches!(committed_evidence_record_is_prunable(view.world(), &record, u64::MAX), Err(EvidenceAdmissionError::Invalid(reason)) if reason == "retained evidence material and lifecycle scope differ")
+    );
+    let pool = iroha_allocation::AllocationBudget::new(1 << 20);
+    assert!(matches!(
+        crate::state::RetainedEvidenceRecord::from_fixture(record, &pool),
+        Err(record::EvidenceRecordRestoreError::UnsupportedSccp)
+    ));
+    assert_eq!(pool.reserved_bytes(), 0);
 }

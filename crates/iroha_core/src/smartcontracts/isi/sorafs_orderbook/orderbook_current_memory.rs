@@ -344,10 +344,11 @@ pub(super) mod tests {
         })
         .expect("commit bounded channel-query fixture");
         let nexus = state.nexus_snapshot();
+        let pipeline = state.installed_pipeline().clone();
         let mut configuration =
             crate::sumeragi::test_chain::TestChainConfig::new(state.world, NOW * 1_000);
         configuration.genesis_key = settlement.clone();
-        configuration.pipeline = state.pipeline;
+        configuration.pipeline = pipeline;
         configuration.governance = Some(state.gov);
         configuration.nexus = Some(nexus);
         let chain = crate::sumeragi::test_chain::CertifiedTestChain::start(configuration)

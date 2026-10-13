@@ -184,6 +184,8 @@ fn immutable_images_decode_once_but_keep_all_three_complete_fresh_censuses() {
     let fixture = Fixture::new();
     let mut reader = EpochReader::default();
     reset_counts();
+    let timing =
+        crate::managed::stream_token_custody::body_history::finish_timing::Capture::start();
     reader
         .validate_retained(
             &fixture.parent,
@@ -209,6 +211,13 @@ fn immutable_images_decode_once_but_keep_all_three_complete_fresh_censuses() {
             digests: 2,
             names: 6
         }
+    );
+    assert_eq!(
+        timing.finish().sample(
+            crate::managed::stream_token_custody::body_history::finish_timing::Phase::EpochRecordDecode,
+        ).0,
+        3,
+        "only the three genuine cold decodes are timed; fresh exact-image reads are not",
     );
     assert!(reader.records[0].epoch.value == fixture.first);
     assert!(reader.records[1].epoch.value == fixture.second);

@@ -117,6 +117,7 @@ fn original(step: &ReleasedStep, role: KagemushaWalletRetainedInputRoleV1) -> Re
     let mut values = step
         .frozen
         .capsule
+        .body()
         .retained_inputs
         .iter()
         .filter(|item| item.role == role);
@@ -144,13 +145,13 @@ fn selector(step: &ReleasedStep) -> Result<OperationRoute, Error> {
     use KagemushaWalletOperationKindV1 as K;
     use KagemushaWalletRetainedInputRoleV1 as R;
     let capsule = &step.frozen.capsule;
-    let (variant, own, incoming) = match capsule.kind {
+    let (variant, own, incoming) = match capsule.body().kind {
         K::Bootstrap => (Variant::Bootstrap, 0, None),
         K::Load => (Variant::Load, 1, None),
         K::Send => (
             Variant::Send,
             2_u8.checked_add(
-                u8::try_from(capsule.statement.enabled_controls)
+                u8::try_from(capsule.body().statement.enabled_controls)
                     .map_err(|_| Error::Invalid("Send mask"))?,
             )
             .ok_or(Error::Invalid("Send mask"))?,
@@ -193,7 +194,7 @@ fn selector(step: &ReleasedStep) -> Result<OperationRoute, Error> {
         K::Unload => (Variant::Unload, 13, None),
         K::RefreshPolicy => {
             let KagemushaWalletEffectV1::RefreshPolicy { update_kind, .. } =
-                capsule.statement.effect
+                capsule.body().statement.effect
             else {
                 return Err(Error::Invalid("Refresh route"));
             };
@@ -401,7 +402,7 @@ impl NativeFoldWorkerV1 {
             self.budget,
         )?;
         prepared.verify_frozen(preparation, &step.frozen, self.budget)?;
-        let actual = selected.finish(&step.frozen.capsule.successor_state)?;
+        let actual = selected.finish(&step.frozen.capsule.body().successor_state)?;
         if custody_codec::encode(&actual)? != custody_codec::encode(draft)? {
             return Err(Error::WitnessLost("fold changed native preparation"));
         }
@@ -413,7 +414,7 @@ impl NativeFoldWorkerV1 {
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         custody: &mut FoldCustodyV1<'_>,
     ) -> Result<Vec<CheckpointLayout>, Error> {
-        if (step.frozen.capsule.kind == KagemushaWalletOperationKindV1::Bootstrap)
+        if (step.frozen.capsule.body().kind == KagemushaWalletOperationKindV1::Bootstrap)
             != predecessor.is_none()
             || custody.predecessor().is_some() != predecessor.is_some()
         {
@@ -461,7 +462,7 @@ impl NativeFoldWorkerV1 {
             Some(self.replay(&preparation, step, predecessor, custody)?)
         };
         cancellation.check()?;
-        let state = &step.frozen.capsule.successor_state;
+        let state = &step.frozen.capsule.body().successor_state;
         let mut public = KagemushaWalletLineagePublicV1 {
             version: 1,
             scheme_id: state.core.scheme_id,
@@ -490,13 +491,13 @@ impl NativeFoldWorkerV1 {
                 else {
                     return Err(Error::Proof("Load owner"));
                 };
-                Fields::Load(proof(preparation.load_fold_fields(
+                Fields::Load(preparation.load_fold_fields(
                     &owner,
                     step,
                     folded.as_ref().ok_or(Error::FoldRequired)?,
                     &public,
                     self.budget,
-                ))?)
+                )?)
             }
             Variant::Send => {
                 custody.pending_insert()?;
@@ -560,7 +561,7 @@ impl NativeFoldWorkerV1 {
             }
             _ => {
                 let KagemushaWalletEffectV1::RefreshPolicy { update_kind, .. } =
-                    step.frozen.capsule.statement.effect
+                    step.frozen.capsule.body().statement.effect
                 else {
                     return Err(Error::Proof("Refresh update kind"));
                 };
@@ -603,12 +604,12 @@ impl NativeFoldWorkerV1 {
             .sigmas()
             .key(route.own)
             .ok_or(Error::Proof("own sigma selector"))?;
-        let sigma = &step.frozen.capsule.step_proof.bytes;
+        let sigma = &step.frozen.capsule.body().step_proof.bytes;
         let q_sources = q::QSourcesV1 {
             own: SigmaSlotWitness {
                 key: own_key.key().clone(),
                 statement: Option::<Fp>::from(Fp::from_repr(valid(
-                    step.frozen.capsule.statement.statement_digest(),
+                    step.frozen.capsule.body().statement.statement_digest(),
                 )?))
                 .ok_or(Error::Invalid("statement field"))?,
                 proof: sigma.clone(),
@@ -620,7 +621,7 @@ impl NativeFoldWorkerV1 {
         let q_count = proof(self.sources.q(route))?.keys().len();
         let q = match self.q_stage(
             route,
-            valid(step.frozen.capsule.capsule_digest())?,
+            &step.frozen.capsule,
             &q_sources,
             &checkpoints[..checkpoints.len().min(q_count)],
             originals,

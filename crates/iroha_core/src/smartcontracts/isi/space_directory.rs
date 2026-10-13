@@ -256,7 +256,7 @@ fn permissions_allow_manifest<'a>(
 ) -> bool {
     permissions
         .into_iter()
-        .any(|permission| match permission.name().as_ref() {
+        .any(|permission| match permission.name() {
             MANIFEST_PERMISSION => permission
                 .payload()
                 .try_into_any_norito::<CanPublishSpaceDirectoryManifest>()
@@ -504,9 +504,11 @@ mod tests {
         // This fixture is a Global chain with a dynamically added DPN dataspace.
         {
             let mut parameters = state.world.parameters.block();
-            parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-                iroha_data_model::block::consensus::SumeragiRootScope::Global,
-            ));
+            parameters
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                    iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                ))
+                .expect("valid fixture parameters");
             parameters.commit();
         }
         // This isolated committed catalog fixture follows the native runtime reader tests.
@@ -535,11 +537,13 @@ mod tests {
         };
         {
             let mut world = state.world.block();
-            world.parameters.get_mut().set_parameter(
-                iroha_data_model::parameter::Parameter::Custom(
+            world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                     catalog.into_custom_parameter().unwrap(),
-                ),
-            );
+                ))
+                .expect("valid fixture parameters");
             world.commit();
             let mut runtime = state.canonical_runtime.block();
             runtime.get_mut().owner_policy.dataspaces.push(

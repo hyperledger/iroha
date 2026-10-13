@@ -632,8 +632,8 @@ mod tests {
         let budget = iroha_allocation::AllocationBudget::new(0);
         let error = verify_contract_artifact_with_memory_budget(&artifact, &budget).unwrap_err();
         assert!(matches!(
-            error.local_vm_error(),
-            Some(VMError::AllocationDeferred(_))
+            error.try_into_local_vm_error(),
+            Ok(VMError::AllocationDeferred(_))
         ));
         assert_eq!(budget.reserved_bytes(), 0);
         budget.set_limit_bytes(1024 * 1024);
@@ -650,8 +650,12 @@ mod tests {
         malformed[baseline.code_offset..baseline.code_offset + 4]
             .copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(
-            verify_contract_artifact_with_memory_budget(&malformed, &budget).unwrap_err(),
-            verify_contract_artifact(&malformed).unwrap_err(),
+            verify_contract_artifact_with_memory_budget(&malformed, &budget)
+                .unwrap_err()
+                .to_string(),
+            verify_contract_artifact(&malformed)
+                .unwrap_err()
+                .to_string(),
         );
         assert_eq!(
             budget.reserved_bytes(),
@@ -669,10 +673,12 @@ mod tests {
             || verify_contract_artifact(&artifact),
         )
         .expect_err("enclosing allocation refusal must reach admission");
+        let retained = refusal.try_into_local_vm_error().unwrap();
         assert_eq!(
-            refusal.into_vm_error(),
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
+            retained.execution_deferral(),
+            Some(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
+        assert!(matches!(retained, VMError::DecodeDeferred(_)));
         let retry =
             verify_contract_artifact(&artifact).expect("retry unchanged canonical artifact");
         assert_eq!(retry.code_hash, baseline.code_hash);
@@ -693,7 +699,7 @@ mod tests {
             || verify_contract_artifact_with_memory_budget(&artifact, &budget),
         )
         .unwrap_err();
-        assert!(error.local_vm_error().is_none());
+        assert!(!error.is_local_deferral());
         assert!(error.to_string().contains("program version 1.0"), "{error}");
         assert_eq!(budget.reserved_bytes(), 0);
         artifact[5] = 1;
@@ -735,10 +741,12 @@ mod tests {
             || parse_contract_metadata(&artifact),
         )
         .unwrap_err();
+        let retained = error.try_into_local_vm_error().unwrap();
         assert_eq!(
-            error.into_vm_error(),
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity,)
+            retained.execution_deferral(),
+            Some(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
+        assert!(matches!(retained, VMError::DecodeDeferred(_)));
         assert_eq!(
             parse_contract_metadata(&artifact).unwrap().contract_debug,
             parsed.contract_debug
@@ -856,10 +864,10 @@ mod tests {
             dsids: vec![dsid],
             touches: vec![touch.clone()],
         };
-        assert_eq!(
+        assert!(matches!(
             literal::validate_literal_payload(PointerType::AxtDescriptor, &encoded(&valid)),
             Ok(())
-        );
+        ));
         let invalid = [
             AxtDescriptor {
                 dsids: Vec::new(),
@@ -891,12 +899,14 @@ mod tests {
             },
         ];
         for descriptor in invalid {
-            assert_eq!(
-                literal::validate_literal_payload(
-                    PointerType::AxtDescriptor,
-                    &encoded(&descriptor)
+            assert!(
+                matches!(
+                    literal::validate_literal_payload(
+                        PointerType::AxtDescriptor,
+                        &encoded(&descriptor)
+                    ),
+                    Err(VMError::InvalidMetadata)
                 ),
-                Err(VMError::InvalidMetadata),
                 "invalid descriptor must fail shared artifact admission: {descriptor:?}"
             );
         }
@@ -913,18 +923,18 @@ mod tests {
                 .expect("signed-spend fixture");
         let canonical =
             ivm_abi::codec::encode_canonical_norito(&spend).expect("canonical signed-spend frame");
-        assert_eq!(
+        assert!(matches!(
             literal::validate_literal_payload(PointerType::AxtAnchoredSpendV1, &canonical),
             Ok(())
-        );
+        ));
         let mut malformed = spend;
         malformed.draft.amount = Some(iroha_data_model::prelude::Quantity::from(99_u64));
         let malformed =
             ivm_abi::codec::encode_canonical_norito(&malformed).expect("canonical malformed frame");
-        assert_eq!(
+        assert!(matches!(
             literal::validate_literal_payload(PointerType::AxtAnchoredSpendV1, &malformed),
             Err(VMError::InvalidMetadata)
-        );
+        ));
         assert_eq!(
             PointerType::from_u16(0x000C),
             None,
@@ -937,18 +947,18 @@ mod tests {
             payload: vec![1],
             expiry_slot: None,
         };
-        assert_eq!(
+        assert!(matches!(
             literal::validate_literal_payload(PointerType::ProofBlob, &encoded_value(&valid_proof)),
             Ok(())
-        );
+        ));
         let empty_proof = ProofBlob {
             payload: Vec::new(),
             expiry_slot: None,
         };
-        assert_eq!(
+        assert!(matches!(
             literal::validate_literal_payload(PointerType::ProofBlob, &encoded_value(&empty_proof)),
             Err(VMError::InvalidMetadata)
-        );
+        ));
     }
     fn encoded_value<T: NoritoSerialize>(value: &T) -> Vec<u8> {
         norito::to_bytes(value).expect("encode canonical capability value")

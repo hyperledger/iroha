@@ -171,11 +171,11 @@ fn actual_sns_time_sweep_retains_one_native_purpose_and_exact_payment() {
     );
     let captures = block.captured_fastpq_transcript_sources().unwrap();
     assert_eq!(captures.len(), 1);
-    let captured = captures.values().next().unwrap();
-    assert!(captured.is_protocol_purpose());
-    assert_eq!(captured.source().network_id, fixture.state.network_id);
-    assert_eq!(captured.source().height, 2);
-    let entry_hash = captured.entry_hash();
+    let source_capture = captures.values().next().unwrap();
+    assert!(source_capture.is_protocol_purpose());
+    assert_eq!(source_capture.source().network_id, fixture.state.network_id);
+    assert_eq!(source_capture.source().height, 2);
+    let entry_hash = source_capture.entry_hash();
     assert_eq!(
         balance(&block.world, &fixture, &fixture.owner),
         "1.5".parse().unwrap()
@@ -427,16 +427,16 @@ fn sns_source_inspection_refuses_foreign_incomplete_and_repeated_native_owners()
         let original = source(&fixture.state, EXPIRY - WINDOW);
         let parent_height = fixture.state.committed_height();
         let mut block;
-        let _recording;
+        let recording;
         if refusal == 1 {
             block = Box::new(fixture.state.block(original.header()));
-            _recording = None;
+            recording = None;
         } else {
             let (actual, recorder, outputs, _) =
                 crate::state::run_empty_network_owner_fixture(&fixture.state, &original);
             assert!(outputs.is_empty());
             block = actual;
-            _recording = Some(recorder);
+            recording = Some(recorder);
         }
         let refused = if refusal == 0 {
             let foreign = source(&fixture.state, EXPIRY - WINDOW + 1);
@@ -474,7 +474,7 @@ fn sns_source_inspection_refuses_foreign_incomplete_and_repeated_native_owners()
             block.commit().unwrap_err(),
             crate::state::storage_transactions::TransactionsBlockError::ExecutionOutputCapacity
         ));
-        drop(_recording);
+        drop(recording);
         assert_eq!(fixture.state.committed_height(), parent_height);
         assert_eq!(
             balance(fixture.state.view().world(), &fixture, &fixture.owner),

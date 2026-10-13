@@ -440,8 +440,10 @@ async fn soracloud_public_hosted_http_route_streams_sse_bodies() {
         )],
     );
     let expected_materialized_bundle_hash = bundle.container.bundle_hash.to_string();
-    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot::default();
-    snapshot.local_peer_id = Some(hosted_peer_id.to_string());
+    let mut snapshot = iroha_core::soracloud_runtime::SoracloudRuntimeSnapshot {
+        local_peer_id: Some(hosted_peer_id.to_string()),
+        ..Default::default()
+    };
     snapshot.services.insert(
         "web_portal".to_owned(),
         BTreeMap::from([(
@@ -650,24 +652,25 @@ async fn soracloud_public_hosted_http_route_streams_sse_bodies() {
     .expect("direct native proxy response");
     assert_eq!(direct_response.status(), StatusCode::OK);
     drop(direct_response);
-    let captured = captured_upstream_requests.lock().expect("capture lock");
-    let direct_request = String::from_utf8_lossy(&captured[0]).to_ascii_lowercase();
-    assert!(direct_request.contains("authorization: bearer tenant-token\r\n"));
-    assert!(direct_request.contains("x-tenant-header: visible\r\n"));
-    for removed in [
-        HEADER_API_TOKEN,
-        "x-iroha-operator-token",
-        "x-sorafs-stream-token",
-        "sora-pop-authorization",
-        "connection",
-        "x-hop-secret",
-    ] {
-        assert!(
-            !direct_request.contains(&format!("{removed}:")),
-            "hosted tenant must not receive `{removed}`"
-        );
+    {
+        let captured = captured_upstream_requests.lock().expect("capture lock");
+        let direct_request = String::from_utf8_lossy(&captured[0]).to_ascii_lowercase();
+        assert!(direct_request.contains("authorization: bearer tenant-token\r\n"));
+        assert!(direct_request.contains("x-tenant-header: visible\r\n"));
+        for removed in [
+            HEADER_API_TOKEN,
+            "x-iroha-operator-token",
+            "x-sorafs-stream-token",
+            "sora-pop-authorization",
+            "connection",
+            "x-hop-secret",
+        ] {
+            assert!(
+                !direct_request.contains(&format!("{removed}:")),
+                "hosted tenant must not receive `{removed}`"
+            );
+        }
     }
-    drop(captured);
 
     #[cfg(any(feature = "p2p_ws", feature = "connect"))]
     {
@@ -2255,7 +2258,7 @@ async fn proxy_soracloud_public_hosted_http_falls_back_to_remote_peer() {
     // injecting peer responses. This component test does not start peer sockets.
     let (network, mut actor) = iroha_core::IrohaNetwork::actor_admission_for_tests(
         local_peer_id.clone(),
-        HashSet::from([remote_peer_id.clone()]),
+        BTreeSet::from([remote_peer_id.clone()]),
         std::num::NonZeroUsize::new(1).expect("one pending proxy request"),
     );
     {
@@ -2732,7 +2735,8 @@ fn install_two_peer_npos_roster(
         .get_mut()
         .set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        ))
+        .expect("install the committed NPoS fixture parameters");
     let mut peers = block.world.peers_mut_for_testing().transaction();
     peers.clear();
     peers.push(local_peer_id.clone());
@@ -2830,7 +2834,8 @@ async fn authoritative_lane_peers_do_not_fall_back_to_online_peers_when_state_is
             .get_mut()
             .set_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
-            ));
+            ))
+            .expect("install the committed NPoS fixture parameters");
         let mut peers = block.world.peers_mut_for_testing().transaction();
         peers.clear();
         peers.apply();
@@ -3691,17 +3696,17 @@ async fn incoming_signed_query_proxy_response_for_route(
 fn assert_incoming_proxy_stale_route_rejection(response: &Response, route: RoutingDecision) {
     let expected_lane = route.lane_id.as_u32().to_string();
     let expected_dataspace = route.dataspace_id.as_u64().to_string();
-    assert_route_unavailable_response(&response);
+    assert_route_unavailable_response(response);
     assert_eq!(
-        torii_response_header(&response, "x-iroha-route-unavailable-reason"),
+        torii_response_header(response, "x-iroha-route-unavailable-reason"),
         Some("stale_route")
     );
     assert_eq!(
-        torii_response_header(&response, "x-iroha-route-lane-id"),
+        torii_response_header(response, "x-iroha-route-lane-id"),
         Some(expected_lane.as_str())
     );
     assert_eq!(
-        torii_response_header(&response, "x-iroha-route-dataspace-id"),
+        torii_response_header(response, "x-iroha-route-dataspace-id"),
         Some(expected_dataspace.as_str())
     );
 }

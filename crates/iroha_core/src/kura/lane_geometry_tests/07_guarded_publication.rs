@@ -86,7 +86,7 @@ fn guarded_geometry_apply_and_catalog_retry_keep_one_physical_boundary() {
         &updated_activations,
         &replaced,
     );
-    assert!(std::ptr::eq(lease.original_kura(), &*kura));
+    assert!(std::ptr::eq(lease.original_kura(), &raw const *kura));
     assert_geometry_fences_owned(&kura);
     prepared.resume_under(&lease).unwrap();
     assert_geometry_fences_owned(&kura);

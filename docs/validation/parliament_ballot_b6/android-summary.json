@@ -1,0 +1,5561 @@
+{
+  "all_execution_source_checks_match": true,
+  "android_app_execution": false,
+  "android_mac_matching_pairs": 272,
+  "android_portable_accel_matching_pairs": 136,
+  "case_summaries": [
+    {
+      "case": "registration",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 932,
+        "median": 185,
+        "min": 41,
+        "p95": 853
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252466,
+            "median": 252466,
+            "min": 252466,
+            "p95": 252466
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 26,
+            "median": 26,
+            "min": 26,
+            "p95": 26
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1593203,
+            "median": 393906,
+            "min": 243477,
+            "p95": 443633
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25017,
+            "median": 16497,
+            "min": 7977,
+            "p95": 24449
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 200777,
+            "median": 192257,
+            "min": 183737,
+            "p95": 200209
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 25609773,
+            "median": 25584043,
+            "min": 25584043,
+            "p95": 25596908
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19375,
+            "median": 19371,
+            "min": 19371,
+            "p95": 19373
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 339270234,
+            "median": 310248281,
+            "min": 194784609,
+            "p95": 338582422
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3095322,
+            "median": 3095322,
+            "min": 3095322,
+            "p95": 3095322
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 31121,
+            "median": 22601,
+            "min": 14081,
+            "p95": 30553
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3126443,
+            "median": 3117923,
+            "min": 3109403,
+            "p95": 3125875
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 179062,
+            "median": 179062,
+            "min": 179062,
+            "p95": 179062
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 8,
+            "median": 8,
+            "min": 8,
+            "p95": 8
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 86602,
+            "median": 48125,
+            "min": 28945,
+            "p95": 73594
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 174548,
+            "median": 174548,
+            "min": 174548,
+            "p95": 174548
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191333,
+            "median": 182813,
+            "min": 174293,
+            "p95": 190765
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 365881,
+            "median": 357361,
+            "min": 348841,
+            "p95": 365313
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 24167056,
+            "median": 24149776,
+            "min": 24141136,
+            "p95": 24161296
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19048,
+            "median": 19030,
+            "min": 19021,
+            "p95": 19042
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 163472266,
+            "median": 147549140,
+            "min": 93026680,
+            "p95": 161186250
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2327618,
+            "median": 2327618,
+            "min": 2327618,
+            "p95": 2327618
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191253,
+            "median": 182733,
+            "min": 174213,
+            "p95": 190685
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518871,
+            "median": 2510351,
+            "min": 2501831,
+            "p95": 2518303
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252580,
+            "median": 252580,
+            "min": 252580,
+            "p95": 252580
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 25,
+            "median": 25,
+            "min": 25,
+            "p95": 25
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 463828,
+            "median": 332304,
+            "min": 202227,
+            "p95": 420313
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191253,
+            "median": 182733,
+            "min": 174213,
+            "p95": 190685
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 367013,
+            "median": 358493,
+            "min": 349973,
+            "p95": 366445
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 23914476,
+            "median": 23897196,
+            "min": 23888556,
+            "p95": 23908716
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19023,
+            "median": 19005,
+            "min": 18996,
+            "p95": 19017
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 163271524,
+            "median": 146410821,
+            "min": 92297813,
+            "p95": 160777343
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2321562,
+            "median": 2321562,
+            "min": 2321562,
+            "p95": 2321562
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 197309,
+            "median": 188789,
+            "min": 180269,
+            "p95": 196741
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518871,
+            "median": 2510351,
+            "min": 2501831,
+            "p95": 2518303
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 24167056,
+            "median": 24149776,
+            "min": 24141136,
+            "p95": 24161296
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19048,
+            "median": 19030,
+            "min": 19021,
+            "p95": 19042
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 161384180,
+            "median": 146512383,
+            "min": 92441367,
+            "p95": 161009727
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2327618,
+            "median": 2327618,
+            "min": 2327618,
+            "p95": 2327618
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191253,
+            "median": 182733,
+            "min": 174213,
+            "p95": 190685
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518871,
+            "median": 2510351,
+            "min": 2501831,
+            "p95": 2518303
+          }
+        }
+      ],
+      "proof_bytes": 160148,
+      "retry_counter": {
+        "count": 31,
+        "max": 931,
+        "median": 184,
+        "min": 40,
+        "p95": 852
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 6016,
+      "test_record_bytes": 166172
+    },
+    {
+      "case": "vote3",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 998,
+        "median": 242,
+        "min": 20,
+        "p95": 910
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252708,
+            "median": 252708,
+            "min": 252708,
+            "p95": 252708
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 30,
+            "median": 30,
+            "min": 30,
+            "p95": 30
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 518282,
+            "median": 407734,
+            "min": 380313,
+            "p95": 487851
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25017,
+            "median": 16497,
+            "min": 7977,
+            "p95": 24449
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 200777,
+            "median": 192257,
+            "min": 183737,
+            "p95": 200209
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 28040526,
+            "median": 28027661,
+            "min": 28027661,
+            "p95": 28040526
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19381,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 580872383,
+            "median": 516938203,
+            "min": 479383321,
+            "p95": 553375703
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4303482,
+            "median": 4303482,
+            "min": 4303482,
+            "p95": 4303482
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25929,
+            "median": 17409,
+            "min": 8889,
+            "p95": 25361
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4329411,
+            "median": 4320891,
+            "min": 4312371,
+            "p95": 4328843
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 237188,
+            "median": 237188,
+            "min": 237188,
+            "p95": 237188
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 117695,
+            "median": 69922,
+            "min": 60039,
+            "p95": 96758
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 235404,
+            "median": 235404,
+            "min": 235404,
+            "p95": 235404
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259005,
+            "median": 250485,
+            "min": 241965,
+            "p95": 258437
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 494409,
+            "median": 485889,
+            "min": 477369,
+            "p95": 493841
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26452762,
+            "median": 26433562,
+            "min": 26426842,
+            "p95": 26447962
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19051,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19046
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 269707734,
+            "median": 242730430,
+            "min": 221828437,
+            "p95": 268896211
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3453306,
+            "median": 3453306,
+            "min": 3453306,
+            "p95": 3453306
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259061,
+            "median": 250541,
+            "min": 242021,
+            "p95": 258493
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712367,
+            "median": 3703847,
+            "min": 3695327,
+            "p95": 3711799
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 247756,
+            "median": 247756,
+            "min": 247756,
+            "p95": 247756
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 437032,
+            "median": 357344,
+            "min": 319258,
+            "p95": 407188
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259061,
+            "median": 250541,
+            "min": 242021,
+            "p95": 258493
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 434821,
+            "median": 426301,
+            "min": 417781,
+            "p95": 434253
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26205006,
+            "median": 26185806,
+            "min": 26179086,
+            "p95": 26200206
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19031,
+            "median": 19011,
+            "min": 19004,
+            "p95": 19026
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 268182461,
+            "median": 242351484,
+            "min": 221792734,
+            "p95": 256270469
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3452442,
+            "median": 3452442,
+            "min": 3452442,
+            "p95": 3452442
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259925,
+            "median": 251405,
+            "min": 242885,
+            "p95": 259357
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712367,
+            "median": 3703847,
+            "min": 3695327,
+            "p95": 3711799
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26452762,
+            "median": 26433562,
+            "min": 26426842,
+            "p95": 26447962
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19051,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19046
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 270390078,
+            "median": 242415469,
+            "min": 221840781,
+            "p95": 255341250
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3453306,
+            "median": 3453306,
+            "min": 3453306,
+            "p95": 3453306
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259061,
+            "median": 250541,
+            "min": 242021,
+            "p95": 258493
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712367,
+            "median": 3703847,
+            "min": 3695327,
+            "p95": 3711799
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 997,
+        "median": 241,
+        "min": 19,
+        "p95": 909
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 960,
+      "test_record_bytes": 233980
+    },
+    {
+      "case": "vote500",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 1577,
+        "median": 231,
+        "min": 22,
+        "p95": 664
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 537986,
+            "median": 537986,
+            "min": 537986,
+            "p95": 537986
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 1024,
+            "median": 1024,
+            "min": 1024,
+            "p95": 1024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 2568476,
+            "median": 2223125,
+            "min": 2023515,
+            "p95": 2525625
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 196144,
+            "median": 196144,
+            "min": 196144,
+            "p95": 196144
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25017,
+            "median": 16497,
+            "min": 7977,
+            "p95": 24449
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 221161,
+            "median": 212641,
+            "min": 204121,
+            "p95": 220593
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 28649554,
+            "median": 28623824,
+            "min": 28623824,
+            "p95": 28636689
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19383,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 676706406,
+            "median": 603814180,
+            "min": 547122539,
+            "p95": 675657344
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4367098,
+            "median": 4367098,
+            "min": 4367098,
+            "p95": 4367098
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 89545,
+            "median": 81025,
+            "min": 72505,
+            "p95": 88977
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4456643,
+            "median": 4448123,
+            "min": 4439603,
+            "p95": 4456075
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 555193,
+            "median": 555193,
+            "min": 555193,
+            "p95": 555193
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 248985,
+            "median": 162969,
+            "min": 134493,
+            "p95": 223125
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 426202,
+            "median": 426202,
+            "min": 426202,
+            "p95": 426202
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322621,
+            "median": 314101,
+            "min": 305581,
+            "p95": 322053
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 748823,
+            "median": 740303,
+            "min": 731783,
+            "p95": 748255
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27043989,
+            "median": 27025749,
+            "min": 27019029,
+            "p95": 27038229
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19050,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19044
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 311836758,
+            "median": 277289687,
+            "min": 250300429,
+            "p95": 309765547
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580538,
+            "median": 3580538,
+            "min": 3580538,
+            "p95": 3580538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322677,
+            "median": 314157,
+            "min": 305637,
+            "p95": 322109
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903215,
+            "median": 3894695,
+            "min": 3886175,
+            "p95": 3902647
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 374988,
+            "median": 374988,
+            "min": 374988,
+            "p95": 374988
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 917656,
+            "median": 828867,
+            "min": 760508,
+            "p95": 915820
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322677,
+            "median": 314157,
+            "min": 305637,
+            "p95": 322109
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 498437,
+            "median": 489917,
+            "min": 481397,
+            "p95": 497869
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26669001,
+            "median": 26650761,
+            "min": 26644041,
+            "p95": 26663241
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19030,
+            "median": 19011,
+            "min": 19004,
+            "p95": 19024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 310663867,
+            "median": 276995196,
+            "min": 251458242,
+            "p95": 309870664
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3516058,
+            "median": 3516058,
+            "min": 3516058,
+            "p95": 3516058
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 387157,
+            "median": 378637,
+            "min": 370117,
+            "p95": 386589
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903215,
+            "median": 3894695,
+            "min": 3886175,
+            "p95": 3902647
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27043989,
+            "median": 27025749,
+            "min": 27019029,
+            "p95": 27038229
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19050,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19044
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 312009531,
+            "median": 276730508,
+            "min": 260659492,
+            "p95": 311097422
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580538,
+            "median": 3580538,
+            "min": 3580538,
+            "p95": 3580538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322677,
+            "median": 314157,
+            "min": 305637,
+            "p95": 322109
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903215,
+            "median": 3894695,
+            "min": 3886175,
+            "p95": 3902647
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 1576,
+        "median": 230,
+        "min": 21,
+        "p95": 663
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 64576,
+      "test_record_bytes": 297596
+    },
+    {
+      "case": "vote1000",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 1550,
+        "median": 304,
+        "min": 2,
+        "p95": 1207
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 824986,
+            "median": 824986,
+            "min": 824986,
+            "p95": 824986
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 2024,
+            "median": 2024,
+            "min": 2024,
+            "p95": 2024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 4895078,
+            "median": 4496719,
+            "min": 4144492,
+            "p95": 4764726
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 388144,
+            "median": 388144,
+            "min": 388144,
+            "p95": 388144
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25017,
+            "median": 16497,
+            "min": 7977,
+            "p95": 24449
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 413161,
+            "median": 404641,
+            "min": 396121,
+            "p95": 412593
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 29262419,
+            "median": 29223824,
+            "min": 29223824,
+            "p95": 29236689
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19385,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 702645938,
+            "median": 675942696,
+            "min": 626209570,
+            "p95": 702640039
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4431098,
+            "median": 4431098,
+            "min": 4431098,
+            "p95": 4431098
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 153545,
+            "median": 145025,
+            "min": 136505,
+            "p95": 152977
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4584643,
+            "median": 4576123,
+            "min": 4567603,
+            "p95": 4584075
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 875193,
+            "median": 875193,
+            "min": 875193,
+            "p95": 875193
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 470781,
+            "median": 367031,
+            "min": 303594,
+            "p95": 438047
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 618202,
+            "median": 618202,
+            "min": 618202,
+            "p95": 618202
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386621,
+            "median": 378101,
+            "min": 369581,
+            "p95": 386053
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 1004823,
+            "median": 996303,
+            "min": 987783,
+            "p95": 1004255
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27634229,
+            "median": 27624629,
+            "min": 27615029,
+            "p95": 27631349
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19044,
+            "median": 19034,
+            "min": 19024,
+            "p95": 19041
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 322621133,
+            "median": 303629336,
+            "min": 286091758,
+            "p95": 322005039
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3708538,
+            "median": 3708538,
+            "min": 3708538,
+            "p95": 3708538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386677,
+            "median": 378157,
+            "min": 369637,
+            "p95": 386109
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095215,
+            "median": 4086695,
+            "min": 4078175,
+            "p95": 4094647
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 502988,
+            "median": 502988,
+            "min": 502988,
+            "p95": 502988
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1524179,
+            "median": 1430703,
+            "min": 1291679,
+            "p95": 1503946
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 256160,
+            "median": 256160,
+            "min": 256160,
+            "p95": 256160
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386677,
+            "median": 378157,
+            "min": 369637,
+            "p95": 386109
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 642837,
+            "median": 634317,
+            "min": 625797,
+            "p95": 642269
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27131241,
+            "median": 27121641,
+            "min": 27112041,
+            "p95": 27128361
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19024,
+            "median": 19014,
+            "min": 19004,
+            "p95": 19021
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 320399297,
+            "median": 303368164,
+            "min": 285960703,
+            "p95": 320121445
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580058,
+            "median": 3580058,
+            "min": 3580058,
+            "p95": 3580058
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 515157,
+            "median": 506637,
+            "min": 498117,
+            "p95": 514589
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095215,
+            "median": 4086695,
+            "min": 4078175,
+            "p95": 4094647
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27634229,
+            "median": 27624629,
+            "min": 27615029,
+            "p95": 27631349
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19044,
+            "median": 19034,
+            "min": 19024,
+            "p95": 19041
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 321256328,
+            "median": 302616797,
+            "min": 285449531,
+            "p95": 321034961
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3708538,
+            "median": 3708538,
+            "min": 3708538,
+            "p95": 3708538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386677,
+            "median": 378157,
+            "min": 369637,
+            "p95": 386109
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095215,
+            "median": 4086695,
+            "min": 4078175,
+            "p95": 4094647
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 1549,
+        "median": 303,
+        "min": 1,
+        "p95": 1206
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 128576,
+      "test_record_bytes": 361596
+    },
+    {
+      "case": "registration",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 519,
+        "median": 141,
+        "min": 35,
+        "p95": 519
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249194,
+            "median": 249194,
+            "min": 249194,
+            "p95": 249194
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 26,
+            "median": 26,
+            "min": 26,
+            "p95": 26
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1166914,
+            "median": 568828,
+            "min": 551836,
+            "p95": 1166914
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3737,
+            "median": 3169,
+            "min": 2601,
+            "p95": 3737
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 177521,
+            "median": 176953,
+            "min": 176385,
+            "p95": 177521
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190579246,
+            "median": 189472939,
+            "min": 189472939,
+            "p95": 190579246
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184478,
+            "median": 184460,
+            "min": 184460,
+            "p95": 184478
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 876404844,
+            "median": 752171055,
+            "min": 716215898,
+            "p95": 876404844
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 8330637,
+            "median": 8330637,
+            "min": 8330637,
+            "p95": 8330637
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 9841,
+            "median": 9273,
+            "min": 8705,
+            "p95": 9841
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 8340478,
+            "median": 8339910,
+            "min": 8339342,
+            "p95": 8340478
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 128412,
+            "median": 128412,
+            "min": 128412,
+            "p95": 128412
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 8,
+            "median": 8,
+            "min": 8,
+            "p95": 8
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 78711,
+            "median": 60469,
+            "min": 46992,
+            "p95": 78711
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 123898,
+            "median": 123898,
+            "min": 123898,
+            "p95": 123898
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119403,
+            "median": 118835,
+            "min": 118267,
+            "p95": 119403
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 243301,
+            "median": 242733,
+            "min": 242165,
+            "p95": 243301
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 188174602,
+            "median": 188164042,
+            "min": 188164042,
+            "p95": 188174602
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184170,
+            "median": 184159,
+            "min": 184159,
+            "p95": 184170
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 518891094,
+            "median": 516587813,
+            "min": 493010000,
+            "p95": 518891094
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6028739,
+            "median": 6028739,
+            "min": 6028739,
+            "p95": 6028739
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119323,
+            "median": 118755,
+            "min": 118187,
+            "p95": 119323
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148062,
+            "median": 6147494,
+            "min": 6146926,
+            "p95": 6148062
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249308,
+            "median": 249308,
+            "min": 249308,
+            "p95": 249308
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 25,
+            "median": 25,
+            "min": 25,
+            "p95": 25
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 467031,
+            "median": 465898,
+            "min": 464492,
+            "p95": 467031
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119323,
+            "median": 118755,
+            "min": 118187,
+            "p95": 119323
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 293107,
+            "median": 292539,
+            "min": 291971,
+            "p95": 293107
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 187925294,
+            "median": 187914734,
+            "min": 187914734,
+            "p95": 187925294
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184145,
+            "median": 184134,
+            "min": 184134,
+            "p95": 184145
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 516452305,
+            "median": 516314649,
+            "min": 487195391,
+            "p95": 516452305
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6022683,
+            "median": 6022683,
+            "min": 6022683,
+            "p95": 6022683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 125379,
+            "median": 124811,
+            "min": 124243,
+            "p95": 125379
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148062,
+            "median": 6147494,
+            "min": 6146926,
+            "p95": 6148062
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 188174602,
+            "median": 188164042,
+            "min": 188164042,
+            "p95": 188174602
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184170,
+            "median": 184159,
+            "min": 184159,
+            "p95": 184170
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 519519258,
+            "median": 518557851,
+            "min": 489161172,
+            "p95": 519519258
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6028739,
+            "median": 6028739,
+            "min": 6028739,
+            "p95": 6028739
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119323,
+            "median": 118755,
+            "min": 118187,
+            "p95": 119323
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148062,
+            "median": 6147494,
+            "min": 6146926,
+            "p95": 6148062
+          }
+        }
+      ],
+      "proof_bytes": 109498,
+      "retry_counter": {
+        "count": 3,
+        "max": 518,
+        "median": 140,
+        "min": 34,
+        "p95": 518
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 6016,
+      "test_record_bytes": 115522
+    },
+    {
+      "case": "vote3",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 270,
+        "median": 256,
+        "min": 201,
+        "p95": 270
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249436,
+            "median": 249436,
+            "min": 249436,
+            "p95": 249436
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 30,
+            "median": 30,
+            "min": 30,
+            "p95": 30
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 540195,
+            "median": 533203,
+            "min": 527110,
+            "p95": 540195
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3737,
+            "median": 3169,
+            "min": 2601,
+            "p95": 3737
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 177521,
+            "median": 176953,
+            "min": 176385,
+            "p95": 177521
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 192344217,
+            "median": 192344217,
+            "min": 191852525,
+            "p95": 192344217
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184476,
+            "median": 184476,
+            "min": 184468,
+            "p95": 184476
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1017784218,
+            "median": 1016665703,
+            "min": 1015974023,
+            "p95": 1017784218
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9514509,
+            "median": 9514509,
+            "min": 9514509,
+            "p95": 9514509
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 4649,
+            "median": 4081,
+            "min": 3513,
+            "p95": 4649
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9519158,
+            "median": 9518590,
+            "min": 9518022,
+            "p95": 9519158
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 162250,
+            "median": 162250,
+            "min": 162250,
+            "p95": 162250
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 95390,
+            "median": 83594,
+            "min": 80586,
+            "p95": 95390
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 160466,
+            "median": 160466,
+            "min": 160466,
+            "p95": 160466
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162787,
+            "median": 162219,
+            "min": 161651,
+            "p95": 162787
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 323253,
+            "median": 322685,
+            "min": 322117,
+            "p95": 323253
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190437172,
+            "median": 190435252,
+            "min": 190435252,
+            "p95": 190437172
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184165,
+            "median": 184163,
+            "min": 184163,
+            "p95": 184165
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 663109179,
+            "median": 662735821,
+            "min": 661393946,
+            "p95": 663109179
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023931,
+            "median": 6023931,
+            "min": 6023931,
+            "p95": 6023931
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162843,
+            "median": 162275,
+            "min": 161707,
+            "p95": 162843
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186774,
+            "median": 6186206,
+            "min": 6185638,
+            "p95": 6186774
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 244484,
+            "median": 244484,
+            "min": 244484,
+            "p95": 244484
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 474883,
+            "median": 468399,
+            "min": 448086,
+            "p95": 474883
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162843,
+            "median": 162275,
+            "min": 161707,
+            "p95": 162843
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 336627,
+            "median": 336059,
+            "min": 335491,
+            "p95": 336627
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190192688,
+            "median": 190190768,
+            "min": 190190768,
+            "p95": 190192688
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184145,
+            "median": 184143,
+            "min": 184143,
+            "p95": 184145
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 661802148,
+            "median": 660828047,
+            "min": 660374141,
+            "p95": 661802148
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023067,
+            "median": 6023067,
+            "min": 6023067,
+            "p95": 6023067
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 163707,
+            "median": 163139,
+            "min": 162571,
+            "p95": 163707
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186774,
+            "median": 6186206,
+            "min": 6185638,
+            "p95": 6186774
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190437172,
+            "median": 190435252,
+            "min": 190435252,
+            "p95": 190437172
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184165,
+            "median": 184163,
+            "min": 184163,
+            "p95": 184165
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 664411016,
+            "median": 664398750,
+            "min": 662940391,
+            "p95": 664411016
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023931,
+            "median": 6023931,
+            "min": 6023931,
+            "p95": 6023931
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162843,
+            "median": 162275,
+            "min": 161707,
+            "p95": 162843
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186774,
+            "median": 6186206,
+            "min": 6185638,
+            "p95": 6186774
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 269,
+        "median": 255,
+        "min": 200,
+        "p95": 269
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 960,
+      "test_record_bytes": 159042
+    },
+    {
+      "case": "vote500",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 639,
+        "median": 183,
+        "min": 18,
+        "p95": 639
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 534714,
+            "median": 534714,
+            "min": 534714,
+            "p95": 534714
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 1024,
+            "median": 1024,
+            "min": 1024,
+            "p95": 1024
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 2540430,
+            "median": 2485195,
+            "min": 2470508,
+            "p95": 2540430
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 196144,
+            "median": 196144,
+            "min": 196144,
+            "p95": 196144
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3737,
+            "median": 3169,
+            "min": 2601,
+            "p95": 3737
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 199881,
+            "median": 199313,
+            "min": 198745,
+            "p95": 199881
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 193186226,
+            "median": 192817457,
+            "min": 192325765,
+            "p95": 193186226
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184480,
+            "median": 184474,
+            "min": 184466,
+            "p95": 184480
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1041923828,
+            "median": 1041909648,
+            "min": 1039305898,
+            "p95": 1041923828
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9578125,
+            "median": 9578125,
+            "min": 9578125,
+            "p95": 9578125
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 68265,
+            "median": 67697,
+            "min": 67129,
+            "p95": 68265
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9646390,
+            "median": 9645822,
+            "min": 9645254,
+            "p95": 9646390
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 480255,
+            "median": 480255,
+            "min": 480255,
+            "p95": 480255
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 222929,
+            "median": 168711,
+            "min": 165430,
+            "p95": 222929
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 351264,
+            "median": 351264,
+            "min": 351264,
+            "p95": 351264
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226403,
+            "median": 225835,
+            "min": 225267,
+            "p95": 226403
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 577667,
+            "median": 577099,
+            "min": 576531,
+            "p95": 577667
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191027439,
+            "median": 191024559,
+            "min": 191023599,
+            "p95": 191027439
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184163,
+            "median": 184160,
+            "min": 184159,
+            "p95": 184163
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 671964765,
+            "median": 670815117,
+            "min": 669517344,
+            "p95": 671964765
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6151163,
+            "median": 6151163,
+            "min": 6151163,
+            "p95": 6151163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226459,
+            "median": 225891,
+            "min": 225323,
+            "p95": 226459
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377622,
+            "median": 6377054,
+            "min": 6376486,
+            "p95": 6377622
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 371716,
+            "median": 371716,
+            "min": 371716,
+            "p95": 371716
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 882461,
+            "median": 863321,
+            "min": 854375,
+            "p95": 882461
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226459,
+            "median": 225891,
+            "min": 225323,
+            "p95": 226459
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 400243,
+            "median": 399675,
+            "min": 399107,
+            "p95": 400243
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190655723,
+            "median": 190652843,
+            "min": 190651883,
+            "p95": 190655723
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184143,
+            "median": 184140,
+            "min": 184139,
+            "p95": 184143
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 671923711,
+            "median": 670949882,
+            "min": 669954961,
+            "p95": 671923711
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6086683,
+            "median": 6086683,
+            "min": 6086683,
+            "p95": 6086683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290939,
+            "median": 290371,
+            "min": 289803,
+            "p95": 290939
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377622,
+            "median": 6377054,
+            "min": 6376486,
+            "p95": 6377622
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191027439,
+            "median": 191024559,
+            "min": 191023599,
+            "p95": 191027439
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184163,
+            "median": 184160,
+            "min": 184159,
+            "p95": 184163
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 672389805,
+            "median": 671072813,
+            "min": 670522109,
+            "p95": 672389805
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6151163,
+            "median": 6151163,
+            "min": 6151163,
+            "p95": 6151163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226459,
+            "median": 225891,
+            "min": 225323,
+            "p95": 226459
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377622,
+            "median": 6377054,
+            "min": 6376486,
+            "p95": 6377622
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 638,
+        "median": 182,
+        "min": 17,
+        "p95": 638
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 64576,
+      "test_record_bytes": 222658
+    },
+    {
+      "case": "vote1000",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 761,
+        "median": 525,
+        "min": 12,
+        "p95": 761
+      },
+      "configuration": "accel",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 821714,
+            "median": 821714,
+            "min": 821714,
+            "p95": 821714
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 2024,
+            "median": 2024,
+            "min": 2024,
+            "p95": 2024
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4688399,
+            "median": 4649922,
+            "min": 4603359,
+            "p95": 4688399
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 388144,
+            "median": 388144,
+            "min": 388144,
+            "p95": 388144
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3737,
+            "median": 3169,
+            "min": 2601,
+            "p95": 3737
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 391881,
+            "median": 391313,
+            "min": 390745,
+            "p95": 391881
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 193909149,
+            "median": 193540380,
+            "min": 192925765,
+            "p95": 193909149
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184482,
+            "median": 184476,
+            "min": 184466,
+            "p95": 184482
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1067694141,
+            "median": 1067295430,
+            "min": 1064154336,
+            "p95": 1067694141
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9642125,
+            "median": 9642125,
+            "min": 9642125,
+            "p95": 9642125
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 132265,
+            "median": 131697,
+            "min": 131129,
+            "p95": 132265
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9774390,
+            "median": 9773822,
+            "min": 9773254,
+            "p95": 9774390
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 800255,
+            "median": 800255,
+            "min": 800255,
+            "p95": 800255
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 341484,
+            "median": 300273,
+            "min": 295976,
+            "p95": 341484
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 543264,
+            "median": 543264,
+            "min": 543264,
+            "p95": 543264
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290403,
+            "median": 289835,
+            "min": 289267,
+            "p95": 290403
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 833667,
+            "median": 833099,
+            "min": 832531,
+            "p95": 833667
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191629199,
+            "median": 191621519,
+            "min": 191620559,
+            "p95": 191629199
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184169,
+            "median": 184161,
+            "min": 184160,
+            "p95": 184169
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 681428906,
+            "median": 680267890,
+            "min": 680182422,
+            "p95": 681428906
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6279163,
+            "median": 6279163,
+            "min": 6279163,
+            "p95": 6279163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290459,
+            "median": 289891,
+            "min": 289323,
+            "p95": 290459
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569622,
+            "median": 6569054,
+            "min": 6568486,
+            "p95": 6569622
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 499716,
+            "median": 499716,
+            "min": 499716,
+            "p95": 499716
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1340820,
+            "median": 1317930,
+            "min": 1313007,
+            "p95": 1340820
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 256160,
+            "median": 256160,
+            "min": 256160,
+            "p95": 256160
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290459,
+            "median": 289891,
+            "min": 289323,
+            "p95": 290459
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 546619,
+            "median": 546051,
+            "min": 545483,
+            "p95": 546619
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191129483,
+            "median": 191121803,
+            "min": 191120843,
+            "p95": 191129483
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184149,
+            "median": 184141,
+            "min": 184140,
+            "p95": 184149
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 679791211,
+            "median": 678936992,
+            "min": 676232461,
+            "p95": 679791211
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6150683,
+            "median": 6150683,
+            "min": 6150683,
+            "p95": 6150683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 418939,
+            "median": 418371,
+            "min": 417803,
+            "p95": 418939
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569622,
+            "median": 6569054,
+            "min": 6568486,
+            "p95": 6569622
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191629199,
+            "median": 191621519,
+            "min": 191620559,
+            "p95": 191629199
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184169,
+            "median": 184161,
+            "min": 184160,
+            "p95": 184169
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 680467266,
+            "median": 680312851,
+            "min": 678016133,
+            "p95": 680467266
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6279163,
+            "median": 6279163,
+            "min": 6279163,
+            "p95": 6279163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290459,
+            "median": 289891,
+            "min": 289323,
+            "p95": 290459
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569622,
+            "median": 6569054,
+            "min": 6568486,
+            "p95": 6569622
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 760,
+        "median": 524,
+        "min": 11,
+        "p95": 760
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 128576,
+      "test_record_bytes": 286658
+    },
+    {
+      "case": "registration",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 932,
+        "median": 185,
+        "min": 41,
+        "p95": 853
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252466,
+            "median": 252466,
+            "min": 252466,
+            "p95": 252466
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 26,
+            "median": 26,
+            "min": 26,
+            "p95": 26
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 955195,
+            "median": 557070,
+            "min": 443672,
+            "p95": 610273
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25023,
+            "median": 16503,
+            "min": 7983,
+            "p95": 24455
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 200783,
+            "median": 192263,
+            "min": 183743,
+            "p95": 200215
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 25609773,
+            "median": 25584043,
+            "min": 25584043,
+            "p95": 25596908
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19375,
+            "median": 19371,
+            "min": 19371,
+            "p95": 19373
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 712251016,
+            "median": 708290898,
+            "min": 530288632,
+            "p95": 710696329
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3095322,
+            "median": 3095322,
+            "min": 3095322,
+            "p95": 3095322
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 31127,
+            "median": 22607,
+            "min": 14087,
+            "p95": 30559
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3126449,
+            "median": 3117929,
+            "min": 3109409,
+            "p95": 3125881
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 179062,
+            "median": 179062,
+            "min": 179062,
+            "p95": 179062
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 8,
+            "median": 8,
+            "min": 8,
+            "p95": 8
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 93789,
+            "median": 68008,
+            "min": 49375,
+            "p95": 92696
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 174548,
+            "median": 174548,
+            "min": 174548,
+            "p95": 174548
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191339,
+            "median": 182819,
+            "min": 174299,
+            "p95": 190771
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 365887,
+            "median": 357367,
+            "min": 348847,
+            "p95": 365319
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 24167056,
+            "median": 24149776,
+            "min": 24141136,
+            "p95": 24161296
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19048,
+            "median": 19030,
+            "min": 19021,
+            "p95": 19042
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 481303281,
+            "median": 478602968,
+            "min": 338257343,
+            "p95": 481212304
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2327618,
+            "median": 2327618,
+            "min": 2327618,
+            "p95": 2327618
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191259,
+            "median": 182739,
+            "min": 174219,
+            "p95": 190691
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518877,
+            "median": 2510357,
+            "min": 2501837,
+            "p95": 2518309
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252580,
+            "median": 252580,
+            "min": 252580,
+            "p95": 252580
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 25,
+            "median": 25,
+            "min": 25,
+            "p95": 25
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 505781,
+            "median": 454843,
+            "min": 315547,
+            "p95": 495078
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191259,
+            "median": 182739,
+            "min": 174219,
+            "p95": 190691
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 367019,
+            "median": 358499,
+            "min": 349979,
+            "p95": 366451
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 23914476,
+            "median": 23897196,
+            "min": 23888556,
+            "p95": 23908716
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19023,
+            "median": 19005,
+            "min": 18996,
+            "p95": 19017
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 482030000,
+            "median": 477985078,
+            "min": 340012813,
+            "p95": 481020391
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2321562,
+            "median": 2321562,
+            "min": 2321562,
+            "p95": 2321562
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 197315,
+            "median": 188795,
+            "min": 180275,
+            "p95": 196747
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518877,
+            "median": 2510357,
+            "min": 2501837,
+            "p95": 2518309
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 24167056,
+            "median": 24149776,
+            "min": 24141136,
+            "p95": 24161296
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19048,
+            "median": 19030,
+            "min": 19021,
+            "p95": 19042
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 481886133,
+            "median": 478703086,
+            "min": 339247500,
+            "p95": 481736797
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 2327618,
+            "median": 2327618,
+            "min": 2327618,
+            "p95": 2327618
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 191259,
+            "median": 182739,
+            "min": 174219,
+            "p95": 190691
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 2518877,
+            "median": 2510357,
+            "min": 2501837,
+            "p95": 2518309
+          }
+        }
+      ],
+      "proof_bytes": 160148,
+      "retry_counter": {
+        "count": 31,
+        "max": 931,
+        "median": 184,
+        "min": 40,
+        "p95": 852
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 6016,
+      "test_record_bytes": 166172
+    },
+    {
+      "case": "vote3",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 998,
+        "median": 242,
+        "min": 20,
+        "p95": 910
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 252708,
+            "median": 252708,
+            "min": 252708,
+            "p95": 252708
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 30,
+            "median": 30,
+            "min": 30,
+            "p95": 30
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 641797,
+            "median": 523632,
+            "min": 505703,
+            "p95": 603008
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25023,
+            "median": 16503,
+            "min": 7983,
+            "p95": 24455
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 200783,
+            "median": 192263,
+            "min": 183743,
+            "p95": 200215
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 28040526,
+            "median": 28027661,
+            "min": 28027661,
+            "p95": 28040526
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19381,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1043507070,
+            "median": 1039934961,
+            "min": 983753594,
+            "p95": 1043050976
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4303482,
+            "median": 4303482,
+            "min": 4303482,
+            "p95": 4303482
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25935,
+            "median": 17415,
+            "min": 8895,
+            "p95": 25367
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4329417,
+            "median": 4320897,
+            "min": 4312377,
+            "p95": 4328849
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 237188,
+            "median": 237188,
+            "min": 237188,
+            "p95": 237188
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 134062,
+            "median": 99297,
+            "min": 76758,
+            "p95": 131953
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 235404,
+            "median": 235404,
+            "min": 235404,
+            "p95": 235404
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259011,
+            "median": 250491,
+            "min": 241971,
+            "p95": 258443
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 494415,
+            "median": 485895,
+            "min": 477375,
+            "p95": 493847
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26452762,
+            "median": 26433562,
+            "min": 26426842,
+            "p95": 26447962
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19051,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19046
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 694933594,
+            "median": 692547500,
+            "min": 654074610,
+            "p95": 694796758
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3453306,
+            "median": 3453306,
+            "min": 3453306,
+            "p95": 3453306
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259067,
+            "median": 250547,
+            "min": 242027,
+            "p95": 258499
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712373,
+            "median": 3703853,
+            "min": 3695333,
+            "p95": 3711805
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 247756,
+            "median": 247756,
+            "min": 247756,
+            "p95": 247756
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 512461,
+            "median": 449063,
+            "min": 409727,
+            "p95": 502812
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259067,
+            "median": 250547,
+            "min": 242027,
+            "p95": 258499
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 434827,
+            "median": 426307,
+            "min": 417787,
+            "p95": 434259
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26205006,
+            "median": 26185806,
+            "min": 26179086,
+            "p95": 26200206
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19031,
+            "median": 19011,
+            "min": 19004,
+            "p95": 19026
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 694398399,
+            "median": 691832539,
+            "min": 653529063,
+            "p95": 694164882
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3452442,
+            "median": 3452442,
+            "min": 3452442,
+            "p95": 3452442
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259931,
+            "median": 251411,
+            "min": 242891,
+            "p95": 259363
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712373,
+            "median": 3703853,
+            "min": 3695333,
+            "p95": 3711805
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26452762,
+            "median": 26433562,
+            "min": 26426842,
+            "p95": 26447962
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19051,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19046
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 695396367,
+            "median": 692380078,
+            "min": 654893321,
+            "p95": 694718711
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3453306,
+            "median": 3453306,
+            "min": 3453306,
+            "p95": 3453306
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 259067,
+            "median": 250547,
+            "min": 242027,
+            "p95": 258499
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3712373,
+            "median": 3703853,
+            "min": 3695333,
+            "p95": 3711805
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 997,
+        "median": 241,
+        "min": 19,
+        "p95": 909
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 960,
+      "test_record_bytes": 233980
+    },
+    {
+      "case": "vote500",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 1577,
+        "median": 231,
+        "min": 22,
+        "p95": 664
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 537986,
+            "median": 537986,
+            "min": 537986,
+            "p95": 537986
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 1024,
+            "median": 1024,
+            "min": 1024,
+            "p95": 1024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 2583555,
+            "median": 2473672,
+            "min": 2334844,
+            "p95": 2573477
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 196144,
+            "median": 196144,
+            "min": 196144,
+            "p95": 196144
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25023,
+            "median": 16503,
+            "min": 7983,
+            "p95": 24455
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 221167,
+            "median": 212647,
+            "min": 204127,
+            "p95": 220599
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 28649554,
+            "median": 28623824,
+            "min": 28623824,
+            "p95": 28636689
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19383,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1069977109,
+            "median": 1067852305,
+            "min": 1010513047,
+            "p95": 1069497734
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4367098,
+            "median": 4367098,
+            "min": 4367098,
+            "p95": 4367098
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 89551,
+            "median": 81031,
+            "min": 72511,
+            "p95": 88983
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4456649,
+            "median": 4448129,
+            "min": 4439609,
+            "p95": 4456081
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 555193,
+            "median": 555193,
+            "min": 555193,
+            "p95": 555193
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 367696,
+            "median": 176680,
+            "min": 148164,
+            "p95": 278554
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 426202,
+            "median": 426202,
+            "min": 426202,
+            "p95": 426202
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322627,
+            "median": 314107,
+            "min": 305587,
+            "p95": 322059
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 748829,
+            "median": 740309,
+            "min": 731789,
+            "p95": 748261
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27043989,
+            "median": 27025749,
+            "min": 27019029,
+            "p95": 27038229
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19050,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19044
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 764303945,
+            "median": 702150117,
+            "min": 663213984,
+            "p95": 708067539
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580538,
+            "median": 3580538,
+            "min": 3580538,
+            "p95": 3580538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322683,
+            "median": 314163,
+            "min": 305643,
+            "p95": 322115
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903221,
+            "median": 3894701,
+            "min": 3886181,
+            "p95": 3902653
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 374988,
+            "median": 374988,
+            "min": 374988,
+            "p95": 374988
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 991758,
+            "median": 872539,
+            "min": 821679,
+            "p95": 946679
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 175760,
+            "median": 175760,
+            "min": 175760,
+            "p95": 175760
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322683,
+            "median": 314163,
+            "min": 305643,
+            "p95": 322115
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 498443,
+            "median": 489923,
+            "min": 481403,
+            "p95": 497875
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 26669001,
+            "median": 26650761,
+            "min": 26644041,
+            "p95": 26663241
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19030,
+            "median": 19011,
+            "min": 19004,
+            "p95": 19024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 706704296,
+            "median": 701486445,
+            "min": 662996133,
+            "p95": 705830117
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3516058,
+            "median": 3516058,
+            "min": 3516058,
+            "p95": 3516058
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 387163,
+            "median": 378643,
+            "min": 370123,
+            "p95": 386595
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903221,
+            "median": 3894701,
+            "min": 3886181,
+            "p95": 3902653
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27043989,
+            "median": 27025749,
+            "min": 27019029,
+            "p95": 27038229
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19050,
+            "median": 19031,
+            "min": 19024,
+            "p95": 19044
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 703723828,
+            "median": 701996054,
+            "min": 663099219,
+            "p95": 703663164
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580538,
+            "median": 3580538,
+            "min": 3580538,
+            "p95": 3580538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 322683,
+            "median": 314163,
+            "min": 305643,
+            "p95": 322115
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 3903221,
+            "median": 3894701,
+            "min": 3886181,
+            "p95": 3902653
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 1576,
+        "median": 230,
+        "min": 21,
+        "p95": 663
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 64576,
+      "test_record_bytes": 297596
+    },
+    {
+      "case": "vote1000",
+      "challenge_attempts": {
+        "count": 31,
+        "max": 1550,
+        "median": 304,
+        "min": 2,
+        "p95": 1207
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 824986,
+            "median": 824986,
+            "min": 824986,
+            "p95": 824986
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 2024,
+            "median": 2024,
+            "min": 2024,
+            "p95": 2024
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 4961992,
+            "median": 4668984,
+            "min": 4383282,
+            "p95": 4938008
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 388144,
+            "median": 388144,
+            "min": 388144,
+            "p95": 388144
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 25023,
+            "median": 16503,
+            "min": 7983,
+            "p95": 24455
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 413167,
+            "median": 404647,
+            "min": 396127,
+            "p95": 412599
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 29262419,
+            "median": 29223824,
+            "min": 29223824,
+            "p95": 29236689
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19385,
+            "median": 19379,
+            "min": 19379,
+            "p95": 19381
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1099846563,
+            "median": 1093867734,
+            "min": 1031121289,
+            "p95": 1098480000
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 4431098,
+            "median": 4431098,
+            "min": 4431098,
+            "p95": 4431098
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 153551,
+            "median": 145031,
+            "min": 136511,
+            "p95": 152983
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4584649,
+            "median": 4576129,
+            "min": 4567609,
+            "p95": 4584081
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 875193,
+            "median": 875193,
+            "min": 875193,
+            "p95": 875193
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 495508,
+            "median": 395937,
+            "min": 322109,
+            "p95": 492695
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 618202,
+            "median": 618202,
+            "min": 618202,
+            "p95": 618202
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386627,
+            "median": 378107,
+            "min": 369587,
+            "p95": 386059
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 1004829,
+            "median": 996309,
+            "min": 987789,
+            "p95": 1004261
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27634229,
+            "median": 27624629,
+            "min": 27615029,
+            "p95": 27631349
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19044,
+            "median": 19034,
+            "min": 19024,
+            "p95": 19041
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 714636211,
+            "median": 711538477,
+            "min": 671056719,
+            "p95": 714167031
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3708538,
+            "median": 3708538,
+            "min": 3708538,
+            "p95": 3708538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386683,
+            "median": 378163,
+            "min": 369643,
+            "p95": 386115
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095221,
+            "median": 4086701,
+            "min": 4078181,
+            "p95": 4094653
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 502988,
+            "median": 502988,
+            "min": 502988,
+            "p95": 502988
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 1609765,
+            "median": 1375781,
+            "min": 1284336,
+            "p95": 1521640
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 256160,
+            "median": 256160,
+            "min": 256160,
+            "p95": 256160
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386683,
+            "median": 378163,
+            "min": 369643,
+            "p95": 386115
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 642843,
+            "median": 634323,
+            "min": 625803,
+            "p95": 642275
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27131241,
+            "median": 27121641,
+            "min": 27112041,
+            "p95": 27128361
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19024,
+            "median": 19014,
+            "min": 19004,
+            "p95": 19021
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 713583945,
+            "median": 709764297,
+            "min": 693452773,
+            "p95": 713387227
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3580058,
+            "median": 3580058,
+            "min": 3580058,
+            "p95": 3580058
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 515163,
+            "median": 506643,
+            "min": 498123,
+            "p95": 514595
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095221,
+            "median": 4086701,
+            "min": 4078181,
+            "p95": 4094653
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 31,
+            "max": 27634229,
+            "median": 27624629,
+            "min": 27615029,
+            "p95": 27631349
+          },
+          "allocation_calls": {
+            "count": 31,
+            "max": 19044,
+            "median": 19034,
+            "min": 19024,
+            "p95": 19041
+          },
+          "elapsed_ns": {
+            "count": 31,
+            "max": 713714922,
+            "median": 711559687,
+            "min": 689658867,
+            "p95": 713601289
+          },
+          "incremental_peak_bytes": {
+            "count": 31,
+            "max": 3708538,
+            "median": 3708538,
+            "min": 3708538,
+            "p95": 3708538
+          },
+          "live_at_entry_bytes": {
+            "count": 31,
+            "max": 386683,
+            "median": 378163,
+            "min": 369643,
+            "p95": 386115
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 31,
+            "max": 4095221,
+            "median": 4086701,
+            "min": 4078181,
+            "p95": 4094653
+          }
+        }
+      ],
+      "proof_bytes": 233012,
+      "retry_counter": {
+        "count": 31,
+        "max": 1549,
+        "median": 303,
+        "min": 1,
+        "p95": 1206
+      },
+      "row": "candidate",
+      "samples_completed": 31,
+      "statement_bytes": 128576,
+      "test_record_bytes": 361596
+    },
+    {
+      "case": "registration",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 519,
+        "median": 141,
+        "min": 35,
+        "p95": 519
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249194,
+            "median": 249194,
+            "min": 249194,
+            "p95": 249194
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 26,
+            "median": 26,
+            "min": 26,
+            "p95": 26
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1307461,
+            "median": 699414,
+            "min": 628398,
+            "p95": 1307461
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3743,
+            "median": 3175,
+            "min": 2607,
+            "p95": 3743
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 177527,
+            "median": 176959,
+            "min": 176391,
+            "p95": 177527
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190579246,
+            "median": 189472939,
+            "min": 189472939,
+            "p95": 190579246
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184478,
+            "median": 184460,
+            "min": 184460,
+            "p95": 184478
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 3378267422,
+            "median": 3364400391,
+            "min": 3361000625,
+            "p95": 3378267422
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 8330637,
+            "median": 8330637,
+            "min": 8330637,
+            "p95": 8330637
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 9847,
+            "median": 9279,
+            "min": 8711,
+            "p95": 9847
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 8340484,
+            "median": 8339916,
+            "min": 8339348,
+            "p95": 8340484
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 128412,
+            "median": 128412,
+            "min": 128412,
+            "p95": 128412
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 8,
+            "median": 8,
+            "min": 8,
+            "p95": 8
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 87656,
+            "median": 64180,
+            "min": 63476,
+            "p95": 87656
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 123898,
+            "median": 123898,
+            "min": 123898,
+            "p95": 123898
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119409,
+            "median": 118841,
+            "min": 118273,
+            "p95": 119409
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 243307,
+            "median": 242739,
+            "min": 242171,
+            "p95": 243307
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 188174602,
+            "median": 188164042,
+            "min": 188164042,
+            "p95": 188174602
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184170,
+            "median": 184159,
+            "min": 184159,
+            "p95": 184170
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 3116767266,
+            "median": 3103264141,
+            "min": 3102783594,
+            "p95": 3116767266
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6028739,
+            "median": 6028739,
+            "min": 6028739,
+            "p95": 6028739
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119329,
+            "median": 118761,
+            "min": 118193,
+            "p95": 119329
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148068,
+            "median": 6147500,
+            "min": 6146932,
+            "p95": 6148068
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249308,
+            "median": 249308,
+            "min": 249308,
+            "p95": 249308
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 25,
+            "median": 25,
+            "min": 25,
+            "p95": 25
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 522774,
+            "median": 498867,
+            "min": 494414,
+            "p95": 522774
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119329,
+            "median": 118761,
+            "min": 118193,
+            "p95": 119329
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 293113,
+            "median": 292545,
+            "min": 291977,
+            "p95": 293113
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 187925294,
+            "median": 187914734,
+            "min": 187914734,
+            "p95": 187925294
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184145,
+            "median": 184134,
+            "min": 184134,
+            "p95": 184145
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 3108111484,
+            "median": 3102950391,
+            "min": 3100355743,
+            "p95": 3108111484
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6022683,
+            "median": 6022683,
+            "min": 6022683,
+            "p95": 6022683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 125385,
+            "median": 124817,
+            "min": 124249,
+            "p95": 125385
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148068,
+            "median": 6147500,
+            "min": 6146932,
+            "p95": 6148068
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 188174602,
+            "median": 188164042,
+            "min": 188164042,
+            "p95": 188174602
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184170,
+            "median": 184159,
+            "min": 184159,
+            "p95": 184170
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 3108864414,
+            "median": 3102974453,
+            "min": 3100239180,
+            "p95": 3108864414
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6028739,
+            "median": 6028739,
+            "min": 6028739,
+            "p95": 6028739
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 119329,
+            "median": 118761,
+            "min": 118193,
+            "p95": 119329
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6148068,
+            "median": 6147500,
+            "min": 6146932,
+            "p95": 6148068
+          }
+        }
+      ],
+      "proof_bytes": 109498,
+      "retry_counter": {
+        "count": 3,
+        "max": 518,
+        "median": 140,
+        "min": 34,
+        "p95": 518
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 6016,
+      "test_record_bytes": 115522
+    },
+    {
+      "case": "vote3",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 270,
+        "median": 256,
+        "min": 201,
+        "p95": 270
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 249436,
+            "median": 249436,
+            "min": 249436,
+            "p95": 249436
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 30,
+            "median": 30,
+            "min": 30,
+            "p95": 30
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 558867,
+            "median": 555586,
+            "min": 537813,
+            "p95": 558867
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3743,
+            "median": 3175,
+            "min": 2607,
+            "p95": 3743
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 177527,
+            "median": 176959,
+            "min": 176391,
+            "p95": 177527
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 192344217,
+            "median": 192344217,
+            "min": 191852525,
+            "p95": 192344217
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184476,
+            "median": 184476,
+            "min": 184468,
+            "p95": 184476
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4802494414,
+            "median": 4800984258,
+            "min": 4798297226,
+            "p95": 4802494414
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9514509,
+            "median": 9514509,
+            "min": 9514509,
+            "p95": 9514509
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 4655,
+            "median": 4087,
+            "min": 3519,
+            "p95": 4655
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9519164,
+            "median": 9518596,
+            "min": 9518028,
+            "p95": 9519164
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 162250,
+            "median": 162250,
+            "min": 162250,
+            "p95": 162250
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 91484,
+            "median": 90078,
+            "min": 86445,
+            "p95": 91484
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 160466,
+            "median": 160466,
+            "min": 160466,
+            "p95": 160466
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162793,
+            "median": 162225,
+            "min": 161657,
+            "p95": 162793
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 323259,
+            "median": 322691,
+            "min": 322123,
+            "p95": 323259
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190437172,
+            "median": 190435252,
+            "min": 190435252,
+            "p95": 190437172
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184165,
+            "median": 184163,
+            "min": 184163,
+            "p95": 184165
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4458317188,
+            "median": 4449220352,
+            "min": 4447632891,
+            "p95": 4458317188
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023931,
+            "median": 6023931,
+            "min": 6023931,
+            "p95": 6023931
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162849,
+            "median": 162281,
+            "min": 161713,
+            "p95": 162849
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186780,
+            "median": 6186212,
+            "min": 6185644,
+            "p95": 6186780
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 244484,
+            "median": 244484,
+            "min": 244484,
+            "p95": 244484
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 445429,
+            "median": 444688,
+            "min": 441484,
+            "p95": 445429
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162849,
+            "median": 162281,
+            "min": 161713,
+            "p95": 162849
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 336633,
+            "median": 336065,
+            "min": 335497,
+            "p95": 336633
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190192688,
+            "median": 190190768,
+            "min": 190190768,
+            "p95": 190192688
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184145,
+            "median": 184143,
+            "min": 184143,
+            "p95": 184145
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4454307930,
+            "median": 4453087813,
+            "min": 4446488555,
+            "p95": 4454307930
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023067,
+            "median": 6023067,
+            "min": 6023067,
+            "p95": 6023067
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 163713,
+            "median": 163145,
+            "min": 162577,
+            "p95": 163713
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186780,
+            "median": 6186212,
+            "min": 6185644,
+            "p95": 6186780
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190437172,
+            "median": 190435252,
+            "min": 190435252,
+            "p95": 190437172
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184165,
+            "median": 184163,
+            "min": 184163,
+            "p95": 184165
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4456671484,
+            "median": 4452708359,
+            "min": 4450193204,
+            "p95": 4456671484
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6023931,
+            "median": 6023931,
+            "min": 6023931,
+            "p95": 6023931
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 162849,
+            "median": 162281,
+            "min": 161713,
+            "p95": 162849
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6186780,
+            "median": 6186212,
+            "min": 6185644,
+            "p95": 6186780
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 269,
+        "median": 255,
+        "min": 200,
+        "p95": 269
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 960,
+      "test_record_bytes": 159042
+    },
+    {
+      "case": "vote500",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 639,
+        "median": 183,
+        "min": 18,
+        "p95": 639
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 534714,
+            "median": 534714,
+            "min": 534714,
+            "p95": 534714
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 1024,
+            "median": 1024,
+            "min": 1024,
+            "p95": 1024
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 2588321,
+            "median": 2533750,
+            "min": 2520313,
+            "p95": 2588321
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 196144,
+            "median": 196144,
+            "min": 196144,
+            "p95": 196144
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3743,
+            "median": 3175,
+            "min": 2607,
+            "p95": 3743
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 199887,
+            "median": 199319,
+            "min": 198751,
+            "p95": 199887
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 193186226,
+            "median": 192817457,
+            "min": 192325765,
+            "p95": 193186226
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184480,
+            "median": 184474,
+            "min": 184466,
+            "p95": 184480
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4827916133,
+            "median": 4822835117,
+            "min": 4821683047,
+            "p95": 4827916133
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9578125,
+            "median": 9578125,
+            "min": 9578125,
+            "p95": 9578125
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 68271,
+            "median": 67703,
+            "min": 67135,
+            "p95": 68271
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9646396,
+            "median": 9645828,
+            "min": 9645260,
+            "p95": 9646396
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 480255,
+            "median": 480255,
+            "min": 480255,
+            "p95": 480255
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 203515,
+            "median": 167930,
+            "min": 165000,
+            "p95": 203515
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 351264,
+            "median": 351264,
+            "min": 351264,
+            "p95": 351264
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226409,
+            "median": 225841,
+            "min": 225273,
+            "p95": 226409
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 577673,
+            "median": 577105,
+            "min": 576537,
+            "p95": 577673
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191027439,
+            "median": 191024559,
+            "min": 191023599,
+            "p95": 191027439
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184163,
+            "median": 184160,
+            "min": 184159,
+            "p95": 184163
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4460956368,
+            "median": 4453016836,
+            "min": 4451355429,
+            "p95": 4460956368
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6151163,
+            "median": 6151163,
+            "min": 6151163,
+            "p95": 6151163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226465,
+            "median": 225897,
+            "min": 225329,
+            "p95": 226465
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377628,
+            "median": 6377060,
+            "min": 6376492,
+            "p95": 6377628
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 371716,
+            "median": 371716,
+            "min": 371716,
+            "p95": 371716
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 940547,
+            "median": 862851,
+            "min": 844726,
+            "p95": 940547
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 173784,
+            "median": 173784,
+            "min": 173784,
+            "p95": 173784
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226465,
+            "median": 225897,
+            "min": 225329,
+            "p95": 226465
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 400249,
+            "median": 399681,
+            "min": 399113,
+            "p95": 400249
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 190655723,
+            "median": 190652843,
+            "min": 190651883,
+            "p95": 190655723
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184143,
+            "median": 184140,
+            "min": 184139,
+            "p95": 184143
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4459029922,
+            "median": 4452954609,
+            "min": 4452793946,
+            "p95": 4459029922
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6086683,
+            "median": 6086683,
+            "min": 6086683,
+            "p95": 6086683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290945,
+            "median": 290377,
+            "min": 289809,
+            "p95": 290945
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377628,
+            "median": 6377060,
+            "min": 6376492,
+            "p95": 6377628
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191027439,
+            "median": 191024559,
+            "min": 191023599,
+            "p95": 191027439
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184163,
+            "median": 184160,
+            "min": 184159,
+            "p95": 184163
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4461455274,
+            "median": 4457922813,
+            "min": 4457347422,
+            "p95": 4461455274
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6151163,
+            "median": 6151163,
+            "min": 6151163,
+            "p95": 6151163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 226465,
+            "median": 225897,
+            "min": 225329,
+            "p95": 226465
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6377628,
+            "median": 6377060,
+            "min": 6376492,
+            "p95": 6377628
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 638,
+        "median": 182,
+        "min": 17,
+        "p95": 638
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 64576,
+      "test_record_bytes": 222658
+    },
+    {
+      "case": "vote1000",
+      "challenge_attempts": {
+        "count": 3,
+        "max": 761,
+        "median": 525,
+        "min": 12,
+        "p95": 761
+      },
+      "configuration": "portable",
+      "phases": [
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 821714,
+            "median": 821714,
+            "min": 821714,
+            "p95": 821714
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 2024,
+            "median": 2024,
+            "min": 2024,
+            "p95": 2024
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4780391,
+            "median": 4663633,
+            "min": 4641211,
+            "p95": 4780391
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 388144,
+            "median": 388144,
+            "min": 388144,
+            "p95": 388144
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 3743,
+            "median": 3175,
+            "min": 2607,
+            "p95": 3743
+          },
+          "name": "input_setup",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 391887,
+            "median": 391319,
+            "min": 390751,
+            "p95": 391887
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 193909149,
+            "median": 193540380,
+            "min": 192925765,
+            "p95": 193909149
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184482,
+            "median": 184476,
+            "min": 184466,
+            "p95": 184482
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4851567968,
+            "median": 4848070079,
+            "min": 4843672890,
+            "p95": 4851567968
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 9642125,
+            "median": 9642125,
+            "min": 9642125,
+            "p95": 9642125
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 132271,
+            "median": 131703,
+            "min": 131135,
+            "p95": 132271
+          },
+          "name": "prove",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 9774396,
+            "median": 9773828,
+            "min": 9773260,
+            "p95": 9774396
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 800255,
+            "median": 800255,
+            "min": 800255,
+            "p95": 800255
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 10,
+            "median": 10,
+            "min": 10,
+            "p95": 10
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 392891,
+            "median": 334062,
+            "min": 328868,
+            "p95": 392891
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 543264,
+            "median": 543264,
+            "min": 543264,
+            "p95": 543264
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290409,
+            "median": 289841,
+            "min": 289273,
+            "p95": 290409
+          },
+          "name": "test_record_encode",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 833673,
+            "median": 833105,
+            "min": 832537,
+            "p95": 833673
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191629199,
+            "median": 191621519,
+            "min": 191620559,
+            "p95": 191629199
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184169,
+            "median": 184161,
+            "min": 184160,
+            "p95": 184169
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4611837969,
+            "median": 4470316132,
+            "min": 4466287968,
+            "p95": 4611837969
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6279163,
+            "median": 6279163,
+            "min": 6279163,
+            "p95": 6279163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290465,
+            "median": 289897,
+            "min": 289329,
+            "p95": 290465
+          },
+          "name": "cold_input_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569628,
+            "median": 6569060,
+            "min": 6568492,
+            "p95": 6569628
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 499716,
+            "median": 499716,
+            "min": 499716,
+            "p95": 499716
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 20,
+            "median": 20,
+            "min": 20,
+            "p95": 20
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 1387773,
+            "median": 1386407,
+            "min": 1359258,
+            "p95": 1387773
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 256160,
+            "median": 256160,
+            "min": 256160,
+            "p95": 256160
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290465,
+            "median": 289897,
+            "min": 289329,
+            "p95": 290465
+          },
+          "name": "decode_only",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 546625,
+            "median": 546057,
+            "min": 545489,
+            "p95": 546625
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191129483,
+            "median": 191121803,
+            "min": 191120843,
+            "p95": 191129483
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184149,
+            "median": 184141,
+            "min": 184140,
+            "p95": 184149
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4463746133,
+            "median": 4462833086,
+            "min": 4455957852,
+            "p95": 4463746133
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6150683,
+            "median": 6150683,
+            "min": 6150683,
+            "p95": 6150683
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 418945,
+            "median": 418377,
+            "min": 417809,
+            "p95": 418945
+          },
+          "name": "warm_valid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569628,
+            "median": 6569060,
+            "min": 6568492,
+            "p95": 6569628
+          }
+        },
+        {
+          "allocated_bytes": {
+            "count": 3,
+            "max": 191629199,
+            "median": 191621519,
+            "min": 191620559,
+            "p95": 191629199
+          },
+          "allocation_calls": {
+            "count": 3,
+            "max": 184169,
+            "median": 184161,
+            "min": 184160,
+            "p95": 184169
+          },
+          "elapsed_ns": {
+            "count": 3,
+            "max": 4469916758,
+            "median": 4453549570,
+            "min": 4453170000,
+            "p95": 4469916758
+          },
+          "incremental_peak_bytes": {
+            "count": 3,
+            "max": 6279163,
+            "median": 6279163,
+            "min": 6279163,
+            "p95": 6279163
+          },
+          "live_at_entry_bytes": {
+            "count": 3,
+            "max": 290465,
+            "median": 289897,
+            "min": 289329,
+            "p95": 290465
+          },
+          "name": "cold_input_late_invalid",
+          "total_peak_live_bytes": {
+            "count": 3,
+            "max": 6569628,
+            "median": 6569060,
+            "min": 6568492,
+            "p95": 6569628
+          }
+        }
+      ],
+      "proof_bytes": 158074,
+      "retry_counter": {
+        "count": 3,
+        "max": 760,
+        "median": 524,
+        "min": 11,
+        "p95": 760
+      },
+      "row": "comparator",
+      "samples_completed": 3,
+      "statement_bytes": 128576,
+      "test_record_bytes": 286658
+    }
+  ],
+  "comparison_fields": [
+    "proof_shake256_32",
+    "proof_bytes",
+    "retry_counter",
+    "challenge_attempts",
+    "statement_bytes",
+    "test_record_bytes",
+    "seats"
+  ],
+  "comparison_limit": "SHAKE256-32 proof digests, not byte-for-byte retained proof files; retry counters and lengths checked exactly.",
+  "honest_acceptances": 272,
+  "late_invalid_rejections": 272,
+  "pixel_baseline_match": false,
+  "postrun_checkout_observation": {
+    "all_match": false,
+    "at_utc": "2026-10-13T03:02:07.948081+00:00",
+    "mismatches": [
+      {
+        "expected_sha256": "ecfb0f0635527e68e3e329bfbde338e051912e10986839d66d8e384011e9e303",
+        "file": "Cargo.lock",
+        "observed_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48"
+      }
+    ],
+    "scope": "Additional checkout observation after all eight execution source checks and all four device runs completed; does not alter the frozen binary/source identity.",
+    "stage": "postprocessing_after_completed_runs"
+  },
+  "production_approved": false,
+  "qualification": false,
+  "samples_completed": 272,
+  "schema": "parliament-ballot-android-b6-summary-v1",
+  "source_check_count": 8,
+  "source_file_count": 223,
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "summary_recomputed_from_samples": true,
+  "telemetry": [
+    {
+      "battery_level_first": 94,
+      "battery_level_last": 95,
+      "battery_temperature_tenths_c_max": 363,
+      "battery_temperature_tenths_c_min": 349,
+      "first_at_utc": "2026-10-13T02:47:32.506255+00:00",
+      "last_at_utc": "2026-10-13T02:50:07.961606+00:00",
+      "max_observed_hwm_kib": 8360,
+      "max_observed_rss_kib": 8104,
+      "owned_process_samples": 16,
+      "run": "accel-candidate31",
+      "samples": 17,
+      "thermal_status_values": [
+        0
+      ],
+      "usb_powered_values": [
+        "true"
+      ]
+    },
+    {
+      "battery_level_first": 95,
+      "battery_level_last": 95,
+      "battery_temperature_tenths_c_max": 364,
+      "battery_temperature_tenths_c_min": 363,
+      "first_at_utc": "2026-10-13T02:50:08.157924+00:00",
+      "last_at_utc": "2026-10-13T02:50:45.562439+00:00",
+      "max_observed_hwm_kib": 13348,
+      "max_observed_rss_kib": 9508,
+      "owned_process_samples": 4,
+      "run": "accel-comparator3",
+      "samples": 5,
+      "thermal_status_values": [
+        0
+      ],
+      "usb_powered_values": [
+        "true"
+      ]
+    },
+    {
+      "battery_level_first": 96,
+      "battery_level_last": 99,
+      "battery_temperature_tenths_c_max": 374,
+      "battery_temperature_tenths_c_min": 364,
+      "first_at_utc": "2026-10-13T02:51:08.231008+00:00",
+      "last_at_utc": "2026-10-13T02:57:09.195891+00:00",
+      "max_observed_hwm_kib": 8524,
+      "max_observed_rss_kib": 8012,
+      "owned_process_samples": 36,
+      "run": "portable-candidate31",
+      "samples": 37,
+      "thermal_status_values": [
+        0
+      ],
+      "usb_powered_values": [
+        "true"
+      ]
+    },
+    {
+      "battery_level_first": 99,
+      "battery_level_last": 100,
+      "battery_temperature_tenths_c_max": 376,
+      "battery_temperature_tenths_c_min": 374,
+      "first_at_utc": "2026-10-13T02:57:09.375157+00:00",
+      "last_at_utc": "2026-10-13T03:00:48.282154+00:00",
+      "max_observed_hwm_kib": 13628,
+      "max_observed_rss_kib": 13116,
+      "owned_process_samples": 22,
+      "run": "portable-comparator3",
+      "samples": 23,
+      "thermal_status_values": [
+        0
+      ],
+      "usb_powered_values": [
+        "true"
+      ]
+    }
+  ],
+  "untimed_backend_challenge_mismatch_checks": 16
+}

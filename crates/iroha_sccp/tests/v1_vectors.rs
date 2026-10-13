@@ -1,56 +1,30 @@
-//! Golden SCCP v1 vectors (`specs/sccp.md` §11).
+//! Current SCCP payload, commitment, history and native-certificate EVM vectors.
 //!
-//! Regenerates `fixtures/sccp/{payload,commitment_tree,control,history,eip712,roster,
-//! evm_calldata}_v1.json` from `iroha_sccp::v1` and asserts byte equality with the committed
-//! files. Every generator also cross-checks its vectors with the crate's verifiers (paths,
-//! signature sets, roster rotation, proof bundles), so a committed vector is always one the Rust
-//! implementation accepts or rejects exactly as recorded.
-//!
-//! After a reviewed layout change, rewrite the files with
-//! `cargo test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors`.
+//! `v1_reference_finality`, `v1_reference_transitions` and `v1_reference_control`
+//! own the independent native BLS, committee and control reference fixtures.
+//! This generator preserves every payload, tree/path and source-calldata control.
+//! Regenerate with `cargo test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors`.
 
 use std::{fs, path::PathBuf};
 
 use iroha_data_model::{bridge::SccpNetworkV1, prelude::Numeric};
 use iroha_sccp::v1::{
     amount::taira_units,
-    constants::{
-        ATTESTATION_TYPE, ATTESTATION_TYPEHASH, BRIDGE_KEY_TYPE, BRIDGE_KEY_TYPEHASH,
-        CODEC_CANONICAL_TEXT, CODEC_TAIRA_ACCOUNT, DOMAIN_TYPEHASH, EIP712_DOMAIN_TYPE,
-        EVENT_CONTROL_APPLIED, EVENT_TOPICS, MAX_CLOCK_SKEW_MS, MAX_ROSTER_MEMBERS,
-        MAX_ROSTER_VALIDITY_MS, MIN_ROSTER_MEMBERS, NAME_HASH, PREVIOUS_ROSTER_GRACE_MS,
-        SECP256K1_HALF_N, SECP256K1_N, SELECTORS, TON_AMOUNT_BOUND, TOPIC_CONTROL_APPLIED,
-        VERSION_HASH,
-    },
-    eip712::{AttestationFieldsV1, BridgeKeyPopFieldsV1, domain_separator, peer_key_hash},
-    evm_abi::{
-        AttestedV1, RotationV1, TransferToTairaCallV1, TransferToTairaLogV1, ViewCallV1,
-        VoidCallV1, VoidedLogV1, apply_control_calldata, apply_control_historical_calldata,
-        encode_roster_state_return, finalize_from_taira_calldata,
-        finalize_from_taira_historical_calldata, rotate_rosters_calldata, void_expired_calldata,
-        void_expired_historical_calldata, void_frozen_calldata,
-    },
+    constants::{CODEC_CANONICAL_TEXT, CODEC_TAIRA_ACCOUNT, TON_AMOUNT_BOUND},
+    control::{ControlLeafV1, control_leaf, control_leaf_preimage},
+    evm_abi::{TransferToTairaCallV1, VoidCallV1, void_frozen_calldata},
     hashes::{
-        control_leaf, control_leaf_preimage, history_leaf, keccak256, message_id, node,
-        payload_hash, to_hex, transfer_leaf, word_address,
+        history_leaf, keccak256, message_id, node, payload_hash, to_hex, transfer_leaf,
+        word_address,
     },
     history::{HistoryAccumulatorV1, history_path, history_root},
     merkle::{PromoteOddTree, merkle_root},
     network::{
-        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, lane_bytes,
-        network_bytes, route_id, tag,
+        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, network_bytes,
+        route_id, tag,
     },
     payload::{PayloadAccountV1, SccpTransferPayloadV1},
-    proof::{
-        ControlProofV1, DestinationV1, HistoryBlockV1, HistoryProofV1, MessageProofV1,
-        verify_control_direct, verify_control_historical, verify_transfer_direct,
-        verify_transfer_historical,
-    },
-    roster::{RosterStateV1, RosterV1, check_validity_bounds, roster_digest_checked, threshold},
-    signature::{
-        SignatureSetV1, address_of_secret, check_signature_form, public_key_of, recover_address,
-        rfc6979_sign, sign_digest, sign_digest_with,
-    },
+    proof::DestinationV1,
 };
 use norito::json::{Map, Value};
 
@@ -135,20 +109,6 @@ fn profile(network: SccpNetworkV1) -> Value {
 // Shared deterministic inputs
 // ---------------------------------------------------------------------------------------------
 
-fn fixture_secret(index: u8) -> [u8; 32] {
-    keccak256(&[b"SCCP/FIXTURE/KEY/V1", &[index]])
-}
-
-fn fixture_address(index: u8) -> [u8; 20] {
-    address_of_secret(&fixture_secret(index)).expect("fixture secret is a valid scalar")
-}
-
-/// A 20-byte pseudo address for rosters larger than the fixed key set.
-fn pseudo_address(index: u32) -> [u8; 20] {
-    let hash = keccak256(&[b"SCCP/FIXTURE/MEMBER/V1", &index.to_be_bytes()]);
-    hash[12..].try_into().expect("20 bytes")
-}
-
 fn taira_account(seed: u8) -> Vec<u8> {
     let mut bytes = vec![0x02, 0x01, 0x20];
     bytes.extend_from_slice(&keccak256(&[b"SCCP/FIXTURE/TAIRA/V1", &[seed]]));
@@ -159,11 +119,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
     let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
     match network {
         SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => body[12..].to_vec(),
-        SccpNetworkV1::TronMainnet => {
-            let mut bytes = vec![0x41];
-            bytes.extend_from_slice(&body[12..]);
-            bytes
-        }
         SccpNetworkV1::TonMainnet => {
             let mut bytes = vec![0; 4];
             bytes.extend_from_slice(&body);
@@ -177,7 +132,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
 fn destination_word(network: SccpNetworkV1) -> [u8; 32] {
     match network {
         SccpNetworkV1::TonMainnet => [0x44; 32],
-        SccpNetworkV1::TronMainnet => word_address(&[0x33; 20]),
         _ => word_address(&[0x22; 20]),
     }
 }
@@ -210,76 +164,26 @@ fn eth_transfer_leaf(nonce: u64) -> [u8; 32] {
     transfer_leaf(&id, &destination_word(SccpNetworkV1::EthereumMainnet))
 }
 
+fn control_fields(control_nonce: u64, paused: bool) -> ControlLeafV1 {
+    ControlLeafV1 {
+        route_revision: 1,
+        control_nonce,
+        track: 1,
+        parliament_paused: u8::from(paused),
+        fast_pause_until_ms: 0,
+        certificate_id: [0x71; 32],
+        effect_hash: [0x72; 32],
+    }
+}
+
 fn eth_control_leaf(control_nonce: u64, paused: bool) -> [u8; 32] {
     control_leaf(
         &TAIRA,
         SccpNetworkV1::EthereumMainnet,
         &destination_word(SccpNetworkV1::EthereumMainnet),
-        1,
-        control_nonce,
-        paused,
+        &control_fields(control_nonce, paused),
     )
     .expect("valid control leaf")
-}
-
-fn roster_json(roster: &RosterV1) -> Value {
-    let preimage = roster.preimage(&TAIRA).expect("valid roster");
-    obj([
-        ("generation", num(roster.generation)),
-        ("valid_from_ms", num(roster.valid_from_ms)),
-        ("valid_until_ms", num(roster.valid_until_ms)),
-        ("n", num(roster.n() as u64)),
-        ("threshold", num(roster.threshold() as u64)),
-        ("members", hexes(&roster.members)),
-        ("packed_members", hex(&roster.packed_members())),
-        ("preimage", hex(&preimage)),
-        ("digest", hex(&roster.digest(&TAIRA).expect("valid roster"))),
-    ])
-}
-
-fn attestation_json(attestation: &AttestationFieldsV1) -> Value {
-    obj([
-        ("height", num(attestation.height)),
-        ("epoch", num(attestation.epoch)),
-        ("timestamp_ms", num(attestation.timestamp_ms)),
-        ("block_hash", hex(&attestation.block_hash)),
-        ("sccp_root", hex(&attestation.sccp_root)),
-        ("message_count", num(u64::from(attestation.message_count))),
-        ("history_root", hex(&attestation.history_root)),
-        ("history_size", num(attestation.history_size)),
-        ("roster_digest", hex(&attestation.roster_digest)),
-        ("next_roster_digest", hex(&attestation.next_roster_digest)),
-        ("struct_hash", hex(&attestation.struct_hash())),
-        ("digest", hex(&attestation.digest(&TAIRA))),
-    ])
-}
-
-/// Sign `digest` with the fixed keys `signers` and assemble the set for `roster`.
-fn signature_set(roster: &RosterV1, signers: &[u8], digest: &[u8; 32]) -> SignatureSetV1 {
-    let entries: Vec<(usize, [u8; 65])> = signers
-        .iter()
-        .map(|key| {
-            let address = fixture_address(*key);
-            let index = roster
-                .members
-                .iter()
-                .position(|member| *member == address)
-                .expect("signer is a roster member");
-            let signature = sign_digest(&fixture_secret(*key), digest).expect("signature");
-            (index, signature)
-        })
-        .collect();
-    let set = SignatureSetV1::from_signers(roster.n(), &entries).expect("signature set");
-    set.verify_quorum(digest, &roster.members, roster.threshold())
-        .expect("quorum verifies");
-    set
-}
-
-fn signatures_json(set: &SignatureSetV1) -> Value {
-    obj([
-        ("signer_bitmap", num(u64::from(set.signer_bitmap))),
-        ("signatures", hex(&set.signatures)),
-    ])
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -318,6 +222,14 @@ fn direction_payload(
         )
     }
     .expect("valid direction payload")
+}
+
+/// An account of the removed TRON profile in its retired codec 5 form: `0x41` then 20 bytes.
+fn retired_tron_account(seed: u8) -> PayloadAccountV1 {
+    let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
+    let mut bytes = vec![0x41];
+    bytes.extend_from_slice(&body[12..]);
+    PayloadAccountV1::new(5, bytes)
 }
 
 fn payload_json(label: &str, payload: &SccpTransferPayloadV1) -> Value {
@@ -406,9 +318,16 @@ fn rejected_payloads() -> Vec<Value> {
     ));
     cases.push((
         "recipient_codec_5_on_eth",
+        mutate(&|payload| payload.recipient = retired_tron_account(0)),
+    ));
+    // The removed TRON profile as it encoded its own lanes: domain 5, codec 5 accounts and the
+    // route id `taira_tron_xor`.
+    cases.push((
+        "retired_tron_domain_5_outbound",
         mutate(&|payload| {
-            payload.recipient =
-                PayloadAccountV1::new(5, external_account(SccpNetworkV1::TronMainnet, 0));
+            payload.dest_domain = 5;
+            payload.recipient = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
         }),
     ));
     cases.push((
@@ -437,7 +356,7 @@ fn rejected_payloads() -> Vec<Value> {
         bytes[index] = CODEC_TAIRA_ACCOUNT;
         bytes
     }));
-    let inbound = direction_payload(SccpNetworkV1::TronMainnet, SccpNetworkV1::SoraTaira, 0);
+    let inbound = direction_payload(SccpNetworkV1::BscMainnet, SccpNetworkV1::SoraTaira, 0);
     let inbound_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
         let mut payload = inbound.clone();
         f(&mut payload);
@@ -448,12 +367,20 @@ fn rejected_payloads() -> Vec<Value> {
         inbound_mutate(&|payload| payload.deadline_ms = 1),
     ));
     cases.push((
-        "tron_sender_without_0x41",
-        inbound_mutate(&|payload| payload.sender.bytes[0] = 0x42),
+        "inbound_zero_evm_sender",
+        inbound_mutate(&|payload| payload.sender.bytes.fill(0)),
     ));
     cases.push((
-        "tron_zero_sender",
-        inbound_mutate(&|payload| payload.sender.bytes[1..].fill(0)),
+        "sender_codec_5_on_bsc",
+        inbound_mutate(&|payload| payload.sender = retired_tron_account(0)),
+    ));
+    cases.push((
+        "retired_tron_domain_5_inbound",
+        inbound_mutate(&|payload| {
+            payload.source_domain = 5;
+            payload.sender = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
+        }),
     ));
     let ton = direction_payload(SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet, 0);
     let ton_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
@@ -552,7 +479,7 @@ fn payload_fixture() -> Value {
     with(
         header(
             "iroha.sccp.payload.v1",
-            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 4)",
+            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 5)",
         ),
         vec![
             ("taira_network_id", hex(&TAIRA)),
@@ -623,15 +550,23 @@ fn commitment_tree_fixture() -> Value {
         ),
         ("leaf", hex(&transfer_leaf(&id, &word))),
     ]);
-    let control_preimage =
-        control_leaf_preimage(&TAIRA, SccpNetworkV1::EthereumMainnet, &word, 1, 3, true)
-            .expect("control preimage");
+    let control_preimage = control_leaf_preimage(
+        &TAIRA,
+        SccpNetworkV1::EthereumMainnet,
+        &word,
+        &control_fields(3, true),
+    )
+    .expect("control preimage");
     let control = obj([
         ("target", profile(SccpNetworkV1::EthereumMainnet)),
         ("destination_word", hex(&word)),
         ("route_revision", num(1)),
         ("control_nonce", num(3)),
-        ("paused", Value::Bool(true)),
+        ("track", num(1)),
+        ("parliament_paused", num(1)),
+        ("fast_pause_until_ms", num(0)),
+        ("certificate_id", hex(&[0x71; 32])),
+        ("effect_hash", hex(&[0x72; 32])),
         ("preimage", hex(&control_preimage)),
         ("leaf", hex(&eth_control_leaf(3, true))),
     ]);
@@ -727,7 +662,7 @@ fn commitment_tree_fixture() -> Value {
     with(
         header(
             "iroha.sccp.commitment-tree.v1",
-            "specs/sccp.md §3.3, §3.4 (revision 4)",
+            "specs/sccp.md §3.3, §3.4 (revision 5)",
         ),
         vec![
             ("taira_network_id", hex(&TAIRA)),
@@ -742,7 +677,7 @@ fn commitment_tree_fixture() -> Value {
             (
                 "leaf_rule",
                 text(
-                    "leaf i is the control leaf (control_nonce = i + 1, paused = i even) when \
+                    "leaf i is the control leaf (control_nonce = i + 1, parliament_paused = i even, track = 1, fast_pause_until_ms = 0, certificate_id = 0x71 repeated 32 times, effect_hash = 0x72 repeated 32 times) when \
                      i mod 3 = 2, else the transfer leaf of the ethereum-mainnet outbound payload \
                      with nonce i, amount 1000000000 + i, deadline_ms 1800086400000",
                 ),
@@ -758,120 +693,6 @@ fn commitment_tree_fixture() -> Value {
             ),
             ("trees", Value::Array(trees)),
             ("negatives", Value::Array(negatives)),
-        ],
-    )
-}
-
-// ---------------------------------------------------------------------------------------------
-// control_v1.json
-// ---------------------------------------------------------------------------------------------
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn control_fixture() -> Value {
-    let example = |nonce: u64, paused: bool, expected: &str| {
-        let word = word_address(&[0x22; 20]);
-        let leaf = control_leaf(
-            &TAIRA,
-            SccpNetworkV1::EthereumMainnet,
-            &word,
-            1,
-            nonce,
-            paused,
-        )
-        .expect("control leaf");
-        assert_eq!(hex_string(&leaf), expected, "§3.4 example");
-        obj([
-            ("target", profile(SccpNetworkV1::EthereumMainnet)),
-            ("destination_word", hex(&word)),
-            ("route_revision", num(1)),
-            ("control_nonce", num(nonce)),
-            ("paused", Value::Bool(paused)),
-            ("leaf", hex(&leaf)),
-        ])
-    };
-    let spec_examples = vec![
-        example(
-            1,
-            true,
-            "0x93d641053e51b4d28f40930e098212e8b6ab340ceaaf8ad38a458203ce98c662",
-        ),
-        example(
-            2,
-            false,
-            "0x85fcfc8718c845c212df8ae486161d03bde8116eaa7dd74bbb2312667bce5cdf",
-        ),
-    ];
-    let mut controls = Vec::new();
-    for network in EXTERNAL_NETWORKS {
-        let word = destination_word(network);
-        for revision in [1_u32, 2] {
-            for control_nonce in [1_u64, 2, 1 << 32] {
-                for paused in [true, false] {
-                    let preimage = control_leaf_preimage(
-                        &TAIRA,
-                        network,
-                        &word,
-                        revision,
-                        control_nonce,
-                        paused,
-                    )
-                    .expect("control preimage");
-                    assert_eq!(preimage.len(), 126);
-                    let leaf =
-                        control_leaf(&TAIRA, network, &word, revision, control_nonce, paused)
-                            .expect("control leaf");
-                    controls.push(obj([
-                        ("target", profile(network)),
-                        ("destination_word", hex(&word)),
-                        ("route_revision", num(u64::from(revision))),
-                        ("control_nonce", num(control_nonce)),
-                        ("paused", Value::Bool(paused)),
-                        (
-                            "lane_bytes",
-                            hex(&lane_bytes(SccpNetworkV1::SoraTaira, network, &TAIRA)
-                                .expect("lane")),
-                        ),
-                        ("preimage", hex(&preimage)),
-                        ("leaf", hex(&leaf)),
-                    ]));
-                }
-            }
-        }
-    }
-    let word = destination_word(SccpNetworkV1::EthereumMainnet);
-    let rejected = [
-        ("taira_target", SccpNetworkV1::SoraTaira, 1_u32, 1_u64),
-        ("zero_revision", SccpNetworkV1::EthereumMainnet, 0, 1),
-        ("zero_control_nonce", SccpNetworkV1::EthereumMainnet, 1, 0),
-    ]
-    .into_iter()
-    .map(|(label, target, revision, nonce)| {
-        let error = control_leaf(&TAIRA, target, &word, revision, nonce, true)
-            .expect_err("rejected control");
-        obj([
-            ("label", text(label)),
-            ("target", profile(target)),
-            ("route_revision", num(u64::from(revision))),
-            ("control_nonce", num(nonce)),
-            ("error", error_name(error)),
-        ])
-    })
-    .collect();
-    with(
-        header(
-            "iroha.sccp.control.v1",
-            "specs/sccp.md §3.4, §4.14.6, §5.1.6 (revision 4)",
-        ),
-        vec![
-            ("taira_network_id", hex(&TAIRA)),
-            ("event_signature", text(EVENT_CONTROL_APPLIED)),
-            ("topic_control_applied", hex(&TOPIC_CONTROL_APPLIED)),
-            ("spec_examples", Value::Array(spec_examples)),
-            ("controls", Value::Array(controls)),
-            ("rejected", Value::Array(rejected)),
         ],
     )
 }
@@ -942,7 +763,7 @@ fn history_fixture() -> Value {
     with(
         header(
             "iroha.sccp.history.v1",
-            "specs/sccp.md §3.5, §5.1.3 (revision 4)",
+            "specs/sccp.md §3.5, §5.1.3 (revision 5)",
         ),
         vec![
             (
@@ -959,803 +780,8 @@ fn history_fixture() -> Value {
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// eip712_v1.json
-// ---------------------------------------------------------------------------------------------
-
-fn sample_attestation() -> AttestationFieldsV1 {
-    AttestationFieldsV1 {
-        height: 100,
-        epoch: 0,
-        timestamp_ms: T0 + 100_000,
-        block_hash: keccak256(&[b"SCCP/FIXTURE/BLOCK/V1", &100_u64.to_be_bytes()]),
-        sccp_root: [0xc2; 32],
-        message_count: 3,
-        history_root: [0xd3; 32],
-        history_size: 2,
-        roster_digest: [0xe4; 32],
-        next_roster_digest: [0; 32],
-    }
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn eip712_fixture() -> Value {
-    let separator = domain_separator(&TAIRA);
-    assert_eq!(
-        separator,
-        keccak256(&[&DOMAIN_TYPEHASH, &NAME_HASH, &VERSION_HASH, &TAIRA])
-    );
-    let attestation = sample_attestation();
-    let rotation = AttestationFieldsV1 {
-        height: 3_600,
-        epoch: 0,
-        timestamp_ms: T0 + 3_600_000,
-        sccp_root: [0; 32],
-        message_count: 0,
-        next_roster_digest: [0xf5; 32],
-        ..attestation
-    };
-    for fields in [&attestation, &rotation] {
-        fields.check_invariants().expect("attestation invariants");
-    }
-    let consensus_key: Vec<u8> = (0..48_u8).map(|byte| 0xa0 ^ byte).collect();
-    let pop = BridgeKeyPopFieldsV1 {
-        peer_key_hash: peer_key_hash(&consensus_key),
-        bridge_address: fixture_address(0),
-        activation_epoch: 1,
-    };
-    let pop_digest = pop.digest(&TAIRA);
-    let pop_signature = sign_digest(&fixture_secret(0), &pop_digest).expect("pop signature");
-    assert_eq!(
-        recover_address(&pop_digest, &pop_signature),
-        Ok(fixture_address(0))
-    );
-
-    let keys: Vec<Value> = (0..4_u8)
-        .map(|index| {
-            let secret = fixture_secret(index);
-            obj([
-                ("secret", hex(&secret)),
-                (
-                    "public_key",
-                    hex(&public_key_of(&secret).expect("public key")),
-                ),
-                ("address", hex(&fixture_address(index))),
-            ])
-        })
-        .collect();
-    let digest = attestation.digest(&TAIRA);
-    let signatures: Vec<Value> = (0..4_u8)
-        .map(|index| {
-            let signature = sign_digest(&fixture_secret(index), &digest).expect("signature");
-            check_signature_form(&signature).expect("canonical form");
-            assert_eq!(
-                recover_address(&digest, &signature),
-                Ok(fixture_address(index))
-            );
-            obj([
-                ("key", num(u64::from(index))),
-                ("digest", hex(&digest)),
-                ("signature", hex(&signature)),
-                ("v", num(u64::from(signature[64]))),
-                ("address", hex(&fixture_address(index))),
-            ])
-        })
-        .collect();
-
-    // Negatives derived from key 0's attestation signature.
-    let good = sign_digest(&fixture_secret(0), &digest).expect("signature");
-    let mut high_s = good;
-    let s: [u8; 32] = good[32..64].try_into().expect("32 bytes");
-    high_s[32..64].copy_from_slice(&sub_be(&SECP256K1_N, &s));
-    high_s[64] = if good[64] == 27 { 28 } else { 27 };
-    let with_v = |v: u8| {
-        let mut signature = good;
-        signature[64] = v;
-        signature
-    };
-    let with_r = |r: [u8; 32]| {
-        let mut signature = good;
-        signature[..32].copy_from_slice(&r);
-        signature
-    };
-    let mut zero_s = good;
-    zero_s[32..64].fill(0);
-    let mut half_n_plus_one = SECP256K1_HALF_N;
-    half_n_plus_one[31] += 1;
-    let mut s_above_half = good;
-    s_above_half[32..64].copy_from_slice(&half_n_plus_one);
-    let negatives: Vec<Value> = [
-        ("high_s", high_s),
-        ("s_half_n_plus_one", s_above_half),
-        ("v_0", with_v(0)),
-        ("v_1", with_v(1)),
-        ("v_29", with_v(29)),
-        ("v_30", with_v(30)),
-        ("r_zero", with_r([0; 32])),
-        ("r_equals_n", with_r(SECP256K1_N)),
-        ("s_zero", zero_s),
-    ]
-    .into_iter()
-    .map(|(label, signature)| {
-        let error = recover_address(&digest, &signature).expect_err(label);
-        obj([
-            ("label", text(label)),
-            ("digest", hex(&digest)),
-            ("signature", hex(&signature)),
-            ("error", error_name(error)),
-        ])
-    })
-    .collect();
-    let other_digest = rotation.digest(&TAIRA);
-    let wrong_signer = obj([
-        ("label", text("signature_over_another_digest")),
-        ("digest", hex(&other_digest)),
-        ("signature", hex(&good)),
-        ("expected_address", hex(&fixture_address(0))),
-        (
-            "recovered_address",
-            hex(&recover_address(&other_digest, &good).expect("recovers some key")),
-        ),
-    ]);
-
-    // The recovery-id re-sign branch, forced deterministically: the first attempt is reported
-    // with v = 29 and the retry uses the fixed extra entropy below.
-    let entropy = keccak256(&[b"SCCP/FIXTURE/ENTROPY/V1"]);
-    let forced = sign_digest_with(
-        &fixture_secret(0),
-        &digest,
-        |secret, digest, extra| {
-            let mut signature = rfc6979_sign(secret, digest, extra)?;
-            if extra.is_none() {
-                signature[64] = 29;
-            }
-            Ok(signature)
-        },
-        || Ok(entropy),
-    )
-    .expect("forced re-sign");
-    assert_ne!(forced, good);
-    assert_eq!(recover_address(&digest, &forced), Ok(fixture_address(0)));
-    let forced_json = obj([
-        ("key", num(0)),
-        ("digest", hex(&digest)),
-        ("deterministic_signature", hex(&good)),
-        ("forced_first_attempt_v", num(29)),
-        ("extra_entropy", hex(&entropy)),
-        ("resigned_signature", hex(&forced)),
-    ]);
-
-    with(
-        header(
-            "iroha.sccp.eip712.v1",
-            "specs/sccp.md §0, §3.6, §3.8 (revision 4)",
-        ),
-        vec![
-            ("taira_network_id", hex(&TAIRA)),
-            (
-                "domain",
-                obj([
-                    ("type", text(EIP712_DOMAIN_TYPE)),
-                    ("typehash", hex(&DOMAIN_TYPEHASH)),
-                    ("name_hash", hex(&NAME_HASH)),
-                    ("version_hash", hex(&VERSION_HASH)),
-                    ("separator", hex(&separator)),
-                ]),
-            ),
-            (
-                "attestation",
-                with(
-                    Map::new(),
-                    vec![
-                        ("type", text(ATTESTATION_TYPE)),
-                        ("typehash", hex(&ATTESTATION_TYPEHASH)),
-                        ("fields", attestation_json(&attestation)),
-                    ],
-                ),
-            ),
-            ("rotation_attestation", attestation_json(&rotation)),
-            (
-                "bridge_key_pop",
-                obj([
-                    ("type", text(BRIDGE_KEY_TYPE)),
-                    ("typehash", hex(&BRIDGE_KEY_TYPEHASH)),
-                    ("consensus_public_key", hex(&consensus_key)),
-                    ("peer_key_hash", hex(&pop.peer_key_hash)),
-                    ("bridge_address", hex(&pop.bridge_address)),
-                    ("activation_epoch", num(pop.activation_epoch)),
-                    ("struct_hash", hex(&pop.struct_hash())),
-                    ("digest", hex(&pop_digest)),
-                    ("signature", hex(&pop_signature)),
-                ]),
-            ),
-            (
-                "curve",
-                obj([("n", hex(&SECP256K1_N)), ("half_n", hex(&SECP256K1_HALF_N))]),
-            ),
-            ("keys", Value::Array(keys)),
-            ("signatures", Value::Array(signatures)),
-            ("negatives", Value::Array(negatives)),
-            ("wrong_signer", wrong_signer),
-            ("forced_resign", forced_json),
-        ],
-    )
-}
-
-fn sub_be(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
-    let mut out = [0_u8; 32];
-    let mut borrow = 0_i16;
-    for index in (0..32).rev() {
-        let mut value = i16::from(a[index]) - i16::from(b[index]) - borrow;
-        borrow = i16::from(value < 0);
-        if value < 0 {
-            value += 256;
-        }
-        out[index] = u8::try_from(value).expect("byte");
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------------------------
-// roster_v1.json
-// ---------------------------------------------------------------------------------------------
-
-fn roster_with_zero_slots(generation: u64, n: u32, zeros: u32) -> RosterV1 {
-    let mut members: Vec<[u8; 20]> = (0..n - zeros)
-        .map(|index| pseudo_address(n * 100 + index))
-        .collect();
-    members.extend((0..zeros).map(|_| [0; 20]));
-    members.sort_unstable();
-    RosterV1 {
-        generation,
-        valid_from_ms: T0,
-        valid_until_ms: T0 + 14 * DAY,
-        members,
-    }
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn roster_fixture() -> Value {
-    let rosters: Vec<Value> = [
-        ("n4_one_zero_slot", roster_with_zero_slots(1, 4, 1)),
-        ("n7_two_zero_slots", roster_with_zero_slots(2, 7, 2)),
-        ("n31_five_zero_slots", roster_with_zero_slots(3, 31, 5)),
-    ]
-    .into_iter()
-    .map(|(label, roster)| {
-        let digest = roster.digest(&TAIRA).expect("valid roster");
-        assert_eq!(
-            roster_digest_checked(
-                &TAIRA,
-                roster.generation,
-                roster.valid_from_ms,
-                roster.valid_until_ms,
-                u8::try_from(roster.threshold()).expect("small"),
-                &roster.packed_members(),
-            ),
-            Ok(digest)
-        );
-        with(
-            Map::new(),
-            vec![("label", text(label)), ("roster", roster_json(&roster))],
-        )
-    })
-    .collect();
-    let thresholds: Vec<Value> = (MIN_ROSTER_MEMBERS..=MAX_ROSTER_MEMBERS)
-        .map(|n| obj([("n", num(n as u64)), ("t", num(threshold(n) as u64))]))
-        .collect();
-
-    let base = roster_with_zero_slots(4, 5, 1);
-    let packed_negative = |label: &str, generation: u64, t: u8, members: Vec<[u8; 20]>| {
-        let packed: Vec<u8> = members.iter().flatten().copied().collect();
-        let error =
-            roster_digest_checked(&TAIRA, generation, T0, T0 + DAY, t, &packed).expect_err(label);
-        obj([
-            ("label", text(label)),
-            ("generation", num(generation)),
-            ("valid_from_ms", num(T0)),
-            ("valid_until_ms", num(T0 + DAY)),
-            ("threshold", num(u64::from(t))),
-            ("packed_members", hex(&packed)),
-            ("error", error_name(error)),
-        ])
-    };
-    let mut nonzero_first = base.members.clone();
-    nonzero_first.rotate_left(1);
-    let mut duplicate = base.members.clone();
-    duplicate[2] = duplicate[3];
-    let mut descending = base.members.clone();
-    descending.swap(2, 3);
-    let three: Vec<[u8; 20]> = (0..3).map(pseudo_address).collect();
-    let mut thirty_two: Vec<[u8; 20]> = (0..32).map(pseudo_address).collect();
-    thirty_two.sort_unstable();
-    let rejected = vec![
-        packed_negative("zero_slot_after_nonzero", 4, 4, nonzero_first),
-        packed_negative("duplicate_member", 4, 4, duplicate),
-        packed_negative("descending_members", 4, 4, descending),
-        packed_negative("n_3", 4, 3, three),
-        packed_negative("n_32", 4, 22, thirty_two),
-        packed_negative("threshold_too_high", 4, 5, base.members.clone()),
-        packed_negative("threshold_too_low", 4, 3, base.members.clone()),
-        packed_negative("generation_zero", 0, 4, base.members.clone()),
-        {
-            let packed = &base.packed_members()[..99];
-            let error = roster_digest_checked(&TAIRA, 4, T0, T0 + DAY, 4, packed)
-                .expect_err("partial member");
-            obj([
-                ("label", text("partial_member_bytes")),
-                ("generation", num(4)),
-                ("valid_from_ms", num(T0)),
-                ("valid_until_ms", num(T0 + DAY)),
-                ("threshold", num(4)),
-                ("packed_members", hex(packed)),
-                ("error", error_name(error)),
-            ])
-        },
-    ];
-
-    let now = T0;
-    let max = MAX_ROSTER_VALIDITY_MS;
-    let skew = MAX_CLOCK_SKEW_MS;
-    let validity: Vec<Value> = [
-        ("fourteen_days", now, now + 14 * DAY),
-        ("empty_window", now, now),
-        ("inverted_window", now + 1, now),
-        ("from_at_skew_bound", now + skew, now + skew + DAY),
-        ("from_past_skew_bound", now + skew + 1, now + skew + DAY),
-        ("window_at_max", now - 1, now - 1 + max),
-        ("window_past_max", now - 1, now + max),
-        ("until_equals_now", now - DAY, now),
-        ("until_now_plus_one", now - DAY, now + 1),
-        ("until_at_max_ahead", now + 1, now + max),
-        ("until_past_max_ahead", now + 2, now + max + 1),
-    ]
-    .into_iter()
-    .map(|(label, from, until)| {
-        let outcome = check_validity_bounds(from, until, now);
-        obj([
-            ("label", text(label)),
-            ("now_ms", num(now)),
-            ("valid_from_ms", num(from)),
-            ("valid_until_ms", num(until)),
-            ("valid", Value::Bool(outcome.is_ok())),
-            ("error", outcome.err().map_or(Value::Null, error_name)),
-        ])
-    })
-    .collect();
-
-    with(
-        header(
-            "iroha.sccp.roster.v1",
-            "specs/sccp.md §3.7, §5.1.2, §5.1.5 (revision 4)",
-        ),
-        vec![
-            ("taira_network_id", hex(&TAIRA)),
-            (
-                "constants",
-                obj([
-                    ("min_members", num(MIN_ROSTER_MEMBERS as u64)),
-                    ("max_members", num(MAX_ROSTER_MEMBERS as u64)),
-                    ("max_roster_validity_ms", num(MAX_ROSTER_VALIDITY_MS)),
-                    ("max_clock_skew_ms", num(MAX_CLOCK_SKEW_MS)),
-                    ("previous_roster_grace_ms", num(PREVIOUS_ROSTER_GRACE_MS)),
-                ]),
-            ),
-            ("rosters", Value::Array(rosters)),
-            ("thresholds", Value::Array(thresholds)),
-            ("rejected", Value::Array(rejected)),
-            ("validity", Value::Array(validity)),
-        ],
-    )
-}
-
-// ---------------------------------------------------------------------------------------------
-// evm_calldata_v1.json
-// ---------------------------------------------------------------------------------------------
-
-/// The coherent scenario behind the calldata vectors.
-struct Scenario {
-    g7: RosterV1,
-    g8: RosterV1,
-    a100: AttestationFieldsV1,
-    a150: AttestationFieldsV1,
-    a200: AttestationFieldsV1,
-    s7_a100: SignatureSetV1,
-    s7_a150: SignatureSetV1,
-    s8_a200: SignatureSetV1,
-    block100: PromoteOddTree,
-    history: Vec<[u8; 32]>,
-    payloads: Vec<SccpTransferPayloadV1>,
-}
-
-fn scenario() -> Scenario {
-    let mut g7_members = vec![
-        [0; 20],
-        fixture_address(0),
-        fixture_address(1),
-        fixture_address(2),
-    ];
-    g7_members.sort_unstable();
-    let g7 = RosterV1 {
-        generation: 7,
-        valid_from_ms: T0,
-        valid_until_ms: T0 + 14 * DAY,
-        members: g7_members,
-    };
-    let mut g8_members: Vec<[u8; 20]> = (0..4).map(fixture_address).collect();
-    g8_members.sort_unstable();
-    let g8 = RosterV1 {
-        generation: 8,
-        valid_from_ms: T0 + 150_000,
-        valid_until_ms: T0 + 150_000 + 14 * DAY,
-        members: g8_members,
-    };
-    let d7 = g7.digest(&TAIRA).expect("g7");
-    let d8 = g8.digest(&TAIRA).expect("g8");
-
-    let payloads: Vec<SccpTransferPayloadV1> = (0..4).map(eth_outbound).collect();
-    let block50 = PromoteOddTree::block(&[eth_transfer_leaf(0)]).expect("block 50");
-    let block100 = PromoteOddTree::block(&[
-        eth_transfer_leaf(1),
-        eth_transfer_leaf(2),
-        eth_control_leaf(1, true),
-    ])
-    .expect("block 100");
-    let block200 = PromoteOddTree::block(&[eth_transfer_leaf(3)]).expect("block 200");
-    let history = vec![
-        history_leaf(50, &block50.root(), 1),
-        history_leaf(100, &block100.root(), 3),
-        history_leaf(200, &block200.root(), 1),
-    ];
-    let block_hash = |height: u64| keccak256(&[b"SCCP/FIXTURE/BLOCK/V1", &height.to_be_bytes()]);
-    let a100 = AttestationFieldsV1 {
-        height: 100,
-        epoch: 0,
-        timestamp_ms: T0 + 100_000,
-        block_hash: block_hash(100),
-        sccp_root: block100.root(),
-        message_count: 3,
-        history_root: history_root(&history[..2]).expect("history"),
-        history_size: 2,
-        roster_digest: d7,
-        next_roster_digest: [0; 32],
-    };
-    let a150 = AttestationFieldsV1 {
-        height: 150,
-        epoch: 0,
-        timestamp_ms: T0 + 150_000,
-        block_hash: block_hash(150),
-        sccp_root: [0; 32],
-        message_count: 0,
-        history_root: history_root(&history[..2]).expect("history"),
-        history_size: 2,
-        roster_digest: d7,
-        next_roster_digest: d8,
-    };
-    let a200 = AttestationFieldsV1 {
-        height: 200,
-        epoch: 1,
-        timestamp_ms: T0 + 200_000,
-        block_hash: block_hash(200),
-        sccp_root: block200.root(),
-        message_count: 1,
-        history_root: history_root(&history).expect("history"),
-        history_size: 3,
-        roster_digest: d8,
-        next_roster_digest: [0; 32],
-    };
-    for attestation in [&a100, &a150, &a200] {
-        attestation.check_invariants().expect("invariants");
-    }
-    let s7_a100 = signature_set(&g7, &[0, 1, 2], &a100.digest(&TAIRA));
-    let s7_a150 = signature_set(&g7, &[2, 0, 1], &a150.digest(&TAIRA));
-    let s8_a200 = signature_set(&g8, &[1, 2, 3], &a200.digest(&TAIRA));
-
-    // The destination roster light client accepts the rotation.
-    let mut state = RosterStateV1::initial(&g7, &TAIRA, T0 + 100_000).expect("initial");
-    state
-        .rotate(&a150, &g7, &g8, &TAIRA, T0 + 200_000)
-        .expect("rotation");
-    assert!(state.accepts(&d8, T0 + 300_000));
-    assert!(state.accepts(&d7, T0 + 300_000));
-
-    Scenario {
-        g7,
-        g8,
-        a100,
-        a150,
-        a200,
-        s7_a100,
-        s7_a150,
-        s8_a200,
-        block100,
-        history,
-        payloads,
-    }
-}
-
-fn call_json(label: &str, function: &str, calldata: &[u8]) -> Value {
-    obj([
-        ("label", text(label)),
-        ("function", text(function)),
-        ("calldata", hex(calldata)),
-    ])
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn evm_calldata_fixture() -> Value {
-    let s = scenario();
-    let destination = eth_destination();
-    let history_proof = HistoryProofV1 {
-        block: HistoryBlockV1 {
-            height: 100,
-            sccp_root: s.block100.root(),
-            message_count: 3,
-        },
-        leaf_index: 1,
-        path: history_path(&s.history, 1).expect("history path"),
-    };
-    let message = |nonce: u64, index: usize| MessageProofV1 {
-        payload: s.payloads[usize::try_from(nonce).expect("small")]
-            .encode()
-            .expect("payload"),
-        leaf_index: u32::try_from(index).expect("small"),
-        path: s.block100.path(index).expect("path"),
-    };
-    let proof1 = message(1, 0);
-    let proof2 = message(2, 1);
-    let control = ControlProofV1 {
-        control_nonce: 1,
-        paused: true,
-        leaf_index: 2,
-        path: s.block100.path(2).expect("path"),
-    };
-    // The bundles verify with the pure destination checks.
-    verify_transfer_direct(&s.a100, &proof1, &TAIRA, &destination).expect("direct transfer");
-    verify_transfer_historical(&s.a200, &history_proof, &proof2, &TAIRA, &destination)
-        .expect("historical transfer");
-    verify_control_direct(&s.a100, &control, &TAIRA, &destination).expect("direct control");
-    verify_control_historical(&s.a200, &history_proof, &control, &TAIRA, &destination)
-        .expect("historical control");
-
-    let g7_attested = AttestedV1 {
-        attestation: &s.a100,
-        roster: &s.g7,
-        signatures: &s.s7_a100,
-    };
-    let g8_attested = AttestedV1 {
-        attestation: &s.a200,
-        roster: &s.g8,
-        signatures: &s.s8_a200,
-    };
-    let rotation = RotationV1 {
-        attestation: s.a150,
-        current: s.g7.clone(),
-        signatures: s.s7_a150.clone(),
-        next: s.g8.clone(),
-    };
-    let transfer_call = TransferToTairaCallV1 {
-        taira_recipient: taira_account(9),
-        token_amount: 1_500_000_000,
-        expected_nonce: 0,
-    };
-    let transfer_calldata = transfer_call.calldata();
-    assert_eq!(
-        TransferToTairaCallV1::decode(&transfer_calldata).as_ref(),
-        Ok(&transfer_call)
-    );
-    let void_expired = void_expired_calldata(1, g7_attested, &proof1);
-    let void_expired_historical =
-        void_expired_historical_calldata(2, g8_attested, &history_proof, &proof2);
-    let void_frozen = void_frozen_calldata(4, 3);
-    assert_eq!(
-        VoidCallV1::decode(&void_expired),
-        Ok(VoidCallV1::Expired {
-            nonce: 1,
-            historical: false
-        })
-    );
-    assert_eq!(
-        VoidCallV1::decode(&void_expired_historical),
-        Ok(VoidCallV1::Expired {
-            nonce: 2,
-            historical: true
-        })
-    );
-    assert_eq!(
-        VoidCallV1::decode(&void_frozen),
-        Ok(VoidCallV1::Frozen {
-            first_nonce: 4,
-            count: 3
-        })
-    );
-    let calls = vec![
-        call_json(
-            "finalize_direct",
-            "finalizeFromTaira",
-            &finalize_from_taira_calldata(g7_attested, &proof1),
-        ),
-        call_json(
-            "finalize_historical",
-            "finalizeFromTairaHistorical",
-            &finalize_from_taira_historical_calldata(g8_attested, &history_proof, &proof2),
-        ),
-        call_json(
-            "rotate_one",
-            "rotateRosters",
-            &rotate_rosters_calldata(std::slice::from_ref(&rotation)),
-        ),
-        call_json(
-            "apply_control_direct",
-            "applyControl",
-            &apply_control_calldata(g7_attested, &control),
-        ),
-        call_json(
-            "apply_control_historical",
-            "applyControlHistorical",
-            &apply_control_historical_calldata(g8_attested, &history_proof, &control),
-        ),
-        call_json("void_expired", "voidExpired", &void_expired),
-        call_json(
-            "void_expired_historical",
-            "voidExpiredHistorical",
-            &void_expired_historical,
-        ),
-        call_json("void_frozen", "voidFrozen", &void_frozen),
-        call_json("transfer_to_taira", "transferToTaira", &transfer_calldata),
-    ];
-
-    let views: Vec<Value> = [
-        ("rosterState", ViewCallV1::RosterState),
-        ("isConsumed", ViewCallV1::IsConsumed(300)),
-        ("transferNonces", ViewCallV1::TransferNonces([0x55; 20])),
-        ("tairaNetworkId", ViewCallV1::TairaNetworkId),
-        ("routeRevision", ViewCallV1::RouteRevision),
-        ("maxWrappedSupply", ViewCallV1::MaxWrappedSupply),
-        ("mintingPaused", ViewCallV1::MintingPaused),
-        ("controlNonce", ViewCallV1::ControlNonce),
-        ("domainSeparator", ViewCallV1::DomainSeparator),
-        ("initialRosterDigest", ViewCallV1::InitialRosterDigest),
-        (
-            "initialRosterGeneration",
-            ViewCallV1::InitialRosterGeneration,
-        ),
-        ("opCount", ViewCallV1::OpCount),
-        ("maxRosterValidityMs", ViewCallV1::MaxRosterValidityMs),
-    ]
-    .into_iter()
-    .map(|(function, call)| call_json(function, function, &call.calldata()))
-    .collect();
-    let mut state = RosterStateV1::initial(&s.g7, &TAIRA, T0 + 100_000).expect("initial");
-    state
-        .rotate(&s.a150, &s.g7, &s.g8, &TAIRA, T0 + 200_000)
-        .expect("rotation");
-    let roster_state_return = encode_roster_state_return(&state);
-    assert_eq!(
-        ViewCallV1::RosterState.decode_return(&roster_state_return),
-        Ok(iroha_sccp::v1::evm_abi::ViewReturnV1::RosterState(state))
-    );
-
-    // Logs: the burn of `transfer_call` by caller 0x55…55, and both void shapes.
-    let caller = [0x55; 20];
-    let inbound = transfer_call
-        .inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &caller)
-        .expect("inbound payload");
-    let transfer_log = TransferToTairaLogV1 {
-        message_id: inbound.message_id(&TAIRA).expect("message id"),
-        sender: caller,
-        nonce: 0,
-        payload: inbound.encode().expect("payload"),
-    };
-    assert_eq!(
-        transfer_log.verified_payload(&TAIRA, SccpNetworkV1::EthereumMainnet, 1),
-        Ok(inbound)
-    );
-    let log_json = |label: &str, topics: Vec<[u8; 32]>, data: Vec<u8>| {
-        obj([
-            ("label", text(label)),
-            ("topics", hexes(&topics)),
-            ("data", hex(&data)),
-        ])
-    };
-    let (transfer_topics, transfer_data) = transfer_log.encode();
-    let expired_void = VoidedLogV1 {
-        message_id: s.payloads[1].message_id(&TAIRA).expect("message id"),
-        nonce: 1,
-    };
-    let frozen_void = VoidedLogV1 {
-        message_id: [0; 32],
-        nonce: 4,
-    };
-    let (expired_topics, expired_data) = expired_void.encode();
-    let (frozen_topics, frozen_data) = frozen_void.encode();
-    let logs = vec![
-        log_json("transfer_to_taira", transfer_topics, transfer_data),
-        log_json("voided_expired", expired_topics, expired_data),
-        log_json("voided_frozen", frozen_topics, frozen_data),
-    ];
-
-    let conformance = calldata_conformance(&transfer_call, &void_expired, &void_expired_historical);
-
-    let selectors: Vec<Value> = SELECTORS
-        .iter()
-        .map(|(name, signature, selector)| {
-            obj([
-                ("function", text(name)),
-                ("signature", text(signature)),
-                ("selector", hex(selector)),
-            ])
-        })
-        .collect();
-    let events: Vec<Value> = EVENT_TOPICS
-        .iter()
-        .map(|(signature, topic)| obj([("signature", text(signature)), ("topic0", hex(topic))]))
-        .collect();
-
-    let payloads_json: Vec<Value> = s
-        .payloads
-        .iter()
-        .map(|payload| {
-            obj([
-                ("nonce", num(payload.nonce)),
-                ("payload", hex(&payload.encode().expect("payload"))),
-                (
-                    "message_id",
-                    hex(&payload.message_id(&TAIRA).expect("message id")),
-                ),
-            ])
-        })
-        .collect();
-    let scenario_json = obj([
-        ("taira_network_id", hex(&TAIRA)),
-        (
-            "destination",
-            obj([
-                ("target", profile(destination.network)),
-                ("route_revision", num(u64::from(destination.route_revision))),
-                ("destination_word", hex(&destination.destination_word)),
-            ]),
-        ),
-        ("deadline_ms", num(DEADLINE)),
-        ("payloads", Value::Array(payloads_json)),
-        ("roster_g7", roster_json(&s.g7)),
-        ("roster_g8", roster_json(&s.g8)),
-        ("attestation_100", attestation_json(&s.a100)),
-        ("attestation_150_rotation", attestation_json(&s.a150)),
-        ("attestation_200", attestation_json(&s.a200)),
-        ("signatures_g7_100", signatures_json(&s.s7_a100)),
-        ("signatures_g7_150", signatures_json(&s.s7_a150)),
-        ("signatures_g8_200", signatures_json(&s.s8_a200)),
-        ("block_100_root", hex(&s.block100.root())),
-        ("history_leaves", hexes(&s.history)),
-        ("roster_state_after_rotation", hex(&roster_state_return)),
-    ]);
-
-    with(
-        header(
-            "iroha.sccp.evm-calldata.v1",
-            "specs/sccp.md §4.12.2, §4.16, §5.1.3–§5.1.8, §5.2.2 (revision 4)",
-        ),
-        vec![
-            ("scenario", scenario_json),
-            ("selectors", Value::Array(selectors)),
-            ("events", Value::Array(events)),
-            ("calls", Value::Array(calls)),
-            ("views", Value::Array(views)),
-            ("logs", Value::Array(logs)),
-            ("calldata_conformance", Value::Array(conformance)),
-        ],
-    )
-}
+#[path = "v1_vectors/current_evm.rs"]
+mod current_evm;
 
 /// A conformance verdict: the call succeeds (contract) or decodes (Rust).
 const ACCEPT: &str = "accept";
@@ -1772,12 +798,6 @@ fn with_gap(calldata: &[u8], at: usize) -> Vec<u8> {
     out.extend_from_slice(&[0; WORD]);
     out.extend_from_slice(&calldata[4 + at..]);
     out
-}
-
-/// The `u64` value of the argument word at `at`.
-fn arg_u64(calldata: &[u8], at: usize) -> usize {
-    let low = &calldata[4 + at + 24..4 + at + WORD];
-    usize::try_from(u64::from_be_bytes(low.try_into().expect("8 bytes"))).expect("usize")
 }
 
 /// Adds `delta` to the `u64` argument word at `at`.
@@ -1800,129 +820,11 @@ fn appended(calldata: &[u8], tail: &[u8]) -> Vec<u8> {
     out
 }
 
-/// The `voidExpired*` variants (`historical` selects `voidExpiredHistorical`, whose head has 15
-/// words instead of 14). Besides the length edits, every unsigned integer field gets a word
-/// with the lowest bit above its declared width set, every dynamic offset is moved past an
-/// inserted zero word (with every enclosing offset moved accordingly, so Solidity's own decoder
-/// reads the same arguments) and every `bytes` value gets a nonzero padding byte.
-fn void_expired_variants(
-    base: &[u8],
-    historical: bool,
-) -> Vec<(&'static str, Vec<u8>, &'static str)> {
-    let head_words = if historical { 15 } else { 14 };
-    let head = |from: usize| (from..head_words).map(|word| word * WORD);
-    let roster_at = arg_u64(base, 11 * WORD);
-    let signatures_at = arg_u64(base, 12 * WORD);
-    let proof_head = (head_words - 1) * WORD;
-    let proof_at = arg_u64(base, proof_head);
-    let members_at = roster_at + arg_u64(base, roster_at + 4 * WORD);
-    let signature_bytes_at = signatures_at + arg_u64(base, signatures_at + WORD);
-    let payload_at = proof_at + arg_u64(base, proof_at);
-    let path_at = proof_at + arg_u64(base, proof_at + 2 * WORD);
-
-    // (label, argument offset of the word, declared width in bytes).
-    let mut fields = vec![
-        ("dirty_attestation_height", WORD, 8),
-        ("dirty_attestation_epoch", 2 * WORD, 8),
-        ("dirty_attestation_timestamp_ms", 3 * WORD, 8),
-        ("dirty_attestation_message_count", 6 * WORD, 4),
-        ("dirty_attestation_history_size", 8 * WORD, 8),
-        ("dirty_roster_generation", roster_at, 8),
-        ("dirty_roster_valid_from_ms", roster_at + WORD, 8),
-        ("dirty_roster_valid_until_ms", roster_at + 2 * WORD, 8),
-        ("dirty_roster_threshold", roster_at + 3 * WORD, 1),
-        ("dirty_signer_bitmap", signatures_at, 4),
-        ("dirty_message_leaf_index", proof_at + WORD, 4),
-    ];
-    // (label, argument offset where the zero word goes, offsets that move past it).
-    let mut gaps: Vec<(&'static str, usize, Vec<usize>)> = vec![
-        ("roster_offset_gap", roster_at, head(11).collect()),
-        (
-            "members_offset_gap",
-            members_at,
-            std::iter::once(roster_at + 4 * WORD)
-                .chain(head(12))
-                .collect(),
-        ),
-        ("signatures_offset_gap", signatures_at, head(12).collect()),
-        (
-            "signature_bytes_offset_gap",
-            signature_bytes_at,
-            std::iter::once(signatures_at + WORD)
-                .chain(head(13))
-                .collect(),
-        ),
-        ("message_proof_offset_gap", proof_at, vec![proof_head]),
-        (
-            "payload_offset_gap",
-            payload_at,
-            vec![proof_at, proof_at + 2 * WORD],
-        ),
-        ("path_offset_gap", path_at, vec![proof_at + 2 * WORD]),
-    ];
-    let paddings = [
-        ("nonzero_members_padding", members_at),
-        ("nonzero_signatures_padding", signature_bytes_at),
-        ("nonzero_payload_padding", payload_at),
-    ];
-    if historical {
-        let history_at = arg_u64(base, 13 * WORD);
-        fields.extend([
-            ("dirty_history_height", history_at, 8),
-            ("dirty_history_message_count", history_at + 2 * WORD, 4),
-            ("dirty_history_leaf_index", history_at + 3 * WORD, 8),
-        ]);
-        gaps.extend([
-            ("history_offset_gap", history_at, head(13).collect()),
-            (
-                "history_path_offset_gap",
-                history_at + arg_u64(base, history_at + 4 * WORD),
-                vec![history_at + 4 * WORD, 14 * WORD],
-            ),
-        ]);
-    }
-
-    let mut variants = vec![
-        ("canonical", base.to_vec(), ACCEPT),
-        ("trailing_byte", appended(base, &[0]), NON_CANONICAL),
-        ("trailing_word", appended(base, &[0; WORD]), NON_CANONICAL),
-        ("short_byte", base[..base.len() - 1].to_vec(), NON_CANONICAL),
-        ("dirty_nonce_high_bits", dirty(base, 0, 23), EMPTY_REVERT),
-        ("offset_high_bits", dirty(base, 11 * WORD, 0), EMPTY_REVERT),
-    ];
-    variants.extend(
-        fields
-            .into_iter()
-            .map(|(label, at, width)| (label, dirty(base, at, WORD - width - 1), NON_CANONICAL)),
-    );
-    variants.extend(gaps.into_iter().map(|(label, at, offsets)| {
-        let mut calldata = with_gap(base, at);
-        for offset in offsets {
-            assert!(offset < at, "{label}: only offsets before the gap move");
-            bump(&mut calldata, offset, 0x20);
-        }
-        (label, calldata, NON_CANONICAL)
-    }));
-    variants.extend(paddings.into_iter().map(|(label, at)| {
-        let len = arg_u64(base, at);
-        assert_ne!(len % WORD, 0, "{label}: the bytes have padding");
-        let mut calldata = base.to_vec();
-        calldata[4 + at + WORD + len.div_ceil(WORD) * WORD - 1] = 1;
-        (label, calldata, NON_CANONICAL)
-    }));
-    variants
-}
-
 /// The shared void and burn calldata conformance table (§5.1.7, §5.1.8, §5.2.2): every entry
-/// records the Rust decoder's verdict (the decoders Taira's TRON light client uses) and the
-/// destination's outcome in a state where the canonical call succeeds, and the two accept
-/// exactly the same entries. `contract` is `accept`, a custom error, or `empty` for a revert
-/// in Solidity's ABI decoder.
-fn calldata_conformance(
-    transfer_call: &TransferToTairaCallV1,
-    void_expired: &[u8],
-    void_expired_historical: &[u8],
-) -> Vec<Value> {
+/// records the Rust decoder's verdict and the destination's outcome in a state where the
+/// canonical call succeeds, and the two accept exactly the same entries. `contract` is
+/// `accept`, a custom error, or `empty` for a revert in Solidity's ABI decoder.
+fn calldata_conformance(transfer_call: &TransferToTairaCallV1) -> Vec<Value> {
     let mut cases: Vec<(&str, String, Vec<u8>, &str)> = Vec::new();
     let mut push = |function: &'static str,
                     variants: Vec<(&'static str, Vec<u8>, &'static str)>| {
@@ -1930,12 +832,6 @@ fn calldata_conformance(
             cases.push((function, label.to_owned(), calldata, contract));
         }
     };
-
-    push("voidExpired", void_expired_variants(void_expired, false));
-    push(
-        "voidExpiredHistorical",
-        void_expired_variants(void_expired_historical, true),
-    );
 
     // `voidFrozen` in a frozen state; the accepted ranges are disjoint.
     let frozen = void_frozen_calldata(4, 3);
@@ -2084,14 +980,11 @@ fn calldata_conformance(
 
 type Generator = fn() -> Value;
 
-const FIXTURES: [(&str, Generator); 7] = [
+const FIXTURES: [(&str, Generator); 4] = [
     ("payload_v1.json", payload_fixture),
     ("commitment_tree_v1.json", commitment_tree_fixture),
-    ("control_v1.json", control_fixture),
     ("history_v1.json", history_fixture),
-    ("eip712_v1.json", eip712_fixture),
-    ("roster_v1.json", roster_fixture),
-    ("evm_calldata_v1.json", evm_calldata_fixture),
+    ("evm_calldata_v1.json", current_evm::fixture),
 ];
 
 fn fixture_path(name: &str) -> PathBuf {

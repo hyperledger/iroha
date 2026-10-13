@@ -67,7 +67,7 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
                 stake_account: validator.clone(),
                 total_stake: Quantity::from(100u32),
                 self_stake: Quantity::from(20u32),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 status: PublicLaneValidatorStatus::Active,
                 activation_height: 1,
                 election_exit_height: None,
@@ -83,7 +83,7 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
                     staker: staker.clone(),
                     bonded: bonded.clone(),
                     pending_unbonds: BTreeMap::new(),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                 },
             );
         }
@@ -159,7 +159,7 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
                 staker: late,
                 bonded: Quantity::from(9_000u32),
                 pending_unbonds: BTreeMap::new(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
             },
         );
         stx.apply();

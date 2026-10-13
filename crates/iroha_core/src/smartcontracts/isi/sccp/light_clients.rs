@@ -20,7 +20,7 @@ use super::{
     admission::{SccpAdmissionKeysV1, SccpAdmissionRejectV1},
     store,
 };
-use crate::state::{StateTransaction, WorldReadOnly};
+use crate::state::{StateReadOnly, StateTransaction, WorldReadOnly};
 use iroha_data_model::{
     account::AccountId,
     bridge::SccpNetworkV1,
@@ -37,19 +37,20 @@ use iroha_data_model::{
         inbound::SccpSourceProofBytesV1,
         light_client::{
             SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointOriginV1, SccpLcCheckpointV1,
-            SccpLcConsensusSetV1, SccpLcFreezeReasonV1, SccpLcParliamentFreezeV1,
-            SccpLcProfileActivationV1, SccpLightClientV1,
+            SccpLcFreezeReasonV1, SccpLcParliamentFreezeV1, SccpLcProfileActivationV1,
+            SccpLightClientV1,
         },
     },
 };
 use iroha_sccp::light_client::{
     self as lc,
+    prepared::{PreparedLcFrameV1, SccpAdmittedProofV1, SccpLcAttemptErrorV1},
     profile::{
         SCCP_LC_PROFILE_NETWORKS_V1, SccpChainProfilesV1, SccpLcActiveProfilesV1,
         SccpLcProfileCatalogV1, SccpLcProfileRefV1, SccpLcProfileUnavailableV1,
     },
-    proof::SccpVerifiedProofV1,
-    state::{SccpLcPurgeV1, SccpLcStateView, state_hash},
+    state::admitted::{SccpLcAdmittedDeltaV1, SccpLcDeltaReadV1},
+    state::{SccpLcConsensusSetRefV1, SccpLcPurgeV1, SccpLcStateView, state_hash},
 };
 
 /// [`SccpLcStateView`] over committed or executing world state.
@@ -59,8 +60,12 @@ impl<W: WorldReadOnly + ?Sized> SccpLcStateView for WorldLightClientView<'_, W> 
     fn light_client(&self, network: SccpNetworkV1) -> Option<SccpLightClientV1> {
         store::light_clients::get(self.0, &network).copied()
     }
-    fn consensus_set(&self, network: SccpNetworkV1, set_id: u64) -> Option<SccpLcConsensusSetV1> {
-        store::light_client_sets::get(self.0, &(network, set_id)).cloned()
+    fn consensus_set(
+        &self,
+        network: SccpNetworkV1,
+        set_id: u64,
+    ) -> Option<SccpLcConsensusSetRefV1<'_>> {
+        store::light_client_sets::get(self.0, &(network, set_id)).map(|set| set.as_ref())
     }
     fn checkpoint(&self, network: SccpNetworkV1, source_height: u64) -> Option<SccpLcCheckpointV1> {
         store::light_client_checkpoints::get(self.0, &(network, source_height)).copied()
@@ -69,6 +74,34 @@ impl<W: WorldReadOnly + ?Sized> SccpLcStateView for WorldLightClientView<'_, W> 
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
     Error::InvariantViolation(format!("SCCP light client: {reason}").into())
+}
+
+/// Preserve the original local verifier refusal until the enclosing execution aborts.
+fn native_attempt_error(
+    state: &mut StateTransaction<'_, '_>,
+    error: SccpLcAttemptErrorV1,
+) -> Error {
+    let classified = SccpAdmissionRejectV1::from_attempt(error);
+    match classified.deferred {
+        Some(original) => {
+            let _ = state.defer_execution(original);
+            refuse("native verifier resources unavailable; the block is not applied")
+        }
+        None => refuse(classified.reason),
+    }
+}
+
+/// Retain authenticated validator bytes under the original execution pool before publication.
+pub(crate) fn insert_consensus_set(
+    state: &mut StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    source: SccpLcConsensusSetRefV1<'_>,
+) -> Result<(), Error> {
+    let owner =
+        super::light_client_set::RetainedSccpLcSet::admit(source, &state.execution_budget())
+            .map_err(|error| native_attempt_error(state, error))?;
+    store::light_client_sets::insert(state, (network, owner.set_id), owner)?;
+    Ok(())
 }
 
 /// The first `[zk.sccp]` limit that one verifier call's `work`, the transaction total `in_tx` or
@@ -82,7 +115,7 @@ pub(crate) fn exceeded_verifier_limit(
     if work.proof_bytes > limits.max_proof_bytes_per_proof.get() {
         return Some("max_proof_bytes_per_proof");
     }
-    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 8] = [
+    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 7] = [
         (
             in_tx.proofs.into(),
             in_block.proofs.into(),
@@ -139,14 +172,6 @@ pub(crate) fn exceeded_verifier_limit(
             limits.max_bls_vote_attestations_per_block.get().into(),
             "max_bls_vote_attestations_per_transaction",
             "max_bls_vote_attestations_per_block",
-        ),
-        (
-            in_tx.secp256k1_recoveries.into(),
-            in_block.secp256k1_recoveries.into(),
-            limits.max_secp256k1_recoveries_per_transaction.get().into(),
-            limits.max_secp256k1_recoveries_per_block.get().into(),
-            "max_secp256k1_recoveries_per_transaction",
-            "max_secp256k1_recoveries_per_block",
         ),
         (
             in_tx.ed25519_signature_checks.into(),
@@ -427,32 +452,53 @@ fn purge(
     if purge == SccpLcPurgeV1::KeepStored {
         return Ok(());
     }
-    let world = &*state_transaction.world;
-    let sets: Vec<u64> = store::light_client_sets::range(world, (network, 0)..=(network, u64::MAX))
-        .map(|((_, set_id), _)| *set_id)
-        .collect();
-    let checkpoints: Vec<(u64, bool)> =
-        store::light_client_checkpoints::range(world, (network, 0)..=(network, u64::MAX))
-            .map(|((_, height), checkpoint)| {
-                (
-                    *height,
-                    checkpoint.origin == SccpLcCheckpointOriginV1::Parliament,
-                )
-            })
-            .collect();
-    let buckets: Vec<u64> =
-        store::light_client_stride_index::range(world, (network, 0)..=(network, u64::MAX))
-            .map(|((_, bucket), _)| *bucket)
-            .collect();
-    for set_id in sets {
-        store::light_client_sets::remove(state_transaction, (network, set_id));
+    loop {
+        let first = store::light_client_sets::range(
+            &*state_transaction.world,
+            (network, 0)..=(network, u64::MAX),
+        )
+        .next()
+        .map(|((_, id), _)| *id);
+        let Some(set_id) = first else { break };
+        if store::light_client_sets::remove(state_transaction, (network, set_id)).is_none() {
+            return Err(refuse("original set removal did not complete"));
+        }
     }
-    for (height, _) in checkpoints.iter().filter(|(_, parliament)| !parliament) {
-        store::light_client_checkpoints::remove(state_transaction, (network, *height));
+    let mut cursor = 0;
+    loop {
+        let first = store::light_client_checkpoints::range(
+            &*state_transaction.world,
+            (network, cursor)..=(network, u64::MAX),
+        )
+        .next()
+        .map(|((_, id), value)| (*id, value.origin == SccpLcCheckpointOriginV1::Parliament));
+        let Some((height, parliament)) = first else {
+            break;
+        };
+        if !parliament
+            && store::light_client_checkpoints::remove(state_transaction, (network, height))
+                .is_none()
+        {
+            return Err(refuse("original checkpoint removal did not complete"));
+        }
+        let Some(next) = height.checked_add(1) else {
+            break;
+        };
+        cursor = next;
     }
     // The stride index is rebuilt below from the surviving Parliament checkpoints.
-    for bucket in buckets {
-        store::light_client_stride_index::remove(state_transaction, (network, bucket));
+    loop {
+        let first = store::light_client_stride_index::range(
+            &*state_transaction.world,
+            (network, 0)..=(network, u64::MAX),
+        )
+        .next()
+        .map(|((_, id), _)| *id);
+        let Some(bucket) = first else { break };
+        if store::light_client_stride_index::remove(state_transaction, (network, bucket)).is_none()
+        {
+            return Err(refuse("original stride removal did not complete"));
+        }
     }
     Ok(())
 }
@@ -462,14 +508,20 @@ fn reindex_strides(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
 ) -> Result<(), Error> {
-    let stored: Vec<SccpLcCheckpointV1> = store::light_client_checkpoints::range(
-        &*state_transaction.world,
-        (network, 0)..=(network, u64::MAX),
-    )
-    .map(|(_, checkpoint)| *checkpoint)
-    .collect();
-    for checkpoint in stored {
+    let mut cursor = 0;
+    loop {
+        let first = store::light_client_checkpoints::range(
+            &*state_transaction.world,
+            (network, cursor)..=(network, u64::MAX),
+        )
+        .next()
+        .map(|(_, value)| *value);
+        let Some(checkpoint) = first else { break };
         record_checkpoint(state_transaction, network, checkpoint)?;
+        let Some(next) = checkpoint.data.source_height.checked_add(1) else {
+            break;
+        };
+        cursor = next;
     }
     Ok(())
 }
@@ -492,23 +544,28 @@ pub fn initialize(
     let network = action.network;
     let now_ms = state_transaction.block_unix_timestamp_ms();
     let profiles = executing_profiles(state_transaction)?;
-    let initial = lc::initialize_light_client_with_profiles(
-        &profiles,
-        &WorldLightClientView(&*state_transaction.world),
-        network,
-        action.expected,
-        &action.params,
-        &action.bootstrap,
-        now_ms,
-    )
-    .map_err(|error| {
-        refuse(format_args!(
-            "initialization of {}: {error}",
-            network.profile_key()
-        ))
-    })?;
+    if action.bootstrap.network != network {
+        return Err(refuse("bootstrap network mismatch"));
+    }
+    let budget = state_transaction.execution_budget();
+    let maximum = usize::try_from(state_transaction.zk().sccp.max_proof_bytes_per_proof.get())
+        .unwrap_or(usize::MAX);
+    let prepared =
+        lc::prepared::PreparedLcFrameV1::bootstrap(&action.bootstrap.bytes, maximum, &budget)
+            .map_err(|error| native_attempt_error(state_transaction, error))?;
+    reserve_work(state_transaction, Ok(prepared.work()))?;
+    let initial = prepared
+        .verify_initialization(
+            &profiles,
+            &WorldLightClientView(&*state_transaction.world),
+            network,
+            action.expected,
+            &action.params,
+            now_ms,
+        )
+        .map_err(|error| native_attempt_error(state_transaction, error))?;
     purge(state_transaction, network, initial.purge)?;
-    for supersession in &initial.superseded_sets {
+    for supersession in initial.delta.superseded() {
         let key = (network, supersession.set_id);
         if let Some(mut set) =
             store::light_client_sets::get(&*state_transaction.world, &key).cloned()
@@ -519,14 +576,18 @@ pub fn initialize(
     }
     let light_client = initial.light_client;
     store::light_clients::insert(state_transaction, network, light_client)?;
-    for set in initial.sets {
-        store::light_client_sets::insert(state_transaction, (network, set.set_id), set)?;
+    for index in 0..initial.delta.set_count() {
+        let set = initial
+            .delta
+            .set(index)
+            .ok_or_else(|| refuse("missing admitted bootstrap set"))?;
+        insert_consensus_set(state_transaction, network, set)?;
     }
     if initial.purge == SccpLcPurgeV1::DiscardUnvetted {
         reindex_strides(state_transaction, network)?;
     }
-    for checkpoint in initial.checkpoints {
-        record_checkpoint(state_transaction, network, checkpoint)?;
+    for checkpoint in initial.delta.checkpoints() {
+        record_checkpoint(state_transaction, network, *checkpoint)?;
     }
     state_transaction
         .world
@@ -623,12 +684,15 @@ fn apply_delta(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
     current: &SccpLightClientV1,
-    delta: &iroha_sccp::light_client::state::SccpLcDeltaV1,
+    delta: &SccpLcAdmittedDeltaV1,
 ) -> Result<bool, Error> {
-    for set in &delta.new_sets {
-        store::light_client_sets::insert(state_transaction, (network, set.set_id), set.clone())?;
+    for index in 0..delta.set_count() {
+        let set = delta
+            .set(index)
+            .ok_or_else(|| refuse("admitted set row missing"))?;
+        insert_consensus_set(state_transaction, network, set)?;
     }
-    for supersession in &delta.superseded_sets {
+    for supersession in delta.superseded() {
         let key = (network, supersession.set_id);
         if let Some(mut set) =
             store::light_client_sets::get(&*state_transaction.world, &key).cloned()
@@ -637,12 +701,13 @@ fn apply_delta(
             store::light_client_sets::insert(state_transaction, key, set)?;
         }
     }
-    for checkpoint in &delta.checkpoints {
+    for checkpoint in delta.checkpoints() {
         record_checkpoint(state_transaction, network, *checkpoint)?;
     }
-    let next = delta.next_light_client(current);
-    let moved = delta.moves_head();
-    if moved {
+    if let Some(head) = delta.head() {
+        let mut next = *current;
+        next.head = head;
+        next.state_hash = state_hash(&next.params, &head, next.frozen.as_ref());
         store::light_clients::insert(state_transaction, network, next)?;
         state_transaction
             .world
@@ -654,8 +719,10 @@ fn apply_delta(
                     state_hash: next.state_hash,
                 },
             )));
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(moved)
 }
 
 /// Execute `AdvanceSccpLightClientV1` (§4.13.2).
@@ -682,24 +749,24 @@ pub fn execute_advance(
     {
         return Err(refuse("the light client moved since the advance was built"));
     }
-    reserve_work(
-        state_transaction,
-        lc::advance_work(network, &instruction.advance),
-    )?;
-    let profiles = executing_profiles(state_transaction)?;
-    let delta = lc::apply_advance_with_profiles(
-        &profiles,
-        &WorldLightClientView(&*state_transaction.world),
-        network,
-        &instruction.advance,
-        state_transaction.block_unix_timestamp_ms(),
+    let maximum = usize::try_from(state_transaction.zk().sccp.max_proof_bytes_per_proof.get())
+        .unwrap_or(usize::MAX);
+    let prepared = PreparedLcFrameV1::advance(
+        instruction.advance.as_bytes(),
+        maximum,
+        &state_transaction.execution_budget(),
     )
-    .map_err(|error| {
-        refuse(format_args!(
-            "advance of {}: {error}",
-            network.profile_key()
-        ))
-    })?;
+    .map_err(|error| native_attempt_error(state_transaction, error))?;
+    reserve_work(state_transaction, Ok(prepared.work()))?;
+    let profiles = executing_profiles(state_transaction)?;
+    let delta = prepared
+        .verify_advance(
+            &profiles,
+            &WorldLightClientView(&*state_transaction.world),
+            network,
+            state_transaction.block_unix_timestamp_ms(),
+        )
+        .map_err(|error| native_attempt_error(state_transaction, error))?;
     apply_delta(state_transaction, network, &current, &delta).map(|_| ())
 }
 
@@ -721,20 +788,29 @@ pub fn execute_report_equivocation(
     if light_client.is_frozen() {
         return Err(refuse("the light client is already frozen"));
     }
-    reserve_work(
-        state_transaction,
-        lc::evidence_work(network, &instruction.a, &instruction.b),
-    )?;
-    let profiles = executing_profiles(state_transaction)?;
-    let reason = lc::verify_equivocation_with_profiles(
-        &profiles,
-        &WorldLightClientView(&*state_transaction.world),
-        network,
-        &instruction.a,
-        &instruction.b,
-        state_transaction.block_unix_timestamp_ms(),
+    let budget = state_transaction.execution_budget();
+    let maximum = usize::try_from(state_transaction.zk.sccp.max_proof_bytes_per_proof.get())
+        .unwrap_or(usize::MAX);
+    let prepared = lc::prepared::PreparedLcEvidencePairV1::new(
+        instruction.a.as_bytes(),
+        instruction.b.as_bytes(),
+        maximum,
+        &budget,
     )
-    .map_err(|error| refuse(format_args!("equivocation evidence: {error}")))?;
+    .map_err(|error| native_attempt_error(state_transaction, error))?;
+    let work = prepared
+        .work()
+        .map_err(|error| native_attempt_error(state_transaction, error))?;
+    reserve_work(state_transaction, Ok(work))?;
+    let profiles = executing_profiles(state_transaction)?;
+    let reason = prepared
+        .verify(
+            &profiles,
+            &WorldLightClientView(&*state_transaction.world),
+            network,
+            state_transaction.block_unix_timestamp_ms(),
+        )
+        .map_err(|error| native_attempt_error(state_transaction, error))?;
     light_client.frozen = Some(reason);
     light_client.state_hash = state_hash(&light_client.params, &light_client.head, Some(&reason));
     store::light_clients::insert(state_transaction, network, light_client)?;
@@ -759,68 +835,43 @@ pub fn verify_source_proof(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
     proof: &SccpSourceProofBytesV1,
-) -> Result<SccpVerifiedProofV1, Error> {
-    reserve_work(state_transaction, lc::proof_work(network, proof))?;
-    let profiles = executing_profiles(state_transaction)?;
-    let verified = lc::verify_proof_with_profiles(
-        &profiles,
-        &WorldLightClientView(&*state_transaction.world),
-        network,
-        proof,
-        state_transaction.block_unix_timestamp_ms(),
+) -> Result<SccpAdmittedProofV1, Error> {
+    let maximum = usize::try_from(state_transaction.zk().sccp.max_proof_bytes_per_proof.get())
+        .unwrap_or(usize::MAX);
+    let prepared = PreparedLcFrameV1::proof(
+        proof.as_bytes(),
+        maximum,
+        &state_transaction.execution_budget(),
     )
-    .map_err(|error| {
-        refuse(format_args!(
-            "source proof of {}: {error}",
-            network.profile_key()
-        ))
-    })?;
-    for checkpoint in &verified.checkpoints {
+    .map_err(|error| native_attempt_error(state_transaction, error))?;
+    reserve_work(state_transaction, Ok(prepared.work()))?;
+    let profiles = executing_profiles(state_transaction)?;
+    let verified = prepared
+        .verify_proof(
+            &profiles,
+            &WorldLightClientView(&*state_transaction.world),
+            network,
+            state_transaction.block_unix_timestamp_ms(),
+        )
+        .map_err(|error| native_attempt_error(state_transaction, error))?;
+    for checkpoint in verified.checkpoints.checkpoints() {
         record_checkpoint(state_transaction, network, *checkpoint)?;
     }
     Ok(verified)
 }
 
-/// Return whether `authority` is the account of an active or pending, unfaulted bridge key
-/// in `world`.
-fn is_live_bridge_key_account(
-    world: &(impl WorldReadOnly + ?Sized),
-    authority: &AccountId,
-) -> bool {
-    super::bridge_keys::bridge_key_address_of(authority).is_some_and(|address| {
-        store::bridge_key_owners::get(world, &address)
-            .and_then(|peer| store::bridge_keys::get(world, peer))
-            .is_some_and(|state| {
-                state
-                    .active
-                    .iter()
-                    .chain(state.pending.iter())
-                    .any(|key| key.address == address && !key.faulted)
-            })
-    })
-}
-
-/// Return whether `instruction` from `authority` is an eligible keeper advance against the
-/// committed parent World `world` (§4.13.4, §4.19): the authority is the account of an active
-/// or pending, unfaulted bridge key, and the advance frame decodes for `instruction.network`
-/// and is not a `Backfill`. Every other advance pays the ordinary fee.
+/// Return whether `instruction` is an eligible keeper advance (§4.13.4, §4.19): the advance
+/// frame decodes for `instruction.network` and is not a `Backfill`. A `Backfill` and an
+/// undecodable frame pay the ordinary fee.
 ///
-/// The authority is checked first, so the frame is decoded only for bridge-key accounts.
-/// Whether the advance verifies and moves the head is admission pre-verification
-/// ([`preverify_keeper_advance`]), not eligibility.
+/// The rule is the same for every authority, registered or not, so it reads neither the
+/// authority nor state: [`super::fees::exempt_class`] adds only that SCCP exists, and
+/// [`super::admission::allows_unregistered_authority`] admits an absent authority for exactly
+/// the advances this function accepts. Whether the advance verifies and moves the head is
+/// admission pre-verification ([`preverify_keeper_advance`]), not eligibility.
 #[must_use]
-pub fn keeper_advance_eligible(
-    world: &(impl WorldReadOnly + ?Sized),
-    authority: &AccountId,
-    instruction: &AdvanceSccpLightClientV1,
-) -> bool {
-    is_live_bridge_key_account(world, authority)
-        && lc::proof::SccpLcAdvanceV1::from_frame(instruction.advance.as_bytes()).is_ok_and(
-            |advance| {
-                advance.network() == instruction.network
-                    && !matches!(advance, lc::proof::SccpLcAdvanceV1::Backfill { .. })
-            },
-        )
+pub fn keeper_advance_eligible(instruction: &AdvanceSccpLightClientV1) -> bool {
+    lc::proof::keeper_advance_network(instruction.advance.as_bytes()) == Some(instruction.network)
 }
 
 /// Pre-verify an eligible keeper advance ([`keeper_advance_eligible`]) and return its
@@ -836,7 +887,7 @@ pub fn keeper_advance_eligible(
 /// while this release lacks an active profile version.
 pub fn preverify_keeper_advance(
     world: &(impl WorldReadOnly + ?Sized),
-    now_ms: u64,
+    view: &(impl super::admission::SccpAdmissionView + ?Sized),
     next_block_height: u64,
     instruction: &AdvanceSccpLightClientV1,
     authority: &AccountId,
@@ -851,23 +902,42 @@ pub fn preverify_keeper_advance(
         return Err(SccpAdmissionRejectV1::new("stale expected state hash"));
     }
     let profiles = admission_profiles(world, next_block_height)?;
-    let delta = lc::apply_advance_with_profiles(
-        &profiles,
-        &WorldLightClientView(world),
-        network,
-        &instruction.advance,
-        now_ms,
+    let limits = view.sccp_verifier_limits();
+    let budget = view.sccp_execution_budget();
+    let prepared = lc::prepared::PreparedLcFrameV1::advance(
+        instruction.advance.as_bytes(),
+        usize::try_from(limits.max_proof_bytes_per_proof.get()).unwrap_or(usize::MAX),
+        &budget,
     )
-    .map_err(|error| SccpAdmissionRejectV1::new(format!("advance: {error}")))?;
-    if !delta.moves_head() {
+    .map_err(SccpAdmissionRejectV1::from_attempt)?;
+    let work = prepared.work();
+    if let Some(limit) = exceeded_verifier_limit(limits, &work, &work, &work) {
+        return Err(SccpAdmissionRejectV1::new(format!(
+            "advance exceeds zk.sccp.{limit}"
+        )));
+    }
+    let delta = prepared
+        .verify_advance(
+            &profiles,
+            &WorldLightClientView(world),
+            network,
+            view.committed_time_ms(),
+        )
+        .map_err(SccpAdmissionRejectV1::from_attempt)?;
+    if iroha_sccp::light_client::state::admitted::SccpLcDeltaReadV1::head(&delta).is_none() {
         return Err(SccpAdmissionRejectV1::new(
             "the advance does not move the head",
         ));
     }
-    Ok(
-        SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
-            .with_exclusive(&(authority.clone(), network)),
-    )
+    Ok(keeper_advance_keys(authority, network))
+}
+
+/// Return the admission keys of an exempt keeper advance of `network` from `authority`: at
+/// most one is pending per authority and network, whether or not the authority is registered
+/// (§4.13.4, §4.19).
+fn keeper_advance_keys(authority: &AccountId, network: SccpNetworkV1) -> SccpAdmissionKeysV1 {
+    SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
+        .with_exclusive(&(norito::core::PayloadRef(authority), network))
 }
 
 /// Prune expired light-client sets and checkpoints, deleting at most `budget` records, and
@@ -876,46 +946,72 @@ pub fn preverify_keeper_advance(
 /// Sets go `set_retention_ms` after supersession; checkpoints go `checkpoint_prune_after_ms`
 /// after recording unless Parliament-installed or the lowest of their stride bucket.
 pub fn prune(state_transaction: &mut StateTransaction<'_, '_>, budget: usize) -> usize {
-    use iroha_sccp::light_client::state::{checkpoint_prune_due, set_prune_due};
+    use iroha_sccp::light_client::state::checkpoint_prune_due;
     let now_ms = state_transaction.block_unix_timestamp_ms();
-    let world = &*state_transaction.world;
-    let mut sets = Vec::new();
-    let mut checkpoints = Vec::new();
-    for (network, light_client) in store::light_clients::iter(world) {
-        let params = light_client.params;
-        let network = *network;
-        for ((_, set_id), set) in
-            store::light_client_sets::range(world, (network, 0)..=(network, u64::MAX))
-        {
-            if sets.len() + checkpoints.len() >= budget {
-                break;
+    let mut deleted = 0;
+    for network in SCCP_LC_PROFILE_NETWORKS_V1 {
+        let Some(params) = store::light_clients::get(&*state_transaction.world, &network)
+            .map(|client| client.params)
+        else {
+            continue;
+        };
+        let mut cursor = 0;
+        while deleted < budget {
+            let next = store::light_client_sets::range(
+                &*state_transaction.world,
+                (network, cursor)..=(network, u64::MAX),
+            )
+            .next()
+            .map(|((_, id), set)| {
+                (
+                    *id,
+                    set.superseded_at_source_ms
+                        .is_some_and(|at| at.saturating_add(params.set_retention_ms) <= now_ms),
+                )
+            });
+            let Some((id, due)) = next else { break };
+            if due {
+                if store::light_client_sets::remove(state_transaction, (network, id)).is_none() {
+                    return deleted;
+                }
+                deleted += 1;
             }
-            if set_prune_due(set, &params, now_ms) {
-                sets.push((network, *set_id));
-            }
+            let Some(next) = id.checked_add(1) else { break };
+            cursor = next;
         }
-        for ((_, height), checkpoint) in
-            store::light_client_checkpoints::range(world, (network, 0)..=(network, u64::MAX))
-        {
-            if sets.len() + checkpoints.len() >= budget {
+        let mut cursor = 0;
+        while deleted < budget {
+            let next = store::light_client_checkpoints::range(
+                &*state_transaction.world,
+                (network, cursor)..=(network, u64::MAX),
+            )
+            .next()
+            .map(|((_, height), checkpoint)| (*height, *checkpoint));
+            let Some((height, checkpoint)) = next else {
                 break;
-            }
+            };
             let lowest = height
                 .checked_div(params.checkpoint_stride)
                 .and_then(|bucket| {
-                    store::light_client_stride_index::get(world, &(network, bucket)).copied()
+                    store::light_client_stride_index::get(
+                        &*state_transaction.world,
+                        &(network, bucket),
+                    )
+                    .copied()
                 });
-            if checkpoint_prune_due(network, checkpoint, &params, lowest, now_ms) {
-                checkpoints.push((network, *height));
+            if checkpoint_prune_due(network, &checkpoint, &params, lowest, now_ms) {
+                if store::light_client_checkpoints::remove(state_transaction, (network, height))
+                    .is_none()
+                {
+                    return deleted;
+                }
+                deleted += 1;
             }
+            let Some(next) = height.checked_add(1) else {
+                break;
+            };
+            cursor = next;
         }
-    }
-    let deleted = sets.len() + checkpoints.len();
-    for key in sets {
-        store::light_client_sets::remove(state_transaction, key);
-    }
-    for key in checkpoints {
-        store::light_client_checkpoints::remove(state_transaction, key);
     }
     deleted
 }
@@ -928,6 +1024,83 @@ mod tests {
     };
 
     #[test]
+    fn ordinary_advance_original_pool_refusal_is_a_sticky_execution_deferral() {
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        store::light_clients::insert(&mut stx, SccpNetworkV1::EthereumMainnet, installed(1))
+            .unwrap();
+        let budget = stx.execution_budget();
+        let limit = budget.limit_bytes();
+        let before = budget.reserved_bytes();
+        budget.set_limit_bytes(before);
+        let result = execute_advance(advance_frame(false), &authority(1), &mut stx);
+        budget.set_limit_bytes(limit);
+        assert!(result.is_err());
+        assert!(
+            stx.borrow_execution_deferral().is_some(),
+            "physical decode refusal must not become protocol rejection"
+        );
+        assert_eq!(
+            budget.reserved_bytes(),
+            before,
+            "failed preparation retains no partial graph"
+        );
+        assert_eq!(
+            store::light_clients::get(&*stx.world, &SccpNetworkV1::EthereumMainnet),
+            Some(&installed(1))
+        );
+    }
+
+    #[test]
+    fn native_delta_retains_set_bytes_and_rolls_back_scalar_supersession() {
+        use iroha_sccp::light_client::state::admitted::{
+            SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1,
+        };
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let budget = state.ivm_execution_budget();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let mut output = SccpLcDeltaBuilderV1::new(
+            SccpLcDeltaCapacityV1 {
+                new_sets: 1,
+                superseded_sets: 1,
+                checkpoints: 0,
+                set_bytes: 4096,
+            },
+            &budget,
+        )
+        .unwrap();
+        output.encode_set(7, 42, None, &[9_u64; 16]).unwrap();
+        let delta = output.finish(None);
+        let original_bytes = delta.set(0).unwrap().set_bytes;
+        let retained;
+        {
+            let mut stx = block.transaction();
+            assert!(!apply_delta(&mut stx, network, &installed(1), &delta).unwrap());
+            retained = store::light_client_sets::get(&*stx.world, &(network, 7))
+                .unwrap()
+                .clone();
+            assert_eq!(retained.bytes(), original_bytes);
+            let mut replacement = retained.clone();
+            replacement.superseded_at_source_ms = Some(50);
+            store::light_client_sets::insert(&mut stx, (network, 7), replacement).unwrap();
+            assert_eq!(retained.superseded_at_source_ms, None);
+        }
+        assert!(store::light_client_sets::get(&block.world, &(network, 7)).is_none());
+        assert_eq!(
+            retained.bytes(),
+            original_bytes,
+            "reader keeps original bytes after transaction rollback"
+        );
+        drop(delta);
+        assert!(
+            !retained.bytes().is_empty(),
+            "stored owner is independent of ephemeral verifier delta"
+        );
+    }
+
+    #[test]
     fn advances_and_reports_need_an_installed_light_client() {
         let state = blank_state();
         let view = state.world_view();
@@ -937,9 +1110,14 @@ mod tests {
             SccpNetworkV1::EthereumMainnet,
             0
         ));
-        let reject =
-            preverify_keeper_advance(&view, 0, 1, &SampleInstructions::advance(), &authority(1))
-                .expect_err("not installed");
+        let reject = preverify_keeper_advance(
+            &view,
+            &state.view(),
+            1,
+            &SampleInstructions::advance(),
+            &authority(1),
+        )
+        .expect_err("not installed");
         assert!(reject.reason.contains("not installed"), "{reject}");
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
@@ -980,54 +1158,87 @@ mod tests {
     }
 
     #[test]
-    fn keeper_advances_are_eligible_from_live_bridge_keys_only() {
-        use crate::smartcontracts::isi::sccp::{bridge_keys, test_support::peer};
-        use iroha_sccp::v1::key_file::SccpBridgeKeyFileV1;
-        let state = blank_state();
-        let mut block = state.block(header(2));
-        let mut stx = block.transaction();
-        let key = SccpBridgeKeyFileV1::new([9; 32], 0).expect("key");
-        let public_key = key.public_key().expect("public key");
-        let address = key.address().expect("address");
-        let keeper = bridge_keys::account_of(&public_key).expect("account");
+    fn keeper_advances_are_eligible_by_their_frame_alone() {
         let advance = advance_frame(false);
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance),
-            "not a registered bridge key"
+            keeper_advance_eligible(&advance),
+            "a decodable advance of its network needs no registered key"
         );
-        store::bridge_key_owners::insert(&mut stx, address, peer(1)).expect("owner");
-        let mut binding =
-            crate::smartcontracts::isi::sccp::test_support::sample_bridge_key_state(1);
-        let active = binding.active.as_mut().expect("active key");
-        active.public_key = public_key;
-        active.address = address;
-        store::bridge_keys::insert(&mut stx, peer(1), binding.clone()).expect("binding");
-        assert!(keeper_advance_eligible(&*stx.world, &keeper, &advance));
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance_frame(true)),
+            !keeper_advance_eligible(&advance_frame(true)),
             "a Backfill pays the ordinary fee"
         );
         assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &SampleInstructions::advance()),
+            !keeper_advance_eligible(&SampleInstructions::advance()),
             "an undecodable frame pays the ordinary fee"
         );
-        let mut other_network = advance.clone();
+        let mut other_network = advance;
         other_network.network = SccpNetworkV1::BscMainnet;
-        assert!(!keeper_advance_eligible(
-            &*stx.world,
-            &keeper,
-            &other_network
-        ));
         assert!(
-            !keeper_advance_eligible(&*stx.world, &authority(1), &advance),
-            "an ordinary account pays the ordinary fee"
+            !keeper_advance_eligible(&other_network),
+            "a frame of another network pays the ordinary fee"
         );
-        binding.active.as_mut().expect("active key").faulted = true;
-        store::bridge_keys::insert(&mut stx, peer(1), binding).expect("binding");
-        assert!(
-            !keeper_advance_eligible(&*stx.world, &keeper, &advance),
-            "a faulted key pays the ordinary fee"
+    }
+
+    #[test]
+    fn eligible_keeper_advances_are_preverified_whatever_their_authority() {
+        // An unregistered authority's eligible advance is pre-verified like a registered one's:
+        // a stale guard, and an advance that proves nothing, are rejected at admission.
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let network = SccpNetworkV1::EthereumMainnet;
+        store::light_clients::insert(&mut stx, network, installed(100)).expect("lc");
+        let advance = advance_frame(false);
+        assert!(keeper_advance_eligible(&advance));
+        for unregistered in [authority(7), authority(8)] {
+            let mut stale_advance = advance.clone();
+            stale_advance.expected_state_hash = Some([0xee; 32]);
+            let reject =
+                preverify_keeper_advance(&*stx.world, &stx, 3, &stale_advance, &unregistered)
+                    .expect_err("stale guard");
+            assert!(reject.reason.contains("stale"), "{reject}");
+            preverify_keeper_advance(&*stx.world, &stx, 3, &advance, &unregistered)
+                .expect_err("an advance that proves nothing is rejected at admission");
+        }
+    }
+
+    #[test]
+    fn one_exempt_advance_is_pending_per_authority_and_network() {
+        use crate::smartcontracts::isi::sccp::admission::{
+            SccpExemptClassV1, SccpPendingClaimErrorV1, SccpPendingIndexV1,
+        };
+        use iroha_crypto::{Hash, HashOf};
+        let entry = |seed: u8| HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]));
+        let (eth, bsc) = (SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet);
+        let keys = keeper_advance_keys(&authority(1), eth);
+        let owned = SccpAdmissionKeysV1::new(SccpExemptClassV1::KeeperAdvance { network: eth })
+            .with_exclusive(&(authority(1), eth));
+        assert_eq!(
+            keys.exclusive, owned.exclusive,
+            "borrowing the authority preserves the canonical admission key"
         );
+        assert_eq!(
+            keys.class,
+            SccpExemptClassV1::KeeperAdvance { network: eth }
+        );
+        assert!(keys.content.is_empty());
+        let mut index = SccpPendingIndexV1::default();
+        index.claim(entry(1), keys).expect("first advance");
+        assert_eq!(
+            index.claim(entry(2), keeper_advance_keys(&authority(1), eth)),
+            Err(SccpPendingClaimErrorV1::ExclusiveHeld { holder: entry(1) })
+        );
+        index
+            .claim(entry(3), keeper_advance_keys(&authority(2), eth))
+            .expect("another authority");
+        index
+            .claim(entry(4), keeper_advance_keys(&authority(1), bsc))
+            .expect("another network");
+        index.release(&entry(1));
+        index
+            .claim(entry(2), keeper_advance_keys(&authority(1), eth))
+            .expect("the limit is free once the pending advance leaves the queue");
     }
 
     #[test]
@@ -1035,42 +1246,43 @@ mod tests {
         use lc::SccpVerifierWorkV1 as Work;
         let state = blank_state();
         let mut block = state.block(header(2));
-        // A full TRON advance: 16 segments of 128 signed headers.
-        let full_advance = Work {
+        // The BSC vote attestations one transaction may carry: four full 16-step advances.
+        let full_transaction = Work {
             proof_bytes: 1_000,
             native_headers: 2_048,
-            secp256k1_recoveries: 2_048,
+            bls_vote_attestations: 64,
             ..Work::default()
         };
-        let one_recovery = Work {
-            secp256k1_recoveries: 1,
+        let one_attestation = Work {
+            bls_vote_attestations: 1,
             ..Work::default()
         };
         {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("a full advance fits one transaction");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("the per-transaction limit fits one transaction");
             assert_eq!(
-                stx.reserve_sccp_verifier_work(&one_recovery),
-                Err("max_secp256k1_recoveries_per_transaction")
+                stx.reserve_sccp_verifier_work(&one_attestation),
+                Err("max_bls_vote_attestations_per_transaction")
             );
             stx.apply();
         }
         {
             // A dropped transaction releases its reservation.
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance).expect("fits");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("fits");
         }
         for _ in 0..3 {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("four full advances fit one block");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("four full transactions fit one block");
             stx.apply();
         }
         let mut stx = block.transaction();
         assert_eq!(
-            stx.reserve_sccp_verifier_work(&one_recovery),
-            Err("max_secp256k1_recoveries_per_block")
+            stx.reserve_sccp_verifier_work(&one_attestation),
+            Err("max_bls_vote_attestations_per_block")
         );
         let oversized = Work {
             proof_bytes: stx.zk.sccp.max_proof_bytes_per_proof.get() + 1,
@@ -1203,6 +1415,88 @@ mod tests {
     }
 
     #[test]
+    fn purge_and_reindex_preserve_parliament_and_other_chains_at_extreme_heights() {
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let other = SccpNetworkV1::BscMainnet;
+        for chain in [network, other] {
+            let mut client = installed(8);
+            client.params.network = chain;
+            store::light_clients::insert(&mut stx, chain, client).unwrap();
+            for id in [0, u64::MAX] {
+                insert_consensus_set(
+                    &mut stx,
+                    chain,
+                    lc::state::SccpLcConsensusSetRefV1 {
+                        set_id: id,
+                        valid_from_source_height: id,
+                        superseded_at_source_ms: None,
+                        set_bytes: &[1, 2, 3],
+                    },
+                )
+                .unwrap();
+            }
+            for (height, origin) in [
+                (0, SccpLcCheckpointOriginV1::Parliament),
+                (7, SccpLcCheckpointOriginV1::Advance),
+                (8, SccpLcCheckpointOriginV1::Backfill),
+                (u64::MAX, SccpLcCheckpointOriginV1::Parliament),
+            ] {
+                record_checkpoint(&mut stx, chain, checkpoint(height, origin)).unwrap();
+            }
+        }
+        purge(&mut stx, network, SccpLcPurgeV1::KeepStored).unwrap();
+        assert!(store::light_client_sets::contains(
+            &*stx.world,
+            &(network, u64::MAX)
+        ));
+        assert!(store::light_client_checkpoints::contains(
+            &*stx.world,
+            &(network, 7)
+        ));
+        purge(&mut stx, network, SccpLcPurgeV1::DiscardUnvetted).unwrap();
+        reindex_strides(&mut stx, network).unwrap();
+        for id in [0, u64::MAX] {
+            assert!(!store::light_client_sets::contains(
+                &*stx.world,
+                &(network, id)
+            ));
+            assert!(store::light_client_sets::contains(
+                &*stx.world,
+                &(other, id)
+            ));
+            assert!(store::light_client_checkpoints::contains(
+                &*stx.world,
+                &(network, id)
+            ));
+            assert_eq!(
+                store::light_client_stride_index::get(&*stx.world, &(network, id / 8)),
+                Some(&id)
+            );
+        }
+        for height in [7, 8] {
+            assert!(!store::light_client_checkpoints::contains(
+                &*stx.world,
+                &(network, height)
+            ));
+            assert!(store::light_client_checkpoints::contains(
+                &*stx.world,
+                &(other, height)
+            ));
+        }
+        assert!(!store::light_client_stride_index::contains(
+            &*stx.world,
+            &(network, 1)
+        ));
+        assert_eq!(
+            store::light_client_stride_index::get(&*stx.world, &(other, 1)),
+            Some(&8)
+        );
+    }
+
+    #[test]
     fn checkpoints_keep_the_lowest_height_per_stride_bucket() {
         let state = blank_state();
         let mut block = state.block(header(2));
@@ -1230,7 +1524,7 @@ mod tests {
 
     use iroha_sccp::light_client::profile::{
         BSC_MAINNET_VERSIONS, ETHEREUM_MAINNET, ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH,
-        EthereumChainProfileV1, GENESIS_PROFILES, TON_MAINNET_VERSIONS, TRON_MAINNET_VERSIONS,
+        EthereumChainProfileV1, GENESIS_PROFILES, TON_MAINNET_VERSIONS,
     };
 
     /// Ethereum versions of a later release: version 1 plus versions 2 and 3, each extending
@@ -1246,7 +1540,6 @@ mod tests {
         SccpLcProfileCatalogV1 {
             ethereum: &LATER_ETHEREUM[..count],
             bsc: BSC_MAINNET_VERSIONS,
-            tron: TRON_MAINNET_VERSIONS,
             ton: TON_MAINNET_VERSIONS,
         }
     }
@@ -1261,7 +1554,7 @@ mod tests {
     }
 
     fn deferred(stx: &StateTransaction<'_, '_>) -> bool {
-        stx.execution_deferral().is_some_and(|deferral| {
+        stx.borrow_execution_deferral().is_some_and(|deferral| {
             deferral.reason() == ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
         })
     }
@@ -1377,7 +1670,7 @@ mod tests {
         assert_eq!(ensure_profiles_compiled(world, 5), Ok(()));
         let reject = admission_profiles(world, 6).expect_err("not compiled");
         assert!(reject.reason.contains("does not compile"), "{reject}");
-        assert_eq!(admission_profiles(world, 5), Ok(GENESIS_PROFILES));
+        assert_eq!(admission_profiles(world, 5).unwrap(), GENESIS_PROFILES);
     }
 
     #[test]

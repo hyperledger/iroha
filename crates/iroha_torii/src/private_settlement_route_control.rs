@@ -23,8 +23,8 @@ use std::{
     time::Duration,
 };
 
-pub(crate) const COMMAND_FILE: &str = "private-settlement-route-command.norito.json";
-pub(crate) const ACK_FILE: &str = "private-settlement-route-ack.norito.json";
+pub const COMMAND_FILE: &str = "private-settlement-route-command.norito.json";
+pub const ACK_FILE: &str = "private-settlement-route-ack.norito.json";
 const CONTROL_DIR_ENV: &str = "IROHA_TEST_PRIVATE_SETTLEMENT_ROUTE_CONTROL_DIR";
 const FORMAT_VERSION: u64 = 1;
 const MAX_CONTROL_BYTES: usize = 256 * 1024;
@@ -33,7 +33,7 @@ const HOLD_POLL: Duration = Duration::from_millis(20);
 
 /// Authenticated private-settlement HTTP phase controlled by the test daemon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Phase {
+pub enum Phase {
     /// Restricted provisional upload and availability-share persistence.
     RestrictedDa,
     /// Prepare vote and Prepare-certificate persistence.
@@ -162,7 +162,7 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(crate) enum ControlError {
+pub enum ControlError {
     UnsafeRoot,
     RootChanged,
     Io(std::io::Error),
@@ -190,7 +190,7 @@ impl From<std::io::Error> for ControlError {
 
 /// Route outcome after authenticated test control is evaluated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Disposition {
+pub enum Disposition {
     /// Continue into the production handler.
     Pass,
     /// Return a redacted controlled-loss response without mutating state.
@@ -268,7 +268,8 @@ impl Controller {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.command_sha256 != command.sha256 || state.revision != command.revision {
+        let command_digest_matches = state.command_sha256 == command.sha256;
+        if !command_digest_matches || state.revision != command.revision {
             return Err(ControlError::StaleRevision);
         }
         let value = object_value([
@@ -411,7 +412,7 @@ impl Controller {
 }
 
 /// Evaluate one request after its ordinary Torii authentication and validation.
-pub(crate) async fn admit(
+pub async fn admit(
     phase: Phase,
     bundle_id: Hash,
     request_bytes: &[u8],

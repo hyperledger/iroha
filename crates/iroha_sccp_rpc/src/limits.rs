@@ -14,13 +14,13 @@
 //!    rejects documents with more than one value per
 //!    [`JSON_MIN_BYTES_PER_VALUE`] bytes of the cap or nested deeper than
 //!    [`JSON_MAX_NESTING_DEPTH`]; recorded answers average 35 bytes or more
-//!    per value and nest at most 11 deep;
+//!    per value and nest at most 7 deep;
 //! 2. the `norito::json::Value` tree is built under a Norito decode budget
 //!    that charges every array slot, object node and string before allocating
 //!    it, capped at [`JSON_ALLOCATION_FACTOR`] times the byte cap. Recorded
 //!    answers of a kilobyte or more allocate at most 6.5 times their size,
-//!    and the large ones (receipts, TRON blocks) at most 5.3 times, below the
-//!    factor even at their cap; object-heavy hostile bodies
+//!    and the large ones (receipts) at most 5.3 times, below the factor even
+//!    at their cap; object-heavy hostile bodies
 //!    (`[{"aaaaaaaaaa":0},…]`) would allocate over 40 times theirs.
 //!
 //! A body over its cap or over either JSON bound is a failover error
@@ -43,12 +43,11 @@ const MIB: usize = 1024 * KIB;
 /// Fewest JSON source bytes per value a response may average. Recorded
 /// answers of every route average 35 bytes or more per value.
 pub const JSON_MIN_BYTES_PER_VALUE: usize = 8;
-/// Deepest accepted JSON nesting (the root counts as one). Recorded TRON
-/// blocks, the deepest answers, nest 11 deep; some contract types add a few
-/// levels.
+/// Deepest accepted JSON nesting (the root counts as one). Recorded answers
+/// nest at most 7 deep.
 pub const JSON_MAX_NESTING_DEPTH: usize = 32;
 /// Decoded-tree allocation budget as a multiple of the byte cap. Recorded
-/// TRON blocks, the most object-heavy large answers, allocate about 5.3 times
+/// receipts, the most object-heavy large answers, allocate at most 5.3 times
 /// their size.
 pub const JSON_ALLOCATION_FACTOR: usize = 6;
 
@@ -73,15 +72,6 @@ pub const BEACON_UPDATE_RESPONSE_BYTES: usize = 256 * KIB;
 /// Most updates one `light_client/updates` request may ask for
 /// (`MAX_REQUEST_LIGHT_CLIENT_UPDATES`).
 pub const BEACON_MAX_UPDATES_PER_REQUEST: usize = 128;
-/// One TRON block with full transactions: a 2 MB block prints as at most
-/// about 10 MiB of JSON.
-pub const TRON_BLOCK_RESPONSE_BYTES: usize = 16 * MIB;
-/// TRON transaction info (logs are bounded by the energy limit).
-pub const TRON_TRANSACTION_INFO_RESPONSE_BYTES: usize = 16 * MIB;
-/// TRON `getcontractinfo` (runtime code and ABI).
-pub const TRON_CONTRACT_RESPONSE_BYTES: usize = 4 * MIB;
-/// TRON constant calls (a `TransactionExtention` with the return data).
-pub const TRON_CONSTANT_CALL_RESPONSE_BYTES: usize = MIB;
 
 /// Decode limits of one JSON body, derived from its byte cap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,7 +200,7 @@ pub fn json_rpc_response_cap(method: &str) -> Option<usize> {
         "eth_getCode" | "eth_call" => EVM_CODE_RESPONSE_BYTES,
         "eth_getProof" => EVM_PROOF_RESPONSE_BYTES,
         "eth_getBlockByNumber" | "eth_getBlockByHash" => EVM_BLOCK_RESPONSE_BYTES,
-        "eth_getTransactionReceipt" => EVM_RECEIPT_RESPONSE_BYTES,
+        "eth_getTransactionReceipt" | "eth_getLogs" => EVM_RECEIPT_RESPONSE_BYTES,
         _ => return None,
     })
 }
@@ -227,9 +217,8 @@ pub fn json_rpc_batch_response_cap<S: AsRef<str>>(
         })
 }
 
-/// The byte cap of the answer to HTTP route `path_and_query` (beacon API or
-/// TRON HTTP), or `None` for a route bounded by the transport ceiling only
-/// (TRON `getblockbylimitnext`, unknown routes).
+/// The byte cap of the answer to HTTP route `path_and_query` (beacon API), or
+/// `None` for an unknown route, which is bounded by the transport ceiling only.
 ///
 /// The beacon `light_client/updates` cap grows with the `count` query
 /// parameter, up to [`BEACON_MAX_UPDATES_PER_REQUEST`] updates.
@@ -249,21 +238,6 @@ pub fn http_response_cap(path_and_query: &str) -> Option<usize> {
         "/eth/v1/beacon/light_client/updates" => {
             BEACON_UPDATE_RESPONSE_BYTES.saturating_mul(beacon_update_count(query))
         }
-        "/wallet/getnowblock"
-        | "/walletsolidity/getnowblock"
-        | "/wallet/getblockbynum"
-        | "/walletsolidity/getblockbynum" => TRON_BLOCK_RESPONSE_BYTES,
-        "/wallet/gettransactioninfobyid" | "/walletsolidity/gettransactioninfobyid" => {
-            TRON_TRANSACTION_INFO_RESPONSE_BYTES
-        }
-        "/wallet/getcontractinfo" => TRON_CONTRACT_RESPONSE_BYTES,
-        "/wallet/triggerconstantcontract" | "/walletsolidity/triggerconstantcontract" => {
-            TRON_CONSTANT_CALL_RESPONSE_BYTES
-        }
-        "/wallet/broadcasthex" | "/wallet/getnextmaintenancetime" => SMALL_RESPONSE_BYTES,
-        // TODO(WP9): TRON range segments download full blocks (tens of MiB per
-        // 100 blocks); the builders should step by bytes or read headers only,
-        // after which this route gets a cap of its own.
         _ => return None,
     })
 }
@@ -454,27 +428,14 @@ mod tests {
             http_response_cap("/eth/v1/beacon/light_client/updates?count=0"),
             Some(BEACON_UPDATE_RESPONSE_BYTES)
         );
-        assert_eq!(
-            http_response_cap("/wallet/getblockbynum"),
-            Some(TRON_BLOCK_RESPONSE_BYTES)
-        );
-        assert_eq!(
-            http_response_cap("/walletsolidity/gettransactioninfobyid"),
-            Some(TRON_TRANSACTION_INFO_RESPONSE_BYTES)
-        );
-        assert_eq!(
-            http_response_cap("/wallet/getcontractinfo"),
-            Some(TRON_CONTRACT_RESPONSE_BYTES)
-        );
-        assert_eq!(
-            http_response_cap("/walletsolidity/triggerconstantcontract"),
-            Some(TRON_CONSTANT_CALL_RESPONSE_BYTES)
-        );
-        assert_eq!(
-            http_response_cap("/wallet/broadcasthex"),
-            Some(SMALL_RESPONSE_BYTES)
-        );
-        assert_eq!(http_response_cap("/wallet/getblockbylimitnext"), None);
+        // The routes of the removed TRON HTTP API have no cap of their own.
+        for retired in [
+            "/wallet/getblockbynum",
+            "/walletsolidity/gettransactioninfobyid",
+            "/wallet/broadcasthex",
+        ] {
+            assert_eq!(http_response_cap(retired), None, "{retired}");
+        }
         assert_eq!(http_response_cap("/blob"), None);
     }
 

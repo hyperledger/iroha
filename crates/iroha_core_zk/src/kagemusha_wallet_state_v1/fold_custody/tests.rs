@@ -11,12 +11,21 @@ fn setup(effect: KagemushaWalletEffectV1) -> (MemoryArchive, ReleasedStep, Sourc
     let credential: KagemushaWalletCredentialV1 = fixture("KagemushaWalletCredentialV1");
     let certificate = enrollment_issuer(&credential);
     let certificates = KagemushaWalletCertificateSetV1::new(vec![certificate]).unwrap();
-    let state = KagemushaWalletStateV1::bootstrap(&credential, field(7)).unwrap();
-    let mut capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
-    capsule.kind = effect.kind();
-    capsule.statement.effect = effect;
-    capsule.successor_state = state;
-    capsule.payment_digest = field(88);
+    let boot = super::super::tests::bootstrap();
+    let mut frozen = super::super::tests::frozen(Some(&boot), effect);
+    let mut body = frozen.capsule.body().clone();
+    if body.kind == KagemushaWalletOperationKindV1::Receive {
+        body.payment_digest = field(88);
+        body.output = KagemushaWalletOutputDescriptorV1::for_transition(
+            &body.statement,
+            &body.proof_digest().unwrap(),
+            &body.payment_digest,
+        )
+        .unwrap();
+    }
+    let state = body.successor_state;
+    frozen.capsule = super::super::tests::seal_body(body);
+    let capsule = frozen.capsule;
     let record: KagemushaWalletCompletionRecordV1 = fixture("KagemushaWalletCompletionRecordV1");
     let released = ReleasedStep {
         frozen: FrozenTransition {
@@ -149,11 +158,36 @@ fn send_pending_uses_the_selected_statement_and_archive_keeps_both_branches() {
     let expected = public(send.credit_root(), send.pending_root());
     let (credits, pending) = send.finish(&expected).unwrap();
     let mut archive = step.clone();
-    archive.frozen.capsule.kind = KagemushaWalletOperationKindV1::ArchiveSent;
-    archive.frozen.capsule.statement.effect = KagemushaWalletEffectV1::ArchiveSent {
+    let mut body = archive.frozen.capsule.body().clone();
+    body.kind = KagemushaWalletOperationKindV1::ArchiveSent;
+    body.statement.effect = KagemushaWalletEffectV1::ArchiveSent {
         credit_id: field(3),
         credited: field(12),
     };
+    body.predecessor_lineage = KagemushaWalletLineageSlotV1::None;
+    body.statement.lineage_burned_total = 0;
+    body.statement.lineage_pending_outgoing_root = [0; 32];
+    body.retained_inputs = [
+        KagemushaWalletRetainedInputRoleV1::Request,
+        KagemushaWalletRetainedInputRoleV1::Payment,
+        KagemushaWalletRetainedInputRoleV1::Credited,
+        KagemushaWalletRetainedInputRoleV1::Credential,
+        KagemushaWalletRetainedInputRoleV1::CertificateSet,
+    ]
+    .into_iter()
+    .map(|role| KagemushaWalletRetainedInputV1 {
+        role,
+        bytes: vec![1],
+    })
+    .collect();
+    body.operation_id = body.statement.operation_id(&body.wallet_id).unwrap();
+    body.output = KagemushaWalletOutputDescriptorV1::for_transition(
+        &body.statement,
+        &body.proof_digest().unwrap(),
+        &body.payment_digest,
+    )
+    .unwrap();
+    archive.frozen.capsule = super::super::tests::seal_body(body);
     for remove in [false, true] {
         let mut view = FoldCustodyV1::new(
             &mut store,

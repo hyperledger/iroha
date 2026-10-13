@@ -47,18 +47,31 @@ fn unassigned_crypto_slots_are_rejected_by_admission_and_runtime() {
         bytes.extend_from_slice(&encoding::wide::encode_halt().to_le_bytes());
         let program = assemble(&bytes);
         let mut admitted = IVM::new(1_000);
-        assert_eq!(
-            admitted.load_program(&program),
-            Err(VMError::InvalidOpcode(invalid_word)),
+        assert!(
+            match (
+                &(admitted.load_program(&program)),
+                &(VMError::InvalidOpcode(invalid_word))
+            ) {
+                (
+                    Err(VMError::InvalidOpcode(actual_field_0)),
+                    VMError::InvalidOpcode(expected_field_0),
+                ) => actual_field_0 == expected_field_0,
+                _ => false,
+            },
             "unassigned opcode 0x{opcode:02x} passed artifact admission"
         );
 
         let mut raw = IVM::new(1_000);
         raw.memory.load_code(&bytes).unwrap();
         raw.pc = 0;
-        assert_eq!(
-            raw.run(),
-            Err(VMError::InvalidOpcode(invalid_word)),
+        assert!(
+            match (&(raw.run()), &(VMError::InvalidOpcode(invalid_word))) {
+                (
+                    Err(VMError::InvalidOpcode(actual_field_0)),
+                    VMError::InvalidOpcode(expected_field_0),
+                ) => actual_field_0 == expected_field_0,
+                _ => false,
+            },
             "unassigned opcode 0x{opcode:02x} executed after manual loading"
         );
     }

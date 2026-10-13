@@ -84,16 +84,22 @@ fn state_backed_queue_routes_reject_unknown_dataspace() {
     );
     queue.install_test_router_metadata_for_nexus(&state.nexus_snapshot());
     let tx = accepted_tx_by_someone(&time_source);
-    assert_eq!(
-        queue.route_plan_with_state(&tx, &state),
-        Err(RoutingResolveError::UnknownDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        (queue.route_plan_with_state(&tx, &state))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: dynamic_dataspace,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
-    assert_eq!(
-        queue.route_plan_for_gossip_with_state(&tx, &state),
-        Err(RoutingResolveError::UnknownDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        (queue.route_plan_for_gossip_with_state(&tx, &state))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: dynamic_dataspace,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
 }

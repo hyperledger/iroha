@@ -98,7 +98,7 @@ impl Core {
     pub(super) fn install_commit(&mut self, c: Qc) {
         let bh = c.block_hash;
         let (exec_ok, exec_req) = match self.exec.get(&bh) {
-            Some(ExecState::Valid(result)) => (*result == c.result, None),
+            Some(ExecState::Valid { admission }) => (admission.result() == c.result, None),
             #[cfg(not(sumeragi_mutation = "ML23"))]
             Some(ExecState::Pending { req, .. }) => (false, Some(*req)),
             _ => (false, None),

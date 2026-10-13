@@ -797,16 +797,33 @@ pub mod smart_contract {
         }
     }
 }
+/// Owner-issued permission for an exact native atomic cross-dataspace debit.
+pub mod amx {
+    use super::*;
+    use iroha_data_model::sumeragi_amx::AmxDebitApprovalV1;
+    permission! {
+        /// Direct consent for a relay account to prepare one exact bank debit.
+        ///
+        /// Only the balance owner may issue or revoke this token. Holding the token,
+        /// owning a role or controlling the Global coordinator never permits delegation.
+        /// Prepare checks the current grant; settled decisions remain deliverable after revoke.
+        pub struct CanPrepareAmx {
+            /// Complete root, balance and canonical transaction fingerprint.
+            pub approval: AmxDebitApprovalV1,
+        }
+    }
+}
 /// Permission tokens governing native FX corridors.
 pub mod settlement {
     use super::*;
     use iroha_data_model::isi::SettlementId;
     permission! {
-        /// Exact consent from a debited counterparty for one bilateral settlement intent.
+        /// Exact consent from a debit owner for one native settlement intent.
         ///
         /// Only the account named by `debited_asset` may delegate or revoke this token. The intent
-        /// hash commits to the complete domain-separated `DvP`, `PvP`, or repo phase, so changing
-        /// any economic term or the settlement identifier requires fresh consent. Repo initiation
+        /// hash commits to the complete domain-separated `SettleAtomic`, `DvP`, `PvP`, or repo
+        /// phase, so changing any economic term or the owner-qualified settlement identifier
+        /// requires fresh consent. Repo initiation
         /// requires distinct cash-debit and maturity-collateral consents before any asset moves.
         pub struct CanExecuteSettlement {
             /// Exact balance bucket the authorized settlement may debit.

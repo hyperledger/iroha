@@ -88,9 +88,9 @@ fn registers_compact_bundle_roundtrip() {
 fn memory_compact_bundle_rejects_non_addresses() {
     let mut vm = IVM::new(u64::MAX);
     for invalid in [vm.memory.stack_top(), u64::MAX] {
-        assert_eq!(
+        assert!(matches!(
             ivm::merkle_utils::memory_compact_bundle(&mut vm.memory, invalid, None),
             Err(VMError::MemoryOutOfBounds)
-        );
+        ));
     }
 }

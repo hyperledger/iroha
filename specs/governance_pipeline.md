@@ -12,9 +12,10 @@ credentials frozen into a committee root, signerless proof-authorized public
 ballots with nullifiers and a post-quantum membership proof, a public tally and
 no ballot custodian. It keeps variable, possibly small membership and the
 independent epoch-seated pause panel. Binding-governance mainnet launch is no-go
-until that ballot is qualified. The timed-OVN, TLE and consensus-mandatory
-Parliament pulse behavior documented below describes current source, which is a
-retirement and availability-isolation target.
+until that ballot is qualified. The timed-OVN and TLE behavior documented below
+describes current source, which is a retirement target. Parliament availability
+is isolated from consensus (ballot design section 9): no Parliament state
+creates pulse demand, vetoes a pulse or a block, or gates node startup.
 
 # Canonical proposal attempt lifecycle
 
@@ -33,11 +34,18 @@ retirement and availability-isolation target.
 3. For each body election, Core freezes the complete canonically ordered
    eligible-citizen snapshot in the containing block. The corresponding
    `SortitionRequestV1` commits that snapshot before the one exact finalized
-   threshold-beacon pulse at `request_height +
-   parliament_sortition_pulse_delay_blocks` (default 4) for the network's
-   stable logical beacon identifier. Core uses checked addition, freezes the
-   nonzero delay in the attempt, and rejects both nearer and arbitrarily distant
-   pulse heights during live admission and persistence validation.
+   threshold-beacon pulse of its frozen slot, for the network's stable logical
+   beacon identifier. The slot is a consensus-native pulse height: a height
+   `h` with `(h + 1) % L == 0`, where `L` is the NPoS `epoch_length_blocks`.
+   It is the first such height at or above both `request_height +
+   parliament_sortition_pulse_delay_blocks` (default 4, a minimum lead) and
+   one above the highest slot of an earlier generation of the same attempt.
+   The attempt freezes the nonzero delay and `L` at creation; `L` comes from
+   the genesis-immutable NPoS policy, and attempt creation is rejected on a
+   chain without an NPoS cadence. Core uses checked arithmetic and rejects any
+   other pulse height during live admission and persistence validation. The
+   request creates no consensus demand: it waits, possibly indefinitely, for
+   exactly that pulse, and no missing-pulse failure or redraw exists.
    The first pulse consumption covers every initially required body in one
    simultaneous batch; a later no-roster retry or a newly required Confirmation
    Jury consumes a fresh pulse slot. `ConsumeSortitionPulseBatch` is a
@@ -93,10 +101,12 @@ retirement and availability-isolation target.
    Parliament TLE differs deliberately: its release-share roster is
    session-fixed and is persisted as the exact certificate roster. Retirement
    actions carry no public state and remain block-`H`-roster-authorized,
-   compare-and-set operations. Consequently a
-   mandatory requested Parliament or NPoS pulse produced from the parent state
-   is verified against the key session active at its own height, not the
-   successor pointer visible after the block's transactions execute. No
+   compare-and-set operations. Consequently an NPoS pulse produced from the
+   parent state is verified against the key session active at its own height,
+   not the successor pointer visible after the block's transactions execute.
+   A sortition request that consumes the pulse in a later block, typically
+   after the boundary rotation, re-verifies it against that same retained
+   session. No pulse is produced or carried for an elapsed slot, and no
    alternate entropy source or detached roster record is accepted as a fallback.
 4. The future pulse deterministically ranks primaries and alternates. Candidates
    accept or decline their own invitations under their transaction authority;
@@ -105,11 +115,11 @@ retirement and availability-isolation target.
    window. After that fixed response window, either permissionless
    `SealBodyRoster` derives the nonempty accepted assignments, roster root, and
    body id, or permissionless `FailBodyElectionNoRoster` proves from the reducer
-   that the accepted roster is empty. A committed Parliament pulse request is
-   consensus-mandatory: block production remains on that exact slot until the
-   threshold pulse reconstructs, so a proposer cannot turn selective omission
-   into a redraw. Neither trigger accepts a caller-selected window, failure
-   reason, assignment list, root, or body id. The
+   that the accepted roster is empty. An election that still awaits its pulse
+   has no failure transition: it leaves `AwaitingPulse` only by consuming the
+   pulse of exactly its slot, so an omitted pulse cannot become a redraw and
+   never holds block production. Neither trigger accepts a caller-selected
+   window, failure reason, assignment list, root, or body id. The
    `RecordAttemptAbsence` lets the same authority declare only its exact seated
    assignment absent. Absence is attempt-local and immutable, does not slash or
    change the original-seat quorum denominator, and must precede that body's
@@ -218,13 +228,16 @@ retirement and availability-isolation target.
    signature open only the aggregate Aye/Nay/Abstain tally.
 8. If a phase deadline is missed, Core derives the eligible `NoResult` reason
    and evidence commitment from persisted state and the containing block
-   height. `ReleasePulseUnavailable` remains a fail-closed validation class for
-   malformed or restored state, but cannot be reached by a fresh-genesis chain:
-   the committed release-pulse slot is consensus-mandatory.
+   height. The timed-OVN release slot creates no consensus demand, and the
+   ballot schedule is not aligned to native pulse heights. Until timed-OVN is
+   retired (ballot design section 12.2 step 4), a ballot therefore opens only
+   if a consensus-native pulse is committed at exactly its release height;
+   otherwise it ends `ReleasePulseUnavailable` through this governance-local
+   path once the release height is committed.
    `OpeningDeadlineExpired` is available after the immutable opening
-   deadline whether the ballot is still awaiting release or is opening. A
-   finalized pulse therefore cannot be falsely
-   classified as unavailable, and neither release consumption nor a result can
+   deadline whether the ballot is still awaiting release or is opening. Core
+   rejects an unavailable classification for a slot that holds a finalized
+   pulse, and neither release consumption nor a result can
    arrive after the deadline. The transition carries only the ballot id, not a
    failure reason or root. An invalid threshold release or aggregate opening is
    rejected without mutation and is not itself terminal evidence. A retry uses
@@ -384,9 +397,10 @@ civil time or economic resistance to specialized hardware. A VRF proves one
 key's evaluation, not resistance to key grinding, selective withholding,
 proposer choice, forks, or bias accumulated when one epoch feeds another.
 Parliament instead freezes one network/session/height pulse slot before drawing,
-rejects an unavailable classification once the authoritative slot exists, and
-bounds retries. Release qualification must still exercise selective withholding
-and repeated-retry bias; single-round uniformity is not sufficient evidence.
+has no missing-pulse classification for sortition (a request waits for exactly
+its pulse), and bounds retries. Release qualification must still exercise
+selective withholding and repeated-retry bias; single-round uniformity is not
+sufficient evidence.
 Independent per-stage retry caps likewise do not bound the conditional advantage
 of nested governance, roster, and fresh-ballot redraws. A release candidate must
 account for fresh entropy consumption with one proposal-level budget, keep
@@ -637,7 +651,8 @@ current source, including its height-based windows.
    `parliament_quorum_seats_v1(k)` (4, 5 or 6). It uses the citizen-eligibility
    predicate and the governance draw that sortition uses.
    - The draw is step G0 of the block-start pass (below) of a block that
-     carries the NPoS epoch-boundary global-beacon pulse that consensus already
+     carries the NPoS global-beacon pulse at the native pre-boundary height
+     (`last_height - 1`, one block before the committee boundary), which consensus already
      requires, when no panel is seated or the seated panel's term has ended.
      It happens only in that block and is never deferred.
    - It registers no `SortitionRequestV1`, adds no Parliament pulse demand or
@@ -650,8 +665,8 @@ current source, including its height-based windows.
      never due work. Fewer than `2k` candidates, or a snapshot over the 8 MiB
      ceiling of lifecycle item 4, likewise leaves the seated panel in place.
    - The term is `fast_pause_panel_term_ms`. A draw at every epoch boundary is
-     the parameter value equal to the epoch duration; the 7 d default awaits
-     owner confirmation (`sccp.md` §13 item 1).
+     the parameter value equal to the epoch duration. The selected default is
+     7 d (`sccp.md` §4.14.7).
    - Seating freezes and retains no bond. The bond-retention rules of
      lifecycle item 4 apply to Parliament elections only; a seat holder whose
      bond falls below the floor, or who is slashed or suspended, only stops
@@ -772,9 +787,9 @@ current source, including its height-based windows.
 
    | Step | Items | Order |
    |---|---|---|
-   | G0 | Pause-panel draw | At most one per boundary block |
+   | G0 | Pause-panel draw | At most one per native pre-boundary pulse carrier |
    | G1 | Parliament sortition at its exact pulse slot | Request order of the Parliament pipeline |
-   | G2a | Ranks 0–2: Parliament lifecycle transitions. Rank 3: pause-panel conclusions and reconciliation-window ends (`sccp.md` §4.10) | `(due_ms, kind_rank, item key)` |
+   | G2a | Ranks 0–2: Parliament lifecycle transitions. Rank 3: pause-panel conclusions and reconciliation-window ends (`sccp.md` §4.10) | `(due_ms, kind_rank, item key)`; SCCP's common item key is `(network tag, kind, subkey)`, with kind 0 and primary 0/backup 1 for pause conclusions, kind 1 and revision for window ends |
    | G2b | Rank 4: binding-ballot closures whose closing time `t(h_open + 1) + casting_window_ms`, with `h_open = s0.height`, has been reached | `(closing time, governance_attempt_id, body_role)` |
    | G2c | Rank 5: binding-ballot openings with `opening_at ≤ t(B)`, deferred ones included, while fewer than `K` casting windows are open | `(opening_at, governance_attempt_id, body_role)` |
    | G3 | Enactments: Parliament certificates, then fast pauses | `(enact_not_before_ms, governance_attempt_id)`, then `(network tag, panel role)` |
@@ -798,7 +813,9 @@ current source, including its height-based windows.
      opening that finds no free slot ends G2c; it keeps its place, and its
      deferral consumes no retry.
    - **Budget.** G1–G3 share `gov.governance_block_start_work_units` (default
-     64). Each item has a fixed cost set by its owner; an enactment costs 4,
+     64, minimum 10). The minimum funds all six possible SCCP conclusions and
+     one enactment, so recertification alone cannot starve every enactment.
+     Genesis and parameter updates enforce this floor. Each item has a fixed cost set by its owner; an enactment costs 4,
      and a pause-panel conclusion or a reconciliation end costs 1. The first
      item of a pass is always processed; after that, processing stops at the
      first item whose cost exceeds the remaining budget, order is never
@@ -808,6 +825,10 @@ current source, including its height-based windows.
      section 3.6), so a ballot in a block at or after the closing time is late
      whether or not the closure has run. A deferred opening takes its `s0` at
      the pass that actually opens it.
+     A fast pause deferred between G2 certification and G3 enactment keeps its
+     round due. The next pass recertifies it against current eligibility, head
+     and time; the certificate itself never survives the pass or extends the
+     endorsement window.
    - **Positions.** Every processed G1–G3 item gets its 0-based index among
      the items processed in that pass. Ballot openings record theirs in `s0`,
      and fast-pause enactments in `enacted_at`. S0, G0 and G4 are not
@@ -827,11 +848,13 @@ current source, including its height-based windows.
 
    - A pulse request is due only at its exact slot. A slot that passes without
      its pulse leaves the request waiting for that exact pulse; the wait is not
-     due work, so a missing beacon never manufactures blocks. How a late pulse
-     reaches the pass belongs to the Parliament availability-isolation step
-     (ballot design sections 9 and 12.2). `TODO:` (WP-S3, with the Parliament
-     workstream): add the matching due leg with that step; under the progress
-     invariant it may make a request due only in a pass that consumes it.
+     due work, so a missing beacon never manufactures blocks. The slot is a
+     consensus-native pulse height, and no pulse is produced or carried for an
+     elapsed slot (ballot design section 9). A late request is therefore one
+     whose exact-slot pulse is already committed and not yet consumed.
+     `TODO:` (WP-S3, with the Parliament workstream): add the matching due leg;
+     under the progress invariant it may make a request due only in a pass
+     that consumes it.
    - Fast-pause lapses and pause-panel draws are not due work.
    - **Progress invariant**, binding on every present and future term: an item
      may appear in `governance_due` only if the pass that finds it due consumes

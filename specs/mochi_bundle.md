@@ -43,6 +43,19 @@ and selects `https://taira.sora.org/bootstrap/checkpoint.nrt`. Its SHA-256 is
 the release owner must commit those exact bytes. Checkpoints remain fetched artifacts with
 bounded signed validity; recurring publication is an operator responsibility. The packager
 generates no authority. Developers using an installed official bundle supply no file.
+The edge renderer and `configs/soranexus/taira/install_taira_edge_nginx_conf.sh`
+accept `--bootstrap-publication-dir` for a separately promoted public pair. It maps
+only `/bootstrap/checkpoint.nrt` and `/bootstrap/network-profiles.nrt`; other
+`/bootstrap` paths return 404. Files are served through direct paths with symlink
+traversal disabled, GET/HEAD only (the existing CORS preflight remains available),
+and no cache retention. `kagami advanced network-bootstrap prepare` creates an
+owner-private directory containing the pair. The operator must copy only those
+two verified output images into a dedicated nginx-readable directory, preserving
+bytes and keeping signing keys and private inputs outside it. Never relax the
+preparation directory's permissions or point nginx at it. The renderer does not
+read or authenticate remote-host files; activation must check native nginx,
+file custody/readability and exact public readback. Renew the signed checkpoint
+before expiry; routing and HTTP success do not establish current artifact trust.
 Debug/development bundles may omit profiles or use explicit fixture installation input.
 The same xtask selection owner gates the CLI-only `kagami-bundle` release path, which
 installs the identical original preset beside Kagami and the daemon and records its
@@ -207,14 +220,29 @@ boundary, not a measured performance result.
 The `cargo xtask` alias enables the required `dev-tools` feature. Native release
 qualification is dispatched through `.github/workflows/devex_native.yml` using
 five explicitly supplied existing runner labels. Its resource and host checks,
-native custody tests and installed-runtime smoke are execution gates; defining
-the workflow does not establish that those platform jobs passed. An installation
+native custody tests and installed-runtime smoke are execution gates. Each target
+also builds the standalone `kagami-bundle` and runs the same installed deployment,
+restart and fresh bytecode/package flows against its `bin` directory. The Mochi
+archive is also extracted into a fresh runner temporary directory; the same installed
+flows and subsequent private/attachment checks use only that extracted application's
+runtime paths. These installed flows keep build tools off `PATH` and supply no runtime
+TOML. Defining the workflow does not establish that those platform jobs passed. An installation
 built with a development profile may omit remote authority. Release packaging requires
 the committed Taira preset; a successful local smoke still does not qualify remote attachment.
 The workflow also runs the eight-validator attachment regression with its
 disposable TLS controller. Python 3.10+ with SSL and OpenSSL are test prerequisites;
 the controller supplies a private temporary CA only to its own child processes.
 Installed Kagami and Mochi flows continue to use the native bundle alone.
+
+The separate manual `.github/workflows/devex_renewal.yml` runs
+`managed::tests::installed_renewal::installed_default_custody_renews_three_providers_and_preserves_paid_restart_evidence`
+on an explicitly selected existing self-hosted native runner. It builds and extracts a matching
+standalone Kagami bundle, then waits for the unchanged twelve-hour renewal midpoint and checks
+all three authenticated successor enrollments, retained paid evidence and an owned restart.
+The test keeps its thirteen-hour bound and ordinary startup/restart limits; the six-hour native
+matrix is unchanged. A completed pass covers that source and host only, not forced expiry/refusal,
+remote Taira attachment or all supported platforms. This long acceptance has not yet passed for
+the current candidate. Private runtime diagnostics remain on the runner and are never uploaded.
 
 ### Workspace selection
 

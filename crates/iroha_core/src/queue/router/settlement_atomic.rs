@@ -102,8 +102,14 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, scope)| AtomicSettlementMovement {
-                source: AssetId::with_scope(asset.clone(), account(index as u8), *scope),
-                recipient: account(index.wrapping_add(1) as u8),
+                source: AssetId::with_scope(
+                    asset.clone(),
+                    account(u8::try_from(index).expect("fixture value fits u8")),
+                    *scope,
+                ),
+                recipient: account(
+                    u8::try_from(index.wrapping_add(1)).expect("fixture value fits u8"),
+                ),
                 quantity: Quantity::from(index as u64 + 42),
             })
             .collect::<Vec<_>>();
@@ -112,7 +118,10 @@ mod tests {
             NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
                 b"routing-fixture",
             ))),
-            "routing_atomic".parse().expect("business id"),
+            iroha_data_model::isi::SettlementId::new(
+                movements[0].source.account().clone(),
+                "routing_atomic".parse().expect("business reference"),
+            ),
             AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
             NonZeroU64::new(500).expect("expiry"),
             Metadata::default(),

@@ -3,7 +3,7 @@
 use super::*;
 use crate::state::storage_transactions::TransactionsStorage;
 use iroha_crypto::{Hash, HashOf};
-use std::{collections::BTreeMap, collections::HashSet, convert::Infallible, num::NonZeroUsize};
+use std::{collections::BTreeMap, collections::BTreeSet, convert::Infallible, num::NonZeroUsize};
 
 fn key(seed: &'static [u8]) -> Key {
     HashOf::from_untyped_unchecked(Hash::new(seed))
@@ -178,11 +178,11 @@ fn replacement_mode_and_staged_rows_do_not_change_the_committed_cut() {
     let expected = capture(&storage.block(), 3);
 
     let mut ordinary = storage.block();
-    ordinary.insert_block(HashSet::from([staged]), height(3));
+    ordinary.insert_block(BTreeSet::from([staged]), height(3));
     assert_eq!(capture(&ordinary, 3), expected);
     drop(ordinary);
     let mut replacement = storage.block_and_revert();
-    replacement.insert_block(HashSet::from([staged]), height(2));
+    replacement.insert_block(BTreeSet::from([staged]), height(2));
     assert_eq!(capture(&replacement, 3), expected);
     drop(replacement);
     assert_eq!(capture(&storage.block(), 3), expected);
@@ -204,7 +204,7 @@ fn advance_replace_and_exact_repeat_keep_original_membership_semantics() {
     commit(&storage, &[second], 2);
     assert_eq!(capture(&storage.block(), 3), before_repeat);
     let mut owner = storage.block_and_revert();
-    owner.insert_block(HashSet::from([replacement]), height(2));
+    owner.insert_block(BTreeSet::from([replacement]), height(2));
     owner.commit().unwrap();
     let result = capture(&storage.block(), 3);
     assert_eq!(result.frontier, 2);
@@ -292,8 +292,8 @@ fn nonblocking_capture_returns_original_busy_release_and_never_stages() {
     };
     assert_eq!(wait, expected);
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(wakes.clone());
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(wakes.clone());
+    let mut context = Context::from_waker(&task_waker);
     let mut waiting = wait.wait_for_release(&mut release_registration_0);
     assert!(Pin::new(&mut waiting).poll(&mut context).is_pending());
     let other = TransactionsStorage::new();
@@ -420,7 +420,7 @@ fn successor_complete_traversal_is_admitted_before_any_callback() {
     commit(&storage, &[key(b"visit-a"), key(b"visit-reused")], 1);
     commit(&storage, &[key(b"visit-b"), key(b"visit-reused")], 2);
     let mut field = TransactionsBlockField::new(storage.block());
-    field.insert_block(HashSet::from([key(b"visit-c")]), height(3));
+    field.insert_block(BTreeSet::from([key(b"visit-c")]), height(3));
     field.try_prepare_publication().unwrap();
     let original = field.prepared_membership_writer().unwrap();
     for limit in [0, 1, 8] {
@@ -451,7 +451,7 @@ fn detached_successor_uses_only_the_same_fully_prepared_original_slot() {
     let storage = TransactionsStorage::new();
     commit(&storage, &[key(b"detached-a")], 1);
     let mut field = TransactionsBlockField::new(storage.block());
-    field.insert_block(HashSet::from([key(b"detached-b")]), height(2));
+    field.insert_block(BTreeSet::from([key(b"detached-b")]), height(2));
     field.try_prepare_publication().unwrap();
     let before = capture_publication(field.prepared_membership_writer().unwrap(), usize::MAX);
     let identity = field
@@ -478,7 +478,7 @@ fn detached_changed_predecessor_cannot_gain_a_successor_capture() {
     let storage = TransactionsStorage::new();
     commit(&storage, &[key(b"changed-a")], 1);
     let mut field = TransactionsBlockField::new(storage.block());
-    field.insert_block(HashSet::from([key(b"changed-b")]), height(2));
+    field.insert_block(BTreeSet::from([key(b"changed-b")]), height(2));
     field.finish_freeze().unwrap();
     commit(&storage, &[key(b"changed-replacement")], 2);
     field.install_frozen_publication(&storage);

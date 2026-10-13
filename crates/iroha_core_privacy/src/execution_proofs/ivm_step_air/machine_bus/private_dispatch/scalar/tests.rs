@@ -325,7 +325,10 @@ fn typed_unit_schema_charges_its_node_at_return_only() {
     // One gas short pays JALR and the schema node, then fails the complete
     // Unit-word validation debit. It must not publish a completed root return.
     let (_, recorder, outcome) = shifts::capture(&[], &[], total_gas - 1, cycles);
-    assert_eq!(outcome, Err(ivm::VMError::OutOfGas));
+    assert!(matches!(
+        (&(outcome), &(ivm::VMError::OutOfGas)),
+        (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+    ));
     let terminal = recorder.records().last().unwrap();
     assert_eq!(terminal.before.gas_remaining, 1 + validation_gas);
     assert_eq!(

@@ -46,10 +46,14 @@ fn state(row_bytes: u64) -> State {
     policy.validate().expect("feasible fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     state
 }
@@ -61,31 +65,23 @@ fn authenticated_state(row_bytes: u64) -> State {
 }
 
 fn authenticate_output_state(component: State) -> State {
-    use crate::sumeragi::{
-        startup,
-        test_chain::{CertifiedTestChain, TestChainConfig},
-    };
-    let nexus = component.nexus_snapshot();
-    let crypto = component.crypto.read().as_ref().clone();
-    let block_parameters = component.world.parameters.view().block();
-    let mut config = TestChainConfig::new(component.world, 0);
-    // Genesis materializes a complete parameter snapshot. Carry the tested limits
-    // in that signed source rather than replacing them with the builder defaults.
-    config.genesis_parameters.extend([
-        Parameter::Block(BlockParameter::ExecutionOutput(
-            block_parameters.execution_output(),
-        )),
-        Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
-            block_parameters.max_time_trigger_invocations(),
-        )),
-    ]);
-    config.chain_id = component.chain_id;
-    config.pipeline = component.pipeline;
-    config.governance = Some(component.gov);
-    config.nexus = Some(nexus);
-    config.zk = Some(component.zk);
-    config.crypto = Some(crypto);
-    config.fraud_monitoring = component.fraud_monitoring;
+    let policy = component
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    authenticate_output_state_with_policy(component, policy)
+}
+
+/// Install exact validity limits in the original signed genesis, never as node overrides.
+fn authenticate_output_state_with_policy(
+    component: State,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
+) -> State {
+    use crate::sumeragi::{startup, test_chain::CertifiedTestChain};
+    let config = output_fixture_config(component, policy);
     let genesis_account =
         iroha_data_model::account::AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;
@@ -101,6 +97,40 @@ fn authenticate_output_state(component: State) -> State {
     )
     .expect("apply original output fixture genesis");
     state
+}
+
+/// Preserve the same original signed configuration for one-shot and multi-height fixtures.
+fn output_fixture_config(
+    component: State,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
+) -> crate::sumeragi::test_chain::TestChainConfig {
+    use crate::sumeragi::test_chain::TestChainConfig;
+    let nexus = component.nexus_snapshot();
+    let crypto = component.crypto.read().as_ref().clone();
+    let block_parameters = component.world.parameters.view().block();
+    let mut config = TestChainConfig::new(component.world, 0);
+    // Genesis materializes a complete parameter snapshot. Carry the tested limits
+    // in that signed source rather than replacing them with the builder defaults.
+    config.genesis_parameters.extend([
+        Parameter::Block(BlockParameter::ExecutionOutput(
+            block_parameters.execution_output(),
+        )),
+        Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            block_parameters.max_time_trigger_invocations(),
+        )),
+    ]);
+    policy.validate().expect("valid fixture pipeline policy");
+    config
+        .genesis_parameters
+        .push(Parameter::Custom(policy.into_custom_parameter()));
+    config.chain_id = component.chain_id;
+    config.pipeline = component.pipeline;
+    config.governance = Some(component.gov);
+    config.nexus = Some(nexus);
+    config.zk = Some(component.zk);
+    config.crypto = Some(crypto);
+    config.fraud_monitoring = component.fraud_monitoring;
+    config
 }
 
 fn output_fixture_parent_time(state: &State) -> u64 {
@@ -529,7 +559,7 @@ fn capacity_refusal_keeps_original_release_after_rollback_seal_and_native_bounda
         Some(ExecutionOutputPlanState::Poisoned)
     ));
     assert!(!source.has_results());
-    let sealed: ExecutionOutputSealError<String> = error.clone().into();
+    let sealed: ExecutionOutputSealError<String> = error.into();
     let ExecutionOutputSealError::Deferred(sealed_owner) = sealed else {
         panic!("seal error must preserve the local owner");
     };
@@ -546,8 +576,8 @@ fn capacity_refusal_keeps_original_release_after_rollback_seal_and_native_bounda
     };
     let mut release = release.clone().wait_for_release(&mut registration);
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
     drop(occupied);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
@@ -572,11 +602,8 @@ fn local_refusal_rolls_back_and_never_becomes_a_canonical_rejection() {
             Ok(())
         })
         .unwrap_err();
-    assert_eq!(
-        error,
-        ExecutionOutputAttemptError::Deferred(
-            ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-        )
+    assert!(
+        matches!(&(error), ExecutionOutputAttemptError::Deferred(owner) if owner.reason() == ivm::error::ExecutionDeferral::AllocationUnavailable && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
     );
     assert_eq!(*block.world.parameters.get(), before);
     assert!(exec_witness::snapshot_exec_witness().writes.is_empty());
@@ -739,10 +766,14 @@ fn receipt_source(
     policy.validate().expect("finite receipt fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = authenticate_output_state(state);
 
@@ -1154,7 +1185,8 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     *tx.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
     tx.apply_consensus_effects();
     assert_eq!(*block.world.parameters.get(), before);
@@ -1164,3 +1196,6 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         Some(ExecutionOutputPlanState::Poisoned)
     ));
 }
+
+#[path = "output_sccp_forgery_tests.rs"]
+mod sccp_forgery;

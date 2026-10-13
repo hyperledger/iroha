@@ -121,10 +121,10 @@ pub(crate) fn prepare_rekey(
 ) -> Result<(), InstructionExecutionError> {
     ensure_not_rekeyed(&stx.world, new)?;
     if account_state(&stx.world, new)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
         || receipt_head(&stx.world, new)
-            .map_err(|error| world_read_error(&mut stx.world, error))?
+            .map_err(|error| world_read_error(&stx.world, error))?
             .is_some()
     {
         return Err(invalid(
@@ -132,11 +132,11 @@ pub(crate) fn prepare_rekey(
         ));
     }
     if account_state(&stx.world, old)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
     {
         let policy = registry(&stx.world)
-            .map_err(|error| world_read_error(&mut stx.world, error))?
+            .map_err(|error| world_read_error(&stx.world, error))?
             .and_then(|r| r.head().map(|e| e.policy.clone()))
             .ok_or_else(|| invalid("retail recovery requires its protected policy"))?;
         settle_balance(
@@ -153,16 +153,16 @@ pub(crate) fn finish_rekey(
     new: &AccountId,
 ) -> Result<(), InstructionExecutionError> {
     let record =
-        account_state(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        account_state(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     let head =
-        receipt_head(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        receipt_head(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     if record.is_none() && head.is_none() {
         return Ok(());
     }
-    let wallet = receipt_wallet_id(&stx.world, old)
-        .map_err(|error| world_read_error(&mut stx.world, error))?;
+    let wallet =
+        receipt_wallet_id(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     let mut lineage =
-        predecessors(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        predecessors(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     lineage.push(old.clone());
     if let Some(mut record) = record {
         reward_history::update(&mut stx.world, Some(&record), None)?;
@@ -197,6 +197,10 @@ pub(crate) fn finish_rekey(
 }
 
 /// Read authoritative retail enrollment; no metadata-supplied counters are consulted.
+///
+/// # Errors
+/// Returns a decode error for malformed protected enrollment state, preserving
+/// original local decoder refusals. An absent record returns `Ok(None)`.
 pub fn account_state(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -205,9 +209,13 @@ pub fn account_state(
         .smart_contract_state()
         .get(&key(account))
         .map(|bytes| {
-            norito::decode_from_bytes(bytes).map_err(|e| {
-                norito_decode_attempt_error(e, |e| format!("invalid protected retail state: {e}"))
-            })
+            norito::core::classify_decode_attempt(|| norito::decode_from_bytes(bytes)).map_err(
+                |error| {
+                    crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                        format!("invalid protected retail state: {}", error.into_error())
+                    })
+                },
+            )
         })
         .transpose()
 }
@@ -239,14 +247,27 @@ fn registry(
             "malformed protected fee registry identity".into(),
         ));
     }
-    let registry = norito::json::from_str(parameter.payload().get()).map_err(|error| {
-        json_decode_attempt_error(error, |error| {
+    let registry = norito::core::classify_decode_attempt(|| {
+        norito::json::from_str(parameter.payload().get())
+            .map_err(norito::json::Error::into_core_error)
+    })
+    .map_err(|error| {
+        crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+            let error = match error.into_error() {
+                norito::Error::Json(original) => original.to_string(),
+                original => original.to_string(),
+            };
             format!("malformed protected fee registry: {error}")
         })
     })?;
     Ok(Some(registry))
 }
 /// Get the authenticated first-release policy at a ledger time and height.
+///
+/// # Errors
+/// Returns an error if the protected policy registry has a mismatched identity,
+/// cannot be decoded, or fails registry validation. Local decoder refusals
+/// remain distinct from rejected policy data.
 pub fn policy_at(
     world: &impl WorldReadOnly,
     height: u64,
@@ -333,10 +354,25 @@ fn native_amx_enrolled_leg_is_no_without_effects_and_original_decoder_refusal_st
         || native_amx_leg_supported(&transaction.world, &source, &destination),
     )
     .unwrap_err();
-    assert!(
-        matches!(refusal, ExecutionAttemptError::Deferred(_)),
-        "original account decoder refusal is never a business No: {refusal:?}"
+    let ExecutionAttemptError::Deferred(original_refusal) = refusal else {
+        panic!("original account decoder refusal is never a business No: {refusal:?}");
+    };
+    let observed = original_refusal
+        .decode_refusal()
+        .expect("the actual retail decoder retains its original observer after scope retirement")
+        .clone();
+    assert_eq!(
+        original_refusal.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
     );
+    assert!(original_refusal.allocation_refusal().is_none());
+    assert!(original_refusal.verification_refusal().is_none());
+    let restored = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+        original_refusal.into_vm_error(),
+    )
+    .unwrap();
+    assert_eq!(restored.decode_refusal(), Some(&observed));
+    assert!(!native_amx_leg_supported(&transaction.world, &source, &destination).unwrap());
     assert_eq!(
         transaction
             .world
@@ -347,6 +383,111 @@ fn native_amx_enrolled_leg_is_no_without_effects_and_original_decoder_refusal_st
     assert!(transaction.world.retail_fee_observed_payments.is_empty());
     assert!(transaction.world.retail_fee_pending_credits.is_empty());
 }
+#[cfg(test)]
+#[test]
+fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnostic() {
+    use iroha_data_model::parameter::{CustomParameter, Parameter};
+    use iroha_primitives::json::Json;
+    crate::retail_fee_tests::fixture(1_793_451_600_000, |transaction, _| {
+        let value = registry(&transaction.world).unwrap().unwrap();
+        value.validate().unwrap();
+        assert!(!value.registered_policies.is_empty());
+        let parameter = transaction
+            .world
+            .parameters()
+            .custom()
+            .get(&ValidationFeePolicyRegistryV1::parameter_id())
+            .unwrap()
+            .clone();
+        // A zero archive field bound does not refuse this typed JSON decode. Exercise
+        // the completed empty registry separately; it is not local-refusal evidence.
+        let empty = ValidationFeePolicyRegistryV1 {
+            registered_policies: Vec::new(),
+            payout_policies: ValidationFeePayoutPolicyRegistryV1 {
+                entries: Vec::new(),
+            },
+        };
+        transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(empty.clone().into_custom_parameter()))
+            .unwrap();
+        assert_eq!(
+            norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
+                || registry(&transaction.world),
+            )
+            .unwrap(),
+            Some(empty)
+        );
+        transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(parameter.clone()))
+            .unwrap();
+        // Typed JSON charges its owned strings and vectors to total allocation. The
+        // archive field-length limit above is not the resource this path consumes.
+        let refused = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || registry(&transaction.world),
+        )
+        .unwrap_err();
+        let ExecutionAttemptError::Deferred(original) = refused else {
+            panic!("actual JSON scoped refusal must remain local: {refused:?}");
+        };
+        let observed = original
+            .decode_refusal()
+            .expect("actual retired JSON scope")
+            .clone();
+        assert!(matches!(
+            observed.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+                if attempted > 0
+        ));
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.verification_refusal().is_none());
+        let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+            original.into_vm_error(),
+        )
+        .unwrap();
+        assert_eq!(moved.decode_refusal(), Some(&observed));
+        assert_eq!(
+            transaction.world.parameters().custom().get(parameter.id()),
+            Some(&parameter)
+        );
+        assert_eq!(registry(&transaction.world).unwrap(), Some(value));
+        let malformed =
+            CustomParameter::new(ValidationFeePolicyRegistryV1::parameter_id(), Json::new(()));
+        let expected =
+            norito::json::from_str::<ValidationFeePolicyRegistryV1>(malformed.payload().get())
+                .unwrap_err()
+                .to_string();
+        transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(malformed.clone()))
+            .unwrap();
+        let rejected = registry(&transaction.world).unwrap_err();
+        assert!(
+            matches!(rejected, ExecutionAttemptError::Rejected(ref diagnostic)
+        if diagnostic == &format!("malformed protected fee registry: {expected}"))
+        );
+        assert_eq!(
+            transaction.world.parameters().custom().get(malformed.id()),
+            Some(&malformed)
+        );
+        assert!(transaction.world.retail_fee_observed_payments.is_empty());
+        assert!(transaction.world.retail_fee_pending_credits.is_empty());
+    });
+}
+
 fn minor(value: &Quantity) -> Result<u64, InstructionExecutionError> {
     iroha_data_model::fastpq::normalized_numeric_to_u64(value.as_numeric(), 2)
         .ok_or_else(|| invalid("SBD balance must fit exact unsigned minor units"))
@@ -425,6 +566,11 @@ fn project(
     Ok((record, receipts))
 }
 /// Logical retail balance used by reads and transfer prechecks before materialization.
+///
+/// # Errors
+/// Returns an error if enrollment or policy state cannot be read, an enrolled
+/// wallet has no registry, or expired-period settlement lacks a policy or fails
+/// its time and balance arithmetic. Local decoder refusals remain distinct.
 pub fn projected_balance(
     world: &impl WorldReadOnly,
     id: &AssetId,
@@ -671,7 +817,7 @@ pub(crate) fn enroll(
 ) -> Result<(), InstructionExecutionError> {
     ensure_not_rekeyed(&stx.world, account)?;
     let permitted = is_account_issuer_for_primary_alias(&stx.world, authority, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?;
+        .map_err(|error| world_read_error(&stx.world, error))?;
     if authority == account || !permitted {
         return Err(invalid(
             "retail enrollment requires an authorized account issuer",
@@ -679,7 +825,7 @@ pub(crate) fn enroll(
     }
     stx.world.account(account)?;
     if account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
     {
         return Ok(());
@@ -689,7 +835,7 @@ pub(crate) fn enroll(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     .ok_or_else(|| invalid("retail enrollment requires active Parliament fee policy"))?;
     if account == &policy.treasury_account_id {
         return Err(invalid("fee treasury cannot be retail enrolled"));
@@ -705,6 +851,11 @@ pub(crate) fn enroll(
     initialize_receipt_head(&mut stx.world, account)
 }
 /// Return authoritative status, including logical deductions of all expired periods.
+///
+/// # Errors
+/// Returns an error if enrollment or policy state cannot be read, the registry
+/// is missing or empty for an enrolled wallet, or expired-period settlement
+/// fails. Local decoder refusals remain distinct.
 pub fn status(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -729,6 +880,11 @@ pub fn status(
     project(world, record, now_ms, available).map(|(record, _)| Some(record))
 }
 /// Produce an exact quote from finalized ledger facts, including institutional sending accounts.
+///
+/// # Errors
+/// Returns an error for a missing account or active policy, a different payment
+/// asset, invalid payment legs, unreadable retail state, or invalid time, fee,
+/// commitment, intent-hash or expiry arithmetic. Local read refusals are preserved.
 pub fn quote(
     world: &impl WorldReadOnly,
     height: u64,
@@ -1148,20 +1304,21 @@ pub(crate) fn settle_idle_account(
         &AssetId::new(policy.ds_asset_id.clone(), record.account_id),
         through,
     )
-    .map_err(|error| match stx.execution_deferral() {
-        Some(reason) => ExecutionAttemptError::Deferred(reason),
-        None => ExecutionAttemptError::Rejected(error.to_string()),
+    .map_err(|error| match stx.ensure_execution_ready() {
+        Err(original) => ExecutionAttemptError::Deferred(original),
+        Ok(()) => ExecutionAttemptError::Rejected(error.to_string()),
     })
 }
 /// Materialize at most 128 idle wallets and twelve months each per finalized block.
 /// The durable cursor guarantees progress without scanning the complete account table.
 ///
 /// # Errors
-/// Local State storage admission refuses the sweep transaction. Fee-policy failures are
-/// logged and defer the whole batch without partial collection.
+/// Original local execution and storage refusals return to the block owner before the
+/// disposable sweep journal is dropped. Completed optional fee-policy failures roll back
+/// the whole batch and remain diagnostic without partial collection.
 pub(crate) fn process_idle_accounts(
     block: &mut crate::state::StateBlock<'_>,
-) -> Result<(), crate::state::StateStorageAdmissionError> {
+) -> Result<(), ExecutionAttemptError<crate::state::StateStorageAdmissionError>> {
     let mut stx = block.consensus_effects_transaction()?;
     let cursor_key: StatePath = "retail_fee_control_v1/sweep_cursor"
         .parse()
@@ -1171,15 +1328,19 @@ pub(crate) fn process_idle_accounts(
         .smart_contract_state
         .get(&cursor_key)
         .map(|bytes| {
-            norito::decode_from_bytes::<StatePath>(bytes)
-                .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))
+            norito::core::classify_decode_attempt(|| norito::decode_from_bytes::<StatePath>(bytes))
+                .map_err(|error| {
+                    crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                        error.to_string()
+                    })
+                })
         })
         .transpose();
     let cursor = match cursor {
         Ok(cursor) => cursor,
         Err(error) => {
-            if let ExecutionAttemptError::Deferred(reason) = error {
-                let _ = stx.defer_execution(reason);
+            if let ExecutionAttemptError::Deferred(original) = error {
+                return Err(ExecutionAttemptError::Deferred(original));
             }
             return Ok(());
         }
@@ -1209,8 +1370,13 @@ pub(crate) fn process_idle_accounts(
                 .smart_contract_state
                 .get(key)
                 .ok_or("missing retail sweep record")?;
-            let record: RetailFeeAccountStateV1 = norito::decode_from_bytes(bytes)
-                .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
+            let record: RetailFeeAccountStateV1 =
+                norito::core::classify_decode_attempt(|| norito::decode_from_bytes(bytes))
+                    .map_err(|error| {
+                        crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                            error.to_string()
+                        })
+                    })?;
             if stx.world.account(&record.account_id).is_ok() || record.closed_at_ms.is_some() {
                 settle_idle_account(&mut stx, &policy, record)?;
             }
@@ -1228,6 +1394,14 @@ pub(crate) fn process_idle_accounts(
         }
         Ok(())
     })();
+    let result = match result {
+        Err(ExecutionAttemptError::Deferred(original)) => {
+            return Err(ExecutionAttemptError::Deferred(original));
+        }
+        completed => completed,
+    };
+    stx.ensure_execution_ready()
+        .map_err(ExecutionAttemptError::Deferred)?;
     match result {
         Ok(()) => {
             // Idle settlements always write protected account/receipt state or
@@ -1239,9 +1413,6 @@ pub(crate) fn process_idle_accounts(
         }
         Err(error) => {
             iroha_logger::warn!(%error,"retail fee idle settlement refused without partial collection");
-            if let ExecutionAttemptError::Deferred(reason) = error {
-                let _ = stx.defer_execution(reason);
-            }
         }
     }
     Ok(())
@@ -1254,6 +1425,10 @@ fn receipt_prefix(account: &AccountId) -> String {
     )
 }
 /// Resolve the original canonical wallet identity through protected native recovery state.
+///
+/// # Errors
+/// Returns a decode error for malformed protected wallet-recovery state,
+/// preserving original local decoder refusals.
 pub fn receipt_wallet_id(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1269,6 +1444,10 @@ pub fn receipt_wallet_id(
         .map(|id| id.unwrap_or_else(|| account.clone()))
 }
 /// Read a wallet receipt head; absence means no head has yet been committed.
+///
+/// # Errors
+/// Returns an error if wallet recovery, receipt-head key construction, or head
+/// decoding fails. Original local decoder refusals are preserved.
 pub fn receipt_head(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1374,6 +1553,11 @@ pub(crate) fn store_receipt(
     write_receipt_head(world, &head)
 }
 /// Read a contiguous bounded receipt sequence for one stable canonical wallet.
+///
+/// # Errors
+/// Returns an error for a limit outside 1..=100, sequence overflow, malformed
+/// index or receipt bytes, a dangling index, or a wallet/sequence identity
+/// mismatch. Original local decoder refusals are preserved.
 pub fn receipt_sequence(
     world: &impl WorldReadOnly,
     wallet: &AccountId,
@@ -1415,6 +1599,11 @@ pub fn receipt_sequence(
     Ok(rows)
 }
 /// Read a bounded, canonical page of immutable native receipts for an authenticated account.
+///
+/// # Errors
+/// Returns an error for a limit outside 1..=100, malformed account lineage or
+/// receipt bytes, or an invalid receipt range key. Original local decoder
+/// refusals are preserved.
 pub fn receipts(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1467,7 +1656,7 @@ pub(crate) fn close_account(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Ok(());
     };
@@ -1475,8 +1664,8 @@ pub(crate) fn close_account(
         &mut stx.world,
         &AssetId::new(policy.ds_asset_id, account.clone()),
     )?;
-    let Some(mut record) = account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+    let Some(mut record) =
+        account_state(&stx.world, account).map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Ok(());
     };
@@ -1495,7 +1684,7 @@ pub(crate) fn reopen_account(
     account: &AccountId,
 ) -> Result<(), InstructionExecutionError> {
     if account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_none()
     {
         return Ok(());
@@ -1505,14 +1694,14 @@ pub(crate) fn reopen_account(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Err(invalid("retail reopening requires active policy"));
     };
     let asset = AssetId::new(policy.ds_asset_id, account.clone());
     settle_balance(&mut stx.world, &asset)?;
     let mut record = account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .ok_or_else(|| invalid("retained retail state disappeared"))?;
     let balance = stored_balance(&stx.world, &asset)?;
     record
@@ -1522,6 +1711,11 @@ pub(crate) fn reopen_account(
 }
 
 /// Read immutable receipts backwards from a previously authenticated wallet frontier.
+///
+/// # Errors
+/// Returns an error for an invalid limit, missing or malformed indexed receipts,
+/// or a page that fails verification against the authenticated cursor. Original
+/// local decoder refusals are preserved.
 pub fn receipt_page(
     world: &impl WorldReadOnly,
     cursor: &iroha_data_model::fee_evidence::RetailFeeReceiptCursorV1,

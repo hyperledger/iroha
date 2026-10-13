@@ -1,6 +1,7 @@
 //! Encoded CNTR/DBG1 retry and deterministic rejection at the metadata boundary.
 
 use super::*;
+use crate::error::ExecutionDeferral;
 use crate::metadata::*;
 use norito::core::with_decode_limits_scope;
 
@@ -55,25 +56,37 @@ fn encoded_sections_preserve_enclosing_refusal_then_retry_identically() {
     let debug = debug();
     let contract_bytes = interface.encode_section();
     let debug_bytes = debug.encode_section();
-    let expected = VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity);
     for limit in [
         allocation_limit(0),
         DecodeLimits::new(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
         DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
         DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 0),
     ] {
-        assert_eq!(
-            with_decode_limits_scope(limit, || {
-                parse_contract_interface_section(&contract_bytes, 0)
-            })
-            .unwrap_err(),
-            expected
-        );
-        assert_eq!(
-            with_decode_limits_scope(limit, || { parse_contract_debug_section(&debug_bytes, 0) })
-                .unwrap_err(),
-            expected
-        );
+        let contract_refusal = with_decode_limits_scope(limit, || {
+            parse_contract_interface_section(&contract_bytes, 0)
+        })
+        .unwrap_err();
+        let debug_refusal =
+            with_decode_limits_scope(limit, || parse_contract_debug_section(&debug_bytes, 0))
+                .unwrap_err();
+        for refusal in [contract_refusal, debug_refusal] {
+            assert_eq!(
+                refusal.execution_deferral(),
+                Some(ExecutionDeferral::ActiveMemoryCapacity)
+            );
+            let VMError::DecodeDeferred(original) = refusal else {
+                panic!("metadata must retain the original decoder refusal");
+            };
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert_eq!(original.allocation_bytes(), None);
+            assert!(matches!(
+                original.into_error(),
+                norito::Error::ScopedDecodeResource(_)
+            ));
+        }
     }
     assert_eq!(
         parse_contract_interface_section(&contract_bytes, 0).unwrap(),
@@ -89,14 +102,14 @@ fn encoded_sections_preserve_enclosing_refusal_then_retry_identically() {
 fn canonical_protocol_refusal_remains_invalid_with_equal_enclosing_limit() {
     let bytes = norito::encode_canonical(&vec!["canonical".to_owned()]).unwrap();
     let protocol = allocation_limit(0);
-    assert_eq!(
+    assert!(matches!(
         decode::<Vec<String>>(&bytes, protocol).unwrap_err(),
         VMError::InvalidMetadata
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         with_decode_limits_scope(protocol, || decode::<Vec<String>>(&bytes, protocol)).unwrap_err(),
         VMError::InvalidMetadata
-    );
+    ));
     assert_eq!(
         decode::<Vec<String>>(&bytes, allocation_limit(usize::MAX)).unwrap(),
         vec!["canonical".to_owned()]
@@ -116,10 +129,10 @@ fn assert_malformed<T: std::fmt::Debug>(
             bad
         },
     ] {
-        assert_eq!(
+        assert!(matches!(
             with_decode_limits_scope(allocation_limit(0), || parser(&malformed, 0)).unwrap_err(),
-            VMError::InvalidMetadata,
-        );
+            VMError::InvalidMetadata
+        ));
     }
 }
 
@@ -137,15 +150,15 @@ fn whole_artifact_image_limit_precedes_section_resource_admission() {
     let mut bytes = ProgramMetadata::default().encode();
     bytes.extend_from_slice(&interface().encode_section());
     bytes.resize(HEADER_SIZE + MAX_PROGRAM_IMAGE_BYTES_V1 + 1, 0);
-    assert_eq!(
+    assert!(matches!(
         with_decode_limits_scope(allocation_limit(0), || ProgramMetadata::parse(&bytes))
             .unwrap_err(),
         VMError::InvalidMetadata
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         ProgramMetadata::parse(&bytes).unwrap_err(),
         VMError::InvalidMetadata
-    );
+    ));
 }
 
 #[test]
@@ -213,12 +226,20 @@ fn trigger_json_metadata_preserves_each_cumulative_refusal_then_retries() {
                     norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                     "trigger metadata at budget {limit}: {error}"
                 );
+                let refused = with_decode_limits_scope(allocation_limit(limit), || {
+                    parse_contract_interface_section(&bytes, 0)
+                })
+                .unwrap_err();
                 assert_eq!(
-                    with_decode_limits_scope(allocation_limit(limit), || {
-                        parse_contract_interface_section(&bytes, 0)
-                    })
-                    .unwrap_err(),
-                    VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity)
+                    refused.execution_deferral(),
+                    Some(ExecutionDeferral::ActiveMemoryCapacity)
+                );
+                let VMError::DecodeDeferred(original) = refused else {
+                    panic!("trigger metadata must retain the original decoder refusal");
+                };
+                assert_eq!(
+                    Some(original.resource_error()),
+                    error.error().decode_resource_error()
                 );
                 let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
                     attempted,

@@ -207,10 +207,19 @@ path = "tests/manual_frame_identity.rs"
 name = "validator_staking_sdk_fixtures"
 path = "tests/validator_staking_sdk_fixtures.rs"
 
+[[test]]
+name = "bilateral_settlement_sdk_fixtures"
+path = "tests/bilateral_settlement_sdk_fixtures.rs"
+
 # Canonical V1 RAM-LFE receipt and opening commitments.
 [[test]]
 name = "ram_lfe_canonical_v1"
 path = "tests/ram_lfe_canonical_v1.rs"
+
+# Provider-backed phone-control challenge, credential and provider policy.
+[[test]]
+name = "phone_control_v1"
+path = "tests/phone_control_v1.rs"
 
 # Canonical zk-X509 presentation-interval definition and its shared SDK vectors.
 [[test]]

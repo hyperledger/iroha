@@ -1,7 +1,7 @@
 //! Generate canonical JSON fixtures for parity tests.
 //!
 //! Run with:
-//!   cargo run -p iroha_core --features iroha-core-tests --example generate_parity_fixtures
+//!   cargo run -p `iroha_core` --features iroha-core-tests --example `generate_parity_fixtures`
 //!
 //! It writes fixtures under `crates/iroha_core/tests/fixtures/`.
 use iroha_core::{

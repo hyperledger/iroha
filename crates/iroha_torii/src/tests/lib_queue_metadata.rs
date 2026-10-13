@@ -156,4 +156,88 @@ mod tests_queue_metadata {
             assert!(!response.headers().contains_key("retry-after"));
         }
     }
+    #[test]
+    fn native_forgery_queue_errors_preserve_local_and_protocol_categories() {
+        use iroha_core::smartcontracts::isi::sccp::forgery::ForgeryVerificationError as Verify;
+        use queue::ForgeryIngressError as Native;
+        for (native, status, rejection) in [
+            (Native::PoolMismatch, StatusCode::SERVICE_UNAVAILABLE, false),
+            (
+                Native::Allocator { bytes: 17 },
+                StatusCode::SERVICE_UNAVAILABLE,
+                false,
+            ),
+            (
+                Native::Allocation(iroha_allocation::AllocationRefusal::DemandOverflow),
+                StatusCode::SERVICE_UNAVAILABLE,
+                false,
+            ),
+            (
+                Native::Verification(Verify::Unavailable("original source absent")),
+                StatusCode::SERVICE_UNAVAILABLE,
+                false,
+            ),
+            (
+                Native::Verification(Verify::UnsupportedScope),
+                StatusCode::SERVICE_UNAVAILABLE,
+                false,
+            ),
+            (Native::Seen, StatusCode::TOO_MANY_REQUESTS, false),
+            (Native::RateLimited, StatusCode::TOO_MANY_REQUESTS, false),
+            (Native::Duplicate, StatusCode::CONFLICT, true),
+            (
+                Native::Verification(Verify::BadSignature),
+                StatusCode::BAD_REQUEST,
+                true,
+            ),
+            (
+                Native::Verification(Verify::NotEvidence),
+                StatusCode::BAD_REQUEST,
+                true,
+            ),
+            (
+                Native::Verification(Verify::EvidenceExpired),
+                StatusCode::BAD_REQUEST,
+                true,
+            ),
+        ] {
+            let error = queue::Error::SccpForgeryIngress(native);
+            assert_eq!(Error::status_code_for_queue_error(&error), status);
+            let envelope = Error::queue_error_envelope(&error, None);
+            let details = envelope.details.unwrap();
+            assert_eq!(details.reject_code.is_some(), rejection);
+            assert!(
+                details.retry_after_seconds.is_none(),
+                "LRU eviction has no fixed retry time"
+            );
+            assert!(details.fee.is_none());
+            let response = Error::PushIntoQueue {
+                source: Box::new(error),
+                backpressure: queue::BackpressureState::default(),
+            }
+            .into_response();
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers().contains_key("x-iroha-reject-code"),
+                rejection
+            );
+            assert!(!response.headers().contains_key("retry-after"));
+        }
+    }
+
+    #[test]
+    fn deferred_original_capacity_is_not_a_rejection_header() {
+        let budget = iroha_allocation::AllocationBudget::new(8);
+        let occupied = budget.try_reserve_bytes(8).unwrap();
+        let original = budget.try_reserve_bytes(1).unwrap_err();
+        let error = queue::Error::Deferred(original.into());
+        let response = Error::PushIntoQueue {
+            source: Box::new(error),
+            backpressure: queue::BackpressureState::default(),
+        }
+        .into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(!response.headers().contains_key("x-iroha-reject-code"));
+        drop(occupied);
+    }
 }

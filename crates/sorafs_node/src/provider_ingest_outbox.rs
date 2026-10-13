@@ -5121,8 +5121,8 @@ fn validate_completion_submission_authority(
     if observation.provider_owner.as_ref() != Some(current_provider_owner) {
         return Err(ProviderIngestOutboxError::InvalidSigningContext);
     }
-    if &observation.completion_authority
-        != &ProviderIngestCompletionAuthorityObservationV1::Active(current_authority.clone())
+    if observation.completion_authority
+        != ProviderIngestCompletionAuthorityObservationV1::Active(current_authority.clone())
     {
         return Err(ProviderIngestOutboxError::SignerPolicyRollback);
     }
@@ -6355,7 +6355,7 @@ mod tests {
     use iroha_data_model::{
         account::AccountId,
         isi::InstructionBox,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         sorafs::{
             capacity::ProviderId,
             pin_registry::{ManifestDigest, ReplicationOrderId},
@@ -8147,15 +8147,15 @@ mod tests {
             validate_completion_transaction(&authorization, &context, &expected, policy()).is_ok()
         );
         let key = KeyPair::try_from_seed(vec![8; 32], Algorithm::Ed25519).expect("key");
-        let attachments = ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+        let attachments = vec![ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "vk_1"),
-        )])
-        .expect("one attachment is a valid bounded proof list");
+        )];
         let attached = TransactionBuilder::from_payload(expected.payload().clone())
             .expect("rebuild completion payload")
-            .with_attachments(attachments)
+            .with_proof_attachments(attachments)
+            .expect("valid proof carriers")
             .try_sign(key.private_key())
             .expect("sign attached completion");
         assert_eq!(

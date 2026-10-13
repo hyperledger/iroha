@@ -308,7 +308,8 @@ mod tests {
                 norito::encode_canonical(&changed).unwrap(),
             );
             assert!(
-                !iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(&key)),
+                !iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(&key))
+                    .expect("mutated proof verification completes with a false verdict"),
                 "modified row {row}"
             );
         }

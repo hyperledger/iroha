@@ -10,8 +10,6 @@ workspace = true
 
 [features]
 test-fixtures = [
-    "dep:blstrs",
-    "dep:group",
     "dep:halo2curves",
     "dep:iroha_model_base",
     "iroha_data_model/test-fixtures",
@@ -19,21 +17,27 @@ test-fixtures = [
 ]
 
 [dependencies]
+iroha_allocation = { workspace = true }
 iroha_model_base = { workspace = true, optional = true }
 tiny-keccak = { version = "2.0.2", default-features = false, features = ["keccak"] }
 sha2 = { version = "0.10.9", default-features = false }
 norito = { path = "../norito", default-features = false, features = ["base-codec"] }
 halo2curves = { workspace = true, optional = true }
-# The synthetic beacon chain signs with the BLS implementation the verifier uses (`iroha_crypto`).
-blstrs = { version = "0.7.1", default-features = false, optional = true }
-group = { version = "0.13", default-features = false, optional = true }
+# The curve library behind `iroha_crypto`'s BLS. `v1::committee` converts points between the
+# compressed form and the EVM limb form with it (`specs/sccp.md` §3.7), and the synthetic
+# beacon chain of `test_support` signs with it.
+blstrs = { version = "0.7.1", default-features = false }
+group = { version = "0.13", default-features = false }
 iroha_crypto = { path = "../iroha_crypto", features = ["node-crypto"], default-features = false }
 iroha_data_model = { path = "../iroha_data_model", default-features = false }
 
 [dev-dependencies]
-blstrs = { version = "0.7.1", default-features = false }
-group = { version = "0.13", default-features = false }
+# The reference generators (`tests/reference_support/bls_support.rs`) build a point of the
+# curve outside the G2 subgroup with its BLS12-381 base-field arithmetic: `blstrs` does not
+# export the field, and every hash-to-curve API clears the cofactor.
 halo2curves = { workspace = true }
+# The Commit preimage of `v1::finality` is tested against the Sumeragi core's `vote_preimage`.
+iroha_sumeragi = { workspace = true }
 # Integration tests use the synthetic source chains of `test_support`.
 iroha_sccp = { path = ".", features = ["test-fixtures"] }
 iroha_model_base = { workspace = true }

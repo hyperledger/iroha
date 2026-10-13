@@ -152,9 +152,10 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ReserveAccountExpectation<'a>(pub(super) &'a ReserveAccountRegistrationRequest);
 impl ReserveAccountExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::ReserveAccountRegistration { plan, terms } = record.operation else {
             eyre::bail!("reserve journal differs from selected account-registration purpose");
         };

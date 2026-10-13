@@ -296,8 +296,7 @@ async fn transaction_batch_authenticates_before_fresh_capacity_and_preserves_cus
         transaction_batch_body_for_test(vec![vec![0xff]]),
     )
     .await
-    .err()
-    .expect("bad canonical bytes");
+    .expect_err("bad canonical bytes");
     assert!(matches!(
         error,
         Error::AppQueryValidation {
@@ -551,7 +550,7 @@ async fn handler_post_transactions_batch_uses_authenticated_token_for_distinct_a
     let payloads = (0..3)
         .map(|index| {
             let keypair = checked_torii_test_ed25519_keypair(
-                0xcc_u8.wrapping_add(index as u8),
+                0xcc_u8.wrapping_add(u8::try_from(index).expect("fixture index fits u8")),
                 "derive distinct-authority batch token fixture key",
             );
             let authority = AccountId::new(keypair.public_key().clone());
@@ -958,7 +957,7 @@ async fn handler_post_transaction_does_not_age_shed_retained_native_candidate() 
         2,
         "both original native inputs remain pending"
     );
-    assert_eq!(candidates[0].hash(), tx1.hash());
+    assert_eq!(candidates[0].hash_as_entrypoint(), tx1.hash_as_entrypoint());
 }
 #[test]
 fn signed_query_scope_classifies_trigger_inventory_queries_as_local_replicated() {
@@ -1342,7 +1341,7 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
         chain.committed(2).block().external_transactions().count(),
         1
     );
-    assert_eq!(
+    assert!(
         chain
             .committed(2)
             .block()
@@ -1350,8 +1349,7 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
             .unwrap()
             .1
             .result
-            .is_ok(),
-        true
+            .is_ok()
     );
     Arc::get_mut(&mut app).unwrap().local_peer_id = Some(chain.validators()[0].0.clone());
     let committed = chain.committed(2);
@@ -1402,11 +1400,11 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
     assert_eq!(supply_after, &minted);
     drop(view);
     let global_route = RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL);
-    let committee = app
+    let validator_set = app
         .state
         .resolve_route_authority(super::lane_authority_route(global_route))
         .expect("funded fixture has active global authority");
-    assert_eq!(committee.validators().len(), 4);
+    assert_eq!(validator_set.validators().len(), 4);
     assert!(super::should_execute_route_locally(
         app.as_ref(),
         global_route

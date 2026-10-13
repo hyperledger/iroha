@@ -58,7 +58,7 @@ fn fixture() -> (State, Nexus, KeyPair, RetailDailyLimitPolicyV1) {
         )
         .build(&owner)],
     );
-    let native = &mut world.smart_contract_state_mut_for_testing();
+    let native = world.smart_contract_state_mut_for_testing();
     native.insert(
         crate::state::retail_daily_limit_state::policy_key(
             &policy.asset_definition_id,
@@ -99,7 +99,8 @@ fn fixture() -> (State, Nexus, KeyPair, RetailDailyLimitPolicyV1) {
     .unwrap();
     // Keep the routing catalog, its derived geometry and this component State
     // aligned. This fixture does not authenticate a native genesis or history.
-    nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
+    nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
     nexus.configured_lane_catalog = nexus.lane_catalog.clone();
     nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
     let state = State::new_with_nexus_for_testing(
@@ -255,18 +256,21 @@ fn retail_declared_scope_substitution_cannot_escape_catalog_or_native_source() {
     ];
     for instruction in substitutions.clone() {
         let transaction = accepted(&key, instruction);
-        assert_eq!(
-            evaluate_policy_with_catalog_and_world_at(
+        crate::queue::router::assert_completed_routing_error_eq(
+            (evaluate_policy_with_catalog_and_world_at(
                 &nexus.routing_policy,
                 &nexus.lane_catalog,
                 &nexus.dataspace_catalog,
                 &transaction,
                 view.world(),
-                0
-            ),
-            Err(RoutingResolveError::UnknownDataspace {
-                dataspace_id: DataSpaceId::new(8)
-            })
+                0,
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::UnknownDataspace {
+                dataspace_id: DataSpaceId::new(8),
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     // A configured alternate scope is still not the original certified native source.
@@ -343,11 +347,14 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
     assert!(instruction_transaction_dataspace_target_needs_state(
         &movement
     ));
-    assert_eq!(
-        instruction_transaction_dataspace_target(&movement, Some(&nexus.dataspace_catalog), None),
-        Err(RoutingResolveError::OrdinaryRouteUnavailable {
-            reason: "retail monetary routing requires current native policy state".into()
-        })
+    crate::queue::router::assert_completed_routing_error_eq(
+        (instruction_transaction_dataspace_target(&movement, Some(&nexus.dataspace_catalog), None))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::OrdinaryRouteUnavailable {
+            reason: "retail monetary routing requires current native policy state".into(),
+        }),
+        format_args!("completed routing rejection"),
     );
     let original_activation =
         crate::state::retail_daily_limit_state::activation_key(&policy.asset_definition_id);
@@ -356,16 +363,19 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         records.remove(original_activation.clone());
         records.commit();
     }
-    assert_eq!(
-        retail_monetary_dataspace_target_with_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
-            Some(0)
-        ),
-        Err(RoutingResolveError::OrdinaryRouteUnavailable {
-            reason: "retail monetary native activation is invalid".into()
-        })
+            Some(0),
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::OrdinaryRouteUnavailable {
+            reason: "retail monetary native activation is invalid".into(),
+        }),
+        format_args!("completed routing rejection"),
     );
     state.world.smart_contract_state_mut_for_testing().insert(
         original_activation,
@@ -383,16 +393,19 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         ),
         norito::encode_canonical(&substituted).unwrap(),
     );
-    assert_eq!(
-        retail_monetary_dataspace_target_with_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
-            Some(0)
-        ),
-        Err(RoutingResolveError::OrdinaryRouteUnavailable {
-            reason: "retail monetary native policy is invalid".into()
-        })
+            Some(0),
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::OrdinaryRouteUnavailable {
+            reason: "retail monetary native policy is invalid".into(),
+        }),
+        format_args!("completed routing rejection"),
     );
     {
         let mut records = state.world.smart_contract_state_mut_for_testing().block();
@@ -402,31 +415,37 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         ));
         records.commit();
     }
-    assert_eq!(
-        retail_monetary_dataspace_target_with_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
-            Some(0)
-        ),
-        Err(RoutingResolveError::OrdinaryRouteUnavailable {
-            reason: "retail monetary native policy is absent".into()
-        })
+            Some(0),
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::OrdinaryRouteUnavailable {
+            reason: "retail monetary native policy is absent".into(),
+        }),
+        format_args!("completed routing rejection"),
     );
     {
         let mut definitions = state.world.asset_definitions.block();
         definitions.remove(policy.asset_definition_id.clone());
         definitions.commit();
     }
-    assert_eq!(
-        retail_monetary_dataspace_target_with_world(
+    crate::queue::router::assert_completed_routing_error_eq(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
-            Some(0)
-        ),
-        Err(RoutingResolveError::OrdinaryRouteUnavailable {
-            reason: "retail monetary definition is absent".into()
-        })
+            Some(0),
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::OrdinaryRouteUnavailable {
+            reason: "retail monetary definition is absent".into(),
+        }),
+        format_args!("completed routing rejection"),
     );
 }

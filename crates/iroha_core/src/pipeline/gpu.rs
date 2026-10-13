@@ -65,7 +65,7 @@ pub fn sort_triplets_gpu(triplets: &mut [AccessTriplet]) -> Result<(), GpuSortEr
                 for (out, (hi_word, lo_word)) in triplets.iter_mut().zip(hi.into_iter().zip(lo)) {
                     out.key = (hi_word >> 32) as u32;
                     out.tx_index = (hi_word & 0xFFFF_FFFF) as u32 as usize;
-                    out.flag = (lo_word >> 32) as u8;
+                    out.flag = lo_word.to_le_bytes()[4];
                 }
                 Ok(())
             }

@@ -237,8 +237,8 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     let foreign_key = iroha_plonk::VerifyingKey::<Ep>::read(&foreign_vk, &binding).unwrap();
     assert!(seal.bind(&binding, &foreign_key, None).is_err());
     let bound = seal.bind(&binding, &verifier, None).unwrap();
-    assert!(core::ptr::eq(bound.binding(), &binding));
-    assert!(core::ptr::eq(bound.verifying_key(), &verifier));
+    assert!(core::ptr::eq(bound.binding(), &raw const binding));
+    assert!(core::ptr::eq(bound.verifying_key(), &raw const verifier));
     let owner =
         iroha_kagemusha_proof::omega::native::ProverView::from_source_bound(&program, bound)
             .unwrap();

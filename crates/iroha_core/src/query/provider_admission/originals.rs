@@ -38,6 +38,11 @@ pub fn with_genesis_provider_admission_originals_v1<R>(
         &[(AccountId, ProviderAdmissionGenesisMaterialV1)],
     ) -> Result<R, ProviderAdmissionErrorV1>,
 ) -> Result<R, ProviderAdmissionErrorV1> {
+    struct Originals {
+        values: ChargedBuffer<(AccountId, ProviderAdmissionGenesisMaterialV1)>,
+        charges: ChargedBuffer<AllocationCharge>,
+    }
+
     let invalid = ProviderAdmissionErrorV1;
     if maximum_providers == 0
         || maximum_providers > PROVIDER_ADMISSION_GENESIS_MAX_PROVIDERS_V1
@@ -112,10 +117,6 @@ pub fn with_genesis_provider_admission_originals_v1<R>(
     let count = initializer.providers.len();
     // Actual tuple backing and every decoded material retain their original charges through
     // the borrowing callback. The callback must separately admit any copies it retains.
-    struct Originals {
-        values: ChargedBuffer<(AccountId, ProviderAdmissionGenesisMaterialV1)>,
-        charges: ChargedBuffer<AllocationCharge>,
-    }
     let mut originals = Originals {
         values: ChargedBuffer::new(count, budget).map_err(|_| invalid)?,
         charges: ChargedBuffer::new(count, budget).map_err(|_| invalid)?,

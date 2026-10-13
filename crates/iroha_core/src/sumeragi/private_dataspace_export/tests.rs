@@ -15,7 +15,6 @@ use iroha_model_base::topology::DataSpaceId;
 use std::num::NonZeroU32;
 
 fn private_chain() -> CertifiedTestChain {
-    let ds = DataSpaceId::new(u64::MAX - 15);
     use iroha_data_model::{
         Registrable,
         account::{Account, AccountId},
@@ -27,6 +26,7 @@ fn private_chain() -> CertifiedTestChain {
         domain::Domain,
         parameter::Parameter,
     };
+    let ds = DataSpaceId::new(u64::MAX - 15);
     let clock = iroha_crypto::KeyPair::from_seed(vec![0xCC; 32], iroha_crypto::Algorithm::Ed25519);
     let owner = AccountId::new(clock.public_key().clone());
     let domain =
@@ -98,6 +98,41 @@ fn private_chain() -> CertifiedTestChain {
 }
 
 #[test]
+fn independent_dataspace_prepare_waits_for_the_same_clock_boundary() {
+    crate::sumeragi::executor::clock_tests::assert_clock_ahead_defers_original(private_chain);
+}
+
+#[test]
+fn terminal_result_scope_comes_from_the_signed_private_root() {
+    let mut chain = private_chain();
+    chain.commit_at(2_000, Vec::new());
+    chain.commit_at(3_000, Vec::new());
+    let view = chain.state().view();
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
+        &view.execution_budget(),
+    )
+    .unwrap();
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    let scope = iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+        SumeragiRootScope::Dataspace {
+            parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                Hash::new(b"independent public parent"),
+            )),
+            dataspace_id: DataSpaceId::new(u64::MAX - 15),
+        },
+    );
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+            terminal.committed().root_scope()
+        ),
+        scope
+    );
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
+#[test]
 fn compact_export_authenticates_original_genesis_and_successor_without_private_bodies() {
     let mut chain = private_chain();
     let registered = registration(&chain.state().view()).unwrap();
@@ -141,7 +176,7 @@ fn compact_export_rejects_global_roots_and_oversized_native_quorums() {
     let mut private = private_chain();
     let proposal = private.proposal(Some(1_100), vec![]);
     let refusal = private
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .unwrap()
         .publish(Signers::All)
         .unwrap_err();
@@ -180,12 +215,51 @@ fn original_private_export_refusal_preserves_read_owner_and_exact_custody_retry(
                 let ExportError::Deferred(reason) = error else {
                     panic!("an unfinished export read cannot reject custody: {error:?}");
                 };
-                assert_eq!(reason, original);
+                assert_eq!(reason.reason(), original.reason());
+                assert_eq!(reason.phase(), original.phase());
+                let actual_decode = reason.decode_refusal().expect("export decoder cause");
+                let original_decode = original
+                    .decode_refusal()
+                    .expect("independent source decoder cause");
+                assert_eq!(actual_decode.kind(), original_decode.kind());
+                assert_eq!(
+                    actual_decode.resource_error(),
+                    original_decode.resource_error()
+                );
+                assert_eq!(
+                    actual_decode.allocation_bytes(),
+                    original_decode.allocation_bytes()
+                );
+                assert_ne!(
+                    actual_decode, original_decode,
+                    "separate canonical read observers retain distinct original owners"
+                );
+                assert!(
+                    reason.verification_refusal().is_none()
+                        && original.verification_refusal().is_none()
+                );
                 assert!(
                     reason.allocation_refusal().is_none(),
                     "the decode counter has no release owner"
                 );
             }
+            let retained_decode = original
+                .decode_refusal()
+                .expect("original decoder cause")
+                .clone();
+            let retained_reason = original.reason();
+            let retained_phase = original.phase();
+            let mapped =
+                ExportError::from(ExecutionAttemptError::<ChainReadError>::Deferred(original));
+            let ExportError::Deferred(mapped) = mapped else {
+                panic!("single-source adapter must retain original refusal")
+            };
+            assert_eq!(mapped.reason(), retained_reason);
+            assert_eq!(mapped.phase(), retained_phase);
+            assert_eq!(mapped.decode_refusal(), Some(&retained_decode));
+            assert!(
+                mapped.allocation_refusal().is_none() && mapped.verification_refusal().is_none()
+            );
             assert_eq!(view.height(), 2);
         },
     );
@@ -204,5 +278,81 @@ fn original_private_export_refusal_preserves_read_owner_and_exact_custody_retry(
         Err(ExportError::Custody(ChainReadError::NotCommitted {
             height: 3
         }))
+    ));
+}
+
+#[test]
+fn private_execution_tip_keeps_its_signed_role_through_successor_and_history_read() {
+    let mut chain = private_chain();
+    let original = chain.state().view().native_execution_tip().unwrap();
+    assert!(matches!(
+        original.root_scope(),
+        SumeragiRootScope::Dataspace { .. }
+    ));
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(original.root_scope()),
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::NonGlobal
+    );
+    chain.commit_at(1_100, vec![]);
+    let view = chain.state().view();
+    let current = view.native_execution_tip().unwrap();
+    assert_eq!(current.root_scope(), original.root_scope());
+    let reader = CertifiedChain::new(&view).unwrap();
+    assert_eq!(reader.root_scope(), original.root_scope());
+    let receipt = reader.committed(2).unwrap();
+    assert_eq!(receipt.root_scope(), original.root_scope());
+    let decoded = iroha_data_model::sumeragi_finality::CertifiedResultV1::decode(
+        receipt
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage(),
+        original.root_scope().into(),
+    )
+    .unwrap();
+    assert!(!decoded.header().is_active());
+    assert_eq!(current.result(), receipt.result());
+    assert_eq!(
+        anchor(&view, 2).unwrap().certificate.result_preimage,
+        receipt
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+}
+
+#[test]
+fn private_profile_export_preserves_local_resource_category_after_decode_scope_retires() {
+    let allocator = norito::core::classify_decode_attempt(|| {
+        Err::<(), _>(norito::Error::AllocationFailed { bytes: 1 })
+    })
+    .unwrap_err();
+    let capacity = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(2)),
+    )
+    .unwrap_err();
+    for (resource, expected) in [
+        (
+            allocator,
+            ivm::error::ExecutionDeferral::AllocationUnavailable,
+        ),
+        (
+            capacity,
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+        ),
+    ] {
+        let ExportError::Deferred(retained) =
+            ExportError::from(PrivateDataspaceAnchorError::Resource(resource))
+        else {
+            panic!("captured local resource cannot become a profile rejection");
+        };
+        assert_eq!(retained.reason(), expected);
+        assert!(retained.allocation_refusal().is_none());
+    }
+    assert!(matches!(
+        ExportError::from(PrivateDataspaceAnchorError::Invalid("malformed".into())),
+        ExportError::Profile(_)
     ));
 }

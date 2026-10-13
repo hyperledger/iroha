@@ -7,6 +7,7 @@ closed; this module does not estimate RSS from Kura counts or process names.
 from __future__ import annotations
 
 import ctypes
+import errno
 from dataclasses import dataclass
 import hashlib
 import os
@@ -28,6 +29,29 @@ _FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 
 class ProcessObservationError(ValueError):
     """An exact process observation is unavailable or changed identity."""
+
+
+def darwin_absolute_time() -> int:
+    """Read the kernel's unscaled monotonic clock, shared with rusage exit ticks."""
+    clock = ctypes.CDLL("/usr/lib/libSystem.B.dylib").mach_absolute_time
+    clock.argtypes = ()
+    clock.restype = ctypes.c_uint64
+    return int(clock())
+
+
+class NativeProcessUnavailable(ProcessObservationError):
+    """One native syscall's unavailable process, with its original clock bracket."""
+
+    def __init__(self, pid: int, operation: str, error_number: int,
+                 before_abstime: int, after_abstime: int):
+        super().__init__("native process unavailable")
+        self.pid, self.operation, self.error_number = pid, operation, error_number
+        self.before_abstime, self.after_abstime = before_abstime, after_abstime
+
+    def fact(self) -> dict:
+        """Bounded public provenance; never include a native exception string."""
+        return {"pid": self.pid, "operation": self.operation, "errno": self.error_number,
+                "before_abstime": self.before_abstime, "after_abstime": self.after_abstime}
 
 
 def _require(condition: bool, message: str) -> None:
@@ -278,29 +302,52 @@ class DarwinProcessReader:
         self.lib.proc_pidpath.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
         self.lib.proc_pidpath.restype = ctypes.c_int
 
-    def _identity(self, pid: int) -> _BsdInfo:
+    def _call(self, pid: int, operation: str, invoke):
+        before = darwin_absolute_time()
+        ctypes.set_errno(0)
+        result = invoke()
+        error_number = ctypes.get_errno()
+        after = darwin_absolute_time()
+        missing = result < 0 if operation == "proc_pid_rusage" else result <= 0
+        if missing and error_number == errno.ESRCH:
+            raise NativeProcessUnavailable(pid, operation, error_number, before, after)
+        return result, before, after
+
+    def _identity(self, pid: int, *, include_exited: bool = False) -> _BsdInfo:
         info = _BsdInfo()
-        result = self.lib.proc_pidinfo(pid, 3, 0, ctypes.byref(info), ctypes.sizeof(info))
+        result, _, _ = self._call(pid, "proc_pidinfo", lambda: self.lib.proc_pidinfo(
+            pid, 3, int(include_exited), ctypes.byref(info), ctypes.sizeof(info)))
         _require(result == ctypes.sizeof(info) and info.pid == pid
                  and info.uid == os.geteuid() and info.ruid == os.getuid()
                  and info.start_sec > 0 and info.start_usec < 1_000_000,
                  "validator process identity is unavailable or foreign")
         return info
 
+    def _usage(self, pid: int, *, include_exited: bool = False) -> _RusageV0:
+        usage = _RusageV0()
+        result, before, after = self._call(pid, "proc_pid_rusage", lambda:
+            self.lib.proc_pid_rusage(pid, 0, ctypes.byref(usage)))
+        _require(result == 0 and usage.start_abstime > 0,
+                 "validator resident accounting is unavailable")
+        if usage.exit_abstime > 0 and not include_exited:
+            raise NativeProcessUnavailable(pid, "proc_pid_rusage_exited", 0, before, after)
+        return usage
+
+    def _path(self, pid: int) -> Path:
+        path_buffer = ctypes.create_string_buffer(MAX_EXECUTABLE_PATH_BYTES)
+        count, _, _ = self._call(pid, "proc_pidpath", lambda:
+            self.lib.proc_pidpath(pid, path_buffer, len(path_buffer)))
+        _require(0 < count < len(path_buffer) and path_buffer.raw[count] == 0,
+                 "validator executable path is unavailable or truncated")
+        return Path(os.fsdecode(path_buffer.raw[:count])).resolve(strict=True)
+
     def sample(self, pid: int, image: ExecutableImage) -> ProcessSample:
         """Reject exit, PID reuse, exec/image mismatch, or RSS outside exact range."""
         _require(type(pid) is int and 1 < pid <= (1 << 31) - 1, "invalid validator PID")
         image.validate()
         before = self._identity(pid)
-        usage = _RusageV0()
-        _require(self.lib.proc_pid_rusage(pid, 0, ctypes.byref(usage)) == 0
-                 and usage.start_abstime > 0 and usage.exit_abstime == 0,
-                 "validator resident accounting is unavailable")
-        path_buffer = ctypes.create_string_buffer(4096)
-        count = self.lib.proc_pidpath(pid, path_buffer, len(path_buffer))
-        _require(0 < count < len(path_buffer) and path_buffer.raw[count] == 0,
-                 "validator executable path is unavailable or truncated")
-        observed_path = Path(os.fsdecode(path_buffer.raw[:count])).resolve(strict=True)
+        usage = self._usage(pid)
+        observed_path = self._path(pid)
         after = self._identity(pid)
         key = lambda info: (info.pid, info.uid, info.ruid, info.start_sec, info.start_usec)
         _require(key(before) == key(after), "validator lifetime changed during observation")

@@ -41,6 +41,10 @@ impl<'block, V: Value, C: Send + Sync + 'static> CellField<'block, V, C> {
 
     /// Borrow exact undo without dereferencing a frozen field as an executing block.
     #[cfg(test)]
+    #[expect(
+        clippy::ref_option,
+        reason = "retained-owner tests compare the address of the original Option slot across publication phases"
+    )]
     pub(crate) fn original_undo(&self) -> &Option<V> {
         match self.cell_read_phase() {
             CellReadPhase::Executing(block) => block.original_undo(),

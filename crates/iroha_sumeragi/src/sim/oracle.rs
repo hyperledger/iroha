@@ -287,7 +287,7 @@ pub fn build_chain(
             author,
         );
         let bh = block.hash(crypto);
-        let ExecOutcome::Valid(result) = reference_exec(&parent_result, &payload) else {
+        let ExecOutcome::Valid { result, .. } = reference_exec(&parent_result, &payload) else {
             break;
         };
         let msg = preimage::vote_preimage(
@@ -311,7 +311,7 @@ pub fn build_chain(
             .collect();
         for (index, signer) in members.into_iter().take(committee.q()) {
             indices.push(index);
-            sigs.push(signer.sign(&msg));
+            sigs.push(signer.sign(&msg).expect("fixture signing succeeds"));
         }
         assert_eq!(
             indices.len(),
@@ -468,6 +468,10 @@ impl World {
             return self.fail(v);
         }
         self.check_view_change(actions);
+        let prepares = std::mem::take(&mut self.log.lock().expect("signing log").prepares);
+        for (machine, slot, block_hash) in prepares {
+            self.check_first_due_prepare(machine, slot, block_hash);
+        }
         let commits = std::mem::take(&mut self.log.lock().expect("signing log").commits);
         for (m, msg) in commits {
             if let Err(e) = self.commit_backed(&msg) {
@@ -1102,7 +1106,9 @@ impl World {
             return Err("foreign instance".to_owned());
         }
         match self.app_exec(inst, &parent_result, block) {
-            ExecOutcome::Valid(expected) if expected == qc.result => {}
+            ExecOutcome::Valid {
+                result: expected, ..
+            } if expected == qc.result => {}
             other => return Err(format!("result {:?} but reference {other:?}", qc.result)),
         }
         let window = instance.window;

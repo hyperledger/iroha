@@ -14,14 +14,17 @@ use crate::sumeragi::{
     records::{Faults, NoFaults},
 };
 use iroha_allocation::AllocationBudget;
+use iroha_fs::OwnerDirectory;
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
     message::{PayloadManifest, Qc, SyncEntry},
     types::Hash32,
 };
 use parking_lot::{Condvar, Mutex};
+#[cfg(test)]
+use std::fs;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::File,
     io,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, Weak},
@@ -99,9 +102,12 @@ pub(super) struct BatchRead {
 
 /// One fully recovered lane incarnation. Share this owner through Arc; second opens fail.
 pub struct FileLaneBlockStore {
+    // Preserve the configured spelling for diagnostics and fault injection only.
+    // Every native operation uses `directory` and the original acquired lock below.
     dir: PathBuf,
     instance: Hash32,
-    _ownership: File,
+    ownership: File,
+    directory: OwnerDirectory,
     crypto: SharedCrypto,
     faults: Arc<dyn Faults>,
     budget: AllocationBudget,
@@ -128,26 +134,36 @@ fn frame_name(height: u64) -> String {
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
-fn lock_instance(dir: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
-        options
-            .mode(0o600)
-            .custom_flags(i32::from_ne_bytes(flags.bits().to_ne_bytes()));
-    }
-    let file = options.open(dir.join(LOCK_NAME))?;
-    if !file.metadata()?.is_file() {
-        return Err(invalid("lane ownership lock is not a regular file").into());
-    }
+fn lock_instance(dir: &OwnerDirectory) -> io::Result<File> {
+    let file = dir.open_lock(LOCK_NAME)?;
     file.try_lock().map_err(io::Error::from)?;
+    dir.require_same_lock(LOCK_NAME, &file)?;
     Ok(file)
 }
 
+// A read job may outlive its store borrow. Retain the same ancestor descriptors and a
+// duplicate of the actual acquired lock, never a new writable open or replacement lock.
+struct LaneReadCustody {
+    directory: OwnerDirectory,
+    ownership: File,
+}
+impl LaneReadCustody {
+    fn revalidate(&self) -> io::Result<()> {
+        self.directory.require_same_lock(LOCK_NAME, &self.ownership)
+    }
+}
+
 impl FileLaneBlockStore {
+    // Every nested operation retains the same original pool. Its outermost scope
+    // outlives both state and batch guards before invoking arbitrary release callbacks.
+    fn with_original_refunds<R>(budget: &AllocationBudget, operation: impl FnOnce() -> R) -> R {
+        if cfg!(all(test, sumeragi_core_mutation = "HC350")) {
+            operation()
+        } else {
+            budget.with_deferred_refund_notifications(|_| operation())
+        }
+    }
+
     /// Bind this store to the actual original node Queue before its lane driver launches.
     /// Recovery/reconciliation may repeat this same-owner binding; neither a foreign pool
     /// nor another Queue can replace it. Historical read-only stores need no notification.
@@ -178,6 +194,31 @@ impl FileLaneBlockStore {
                 "lane merge notification belongs to another original Queue",
             )),
         }
+    }
+
+    fn revalidate_custody(&self) -> io::Result<()> {
+        self.directory.require_same_lock(LOCK_NAME, &self.ownership)
+    }
+
+    fn retain_read_custody(&self) -> io::Result<LaneReadCustody> {
+        self.revalidate_custody()?;
+        let custody = LaneReadCustody {
+            directory: self.directory.retain()?,
+            ownership: self.ownership.try_clone()?,
+        };
+        custody.revalidate()?;
+        Ok(custody)
+    }
+
+    fn publish_frame(&self, height: u64, bytes: &[u8]) -> io::Result<()> {
+        durable_artifact::publish_in(
+            &*self.faults,
+            &self.directory,
+            &self.dir,
+            &frame_name(height),
+            bytes,
+            || self.revalidate_custody(),
+        )
     }
 
     // Called only after the complete durable append path returns and its state lock retires.
@@ -225,18 +266,27 @@ impl FileLaneBlockStore {
         }
         let dir = root.join(hex::encode(instance.0));
         durable_artifact::establish_dir(&*faults, &dir)?;
-        let ownership = lock_instance(&dir)?;
+        let directory = OwnerDirectory::open(&dir)?;
+        let ownership = lock_instance(&directory)?;
         let mut heights = Vec::new();
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
+        directory.visit_entries(|name| {
+            directory.require_same_lock(LOCK_NAME, &ownership)?;
+            let name = name
+                .to_str()
+                .ok_or_else(|| invalid("non-UTF-8 lane artifact name"))?;
             if name == LOCK_NAME {
-                continue;
+                return Ok(());
             }
-            if !entry.file_type()?.is_file() {
-                return Err(invalid(format!("non-regular lane artifact {name}")).into());
-            }
+            // Open each exact original leaf, rejecting links, special files and shared custody.
+            let original = directory
+                .open_regular_optional(name)?
+                .ok_or_else(|| invalid("lane artifact disappeared during enumeration"))?;
+            directory.require_same_regular_file(name, &original)?;
+            drop(original);
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "lane artifacts have canonical lowercase names; uppercase lookalikes must be rejected"
+            )]
             match name.strip_suffix(&format!(".{FRAME_SUFFIX}")) {
                 Some(number) => {
                     let height = number
@@ -247,21 +297,26 @@ impl FileLaneBlockStore {
                     }
                     heights.push(height);
                 }
-                None if name.ends_with(".tmp") => fs::remove_file(entry.path())?,
+                None if name.ends_with(".tmp") => {
+                    directory.remove_private(name)?;
+                }
                 None => return Err(invalid(format!("unexpected lane file {name}")).into()),
             }
-        }
+            Ok(())
+        })?;
         heights.sort_unstable();
         for (i, height) in heights.iter().enumerate() {
             if *height != i as u64 + 1 {
                 return Err(invalid("lane heights are not contiguous from one").into());
             }
         }
+        directory.require_same_lock(LOCK_NAME, &ownership)?;
         let tip = heights.last().copied().unwrap_or(0);
         let store = Self {
             dir,
             instance: *instance,
-            _ownership: ownership,
+            ownership,
+            directory,
             crypto,
             faults,
             budget,
@@ -286,17 +341,20 @@ impl FileLaneBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<(AvailableBody, Qc)>, Attempt<io::Error>> {
-        let mut state = self.state.lock();
-        if height == 0 || height > state.tip {
-            return Ok(None);
-        }
-        self.read_prepared(&mut state, height)?;
-        let prepared = state
-            .read
-            .take()
-            .and_then(|read| read.ready)
-            .expect("completed original lane read");
-        Ok(Some(prepared.into_parts()))
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height == 0 || height > state.tip {
+                return Ok(None);
+            }
+            self.read_prepared(&mut state, height)?;
+            let prepared = state
+                .read
+                .take()
+                .and_then(|read| read.ready)
+                .expect("completed original lane read");
+            Ok(Some(prepared.into_parts()))
+        })
     }
 
     /// Decode a merge batch while retaining the exact authenticated source on local refusal.
@@ -309,38 +367,39 @@ impl FileLaneBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
-        let mut slot = self.batch_read.lock();
-        loop {
-            if slot.is_none() {
-                let Some((body, qc)) = self.committed_body(height)? else {
-                    return Ok(None);
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut slot = self.batch_read.lock();
+            loop {
+                if slot.is_none() {
+                    let Some((body, qc)) = self.committed_body(height)? else {
+                        return Ok(None);
+                    };
+                    *slot = Some(BatchRead { body, qc });
+                }
+                let read = slot.as_ref().expect("retained authenticated batch read");
+                let batch = match LaneBatch::from_payload(read.body.payload().as_slice()) {
+                    Ok(batch) => Some(batch),
+                    // An authenticated malformed payload is distinct from local resource pressure.
+                    Err(AdmissionAttemptError::Rejected(_)) => None,
+                    Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
+                        return Err(Attempt::Deferred(reason));
+                    }
+                    Err(AdmissionAttemptError::Deferred(reason)) => {
+                        return Err(Attempt::Deferred(reason.into()));
+                    }
                 };
-                *slot = Some(BatchRead { body, qc });
-            }
-            let read = slot.as_ref().expect("retained authenticated batch read");
-            let batch = match LaneBatch::from_payload(read.body.payload().as_slice()) {
-                Ok(batch) => Some(batch),
-                // An authenticated malformed payload is distinct from local resource pressure.
-                Err(AdmissionAttemptError::Rejected(_)) => None,
-                Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                    return Err(Attempt::Deferred(reason));
+                self.revalidate_custody()?;
+                let read = slot.take().expect("completed original batch decode");
+                if read.body.header().height == height {
+                    return Ok(Some(CommittedLaneBlock {
+                        block_hash: read.qc.block_hash,
+                        result: read.qc.result,
+                        batch,
+                    }));
                 }
-                Err(AdmissionAttemptError::Deferred(reason)) => {
-                    return Err(crate::execution_attempt::norito_decode_attempt_error(
-                        reason.into(),
-                        |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                    ));
-                }
-            };
-            let read = slot.take().expect("completed original batch decode");
-            if read.body.header().height == height {
-                return Ok(Some(CommittedLaneBlock {
-                    block_hash: read.qc.block_hash,
-                    result: read.qc.result,
-                    batch,
-                }));
             }
-        }
+        })
     }
 
     /// Observe the durable tip only after the original retained read authenticates.
@@ -351,13 +410,17 @@ impl FileLaneBlockStore {
     /// Propagates the original incomplete attempt or authentication/storage rejection
     /// without taking, replacing or abandoning its retained restoration owner.
     pub(super) fn authenticated_height(&self) -> Result<u64, Attempt<io::Error>> {
-        let mut state = self.state.lock();
-        if let Some(read) = state.read.as_mut()
-            && read.ready.is_none()
-        {
-            read.ready = Some(read.job.poll(&self.budget)?);
-        }
-        Ok(state.tip)
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if let Some(read) = state.read.as_mut()
+                && read.ready.is_none()
+            {
+                read.ready = Some(read.job.poll(&self.budget)?);
+            }
+            self.revalidate_custody()?;
+            Ok(state.tip)
+        })
     }
 
     /// Retirement preserves the original unfinished read, publication and batch owners.
@@ -387,8 +450,9 @@ impl FileLaneBlockStore {
         true
     }
     fn restore(&self, height: u64) -> io::Result<RestoreFrame> {
-        RestoreFrame::open(
-            &self.dir.join(frame_name(height)),
+        RestoreFrame::open_in(
+            self.retain_read_custody()?,
+            &frame_name(height),
             height,
             self.budget.clone(),
             Arc::clone(&self.schedule),
@@ -400,6 +464,7 @@ impl FileLaneBlockStore {
         state: &'a mut StoreState,
         height: u64,
     ) -> Result<&'a mut PreparedLaneWrite, Attempt<io::Error>> {
+        self.revalidate_custody()?;
         if state
             .read
             .as_ref()
@@ -412,6 +477,7 @@ impl FileLaneBlockStore {
             if original.ready.is_none() {
                 original.ready = Some(original.job.poll(&self.budget)?);
             }
+            self.revalidate_custody()?;
             state.read = None;
         }
         if state.read.is_none() {
@@ -425,6 +491,7 @@ impl FileLaneBlockStore {
         if read.ready.is_none() {
             read.ready = Some(read.job.poll(&self.budget)?);
         }
+        self.revalidate_custody()?;
         Ok(read.ready.as_mut().expect("restored original body and QC"))
     }
 }
@@ -440,20 +507,23 @@ impl BlockStore for FileLaneBlockStore {
         self.state.lock().tip
     }
     fn entry(&self, height: u64) -> Result<Option<SyncEntry>, Attempt<io::Error>> {
-        let mut state = self.state.lock();
-        if height == 0 || height > state.tip {
-            return Ok(None);
-        }
-        let prepared = self.read_prepared(&mut state, height)?;
-        let entry = SyncEntry {
-            manifest: PayloadManifest {
-                header: prepared.body().header().clone(),
-                availability: prepared.body().availability().clone(),
-            },
-            commit_qc: prepared.commit_qc().clone(),
-        };
-        state.read = None;
-        Ok(Some(entry))
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height == 0 || height > state.tip {
+                return Ok(None);
+            }
+            let prepared = self.read_prepared(&mut state, height)?;
+            let entry = SyncEntry {
+                manifest: PayloadManifest {
+                    header: prepared.body().header().clone(),
+                    availability: prepared.body().availability().clone(),
+                },
+                commit_qc: prepared.commit_qc().clone(),
+            };
+            state.read = None;
+            Ok(Some(entry))
+        })
     }
     fn availability_source(
         &self,
@@ -463,61 +533,65 @@ impl BlockStore for FileLaneBlockStore {
         resolve_source(&*self.schedule, self.instance, height, block_hash)
     }
     fn append(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
-        if !body.admitted_to(&self.budget) {
-            return Err(invalid("lane append original pool mismatch").into());
-        }
-        let height = body.header().height;
-        let source = certified_source(&*self.schedule, &*self.crypto, height, body.header(), qc)?;
-        if body.source() != &source {
-            return Err(
-                invalid("lane body was authenticated under another historical source").into(),
-            );
-        }
-        let mut state = self.state.lock();
-        if height <= state.tip {
-            let stored = self.read_prepared(&mut state, height)?;
-            if stored.body() != body || stored.commit_qc().result != qc.result {
-                // This healthy stored read is complete; reject the incoming decision without
-                // pinning unrelated future reads behind it. Pending publication is untouched.
-                state.read = None;
-                return Err(invalid("another lane decision is already durable").into());
+        Self::with_original_refunds(&self.budget, || {
+            if !body.admitted_to(&self.budget) {
+                return Err(invalid("lane append original pool mismatch").into());
             }
-            let bytes = stored.prepare(&self.budget).map_err(record_error)?;
-            durable_artifact::publish(&*self.faults, &self.dir, &frame_name(height), bytes)?;
-            state.read = None;
-            drop(state);
-            self.notify_global_queue();
-            return Ok(());
-        }
-        if height != state.tip.saturating_add(1) {
-            return Err(invalid("lane append is not the next durable height").into());
-        }
-        if let Some(original) = &state.write {
-            if original.body() != body || original.commit_qc() != qc {
-                return Err(io::Error::new(
+            let height = body.header().height;
+            let source =
+                certified_source(&*self.schedule, &*self.crypto, height, body.header(), qc)?;
+            if body.source() != &source {
+                return Err(
+                    invalid("lane body was authenticated under another historical source").into(),
+                );
+            }
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height <= state.tip {
+                let stored = self.read_prepared(&mut state, height)?;
+                if stored.body() != body || stored.commit_qc().result != qc.result {
+                    // This healthy stored read is complete; reject the incoming decision without
+                    // pinning unrelated future reads behind it. Pending publication is untouched.
+                    state.read = None;
+                    return Err(invalid("another lane decision is already durable").into());
+                }
+                let bytes = stored.prepare(&self.budget).map_err(record_error)?;
+                self.publish_frame(height, bytes)?;
+                state.read = None;
+                drop(state);
+                self.notify_global_queue();
+                return Ok(());
+            }
+            if height != state.tip.saturating_add(1) {
+                return Err(invalid("lane append is not the next durable height").into());
+            }
+            if let Some(original) = &state.write {
+                if original.body() != body || original.commit_qc() != qc {
+                    return Err(io::Error::new(
                     io::ErrorKind::WouldBlock,
                     "different prepared artifact cannot replace original pending lane publication",
                 )
                 .into());
+                }
+            } else {
+                state.write = Some(PreparedLaneWrite::new(body.clone(), qc.clone()));
             }
-        } else {
-            state.write = Some(PreparedLaneWrite::new(body.clone(), qc.clone()));
-        }
-        let pending = state.write.as_mut().expect("original publication retained");
-        pending
-            .check_context(&source, &*self.crypto)
-            .map_err(record_error)?;
-        let bytes = pending.prepare(&self.budget).map_err(record_error)?;
-        if bytes.len() > MAX_FRAME_FILE_BYTES {
-            return Err(invalid("lane frame exceeds disk custody bound").into());
-        }
-        durable_artifact::publish(&*self.faults, &self.dir, &frame_name(height), bytes)?;
-        state.write = None;
-        state.tip = height;
-        self.grown.notify_all();
-        drop(state);
-        self.notify_global_queue();
-        Ok(())
+            let pending = state.write.as_mut().expect("original publication retained");
+            pending
+                .check_context(&source, &*self.crypto)
+                .map_err(record_error)?;
+            let bytes = pending.prepare(&self.budget).map_err(record_error)?;
+            if bytes.len() > MAX_FRAME_FILE_BYTES {
+                return Err(invalid("lane frame exceeds disk custody bound").into());
+            }
+            self.publish_frame(height, bytes)?;
+            state.write = None;
+            state.tip = height;
+            self.grown.notify_all();
+            drop(state);
+            self.notify_global_queue();
+            Ok(())
+        })
     }
 }
 impl BodyReader for FileLaneBlockStore {
@@ -531,9 +605,10 @@ impl BodyReader for FileLaneBlockStore {
             )));
         }
         Ok(Box::new(
-            LaneBodyRead::open(
+            LaneBodyRead::open_in(
                 source.clone(),
-                &self.dir.join(frame_name(source.height())),
+                self.retain_read_custody().map_err(BodyReadError::Io)?,
+                &frame_name(source.height()),
                 self.budget.clone(),
                 Arc::clone(&self.crypto),
             )
@@ -553,3 +628,7 @@ mod publication_tests;
 #[cfg(test)]
 #[path = "store/retirement_probe_tests.rs"]
 mod retirement_probe_tests;
+
+#[cfg(test)]
+#[path = "store/refund_tests.rs"]
+mod refund_tests;

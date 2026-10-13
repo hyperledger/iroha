@@ -1,0 +1,136 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "bit_flip_is_detected_and_nothing_is_sent",
+  "category": "storage_corruption",
+  "rules": [
+    "corruption_is_reported_not_repaired"
+  ],
+  "description": "One bit of the stored record flips while a transaction outcome is unknown. Every call reports StorageCorrupted without a progress snapshot and performs no ledger call at all: a corrupted journal is neither repaired nor replaced by a fresh one.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "bit-flip-is-detected-and-nothing-is-sent",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "ambiguous"
+        ],
+        "statuses": [
+          "absent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "SubmissionOutcomeUnknown",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "outcome_unknown"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "corrupt",
+      "mode": "flip_bit",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "StorageCorrupted"
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retransmit_identical_bytes": true,
+        "retry_rejected_step": true
+      },
+      "expect": {
+        "result": {
+          "error": "StorageCorrupted",
+          "stage": "load",
+          "progress": "unavailable",
+          "resumable": false
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "StorageCorrupted"
+      }
+    },
+    {
+      "op": "recover",
+      "expect": {
+        "result": {
+          "error": "StorageCorrupted",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "StorageCorrupted"
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": {
+          "error": "StorageCorrupted",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "StorageCorrupted"
+      }
+    },
+    {
+      "op": "progress",
+      "expect": {
+        "result": {
+          "error": "StorageCorrupted",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "StorageCorrupted"
+      }
+    }
+  ]
+}

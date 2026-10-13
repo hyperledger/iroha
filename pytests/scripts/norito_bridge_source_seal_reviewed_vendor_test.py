@@ -21,6 +21,9 @@ REVIEWED_VENDOR_FILES = (
     "vendor/bytes/Cargo.toml.orig",
     "vendor/http-body-util/Cargo.toml.orig",
     "vendor/axum-core/Cargo.toml.orig",
+    "vendor/aes/tests/data/aes128.blb",
+    "vendor/aes/tests/data/aes192.blb",
+    "vendor/aes/tests/data/aes256.blb",
 )
 ROLE_EXAMPLES = REVIEWED_VENDOR_FILES
 
@@ -45,7 +48,7 @@ def write_public(root: Path, relative: str) -> bytes:
 
 def test_reviewed_vendor_inventory_is_exactly_the_established_roles() -> None:
     assert seal._REVIEWED_PUBLIC_VENDOR_INPUTS == frozenset(REVIEWED_VENDOR_FILES)
-    assert len(seal._REVIEWED_PUBLIC_VENDOR_INPUTS) == 6
+    assert len(seal._REVIEWED_PUBLIC_VENDOR_INPUTS) == 9
 
 
 @pytest.mark.parametrize("relative", [
@@ -56,6 +59,17 @@ def test_reviewed_vendor_inventory_is_exactly_the_established_roles() -> None:
 def test_actual_patched_manifest_remains_an_exact_public_source_input(relative: str) -> None:
     original = (ROOT / relative).read_bytes()
     assert original.startswith(b"[package]\n")
+    assert seal._read_public_source_bytes(ROOT, relative) == original
+
+
+@pytest.mark.parametrize("relative", [
+    "vendor/aes/tests/data/aes128.blb",
+    "vendor/aes/tests/data/aes192.blb",
+    "vendor/aes/tests/data/aes256.blb",
+])
+def test_actual_vendored_aes_vector_remains_an_exact_public_source_input(relative: str) -> None:
+    original = (ROOT / relative).read_bytes()
+    assert original
     assert seal._read_public_source_bytes(ROOT, relative) == original
 
 
@@ -74,7 +88,7 @@ def test_actual_listed_file_admission_keeps_every_reviewed_vendor_input(tmp_path
     lock.write_bytes(b"public synthetic lock original\n")
     filename_inventory = b"\0".join(name.encode() for name in REVIEWED_VENDOR_FILES) + b"\0"
     # Only the filename-only Git boundary is mocked; real lexical/ancestor/file
-    # admission runs for all six. No repository script, Cargo or Git is invoked.
+    # admission runs for all nine. No repository script, Cargo or Git is invoked.
     with mock.patch.object(seal, "source_seal_tools", return_value=(None, None, None, None)), \
             mock.patch.object(seal, "source_seal_environment", return_value={}), \
             mock.patch.object(seal, "run", return_value=filename_inventory):
@@ -109,6 +123,11 @@ def test_reviewed_vendor_fingerprint_preserves_names_original_bytes_and_lock_dom
 
 @pytest.mark.parametrize("relative", [
     "vendor/example/Cargo.toml.orig",
+    "vendor/aes/Cargo.toml.orig",
+    "vendor/aes/tests/data/aes512.blb",
+    "vendor/aes/tests/data/aes128.blb.backup",
+    "vendor/aes/src/aes128.blb",
+    "vendor/example/tests/data/aes128.blb",
     "vendor/bytes/Cargo.toml.orig.backup",
     "vendor/bytes/src/Cargo.toml.orig",
     "vendor/bytes/credentials.orig",

@@ -23,7 +23,9 @@ fn archive_checkpoint_generations_preserve_exact_head_completion_and_selection()
             .marker()
             .expect("marker")
             .clone();
-        let original = provider.lookup(&slot, &boot.operation_id).expect("lookup");
+        let original = provider
+            .lookup(&slot, &boot.operation_id())
+            .expect("lookup");
         let signatures = device.platform.with(|s| s.sign_calls);
         assert!(provider.archive_checkpoint(&slot).expect("none").is_none());
         let first = provider
@@ -40,7 +42,9 @@ fn archive_checkpoint_generations_preserve_exact_head_completion_and_selection()
         assert_eq!(current.selected_generation(), old.selected_generation());
         assert_eq!(current.completion_digest(), old.completion_digest());
         assert_eq!(
-            provider.lookup(&slot, &boot.operation_id).expect("lookup"),
+            provider
+                .lookup(&slot, &boot.operation_id())
+                .expect("lookup"),
             original
         );
         assert_eq!(
@@ -98,7 +102,7 @@ fn archive_checkpoint_generations_preserve_exact_head_completion_and_selection()
         );
         assert_eq!(
             reopened
-                .lookup(&slot, &boot.operation_id)
+                .lookup(&slot, &boot.operation_id())
                 .expect("old retry"),
             original
         );
@@ -167,7 +171,9 @@ fn archive_publication_reconciles_every_filesystem_crash_boundary() {
                 let device = base.fork();
                 let mut provider = device.open();
                 provider.status(&slot).expect("warm");
-                let original = provider.lookup(&slot, &boot.operation_id).expect("lookup");
+                let original = provider
+                    .lookup(&slot, &boot.operation_id())
+                    .expect("lookup");
                 let start = device.fs.steps();
                 device.fs.inject(start + offset, fault);
                 let _ = provider.publish_archive_checkpoint(&slot, [0; 32], b"checkpoint");
@@ -190,7 +196,7 @@ fn archive_publication_reconciles_every_filesystem_crash_boundary() {
                     .expect("resume");
                 assert_eq!(
                     provider
-                        .lookup(&slot, &boot.operation_id)
+                        .lookup(&slot, &boot.operation_id())
                         .expect("exact completion"),
                     original
                 );
@@ -337,7 +343,7 @@ fn provider_archive_adapter_shares_custody_and_brackets_named_records() {
     );
     assert!(archive.put(key, b"changed witness").is_err());
     assert!(archive.get(key, 3).is_err());
-    let original = handle.lookup(&boot.operation_id).expect("completion");
+    let original = handle.lookup(&boot.operation_id()).expect("completion");
     let digest = handle
         .publish_archive_checkpoint([0; 32], b"fixed root manifest")
         .expect("anchor");
@@ -346,7 +352,7 @@ fn provider_archive_adapter_shares_custody_and_brackets_named_records() {
         Some((digest, b"fixed root manifest".to_vec()))
     );
     assert_eq!(
-        handle.lookup(&boot.operation_id).expect("completion"),
+        handle.lookup(&boot.operation_id()).expect("completion"),
         original
     );
     for reason in [

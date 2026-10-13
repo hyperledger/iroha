@@ -6,15 +6,23 @@ package org.hyperledger.iroha.sdk.privacy
 import java.math.BigInteger
 import java.util.Collections
 import java.util.LinkedHashMap
+import org.hyperledger.iroha.sdk.norito.Varint
 
 private val U64_MAX = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
+// Mirrors the governed envelope ceiling. SubmitPrivacyProofV1 adds one canonical compact
+// field length. Derive its width from the codec, as the Rust frame-bound owner does.
+// The 512 bytes cover the closed envelope metadata/framing, not additional proof bytes.
+internal const val PRIVACY_ACTION_ENVELOPE_MAX_BYTES_V1: Int = 9 * 1024 * 1024 + 256 * 1024 + 512
+internal val PRIVACY_SUBMIT_PROOF_FRAME_MAX_BYTES_V1: Int = PRIVACY_ACTION_ENVELOPE_MAX_BYTES_V1 +
+    Varint.encode(PRIVACY_ACTION_ENVELOPE_MAX_BYTES_V1.toLong()).size
+internal const val PRIVACY_BLOCK_MAX_BYTES_V1: Int = 16 * 1024 * 1024 - 64 * 1024
 private val CONSENSUS_LIMIT_MAXIMA_V1 = linkedMapOf(
     "max_actions_per_transaction" to 1,
     "max_actions_per_block" to 2,
     "max_proof_bytes_per_action" to 9 * 1024 * 1024,
-    "max_action_bytes" to 9 * 1024 * 1024,
-    "max_privacy_bytes_per_transaction" to 9 * 1024 * 1024,
-    "max_privacy_bytes_per_block" to 18 * 1024 * 1024,
+    "max_action_bytes" to PRIVACY_ACTION_ENVELOPE_MAX_BYTES_V1,
+    "max_privacy_bytes_per_transaction" to PRIVACY_ACTION_ENVELOPE_MAX_BYTES_V1,
+    "max_privacy_bytes_per_block" to PRIVACY_BLOCK_MAX_BYTES_V1,
     "max_statement_and_encrypted_output_bytes_per_transaction" to 256 * 1024,
     "max_nullifiers_per_action" to 8,
     "max_commitments_per_action" to 8,

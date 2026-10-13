@@ -56,15 +56,17 @@ fn alias_setup_instruction_error(
     error: crate::alias_setup::AliasSetupError,
     state: &mut StateTransaction<'_, '_>,
 ) -> InstructionExecutionError {
-    if let Some(reason) = error.deferral() {
-        let _ = state.defer_execution(reason.clone());
-        return InstructionExecutionError::InvariantViolation(
-            "local alias setup did not complete".into(),
-        );
+    match error.into_deferral() {
+        Ok(original) => {
+            let _ = state.defer_execution(original);
+            InstructionExecutionError::InvariantViolation(
+                "local alias setup did not complete".into(),
+            )
+        }
+        Err(error) => InstructionExecutionError::InvalidParameter(
+            InvalidParameterError::SmartContract(error.to_string().into()),
+        ),
     }
-    InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
-        error.to_string().into(),
-    ))
 }
 fn namespace_from_suffix_id(
     suffix_id: SuffixId,
@@ -1064,7 +1066,7 @@ mod tests {
         let collector_account = Account::new(collector.clone()).build(&collector);
         let authority_account = Account::new(authority.clone()).build(&collector);
         let target_a_account = Account::new(target_a.clone()).build(&collector);
-        let target_b_account = Account::new(target_b.clone()).build(&collector);
+        let second_target_registration = Account::new(target_b.clone()).build(&collector);
         let payment_definition = AssetDefinition::numeric(
             payment_asset.clone(),
             "xor".to_owned(),
@@ -1078,7 +1080,7 @@ mod tests {
                 collector_account,
                 authority_account,
                 target_a_account,
-                target_b_account,
+                second_target_registration,
             ],
             [payment_definition],
         );
@@ -1417,13 +1419,13 @@ mod tests {
             )
             .expect("completed original genesis read")
             .unwrap();
-        let signed =
+        let signed_payload =
             iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&genesis)
                 .unwrap();
         let view = fixture.state.view();
         assert_eq!(
             crate::sumeragi::lanes::routing::committed_root_scope(view.world()),
-            Some(signed.sumeragi_context.root_scope)
+            Some(signed_payload.sumeragi_context.root_scope)
         );
         assert_eq!(view.latest_block_hash(), Some(genesis.hash()));
         assert_eq!(
@@ -1595,7 +1597,7 @@ mod tests {
             .execute(&fixture.owner, &mut tx)
             .expect("SNS configurations use the disjoint native maintenance pool");
             assert_ne!(tx.world.smart_contract_state.get(&key), Some(&original));
-            assert!(tx.execution_deferral().is_none());
+            assert!(!tx.is_execution_deferred());
             // Dropping this disposable configuration preserves its exact original record.
         }
         assert_eq!(block.fastpq_source_usage_for_testing().1, consumed);
@@ -1727,7 +1729,7 @@ mod tests {
                 command.clone().execute(&fixture.owner, &mut tx)
             })
             .unwrap_err();
-            assert!(tx.execution_deferral().is_some());
+            assert!(tx.is_execution_deferred());
             assert_eq!(
                 crate::sns::alias_auto_renew_state(tx.world(), &fixture.target)
                     .unwrap()
@@ -1749,7 +1751,7 @@ mod tests {
         let mut block = fixture.state.block(next_header_at(&fixture.state, 1));
         let mut tx = block.transaction();
         command.execute(&fixture.owner, &mut tx).unwrap();
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         tx.apply();
         let after = crate::sns::alias_auto_renew_state(&block.world, &fixture.target)
             .unwrap()
@@ -2801,13 +2803,14 @@ mod tests {
             "seeded SNS record must be present in raw state storage"
         );
         assert_eq!(
-            crate::sns::active_dataspace_owner_by_id(
+            (crate::sns::active_dataspace_owner_by_id(
                 view.world(),
                 &view.nexus.dataspace_catalog,
                 DataSpaceId::new(9),
                 0,
-            ),
-            Ok(Some(owner.clone())),
+            ))
+            .expect("completed fixture operation"),
+            Some(owner.clone()),
             "SNS helper should resolve the active owner from the state view"
         );
         let resolved = FindDataspaceNameOwnerById::new(DataSpaceId::new(9))
@@ -4084,8 +4087,8 @@ mod tests {
             Register::account(bare_wallet.clone()).into(),
             ensure.clone().into(),
         ];
-        let signed = chain.sign(&registrar_key, instructions, 1_999);
-        let committed = chain.commit_at(2_000, vec![signed]);
+        let signed_payload = chain.sign(&registrar_key, instructions, 1_999);
+        let committed = chain.commit_at(2_000, vec![signed_payload]);
         let tip = chain.committed(2);
         assert_eq!(
             committed,
@@ -4297,7 +4300,7 @@ mod tests {
             );
         };
         assert_eq!(
-            message.to_string(),
+            message.clone(),
             format!(
                 "alias.quote.cap_exceeded: exact charge {} exceeds authorized cap 0",
                 second_quote.charge_amount

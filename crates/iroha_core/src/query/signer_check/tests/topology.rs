@@ -84,10 +84,10 @@ fn bind(
     floor: NativeCheckFloorV1,
 ) -> Result<BoundNativeCheckV1, Error> {
     bind_fixture(
-        &state,
+        state,
         round,
         NativeCustodyCheckRefV1::Topology(instruction),
-        &state.view().chain_id().to_string(),
+        state.view().chain_id().as_ref(),
         *state.network_id_ref().as_bytes(),
         &AccountId::new(key(2).public_key().clone()),
         floor,

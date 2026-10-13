@@ -6,7 +6,6 @@
 //! Catalog, gateway acknowledgement, and rollback signatures are verified again by the controller
 //! before any durable transition commits.
 
-#![cfg(feature = "app_api")]
 use super::gateway::{
     GatewayComplianceCheckpointV1, GatewayComplianceController, GatewayComplianceError,
     GatewayComplianceHistoryRecordV1, GatewayComplianceMutationBindingV1,
@@ -54,7 +53,7 @@ static GATEWAY_COMPLIANCE_BLOCKING_PERMITS: LazyLock<Arc<tokio::sync::Semaphore>
 /// Fetch one configured feed through the runtime-injected authenticated
 /// address-pinned transport. The returned document is normalized and bounded;
 /// this route never promotes it or signs a catalog.
-pub(crate) async fn handle_get_sorafs_gateway_compliance_feed(
+pub async fn handle_get_sorafs_gateway_compliance_feed(
     State(state): State<SharedAppState>,
     Path(feed_id): Path<String>,
     headers: HeaderMap,
@@ -103,7 +102,7 @@ async fn handle_get_sorafs_gateway_compliance_feed_inner(
 }
 /// Return a bounded, payload-free projection of the durable controller checkpoint. Catalog rules,
 /// signatures, signer identities, feed paths, and acknowledgement bodies never cross this boundary.
-pub(crate) async fn handle_get_sorafs_gateway_compliance_status(
+pub async fn handle_get_sorafs_gateway_compliance_status(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -149,7 +148,7 @@ async fn handle_get_sorafs_gateway_compliance_status_inner(
     }
 }
 /// Durably stage one exact canonical threshold-signed catalog.
-pub(crate) async fn handle_post_sorafs_gateway_compliance_stage(
+pub async fn handle_post_sorafs_gateway_compliance_stage(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -210,7 +209,7 @@ async fn handle_post_sorafs_gateway_compliance_stage_inner(
     }
 }
 /// Durably record one exact canonical signed regional-gateway acknowledgement.
-pub(crate) async fn handle_post_sorafs_gateway_compliance_acknowledge(
+pub async fn handle_post_sorafs_gateway_compliance_acknowledge(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -287,7 +286,7 @@ async fn handle_post_sorafs_gateway_compliance_acknowledge_inner(
 }
 /// Atomically promote the staged catalog after the signed regional-gateway
 /// acknowledgement quorum has committed.
-pub(crate) async fn handle_post_sorafs_gateway_compliance_promote(
+pub async fn handle_post_sorafs_gateway_compliance_promote(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -355,7 +354,7 @@ async fn handle_post_sorafs_gateway_compliance_promote_inner(
 }
 /// Atomically roll the serving pointer back to the last-known-good catalog
 /// after verifying the exact threshold-signed rollback authorization.
-pub(crate) async fn handle_post_sorafs_gateway_compliance_rollback(
+pub async fn handle_post_sorafs_gateway_compliance_rollback(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -561,6 +560,10 @@ fn gateway_compliance_snapshot_error_class(error: &GatewayComplianceError) -> &'
         _ => "internal",
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn gateway_compliance_runtime(
     state: &SharedAppState,
 ) -> Result<
@@ -577,6 +580,10 @@ fn gateway_compliance_runtime(
         .ok_or_else(gateway_compliance_unavailable)?;
     Ok((controller, transport))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn gateway_compliance_controller(
     state: &SharedAppState,
 ) -> Result<Arc<GatewayComplianceController>, Response> {
@@ -657,6 +664,10 @@ fn gateway_compliance_unavailable() -> Response {
         "the governed SoraFS gateway compliance controller is not enabled",
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn authorize_gateway_compliance_request(
     state: &SharedAppState,
     headers: &HeaderMap,
@@ -665,7 +676,7 @@ fn authorize_gateway_compliance_request(
     body: &[u8],
 ) -> Result<(), Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -676,9 +687,7 @@ fn authorize_gateway_compliance_request(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -713,6 +722,10 @@ fn authorize_gateway_compliance_request(
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_gateway_compliance_body_headers(
     headers: &HeaderMap,
     body: &[u8],
@@ -809,6 +822,10 @@ fn latest_action_status(
         reason_code: record.reason_code.clone(),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_mutation_uri_without_query(uri: &Uri) -> Result<(), Response> {
     if uri.query().is_none() {
         Ok(())
@@ -820,6 +837,10 @@ fn require_mutation_uri_without_query(uri: &Uri) -> Result<(), Response> {
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_canonical_promote_expectation(
     uri: &Uri,
 ) -> Result<GatewayCompliancePromoteExpectationV1, Response> {
@@ -840,6 +861,10 @@ fn non_canonical_promote_expectation() -> Response {
         "the promotion expectation must use exact canonical digest and sequence syntax",
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_request_idempotency_binding(
     headers: &HeaderMap,
     action: &'static str,
@@ -858,6 +883,10 @@ fn require_request_idempotency_binding(
         request_digest,
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_operation_idempotency_binding(
     headers: &HeaderMap,
     operation_id: [u8; 32],
@@ -883,6 +912,10 @@ fn require_operation_idempotency_binding(
         ),
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_exact_idempotency_key(
     headers: &HeaderMap,
     expected: [u8; 32],
@@ -897,6 +930,10 @@ fn require_exact_idempotency_key(
     }
     Ok(actual)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validated_idempotency_key(headers: &HeaderMap) -> Result<[u8; 32], Response> {
     let mut values = headers.get_all(IDEMPOTENCY_KEY_HEADER).iter();
     let Some(raw) = values.next() else {
@@ -938,6 +975,10 @@ fn validated_idempotency_key(headers: &HeaderMap) -> Result<[u8; 32], Response> 
         )
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_canonical_catalog(body: &[u8]) -> Result<GatewayComplianceCatalogV1, Response> {
     let value: GatewayComplianceCatalogV1 = norito::json::from_slice(body).map_err(|_| {
         gateway_compliance_request_error(
@@ -949,6 +990,10 @@ fn decode_canonical_catalog(body: &[u8]) -> Result<GatewayComplianceCatalogV1, R
     require_exact_canonical_json(body, &value, "catalog")?;
     Ok(value)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_canonical_acknowledgement(
     body: &[u8],
 ) -> Result<GatewayComplianceAcknowledgementV1, Response> {
@@ -963,6 +1008,10 @@ fn decode_canonical_acknowledgement(
     require_exact_canonical_json(body, &value, "acknowledgement")?;
     Ok(value)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_canonical_rollback(body: &[u8]) -> Result<GatewayComplianceRollbackV1, Response> {
     let value: GatewayComplianceRollbackV1 = norito::json::from_slice(body).map_err(|_| {
         gateway_compliance_request_error(
@@ -974,6 +1023,10 @@ fn decode_canonical_rollback(body: &[u8]) -> Result<GatewayComplianceRollbackV1,
     require_exact_canonical_json(body, &value, "rollback")?;
     Ok(value)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_exact_canonical_json<T>(
     body: &[u8],
     value: &T,
@@ -1000,6 +1053,10 @@ where
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn current_unix_second() -> Result<u64, Response> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

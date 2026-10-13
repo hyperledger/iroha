@@ -25,7 +25,7 @@ pub fn validate_plan(record: &PlanRecord, config: &Config) -> DeploymentResult<(
 }
 
 /// Authenticate using the prepare operation's original cumulative codec owner.
-pub(super) fn validate_plan_with_manifest_budget(
+pub fn validate_plan_with_manifest_budget(
     record: &PlanRecord,
     config: &Config,
     manifest_budget: &mut ManifestEncodingBudget,

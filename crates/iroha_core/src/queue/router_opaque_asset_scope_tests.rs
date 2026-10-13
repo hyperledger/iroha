@@ -461,9 +461,12 @@ fn opaque_asset_transfer_rejects_dataspace_without_canonical_lane() {
             bound_at_ms: 0,
         },
     );
-    assert_eq!(
-        router.try_route_with_view(&tx, &state.view()),
-        Err(RoutingResolveError::NoLaneForDataspace { dataspace_id })
+    crate::queue::router::assert_completed_routing_error_eq(
+        (router.try_route_with_view(&tx, &state.view()))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::NoLaneForDataspace { dataspace_id }),
+        format_args!("completed routing rejection"),
     );
 }
 #[test]

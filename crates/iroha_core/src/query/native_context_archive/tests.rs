@@ -20,6 +20,7 @@ fn projection(lanes: &SumeragiLaneState) -> Projection<'_> {
         lanes: LaneStateRef(lanes),
         ordinary_writes: OrdinaryWritesRef(&EMPTY_WRITES),
         casting_bindings: CastingBindingsRef(&EMPTY_CASTING),
+        sccp_delta: &[],
     }
 }
 fn archive(root: &Path, budget: AllocationBudget, maximum: usize) -> NativeContextArchive {
@@ -75,17 +76,18 @@ fn exact_canonical_projection_owns_original_pool_until_last_drop() {
         lanes: lanes.clone(),
         ordinary_writes: writes.clone(),
         casting_bindings: vec![],
+        sccp_delta: vec![],
     })
     .unwrap();
     let budget = AllocationBudget::new(bytes.len() * 2);
-    let writer = archive(dir.path(), budget.clone(), bytes.len());
-    let original = writer.encode_projection(&source).unwrap();
+    let archive_owner = archive(dir.path(), budget.clone(), bytes.len());
+    let original = archive_owner.encode_projection(&source).unwrap();
     assert_eq!(original.canonical_bytes(), bytes);
     assert_eq!(original.height(), 2);
     assert_eq!(original.carrier_hash(), hash());
     assert_eq!(budget.reserved_bytes(), bytes.len());
-    writer.publish(&original).unwrap();
-    writer.publish(&original).unwrap();
+    archive_owner.publish(&original).unwrap();
+    archive_owner.publish(&original).unwrap();
     assert!(!stage_path(dir.path()).exists());
     let reader = NativeContextArchive::open_read_only(
         dir.path(),
@@ -298,7 +300,10 @@ fn fixed_record_identity_uses_exact_height_and_raw_carrier_bytes() {
     let name = RecordName::new(u64::MAX, hash(), false);
     assert!(name.as_str().starts_with("18446744073709551615-"));
     assert_eq!(name.as_str().len(), 89);
-    assert!(name.as_str().ends_with(".nrt"));
+    assert_eq!(
+        std::path::Path::new(name.as_str()).extension(),
+        Some(std::ffi::OsStr::new("nrt"))
+    );
     assert_eq!(
         RecordName::new(u64::MAX, hash(), true).as_str(),
         format!(".{}", name.as_str())
@@ -424,4 +429,40 @@ fn actual_native_archive_retains_writes_bound_to_the_original_execution_root() {
         2,
         committed.commitment().execution.ordinary_writes_root
     ));
+}
+
+#[test]
+fn exact_sccp_delta_capture_is_funded_and_matches_the_original_overlay() {
+    use crate::smartcontracts::isi::sccp::{store, test_support};
+    let state = test_support::blank_state();
+    let mut block = state.block(test_support::header(2));
+    {
+        let mut transaction = block.transaction();
+        store::parameters::set(
+            &mut transaction,
+            Some(iroha_data_model::sccp::params::SccpParametersV1::taira_default()),
+        );
+        transaction.apply();
+    }
+    let expected = block.world.sccp_execution_write_set_bytes();
+    assert!(!expected.is_empty());
+    let budget = AllocationBudget::new(expected.len());
+    let occupied = ChargedBuffer::<u8>::new(1, &budget).unwrap();
+    let error = capture_sccp_delta(&block.world, &budget, expected.len())
+        .err()
+        .expect("original pool occupied");
+    assert!(error.is_local_refusal());
+    assert_eq!(budget.reserved_bytes(), 1);
+    drop(occupied);
+    let original = capture_sccp_delta(&block.world, &budget, expected.len()).unwrap();
+    assert!(original.belongs_to(&budget));
+    assert_eq!(original.as_slice(), expected);
+    assert_eq!(budget.reserved_bytes(), expected.len());
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(matches!(
+        capture_sccp_delta(&block.world, &budget, expected.len() - 1),
+        Err(NativeContextArchiveError::Limit { .. })
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
 }

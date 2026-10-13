@@ -1482,9 +1482,7 @@ async fn da_rent_metrics_exposed_via_metrics_handler_snapshot() {
             .expect("legacy micro-XOR value is representable"),
     };
     record_da_rent_quote_metrics(&telemetry, "cluster-a", StorageClass::Warm, 4, 3, &quote);
-    let prometheus = crate::handle_metrics(&telemetry)
-        .await
-        .expect("prometheus snapshot");
+    let prometheus = crate::handle_metrics(&telemetry).expect("prometheus snapshot");
     let snapshot = da_rent_metric_lines(&prometheus);
     assert_eq!(
         snapshot,

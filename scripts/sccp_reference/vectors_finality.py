@@ -11,22 +11,39 @@ from .bls12_381 import (
     P,
     R,
     fp_to_bytes48,
+    PointEncodingError,
+    g1_add,
     g1_compress,
     g1_decompress,
+    g1_in_subgroup,
     g1_is_on_curve,
+    g1_mul,
     g1_neg,
     g1_to_eip2537,
     g2_compress,
     g2_to_eip2537,
     g2_to_evm192,
 )
-from .common import MAX_HISTORY_SIZE, MAX_VALIDITY_MS, SccpError, hx, rep, sha256
+from .common import (
+    DESTINATION_CLOCK_CONVENTION,
+    MAX_HISTORY_SIZE,
+    MAX_VALIDITY_MS,
+    REFERENCE_GENERATORS,
+    U64_MAX,
+    SccpError,
+    check_destination_clock,
+    hx,
+    rep,
+    sha256,
+)
 from .destination import Deployment, Destination
 from .finality import (
     COMMIT_PREIMAGE_LEN,
     FLAG_ACTIVE,
     FLAG_ROTATION,
     KIND_PREPARE,
+    MAX_ROTATION_GENERATION,
+    MAX_ROTATION_HEIGHT,
     QC_FIXED_LEN,
     RESULT_BODY_TAG,
     RESULT_TAG,
@@ -43,6 +60,7 @@ from .finality import (
     anchor_node,
     bitmap_from_indices,
     body_digest,
+    build_certificate,
     checkpoint_id,
     commit_message,
     commit_preimage,
@@ -57,7 +75,7 @@ from .finality import (
     signers_from_indices,
 )
 from .hash_to_curve import DST_SIG, iso_map_g2, map_to_curve_sswu
-from .payload import ETHEREUM
+from .payload import ETHEREUM, TON
 from .taira import Committee, TairaSim, test_public, test_secret
 
 NETWORK_ID = rep(0x11)
@@ -69,6 +87,12 @@ VALIDITY = 1_209_600_000
 GENERATION = 7
 START_HEIGHT = 7000
 DST_NUL = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
+# The destination words of the two verification contexts. A TON minter's word is its account id; this one is a
+# placeholder (`control_v1.json` lists the same value under `destination_words`).
+EVM_DESTINATION_WORD = bytes(12) + rep(0x22, 20)
+TON_DESTINATION_WORD = rep(0x35)
+# The effective cofactor of G1 (RFC 9380 §8.8.1): `H_EFF_G1 · P` is in G1 for every point `P` of the curve.
+H_EFF_G1 = 0xD201000000010001
 
 # §11.2 pinned values (asserted on every build).
 SPEC_R = {
@@ -241,7 +265,41 @@ def worked_examples() -> dict:
     }
 
 
-def header_vectors() -> dict:
+def curve_point_outside_g1():
+    """The curve point with the smallest `x ≥ 1` (and the smaller `y`) that lies outside the G1 subgroup."""
+    for low in range(1, 256):
+        try:
+            point = g1_decompress(bytes([0x80]) + bytes(46) + bytes([low]))
+        except PointEncodingError:
+            continue
+        if point is not None and not g1_in_subgroup(point):
+            return point
+    raise AssertionError("no small curve point outside G1")
+
+
+def g1_shift_outside_subgroup():
+    """A nonzero point `T` of the curve with `H_EFF_G1 · T = O`: adding it to a key leaves every pairing value
+    unchanged and takes the key out of G1.
+
+    `T = W − (H_EFF_G1⁻¹ mod r) · (H_EFF_G1 · W)` for `W = curve_point_outside_g1()`: the component of `W`
+    outside the `r`-torsion.
+    """
+    w = curve_point_outside_g1()
+    in_subgroup = g1_mul(w, H_EFF_G1)
+    assert g1_in_subgroup(in_subgroup)
+    shift = g1_add(w, g1_neg(g1_mul(in_subgroup, pow(H_EFF_G1, -1, R))))
+    assert shift is not None and g1_is_on_curve(shift) and not g1_in_subgroup(shift)
+    assert g1_mul(shift, H_EFF_G1) is None
+    return shift
+
+
+def header_vectors(destination_outcomes) -> dict:
+    """`headers.valid` and `headers.invalid`.
+
+    `destination_outcomes(x, generation, committee_root)` gives the outcome of both destination flavors for a
+    certificate that carries `x`, on a destination pinned at that generation and root: the `destination` column
+    is what the model answers, not a literal.
+    """
     base = FinalityHeader(
         network_id=NETWORK_ID,
         height=7100,
@@ -288,6 +346,11 @@ def header_vectors() -> dict:
                 "destination": "accept" if parsed.active else "BadHeader",
             }
         )
+        # An active header passes step 2 on a destination pinned at its generation and root (it is then refused
+        # for the calldata committee, which is not the one the synthetic root names); an inactive one does not.
+        root = header.committee_root if any(header.committee_root) else rep(0x41)
+        evm_outcome = destination_outcomes(x, header.generation or GENERATION, root)["evm"]
+        assert (evm_outcome != "BadHeader") == parsed.active, (label, evm_outcome)
     bad_magic = bytearray(base.encode())
     bad_magic[0] ^= 0x01
     invalid = {
@@ -309,12 +372,27 @@ def header_vectors() -> dict:
         "rotation_validity_zero": ("X6", rotation.with_(validity_ms=0).encode()),
         "rotation_validity_above_max": ("X6", rotation.with_(validity_ms=MAX_VALIDITY_MS + 1).encode()),
         "rotation_next_root_zero": ("X6", rotation.with_(next_committee_root=bytes(32)).encode()),
+        # The successor would start at height 2^64, which no u64 holds.
+        "rotation_at_max_height": ("X6", rotation.with_(height=U64_MAX).encode()),
+        # The successor would be generation 2^64.
+        "rotation_at_max_generation": ("X6", rotation.with_(generation=U64_MAX).encode()),
         "non_rotation_with_validity": ("X6", base.with_(validity_ms=1).encode()),
         "non_rotation_with_next_root": ("X6", base.with_(next_committee_root=rep(0x51)).encode()),
         "height_zero": ("X7", base.with_(height=0).encode()),
         "inactive_height_zero": ("X7", inactive_header(NETWORK_ID, 0, T0).encode()),
         "length_220": ("Length", base.encode()[:-1]),
         "length_222": ("Length", base.encode() + b"\x00"),
+        # Two violations each, one row per adjacent pair of the order Length, X1, X2 | X3, X4, X5, X6, X7: the
+        # reported error is the earlier one.
+        "magic_and_inactive_with_generation": (
+            "X1", bytes([bad_magic[0]]) + inactive_header(NETWORK_ID, 7100, T0).with_(generation=1).encode()[1:]),
+        "flag_bit_2_and_generation_zero": ("X1", base.with_(flags=0x05, generation=0).encode()),
+        "generation_zero_and_count_513": ("X3", base.with_(generation=0, message_count=513).encode()),
+        "count_513_and_history_root_without_size": ("X4", base.with_(message_count=513, history_size=0).encode()),
+        "history_size_without_root_and_rotation_validity_zero": (
+            "X5", rotation.with_(history_root=bytes(32), validity_ms=0).encode()),
+        "rotation_validity_zero_and_height_zero": ("X6", rotation.with_(validity_ms=0, height=0).encode()),
+        "inactive_with_generation_and_height_zero": ("X2", inactive_header(NETWORK_ID, 0, T0).with_(generation=1).encode()),
     }
     out_invalid = []
     for label, (error, data) in invalid.items():
@@ -324,7 +402,15 @@ def header_vectors() -> dict:
             assert err.name == error, (label, err.name, error)
         else:
             raise AssertionError(f"{label} parsed")
-        out_invalid.append({"label": label, "x": hx(data), "error": error, "destination": "BadHeader"})
+        outcomes = destination_outcomes(data, GENERATION, base.committee_root)
+        assert outcomes == {"evm": "BadHeader", "ton": "BadHeader"}, (label, outcomes)
+        out_invalid.append({"label": label, "x": hx(data), "error": error, "destination": outcomes["evm"]})
+    # The nearest neighbours of `rotation_at_max_height` and `rotation_at_max_generation` parse (their values
+    # exceed 2^53, so they are not rows).
+    parse_header(rotation.with_(height=MAX_ROTATION_HEIGHT).encode())
+    parse_header(base.with_(height=U64_MAX).encode())
+    parse_header(rotation.with_(generation=MAX_ROTATION_GENERATION).encode())
+    parse_header(base.with_(generation=U64_MAX).encode())
     return {"valid": out_valid, "invalid": out_invalid}
 
 
@@ -430,8 +516,8 @@ def _deployment(flavor: str, pin: dict) -> Deployment:
         flavor=flavor,
         taira_network_id=NETWORK_ID,
         consensus_instance=INSTANCE,
-        network=ETHEREUM,
-        destination_word=bytes(12) + rep(0x22, 20),
+        network=TON if flavor == "ton" else ETHEREUM,
+        destination_word=TON_DESTINATION_WORD if flavor == "ton" else EVM_DESTINATION_WORD,
         route_revision=1,
         max_wrapped_supply=10**18,
         pin_generation=pin["generation"],
@@ -446,7 +532,25 @@ def _outcome(flavor: str, pin: dict, cert, now_ms: int) -> str:
     return Destination(_deployment(flavor, pin)).verify_certificate(cert, now_ms)["outcome"]
 
 
+def wire_commit_message(cert) -> bytes:
+    """`m` as a verifier derives it from the wire: `SHA-256(P)` with the pinned instance, kind `0x03`, the
+    `QC_FIXED` fields and `X.height` and `R` of the header bytes as they are."""
+    qc, x = cert.qc, cert.header
+    return commit_message(
+        commit_preimage(
+            INSTANCE,
+            int.from_bytes(qc[0:8], "big"),
+            qc[8:40],
+            int.from_bytes(x[48:56], "big"),
+            int.from_bytes(qc[40:48], "big"),
+            qc[48:80],
+            result_r(x, qc[80:112]),
+        )
+    )
+
+
 def _certificate_json(label, description, committee_name, cert, pin, now_ms, *, evm=True, ton=True, detail=True) -> dict:
+    check_destination_clock(now_ms, where=f"certificate {label}")
     meta = cert.meta
     expected = {
         "evm": _outcome("evm", pin, cert, now_ms) if evm else None,
@@ -486,7 +590,9 @@ def _certificate_json(label, description, committee_name, cert, pin, now_ms, *, 
         entry["aggregate_public_key"] = g1_json(meta["apk"])
         entry["aggregate_signature"] = g2_json(meta["sigma"])
         entry["pairing_input"] = hx(pairing_input(meta["apk"], meta["hash_point"], meta["sigma"]))
-    if len(cert.header) == X_LEN and len(cert.qc) == QC_FIXED_LEN:
+    # The forgery-evidence identity is over the `m` a verifier derives from the wire (§4.9), so a row carries
+    # it only when its `m`, the message that was signed, is that value.
+    if len(cert.header) == X_LEN and len(cert.qc) == QC_FIXED_LEN and wire_commit_message(cert) == meta["m"]:
         x_gen = int.from_bytes(cert.header[141:149], "big")
         entry["forgery_evidence_id"] = hx(forgery_evidence_id(x_gen, meta["m"], int.from_bytes(cert.qc[112:116], "big")))
     if pin.get("custom_keys"):
@@ -502,7 +608,7 @@ def build() -> dict:
         "n31": Committee("n31", tuple(range(31))),
     }
     other4 = Committee("n4_other", tuple(range(31, 35)))
-    sim = TairaSim(NETWORK_ID, INSTANCE, ETHEREUM, bytes(12) + rep(0x22, 20))
+    sim = TairaSim(NETWORK_ID, INSTANCE, ETHEREUM, EVM_DESTINATION_WORD)
     now = T0 + HOUR
 
     def header(committee: Committee, height: int, **changes) -> FinalityHeader:
@@ -555,17 +661,36 @@ def build() -> dict:
     for entry in positives:
         assert entry["expected"] == {"evm": "ok", "ton": "ok"}, entry["label"]
 
-    negatives = _negatives(sim, committees, other4, header, now)
+    negatives, flavor_specific = _negatives(sim, committees, other4, header, now)
+
+    # Any well-formed certificate: the header checks precede everything that reads its other fields.
+    probe = sim.certify(header(n4, 7099), n4)
+
+    def destination_outcomes(x: bytes, generation: int, root: bytes) -> dict:
+        pin = {**pin4, "generation": generation, "committee_root": root}
+        carried = dataclasses.replace(probe, header=x)
+        return {"evm": _outcome("evm", pin, carried, now), "ton": _outcome("ton", {**pin4, "generation": generation}, carried, now)}
+
     return {
         "schema": "iroha.sccp.finality.v1",
         "spec": "specs/sccp.md §3.6–§3.8, §5.1.3, §11.2, §11.3 (revision 5)",
-        "generator": "scripts/sccp_reference/generate.py (independent Python reference)",
+        "generator": REFERENCE_GENERATORS,
         "conventions": "byte strings are 0x-prefixed lowercase hex; field elements and scalars that exceed 2^53 are hex strings; "
         "`expected.evm`/`expected.ton` name the §5.2.2 outcome of VerifyCertificate steps 1–12 on a fresh destination "
-        "deployed with `pin` at `now_ms` (null where that flavor cannot express the vector)",
+        "deployed with `pin` at `now_ms` (null where that flavor cannot express the vector). "
+        + DESTINATION_CLOCK_CONVENTION
+        + ". `headers.invalid[].error` is the first violated check in the order Length, X1, X2 (inactive) or X3 (active), "
+        "X4, X5, X6, X7; X6 includes the rule that a ROTATION header has height and generation at most 2^64 - 2, so "
+        "that the successor's start height + 1 and its generation + 1 fit u64 (rows rotation_at_max_height and "
+        "rotation_at_max_generation); the rows named `<a>_and_<b>` violate two checks and report the earlier one, one "
+        "row per adjacent pair of that order. `headers.*[].destination` is what the destination model answers for a "
+        "certificate that carries the header. A certificate row carries `forgery_evidence_id` only when its `m` (the "
+        "message that was signed) is the `m` a verifier derives from its wire fields. The TON verification context is "
+        "ton-mainnet with the placeholder minter account id 0x35…35. `flavor_specific_certificates` are certificates "
+        "that one flavor accepts and the other rejects (rows of the same shape, without the pairing details)",
         "constants": constants_json(),
         "worked_examples": worked_examples(),
-        "headers": header_vectors(),
+        "headers": header_vectors(destination_outcomes),
         "result_of_preimage": result_of_preimage_vectors(),
         "signer_encodings": signer_encoding_vectors(),
         "test_keys": [
@@ -584,19 +709,23 @@ def build() -> dict:
             "taira_network_id": hx(NETWORK_ID),
             "consensus_instance": hx(INSTANCE),
             "network": ETHEREUM.name,
-            "destination_word": hx(bytes(12) + rep(0x22, 20)),
+            "destination_word": hx(EVM_DESTINATION_WORD),
+            "ton": {"network": TON.name, "destination_word": hx(TON_DESTINATION_WORD)},
         },
         "certificates": positives,
         "negative_certificates": negatives,
-        "todo": [
-            "TODO: a w3f-transcript signature over a consensus digest (§11.3) needs the iroha_crypto w3f "
-            "transcript; the Rust reference adds it when it regenerates this file",
-            "TODO: crates/iroha_sccp (Rust reference) regenerates this file and must match it byte for byte",
-        ],
+        "flavor_specific_certificates": flavor_specific,
+        "rust_only_vectors": "the w3f-transcript negative of §11.3 (a signature made under the generic w3f transcript "
+        "over a consensus digest) needs the iroha_crypto w3f transcript, which the dependency-free Python reference does "
+        "not carry. It lives in fixtures/sccp/finality_rust_v1.json (schema iroha.sccp.finality.rust.v1), generated and "
+        "drift-checked by crates/iroha_sccp/tests/v1_reference_finality.rs and verified as rejected by the Python "
+        "reference in pytests/scripts/test_sccp_reference.py",
     }
 
 
-def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: int) -> list[dict]:
+def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: int) -> tuple[list[dict], list[dict]]:
+    """The rows of `negative_certificates`, and the rows of `flavor_specific_certificates`: certificates that one
+    flavor accepts and the other rejects."""
     n4, n7, n31 = committees["n4"], committees["n7"], committees["n31"]
     pin4 = _pin(n4)
     out = []
@@ -701,16 +830,45 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
             break
     add("signer_y_off_curve", "signerYs[2] has the right sign class but is not on the curve", with_y(good, 2, off), ton=False,
         expect={"evm": "BadCommittee"})
+    def odd_committee(replaced: dict[int, bytes], height: int, first_y: int | None = None):
+        """Pin sorted listed keys and remap genuine members' signer seats and optional malformed-key y witness."""
+        listed = [replaced.get(member, keys[member]) for member in range(4)]
+        custom = sorted(listed)
+        assert len(set(custom)) == 4
+        seats = sorted(custom.index(listed[member]) for member in range(3))
+        root = committee_root(custom)
+        cert = sim.certify(header(n4, height, committee_root=root), n4)
+        signers = signers_from_indices(seats)
+        qc = dataclasses.replace(cert.meta["qc"], signers=signers)
+        signer_ys = b"".join(
+            (first_y if key == listed[0] and first_y is not None else g1_decompress(key)[1]).to_bytes(48, "big")
+            for key in (custom[seat] for seat in seats)
+        )
+        cert = dataclasses.replace(
+            cert, qc=qc.encode(), committee=b"".join(custom), signer_ys=signer_ys,
+            meta={**cert.meta, "signer_indices": seats, "signers": signers,
+                  "bitmap": bitmap_from_indices(seats, 4), "qc": qc},
+        )
+        return cert, {**pin4, "committee_root": root, "keys": custom, "custom_keys": True}
+
     for label, flag_fn in (("key_flag_infinity_0xc0", lambda b: b | 0x40), ("key_flag_uncompressed", lambda b: b & 0x7F)):
-        bad_keys = list(keys)
-        bad_keys[0] = bytes([flag_fn(bad_keys[0][0])]) + bad_keys[0][1:]
-        bad_root = committee_root(bad_keys)
-        pin = {**pin4, "committee_root": bad_root, "keys": bad_keys, "custom_keys": True}
-        x = header(n4, 7350 if "infinity" in label else 7351, committee_root=bad_root)
-        cert = sim.certify(x, n4)
-        cert = dataclasses.replace(cert, committee=b"".join(bad_keys))
-        add(label, "committee key 0 with a bad flag byte, pinned under the root of those exact bytes", cert, pin=pin, ton=False,
-            expect={"evm": "BadCommittee"})
+        bad_key = bytes([flag_fn(keys[0][0])]) + keys[0][1:]
+        cert, pin = odd_committee({0: bad_key}, 7350 if "infinity" in label else 7351, ys[0])
+        add(label, "a signer key with a bad flag byte, pinned under the root of those exact bytes", cert, pin=pin,
+            expect={"evm": "BadCommittee", "ton": "BadSignature"})
+    # Signer coordinates that are no precompile input for a finite point (step 6): x ≥ p, and (0, 0), which
+    # EIP-2537 reads as the point at infinity. Each key keeps valid flags, so only its own check refuses it.
+    x_ge_p = bytes([(keys[0][0] & 0xE0) | 0x1F]) + b"\xff" * 47
+    assert int.from_bytes(bytes([x_ge_p[0] & 0x1F]) + x_ge_p[1:], "big") >= P
+    for label, description, bad_key, y_value, height in (
+        ("signer_x_ge_p", "member 0 listed under a key whose x (every coordinate bit set) is not below p, with its genuine y",
+         x_ge_p, ys[0], 7352),
+        ("signer_zero_coordinates", "member 0 listed under a key with x = 0 and its signer y = 0: the coordinates (0, 0)",
+         bytes([0x80]) + bytes(47), 0, 7353),
+    ):
+        cert, pin = odd_committee({0: bad_key}, height, y_value)
+        add(label, f"{description}, pinned under the root of those exact bytes", cert, pin=pin,
+            expect={"evm": "BadCommittee", "ton": "BadSignature"})
 
     # Signature encodings.
     sigma = good.meta["sigma"]
@@ -771,4 +929,41 @@ def _negatives(sim: TairaSim, committees: dict, other4: Committee, header, now: 
         ton=False, expect={"evm": "BadCommittee"})
     add("signer_ys_short", "signerYs of 48(q − 1) bytes", dataclasses.replace(good, signer_ys=good.signer_ys[:-48]),
         ton=False, expect={"evm": "BadCertificate"})
-    return out
+
+    # Signer keys that are points of the curve but fail KeyValidate, and an identity aggregate (§5.1.3 steps 10–11).
+    # Each committee is pinned under the root of its exact key bytes, in canonical order. The first three members
+    # of n4 sign with their genuine secrets; the fourth member does not sign.
+    shift = g1_shift_outside_subgroup()
+    points = [g1_decompress(k) for k in keys]
+
+    shifted = g1_compress(g1_add(points[0], shift))
+    cert, pin = odd_committee({0: shifted}, 7370)
+    add("signer_key_outside_g1",
+        "member 0 listed under its key shifted by a point outside G1, with the genuine signature: the pairing equation "
+        "holds, the aggregate key is outside G1",
+        cert, pin=pin, expect={"evm": "BadSignature", "ton": "BadSignature"})
+    cancelling = {0: shifted, 1: g1_compress(g1_add(points[1], g1_neg(shift)))}
+    cert, pin = odd_committee(cancelling, 7371)
+    flavor_specific = [
+        _certificate_json(
+            "signer_keys_outside_g1_cancelling",
+            "members 0 and 1 listed under keys shifted by T and −T outside G1, with the genuine signature: neither key "
+            "is in G1, the aggregate key is, and the pairing holds. EVM sees the aggregate only and accepts; the TON "
+            "opcode BLS_FASTAGGREGATEVERIFY rejects each key outside G1 with BadSignature",
+            "n4", cert, pin, now, detail=False,
+        )
+    ]
+    assert flavor_specific[0]["expected"] == {"evm": "ok", "ton": "BadSignature"}
+    # `apk = O`: member 2 listed under −(PK_0 + PK_1). The signature is the one members 0, 1 and 2 make.
+    rogue = g1_compress(g1_neg(g1_add(points[0], points[1])))
+    cert, pin = odd_committee({2: rogue}, 7372)
+    add("aggregate_key_identity",
+        "the three signer keys sum to the identity (member 2 listed under −(PK_0 + PK_1)); σ is a point of G2",
+        cert, pin=pin, expect={"evm": "BadCommittee", "ton": "BadSignature"})
+    off_curve_sigma = bytearray(cert.signature_evm)
+    off_curve_sigma[191] ^= 0x01
+    add("aggregate_key_identity_sigma_off_curve",
+        "the same identity aggregate with an EVM σ that is no point of the curve: apk = O is reported first",
+        dataclasses.replace(cert, signature_evm=bytes(off_curve_sigma)), pin=pin,
+        expect={"evm": "BadCommittee", "ton": "BadSignature"})
+    return out, flavor_specific

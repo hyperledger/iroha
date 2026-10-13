@@ -33,7 +33,7 @@ struct QueryDataReclaim {
     _owner: HistoryProducerOwner,
 }
 
-pub(crate) fn owned<T: AsRef<[u8]> + Send + 'static>(
+pub fn owned<T: AsRef<[u8]> + Send + 'static>(
     bytes: T,
     owner: &HistoryProducerOwner,
 ) -> Result<axum::body::Bytes, axum::Error> {
@@ -138,7 +138,7 @@ fn refusal() -> Response {
 
 /// Admit the original typed source and its token before allocating the native body.
 /// This accepts a source value, not a previously boxed body or a response cap.
-pub(crate) fn body<B>(source: B, owner: &HistoryProducerOwner) -> Result<Body, axum::Error>
+pub fn body<B>(source: B, owner: &HistoryProducerOwner) -> Result<Body, axum::Error>
 where
     B: HttpBody<Data = axum::body::Bytes, Error = axum::Error> + Send + 'static,
 {
@@ -178,7 +178,7 @@ fn impossible(error: std::convert::Infallible) -> axum::Error {
 }
 
 /// A canonical JSON buffer's first body allocation is the prepaid typed source.
-pub(crate) fn json(
+pub fn json(
     bytes: axum::body::Bytes,
     owner: &HistoryProducerOwner,
 ) -> Result<Response, axum::Error> {
@@ -192,7 +192,7 @@ pub(crate) fn json(
     Ok(response)
 }
 
-pub(crate) fn hold(mut response: Response, memory: QueryFanoutMemoryReservation) -> Response {
+pub fn hold(mut response: Response, memory: QueryFanoutMemoryReservation) -> Response {
     let Ok(owner) = HistoryProducerOwner::from_reservation(&memory) else {
         // Response-only native proof tokens already travel in EncodedBody-owned Bytes. They
         // cannot be promoted into this query-pool framing capability.
@@ -217,7 +217,6 @@ pub(crate) fn hold(mut response: Response, memory: QueryFanoutMemoryReservation)
 mod tests {
     use super::*;
     use axum::body::Bytes;
-    use http_body_util::BodyExt as _;
     use http_body_util::StreamBody;
     use std::convert::Infallible;
 

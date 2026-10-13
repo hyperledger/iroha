@@ -222,10 +222,16 @@ expected_hash_file = "genesis.expected_hash"
 # capacity_per_user = 16384
 # transaction_time_to_live_ms = 86_400_000 # 1 day
 
-[zk.pipa_r]
+# Local diagnostic resources only. Native proof limits are chain policy
+# (the committed `zk_validity_policy_v1` parameter).
+[zk.trace]
 # enabled = true
-# max_envelope_bytes = 1048576
-# max_proof_bytes = 196608
+# worker_threads = 0
+# queue_cap = 0
+# enqueue_wait_ms = 25
+# retry_ring_cap = 2048
+# retry_max_attempts = 3
+# retry_tick_ms = 5
 
 [governance]
 # Allowed JDG attestation signature schemes.

@@ -151,7 +151,7 @@ impl ParentFinalityStore {
     }
 
     /// Require fresh exact committee quorum, then durably publish before exposing readiness.
-    /// CatchingUp durably retains only its native-verified certified prefix and remains an error;
+    /// `CatchingUp` durably retains only its native-verified certified prefix and remains an error;
     /// every other failure leaves the retained prefix unchanged. Neither that progress nor an old
     /// successful observation is reusable as a fresh readiness claim after reopening.
     ///

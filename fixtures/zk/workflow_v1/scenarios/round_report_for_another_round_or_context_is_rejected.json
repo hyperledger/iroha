@@ -1,0 +1,139 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "round_report_for_another_round_or_context_is_rejected",
+  "category": "offchain_round",
+  "rules": [
+    "rounds_recover_under_one_identity",
+    "per_transaction_atomicity_only"
+  ],
+  "description": "A transcript of another round and a round that ran under a changed context are binding mismatches and are not recorded. When the driver then reports the epoch expired, the round fails for good and the workflow fails with that code.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "round-report-for-another-round-or-context-is-rejected",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "completed_wrong_round:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "completed_context_changed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "failed:Expired"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Expired",
+          "stage": "round",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "failed",
+        "steps": [
+          "round_failed",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

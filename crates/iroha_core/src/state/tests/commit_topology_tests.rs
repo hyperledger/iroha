@@ -206,7 +206,7 @@ state_test! { sync apply_without_execution_keeps_npos_commit_topology_without_wo
         let mut params = state.world.parameters.block();
         params.set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        )).expect("valid fixture parameters");
         params.commit();
     }
     let keypairs = configure_commit_topology(&state, 4);
@@ -249,7 +249,7 @@ state_test! { sync apply_without_execution_keeps_active_candidate_outside_suppli
         let mut params = state.world.parameters.block();
         params.set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        )).expect("valid fixture parameters");
         params.commit();
     }
     let keypairs = configure_commit_topology(&state, 4);
@@ -325,7 +325,7 @@ state_test! { sync apply_without_execution_uses_npos_parameters_for_commit_topol
         let mut params = state.world.parameters.block();
         params.set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        )).expect("valid fixture parameters");
         params.commit();
     }
     let keypairs = configure_commit_topology(&state, 4);

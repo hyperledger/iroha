@@ -1413,11 +1413,10 @@ impl Metrics {
             crypto: CryptoStatus {
                 sm_helpers_available: cfg!(feature = "sm"),
                 sm_openssl_preview_enabled: value.sm_openssl_preview.get() != 0,
-                trace: value
+                trace: *value
                     .trace_status
                     .read()
-                    .expect("trace status lock poisoned")
-                    .clone(),
+                    .expect("trace status lock poisoned"),
             },
             stack: stack_settings_snapshot().into(),
             sumeragi: Some(build_sumeragi_status(value)),
@@ -3239,6 +3238,12 @@ fields {
     sorafs_orderbook_projection_exposition_lock: raw(Mutex<()>);
     /// Serializes gateway-compliance serving-catalog updates with exposition.
     sorafs_gateway_compliance_exposition_lock: raw(Mutex<()>);
+    /// Whether the enabled SCCP keeper could not load its local signing key.
+    pub sccp_keeper_unconfigured: int_gauge();
+    /// Whether a network's inbound light client requires Parliament recovery.
+    pub sccp_keeper_needs_recovery: int_gauge_vec(&["network"]);
+    /// Result of the latest remote keeper attempt, independently per duty.
+    pub sccp_keeper_poll_success: int_gauge_vec(&["network", "duty"]);
     /// Low-cardinality Musubi V1 registry, publication, cache, and storage metrics.
     pub musubi: raw(musubi::MusubiMetrics);
     /// Internal use only. Needed for generating the response.
@@ -3290,7 +3295,6 @@ construct {
             for reason in [
                 "insufficient_funds",
                 "counterparty_mismatch",
-                "unsupported_policy",
                 "zero_quantity",
                 "missing_entity",
                 "math_error",
@@ -3316,12 +3320,8 @@ construct {
     }
     [settlement_fx_window_ms]
     {
-        for kind in ["pvp"] {
-            for order in ["delivery_then_payment", "payment_then_delivery"] {
-                for atomicity in ["all_or_nothing", "commit_first_leg", "commit_second_leg"] {
-                    let _ = settlement_fx_window_ms.with_label_values(&[kind, order, atomicity]);
-                }
-            }
+        for order in ["delivery_then_payment", "payment_then_delivery"] {
+            let _ = settlement_fx_window_ms.with_label_values(&["pvp", order, "all_or_nothing"]);
         }
     }
     [settlement_buffer_xor settlement_buffer_capacity_xor settlement_buffer_status
@@ -3909,6 +3909,7 @@ construct {
         // BLS signature verification counters per latest block
     [pipeline_sig_bls_agg_same pipeline_sig_bls_agg_multi pipeline_sig_bls_deterministic
         pipeline_sig_bls_agg_same_total pipeline_sig_bls_agg_multi_total]
+    [sccp_keeper_unconfigured sccp_keeper_needs_recovery sccp_keeper_poll_success]
 }
 suffix {
     metrics.finish();
@@ -4198,7 +4199,7 @@ initialize (metrics) {
         nts_offset_ok nts_confidence_ok nts_rtt_ms_bucket nts_rtt_ms_sum nts_rtt_ms_count]
     sorafs_orderbook_projection_exposition_lock = Mutex::new(());
     sorafs_gateway_compliance_exposition_lock = Mutex::new(());
-    [musubi registry]
+    [sccp_keeper_unconfigured sccp_keeper_needs_recovery sccp_keeper_poll_success musubi registry]
 }
 epilogue {
     metrics.apply_stack_snapshot(&stack_settings_snapshot());
@@ -4207,12 +4208,12 @@ epilogue {
 }
 const METRIC_CATALOG_V2: &str = include_str!("metrics/catalog_v2.tsv");
 const METRIC_CATALOG_V2_HEADER: &str = "# iroha-telemetry-metric-catalog-v2";
-const METRIC_CATALOG_V2_ROWS: usize = 656;
-const METRIC_CATALOG_V2_REGISTERED: usize = 623;
-const METRIC_CATALOG_V2_BYTES: usize = 89_244;
+const METRIC_CATALOG_V2_ROWS: usize = 659;
+const METRIC_CATALOG_V2_REGISTERED: usize = 626;
+const METRIC_CATALOG_V2_BYTES: usize = 89_669;
 #[cfg(test)]
 const METRIC_CATALOG_V2_BLAKE3: &str =
-    "cb8a2c06089ea22def6b728133db214199cf4adf07640b0bbbb2ff63d9d2e264";
+    "5ecc66f1e8ab0318d6a7c046a3db1affddb7fb09445f2832b97b43c0a7f13ba0";
 
 #[derive(Clone, Copy)]
 struct MetricSpec {

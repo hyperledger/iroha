@@ -12,7 +12,8 @@
 //! says its key signed at `height` (`-` when nothing), comma-separated:
 //!
 //! - `proposal:<view>:<block>`: the last proposal;
-//! - `prepare:<view>:<block>:<result>`: the last Prepare vote;
+//! - `prepare:<view>:<block>:<result>`: the last Prepare with persisted signature bytes;
+//!   an unsigned reservation is not a signed vote;
 //! - `lock:<view>:<block>:<result>`: the lock, which also records every Commit
 //!   vote (a Commit at `(h, v)` is always for the lock of view `v`, §6.5);
 //! - `timeout:<view>:<view of the carried PrepareQC, or ->`: the last timeout.
@@ -75,7 +76,9 @@ impl fmt::Display for Signed<'_> {
                 proposal.view, proposal.block_hash
             ));
         }
-        if let Some(vote) = &record.prepare {
+        if let Some(vote) = &record.prepare
+            && record.prepare_signature.is_some()
+        {
             entries.push(format!(
                 "prepare:{}:{}:{}",
                 vote.view, vote.block_hash, vote.result
@@ -243,6 +246,20 @@ mod tests {
             block_hash: Hash32([0xb1; 32]),
             result: Hash32([0xc1; 32]),
         });
+        use iroha_sumeragi::crypto::Signer as _;
+        record.prepare_signature = Some(
+            iroha_sumeragi::testing::FakeSigner::with_key(record.key.clone(), None)
+                .sign(&iroha_sumeragi::preimage::vote_preimage(
+                    VoteKind::Prepare,
+                    &record.instance,
+                    &record.epoch,
+                    record.height,
+                    1,
+                    &Hash32([0xb1; 32]),
+                    &Hash32([0xc1; 32]),
+                ))
+                .unwrap(),
+        );
         record.timeout = Some(RecordedTimeout {
             view: 0,
             high_pqc: None,
@@ -274,6 +291,18 @@ mod tests {
     fn signed_of_a_fresh_record_is_a_dash() {
         let record = SafetyRecord::fresh(INSTANCE, TEST_EPOCH.id, key(), 3, None);
         assert_eq!(Signed(&record).to_string(), "-");
+    }
+
+    #[test]
+    fn unsigned_prepare_reservation_is_not_a_signed_audit_entry() {
+        let mut record = signed_record();
+        assert!(record.prepare_signature_verifies(&FakeCrypto::new()));
+        record.prepare_signature = None;
+        assert!(record.prepare.is_some());
+        assert!(!Signed(&record).to_string().contains("prepare:"));
+        let lines = Capture::lines(|| record_durable(&record));
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].field("signed").unwrap().contains("prepare:"));
     }
 
     #[test]

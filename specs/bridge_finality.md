@@ -68,44 +68,47 @@ trust root. It requires:
    possession, in canonical order;
 3. a result preimage that decodes through `CertifiedResultV1::decode`, the
    only decoder of `F ‖ body`, with scope `TairaGlobal` for the global
-   instance (kind 0, index 0) and `NonGlobal` for every other root. It checks
-   ([`sccp.md`](sccp.md) §3.6, C1–C5): `F` parses (fixed magic and flags; an
-   inactive `F` is all zero after its flags; an active `F` has a nonzero
-   generation and committee root, consistent message-count, history and
-   rotation fields, and a nonzero height) and `F.height` equals the body's
-   height; `F.network_id` equals the network of the epoch context the schedule
-   assigns to that height; an active `F` names `committee_root` of that
-   context's committee, and a boundary decision in the body whose successor
-   committee differs is reflected as a rotation to exactly that root;
-   `F.timestamp_ms` and `F.height` equal the block's time and height; and a
-   `NonGlobal` scope requires an inactive `F`. The body names the block's
+   instance (kind 0, index 0) and `NonGlobal` for every other root. `decode`
+   checks C1–C4 and the scope rule of [`sccp.md`](sccp.md) §3.6: `F` parses
+   (fixed magic and flags; an inactive `F` is all zero after its flags; an
+   active `F` has a nonzero generation and committee root, consistent
+   message-count, history and rotation fields, and a nonzero height) and
+   `F.height` equals the body's height; `F.network_id` equals the network of
+   the epoch context the schedule assigns to that height; an active `F` names
+   `committee_root` of that context's committee, and a boundary decision in
+   the body whose successor committee differs is reflected as a rotation to
+   exactly that root; and a `NonGlobal` scope requires an inactive `F`. The
+   proof holds the block, so it then calls
+   `CertifiedResultV1::check_block(height, timestamp_ms)` with the block
+   header's height and canonical time, which checks C5: `F.height` and
+   `F.timestamp_ms` equal them. The body names the block's
    height, lists exactly this committee as its current epoch context, and
    commits the exact executed-wire length and hash and the block's transaction
    input and output commitments; a beacon pulse in the result must name the
    block's parent. `R` is `result_of_preimage(F ‖ body)`;
 4. at height 1, a result-only certificate; at every later height, a non-empty
    block and a Commit `CommitQC` of the core header's height, instance, block
-   hash, result `R` and `attest` flag, in the committee's epoch, over the
-   canonical resultless proposal (payload length and hash), with a
-   structurally valid availability table, the attestation count required by
-   the `attest` flag, and an exact-quorum BLS aggregate signature that verifies
-   under the committee with the consensus suite of
+   hash and result `R`, in the committee's epoch, over the canonical
+   resultless proposal (payload length and hash), with a structurally valid
+   availability table and an exact-quorum BLS aggregate signature that
+   verifies under the committee with the consensus suite of
    [`sumeragi.md`](sumeragi.md) §1 item 6 (`DST_SIG` over `SHA-256` of the
    Commit preimage).
 
 A successful structural check is not authentication: the committee is the
-proof's own claim. Embedded application attestations (§3.7) are separate
-evidence; a proof grants no attestation capability. The SCCP fields of an
-active `F` (commitment root, message count, history, generation, rotation
-validity) cannot be derived from the body; their only authority is the
-quorum signature, and SCCP's forgery evidence holds the signers to them
-([`sccp.md`](sccp.md) §4.9).
+proof's own claim. The SCCP fields of an active `F` (commitment root, message
+count, history, generation, rotation validity) cannot be derived from the
+body; their only authority is the quorum signature, and SCCP's forgery
+evidence holds the signers to them ([`sccp.md`](sccp.md) §4.9).
 
-**Status.** The `F ‖ body` layout, `CertifiedResultV1` and the consensus suite
-are the target of `sccp.md` revision 5 and are not yet implemented
-(`TODO:` WP-C1, WP-C2); until they land, the as-built result is
-`R = H("iroha/sumeragi/result/v1" ‖ body)` and check 3 decodes the body alone
-([`sumeragi.md`](sumeragi.md) Appendix E51).
+**Status.** Nodes produce the `F ‖ body` layout and sign the `F`-bound result
+under the consensus suite. `decode_checked` uses
+`iroha_data_model::sumeragi_finality::certified_result::CertifiedResultV1`
+for the same structural, scope and block bindings as the certified-chain
+reader. The body-only layout and its result digest are retired. Component
+verification does not establish whole-node or cross-chain readiness; the
+current qualification and external gates are recorded in [`sccp.md`](sccp.md)
+§12.
 
 ### Contiguous verification
 

@@ -213,6 +213,21 @@ impl<T: crate::shared::SharedWake> ChargedShared<T> {
     }
 }
 
+impl<T: Send + Sync + 'static> ChargedShared<T> {
+    /// Expose a field, slice or trait object without replacing the original paid owner.
+    ///
+    /// This consumes one reference without allocating or changing its count. The
+    /// entire concrete payload and its original pool charge stay alive through
+    /// every clone of the result. See [`Shared::project`] for callback lifetime
+    /// and unwind guarantees; allocations made by the callback remain its responsibility.
+    pub fn project<U: ?Sized + 'static>(
+        self,
+        project: impl for<'a> FnOnce(&'a T) -> &'a U,
+    ) -> crate::shared::ErasedShared<U> {
+        self.0.project(project)
+    }
+}
+
 impl<T> Clone for ChargedShared<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -227,5 +242,30 @@ impl<T> Deref for ChargedShared<T> {
 impl<T: fmt::Debug> fmt::Debug for ChargedShared<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn charged_projection_clones_retain_exact_original_pool_credit() {
+        let bytes = ChargedShared::<[u64; 2]>::allocation_layout().size();
+        let pool = AllocationBudget::new(bytes);
+        let mut reservation = pool.try_reserve_bytes(bytes).unwrap();
+        let owner = ChargedShared::from_reservation([13_u64, 29], &mut reservation).unwrap();
+        let original = owner.clone();
+        let pointer = std::ptr::from_ref(&owner[1]);
+        let projected = owner.project(|value| &value[1]);
+        let last = projected.clone();
+        assert_eq!(std::ptr::from_ref(&*projected), pointer);
+        assert_eq!(*last, 29);
+        drop(reservation);
+        drop(projected);
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), bytes);
+        drop(last);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

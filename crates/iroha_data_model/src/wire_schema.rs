@@ -1,16 +1,20 @@
 //! Compiled wire-schema identity shared by release manifests and `/status.build`.
 //!
 //! The identity hashes a canonical rendering of the compiled [`iroha_schema`]
-//! descriptions of the covered wire roots, together with the IVM ABI hash. Two
-//! binaries that report equal hashes decode the same wire layouts and admit the
-//! same contract ABI. This module renders and hashes the roots and supplies the
+//! descriptions of the covered wire roots, explicitly named native-format
+//! descriptors, and the IVM ABI hash. Equality identifies these covered layouts
+//! and ABI; it makes no claim about undescribed opaque byte domains or semantic
+//! validation rules. This module renders and hashes the roots and supplies the
 //! block wire root ([`covered_wire_schema`], rooted at [`SignedBlock`]);
 //! `iroha_core::release_identity::wire_schema_hash` adds the consensus wire root
 //! (`iroha_sumeragi::message::WireMessage` and native `Evidence` frames), then the
-//! canonical `ExecutionResultCommitment` payload root. Executables report that
-//! combined identity.
-//! The value is independent of the compilation target and of process-local
-//! `TypeId` values, but it depends on the enabled features: for example
+//! canonical `ExecutionResultCommitment` payload root and the codec-owned
+//! `certified_result::wire_identity` description of its native `X || body` framing.
+//! Executables report that combined identity.
+//! The rendering includes no target label or process-local `TypeId` values.
+//! Explicit native descriptors bind actual compiled framing, including payload
+//! alignment; equal identities across supported targets require equal covered
+//! layouts. It also depends on enabled features: for example
 //! `PublicKey`'s `Algorithm` lists its `bls`, `gost` and `sm` variants only when
 //! those features are compiled in. Release tooling must read it from a build with
 //! the release feature set.
@@ -34,7 +38,7 @@ pub fn covered_wire_schema() -> MetaMap {
     <SignedBlock as IntoSchema>::schema()
 }
 
-/// Deterministic 32-byte identity of compiled wire roots plus the IVM ABI.
+/// Deterministic identity of compiled roots, explicit native formats and the IVM ABI.
 ///
 /// `roots` holds the closed compiled schema of each covered wire root, in the
 /// fixed order of the identity. Each root is rendered against its own types, so
@@ -46,12 +50,23 @@ pub fn covered_wire_schema() -> MetaMap {
 /// two entries share an identifier. The identity is meaningful only for roots for
 /// which [`wire_root_defects`] reports nothing.
 ///
+/// `native_formats` is an ordered list of `(name, descriptor)` pairs owned by
+/// codecs whose framing is not represented by a Norito schema. Names and byte
+/// descriptions are separately length-prefixed, and the list is separated from
+/// the schema roots. Include every claimed native format explicitly; an empty
+/// list asserts only the supplied Norito roots and ABI.
+///
 /// Pass the IVM ABI hash of the policy the binary executes
 /// (`ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1)`).
 #[must_use]
-pub fn wire_schema_hash_of(roots: &[&MetaMap], ivm_abi_hash: [u8; 32]) -> [u8; 32] {
+pub fn wire_schema_hash_of(
+    roots: &[&MetaMap],
+    native_formats: &[(&str, &[u8])],
+    ivm_abi_hash: [u8; 32],
+) -> [u8; 32] {
     hash_rendered_roots(
         roots.iter().copied().map(render_root).collect(),
+        native_formats,
         ivm_abi_hash,
     )
 }
@@ -126,7 +141,11 @@ fn render_entry<'a>(
 
 /// Hash rendered roots in order after the domain and ABI; each root's entries are
 /// ordered by `(identifier, rendering)`.
-fn hash_rendered_roots(roots: Vec<Vec<(&str, Vec<u8>)>>, ivm_abi_hash: [u8; 32]) -> [u8; 32] {
+fn hash_rendered_roots(
+    roots: Vec<Vec<(&str, Vec<u8>)>>,
+    native_formats: &[(&str, &[u8])],
+    ivm_abi_hash: [u8; 32],
+) -> [u8; 32] {
     let mut preimage = CanonicalPreimage::default();
     preimage.bytes(WIRE_SCHEMA_HASH_DOMAIN_V1);
     preimage.bytes(&ivm_abi_hash);
@@ -137,6 +156,12 @@ fn hash_rendered_roots(roots: Vec<Vec<(&str, Vec<u8>)>>, ivm_abi_hash: [u8; 32])
         for (_, rendered) in entries {
             preimage.0.extend_from_slice(&rendered);
         }
+    }
+    preimage.tag("native-wire-formats");
+    preimage.count(native_formats.len());
+    for (name, descriptor) in native_formats {
+        preimage.text(name);
+        preimage.bytes(descriptor);
     }
     iroha_crypto::Hash::new(preimage.0).into()
 }
@@ -283,7 +308,7 @@ mod tests {
     const ABI: [u8; 32] = [0xA1; 32];
 
     fn block_hash(ivm_abi_hash: [u8; 32]) -> [u8; 32] {
-        wire_schema_hash_of(&[&covered_wire_schema()], ivm_abi_hash)
+        wire_schema_hash_of(&[&covered_wire_schema()], &[], ivm_abi_hash)
     }
 
     /// Two closed roots that describe different types under the schema identifier
@@ -300,8 +325,8 @@ mod tests {
     #[test]
     fn wire_schema_hash_is_stable_across_calls_and_schema_rebuilds() {
         let schema = covered_wire_schema();
-        let first = wire_schema_hash_of(&[&schema], ABI);
-        assert_eq!(first, wire_schema_hash_of(&[&schema], ABI));
+        let first = wire_schema_hash_of(&[&schema], &[], ABI);
+        assert_eq!(first, wire_schema_hash_of(&[&schema], &[], ABI));
         assert_eq!(
             first,
             block_hash(ABI),
@@ -370,6 +395,7 @@ mod tests {
                 render_entry(&names, &first),
                 render_entry(&names, &second),
             ]],
+            &[],
             ABI,
         );
         let reverse = hash_rendered_roots(
@@ -377,6 +403,7 @@ mod tests {
                 render_entry(&names, &second),
                 render_entry(&names, &first),
             ]],
+            &[],
             ABI,
         );
         assert_eq!(forward, reverse);
@@ -385,6 +412,7 @@ mod tests {
                 render_entry(&names, &first),
                 render_entry(&names, &first),
             ]],
+            &[],
             ABI,
         );
         assert_ne!(forward, other, "the content of each entry is bound");
@@ -393,13 +421,14 @@ mod tests {
                 vec![render_entry(&names, &first)],
                 vec![render_entry(&names, &second)],
             ],
+            &[],
             ABI,
         );
         assert_ne!(forward, split, "the root of each entry is bound");
         let renamed = entry("First<0..=1>", Metadata::Bool);
         assert_ne!(
-            hash_rendered_roots(vec![vec![render_entry(&names, &first)]], ABI),
-            hash_rendered_roots(vec![vec![render_entry(&names, &renamed)]], ABI),
+            hash_rendered_roots(vec![vec![render_entry(&names, &first)]], &[], ABI),
+            hash_rendered_roots(vec![vec![render_entry(&names, &renamed)]], &[], ABI),
             "the name of each entry is bound, including the length bounds a byte domain names"
         );
     }
@@ -409,14 +438,14 @@ mod tests {
     #[test]
     fn roots_are_rendered_against_their_own_types() {
         let (first, second) = roots_sharing_an_identifier();
-        let both = wire_schema_hash_of(&[&first, &second], ABI);
-        assert_eq!(both, wire_schema_hash_of(&[&first, &second], ABI));
-        assert_ne!(both, wire_schema_hash_of(&[&second, &first], ABI));
-        assert_ne!(both, wire_schema_hash_of(&[&first], ABI));
-        assert_ne!(both, wire_schema_hash_of(&[&first, &first], ABI));
+        let both = wire_schema_hash_of(&[&first, &second], &[], ABI);
+        assert_eq!(both, wire_schema_hash_of(&[&first, &second], &[], ABI));
+        assert_ne!(both, wire_schema_hash_of(&[&second, &first], &[], ABI));
+        assert_ne!(both, wire_schema_hash_of(&[&first], &[], ABI));
+        assert_ne!(both, wire_schema_hash_of(&[&first, &first], &[], ABI));
         assert_ne!(
-            wire_schema_hash_of(&[], ABI),
-            wire_schema_hash_of(&[&MetaMap::new()], ABI),
+            wire_schema_hash_of(&[], &[], ABI),
+            wire_schema_hash_of(&[&MetaMap::new()], &[], ABI),
             "an empty root still counts"
         );
     }
@@ -429,9 +458,29 @@ mod tests {
     }
 
     #[test]
+    fn native_formats_bind_names_bytes_order_and_unambiguous_boundaries() {
+        let hash = |formats: &[(&str, &[u8])]| wire_schema_hash_of(&[], formats, ABI);
+        let first = [("a", b"bc".as_slice())];
+        let expected = hash(&first);
+        assert_eq!(expected, hash(&first));
+        for other in [
+            vec![],
+            vec![("ab", b"c".as_slice())],
+            vec![("a", b"bd".as_slice())],
+            vec![("a", b"bc".as_slice()), ("a", b"bc".as_slice())],
+        ] {
+            assert_ne!(expected, hash(&other));
+        }
+        assert_ne!(
+            hash(&[("a", b"1"), ("b", b"2")]),
+            hash(&[("b", b"2"), ("a", b"1")])
+        );
+    }
+
+    #[test]
     fn wire_schema_hash_changes_when_a_covered_type_changes() {
         let baseline = covered_wire_schema();
-        let expected = wire_schema_hash_of(&[&baseline], ABI);
+        let expected = wire_schema_hash_of(&[&baseline], &[], ABI);
 
         let Some(Metadata::Struct(fields)) = baseline.get::<BlockHeader>().cloned() else {
             panic!("BlockHeader is a named-field structure");
@@ -444,7 +493,7 @@ mod tests {
         });
         widened.insert::<BlockHeader>(Metadata::Struct(NamedFieldsMeta { declarations }));
         assert_ne!(
-            wire_schema_hash_of(&[&widened], ABI),
+            wire_schema_hash_of(&[&widened], &[], ABI),
             expected,
             "adding a field changes the identity"
         );
@@ -454,7 +503,7 @@ mod tests {
         declarations[0].name.push('_');
         renamed.insert::<BlockHeader>(Metadata::Struct(NamedFieldsMeta { declarations }));
         assert_ne!(
-            wire_schema_hash_of(&[&renamed], ABI),
+            wire_schema_hash_of(&[&renamed], &[], ABI),
             expected,
             "renaming a field changes the identity"
         );
@@ -464,7 +513,7 @@ mod tests {
         declarations.swap(0, 1);
         reordered.insert::<BlockHeader>(Metadata::Struct(NamedFieldsMeta { declarations }));
         assert_ne!(
-            wire_schema_hash_of(&[&reordered], ABI),
+            wire_schema_hash_of(&[&reordered], &[], ABI),
             expected,
             "reordering fields changes the identity"
         );
@@ -472,7 +521,7 @@ mod tests {
         let mut extended = baseline;
         <SumeragiStatus as IntoSchema>::update_schema_map(&mut extended);
         assert_ne!(
-            wire_schema_hash_of(&[&extended], ABI),
+            wire_schema_hash_of(&[&extended], &[], ABI),
             expected,
             "the identity covers exactly the supplied compiled schema"
         );

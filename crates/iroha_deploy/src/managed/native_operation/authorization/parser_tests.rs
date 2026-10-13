@@ -36,7 +36,7 @@ struct Fixture {
     intent: [u8; 32],
     values: Vec<Epoch>,
     // Directory owners close before the temporary tree is removed on Windows.
-    _temporary: tempfile::TempDir,
+    temporary: tempfile::TempDir,
 }
 impl Fixture {
     fn new(count: usize) -> Self {
@@ -76,13 +76,13 @@ impl Fixture {
             values.push(value);
         }
         Self {
-            _temporary: temporary,
             parent,
             epochs,
             fees,
             scope,
             intent,
             values,
+            temporary,
         }
     }
     fn context(&self) -> BodyParserEpochContext {
@@ -132,7 +132,7 @@ impl Fixture {
             std::iter::once(&self.origin(index)),
         )
     }
-    fn close(&self, reader: &mut EpochReader) -> Result<()> {
+    fn close(reader: &mut EpochReader) -> Result<()> {
         let source = reader.parser_source.take().unwrap();
         let result = reader.close_parser_source(&source);
         assert!(
@@ -161,7 +161,7 @@ fn bound_uses_three_complete_censuses_and_selected_sources_without_copying_origi
         for index in 1..=MAX_EPOCHS {
             fixture.selected(&mut reader, index).unwrap();
         }
-        fixture.close(&mut reader).unwrap();
+        Fixture::close(&mut reader).unwrap();
         assert_eq!(
             images,
             reader
@@ -189,7 +189,7 @@ fn bound_uses_three_complete_censuses_and_selected_sources_without_copying_origi
     // exists at the canonical bound; a namespace overflow still refuses at exact exit.
     fixture.enter(&mut reader);
     attempts::write_record(&fixture.epochs, "0065.nrt", &fixture.values[0]).unwrap();
-    assert!(fixture.close(&mut reader).is_err());
+    assert!(Fixture::close(&mut reader).is_err());
     std::fs::remove_file(fixture.epochs.path().join("0065.nrt")).unwrap();
     fixture.initial(&mut reader);
 }
@@ -233,7 +233,7 @@ fn exact_exit_refuses_changed_removed_and_new_images_before_decoder_replacement(
             }
             _ => unreachable!(),
         }
-        let (result, counts) = EpochReader::test_epoch_work(|| fixture.close(&mut reader));
+        let (result, counts) = EpochReader::test_epoch_work(|| Fixture::close(&mut reader));
         assert!(
             result
                 .unwrap_err()
@@ -271,7 +271,7 @@ fn exact_exit_refuses_changed_removed_and_new_images_before_decoder_replacement(
     let mut reader = EpochReader::default();
     fixture.enter(&mut reader);
     fixture.selected(&mut reader, 2).unwrap();
-    fixture.close(&mut reader).unwrap();
+    Fixture::close(&mut reader).unwrap();
     assert!(reader.records[1].claim.is_some());
 }
 
@@ -398,7 +398,7 @@ fn selected_epoch_claim_and_exact_parent_ownership_require_current_admission() {
                 .is_err()
         );
     }
-    fixture.close(&mut reader).unwrap();
+    Fixture::close(&mut reader).unwrap();
 }
 
 #[test]
@@ -413,11 +413,11 @@ fn full_entry_and_original_absence_are_required_before_and_after_body_inspection
     assert!(reader.parser_source.is_none());
     std::fs::remove_file(fixture.epochs.path().join("unknown.nrt")).unwrap();
     fixture.enter(&mut reader);
-    fixture.close(&mut reader).unwrap();
+    Fixture::close(&mut reader).unwrap();
     // Start from a parent whose epochs child has never existed. Do not delete a live
     // PrivateDirectory: Windows intentionally denies deleting its retained handle.
     let parent = Arc::new(
-        PrivateDirectory::open_or_create(fixture._temporary.path().join("absent-intent")).unwrap(),
+        PrivateDirectory::open_or_create(fixture.temporary.path().join("absent-intent")).unwrap(),
     );
     let context = || BodyParserEpochContext {
         parent: Arc::clone(&parent),
@@ -455,19 +455,19 @@ fn original_directory_and_equal_leaf_bytes_still_require_native_custody() {
     let permissions = std::fs::metadata(&path).unwrap().permissions();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(fixture.selected(&mut reader, 2).is_err());
-    assert!(fixture.close(&mut reader).is_err());
+    assert!(Fixture::close(&mut reader).is_err());
     std::fs::set_permissions(&path, permissions).unwrap();
     fixture.enter(&mut reader);
     let link = fixture.parent.path().join("test-owned-link");
     std::fs::hard_link(&path, &link).unwrap();
     assert!(fixture.selected(&mut reader, 2).is_err());
-    assert!(fixture.close(&mut reader).is_err());
+    assert!(Fixture::close(&mut reader).is_err());
     std::fs::remove_file(link).unwrap();
     fixture.enter(&mut reader);
     std::fs::remove_file(&path).unwrap();
     symlink(fixture.epochs.path().join("0001.nrt"), &path).unwrap();
     assert!(fixture.selected(&mut reader, 2).is_err());
-    assert!(fixture.close(&mut reader).is_err());
+    assert!(Fixture::close(&mut reader).is_err());
     std::fs::remove_file(&path).unwrap();
     fixture
         .epochs
@@ -478,9 +478,9 @@ fn original_directory_and_equal_leaf_bytes_still_require_native_custody() {
     std::fs::rename(fixture.epochs.path(), &held).unwrap();
     fixture.parent.create_child("epochs").unwrap();
     assert!(fixture.selected(&mut reader, 2).is_err());
-    assert!(fixture.close(&mut reader).is_err());
+    assert!(Fixture::close(&mut reader).is_err());
     std::fs::remove_dir(fixture.epochs.path()).unwrap();
     std::fs::rename(held, fixture.epochs.path()).unwrap();
     fixture.enter(&mut reader);
-    fixture.close(&mut reader).unwrap();
+    Fixture::close(&mut reader).unwrap();
 }

@@ -20,7 +20,7 @@ use std::{
 };
 const VALIDATED_AT_MS: u64 = 1_800_000_000_000;
 /// Independent monotonic fixture budget; synthetic token timestamps remain unchanged.
-pub(crate) fn test_deadline() -> Instant {
+pub fn test_deadline() -> Instant {
     Instant::now() + Duration::from_secs(60)
 }
 const HANDLE: &str = "sealed://sorafs/stream-admission/eu-1";
@@ -131,7 +131,7 @@ impl StreamTokenReputationDeliveryV1 for ReputationProbe {
     }
     fn deliver(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<(), StreamTokenGatewayAdmissionErrorV1> {
         if self
@@ -147,11 +147,15 @@ impl StreamTokenReputationDeliveryV1 for ReputationProbe {
             trace.lock().unwrap().push("callback");
         }
         let mut calls = self.calls.lock().expect("reputation calls");
-        calls.push((record, deadline));
+        calls.push((*record, deadline));
         Ok(())
     }
 }
 #[derive(Debug, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "The fixture independently injects admission, qualification and serving failures."
+)]
 struct DurableProviderState {
     requests: Vec<(
         StreamTokenGatewayAdmissionRequestV1,
@@ -321,10 +325,8 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
             .state
             .lock()
             .map_err(|_| StreamTokenGatewayAdmissionErrorV1::Unavailable)?;
-        if let Some(scripted) = state.pending_script.pop_front() {
-            if let Some(readback) = scripted {
-                return Ok(readback);
-            }
+        if let Some(Some(readback)) = state.pending_script.pop_front() {
+            return Ok(readback);
         }
         let acknowledged = usize::try_from(state.acknowledged_through)
             .map_err(|_| StreamTokenGatewayAdmissionErrorV1::Unavailable)?;
@@ -361,7 +363,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
     }
     fn acknowledge(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
         self.note_call("acknowledge", deadline)?;
@@ -372,7 +374,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
         let sequence = record.outcome.binding.gateway_sequence;
         let index = usize::try_from(sequence - 1)
             .map_err(|_| StreamTokenGatewayAdmissionErrorV1::Conflict)?;
-        if state.records.get(index) != Some(&record) {
+        if state.records.get(index) != Some(record) {
             return Err(StreamTokenGatewayAdmissionErrorV1::Conflict);
         }
         if sequence <= state.acknowledged_through {
@@ -386,7 +388,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
     }
     fn release_lease(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
         self.note_call("release_lease", deadline)?;
@@ -412,7 +414,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
     fn confirm_serving(
         &self,
         request: &StreamTokenGatewayAdmissionRequestV1,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionRecordV1, StreamTokenGatewayAdmissionErrorV1> {
         self.note_call("confirm_serving", deadline)?;
@@ -424,7 +426,7 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
             || !state
                 .requests
                 .iter()
-                .any(|(original, retained)| original == request && *retained == record)
+                .any(|(original, retained)| original == request && retained == record)
             || state.acknowledged_through < record.outcome.binding.gateway_sequence
             || !state.active_leases.iter().any(|(_, id, expiry)| {
                 Some(*id) == record.lease_id && *expiry > state.logical_now_unix_ms
@@ -435,11 +437,11 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
         // This synthetic provider owns synthetic UTC. Wall-clock time never reinterprets the
         // fixed historical request times used by quota, recovery and frame fixtures.
         if state.serving_substituted {
-            let mut different = record;
+            let mut different = *record;
             different.serving_attempt_id[0] ^= 1;
             return Ok(different);
         }
-        Ok(record)
+        Ok(*record)
     }
 }
 fn capture(
@@ -646,7 +648,7 @@ fn shared_provider_owns_concurrency_and_release_across_replicas() {
     );
     assert!(blocked.lease_id.is_none());
     assert_eq!(
-        first_replica.release_lease(first),
+        first_replica.release_lease(&first),
         Ok(StreamTokenGatewayAdmissionAckV1::Acknowledged)
     );
     assert_eq!(
@@ -751,7 +753,7 @@ fn stream_token_provider_frames_preserve_admission_acknowledgement_and_replay() 
         .expect("exact contiguous prefix");
     assert_eq!(decoded_readback.records, vec![record]);
     let acknowledged = provider
-        .acknowledge(record, test_deadline())
+        .acknowledge(&record, test_deadline())
         .expect("acknowledge exact callback");
     assert_eq!(acknowledged, StreamTokenGatewayAdmissionAckV1::Acknowledged);
     crate::frame_test_support::assert_current_frame(
@@ -759,7 +761,7 @@ fn stream_token_provider_frames_preserve_admission_acknowledgement_and_replay() 
         "iroha_data_model::sorafs::stream_token_gateway::StreamTokenGatewayAdmissionAckV1",
     );
     let replay_ack = provider
-        .acknowledge(record, test_deadline())
+        .acknowledge(&record, test_deadline())
         .expect("exact acknowledgement replay");
     assert_eq!(replay_ack, StreamTokenGatewayAdmissionAckV1::ExactReplay);
     crate::frame_test_support::assert_current_frame(
@@ -798,7 +800,12 @@ fn expired_original_deadline_rejects_before_any_provider_or_callback_call() {
         2,
     );
     assert_eq!(
-        capture.admit(&request, Instant::now() - Duration::from_millis(1)),
+        capture.admit(
+            &request,
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap()
+        ),
         Err(StreamTokenGatewayAdmissionErrorV1::Unavailable)
     );
     assert!(provider.state.lock().unwrap().calls.is_empty());

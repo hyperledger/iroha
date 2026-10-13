@@ -20,10 +20,25 @@ default = ["simd"]
 # scalar reference, which remains the fallback on every target and input.
 simd = []
 
+# Seeded and explicit-coin entry points of the BGV scheme, exact-noise probes and
+# fault injection for its tests. Enabled only from dev-dependencies (this
+# crate enables it for its own tests below); no production dependency edge may
+# name it, so code behind `any(test, feature = <this feature>)` is test-only.
+bgv-test-fixtures = []
+
 [dependencies]
+# Coin expansion and profile identities of the BGV scheme: `derive_key` plus the
+# extendable output, with a state that clears on drop.
+blake3 = { workspace = true, features = ["zeroize"] }
+# Operating-system entropy for key generation and encryption.
+getrandom = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+# Enables the fixture feature for this crate's own tests only.
+iroha_fhe = { path = ".", default-features = false, features = ["bgv-test-fixtures"] }
+# Public phase tree and resource records for the cost measurement test.
+iroha_measurement = { workspace = true }
 # Independent arbitrary-precision oracle; shares no code with the kernels.
 num-bigint = { version = "0.4.6", default-features = false, features = ["std"] }

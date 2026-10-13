@@ -8,6 +8,7 @@ use crate::kagemusha_wallet_artifacts_v1::producer_inventory::QualifiedReceiptSo
 use iroha_data_model::sumeragi_finality::SumeragiCommitVerifierV1;
 
 use super::*;
+use crate::kagemusha_wallet_state_v1::{self as state, finality_read_error};
 
 /// Exact ordinary finality originals and the current recovery-map insertion.
 #[derive(Clone, Copy)]
@@ -57,6 +58,14 @@ impl LoadStepV1 {
     }
 }
 
+// Keep the observer around the actual model decoder. Completed shape errors remain
+// ordinary invalid originals; codec refusals keep their private scope identity.
+fn read_original<T>(
+    read: impl FnOnce() -> Result<T, KagemushaWalletValidationErrorV1>,
+) -> Result<T, state::Error> {
+    state::read_model_original(read, state::Error::Invalid("Load original binding"))
+}
+
 // The installation and released source are checked by prepare_load before this
 // gate. No receipt leaves it until its exact canonical originals pass native BLS
 // and counted-event verification; state derivation happens only afterward.
@@ -69,15 +78,12 @@ fn authenticate_originals(
         KagemushaWalletLoadReceiptV1,
         [KagemushaWalletRetainedInputV1; 2],
     ),
-    Error,
+    state::Error,
 > {
-    let receipt = authority(KagemushaWalletLoadReceiptV1::decode_canonical(
-        receipt_bytes,
-    ))?;
+    let receipt = read_original(|| KagemushaWalletLoadReceiptV1::decode_canonical(receipt_bytes))?;
     // Bound both originals before retaining/copying untrusted network bytes.
-    authority(KagemushaWalletLoadFinalityV1::decode_canonical(
-        finality_bytes,
-    ))?;
+    let evidence =
+        read_original(|| KagemushaWalletLoadFinalityV1::decode_canonical(finality_bytes))?;
     let retained = [
         KagemushaWalletRetainedInputV1 {
             role: KagemushaWalletRetainedInputRoleV1::LoadReceipt,
@@ -88,11 +94,15 @@ fn authenticate_originals(
             bytes: finality_bytes.to_vec(),
         },
     ];
-    let digest = authority(receipt.receipt_digest())?;
-    let (_, evidence) = retained_load_source(&retained, digest)?;
+    let digest = receipt
+        .receipt_digest()
+        .map_err(|_| state::Error::Invalid("Load original binding"))?;
+    if evidence.receipt_digest != digest {
+        return Err(state::Error::Invalid("Load original binding"));
+    }
     evidence
         .verify_with(reader, &receipt)
-        .map_err(|_| Error::Proof)?;
+        .map_err(|error| finality_read_error(error, state::Error::Proof("Load native finality")))?;
     Ok((receipt, retained))
 }
 
@@ -200,28 +210,30 @@ impl PreparationV1<'_> {
         successor_nonce: [u8; 32],
         budget: MemoryBudget,
     ) -> Result<LoadStepV1, crate::kagemusha_wallet_state_v1::Error> {
-        let epoch = dispatch::proof((|| {
+        dispatch::proof((|| {
             self.credential_owner(owner)?;
             let scheme = self.installed.verifier().scheme();
             if finality.installation() != (scheme.scheme_id(), owner.manifest_digest) {
                 return Err(Error::Authority);
             }
             self.receipt_tape(owner, source, budget)?;
-            let evidence = authority(KagemushaWalletLoadFinalityV1::decode_canonical(
-                originals.finality,
-            ))?;
-            evidence.certificate.epoch_id().map_err(|_| Error::Proof)
+            Ok(())
         })())?;
+        let evidence =
+            read_original(|| KagemushaWalletLoadFinalityV1::decode_canonical(originals.finality))?;
+        let epoch = evidence.certificate.epoch_id().map_err(|error| {
+            finality_read_error(error, state::Error::Proof("Load native epoch selector"))
+        })?;
         // Keep uncertain storage and lost selected objects distinct from malformed
         // public evidence. Only the coordinator-sealed index can supply this reader.
         let mut reader = custody.load_finality_reader(finality.verifier(), epoch)?;
+        let (receipt, retained) =
+            authenticate_originals(&mut reader, originals.receipt, originals.finality)?;
         dispatch::proof((|| {
-            let (receipt, retained) =
-                authenticate_originals(&mut reader, originals.receipt, originals.finality)?;
             let capsule = &source.frozen.capsule;
             let (state, statement, witness) = derive(
                 &owner.credential,
-                &capsule.successor_state,
+                &capsule.body().successor_state,
                 &receipt,
                 originals.insertion,
                 successor_nonce,
@@ -229,10 +241,10 @@ impl PreparationV1<'_> {
                 self.omega_key_digest,
             )?;
             self.statement_fields(owner, &statement)?;
-            authority(statement.validate_successor_of(&capsule.statement))?;
+            authority(statement.validate_successor_of(&capsule.body().statement))?;
             Ok(LoadStepV1 {
                 manifest_digest: owner.manifest_digest,
-                source_capsule_digest: authority(capsule.capsule_digest())?,
+                source_capsule_digest: capsule.custody_digest(),
                 witness,
                 state,
                 statement,

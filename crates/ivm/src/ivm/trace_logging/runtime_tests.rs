@@ -194,10 +194,10 @@ fn ordinary_multicycle_overshoot_is_fully_admitted_before_the_first_effect() {
         vm.registers.set(5, 19);
         vm.registers.set(6, 3);
         let initial = vm.pc;
-        assert_eq!(
+        assert!(matches!(
             vm.run_with_host(&mut DefaultHost::default()),
             Err(VMError::ExceededMaxCycles)
-        );
+        ));
         assert_eq!(vm.cycles, cycles);
         assert_eq!(vm.pc, initial + 4);
         assert_eq!(vm.trace_log.len(), cycles as usize);
@@ -307,9 +307,8 @@ fn actual_non_zk_host_mode_replacement_is_local_refusal_not_unfunded_append() {
     );
     vm.set_zk_mode(false).unwrap();
     let start = vm.pc;
-    assert_eq!(
-        vm.run_with_host(&mut TraceMutatingHost),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(vm.run_with_host(&mut TraceMutatingHost), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
@@ -334,10 +333,10 @@ fn actual_zk_host_custody_violation_is_a_local_invariant_deferral() {
         64,
     );
     let error = vm.run_with_host(&mut TraceMutatingHost).unwrap_err();
-    assert_eq!(
+    assert!(matches!(
         error,
-        VMError::ExecutionDeferred(crate::error::ExecutionDeferral::LocalInvariantViolation,)
-    );
+        VMError::ExecutionDeferred(crate::error::ExecutionDeferral::LocalInvariantViolation)
+    ));
     assert_eq!(
         error.execution_deferral(),
         Some(crate::error::ExecutionDeferral::LocalInvariantViolation,)
@@ -437,7 +436,7 @@ fn payable_padding_refuses_before_effects_but_unpayable_padding_preserves_oog() 
                 (1, 1, 63)
             );
         } else {
-            assert_eq!(outcome, Err(VMError::OutOfGas));
+            assert!(matches!(outcome, Err(VMError::OutOfGas)));
             assert_eq!(
                 (vm.cycles, shared_cycles.consumed(), vm.gas_remaining),
                 (64, 64, 62)

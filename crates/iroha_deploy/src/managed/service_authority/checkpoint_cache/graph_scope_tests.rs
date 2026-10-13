@@ -105,8 +105,8 @@ impl Fixture {
             b.directory.identity().unwrap()
         );
         assert_ne!(
-            FileIdentity::of(&a._lock).unwrap(),
-            FileIdentity::of(&b._lock).unwrap()
+            FileIdentity::of(&a.lock).unwrap(),
+            FileIdentity::of(&b.lock).unwrap()
         );
         for child in [&a, &b] {
             assert!(child.checkpoint_cache.entry.try_lock().unwrap().is_empty());
@@ -238,7 +238,7 @@ fn graph_scope_shares_cold_imports_without_sharing_source_lock_or_transaction_ve
 
     let lock = a.directory.path().join("operation.lock");
     let saved_lock = a.directory.path().join("saved-operation.lock");
-    let lock_identity = FileIdentity::of(&a._lock).unwrap();
+    let lock_identity = FileIdentity::of(&a.lock).unwrap();
     #[cfg(unix)]
     {
         std::fs::rename(&lock, &saved_lock).unwrap();
@@ -249,7 +249,7 @@ fn graph_scope_shares_cold_imports_without_sharing_source_lock_or_transaction_ve
     #[cfg(windows)]
     assert!(std::fs::rename(&lock, &saved_lock).is_err());
     a.validate_profile().unwrap();
-    assert_eq!(FileIdentity::of(&a._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&a.lock).unwrap(), lock_identity);
     assert_eq!(
         a.directory
             .read("carrier.nrt", MAX_CHECKPOINT_BYTES)
@@ -358,6 +358,10 @@ fn graph_scope_keeps_exact_keys_observation_isolation_and_cold_return_lifetime()
 
 #[test]
 fn graph_scope_preserves_effective_fifo_limits_and_active_owned_fallback() {
+    fn profile_limits(allocation: usize) -> norito::DecodeLimits {
+        let finite = 64 * 1024 * 1024;
+        norito::DecodeLimits::new(finite, finite, finite, allocation, 64)
+    }
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::new();
     let scope = CheckpointImportScope::for_original(&fixture.parent).unwrap();
@@ -458,10 +462,7 @@ fn graph_scope_preserves_effective_fifo_limits_and_active_owned_fallback() {
     }
 
     // Passing a scope cannot bypass full constructor admission or attach it to an active child.
-    fn profile_limits(allocation: usize) -> norito::DecodeLimits {
-        let finite = 64 * 1024 * 1024;
-        norito::DecodeLimits::new(finite, finite, finite, allocation, 64)
-    }
+
     let ordinary = DecodeBudgetContext::new(profile_limits(64 * 1024 * 1024));
     let (expected_child, parses) =
         crate::localnet::service_authorities::count_profile_validations(|| {
@@ -601,34 +602,37 @@ fn graph_scope_preserves_effective_fifo_limits_and_active_owned_fallback() {
     assert_eq!(native.chain.height(), 5);
 }
 
-// Measure the existing native context roundtrip under a generous finite owner. A cold
-// valid miss must successfully admit and retain its owned context; an exact retained hit
-// returns only the Copy core projection. Unlike an allocation-zero probe, this deliberately
-// permits insertion on a miss and compares its positive charge with a hit's zero charge.
-fn graph_epoch_charge(
+// Fixed inline epoch snapshots incur no Norito decoder allocation charge on misses or hits.
+// These probes compare full core projections; they may populate an absent inline snapshot and
+// therefore do not identify cache hits. The native owner's private validation-count tests
+// separately establish exact two-entry retention and revalidation after eviction.
+fn graph_epoch_projection(
     cache: &CheckpointCache,
     context: &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
-) -> u64 {
+) -> iroha_sumeragi::types::EpochConfig {
     let shared = cache.epoch_validation.as_ref().unwrap();
     let mut validation = match shared.try_lock() {
         Ok(validation) => validation,
         Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
         Err(TryLockError::WouldBlock) => panic!("test probe needs its own unborrowed workspace"),
     };
-    epoch_charge(&mut validation, context)
+    epoch_projection(&mut validation, context)
 }
 
-fn epoch_charge(
+fn epoch_projection(
     validation: &mut EpochValidationScope,
     context: &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
-) -> u64 {
-    let finite = DecodeBudgetContext::new(checkpoint_limits(64 * 1024 * 1024));
-    finite.with(|| validation.core_epoch(context)).unwrap();
-    finite.consumed_allocated_bytes()
+) -> iroha_sumeragi::types::EpochConfig {
+    let inherited = norito::core::decode_limits_active();
+    let finite = DecodeBudgetContext::new(checkpoint_limits(0));
+    let projection = finite.with(|| validation.core_epoch(context)).unwrap();
+    assert_eq!(finite.consumed_allocated_bytes(), 0);
+    assert_eq!(norito::core::decode_limits_active(), inherited);
+    projection
 }
 
 #[test]
-fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexical_owner() {
+fn graph_epoch_scope_keeps_exact_inline_projections_across_cold_imports_and_lexical_lifetime() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::new();
     let context =
@@ -647,16 +651,20 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
         std::mem::size_of::<usize>(),
         "the standalone owner retains one optional pointer, not an inline epoch pair"
     );
-    let mut cold = EpochValidationScope::new();
-    let cold_charge = epoch_charge(&mut cold, &context);
-    assert!(
-        cold_charge > 0,
-        "the finite native context roundtrip must admit owned allocations"
+    let original_core = {
+        let mut cold = EpochValidationScope::new();
+        epoch_projection(&mut cold, &context)
+    };
+    assert_eq!(
+        original_core,
+        iroha_data_model::sumeragi_finality::core_epoch(&context).unwrap()
     );
-    drop(cold);
     assert_eq!(a.decode_checkpoint(&first_bytes).unwrap(), first);
     assert_eq!(attempts(&a), 1);
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
     let escaped = b.decode_checkpoint(&second_bytes).unwrap();
     assert_eq!(escaped, second);
     assert_eq!(
@@ -664,25 +672,30 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
         2,
         "both distinct frames ran the cold producer"
     );
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
 
-    // Existing caller-local scopes are not a second populated pair under the graph owner.
+    // A caller-local workspace must preserve the same projection after the shared import.
     scope.cache.entry.try_lock().unwrap().clear();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    assert_eq!(imports.decode(&first_bytes).unwrap(), first);
-    drop(imports);
-    assert_eq!(attempts(&a), 3);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        assert_eq!(imports.decode(&first_bytes).unwrap(), first);
+        assert_eq!(attempts(&a), 3);
+        assert_eq!(epoch_projection(&mut local, &context), original_core);
+    }
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
     let mut changed = context.clone();
     changed.leader_seed[0] ^= 1;
     changed.validate().unwrap();
-    assert!(
-        graph_epoch_charge(&scope.cache, &changed) > 0,
-        "the same epoch number with a different complete body is a real native miss"
-    );
+    let changed_core = iroha_data_model::sumeragi_finality::core_epoch(&changed).unwrap();
+    assert_ne!(changed_core.id, original_core.id);
+    assert_eq!(graph_epoch_projection(&scope.cache, &changed), changed_core);
     let mut invalid = context.clone();
     invalid.committee[0].proof_of_possession[0] ^= 1;
     assert!(invalid.validate().is_err());
@@ -694,9 +707,22 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
             .unwrap()
             .try_lock()
             .unwrap();
-        assert!(validation.core_epoch(&invalid).is_err());
+        let expected = iroha_data_model::sumeragi_finality::core_epoch(&invalid)
+            .unwrap_err()
+            .to_string();
+        let finite = DecodeBudgetContext::new(checkpoint_limits(0));
+        let actual = finite
+            .with(|| validation.core_epoch(&invalid))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(actual, expected);
+        assert_eq!(finite.consumed_allocated_bytes(), 0);
+        assert!(!norito::core::decode_limits_active());
     }
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
 
     let mut malformed = first_bytes.clone();
     malformed.push(0);
@@ -718,18 +744,24 @@ fn graph_epoch_scope_reuses_exact_context_across_cold_imports_and_ends_with_lexi
     assert!(weak.upgrade().is_none());
     assert_eq!(checkpoint_bytes(&escaped).unwrap(), second_bytes);
     let next_scope = CheckpointImportScope::for_original(&fixture.parent).unwrap();
-    // This positive cold probe itself inserts the context. The following checkpoint remains
-    // a cold frame import; the earlier two-frame assertions established actual producer warming.
-    assert_eq!(graph_epoch_charge(&next_scope.cache, &context), cold_charge);
+    // A new lexical owner preserves the same projection. This probe may insert its snapshot;
+    // the following checkpoint still proves a separate cold frame import through its count.
+    assert_eq!(
+        graph_epoch_projection(&next_scope.cache, &context),
+        original_core
+    );
     let (next, other) = fixture.pair(&next_scope);
     assert_eq!(next.decode_checkpoint(&first_bytes).unwrap(), first);
     assert_eq!(attempts(&other), 1);
-    assert_eq!(graph_epoch_charge(&next_scope.cache, &context), 0);
+    assert_eq!(
+        graph_epoch_projection(&next_scope.cache, &context),
+        original_core
+    );
     assert!(fixture.unavailable.requests.lock().unwrap().is_empty());
 }
 
 #[test]
-fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_duplication() {
+fn graph_epoch_scope_keeps_active_decode_charges_and_nonwaiting_fallback() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::new();
     let context =
@@ -745,13 +777,20 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         .unwrap();
     let charge = usize::try_from(baseline.consumed_allocated_bytes()).unwrap();
     assert!(charge > 1 && charge < 64 * 1024 * 1024);
-    let mut cold = EpochValidationScope::new();
-    let cold_charge = epoch_charge(&mut cold, &context);
-    assert!(cold_charge > 0);
-    drop(cold);
+    let original_core = {
+        let mut cold = EpochValidationScope::new();
+        epoch_projection(&mut cold, &context)
+    };
+    assert_eq!(
+        original_core,
+        iroha_data_model::sumeragi_finality::core_epoch(&context).unwrap()
+    );
     for cap in [0, 1, charge] {
         a.decode_checkpoint(&bytes).unwrap();
-        assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+        assert_eq!(
+            graph_epoch_projection(&scope.cache, &context),
+            original_core
+        );
         let ordinary = DecodeBudgetContext::new(checkpoint_limits(cap));
         let raw = ordinary
             .with(|| decode_checkpoint(&bytes, a.config.network_id, a.config.chain.as_str()));
@@ -760,7 +799,6 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         let mut imports = CheckpointImports::new(&b, Some(&mut local));
         let before = attempts(&a);
         let actual = active.with(|| imports.decode(&bytes));
-        drop(imports);
         assert_eq!(attempts(&a), before + 1);
         assert_eq!(
             active.consumed_allocated_bytes(),
@@ -775,32 +813,37 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
             other => panic!("the original active producer must match: {other:?}"),
         }
         assert!(scope.cache.entry.try_lock().unwrap().is_empty());
-        // Both positive miss probes insert only after observing the original active return.
-        assert_eq!(graph_epoch_charge(&scope.cache, &context), cold_charge);
-        assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-        drop(local);
+        // Probe both exact projections only after observing the original active return.
+        assert_eq!(
+            graph_epoch_projection(&scope.cache, &context),
+            original_core
+        );
+        assert_eq!(epoch_projection(&mut local, &context), original_core);
     }
 
     // Hold the real epoch gate while forcing a cold checkpoint miss on this same thread.
-    // Completion itself proves the router never waits or tries to populate a second local pair.
+    // Completion itself proves nonwaiting fallback; projection probes do not reveal local insertion.
     assert_eq!(a.decode_checkpoint(&bytes).unwrap(), original);
     scope.cache.entry.try_lock().unwrap().clear();
     let shared = scope.cache.epoch_validation.as_ref().unwrap();
     let mut held = shared.try_lock().unwrap();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    let before = attempts(&a);
-    assert_eq!(imports.decode(&bytes).unwrap(), original);
-    drop(imports);
-    assert_eq!(attempts(&a), before + 1);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
-    assert_eq!(epoch_charge(&mut held, &context), 0);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        let before = attempts(&a);
+        assert_eq!(imports.decode(&bytes).unwrap(), original);
+        assert_eq!(attempts(&a), before + 1);
+        assert_eq!(epoch_projection(&mut local, &context), original_core);
+    }
+    assert_eq!(epoch_projection(&mut held, &context), original_core);
     let mut malformed = bytes.clone();
     malformed.push(0);
     assert!(b.decode_checkpoint(&malformed).is_err());
     drop(held);
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), 0);
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
     assert_eq!(a.decode_checkpoint(&bytes).unwrap(), original);
 
     assert!(
@@ -811,16 +854,19 @@ fn graph_epoch_scope_keeps_active_charges_nonwaiting_fallback_and_no_local_dupli
         .is_err()
     );
     scope.cache.entry.try_lock().unwrap().clear();
-    let mut local = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&b, Some(&mut local));
-    let before = attempts(&a);
-    assert_eq!(imports.decode(&bytes).unwrap(), original);
-    assert!(imports.decode(&malformed).is_err());
-    drop(imports);
-    assert!(attempts(&a) > before);
-    assert_eq!(epoch_charge(&mut local, &context), cold_charge);
-    drop(local);
-    assert_eq!(graph_epoch_charge(&scope.cache, &context), cold_charge);
+    {
+        let mut local = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&b, Some(&mut local));
+        let before = attempts(&a);
+        assert_eq!(imports.decode(&bytes).unwrap(), original);
+        assert!(imports.decode(&malformed).is_err());
+        assert!(attempts(&a) > before);
+        assert_eq!(epoch_projection(&mut local, &context), original_core);
+    }
+    assert_eq!(
+        graph_epoch_projection(&scope.cache, &context),
+        original_core
+    );
     assert!(matches!(shared.try_lock(), Err(TryLockError::Poisoned(_))));
     assert_eq!(a.decode_checkpoint(&bytes).unwrap(), original);
     a.validate_profile().unwrap();

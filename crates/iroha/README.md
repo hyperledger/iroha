@@ -21,6 +21,68 @@ HTTP 429 responses repeat only the status read, respecting Torii's delta-seconds
 `Retry-After` and the original wait deadline. They never resubmit the transaction;
 an exhausted deadline retains the last backpressure diagnostic.
 
+`VerifiedPaymentReceipt::verify` independently joins one direct `SettleAtomic`
+payment to a successful certified Network output. Supply the network, signed
+transaction hash and complete intent retained from the authorized request, plus
+a `VerifiedSumeragiBlock` from the existing verifier rooted in independently
+authenticated signed genesis. The receipt binds exact payer buckets, asset
+scopes, recipients, quantities, reference metadata and the authenticated Nexus
+fee record or its explicit absence. It needs no later block and accepts no
+status-only or deserialized verification claim. PipelineGas carriers are explicitly
+unsupported until their fee outcome has an authenticated receipt. Customer credit
+still requires the application's durable `(NetworkId, SettlementId)` uniqueness
+transaction. `SettlementId` contains the participating debit owner and a stable
+business reference. When another carrier committed that same independently
+retained intent, `verify_recovered` authenticates the original successful carrier
+and returns its hash through the same verifier. A replay outcome's block locator
+only selects evidence; it never grants receipt authority.
+
+`AccountClient::native_payment` composes that verification with submission and
+durable recovery. Supply a `NativePaymentRequest` with the complete intent and
+fee authorization, durable `WorkflowStorage`, and an independently rooted
+`SumeragiFinalityVerifier`. Recreate the operation with the same inputs after
+restart: `resume` uses only the original retained signed carrier, while `recover`
+only reads and verifies evidence. Explicit `submit` authorizes a new paid attempt
+with the reviewed fee intent. A second gateway can `resume` the original successful
+payment by its payer-owned identity without signing. If no success or original
+carrier is found, `resume` returns `NewAttemptAuthorizationRequired`. A timeout
+or unavailable proof leaves the outcome unresolved; it does not authorize a
+replacement payment.
+
+`NativePaymentFullReturnRequest` derives one receiver-owned reverse payment
+from a verified original. It preserves the original receipt and requires
+separate authorization, fees and successful execution evidence for the return.
+Partial returns are unsupported until consensus enforces a cumulative return
+allowance. An ISO return report alone does not authorize a reverse movement.
+
+`PaymentInbox` demonstrates the durable bank boundary over the existing
+`WorkflowStorage` compare-and-store contract. Use a dedicated
+`FileWorkflowStorage` directory or the same atomic unique-key transaction in the
+bank's database. `credit` accepts only a `VerifiedPaymentReceipt` and an
+independently selected customer/destination mapping. It publishes one immutable
+customer-credit ledger entry and its pending notification together, keyed by
+network and settlement ID. Retry the same receipt after an uncertain write;
+reverify its original evidence after restart. The journal entry itself is the
+credit, so do not follow it with a separate balance increment. Notification
+delivery uses the same key and may repeat until acknowledged. A decoded bank
+entry cannot construct a verified payment receipt.
+
+`AccountClient::private_settlement` opens a durable operation over a
+`PrivateSettlementRequest` containing independently prepared proof and encrypted
+capsule artifacts. It checkpoints exact availability certificates before
+promotion, resumes Prepare/Register/Commit/Finalize, and returns a
+`VerifiedPrivateSettlementReceipt` only after successful execution is verified
+against independently pinned genesis. `recover` reads and verifies without
+uploading, signing or submitting. Reopening requires the original external
+artifacts; the journal stores public certificates and carriers, never plaintext
+witnesses or restricted proof/capsule blobs. This operation does not generate
+proofs. If promotion lacks sufficient bound acknowledgements, `run` may restore
+original provisional artifacts once per failed endpoint and verify that endpoint's
+signed availability share before retrying promotion; the original certificate stays
+unchanged. Upload acknowledgements are transport preflight, and the verified Prepare
+certificate remains phase authority. Its transport/restart tests use synthetic execution with genuine
+certificates; genuine prover and validator-network qualification remains open.
+
 ## Setup
 
 **Requirements:** install
@@ -64,7 +126,22 @@ Clones share their HTTP and stream transports and compatibility decision. To
 change configuration, copy it with `client.to_builder()`, edit the builder, and
 call `build()` to obtain a new context with a fresh compatibility cache and probe
 coordinator. The copied builder retains both selected transports. When selecting
-a different origin, choose its HTTP and operator credentials explicitly.
+a different origin, choose its HTTP and operator credentials explicitly. Use
+`builder.api_token(None)` to clear the typed listener credential, or
+`builder.api_token(Some(secret))` to replace it for the new listener. Both calls
+remove every `X-API-Token` spelling from generic header defaults; clearing
+`builder.headers` alone does not clear the typed credential. The listener token
+and the fresh operator signature authorize separate gates. Transport replacement
+preserves an existing absolute request deadline.
+
+`Config::http_transport_policy` defaults to `HttpTransportPolicy::Ordinary`.
+Generated owned localnets select `DirectLoopback` explicitly. It requires cleartext
+HTTP to exact `localhost`, an IPv4 loopback address, or `::1`, with no URL
+credentials or fragments. The built-in local pools disable proxies, redirects and
+native certificate-store loading; `localhost` resolves to loopback addresses. The
+policy remains fixed through cloning, authority views and `to_builder()`, and
+validates every HTTP request before dispatch, including injected transports. Remote
+clients retain ordinary HTTP/HTTPS handling. This policy has no environment override.
 
 Bind account operations with `client.account_client()?` and privileged operations
 with `client.operator_client(operator_key_pair)?`. Synchronous applications use
@@ -168,6 +245,11 @@ and `Collection::UaidManifests(uaid)`. Subscription plans and states use
 `Collection::SubscriptionPlans` and `Collection::Subscriptions` with the same query
 and page types. Pages require an explicit `next_cursor`; retired offset/count-mode
 envelopes are rejected.
+
+An authenticated collection read can return a capacity refusal while its State
+view is busy. This remains a capacity error, with no anonymous fallback; it is
+distinct from invalid credentials or a replayed request. A refused read is not
+an empty collection and does not establish a payment outcome.
 
 `Collection::Transactions`, `Collection::AccountTransactions`,
 `Collection::ContractActivity`, and `Collection::ContractEvents` are history
@@ -301,6 +383,23 @@ owner. Caller-selected trust is not network authentication, and returned status/
 runtime observations, not current native eligibility or package-read authority. Original signing,
 genuine reload observation and crash recovery belong to the managed publisher.
 
+## Durable workflows
+
+`AccountClient::bootstrap_workflow`, `dkg_workflow` and `threshold_opening_workflow` return a
+durable handle for a sequence of transactions and off-chain rounds. A workflow is not atomic across
+its steps: each transaction is atomic by itself, a finalized step is never rolled back, and every
+result carries a progress report that lists confirmed, unresolved and not-started steps.
+
+The handle offers `run`, `recover` (ledger reads only), `cancel` and `progress`. The journal is kept
+in caller-supplied storage: `FileWorkflowStorage` is durable and owner-private,
+`MemoryWorkflowStorage` is for tests. After an interruption, `run` first reads the committed outcome
+of the persisted transaction identity and only then continues. A submission timeout is reported as
+`SubmissionOutcomeUnknown` until that read resolves it, and the transaction is not rebuilt or
+resubmitted while it may still commit. Capability logic (payloads, rounds, custody) comes from a
+`WorkflowDriver`; the module contains no key-generation or threshold cryptography.
+
+The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk/workflow_v1/`.
+
 ## Examples
 
 We highly recommend looking at the sample [`iroha_cli`](../iroha_cli) binary
@@ -324,3 +423,28 @@ Explorer feeds use `Collection::ExplorerAccounts`, `ExplorerDomains`,
 fixed-order reads with shared filter/select/limit/cursor controls. Iterate
 until the cursor ends, including after empty pages. Account movements use
 `Collection::AccountHistory(account_id)` with the same history controls.
+
+`AccountClient::native_payment` binds a `NativePaymentRequest`, durable
+`WorkflowStorage` and independently selected `SumeragiFinalityVerifier` into a
+resumable direct Global payment. `submit` explicitly authorizes a paid attempt;
+`resume` cannot build or sign another carrier, even when rejected-retry options
+are set. Both return only an opaque verified original receipt. A fresh gateway
+without verified success or a retained carrier receives
+`NewAttemptAuthorizationRequired` from `resume`; `recover` performs no signing or
+dispatch. The existing workflow journal
+retains exact carrier identities and a bounded completion locator, which is
+re-fetched and reverified after restart. A rejected duplicate carrier remains
+rejected even when original business success is recovered. Status-only expiry,
+local read limits and failed reads never authorize a new payment identity.
+Before signing or dispatching restored bytes, the operation checks their exact
+payment and fee authorization against the retained request; journal digests alone
+grant no monetary authority. See
+[`specs/zk_durable_workflow.md`](../../specs/zk_durable_workflow.md) for the exact
+first-release layout, scope and online recovery contract.
+
+`NativePaymentFullReturnRequest` derives one receiver-owned ID from an opaque
+verified original and prepares its exact full reverse payment.
+`AccountClient::native_payment_return` reuses the same durable operation and
+exposes the same `submit`, `resume` and read-only `recover` boundary. It returns
+`VerifiedPaymentReturn`, retaining both successful receipts. Partial
+returns require a future consensus-owned cumulative allowance.

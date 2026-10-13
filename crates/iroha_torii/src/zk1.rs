@@ -1,6 +1,6 @@
 //! Bounded parsing for the app-facing `ZK1` TLV envelope.
 /// Maximum number of TLV records accepted in one first-release `ZK1` envelope.
-pub(crate) const MAX_TLV_COUNT: usize = 64;
+pub const MAX_TLV_COUNT: usize = 64;
 const MAGIC: &[u8; 4] = b"ZK1\0";
 const MAX_TLV_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 /// Parse and deduplicate the four-byte tags in a structurally valid `ZK1` envelope.
@@ -8,7 +8,7 @@ const MAX_TLV_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 /// Unknown and non-UTF-8 tags remain structurally valid. Non-UTF-8 tags use a
 /// deterministic hexadecimal representation in app metadata. No tag metadata
 /// is returned for a malformed or over-cardinality envelope.
-pub(crate) fn parse_tags(bytes: &[u8]) -> Result<Vec<String>, String> {
+pub fn parse_tags(bytes: &[u8]) -> Result<Vec<String>, String> {
     if bytes.len() < MAGIC.len() || &bytes[..MAGIC.len()] != MAGIC {
         return Err("missing ZK1 magic".to_owned());
     }

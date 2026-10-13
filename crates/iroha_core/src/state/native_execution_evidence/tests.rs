@@ -60,7 +60,7 @@ fn only_actual_native_successor_authenticates_genesis_execution_and_empty_contex
             .unwrap()
             .is_none()
     );
-    assert!(reader.carriers.is_empty());
+    assert_eq!(reader.authenticated_carriers, 0);
     assert!(reader.lanes.is_none());
     assert!(reader.pending_genesis.is_some());
     for height in 2..=3 {
@@ -101,7 +101,7 @@ fn only_actual_native_successor_authenticates_genesis_execution_and_empty_contex
         }
     }
     assert!(reader.pending_genesis.is_none());
-    assert_eq!(reader.carriers.len(), 3);
+    assert_eq!(reader.authenticated_carriers, 3);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn wrong_projection_carrier_and_skipped_successor_poison_the_exact_interval() {
         };
         assert!(error.is_err());
         assert!(
-            reader.carriers.is_empty(),
+            reader.authenticated_carriers == 0,
             "no unauthenticated genesis capability escapes"
         );
         assert!(
@@ -183,11 +183,10 @@ fn live_reader_reuses_original_archived_contexts_through_actual_native_tip() {
         crate::query::native_context_archive::NativeContextArchiveError::Io(error)
             if error.kind() == std::io::ErrorKind::NotFound
     ));
-    assert_eq!(
-        chain.state().verified_sumeragi_lane_state().unwrap_err(),
-        crate::execution_attempt::ExecutionAttemptError::Rejected(format!(
+    assert!(
+        matches!(chain.state().verified_sumeragi_lane_state().unwrap_err(), crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (format!(
             "required historical native lane state source 2: {missing_source}"
-        )),
+        ))),
         "the live reader must propagate the original missing-record refusal"
     );
     std::fs::write(&path, &original).unwrap();
@@ -273,7 +272,7 @@ fn certified_result_rejects_changed_actual_lane_history_and_counter() {
                 .push_height(second.clone(), &norito::encode_canonical(&value).unwrap())
                 .is_err()
         );
-        assert!(verifier.authenticated_carrier(1).is_none());
+        assert!(verifier.into_current_lanes().is_err());
     }
 }
 
@@ -333,4 +332,112 @@ fn authenticated_genesis_callback_requires_actual_successor_and_rejection_poison
             .unwrap_err()
             .contains("poisoned")
     );
+}
+
+#[test]
+fn completed_evidence_releases_original_carriers_after_their_last_receipt() {
+    use iroha_allocation::AllocationBudget;
+    use iroha_data_model::block::SharedSignedBlock;
+
+    let chain = chain();
+    let mut verifier = reader(&chain);
+    let layout = SharedSignedBlock::allocation_layout();
+    let pools = std::array::from_fn::<_, 3, _>(|_| AllocationBudget::new(layout.size()));
+    for height in 1..=3 {
+        let original = frame(&chain, height);
+        let bytes = projection(&chain, &original);
+        // Each exact signed fixture has its own original control pool, independent
+        // of Kura's retained frame. Its refund observes the last real owner.
+        let block = SharedSignedBlock::reserve(&pools[height - 1])
+            .unwrap()
+            .initialize(original.as_ref().clone());
+        let receipt = verifier.push_height(block, &bytes).unwrap();
+        assert_eq!(pools[height - 1].reserved_bytes(), layout.size());
+        if let Some(receipt) = &receipt {
+            assert_eq!(receipt.block().hash(), original.hash());
+        }
+        drop(receipt);
+        for pool in &pools[..height - 1] {
+            assert_eq!(
+                pool.reserved_bytes(),
+                0,
+                "completed evidence must release historical original carrier custody"
+            );
+        }
+    }
+    assert!(verifier.into_current_lanes().unwrap().lanes.is_empty());
+    assert!(pools.iter().all(|pool| pool.reserved_bytes() == 0));
+}
+
+#[test]
+fn completed_evidence_keeps_cumulative_bounds_after_retiring_carrier_owners() {
+    let chain = chain();
+    let blocks = (1..=3)
+        .map(|height| frame(&chain, height))
+        .collect::<Vec<_>>();
+    let contexts = blocks
+        .iter()
+        .map(|block| projection(&chain, block))
+        .collect::<Vec<_>>();
+    let demand = blocks
+        .iter()
+        .zip(&contexts)
+        .map(|(block, context)| {
+            u64::try_from(norito::canonical_frame_len(block.as_ref()).unwrap()).unwrap()
+                + 1
+                + u64::try_from(context.len()).unwrap()
+        })
+        .sum::<u64>();
+    for (carrier_limit, byte_limit, succeeds) in [
+        (3, demand, true),
+        (2, demand, false),
+        (3, demand - 1, false),
+    ] {
+        let mut verifier = NativeExecutionEvidenceVerifier::new(
+            ChainId::from("sumeragi-certified-test-chain"),
+            chain.network_id(),
+            NativeExecutionEvidenceLimits {
+                max_carriers: carrier_limit,
+                max_carrier_bytes: blocks
+                    .iter()
+                    .map(|block| {
+                        u64::try_from(norito::canonical_frame_len(block.as_ref()).unwrap()).unwrap()
+                            + 1
+                    })
+                    .max()
+                    .unwrap(),
+                max_context_bytes: contexts
+                    .iter()
+                    .map(|context| u64::try_from(context.len()).unwrap())
+                    .max()
+                    .unwrap(),
+                max_retained_bytes: byte_limit,
+            },
+        )
+        .unwrap();
+        for index in 0..2 {
+            verifier
+                .push_height(blocks[index].clone(), &contexts[index])
+                .unwrap();
+        }
+        let result = verifier.push_height(blocks[2].clone(), &contexts[2]);
+        assert_eq!(result.is_ok(), succeeds);
+        if succeeds {
+            assert_eq!(result.unwrap().unwrap().block().hash(), blocks[2].hash());
+            assert!(verifier.into_current_lanes().is_ok());
+        } else {
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("independently admitted interval")
+            );
+            assert!(
+                verifier
+                    .push_height(blocks[2].clone(), &contexts[2])
+                    .unwrap_err()
+                    .contains("poisoned")
+            );
+            assert!(verifier.into_current_lanes().is_err());
+        }
+    }
 }

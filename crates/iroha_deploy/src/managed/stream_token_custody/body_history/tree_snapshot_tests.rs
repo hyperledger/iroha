@@ -1,7 +1,7 @@
 //! Fresh ordered snapshot reads share only borrowed ancestry, never source or codec verdicts.
 
 use super::*;
-use crate::managed::Error;
+use crate::managed::{Error, native_operation::attempts::metadata};
 use std::io;
 
 fn observed(directory: &Arc<PrivateDirectory>, name: &str, maximum: usize) -> RecordSnapshot {
@@ -11,7 +11,7 @@ fn observed(directory: &Arc<PrivateDirectory>, name: &str, maximum: usize) -> Re
 
 // These native files exercise snapshot byte custody, not protocol/signature admission.
 struct Store {
-    _temporary: tempfile::TempDir,
+    temporary: tempfile::TempDir,
     root: Arc<PrivateDirectory>,
     container: Arc<PrivateDirectory>,
     first: Arc<PrivateDirectory>,
@@ -50,6 +50,12 @@ impl Store {
             let row = Arc::new(container.create_child(body_name(ordinal).unwrap()).unwrap());
             row.write_atomic("reserved.nrt", b"reserved", PublishMode::CreateNew)
                 .unwrap();
+            row.write_atomic(
+                metadata::FILE,
+                &metadata::reserved_body(b"reserved").unwrap(),
+                PublishMode::CreateNew,
+            )
+            .unwrap();
             rows.push(row);
         }
         let mut snapshot = Arc::new(Snapshot {
@@ -80,16 +86,15 @@ impl Store {
                         MAX_SELECTION_BYTES,
                     ),
                 ],
-                names: vec![NamesSnapshot::from_read(
+                names: vec![NamesSnapshot::from_reserved_read(
                     Arc::clone(row),
-                    1,
-                    row.entries(1).unwrap(),
+                    row.entries(2).unwrap(),
                 )],
                 root: None,
             });
         }
         Self {
-            _temporary: temporary,
+            temporary,
             root,
             container,
             first: Arc::clone(&rows[0]),
@@ -182,7 +187,7 @@ fn snapshot_tree_keeps_inventory_hash_absence_order_and_late_active_codec_limits
         .write_atomic("reserved.nrt", b"modified", PublishMode::Replace)
         .unwrap();
     let second = &store.snapshot.records[0].directory;
-    let held_second = store._temporary.path().join("held-second-reservation");
+    let held_second = store.temporary.path().join("held-second-reservation");
     std::fs::rename(second.path().join("reserved.nrt"), &held_second).unwrap();
     // The previous row's real hash refusal must precede the later row's real missing leaf.
     assert!(
@@ -352,7 +357,7 @@ fn snapshot_tree_exit_overrides_real_body_results_and_restores_original_ancestor
         } else if body == "missing_required" {
             // Move outside the root census so the real original leaf read reaches NotFound.
             fs::rename(store.root.path().join("anchor.nrt"), &held).unwrap();
-            fs::rename(&held, store._temporary.path().join("held-anchor")).unwrap();
+            fs::rename(&held, store.temporary.path().join("held-anchor")).unwrap();
         }
         let refused = store.root.read_tree_scope(|tree| {
             let result = store.snapshot.revalidate_in_tree(Some(tree));
@@ -376,7 +381,7 @@ fn snapshot_tree_exit_overrides_real_body_results_and_restores_original_ancestor
                 .unwrap();
         } else if body == "missing_required" {
             fs::rename(
-                store._temporary.path().join("held-anchor"),
+                store.temporary.path().join("held-anchor"),
                 store.root.path().join("anchor.nrt"),
             )
             .unwrap();
@@ -426,7 +431,7 @@ fn snapshot_closed_reader_keeps_native_count_bound_equal_count_census_and_origin
         .first
         .write_atomic("extra.nrt", b"extra", PublishMode::CreateNew)
         .unwrap();
-    let native = store.first.entries(1).unwrap_err();
+    let native = store.first.entries(2).unwrap_err();
     assert_eq!(native.kind(), io::ErrorKind::InvalidInput);
     for result in [
         store.snapshot.revalidate(),

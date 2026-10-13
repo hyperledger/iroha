@@ -246,8 +246,10 @@ impl Default for Workload {
 /// driver's executor rules CT1, CT3 and CT5. Without it (the default) payloads carry no block
 /// time and no execution consults a clock, as F12 requires of the core.
 ///
-/// With it, every payload builder stamps its payload with a block time `t = wall + lead`
-/// (honest builders: `lead = 0`, CT3), and every honest executor answers
+/// With it, builders retain the original certified-parent cadence and queued transaction
+/// creation floors. Honest builders wait while either exceeds their wall clock, then stamp
+/// `max(floors, wall)`; a Byzantine builder can stamp `wall + lead`. All execution checks the
+/// deterministic floors independently of clock guards. Every honest executor answers
 /// `Failed(ClockAhead)` for an execution with `certified = false` while
 /// `t > wall + max_clock_drift_ms` (CT1), and `Failed(StaleDueWork)` for an uncertified
 /// execution of a block that applies due work while `wall − t > due_work_max_lag_ms` (CT5).
@@ -258,7 +260,7 @@ impl Default for Workload {
 pub struct ClockGuard {
     /// `max_clock_drift_ms`, the committed chain parameter of CT1 (CT4).
     pub max_clock_drift_ms: Millis,
-    /// `gov.due_work_max_lag_ms`, the committed governance parameter of CT5.
+    /// `sumeragi.due_work_max_lag_ms`, the committed parameter of CT5.
     pub due_work_max_lag_ms: Millis,
     /// Initial wall offsets (ms) per machine, relative to its monotonic clock (missing: 0).
     pub wall_offsets: Vec<i64>,

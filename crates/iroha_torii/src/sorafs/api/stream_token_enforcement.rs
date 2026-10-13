@@ -242,9 +242,8 @@ fn capture_then_reject(
     serving_attempt_id: [u8; 32],
     context: &StreamTokenValidationRequestContextV1,
     validated_at_unix_ms: u64,
-    status: StreamTokenValidationStatusV1,
+    (status, response): (StreamTokenValidationStatusV1, Response),
     material: Option<DecodedAdmissionMaterial<'_>>,
-    response: Response,
 ) -> Result<(RangeFetchConcurrencyGuard, StreamTokenBodyV1), Response> {
     let _ = capture_terminal(
         state,
@@ -283,7 +282,7 @@ fn retry_response(
 }
 fn response_for_external_terminal(
     telemetry: &MaybeTelemetry,
-    record: StreamTokenGatewayAdmissionRecordV1,
+    record: &StreamTokenGatewayAdmissionRecordV1,
 ) -> Option<Response> {
     let status = record.outcome.status;
     let response = match status {
@@ -454,12 +453,14 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::Excluded(StreamTokenExcludedKindV1::MissingToken),
-            None,
-            json_error(
-                StatusCode::UNAUTHORIZED,
-                "missing X-SoraFS-Stream-Token header",
+            (
+                StreamTokenValidationStatusV1::Excluded(StreamTokenExcludedKindV1::MissingToken),
+                json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "missing X-SoraFS-Stream-Token header",
+                ),
             ),
+            None,
         );
     };
     let token_str = match token_header.to_str() {
@@ -471,14 +472,16 @@ fn enforce_stream_token_in_worker(
                 serving_attempt_id,
                 &context,
                 validated_at_unix_ms,
-                StreamTokenValidationStatusV1::Excluded(
-                    StreamTokenExcludedKindV1::MalformedEncoding,
+                (
+                    StreamTokenValidationStatusV1::Excluded(
+                        StreamTokenExcludedKindV1::MalformedEncoding,
+                    ),
+                    json_error(
+                        StatusCode::BAD_REQUEST,
+                        "X-SoraFS-Stream-Token header must contain valid ASCII",
+                    ),
                 ),
                 None,
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "X-SoraFS-Stream-Token header must contain valid ASCII",
-                ),
             );
         }
     };
@@ -489,12 +492,16 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::Excluded(StreamTokenExcludedKindV1::MalformedEncoding),
-            None,
-            json_error(
-                StatusCode::BAD_REQUEST,
-                "X-SoraFS-Stream-Token header must not be empty",
+            (
+                StreamTokenValidationStatusV1::Excluded(
+                    StreamTokenExcludedKindV1::MalformedEncoding,
+                ),
+                json_error(
+                    StatusCode::BAD_REQUEST,
+                    "X-SoraFS-Stream-Token header must not be empty",
+                ),
             ),
+            None,
         );
     }
     if token_str.len() > MAX_STREAM_TOKEN_BASE64_BYTES {
@@ -504,12 +511,16 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::Excluded(StreamTokenExcludedKindV1::MalformedEncoding),
-            None,
-            json_error(
-                StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
-                "X-SoraFS-Stream-Token header exceeds the protocol limit",
+            (
+                StreamTokenValidationStatusV1::Excluded(
+                    StreamTokenExcludedKindV1::MalformedEncoding,
+                ),
+                json_error(
+                    StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                    "X-SoraFS-Stream-Token header exceeds the protocol limit",
+                ),
             ),
+            None,
         );
     }
     let token = match decode_token_base64(token_str) {
@@ -546,11 +557,13 @@ fn enforce_stream_token_in_worker(
                 serving_attempt_id,
                 &context,
                 validated_at_unix_ms,
-                StreamTokenValidationStatusV1::Excluded(
-                    StreamTokenExcludedKindV1::MalformedEncoding,
+                (
+                    StreamTokenValidationStatusV1::Excluded(
+                        StreamTokenExcludedKindV1::MalformedEncoding,
+                    ),
+                    response,
                 ),
                 None,
-                response,
             );
         }
     };
@@ -576,9 +589,13 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::Excluded(StreamTokenExcludedKindV1::InvalidSignature),
+            (
+                StreamTokenValidationStatusV1::Excluded(
+                    StreamTokenExcludedKindV1::InvalidSignature,
+                ),
+                json_error(StatusCode::UNAUTHORIZED, "stream token signature invalid"),
+            ),
             material,
-            json_error(StatusCode::UNAUTHORIZED, "stream token signature invalid"),
         );
     }
     if token.body.token_pk_version != issuer.key_version() {
@@ -588,14 +605,16 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::Excluded(
-                StreamTokenExcludedKindV1::UnsupportedKeyVersion,
+            (
+                StreamTokenValidationStatusV1::Excluded(
+                    StreamTokenExcludedKindV1::UnsupportedKeyVersion,
+                ),
+                json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "stream token signed with unexpected key version",
+                ),
             ),
             material,
-            json_error(
-                StatusCode::UNAUTHORIZED,
-                "stream token signed with unexpected key version",
-            ),
         );
     }
     let now = validated_at_unix_ms / 1_000;
@@ -606,14 +625,16 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::ProviderViolation(
-                StreamTokenViolationKindV1::FutureIssuedAt,
+            (
+                StreamTokenValidationStatusV1::ProviderViolation(
+                    StreamTokenViolationKindV1::FutureIssuedAt,
+                ),
+                json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "stream token was issued too far in the future",
+                ),
             ),
             material,
-            json_error(
-                StatusCode::UNAUTHORIZED,
-                "stream token was issued too far in the future",
-            ),
         );
     }
     if token.body.manifest_cid.as_slice() != manifest.manifest_cid() {
@@ -623,14 +644,16 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::ProviderViolation(
-                StreamTokenViolationKindV1::ManifestMismatch,
+            (
+                StreamTokenValidationStatusV1::ProviderViolation(
+                    StreamTokenViolationKindV1::ManifestMismatch,
+                ),
+                json_error(
+                    StatusCode::FORBIDDEN,
+                    "stream token does not authorise this manifest",
+                ),
             ),
             material,
-            json_error(
-                StatusCode::FORBIDDEN,
-                "stream token does not authorise this manifest",
-            ),
         );
     }
     if token.body.profile_handle != manifest.chunk_profile_handle() {
@@ -640,11 +663,13 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::ProviderViolation(
-                StreamTokenViolationKindV1::ProfileMismatch,
+            (
+                StreamTokenValidationStatusV1::ProviderViolation(
+                    StreamTokenViolationKindV1::ProfileMismatch,
+                ),
+                json_error(StatusCode::CONFLICT, "stream token chunker handle mismatch"),
             ),
             material,
-            json_error(StatusCode::CONFLICT, "stream token chunker handle mismatch"),
         );
     }
     if token.body.provider_id != authoritative_provider {
@@ -654,11 +679,13 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::ProviderViolation(
-                StreamTokenViolationKindV1::ProviderMismatch,
+            (
+                StreamTokenValidationStatusV1::ProviderViolation(
+                    StreamTokenViolationKindV1::ProviderMismatch,
+                ),
+                json_error(StatusCode::FORBIDDEN, "stream token provider mismatch"),
             ),
             material,
-            json_error(StatusCode::FORBIDDEN, "stream token provider mismatch"),
         );
     }
     if now >= token.body.ttl_epoch {
@@ -668,9 +695,13 @@ fn enforce_stream_token_in_worker(
             serving_attempt_id,
             &context,
             validated_at_unix_ms,
-            StreamTokenValidationStatusV1::ProviderViolation(StreamTokenViolationKindV1::Expired),
+            (
+                StreamTokenValidationStatusV1::ProviderViolation(
+                    StreamTokenViolationKindV1::Expired,
+                ),
+                json_error(StatusCode::UNAUTHORIZED, "stream token has expired"),
+            ),
             material,
-            json_error(StatusCode::UNAUTHORIZED, "stream token has expired"),
         );
     }
     // Each new admission has its own challenged current-custody observation. The driver resamples
@@ -689,11 +720,13 @@ fn enforce_stream_token_in_worker(
                 serving_attempt_id,
                 &context,
                 validated_at_unix_ms,
-                StreamTokenValidationStatusV1::Excluded(
-                    StreamTokenExcludedKindV1::SignerAuthorityUnavailable,
+                (
+                    StreamTokenValidationStatusV1::Excluded(
+                        StreamTokenExcludedKindV1::SignerAuthorityUnavailable,
+                    ),
+                    external_admission_unavailable(StreamTokenGatewayAdmissionErrorV1::Unavailable),
                 ),
                 material,
-                external_admission_unavailable(StreamTokenGatewayAdmissionErrorV1::Unavailable),
             );
         }
     };
@@ -706,7 +739,7 @@ fn enforce_stream_token_in_worker(
         StreamTokenValidationStatusV1::Accepted,
         material,
     )? {
-        if let Some(response) = response_for_external_terminal(&telemetry, record) {
+        if let Some(response) = response_for_external_terminal(&telemetry, &record) {
             return Err(response);
         }
         let lease = lease.ok_or_else(|| {

@@ -1,13 +1,12 @@
 //! Canonical signed intent for a proved IVM transaction.
 //!
 //! A proof must bind an intent fixed before the proof and execution outputs exist.
-//! This module projects the complete unsigned payload, replacing only the
-//! proof-derived fields that would otherwise make its digest self-referential.
+//! This module projects the complete unsigned payload onto its ordered intent,
+//! which removes only the generated fields that would otherwise make its digest
+//! self-referential, and requires the explicitly declared execution proof carrier.
 
 use super::{Executable, SignedTransaction, TransactionPayload};
-use crate::proof::ProofAttachmentList;
-use iroha_crypto::Hash;
-use iroha_primitives::const_vec::ConstVec;
+use crate::transaction::signed_attachments::{ActionOperationV1, SignedAttachmentsV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use thiserror::Error;
@@ -53,12 +52,9 @@ pub enum IvmProvedTransactionIntentErrorV1 {
     /// The transaction does not carry a proved IVM executable.
     #[error("proved-IVM intent requires an IvmProved executable")]
     WrongExecutable,
-    /// The current proved-IVM proof carrier is missing.
-    #[error("proved-IVM intent requires a proof attachment")]
+    /// No action declares the execution proof carrier, or more than one does.
+    #[error("proved-IVM intent requires exactly one declared execution proof carrier")]
     MissingProofAttachment,
-    /// The normalized attachment list could not be represented canonically.
-    #[error("proved-IVM intent attachment list is invalid: {0}")]
-    InvalidProofAttachmentList(#[from] crate::proof::ProofAttachmentListError),
     /// Canonical Norito encoding of the normalized unsigned payload failed.
     #[error("canonical proved-IVM intent payload encoding failed")]
     PayloadEncodingFailure,
@@ -70,51 +66,46 @@ pub enum IvmProvedTransactionIntentErrorV1 {
 fn normalized_proved_payload(
     payload: &TransactionPayload,
 ) -> Result<TransactionPayload, IvmProvedTransactionIntentErrorV1> {
-    let mut normalized = payload.clone();
-    let Executable::IvmProved(proved) = &mut normalized.instructions else {
+    if !matches!(payload.instructions, Executable::IvmProved(_)) {
         return Err(IvmProvedTransactionIntentErrorV1::WrongExecutable);
-    };
-
-    // Overlay instructions and event/gas commitments are execution outputs.
-    // Keep the bytecode and all other signed transaction fields verbatim.
-    proved.overlay = ConstVec::new_empty();
-    proved.events_commitment = Hash::prehashed([0; Hash::LENGTH]);
-    proved.gas_policy_commitment = Hash::prehashed([0; Hash::LENGTH]);
-
-    // Current proved-IVM admission assigns attachment zero to this execution.
-    // A later attachment, if present, is independent and stays byte-identical.
-    let mut attachments = normalized
+    }
+    // The execution proof carrier is selected by its declared operation, not
+    // by its position among the attachments.
+    let mut execution_carriers = payload
         .attachments
-        .take()
-        .ok_or(IvmProvedTransactionIntentErrorV1::MissingProofAttachment)?
-        .into_vec();
-    let proof_carrier = attachments
-        .first_mut()
-        .ok_or(IvmProvedTransactionIntentErrorV1::MissingProofAttachment)?;
-    proof_carrier.proof.bytes.clear();
-    // The envelope hash is defined from proof bytes. The backend, verifying-key
-    // identity/commitment, lane witness, and following attachments are independent.
-    proof_carrier.envelope_hash = None;
-    normalized.attachments = Some(ProofAttachmentList::try_from(attachments)?);
-    Ok(normalized)
+        .iter()
+        .flat_map(SignedAttachmentsV1::actions)
+        .filter(|action| action.operation == ActionOperationV1::IvmProvedExecution);
+    if execution_carriers.next().is_none() || execution_carriers.next().is_some() {
+        return Err(IvmProvedTransactionIntentErrorV1::MissingProofAttachment);
+    }
+    // The ordered intent clears the overlay and the event and gas commitments
+    // (execution outputs), every attachment occurrence's bytes, the length and
+    // hash of every generated proof and every derived statement digest. The
+    // bytecode, every other signed field and each carrier's backend,
+    // verifying-key identity and commitment (through its public-input digest)
+    // stay bound.
+    Ok(payload.ordered_intent_normalized_payload_v1())
 }
 
 impl TransactionPayload {
     /// Return the exact canonical unsigned-payload preimage for a proved-IVM intent.
     ///
     /// The complete payload remains in the preimage, including the exact network
-    /// or genesis domain, authority, fees, time, nonce, metadata, bytecode,
-    /// verifying-key identity, and all independent attachments. Only the first
-    /// attachment's proof bytes and their envelope hash, plus the proved
-    /// executable's overlay and two output commitments, are normalized.
+    /// or genesis domain, authority, fees, time, nonce, metadata, bytecode and
+    /// the proof-free public inputs of every proof carrier (backend and
+    /// verifying-key identity and commitment). Only generated values are
+    /// normalized: every attachment occurrence's bytes with the length and hash
+    /// of each generated proof, each derived statement digest, and the proved
+    /// executable's overlay and two output commitments.
     ///
     /// This helper does not authorize private execution. Admission must verify
     /// a complete execution relation before it applies effects.
     ///
     /// # Errors
     ///
-    /// Returns an error for a non-proved executable, missing proof attachment,
-    /// invalid normalized attachment list, or canonical encoding failure.
+    /// Returns an error for a non-proved executable, a missing or repeated
+    /// execution proof carrier, or canonical encoding failure.
     pub fn ivm_proved_intent_projection_bytes_v1(
         &self,
     ) -> Result<Vec<u8>, IvmProvedTransactionIntentErrorV1> {
@@ -174,9 +165,12 @@ mod tests {
         isi::{InstructionBox, Log},
         proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         transaction::{
-            IvmBytecode, IvmProved, TransactionBuilder, TransactionDomain, signed::FeePaymentIntent,
+            IvmBytecode, IvmProved, TransactionBuilder, TransactionDomain,
+            signed::FeePaymentIntent,
+            signed_attachments::{PlannedActionV1, SignedAttachmentPlanV1},
         },
     };
+    use iroha_crypto::Hash;
     use iroha_crypto::{PrivateKey, PublicKey};
     use iroha_model_base::{metadata::Metadata, name::Name};
     use iroha_primitives::json::Json;
@@ -195,6 +189,40 @@ mod tests {
         attachment
     }
 
+    /// Declare the first attachment as the execution proof carrier and every
+    /// later one as an independent transaction-level proof carrier.
+    fn carrier_plan(attachments: &[ProofAttachment]) -> SignedAttachmentPlanV1 {
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(
+            PlannedActionV1::ivm_proved_execution(&attachments[0]).expect("execution carrier"),
+        );
+        for attachment in &attachments[1..] {
+            plan.push_action(
+                PlannedActionV1::transaction_proof(attachment).expect("independent carrier"),
+            );
+        }
+        plan
+    }
+
+    fn carriers(payload: &TransactionPayload) -> Vec<ProofAttachment> {
+        payload
+            .attachments
+            .as_ref()
+            .expect("fixture attachments")
+            .proof_carriers_v1()
+            .expect("canonical carriers")
+            .into_iter()
+            .map(|(_, attachment)| attachment)
+            .collect()
+    }
+
+    fn set_carriers(payload: &mut TransactionPayload, attachments: &[ProofAttachment]) {
+        payload.attachments = Some(carrier_plan(attachments).declare());
+        payload
+            .bind_attachment_statements_v1()
+            .expect("bound statements");
+    }
+
     fn fixture_payload() -> (TransactionPayload, PrivateKey) {
         let private_key: PrivateKey =
             "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9DCD53"
@@ -203,11 +231,10 @@ mod tests {
         let authority = AccountId::new(PublicKey::from(private_key.clone()));
         let mut first = proof_attachment("stark/fri", "ivm_v1", vec![1, 2, 3]);
         first.vk_commitment = Some([7; 32]);
-        let attachments = ProofAttachmentList::try_from(vec![
+        let attachments = [
             first,
             proof_attachment("halo2/ipa", "independent", vec![4, 5, 6]),
-        ])
-        .expect("bounded proof list");
+        ];
         let executable = Executable::IvmProved(IvmProved {
             bytecode: IvmBytecode::from_compiled(vec![1, 2, 3, 4]),
             overlay: vec![InstructionBox::from(Log::new(Level::INFO, "effect".into()))].into(),
@@ -220,7 +247,8 @@ mod tests {
             FeePaymentIntent::authority(Vec::new(), NonZeroU64::new(10_000)),
         )
         .with_executable(executable)
-        .with_attachments(attachments);
+        .with_attachment_plan(carrier_plan(&attachments))
+        .expect("valid carriers");
         builder.set_nonce(NonZeroU32::new(3).expect("nonzero"));
         (builder.into_payload().expect("valid payload"), private_key)
     }
@@ -272,13 +300,9 @@ mod tests {
         payload: &mut TransactionPayload,
         change: impl FnOnce(&mut ProofAttachment),
     ) {
-        let mut attachments = payload
-            .attachments
-            .take()
-            .expect("fixture attachments")
-            .into_vec();
+        let mut attachments = carriers(payload);
         change(&mut attachments[0]);
-        payload.attachments = Some(ProofAttachmentList::try_from(attachments).expect("bounded"));
+        set_carriers(payload, &attachments);
     }
 
     #[test]
@@ -338,16 +362,26 @@ mod tests {
                 attachment.vk_commitment = Some([8; 32]);
             });
         });
+        // The proof-free public inputs of an independent carrier stay bound.
         assert_retained_mutation(&payload, |changed| {
-            let mut attachments = changed
-                .attachments
-                .take()
-                .expect("fixture attachments")
-                .into_vec();
-            attachments[1].proof.bytes = vec![4, 5, 7];
-            attachments[1].envelope_hash = Some(Hash::new(&attachments[1].proof.bytes).into());
-            changed.attachments =
-                Some(ProofAttachmentList::try_from(attachments).expect("bounded"));
+            let mut attachments = carriers(changed);
+            attachments[1].vk_ref = VerifyingKeyId::new("halo2/ipa", "other_independent");
+            set_carriers(changed, &attachments);
+        });
+        // So does the order of the declared actions.
+        assert_retained_mutation(&payload, |changed| {
+            let attachments = carriers(changed);
+            let mut plan = SignedAttachmentPlanV1::new();
+            plan.push_action(
+                PlannedActionV1::transaction_proof(&attachments[1]).expect("independent carrier"),
+            );
+            plan.push_action(
+                PlannedActionV1::ivm_proved_execution(&attachments[0]).expect("execution carrier"),
+            );
+            changed.attachments = Some(plan.declare());
+            changed
+                .bind_attachment_statements_v1()
+                .expect("bound statements");
         });
     }
 
@@ -383,6 +417,13 @@ mod tests {
                 attachment.envelope_hash = None;
             });
         });
+        // Every generated proof is excluded, not only the execution carrier's.
+        assert_derived_mutation(&payload, |changed| {
+            let mut attachments = carriers(changed);
+            attachments[1].proof.bytes = vec![4, 5, 7];
+            attachments[1].envelope_hash = Some(Hash::new(&attachments[1].proof.bytes).into());
+            set_carriers(changed, &attachments);
+        });
 
         let signed = TransactionBuilder::from_payload(payload.clone())
             .expect("ordinary payload")
@@ -416,6 +457,58 @@ mod tests {
         assert!(matches!(
             payload.ivm_proved_intent_digest_v1(),
             Err(IvmProvedTransactionIntentErrorV1::WrongExecutable)
+        ));
+    }
+
+    #[test]
+    fn execution_carrier_is_selected_by_operation_not_by_position() {
+        let (payload, _) = fixture_payload();
+        let attachments = carriers(&payload);
+
+        // An independent carrier alone is not an execution proof carrier.
+        let mut independent_only = payload.clone();
+        independent_only.attachments = Some(
+            SignedAttachmentPlanV1::transaction_proofs(&attachments)
+                .expect("independent carriers")
+                .declare(),
+        );
+        assert!(matches!(
+            independent_only.ivm_proved_intent_digest_v1(),
+            Err(IvmProvedTransactionIntentErrorV1::MissingProofAttachment)
+        ));
+
+        // The execution carrier may follow an independent one.
+        let mut execution_second = payload.clone();
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(
+            PlannedActionV1::transaction_proof(&attachments[1]).expect("independent carrier"),
+        );
+        plan.push_action(
+            PlannedActionV1::ivm_proved_execution(&attachments[0]).expect("execution carrier"),
+        );
+        execution_second.attachments = Some(plan.declare());
+        execution_second
+            .bind_attachment_statements_v1()
+            .expect("bound statements");
+        execution_second
+            .validate_signed_attachments_v1()
+            .expect("valid reordered declaration");
+        execution_second
+            .ivm_proved_intent_digest_v1()
+            .expect("intent with the carrier in second position");
+
+        // Two execution carriers are ambiguous.
+        let mut repeated = payload.clone();
+        let mut plan = SignedAttachmentPlanV1::new();
+        for attachment in &attachments {
+            plan.push_action(
+                PlannedActionV1::ivm_proved_execution(attachment).expect("execution carrier"),
+            );
+        }
+        repeated.attachments = Some(plan.declare());
+        assert!(matches!(
+            repeated.ivm_proved_intent_digest_v1(),
+            Err(IvmProvedTransactionIntentErrorV1::MissingProofAttachment)
         ));
     }
 

@@ -12,8 +12,8 @@
 # - the Nexus catalog is the core system lanes plus the public `nexus` lane only; customer
 #   dataspaces are registered at runtime, never baked into genesis;
 # - four authenticated non-validator ingress sources and twelve external committee peers;
-# - the protocol custody account is fixed by the profile instead of derived from each genesis
-#   key (see `[static.pipeline.gas]`);
+# - Nexus fee and stake custody is fixed by the profile instead of derived from each genesis
+#   key (see `[static.nexus.fees]` and `[static.nexus.staking]`);
 # - the governance accounts and the VPN operator are keyless role accounts instead of the
 #   published sample key (see `[static.gov]`).
 #
@@ -44,23 +44,16 @@ npos_min_self_bond = 1
 [static.sumeragi.keys]
 allowed_algorithms = ["bls_normal"]
 
-# Frame caps that differ from the code defaults; the consensus, control and block-sync caps
-# keep their protocol defaults.
+# Gossip must carry a maximum committed transaction plus its signed relay metadata.
+# Consensus, control and block-sync retain their protocol defaults.
 [static.network]
-max_frame_bytes_tx_gossip = 1048576
+max_frame_bytes_tx_gossip = 17825792
 max_frame_bytes_peer_gossip = 65536
 max_frame_bytes_health = 32768
 max_frame_bytes_other = 131072
 
 [static.pipeline]
 signature_batch_max_bls = 4
-
-# Protocol custody account: the gas technical account, fee sink, sponsor-vault custody, stake
-# escrow and slash sink. It is keyless: `iroha_config::profile::protocol_custody_account`
-# (`derive_non_signing_ed25519_public_key("iroha:config:profile:protocol-custody:v1",
-# ["sora-nexus-v1"])`). Kagami's Taira derived its keyless equivalent from each genesis key.
-[static.pipeline.gas]
-tech_account_id = "testuﾛ1PgwﾋWｦﾆﾏﾎ4ﾏjｹ2ghﾇKVｾﾓﾐﾍｵﾑVﾔｦEｼGﾐｶﾌSｽﾋﾕｸBS35S9"
 
 [static.crypto]
 allowed_signing = ["ed25519", "secp256k1", "bls_normal"]
@@ -75,9 +68,6 @@ allowed_curve_ids = []
 enabled = true
 assume_valid = false
 
-[static.zk.pipa_r]
-enabled = true
-
 [static.nexus]
 lane_count = 4
 
@@ -85,6 +75,9 @@ lane_count = 4
 exit_teu = 50000000
 
 [static.nexus.staking]
+# SCCP validity plus evidence grace; part of the signed consensus policy.
+unbonding_delay_ms = 1814400000
+max_slash_bps = 10000
 stake_asset_id = "6TEAJqbb8oEPmLncoNiMRbLEK6tw"
 stake_escrow_account_id = "testuﾛ1PgwﾋWｦﾆﾏﾎ4ﾏjｹ2ghﾇKVｾﾓﾐﾍｵﾑVﾔｦEｼGﾐｶﾌSｽﾋﾕｸBS35S9"
 slash_sink_account_id = "testuﾛ1PgwﾋWｦﾆﾏﾎ4ﾏjｹ2ghﾇKVｾﾓﾐﾍｵﾑVﾔｦEｼGﾐｶﾌSｽﾋﾕｸBS35S9"

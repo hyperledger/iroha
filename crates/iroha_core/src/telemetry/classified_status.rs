@@ -28,7 +28,7 @@ impl OwnedStatus {
 }
 
 /// Failure to assemble a complete, exactly bound status snapshot.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum StatusSnapshotError {
     /// Telemetry is not enabled for this owner.
     #[error("telemetry is disabled")]
@@ -51,9 +51,10 @@ pub enum StatusSnapshotError {
     /// A previously classified State checkpoint changed.
     #[error("classified State journal checkpoint changed")]
     CheckpointChanged,
-    /// A canonical history read could not finish under its original allocation budget.
+    /// Diagnostic notice of an unfinished history read. The actor retains the original owner;
+    /// dropping or repeating an HTTP request cannot copy, export, or discard that owner.
     #[error("status history read deferred: {0}")]
-    Deferred(crate::execution_attempt::ExecutionDeferred),
+    HistoryReadDeferred(ivm::error::ExecutionDeferral),
     /// A canonical history read completed with a storage or decoding error.
     #[error("status history read failed: {0}")]
     HistoryRead(String),
@@ -143,15 +144,25 @@ impl Actor {
         height: NonZeroUsize,
     ) -> Result<Option<iroha_data_model::block::SharedSignedBlock>, StatusSnapshotError> {
         use crate::execution_attempt::ExecutionAttemptError;
-        self.status_read_refusal = None;
         match self
             .kura
             .get_block(height, &self.state.ivm_execution_budget())
         {
-            Ok(block) => Ok(block),
-            Err(ExecutionAttemptError::Deferred(reason)) => {
-                self.status_read_refusal = Some(reason.clone());
-                Err(StatusSnapshotError::Deferred(reason))
+            Ok(block) => {
+                if self
+                    .status_read_refusal
+                    .as_ref()
+                    .is_some_and(|(source, _)| *source == height)
+                {
+                    self.status_read_refusal = None;
+                }
+                Ok(block)
+            }
+            Err(ExecutionAttemptError::Deferred(original)) => {
+                let retained = self.status_read_refusal.get_or_insert((height, original));
+                Err(StatusSnapshotError::HistoryReadDeferred(
+                    retained.1.reason(),
+                ))
             }
             Err(ExecutionAttemptError::Rejected(error)) => {
                 Err(StatusSnapshotError::HistoryRead(error.to_string()))
@@ -479,10 +490,10 @@ mod tests {
             .set_execution_outputs(
                 rows,
                 0,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 vec![],
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &iroha_data_model::parameter::ExecutionOutputPolicyV1::bootstrap().limits(),
             )
             .unwrap();
@@ -552,7 +563,7 @@ mod tests {
             } else {
                 let result = encoded.result.as_mut().unwrap();
                 match mutation {
-                    1 => result.output_merkle = Default::default(),
+                    1 => result.output_merkle = iroha_crypto::MerkleTree::default(),
                     2 => {
                         result.outputs.remove(0);
                     }

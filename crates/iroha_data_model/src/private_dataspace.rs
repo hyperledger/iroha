@@ -36,8 +36,8 @@ use crate::{
         AmxCertifiedBlockV1, AmxForeignInstanceV1, MAX_AMX_HEADER_BYTES, MAX_AMX_QC_BYTES,
     },
     sumeragi_finality::{
-        ExecutionResultCommitment, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES, ProofCrypto,
-        ScheduledSlot,
+        CertifiedResultScope, CertifiedResultV1, FinalityValidator, MAX_RESULT_PREIMAGE_BYTES,
+        ProofCrypto, ScheduledSlot,
     },
 };
 
@@ -49,19 +49,56 @@ pub const MAX_PRIVATE_DATASPACE_ANCHOR_BYTES: usize =
 pub const MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES: usize = 32 * 1024;
 
 /// Why a private-root registration or certified extension was refused.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("private dataspace anchor: {0}")]
-pub struct PrivateDataspaceAnchorError(pub String);
+#[derive(Debug, thiserror::Error)]
+pub enum PrivateDataspaceAnchorError {
+    /// The supplied registration, anchor or transition is invalid.
+    #[error("private dataspace anchor: {0}")]
+    Invalid(String),
+    /// The enclosing decoder or allocator refused; no protocol verdict was produced.
+    #[error("local private dataspace codec resource refusal: {0}")]
+    Resource(#[source] norito::core::DecodeAttemptError),
+}
 
 fn require(condition: bool, reason: &'static str) -> Result<(), PrivateDataspaceAnchorError> {
     if condition {
         Ok(())
     } else {
-        Err(PrivateDataspaceAnchorError(reason.into()))
+        Err(PrivateDataspaceAnchorError::Invalid(reason.into()))
     }
 }
 fn failure(error: impl std::fmt::Display) -> PrivateDataspaceAnchorError {
-    PrivateDataspaceAnchorError(error.to_string())
+    PrivateDataspaceAnchorError::Invalid(error.to_string())
+}
+
+// The admission decoder retains the enforcing boundary; intrinsic ceilings remain invalid.
+fn codec_failure(error: norito::core::DecodeAttemptError) -> PrivateDataspaceAnchorError {
+    match error.kind() {
+        norito::core::DecodeAttemptErrorKind::Allocator
+        | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+            PrivateDataspaceAnchorError::Resource(error)
+        }
+        norito::core::DecodeAttemptErrorKind::Invalid => failure(error),
+    }
+}
+
+fn certified_failure(
+    error: crate::sumeragi_finality::CertifiedResultError,
+) -> PrivateDataspaceAnchorError {
+    match error {
+        crate::sumeragi_finality::CertifiedResultError::Body(
+            crate::sumeragi_finality::CommitmentError::Resource(resource),
+        ) => PrivateDataspaceAnchorError::Resource(resource),
+        other => failure(other),
+    }
+}
+
+fn amx_failure(error: crate::sumeragi_amx::AmxError) -> PrivateDataspaceAnchorError {
+    match error {
+        crate::sumeragi_amx::AmxError::Resource(resource) => {
+            PrivateDataspaceAnchorError::Resource(resource)
+        }
+        other => failure(other),
+    }
 }
 
 /// One exact decision in a private root's contiguous certified history.
@@ -133,11 +170,11 @@ impl PrivateDataspaceRegistration {
             bytes.len() <= MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES,
             "registration exceeds its wire bound",
         )?;
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             bytes,
             part_limits(MAX_PRIVATE_DATASPACE_REGISTRATION_BYTES),
         )
-        .map_err(failure)?;
+        .map_err(codec_failure)?;
         value.validate()?;
         Ok(value)
     }
@@ -217,7 +254,7 @@ impl PrivateDataspaceRegistration {
                 parent_network_id,
                 dataspace_id,
             } => Ok((parent_network_id, dataspace_id)),
-            SumeragiRootScope::Global => Err(PrivateDataspaceAnchorError(
+            SumeragiRootScope::Global => Err(PrivateDataspaceAnchorError::Invalid(
                 "global scope is not a private root".into(),
             )),
         }
@@ -320,7 +357,7 @@ impl PrivateDataspaceAnchor {
             header.instance.0 == registration.instance,
             "exported certificate belongs to another private root",
         )?;
-        registration.fixed_context(&result.schedule.current)?;
+        registration.fixed_context(&result.commitment().schedule.current)?;
         Ok(anchor)
     }
 
@@ -333,11 +370,11 @@ impl PrivateDataspaceAnchor {
             bytes.len() <= MAX_PRIVATE_DATASPACE_ANCHOR_BYTES,
             "anchor exceeds its wire bound",
         )?;
-        let anchor: Self = norito::decode_canonical_with_limits(
+        let anchor: Self = norito::decode_canonical_for_admission(
             bytes,
             part_limits(MAX_PRIVATE_DATASPACE_ANCHOR_BYTES),
         )
-        .map_err(failure)?;
+        .map_err(codec_failure)?;
         anchor.public_parts()?;
         Ok(anchor)
     }
@@ -350,26 +387,28 @@ impl PrivateDataspaceAnchor {
         Ok(self.public_parts()?.0.height)
     }
 
-    fn public_parts(
-        &self,
-    ) -> Result<(CoreHeader, ExecutionResultCommitment), PrivateDataspaceAnchorError> {
+    // The registered private-root role fixes NonGlobal before decoding X. No
+    // SignedBlock timestamp crosses this compact boundary, so it cannot check C5.
+    fn public_parts(&self) -> Result<(CoreHeader, CertifiedResultV1), PrivateDataspaceAnchorError> {
         let block = &self.certificate;
         bounds(
             &block.consensus_header,
             &block.commit_qc,
             &block.result_preimage,
         )?;
-        let header: CoreHeader = norito::decode_canonical_with_limits(
+        let header: CoreHeader = norito::decode_canonical_for_admission(
             &block.consensus_header,
             part_limits(MAX_AMX_HEADER_BYTES),
         )
-        .map_err(failure)?;
+        .map_err(codec_failure)?;
         let _: Qc =
-            norito::decode_canonical_with_limits(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
-                .map_err(failure)?;
-        let result = ExecutionResultCommitment::decode(&block.result_preimage).map_err(failure)?;
+            norito::decode_canonical_for_admission(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
+                .map_err(codec_failure)?;
+        let result =
+            CertifiedResultV1::decode(&block.result_preimage, CertifiedResultScope::NonGlobal)
+                .map_err(certified_failure)?;
         require(
-            header.control_witness.is_empty() && result.beacon.is_none(),
+            header.control_witness.is_empty() && result.commitment().beacon.is_none(),
             "private developer anchors cannot export application control witnesses",
         )?;
         Ok((header, result))
@@ -436,9 +475,12 @@ impl PrivateDataspaceAnchorState {
         registration: PrivateDataspaceRegistration,
     ) -> Result<Self, PrivateDataspaceAnchorError> {
         registration.validate()?;
-        let tracker =
-            AmxForeignInstanceV1::new(registration.instance, registration.initial_epoch.clone())
-                .map_err(failure)?;
+        let tracker = AmxForeignInstanceV1::new(
+            registration.instance,
+            registration.initial_epoch.clone(),
+            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+        )
+        .map_err(amx_failure)?;
         let cursor = registration.genesis_cursor;
         Ok(Self {
             registration,
@@ -456,9 +498,11 @@ impl PrivateDataspaceAnchorState {
     /// Rejects a substituted tracker, unsupported handoff, or malformed genesis/tip cursor.
     pub fn validate(&self) -> Result<(), PrivateDataspaceAnchorError> {
         self.registration.validate()?;
-        self.tracker.validate().map_err(failure)?;
+        self.tracker.validate().map_err(amx_failure)?;
         require(
-            self.tracker.instance == self.registration.instance && self.tracker.previous.is_none(),
+            self.tracker.instance == self.registration.instance
+                && self.tracker.result_scope == CertifiedResultScope::NonGlobal
+                && self.tracker.previous.is_none(),
             "tracker differs from the registered fixed private root",
         )?;
         self.registration.fixed_context(&self.tracker.current)?;
@@ -504,11 +548,12 @@ impl PrivateDataspaceAnchorState {
                 && anchor.child_network_id == self.registration.child_network_id,
             "anchor differs from registered parent, dataspace or child",
         )?;
-        let (header, commitment) = anchor.public_parts()?;
+        let (header, certified_result) = anchor.public_parts()?;
+        let commitment = certified_result.commitment();
         let verified = self
             .tracker
             .verify_block(&anchor.certificate)
-            .map_err(failure)?;
+            .map_err(amx_failure)?;
         self.registration
             .fixed_context(&commitment.schedule.current)?;
         for slot in [&commitment.schedule.next, &commitment.schedule.after_next] {

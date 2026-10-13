@@ -42,6 +42,57 @@ fn certify(snapshot: &WorldStateSnapshotV1) -> VerifiedSumeragiBlock {
 }
 
 #[test]
+fn world_original_decoder_refusal_keeps_its_origin_after_scope_retirement() {
+    let (snapshot, _, _, _) = snapshot();
+    let original = norito::encode_canonical(&snapshot).unwrap();
+    let limits =
+        |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
+    let (decoded, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        WorldStateSnapshotV1::decode_bounded_canonical(&original)
+    });
+    assert_eq!(decoded.unwrap(), snapshot);
+    assert!(usage.total_allocated_bytes() > 0);
+    for allocation in [0, usage.total_allocated_bytes() - 1] {
+        let error = norito::with_decode_limits_scope(limits(allocation), || {
+            WorldStateSnapshotV1::decode_bounded_canonical(&original).unwrap_err()
+        });
+        let FinalityReadError::DecodeResource(cause) = error else {
+            panic!("unfinished original read must remain a resource refusal");
+        };
+        assert_eq!(
+            cause.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        let fields = cause.error().decode_resource_error().unwrap();
+        norito::with_decode_limits_scope(limits(allocation), || {
+            assert_eq!(
+                cause.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            );
+            assert_eq!(cause.error().decode_resource_error(), Some(fields));
+        });
+        assert_eq!(
+            WorldStateSnapshotV1::decode_bounded_canonical(&original).unwrap(),
+            snapshot
+        );
+    }
+    let mut invalid = snapshot.clone();
+    invalid.entries.push(invalid.entries[0].clone());
+    assert!(matches!(
+        WorldStateSnapshotV1::decode_bounded_canonical(
+            &norito::encode_canonical(&invalid).unwrap()
+        ),
+        Err(FinalityReadError::Invalid(_))
+    ));
+    let mut trailing = original;
+    trailing.push(0);
+    assert!(matches!(
+        WorldStateSnapshotV1::decode_bounded_canonical(&trailing),
+        Err(FinalityReadError::Invalid(_))
+    ));
+}
+
+#[test]
 fn canonical_trigger_owner_identities_roundtrip_and_bind_exact_hash_preimages() {
     let (mut snapshot, _, _, _) = snapshot();
     let trigger: crate::trigger::TriggerId = "snapshot_trigger".parse().unwrap();
@@ -770,4 +821,58 @@ fn certified_direct_home_requires_exact_row_current_incarnation_and_domainless_d
                 .is_err()
         );
     }
+}
+
+#[test]
+fn certified_table_key_domain_refuses_omitted_newer_or_foreign_keys() {
+    use crate::bridge::SccpNetworkV1;
+    let (mut snapshot, _, _, _) = snapshot();
+    let field = "world.sccp_light_client_profiles";
+    let eth = SccpNetworkV1::EthereumMainnet;
+    let key = (eth, 3_u32);
+    snapshot.entries.push(WorldStateSnapshotEntryV1 {
+        field_id: field.into(),
+        kind: WorldStateElementKindV1::Table,
+        key_hash: Some(world_state_value_hash_v1(&key).unwrap()),
+        value_hash: world_state_value_hash_v1(&7_u64).unwrap(),
+    });
+    snapshot.entries.sort_by(|left, right| {
+        left.field_id
+            .cmp(&right.field_id)
+            .then(left.key_hash.cmp(&right.key_hash))
+    });
+    let tip = certify(&snapshot);
+    let verified = snapshot.authenticate(&tip).unwrap();
+    verified
+        .verify_table_keys_within(field, &[(eth, 2_u32), key])
+        .unwrap();
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[(eth, 2_u32)])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[(SccpNetworkV1::BscMainnet, 3_u32)])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[key, key])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within::<u32>("world.soracloud_sequence_watermark", &[])
+            .is_err()
+    );
+    let mut omitted = snapshot.clone();
+    omitted.entries.retain(|entry| entry.field_id != field);
+    assert!(omitted.authenticate(&tip).is_err());
+    let empty_tip = certify(&omitted);
+    omitted
+        .authenticate(&empty_tip)
+        .unwrap()
+        .verify_table_keys_within::<u32>(field, &[])
+        .unwrap();
 }

@@ -2,6 +2,7 @@
 use super::tests::{fixture, gateway, ingest, options, reputation, reputation_labels};
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::UnavailablePeers;
 use std::{io, time::Duration};
 
@@ -83,7 +84,7 @@ fn unavailable_native_finality_prevents_both_originals_quotes_and_dispatch() {
             &options(),
         ),
     ] {
-        let error = result.err().expect("native finality missing");
+        let error = result.expect_err("native finality missing");
         assert!(
             error
                 .to_string()
@@ -93,7 +94,7 @@ fn unavailable_native_finality_prevents_both_originals_quotes_and_dispatch() {
     }
     for owner in [&gateway_owner.inner, &recorder_owner.inner] {
         let directory = owner.authority.directory.open_child("setup").unwrap();
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory.open_child("transaction").err().unwrap().kind(),
             io::ErrorKind::NotFound
@@ -190,7 +191,7 @@ fn all_closed_wallet_dispatches_keep_exact_wire_once_only_after_ambiguous_http_a
             intent,
             checkpoint: vec![1],
         };
-        let directory = owner.authority.directory.ensure_child("setup").unwrap();
+        let directory = metadata::ensure_operation(&owner.authority.directory, "setup").unwrap();
         let utc = now_ms().unwrap() + 600_000;
         let original =
             super::tests::retain_explicit_request(&owner, &directory, &original, || utc, &opts);
@@ -266,7 +267,7 @@ fn all_closed_wallet_dispatches_keep_exact_wire_once_only_after_ambiguous_http_a
                 assert_eq!(before, &retained)
             } else {
                 marker = Some(retained)
-            };
+            }
             assert_eq!(
                 std::fs::read(path.join("operation.json")).unwrap(),
                 operation
@@ -367,7 +368,7 @@ fn provider_ingest_missing_original_and_wrong_roles_are_offline_but_finality_ref
             .contains("cannot read original genesis result")
     );
     let directory = owner.inner.authority.directory.open_child("setup").unwrap();
-    require_empty(&directory).unwrap();
+    metadata::require_unselected(&directory).unwrap();
     peers.finish();
     let requests = peers.requests.lock().unwrap();
     assert!(requests.iter().any(|r| r.path == "/v1/bridge/finality/1"));

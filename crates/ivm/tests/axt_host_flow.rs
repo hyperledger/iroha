@@ -50,10 +50,10 @@ fn default_host_accepts_descriptor_and_touch_but_requires_proof() {
     vm.set_register(10, dsid_ptr);
     vm.set_register(11, manifest_ptr);
     assert!(host.syscall(syscalls::SYSCALL_AXT_TOUCH, &mut vm).is_ok());
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
         Err(VMError::PermissionDenied)
-    );
+    ));
 }
 
 #[test]
@@ -63,9 +63,8 @@ fn hosts_reject_retired_handle_syscall_before_input_access() {
     vm.set_register(11, u64::MAX);
     let mut default = DefaultHost::new();
     let before = vm.remaining_gas();
-    assert_eq!(
-        default.syscall(0xB4, &mut vm),
-        Err(VMError::UnknownSyscall(0xB4))
+    assert!(
+        matches!(default.syscall(0xB4, &mut vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xB4))
     );
     assert_eq!(vm.remaining_gas(), before);
     let caller = AccountId::new(
@@ -75,9 +74,8 @@ fn hosts_reject_retired_handle_syscall_before_input_access() {
             .clone(),
     );
     let mut wsv = WsvHost::new_with_subject(MockWorldStateView::new(), caller);
-    assert_eq!(
-        wsv.syscall(0xB4, &mut vm),
-        Err(VMError::UnknownSyscall(0xB4))
+    assert!(
+        matches!(wsv.syscall(0xB4, &mut vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xB4))
     );
     assert_eq!(vm.remaining_gas(), before);
 }
@@ -93,12 +91,12 @@ fn default_host_rejects_empty_descriptor_without_mutation() {
     let bytes = norito::to_bytes(&descriptor).expect("encode descriptor");
     let ptr = store_tlv(&mut vm, PointerType::AxtDescriptor, &bytes);
     vm.set_register(10, ptr);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_AXT_BEGIN, &mut vm),
         Err(VMError::PermissionDenied)
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
         Err(VMError::PermissionDenied)
-    );
+    ));
 }

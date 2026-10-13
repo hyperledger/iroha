@@ -117,7 +117,7 @@ impl NativeStreamTokenSourceV1 {
     }
     fn checked(
         &self,
-        reviewed: StreamTokenReviewedV1,
+        reviewed: &StreamTokenReviewedV1,
         phase: Phase,
     ) -> Result<VerifiedStreamTokenCheckV1, SignerOperationErrorV1> {
         self.checked_prepared(self.prepare_check(reviewed, phase)?)
@@ -234,7 +234,7 @@ impl SignerOperationStateSourceV1 for NativeStreamTokenSourceV1 {
             return Err(SignerOperationErrorV1::InvalidOperation);
         }
         self.checked_context(&self.checked(
-            *review.reviewed(),
+            review.reviewed(),
             Phase::Current(request.intent().previous_audit),
         )?)?;
         let submitted = self.mutate(
@@ -248,7 +248,8 @@ impl SignerOperationStateSourceV1 for NativeStreamTokenSourceV1 {
             return Err(SignerOperationErrorV1::StateUnavailable);
         }
         let reservation = row.operation.reservation;
-        self.checked_context(&self.checked(row.operation.reviewed, Phase::BeforeProvider(row))?)?;
+        let reviewed = row.operation.reviewed;
+        self.checked_context(&self.checked(&reviewed, Phase::BeforeProvider(row))?)?;
         Ok(reservation)
     }
     fn observe_reserved(

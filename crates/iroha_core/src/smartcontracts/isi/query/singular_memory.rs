@@ -202,6 +202,7 @@ where
     .map_err(|_| Error::CapacityLimit)
 }
 /// Internal frame for a wire-equivalent query source. Only the owned output selects its header.
+#[repr(C)]
 pub(super) struct SingularQueryFrame<'a, T> {
     source: &'a dyn SerializePayload,
     // A zero-length array preserves the output alignment without storing or constructing it.
@@ -516,7 +517,6 @@ where
         self.values.last()
     }
     /// Finish the builder without copying its retained values.
-    #[must_use]
     pub(crate) fn into_vec(mut self) -> Result<Vec<T>, Error> {
         let output_charge =
             retained_allocation_bytes::<T>(self.admitted_capacity, 0, self.retained_nested_bytes)?;

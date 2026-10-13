@@ -62,7 +62,7 @@ fn paid_block(
         chain.sign(customer, instructions, time)
     });
     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+    let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false) else {
         panic!("genuine paid original must execute");
     };
     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
@@ -177,7 +177,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
         let mut blocker = None;
         let mut pointer = None;
         let mut bytes = None;
-        let outcome = worker.run_execution_with_finisher(&block, hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_mut().unwrap();
             original.native_contexts = Some(
@@ -200,7 +200,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
                     .try_reserve_bytes(limit - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         let Err(PublicationError::Deferred(refusal)) = outcome else {
             panic!("intent must preserve typed original pool refusal");
@@ -227,7 +227,7 @@ fn original_paid_intent_capacity_refusal_retains_completed_context_and_same_pool
         assert!(budget.same_pool(&worker.state.ivm_execution_budget()));
         drop(blocker.take());
         worker
-            .finish_execution_with_encoder(encode_result_preimage)
+            .finish_execution_with_encoder(false, encode_result_preimage)
             .unwrap();
         let live = worker.live.as_ref().unwrap();
         let context = live.native_contexts.as_ref().unwrap();
@@ -408,7 +408,7 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             chain.sign(&customer, [instruction], time)
         });
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let outcome = worker.run_execution_with_finisher(&block, hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_mut().unwrap();
             let result = original.phase.ready().unwrap();
@@ -425,19 +425,19 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             let pointer = context.canonical_bytes().as_ptr();
             assert!(original.witness.matches_original_native_execution(
                 original.valid.as_ref(),
-                result.get().execution
+                &result.get().commitment().execution
             ));
             assert!(!original.witness.matches_original_native_execution(
                 chain.committed(1).block(),
-                result.get().execution
+                &result.get().commitment().execution
             ));
-            let mut changed_execution = result.get().execution;
+            let mut changed_execution = result.get().commitment().execution;
             changed_execution.ordinary_writes_root =
                 iroha_crypto::Hash::new(b"substituted native writes");
             assert!(
                 !original
                     .witness
-                    .matches_original_native_execution(original.valid.as_ref(), changed_execution)
+                    .matches_original_native_execution(original.valid.as_ref(), &changed_execution)
             );
             assert!(matches!(
                 worker.context.native_context_archive.prepare_amx_intents(
@@ -508,7 +508,7 @@ fn original_paid_intent_capture_rejects_changed_carrier_execution_and_foreign_po
             );
             assert_eq!(context.canonical_bytes().as_ptr(), pointer);
             original.native_contexts = Some(context);
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Ok(Some(_))));
     });
@@ -523,7 +523,7 @@ fn original_paid_prepared_witness_survives_same_block_pruning_before_intent_comm
                     let block = publication_tests::proposal_with_transaction(chain, worker,
                         |chain, time| chain.sign(&customer, instructions, time));
                     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-                    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else { panic!("actual paid same-block Prepare originals must execute"); };
+                    let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
                     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
                     let live = worker.live.as_ref().unwrap();
                     let overlay = live.overlay.as_deref().unwrap();

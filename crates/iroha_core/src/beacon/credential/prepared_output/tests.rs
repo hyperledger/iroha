@@ -359,7 +359,7 @@ fn every_original_component_requires_its_exact_canonical_public_equation_before_
         // three generators are validated and nonzero; the old public equation
         // must reject the changed component, not just malformed scalar encoding.
         let mut scalar = [0; 32];
-        scalar[31] = if original[index] == scalar { 1 } else { 0 };
+        scalar[31] = u8::from(original[index] == scalar);
         assert_ne!(scalar, original[index]);
         let mut changed = original;
         changed[index] = scalar;

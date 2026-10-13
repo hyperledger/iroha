@@ -16,7 +16,8 @@ mod canonical_output_inclusion_tests {
         (block, committed)
     }
     fn commitment(block: &SignedBlock) -> crate::sumeragi_finality::ExecutionCommitment {
-        let wire = block.encode_wire().unwrap();
+        let (executed_block_wire_len, executed_block_wire_hash) =
+            block.executed_block_wire_identity().unwrap();
         // A selected structural execution projection, not self-authenticating finality.
         crate::sumeragi_finality::ExecutionCommitment {
             parent_state_root: Hash::new(b"parent"),
@@ -25,8 +26,8 @@ mod canonical_output_inclusion_tests {
             parent_world_state_root: Hash::new(b"parent world"),
             world_state_root: Hash::new(b"world"),
             event_commitment: None,
-            executed_block_wire_len: wire.len() as u64,
-            executed_block_wire_hash: Hash::new(&wire),
+            executed_block_wire_len,
+            executed_block_wire_hash,
             transaction_input_commitment: block.network_input_merkle_commitment(),
             transaction_output_commitment: block.output_merkle_commitment(),
         }
@@ -303,6 +304,33 @@ mod canonical_output_inclusion_tests {
             }
             assert!(!committed.verify_inclusion_in_authenticated_execution(&block, &wrong));
         }
+    }
+    #[test]
+    fn authenticated_execution_inclusion_uses_certificate_free_wire_identity() {
+        let (block, committed) = execution_fixture();
+        let expected = commitment(&block);
+        // Certificate authentication belongs to the caller. This structural fixture
+        // checks that retaining its witness does not alter the certified execution identity.
+        let certified = block.with_commit_certificate(Some(
+            crate::block::CommitCertificate::from_untrusted_parts(
+                vec![1],
+                vec![2],
+                vec![3],
+                vec![4],
+            ),
+        ));
+        let wire = certified.encode_wire().unwrap();
+        assert_ne!(Hash::new(&wire), expected.executed_block_wire_hash);
+        assert_eq!(
+            certified.executed_block_wire_identity().unwrap(),
+            (
+                expected.executed_block_wire_len,
+                expected.executed_block_wire_hash,
+            )
+        );
+        assert!(committed.verify_inclusion_in_authenticated_execution(&certified, &expected));
+        let decoded = crate::block::decode_framed_signed_block(&wire).unwrap();
+        assert!(committed.verify_inclusion_in_authenticated_execution(&decoded, &expected));
     }
     #[test]
     fn authenticated_execution_inclusion_rejects_unbound_wire_and_header_material() {

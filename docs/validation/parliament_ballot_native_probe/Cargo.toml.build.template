@@ -1,0 +1,728 @@
+[workspace.package]
+edition = "2024"
+rust-version = "1.92"
+version = "2.0.0-rc.2.0"
+authors = ["Hyperledger Iroha contributors <https://github.com/hyperledger-iroha/iroha/graphs/contributors>"]
+
+description = "Deterministic Byzantine-fault-tolerant ledger for Hyperledger Iroha 3"
+repository = "https://github.com/hyperledger-iroha/iroha"
+documentation = "https://docs.iroha.tech"
+homepage = "https://iroha.tech"
+
+license = "Apache-2.0"
+keywords = ["blockchain", "crypto", "iroha", "ledger"]
+categories = ["cryptography::cryptocurrencies"]
+
+[workspace.metadata]
+docker_bins = [
+    "iroha",
+    "iroha3d",
+    "sorafs_governance_dag",
+    "kagami",
+    "attachment_sanitizer",
+]
+
+[workspace.dependencies]
+# Internal dependency features are selected by the consuming crate. Keeping the
+# workspace declarations feature-free prevents focused builds from inheriting a
+# node-sized graph (or test-only features) accidentally.
+iroha_core = { path = "crates/iroha_core", default-features = false }
+iroha_core_zk = { path = "crates/iroha_core_zk", default-features = false }
+iroha_core_privacy = { path = "crates/iroha_core_privacy", default-features = false }
+iroha_core_timed_ovn = { path = "crates/iroha_core_timed_ovn", default-features = false }
+
+iroha_torii = { path = "crates/iroha_torii", default-features = false }
+iroha_torii_shared = { path = "crates/iroha_torii_shared" }
+
+iroha = { path = "crates/iroha" }
+iroha_contract_deploy = { path = "crates/iroha_contract_deploy" }
+iroha_deploy = { path = "crates/iroha_deploy" }
+iroha_fs = { path = "crates/iroha_fs" }
+iroha_operation_journal = { path = "crates/iroha_operation_journal" }
+iroha_wallet = { path = "crates/iroha_wallet" }
+iroha_storage_client = { path = "crates/iroha_storage_client" }
+iroha_musubi_service = { path = "crates/iroha_musubi_service" }
+
+iroha_telemetry = { path = "crates/iroha_telemetry" }
+iroha_p2p = { path = "crates/iroha_p2p" }
+iroha_petal = { path = "crates/iroha_petal" }
+iroha_primitives = { path = "crates/iroha_primitives", default-features = false }
+iroha_config = { path = "crates/iroha_config" }
+iroha_config_base = { path = "crates/iroha_config_base" }
+iroha_derive = { path = "crates/iroha_derive" }
+iroha_derive_primitives = { path = "crates/iroha_derive_primitives" }
+iroha_schema_gen = { path = "crates/iroha_schema_gen" }
+iroha_schema = { path = "crates/iroha_schema", default-features = false }
+iroha_logger = { path = "crates/iroha_logger" }
+iroha_crypto = { path = "crates/iroha_crypto", default-features = false }
+iroha_macro = { path = "crates/iroha_macro", default-features = false }
+iroha_futures = { path = "crates/iroha_futures" }
+iroha_panic_hook = { path = "crates/iroha_panic_hook" }
+iroha_genesis = { path = "crates/iroha_genesis" }
+iroha_sccp = { path = "crates/iroha_sccp" }
+iroha_sccp_rpc = { path = "crates/iroha_sccp_rpc" }
+iroha_sccp_wallet = { path = "crates/iroha_sccp_wallet" }
+# The sans-IO Sumeragi consensus core; `iroha_core` hosts its node driver.
+iroha_sumeragi = { path = "crates/iroha_sumeragi" }
+norito = { path = "crates/norito", default-features = false }
+norito_derive = { path = "crates/norito_derive" }
+iroha_version = { path = "crates/iroha_version" }
+connect_norito_bridge = { path = "crates/connect_norito_bridge" }
+fastpq_prover = { path = "crates/fastpq_prover" }
+iroha_zkp_halo2 = { path = "crates/iroha_zkp_halo2" }
+iroha_zkp_poseidon = { path = "crates/iroha_zkp_poseidon" }
+# Experimental VOLE-in-the-head backend and Parliament ballot relations; no profile is selected.
+iroha_zkp_vole = { path = "crates/iroha_zkp_vole", default-features = false }
+iroha_parliament_ballot_proof = { path = "crates/iroha_parliament_ballot_proof", default-features = false }
+# Native PLONK/IPA stack; one first-release proof implementation.
+iroha_pasta = { path = "crates/iroha_pasta" }
+iroha_plonk = { path = "crates/iroha_plonk" }
+iroha_plonk_gadgets = { path = "crates/iroha_plonk_gadgets" }
+iroha_plonk_recursion = { path = "crates/iroha_plonk_recursion" }
+iroha_kagemusha_proof = { path = "crates/iroha_kagemusha_proof" }
+iroha_i18n = { path = "crates/iroha_i18n" }
+
+# Crates that need JSON, governance, HTTP, bridge, BLS, or transparent APIs
+# request them locally so focused builds do not compile the broadest model.
+iroha_data_model = { path = "crates/iroha_data_model", default-features = false }
+iroha_model_base = { path = "crates/iroha_model_base", default-features = false }
+iroha_js_codec = { path = "crates/iroha_js_codec", default-features = false }
+iroha_service_model = { path = "crates/iroha_service_model" }
+iroha_executor_data_model = { path = "crates/iroha_executor_data_model" }
+
+iroha_test_network = { path = "crates/iroha_test_network" }
+iroha_test_samples = { path = "crates/iroha_test_samples" }
+iroha_accel = { path = "crates/iroha_accel", default-features = false }
+ivm = { path = "crates/ivm" }
+ivm_abi = { path = "crates/ivm_abi" }
+kotodama_lang = { path = "crates/kotodama_lang" }
+kotodama_surface = { path = "crates/kotodama_surface" }
+kotodama_toolchain = { path = "crates/kotodama_toolchain" }
+sorafs_car = { path = "crates/sorafs_car" }
+sorafs_chunker = { path = "crates/sorafs_chunker" }
+sorafs_manifest = { path = "crates/sorafs_manifest", features = ["pqc"] }
+sorafs_orchestrator = { path = "crates/sorafs_orchestrator", default-features = false, features = ["cli-orchestrator"] }
+soranet_pq = { path = "crates/soranet_pq" }
+soranet_incentives = { path = "crates/soranet_incentives" }
+
+# Note: remaining dependencies stay pinned until we resolve the outstanding
+# compatibility issues with their latest major releases.
+
+proc-macro2 = "1.0.103"
+syn = { version = "2.0.109", default-features = false }
+quote = "1.0.42"
+manyhow = "0.11.4"
+darling = "0.23.0"
+drop_bomb = "0.1.5"
+
+futures = { version = "0.3.31", default-features = false }
+tokio = "1.48.0"
+tokio-stream = "0.1.17"
+tokio-tungstenite = "0.29.0"
+tokio-util = "0.7.17"
+tokio-rustls = { version = "0.26.4", default-features = false }
+rustls = { version = "0.23.37", default-features = false, features = ["std"] }
+tungstenite = "0.29.0"
+crossbeam-queue = "0.3.12"
+parking_lot = { version = "0.12.5" }
+blake3 = "1.8.2"
+blake2 = { version = "0.10.6", default-features = false, features = ["std"] }
+once_cell = "1.21.3"
+
+tempfile = "3.23.0"
+path-absolutize = "3.1.1"
+bytes = "1.10.1"
+
+trybuild = "1.0.114"
+impls = "1.0.3"
+
+base64 = { version = "0.22.1", default-features = false }
+bech32 = "0.11.0"
+hex = { version = "0.4.3", default-features = false }
+http-body-util = "0.1.3"
+http = "1.3.1"
+nonzero_ext = { version = "0.3.0", default-features = false }
+rust_decimal = { version = "1.39", default-features = false }
+
+url = "2.5.7"
+reqwest = { version = "0.12.28", default-features = false }
+prometheus = { version = "0.14.0", default-features = false }
+
+clap = "4.5.51"
+owo-colors = "4.2.3"
+supports-color = "3.0.2"
+humantime = "2.3.0"
+criterion = "0.8.0"
+expect-test = "1.5.1"
+assertables = "9.8.2"
+
+eyre = "0.6.12"
+color-eyre = "0.6.5"
+thiserror = { version = "2.0.17", default-features = false }
+displaydoc = { version = "0.2.5", default-features = false }
+error-stack = "0.8.0"
+
+derive_more = { version = "2.0.1", default-features = false }
+async-trait = "0.1.89"
+strum = { version = "0.28.0", default-features = false }
+getset = "0.1.6"
+hex-literal = "1.1.0"
+
+rand = { version = "0.9.3", default-features = false, features = ["alloc", "os_rng", "small_rng", "std", "std_rng", "thread_rng"] }
+rand_core_06 = { package = "rand_core", version = "0.6.4", default-features = false, features = ["std"] }
+# Operating-system entropy for the seeds of `iroha_fhe::bgv`.
+getrandom = "0.3.4"
+axum = { version = "0.8.6", default-features = false }
+
+# Libraries never force tracing->log forwarding; binaries or SDK consumers that
+# want `log` records enable `tracing/log` in their own manifest.
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", default-features = false }
+
+rayon = "1.11.0"
+
+dashmap = { version = "6.1.0" }
+rustc-hash = "2.1.1"
+
+toml = "0.9.8"
+toml_edit = { version = "0.25.11", default-features = false, features = ["parse"] }
+zstd = "0.13.3"
+zeroize = { version = "1.8.2", default-features = false, features = ["alloc", "std"] }
+time = { version = "0.3.44", default-features = false, features = ["formatting", "parsing"] }
+
+tiny-keccak = { version = "2.0.2", features = ["sha3"] }
+scrypt = { version = "0.11.0", default-features = false, features = ["std"] }
+halo2curves = { version = "0.9" }
+
+iroha_allocation = { path = "crates/iroha_allocation" }
+iroha_measurement = { path = "crates/iroha_measurement" }
+mv = { path = "crates/mv" }
+concread = { version = "=0.5.10", default-features = false }
+
+# Reviewed local overrides of upstream crates. Every entry must stay in the
+# resolved graph; unused mirrors are removed from `vendor/`.
+[patch.crates-io]
+# Admitted response credit follows native buffer/body control deallocation.
+bytes = { path = "vendor/bytes" }
+http-body-util = { path = "vendor/http-body-util" }
+axum-core = { path = "vendor/axum-core" }
+# Allocation custody must follow actual epoch reclamation in the locked EBR owner.
+concread = { path = "vendor/concread" }
+# Quantity admission requires exact fallible native-digit handoff without repacking.
+num-bigint = { path = "vendor/num-bigint-0.4.6" }
+find_cuda_helper = { path = "vendor/find_cuda_helper" }
+cust_raw = { path = "vendor/cust_raw" }
+wayland-scanner = { path = "vendor/wayland-scanner-0.31.10" }
+# Hardware AES is a positive `hardware` feature; `aes::soft` always names the portable backend.
+aes = { path = "vendor/aes" }
+
+[workspace.lints]
+rustdoc.private_doc_tests = "deny"
+
+rust.future_incompatible = { level = "deny", priority = -1 }
+rust.nonstandard_style = { level = "deny", priority = -1 }
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unused = { level = "warn", priority = -1 }
+
+rust.anonymous_parameters = "deny"
+rust.missing_copy_implementations = "deny"
+rust.missing_docs = "deny"
+rust.trivial_casts = "deny"
+# Keep this workspace-level while legacy code is migrated; there are too many
+# historical casts to annotate individually.
+rust.trivial_numeric_casts = "allow"
+rust.unsafe_code = "deny"
+rust.variant_size_differences = "deny"
+rust.explicit_outlives_requirements = "deny"
+rust.non_ascii_idents = "deny"
+rust.elided_lifetimes_in_paths = "allow"
+rust.unknown_lints = "warn"
+rust.single_use_lifetimes = "warn"
+rust.unsafe_op_in_unsafe_fn = "deny"
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(verus_only)',
+    # Tracked upstream issue: https://github.com/hyperledger-iroha/iroha/issues/3102
+    'cfg(feature, values("adaptive-telemetry"))',
+    'cfg(feature, values("adaptive-telemetry-log"))',
+    'cfg(feature, values("bench-internal"))',
+    'cfg(feature, values("bfv-accel"))',
+    'cfg(feature, values("columnar"))',
+    'cfg(feature, values("compression"))',
+    'cfg(feature, values("crc-key-hash"))',
+    'cfg(feature, values("cuda-stage1"))',
+    'cfg(feature, values("gpu-compression"))',
+    'cfg(feature, values("iroha-core-tests"))',
+    'cfg(feature, values("halo2-dev-tests"))',
+    'cfg(feature, values("json"))',
+    'cfg(feature, values("json-std-io"))',
+    'cfg(feature, values("local-quic-proxy"))',
+    'cfg(feature, values("metal-stage1"))',
+    'cfg(feature, values("parallel-stage1"))',
+    'cfg(feature, values("parallel-stage1-rayon"))',
+    'cfg(feature, values("schema-structural"))',
+    'cfg(feature, values("sm"))',
+    'cfg(target_feature, values("neon", "pmull"))',
+    'cfg(feature, values("simd-accel"))',
+    'cfg(feature, values("simdutf8-validate"))',
+    'cfg(feature, values("stage1-validate"))',
+    'cfg(feature, values("transparent_api"))',
+    'cfg(feature, values("trybuild-tests"))',
+    # It is set by `cargo-llvm-cov`
+    'cfg(coverage)'
+] }
+
+# pedantic
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.too_many_lines = "allow"
+clippy.match_wildcard_for_single_variants = "allow"
+clippy.semicolon_if_nothing_returned = "allow"
+clippy.wildcard_imports = "allow"
+clippy.manual_let_else = "allow"
+clippy.enum_glob_use = "allow"
+clippy.module_name_repetitions = "allow"
+clippy.must_use_candidate = "allow"
+clippy.missing_panics_doc = "allow"
+
+# restriction
+clippy.dbg_macro = "deny"
+
+# nursery
+clippy.debug_assert_with_mut_call = "deny"
+clippy.derive_partial_eq_without_eq = "deny"
+clippy.empty_line_after_outer_attr = "deny"
+clippy.fallible_impl_from = "deny"
+clippy.future_not_send = "deny"
+clippy.iter_with_drain = "deny"
+clippy.mutex_integer = "deny"
+clippy.needless_collect = "deny"
+clippy.path_buf_push_overwrite = "deny"
+clippy.suboptimal_flops = "deny"
+clippy.trailing_empty_array = "deny"
+clippy.transmute_undefined_repr = "deny"
+clippy.trivial_regex = "deny"
+clippy.unused_peekable = "deny"
+clippy.unused_rounding = "deny"
+clippy.option_if_let_else = "warn"
+clippy.or_fun_call = "warn"
+clippy.redundant_pub_crate = "warn"
+clippy.string_lit_as_bytes = "warn"
+clippy.suspicious_operation_groupings = "warn"
+clippy.useless_let_if_seq = "warn"
+
+# cargo
+clippy.redundant_feature_names = "deny"
+clippy.wildcard_dependencies = "deny"
+
+[workspace]
+resolver = "2"
+default-members = [
+    "crates/irohad/bins",
+    "crates/iroha_cli/bins",
+    "crates/iroha_core_privacy",
+    "crates/iroha_core_timed_ovn",
+    "crates/norito",
+    "crates/norito_derive",
+    "crates/iroha_primitives",
+    "crates/iroha_crypto",
+    "crates/iroha_model_base",
+    "crates/iroha_data_model",
+    "crates/iroha_config_base",
+    "crates/iroha_config",
+    "crates/iroha_logger",
+    "crates/iroha_p2p",
+    "crates/iroha_panic_hook",
+    "crates/iroha_core_zk",
+    "crates/iroha_core",
+    "crates/iroha_torii_shared",
+    "crates/iroha_torii",
+    "crates/iroha",
+    "crates/irohad",
+    "crates/iroha_cli",
+    "crates/ivm",
+    "crates/ivm_abi",
+    "crates/kotodama_lang",
+    "crates/kotodama_surface",
+    "crates/kotodama_toolchain",
+]
+members = [
+    "crates/irohad/bins",
+    "crates/iroha_cli/bins",
+    "crates/*",
+    "crates/norito/accelerators/jsonstage1_cuda",
+    "crates/norito/accelerators/jsonstage1_metal",
+    "vendor/concread",
+    "vendor/bytes",
+    "vendor/http-body-util",
+    "vendor/axum-core",
+    "vendor/find_cuda_helper",
+    "vendor/cust_raw",
+    "vendor/aes",
+    "mochi/*",
+    "data_model/samples/*",
+    "integration_tests",
+    "python/iroha_python/iroha_python_rs",
+    "xtask",
+    "tools/soranet-handshake-harness",
+    "tools/soranet-puzzle-service",
+    "tools/sora-vpn-helper",
+    "tools/sora-vpn-backend",
+    "tools/soranet-relay",
+    "tools/norito_codegen_exporter",
+    "tools/soradns-resolver",
+    "tools/telemetry-schema-diff",
+    "tools/kotlin-fixture-gen"
+]
+exclude = [
+    "mochi/fixtures",
+]
+
+[profile.dev]
+incremental = true
+# Match [profile.test] so dev and test units share one dependency graph; with
+# debug = 0 the value only participates in the profile hash.
+split-debuginfo = "unpacked"
+# Keep default local workspace builds from producing enormous debug-heavy Linux
+# artifacts. Use `CARGO_PROFILE_DEV_DEBUG=line-tables-only` when debugging.
+debug = 0
+
+[profile.dev.build-override]
+debug = 0
+codegen-units = 256
+# On macOS 27, stripping host proc-macro debuginfo can misalign the Mach-O
+# LINKEDIT string pool and prevent dyld from loading the freshly built tool.
+# Keep dev/test host profiles identical, as with their dependency profiles.
+strip = "none"
+
+[profile.test]
+# Avoid long dsymutil phases on macOS test binaries.
+split-debuginfo = "unpacked"
+# Keep test harnesses from producing enormous debug-heavy Linux artifacts.
+# Use `CARGO_PROFILE_TEST_DEBUG=line-tables-only` when debugging tests.
+debug = 0
+# Keep long workspace test runs from retaining large incremental-query caches
+# on WSL and memory-constrained VMs. Override locally with `CARGO_INCREMENTAL=1`.
+incremental = false
+
+[profile.test.build-override]
+debug = 0
+codegen-units = 256
+strip = "none"
+
+[profile.dev.package."*"]
+debug = 0
+codegen-units = 256
+# Package overrides take precedence over build-override for registry proc macros.
+strip = "none"
+
+# `iroha_data_model` is a workspace member, so the wildcard dependency override
+# above does not apply to it. Its very large generated/derived surface otherwise
+# uses 256 incremental dev CGUs. Keep enough partitions to prevent its derived
+# decoder IR from coalescing into memory-heavy LLVM modules while avoiding the
+# full incremental default. Cargo's native jobserver controls process-level
+# parallelism; constrained workflows apply their own memory limits explicitly.
+[profile.dev.package.iroha_data_model]
+codegen-units = 8
+
+# Preserve compiler settings for definitions moved out of the aggregate model.
+[profile.dev.package.iroha_model_base]
+codegen-units = 8
+
+[profile.test.package."*"]
+debug = 0
+codegen-units = 256
+strip = "none"
+
+# Native runtime admission and package publication stream complete executable
+# contents through BLAKE3 and SHA-256. Normal debug bundles can exceed 2 GB;
+# optimize the existing Rust/native hash implementations, preserving all byte
+# reads, custody fences, debug assertions and overflow checks in both profiles.
+[profile.dev.package.blake3]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.blake3]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package.sha2]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.sha2]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+# Closed renewal profiling found per-byte zeroization and private-filesystem
+# helper overhead in unoptimized local builds. Keep the same volatile wipes,
+# native custody checks and assertion policy; optimize only their code generation.
+# Match both runnable profiles so node and test consumers share this policy.
+[profile.dev.package.zeroize]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.zeroize]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package.iroha_fs]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.iroha_fs]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+# Cold native checkpoint recovery retains large orchestration temporaries in
+# unoptimized local Deploy builds. Optimize this package's code generation while
+# preserving assertion and overflow checks; keep dev and test policy identical.
+[profile.dev.package.iroha_deploy]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.iroha_deploy]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+# Fresh finality profiling found unoptimized Ed25519 field arithmetic beneath
+# optimized iroha_crypto. Match the existing arithmetic dependency policy while
+# retaining every public-key, subgroup and signature check in local profiles.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+# Local validators execute the production memory-hard authentication puzzle.
+# Optimize only its arithmetic dependencies so debug builds can service the
+# same bounded authentication lifetime without weakening the puzzle policy.
+# Match dev and test profiles to reuse these artifacts between node and harness.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.test.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.test.package.blake2]
+opt-level = 3
+
+# The native faucet solver executes the configured memory-hard Scrypt puzzle.
+# Optimize its arithmetic in local profiles without changing work or deadlines.
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.test.package.scrypt]
+opt-level = 3
+
+# Four-peer native consensus profiling found BLS signing and verification in
+# unoptimized field arithmetic. Optimize the concrete crypto instantiations and
+# their arithmetic dependencies in both runnable profiles, retaining assertions
+# and overflow checks and sharing artifacts between the node and test harnesses.
+[profile.dev.package.iroha_crypto]
+opt-level = 3
+
+[profile.test.package.iroha_crypto]
+opt-level = 3
+
+[profile.dev.package.w3f-bls]
+opt-level = 3
+
+[profile.test.package.w3f-bls]
+opt-level = 3
+
+[profile.dev.package.ark-bls12-381]
+opt-level = 3
+
+[profile.test.package.ark-bls12-381]
+opt-level = 3
+
+[profile.dev.package.ark-ec]
+opt-level = 3
+
+[profile.test.package.ark-ec]
+opt-level = 3
+
+[profile.dev.package.ark-ff]
+opt-level = 3
+
+[profile.test.package.ark-ff]
+opt-level = 3
+
+[profile.dev.package.ark-poly]
+opt-level = 3
+
+[profile.test.package.ark-poly]
+opt-level = 3
+
+[profile.dev.package.ark-serialize]
+opt-level = 3
+
+[profile.test.package.ark-serialize]
+opt-level = 3
+
+# Optimize the shared halo2curves arithmetic used by proof-system consumers
+# in local profiles, preserving debug assertions and overflow checks.
+[profile.dev.package.halo2curves]
+opt-level = 3
+
+[profile.test.package.halo2curves]
+opt-level = 3
+
+# Orchard retains the independent upstream Pasta arithmetic. Preserve
+# assertions and overflow checks in both local runnable profiles.
+[profile.dev.package.pasta_curves]
+opt-level = 3
+
+[profile.test.package.pasta_curves]
+opt-level = 3
+
+# Optimize the native Pasta arithmetic and prover kernels in both local
+# runnable profiles, keeping debug assertions and overflow checks.
+[profile.dev.package.iroha_pasta]
+opt-level = 3
+
+[profile.test.package.iroha_pasta]
+opt-level = 3
+
+[profile.dev.package.norito]
+opt-level = 3
+
+[profile.test.package.norito]
+opt-level = 3
+
+# Eight, 16, and 64 CGUs all measured about 12.1 GiB before decoder de-duplication;
+# one CGU reached 19.32 GiB. Eight was the lowest measured partition count, and
+# the shared decoder engine reduced its exact no-run reproducer to 11.466 GiB.
+[profile.test.package.iroha_data_model]
+codegen-units = 8
+
+[profile.test.package.iroha_model_base]
+codegen-units = 8
+
+# The six-lane native-STARK digest also runs on the live consensus path.
+# Match node and test-harness arithmetic: otherwise four-peer checks run an
+# unoptimized digest despite fast unit tests and need a second build artifact.
+# Both profiles retain overflow checks and debug assertions.
+[profile.dev.package.fastpq_isi]
+opt-level = 2
+
+[profile.test.package.fastpq_isi]
+opt-level = 2
+
+# FASTPQ proving and replay loops live in fastpq_prover, beyond fastpq_isi.
+# Optimize that owner identically for local nodes and tests while retaining
+# inherited assertions/overflow checks and the full canonical proof geometry.
+[profile.dev.package.fastpq_prover]
+opt-level = 2
+
+[profile.test.package.fastpq_prover]
+opt-level = 2
+
+# `iroha_data_model` is a very broad derive-heavy crate. LLVM `-O3` for this
+# one package exceeds the reviewed mobile release-build memory
+# envelope even with a single job and hundreds of codegen units. Measured O2
+# also crossed the fixed 13 GiB soft ceiling before proof work began, so O1
+# avoids that optimizer-only peak. Halo2, core, and the bridge remain at O3.
+[profile.release.package.iroha_data_model]
+opt-level = 1
+
+[profile.release.package.iroha_model_base]
+opt-level = 1
+
+# Cargo otherwise strips debuginfo from host proc macros in release builds.
+# On macOS 27 that can misalign the Mach-O LINKEDIT string pool, so dyld
+# refuses to load a freshly built proc macro (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"
+
+# Xcode 27 can produce a non-loadable Mach-O addon when Cargo strips this
+# dynamic library; preserve symbols for every published native build profile.
+[profile.dev.package.iroha_js_host]
+strip = "none"
+
+[profile.release.package.iroha_js_host]
+strip = "none"
+
+[profile.deploy.package.iroha_js_host]
+strip = "none"
+
+# Xcode 27 also emits a non-loadable ABI bridge when Cargo strips its Mach-O
+# LINKEDIT string pool. Keep the native library loadable in SDK qualification
+# builds and published release/deploy artifacts.
+[profile.dev.package.connect_norito_bridge]
+strip = "none"
+
+[profile.release.package.connect_norito_bridge]
+strip = "none"
+
+[profile.deploy.package.connect_norito_bridge]
+strip = "none"
+
+# Xcode 27 applies the same misaligned LINKEDIT string-pool strip to the
+# Python extension. Keep the editable/test build and published wheel loadable.
+[profile.dev.package.iroha_python_rs]
+strip = "none"
+
+[profile.release.package.iroha_python_rs]
+strip = "none"
+
+[profile.deploy.package.iroha_python_rs]
+strip = "none"
+
+# Apple SDK packaging keeps only the C ABI reachable native closure in each
+# static archive. The owning builder selects staticlib alone: the ordinary
+# bridge target also emits an rlib, which prevents whole-graph LTO.
+[profile.apple-release]
+inherits = "release"
+lto = "thin"
+strip = "none"
+
+# rustc's final ThinLTO pass uses the final crate's optimization level for its
+# imported modules too. Keep the data-model O1 memory ceiling in that pass;
+# crypto dependencies retain their ordinary O3 compilation before ThinLTO.
+[profile.apple-release.package.connect_norito_bridge]
+opt-level = 1
+strip = "none"
+
+# Fast, incremental optimization for local runnable builds only. This profile
+# is not valid for release, packaging, or evidence-producing workflows; those
+# use `release` or `deploy`, and Apple SDKs use `apple-release`. Keep the
+# data-model optimizer ceiling aligned with the reviewed release policy above.
+[profile.local-release]
+inherits = "release"
+opt-level = 1
+codegen-units = 64
+incremental = true
+lto = false
+debug = 0
+
+[profile.local-release.package.iroha_data_model]
+opt-level = 1
+
+[profile.local-release.package.iroha_model_base]
+opt-level = 1
+
+[profile.deploy]
+inherits = "release"
+strip = "symbols"
+lto = true
+
+[profile.profiling]
+inherits = "release"
+debug = "limited"

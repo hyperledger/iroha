@@ -136,7 +136,13 @@ pub(crate) fn restore_attribution(
                 if scope.is_some() {
                     return Err(duplicate("scope"));
                 }
-                scope = Some(map.parse_value::<EvidenceScope>()?);
+                let value = map.parse_value::<EvidenceScope>()?;
+                // TODO: SCCP requires independently admitted generation attribution, not
+                // this native root/lane offender owner or its signed-height clock.
+                if matches!(value, EvidenceScope::SccpGeneration { .. }) {
+                    return Err(Error::UnsupportedSccp);
+                }
+                scope = Some(value);
             }
             "instance" => {
                 if instance.is_some() {

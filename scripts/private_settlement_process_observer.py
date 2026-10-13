@@ -249,13 +249,8 @@ class DarwinProcessReader:
         require(type(pid) is int and 1<pid<=PID_MAX,'invalid PID')
         image.validate()
         before=self.reader._identity(pid)
-        usage=self.native._RusageV0()
-        require(self.reader.lib.proc_pid_rusage(pid,0,ctypes.byref(usage))==0
-                and usage.start_abstime>0 and usage.exit_abstime==0,'native process accounting unavailable')
-        path=ctypes.create_string_buffer(4096)
-        count=self.reader.lib.proc_pidpath(pid,path,len(path))
-        require(0<count<len(path) and path.raw[count]==0,'native executable path unavailable')
-        actual=Path(os.fsdecode(path.raw[:count])).resolve(strict=True)
+        usage=self.reader._usage(pid)
+        actual=self.reader._path(pid)
         after=self.reader._identity(pid)
         key=lambda info:(info.pid,info.ppid,info.pgid,info.uid,info.ruid,info.start_sec,info.start_usec)
         require(key(before)==key(after),'native process lifetime/parent/group changed')
@@ -264,7 +259,7 @@ class DarwinProcessReader:
         rss=int(usage.rss)
         require(0<rss<=MAX_EXACT_INTEGER,'RSS unavailable or outside exact range')
         image.validate()
-        return {'identity':{'pid':pid,'ppid':int(after.ppid),'pgid':int(after.pgid),'uid':int(after.uid),
+        sample = {'identity':{'pid':pid,'ppid':int(after.ppid),'pgid':int(after.pgid),'uid':int(after.uid),
                 'birth':{'kind':'darwin_bsdinfo','started_seconds':int(after.start_sec),
                 'started_microseconds':int(after.start_usec),'start_abstime':int(usage.start_abstime)},
                 'loaded_image_uuid':bytes(usage.uuid).hex(),'executable_path':str(image.path),
@@ -273,6 +268,11 @@ class DarwinProcessReader:
                                                      self.cpu_numer,self.cpu_denom),
                 'cpu_counter_unit_ns':(self.cpu_numer+self.cpu_denom-1)//self.cpu_denom,
                 'rss_bytes':rss}
+        # Keep the native RUID with this exact successful sample. The generic
+        # serialized scope intentionally has no platform-specific RUID field.
+        self.last_native_binding = {'identity': copy.deepcopy(sample['identity']),
+                                    'ruid': int(after.ruid), 'cpu_time_ns': sample['cpu_time_ns']}
+        return sample
 
     def close(self)->None:
         """Darwin's reader holds no per-process descriptor between samples."""

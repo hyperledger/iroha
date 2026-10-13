@@ -4,12 +4,11 @@
 //! fixture. This exercises public StateBlock::commit, not a test commit surrogate.
 
 use super::fixture;
-use crate::state::{State, storage_transactions};
+use crate::state::{State, StateParameters, storage_transactions};
 use iroha_allocation::release::DeferredRelease;
-use iroha_data_model::parameter::Parameters;
 use mv::{PublicationCleanup, PublicationPreparationError};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     num::NonZeroUsize,
     pin::Pin,
@@ -35,7 +34,7 @@ struct PhysicalObservations {
 }
 
 struct OriginalProbe {
-    parameters: Option<mv::cell::Detached<Parameters, ()>>,
+    parameters: Option<mv::cell::Detached<StateParameters, ()>>,
     world_cleanup: Option<PublicationCleanup<()>>,
     fence_cleanup: [Option<DeferredRelease>; 2],
     observed: PhysicalObservations,
@@ -102,7 +101,7 @@ impl Wake for ProbeOriginalStateOnMembershipRelease {
             None => original.observed.write_busy += 1,
         }
         original.observed.generation_odd +=
-            usize::from(self.state.state_view_generation() % 2 != 0);
+            usize::from(!self.state.state_view_generation().is_multiple_of(2));
         // No assertions or cleanup notifications occur here. Abort physically
         // unlocks the probe, and every returned release stays in this owner.
     }
@@ -111,7 +110,7 @@ impl Wake for ProbeOriginalStateOnMembershipRelease {
 fn original_membership_probe(state: &State) -> storage_transactions::DetachedTransactionsBlock {
     let mut block = state.transactions.block();
     block.insert_block(
-        HashSet::new(),
+        BTreeSet::new(),
         NonZeroUsize::new(state.transactions.latest_height() + 1).unwrap(),
     );
     block.prepare_commit().unwrap().detach()
@@ -210,7 +209,7 @@ fn check_commit_retirement(case: CommitCase, source: NotificationSource) {
         // commit_empty_block_for_testing does in the original State fixture API.
         block.finalize_axt_asset_incarnations().unwrap();
         block.transactions.insert_block(
-            HashSet::new(),
+            BTreeSet::new(),
             NonZeroUsize::new(before_height + 1).unwrap(),
         );
         block.transactions.validate_commit().unwrap();

@@ -261,7 +261,7 @@ fn det_s3_no_prepare_for_old_view_proposal() {
     let out = h.fire(Event::Executed {
         block_hash: bh,
         req: r1,
-        outcome: ExecOutcome::Valid(result_of(&b)),
+        outcome: crate::testing::valid_execution(result_of(&b)),
     });
     assert!(
         votes(&out).is_empty(),
@@ -725,10 +725,17 @@ fn det_s16_cross_instance_replay_core() {
     let signers = h.others(3, &[]);
     let sigs: Vec<Signature> = signers
         .iter()
-        .map(|i| h.signer_of(&h.key_at(*i)).sign(&msg))
+        .map(|i| {
+            h.signer_of(&h.key_at(*i))
+                .sign(&msg)
+                .expect("fixture signing succeeds")
+        })
         .collect();
     let mut qc = h.qc(VoteKind::Commit, 0, &b, &signers);
-    qc.agg_sig = h.v.crypto.aggregate(&sigs);
+    qc.agg_sig =
+        h.v.crypto
+            .aggregate(&sigs)
+            .expect("fixture aggregation succeeds");
     qc_msg(&mut h, qc.clone());
     assert_eq!(h.core.tip.height, 0);
     // The unmodified foreign certificate is dropped at intake.
@@ -819,7 +826,8 @@ fn det_s19_wrong_parent_rejected() {
             0,
             &bh,
             &ad,
-        ));
+        ))
+        .expect("fixture signing succeeds");
     let out = h.deliver(leader, WireMessage::Proposal(Box::new(p)));
     assert!(matches!(
         &evidence(&out)[..],
@@ -957,7 +965,8 @@ fn det_s21_forged_commitqc_via_parent_qc() {
                         0,
                         &bh,
                         &ad,
-                    )),
+                    ))
+                    .expect("fixture signing succeeds"),
             },
         }
     };
@@ -1116,7 +1125,10 @@ fn det_s24_local_cqc_not_exposed_before_durable() {
 /// `echo_preimage(h.nonce, height)` (a forgery when `signer ≠ key`).
 fn echo_status(h: &H, key: &PublicKey, signer: &PublicKey, height: u64) -> WireMessage {
     let msg = preimage::echo_preimage(&I, &crate::testing::TEST_EPOCH.id, h.nonce, height);
-    let sig = h.signer_of(signer).sign(&msg);
+    let sig = h
+        .signer_of(signer)
+        .sign(&msg)
+        .expect("fixture signing succeeds");
     WireMessage::Status(Box::new(Status {
         instance: I,
         height,
@@ -1640,18 +1652,49 @@ fn det_s33_key_rotation_restart() {
         assert!(height >= 4);
     }
 
-    // (b) MS33c: restart composition. Store tip t = 2; K2 = k4 (listed first) has a record at
-    // t + 2 = 4, K1 = k3 one at t + 1 = 3 → R5 commits 3 once, the round starts at 4 from K2's
-    // record, K1's record is classified against the new tip (R3); the tip never moves back.
-    let (mut h, keys) = setup([4, 3]);
+    // (b) MS33c: two installed keys in the same authenticated committee. Configure
+    // only K1 until its genuine height-3 commit, then retire it and configure only K2.
+    // K1 retains record3; K2 produces record4 whose parent CommitQC permits R5 after loss.
+    // Crossing a pending epoch would correctly refuse this authority instead.
+    let mut h = H::new(4, |_| 3);
+    let keys: Vec<PublicKey> = (0..4).map(|i| h.v.key(i)).collect();
+    h.signers = [3, 2].into_iter().map(|i| h.v.signer(i).clone()).collect();
+    h.records.clear();
+    h.install_keys();
+    h.signers.truncate(1);
+    h.restart();
     h.commit_heights(2);
+    assert_eq!(h.core.status().signer, Some(keys[3].clone()));
     time_out(&mut h);
     h.commit_with(0, b"3");
+    h.retired.push(keys[3].clone());
+    h.signers = vec![h.v.signer(2).clone()];
+    h.restart();
     assert_eq!(h.height(), 4);
+    assert_eq!(h.core.status().signer, Some(keys[2].clone()));
     time_out(&mut h);
+    assert_eq!(
+        SafetyRecord::decode(&h.v.crypto, &h.records[&keys[3]])
+            .unwrap()
+            .height,
+        3
+    );
+    assert_eq!(
+        SafetyRecord::decode(&h.v.crypto, &h.records[&keys[2]])
+            .unwrap()
+            .height,
+        4
+    );
     h.store.truncate(2);
     let out = h.restart();
     assert!(halts(&out).is_empty(), "{out:#?}");
+    assert!(
+        h.core
+            .keys
+            .iter()
+            .any(|key| key.pk == keys[3] && key.signer.is_none()),
+        "the retired key's original record remains in the same recovery cut"
+    );
     let commits: Vec<u64> = h
         .all
         .iter()
@@ -1662,7 +1705,7 @@ fn det_s33_key_rotation_restart() {
         .collect();
     assert_eq!(commits, vec![3], "exactly one CommitBlock for t + 1");
     assert_eq!((h.core.tip.height, h.height()), (3, 4));
-    assert_eq!(h.core.status().signer, Some(keys[4].clone()));
+    assert_eq!(h.core.status().signer, Some(keys[2].clone()));
     assert_eq!(
         h.core.timeout_view,
         Some(0),
@@ -1805,7 +1848,7 @@ fn det_s34_apply_divergence_halts() {
     prop(&mut h, 0, &b, None);
     let bh = h.bh(&b);
     // A local result that differs from the certified one: the driver re-executes at apply.
-    h.exec(bh, ExecOutcome::Valid(Hash32([0x42; 32])));
+    h.exec(bh, crate::testing::valid_execution(Hash32([0x42; 32])));
     let out = {
         let qc = h.qc_q(VoteKind::Commit, 0, &b);
         qc_msg(&mut h, qc)
@@ -1844,7 +1887,10 @@ fn det_s36_certified_mismatch_is_local() {
         let bh = h.bh(&b);
         (h, bh)
     };
-    for outcome in [ExecOutcome::Valid(Hash32([0x42; 32])), ExecOutcome::Invalid] {
+    for outcome in [
+        crate::testing::valid_execution(Hash32([0x42; 32])),
+        ExecOutcome::Invalid,
+    ] {
         let (mut h, bh) = setup();
         let out = h.exec(bh, outcome);
         assert!(matches!(

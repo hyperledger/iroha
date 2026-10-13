@@ -24,9 +24,8 @@ fn core_host_rejects_retired_handle_syscall_without_effects() {
     vm.set_register(10, u64::MAX);
     let before = vm.remaining_gas();
     let mut host = CoreHost::new();
-    assert_eq!(
-        host.syscall(0xB4, &mut vm),
-        Err(VMError::UnknownSyscall(0xB4))
+    assert!(
+        matches!(host.syscall(0xB4, &mut vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xB4))
     );
     assert_eq!(vm.remaining_gas(), before);
 }

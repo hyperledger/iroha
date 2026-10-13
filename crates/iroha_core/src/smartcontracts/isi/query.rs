@@ -101,6 +101,10 @@ pub trait SortableQueryOutput {
     ///
     /// Metered sorting calls this before [`Self::tiebreak_key`], so an
     /// attacker-sized key is rejected before any key allocation or clone.
+    ///
+    /// # Errors
+    /// Returns `GasBudgetExceeded` if bounded encoding exceeds `limit`, or a
+    /// conversion error if the key cannot be serialized for measurement.
     fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error>;
     /// Compare two items by their deterministic tie-break order.
     fn tiebreak_cmp(&self, other: &Self) -> core::cmp::Ordering {
@@ -413,13 +417,16 @@ fn bounded_encoded_vec_tiebreak_len<T: SerializePayload>(
 }
 fn materialize_admitted_tiebreak_key<T: SortableQueryOutput>(
     value: &T,
-    stats: &mut QueryExecutionStats,
+    execution_stats: &mut QueryExecutionStats,
     budget: Option<QueryExecutionBudget>,
 ) -> Result<T::TiebreakKey, Error> {
     if let Some(budget) = budget {
-        let remaining = budget.remaining_bytes(stats.processed_items, stats.processed_bytes)?;
+        let remaining = budget.remaining_bytes(
+            execution_stats.processed_items,
+            execution_stats.processed_bytes,
+        )?;
         let encoded = value.bounded_tiebreak_key_len(remaining)?;
-        stats.record_precomputed_bytes(encoded, Some(budget))?;
+        execution_stats.record_precomputed_bytes(encoded, Some(budget))?;
     }
     Ok(value.tiebreak_key())
 }
@@ -429,7 +436,11 @@ impl QueryLimits {
     pub fn from_torii(cfg: &ToriiActual) -> Self {
         Self::new(u64::from(cfg.app_api.max_fetch_size.get()))
     }
-    /// Construct limits from a Pipeline configuration snapshot.
+    /// Construct limits from the pipeline settings of a State view or block.
+    ///
+    /// `query_max_fetch_size` there is the committed pipeline validity policy
+    /// (`pipeline_validity_policy_v1`) or the protocol default; the node
+    /// configuration has no key for it.
     #[must_use]
     pub fn from_pipeline(cfg: &PipelineActual) -> Self {
         Self::new(cfg.query_max_fetch_size)
@@ -1164,7 +1175,7 @@ struct ScannedTransactionPage {
     values: Vec<CommittedTransaction>,
     remaining_items: Option<u64>,
     has_more: bool,
-    stats: QueryExecutionStats,
+    execution_stats: QueryExecutionStats,
     history_cursor: Option<TransactionHistoryCursor>,
 }
 struct TransactionReplayCheckpoint {
@@ -1213,10 +1224,11 @@ fn scan_unsorted_transaction_page(
             .unwrap_or(usize::MAX)
             .min(page_capacity)
     });
-    let source_offset = history_cursor
-        .is_none()
-        .then(|| params.pagination.offset_value())
-        .unwrap_or(0);
+    let source_offset = if history_cursor.is_none() {
+        params.pagination.offset_value()
+    } else {
+        0
+    };
     let scan_limit = remaining_limit;
     let limit_allows_probe = remaining_limit
         .is_none_or(|remaining| remaining > u64::try_from(page_capacity).unwrap_or(u64::MAX));
@@ -1293,7 +1305,7 @@ fn scan_unsorted_transaction_page(
             Ok(ControlFlow::Continue(()))
         },
     )?;
-    let stats = QueryExecutionStats {
+    let execution_stats = QueryExecutionStats {
         processed_items: processed_items.get(),
         processed_bytes: processed_bytes.get(),
     };
@@ -1311,7 +1323,7 @@ fn scan_unsorted_transaction_page(
             values,
             remaining_items: Some(remaining_items),
             has_more,
-            stats,
+            execution_stats,
             history_cursor: next_history_cursor,
         })
     } else if exact {
@@ -1325,7 +1337,7 @@ fn scan_unsorted_transaction_page(
             values,
             remaining_items: Some(remaining_items),
             has_more,
-            stats,
+            execution_stats,
             history_cursor: next_history_cursor,
         })
     } else {
@@ -1333,7 +1345,7 @@ fn scan_unsorted_transaction_page(
             values,
             remaining_items: None,
             has_more,
-            stats,
+            execution_stats,
             history_cursor: next_history_cursor,
         })
     }
@@ -1351,7 +1363,8 @@ fn transaction_sorted_prefix_keep(
     if remaining_limit == Some(0) {
         return Err(Error::CursorDone);
     }
-    let take = remaining_limit.map_or(fetch_size.get(), |limit| limit.min(fetch_size.get()));
+    let take =
+        remaining_limit.map_or_else(|| fetch_size.get(), |limit| limit.min(fetch_size.get()));
     let keep = params
         .pagination
         .offset_value()
@@ -1446,7 +1459,7 @@ fn collect_sorted_transaction_prefix(
             Ok(ControlFlow::Continue(()))
         },
     )?;
-    let stats = QueryExecutionStats {
+    let execution_stats = QueryExecutionStats {
         processed_items: processed_items.get(),
         processed_bytes: processed_bytes.get(),
     };
@@ -1455,7 +1468,7 @@ fn collect_sorted_transaction_prefix(
     Ok((
         entries.into_iter().map(|entry| entry.value).collect(),
         matched,
-        stats,
+        execution_stats,
     ))
 }
 fn scan_sorted_transaction_page(
@@ -1475,7 +1488,7 @@ fn scan_sorted_transaction_page(
         .as_ref()
         .ok_or_else(|| Error::Conversion("sorted transaction scan has no metadata key".into()))?;
     let order = params.sorting.order.unwrap_or(SortOrder::Asc);
-    let (entries, matched, stats) = collect_sorted_transaction_prefix(
+    let (entries, matched, execution_stats) = collect_sorted_transaction_prefix(
         state,
         filter,
         key,
@@ -1506,7 +1519,7 @@ fn scan_sorted_transaction_page(
         values,
         remaining_items: exact.then_some(remaining_items),
         has_more: remaining_items > 0,
-        stats,
+        execution_stats,
         history_cursor: None,
     })
 }
@@ -1882,7 +1895,7 @@ fn try_handle_find_transactions_ephemeral(
         Some(remaining_items) => QueryOutput::new(batch, remaining_items, None),
         None => QueryOutput::new_bounded(batch, page.has_more, None),
     };
-    Ok((output, page.stats))
+    Ok((output, page.execution_stats))
 }
 #[allow(clippy::too_many_arguments)]
 fn handle_find_transactions_stored(
@@ -1924,7 +1937,7 @@ fn collect_ephemeral_sorted_prefix<I>(
     order: SortOrder,
     keep: usize,
     budget: Option<QueryExecutionBudget>,
-    stats: &mut QueryExecutionStats,
+    execution_stats: &mut QueryExecutionStats,
 ) -> Result<(Vec<I::Item>, u64), Error>
 where
     I: Iterator,
@@ -1934,24 +1947,24 @@ where
     if keep == 0 {
         for value in iter {
             count = count.saturating_add(1);
-            stats.record_item(&value, budget)?;
+            execution_stats.record_item(&value, budget)?;
         }
         return Ok((Vec::new(), count));
     }
     let (mut heap, _) = ordinary_iterable::ExactTopK::new(keep, u64::MAX)?;
     for value in iter {
         count = count.saturating_add(1);
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         let sort_key = value.get_metadata_sorting_key(key);
         if let Some(sort_key) = sort_key {
-            stats.record_value_bytes(sort_key, budget)?;
+            execution_stats.record_value_bytes(sort_key, budget)?;
         }
         let sort_key = sort_key.cloned();
-        let tiebreak_key = materialize_admitted_tiebreak_key(&value, stats, budget)?;
+        let tiebreak_key = materialize_admitted_tiebreak_key(&value, execution_stats, budget)?;
         let entry = EphemeralSortedEntry {
+            value,
             sort_key,
             tiebreak_key,
-            value,
             order,
         };
         let _ = heap.retain_smallest(entry);
@@ -1992,10 +2005,10 @@ where
     let budget = limits
         .ordinary_execution_limits
         .map(OrdinaryQueryExecutionLimits::execution_budget);
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let (values, count) =
-        collect_ephemeral_sorted_prefix(iter, key, order, keep, budget, &mut stats)?;
-    debug_assert_eq!(stats.processed_items(), count);
+        collect_ephemeral_sorted_prefix(iter, key, order, keep, budget, &mut execution_stats)?;
+    debug_assert_eq!(execution_stats.processed_items(), count);
     let available = usize::try_from(count)
         .unwrap_or(usize::MAX)
         .saturating_sub(offset)
@@ -2216,19 +2229,19 @@ where
     let offset = params.pagination.offset_value();
     let limit = params.pagination.limit_value().map(|limit| limit.get());
     let fetch_size_usize = usize::try_from(fetch_size.get()).unwrap_or(usize::MAX);
-    let first_take = limit.map_or(fetch_size.get(), |limit| limit.min(fetch_size.get()));
+    let first_take = limit.map_or_else(|| fetch_size.get(), |limit| limit.min(fetch_size.get()));
     let first_take = usize::try_from(first_take).map_err(|_| Error::CapacityLimit)?;
     let budget = limits
         .ordinary_execution_limits
         .map(OrdinaryQueryExecutionLimits::execution_budget);
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let mut iter = iter;
     let mut skipped = 0_u64;
     while skipped < offset {
         let Some(value) = iter.next() else {
             break;
         };
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         skipped = skipped.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
     }
     let mut first_batch_values = Vec::new();
@@ -2239,7 +2252,7 @@ where
         let Some(value) = iter.next() else {
             break;
         };
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         first_batch_values.push(value);
     }
     let batch_len = first_batch_values.len();
@@ -2259,8 +2272,8 @@ where
         });
     }
     let requested_tail = remaining_limit.unwrap_or(u64::MAX);
-    let configured_retained_items = limits.ordinary_execution_limits.map_or(
-        u64::try_from(MAX_STORED_QUERY_RETAINED_ITEMS).unwrap_or(u64::MAX),
+    let configured_retained_items = limits.ordinary_execution_limits.map_or_else(
+        || u64::try_from(MAX_STORED_QUERY_RETAINED_ITEMS).unwrap_or(u64::MAX),
         |ordinary| ordinary.max_cursor_retained_items(),
     );
     let retained_item_limit = requested_tail.min(configured_retained_items);
@@ -2282,7 +2295,7 @@ where
         let Some(value) = iter.next() else {
             break;
         };
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         let remaining_bytes = configured_retained_bytes
             .checked_sub(retained_bytes)
             .ok_or(Error::CapacityLimit)?;
@@ -2297,7 +2310,7 @@ where
         deferred_values.push(value);
     }
     if must_detect_item_overflow && let Some(value) = iter.next() {
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         return Err(Error::CapacityLimit);
     }
     drop(iter);
@@ -2635,14 +2648,14 @@ fn apply_query_postprocessing_ephemeral_with_budget_from_stats<I>(
     params: &QueryParams,
     limits: QueryLimits,
     budget: Option<QueryExecutionBudget>,
-    mut stats: QueryExecutionStats,
+    mut execution_stats: QueryExecutionStats,
 ) -> Result<(QueryOutput, QueryExecutionStats), Error>
 where
     I: Iterator<Item: SortableQueryOutput>,
     I::Item: HasProjection<SelectorMarker, AtomType = ()> + NoritoSerialize + Send + Sync + 'static,
     QueryOutputBatchBox: From<Vec<I::Item>>,
 {
-    let initial_processed_items = stats.processed_items();
+    let initial_processed_items = execution_stats.processed_items();
     let batch_size = params
         .fetch_size
         .fetch_size
@@ -2685,7 +2698,7 @@ where
                 let value = iter.next().ok_or(Error::CapacityLimit)?;
                 values.push(value)?;
             }
-            let limit_allows_more = !limit.is_some_and(|limit| limit <= batch_size.get());
+            let limit_allows_more = limit.is_none_or(|limit| limit > batch_size.get());
             let has_more = if limit_allows_more {
                 iter.next().is_some()
             } else {
@@ -2695,7 +2708,10 @@ where
             let batch = ordinary_iterable::exact_one_column_batch(QueryOutputBatchBox::from(
                 values.finish()?.into_vec()?,
             ))?;
-            return Ok((QueryOutput::new_bounded(batch, has_more, None), stats));
+            return Ok((
+                QueryOutput::new_bounded(batch, has_more, None),
+                execution_stats,
+            ));
         }
         let probe = limit.map_or_else(
             || fetch_size.saturating_add(1),
@@ -2714,7 +2730,7 @@ where
             let Some(value) = iter.next() else {
                 break;
             };
-            stats.record_item(&value, budget)?;
+            execution_stats.record_item(&value, budget)?;
             skipped = skipped.saturating_add(1);
         }
         while usize::try_from(processed).unwrap_or(usize::MAX) < probe {
@@ -2722,7 +2738,7 @@ where
                 break;
             };
             processed = processed.saturating_add(1);
-            stats.record_item(&value, budget)?;
+            execution_stats.record_item(&value, budget)?;
             if first_batch_values.len() < fetch_size {
                 first_batch_values.push(value);
             } else {
@@ -2735,12 +2751,15 @@ where
             ErasedQueryIterator::new(first_batch_values.into_iter(), selector, batch_size);
         let (batch, _next) = batch_iter.next_batch(0)?;
         debug_assert_eq!(
-            stats.processed_items(),
+            execution_stats.processed_items(),
             initial_processed_items
                 .saturating_add(skipped)
                 .saturating_add(processed)
         );
-        return Ok((QueryOutput::new_bounded(batch, has_more, None), stats));
+        return Ok((
+            QueryOutput::new_bounded(batch, has_more, None),
+            execution_stats,
+        ));
     }
     if let Some(key) = params.sorting.sort_by_metadata_key.as_ref() {
         let offset = usize::try_from(params.pagination.offset_value()).unwrap_or(usize::MAX);
@@ -2751,8 +2770,14 @@ where
         let order = params.sorting.order.unwrap_or(SortOrder::Asc);
         let keep = offset.saturating_add(limit.min(fetch_size));
         if keep <= STREAMING_SORTED_PREFIX_LIMIT {
-            let (values, count) =
-                collect_ephemeral_sorted_prefix(iter, key, order, keep, budget, &mut stats)?;
+            let (values, count) = collect_ephemeral_sorted_prefix(
+                iter,
+                key,
+                order,
+                keep,
+                budget,
+                &mut execution_stats,
+            )?;
             let total_after_pagination = usize::try_from(count)
                 .unwrap_or(usize::MAX)
                 .saturating_sub(offset)
@@ -2765,10 +2790,13 @@ where
             let remaining_items =
                 u64::try_from(total_after_pagination.saturating_sub(batch_len)).unwrap_or(u64::MAX);
             debug_assert_eq!(
-                stats.processed_items(),
+                execution_stats.processed_items(),
                 initial_processed_items.saturating_add(count)
             );
-            return Ok((QueryOutput::new(batch, remaining_items, None), stats));
+            return Ok((
+                QueryOutput::new(batch, remaining_items, None),
+                execution_stats,
+            ));
         }
         let mut count = 0_u64;
         let mut values = Vec::new();
@@ -2776,13 +2804,14 @@ where
         let mut tiebreak_keys = Vec::new();
         for value in iter {
             count = count.saturating_add(1);
-            stats.record_item(&value, budget)?;
+            execution_stats.record_item(&value, budget)?;
             let sort_key = value.get_metadata_sorting_key(key);
             if let Some(sort_key) = sort_key {
-                stats.record_value_bytes(sort_key, budget)?;
+                execution_stats.record_value_bytes(sort_key, budget)?;
             }
             sort_keys.push(sort_key.cloned());
-            let tiebreak_key = materialize_admitted_tiebreak_key(&value, &mut stats, budget)?;
+            let tiebreak_key =
+                materialize_admitted_tiebreak_key(&value, &mut execution_stats, budget)?;
             tiebreak_keys.push(tiebreak_key);
             values.push(Some(value));
         }
@@ -2829,10 +2858,13 @@ where
         let remaining_items =
             u64::try_from(total_after_pagination.saturating_sub(batch_len)).unwrap_or(u64::MAX);
         debug_assert_eq!(
-            stats.processed_items(),
+            execution_stats.processed_items(),
             initial_processed_items.saturating_add(count)
         );
-        return Ok((QueryOutput::new(batch, remaining_items, None), stats));
+        return Ok((
+            QueryOutput::new(batch, remaining_items, None),
+            execution_stats,
+        ));
     }
     let fetch_size = usize::try_from(batch_size.get()).unwrap_or(usize::MAX);
     let offset = params.pagination.offset_value();
@@ -2845,14 +2877,14 @@ where
         let Some(value) = iter.next() else {
             break;
         };
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         skipped = skipped.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
     }
-    while !limit.is_some_and(|limit| count >= limit) {
+    while limit.is_none_or(|limit| count < limit) {
         let Some(value) = iter.next() else {
             break;
         };
-        stats.record_item(&value, budget)?;
+        execution_stats.record_item(&value, budget)?;
         count = count.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
         if first_batch_values.len() < fetch_size {
             first_batch_values.push(value);
@@ -2867,10 +2899,13 @@ where
         .checked_sub(batch_len)
         .ok_or(Error::GasBudgetExceeded)?;
     debug_assert_eq!(
-        stats.processed_items(),
-        skipped.checked_add(count).unwrap_or(u64::MAX)
+        execution_stats.processed_items(),
+        skipped.saturating_add(count)
     );
-    Ok((QueryOutput::new(batch, remaining_items, None), stats))
+    Ok((
+        QueryOutput::new(batch, remaining_items, None),
+        execution_stats,
+    ))
 }
 fn apply_query_postprocessing_with_budget<I>(
     iter: I,
@@ -2897,7 +2932,7 @@ where
     let materialized_item_limit = limits
         .ordinary_execution_limits
         .map(OrdinaryQueryExecutionLimits::max_cursor_retained_items);
-    let mut stats = QueryExecutionStats::default();
+    let mut execution_stats = QueryExecutionStats::default();
     let output = if let Some(key) = params.sorting.sort_by_metadata_key.as_ref() {
         // if sorting was requested, we need to retrieve all the results first
         let mut count = 0_u64;
@@ -2905,7 +2940,7 @@ where
         let mut sort_keys = Vec::new();
         let mut tiebreak_keys = Vec::new();
         for value in iter {
-            stats.record_item(&value, budget)?;
+            execution_stats.record_item(&value, budget)?;
             count = count.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
             if materialized_item_limit.is_some_and(|limit| count > limit) {
                 return Err(Error::CapacityLimit);
@@ -2950,14 +2985,14 @@ where
                 let Some(value) = iter.next() else {
                     break;
                 };
-                stats.record_item(&value, budget)?;
+                execution_stats.record_item(&value, budget)?;
                 skipped = skipped.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
             }
-            while !limit.is_some_and(|limit| count >= limit) {
+            while limit.is_none_or(|limit| count < limit) {
                 let Some(value) = iter.next() else {
                     break;
                 };
-                stats.record_item(&value, budget)?;
+                execution_stats.record_item(&value, budget)?;
                 count = count.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
                 if materialized_item_limit.is_some_and(|limit| count > limit) {
                     return Err(Error::CapacityLimit);
@@ -2968,7 +3003,7 @@ where
         };
         ErasedQueryIterator::new(output.into_iter(), selector, fetch_size)
     };
-    Ok((output, stats.processed_items()))
+    Ok((output, execution_stats.processed_items()))
 }
 fn validate_query_request_limits(
     request: &QueryRequest,
@@ -3053,42 +3088,38 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             iroha_config::base::toml::TomlSource::from_file(file.path()).expect("read config");
         ConfigRoot::from_toml_source(source).expect("load minimal config")
     }
-    fn minimal_root_with_pipeline_max_fetch(max_fetch_size: u64) -> ConfigRoot {
-        let config = format!(
-            r#"
-chain = "00000000-0000-0000-0000-000000000000"
-public_key = "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
-private_key = "8926201CA347641228C3B79AA43839DEDC85FA51C0E8B9B6A00F6B0D6B0423E902973F"
-soranet_transport_public_key = "ed0120D9F6AEF1813164294D1D9C0662FEB9C7F7861B4DFFE385680331093DA4ABD10B"
-soranet_transport_private_key = "802620134C4527B3852AE2218A8F079B301C651EAD8C7567B96BD7A9BE8DB366E46B89"
-trusted_peers_pop = [
-  {{ public_key = "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2", pop_hex = "8515da750f81182aaba5c22fc9f03a01e81ed85e4495a2ca6b29a71c0c8549537e31e79cddf6ff285b9e22d0d9dc17ce0f46e7d0cf78b2ef9feab50c849a1ea8e1e4f07e966f6113faa8a999317545d9f111b8e08a7273913710b43a20b19c08" }},
-]
-
-[network]
-address = "addr:127.0.0.1:1337#8F78"
-public_address = "addr:127.0.0.1:1337#8F78"
-
-[torii]
-address = "addr:127.0.0.1:8080#8942"
-
-[pipeline]
-query_max_fetch_size = {max_fetch_size}
-
-[genesis]
-public_key = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
-expected_hash = "hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
-
-[streaming]
-identity_public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
-identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F"
-"#
+    /// A State whose World commits `pipeline_validity_policy_v1` with the given
+    /// IVM query fetch limit; `node` is the node's own pipeline settings.
+    fn state_with_committed_max_fetch(
+        max_fetch_size: u64,
+        node: Option<PipelineActual>,
+    ) -> crate::state::State {
+        use iroha_data_model::{
+            parameter::Parameter, pipeline_validity_policy::PipelineValidityPolicyV1,
+        };
+        let world = crate::state::World::default();
+        let mut policy = PipelineValidityPolicyV1::protocol_default();
+        policy.query_max_fetch_size = max_fetch_size;
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
+            block.commit();
+        }
+        let mut state = crate::state::State::new_for_testing(
+            world,
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
         );
-        let mut file = NamedTempFile::new().expect("temp config file");
-        file.write_all(config.as_bytes()).expect("write config");
-        let source =
-            iroha_config::base::toml::TomlSource::from_file(file.path()).expect("read config");
-        ConfigRoot::from_toml_source(source).expect("load minimal config")
+        if let Some(node) = node {
+            state
+                .install_node_pipeline(node)
+                .expect("node pipeline resources install");
+        }
+        state
     }
     #[test]
     fn reject_fetch_size_above_max() {
@@ -3181,16 +3212,52 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         ));
     }
     #[test]
-    fn query_limits_from_pipeline_uses_configured_max_fetch() {
-        let root = minimal_root_with_pipeline_max_fetch(3);
-        let limits = QueryLimits::from_pipeline(&root.pipeline);
-        let request = request_with_fetch_size(4);
-        let err = validate_query_request_limits(&request, limits)
-            .expect_err("configured pipeline max fetch should be enforced");
-        assert!(matches!(
-            err,
-            ValidationFail::QueryFailed(Error::FetchSizeTooBig)
-        ));
+    fn query_limits_from_pipeline_use_the_committed_max_fetch_at_and_above_the_limit() {
+        // The limit is the committed pipeline validity policy, not node
+        // configuration: a node that holds another value decides the same.
+        let divergent = iroha_config::parameters::actual::Pipeline {
+            query_max_fetch_size: 1,
+            ..Default::default()
+        };
+        for node in [None, Some(divergent)] {
+            let state = state_with_committed_max_fetch(3, node);
+            let view = state.view();
+            let limits = QueryLimits::from_pipeline(&view.pipeline);
+            validate_query_request_limits(&request_with_fetch_size(3), limits)
+                .expect("a fetch of exactly the committed limit is accepted");
+            let err = validate_query_request_limits(&request_with_fetch_size(4), limits)
+                .expect_err("one item above the committed limit is rejected");
+            assert!(matches!(
+                err,
+                ValidationFail::QueryFailed(Error::FetchSizeTooBig)
+            ));
+            // The block built on this State freezes the same limit.
+            let block = state.block(iroha_data_model::block::BlockHeader::new(
+                nonzero!(2_u64),
+                None,
+                None,
+                0,
+                0,
+            ));
+            let limits = QueryLimits::from_pipeline(&block.pipeline);
+            validate_query_request_limits(&request_with_fetch_size(3), limits)
+                .expect("the block accepts a fetch of exactly the committed limit");
+            assert!(validate_query_request_limits(&request_with_fetch_size(4), limits).is_err());
+        }
+        // Without a committed policy the protocol default decides.
+        let default_limit = pipeline_defaults::QUERY_MAX_FETCH_SIZE;
+        let state = crate::state::State::new_for_testing(
+            crate::state::World::default(),
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        let limits = QueryLimits::from_pipeline(&state.view().pipeline);
+        validate_query_request_limits(&request_with_fetch_size(default_limit), limits)
+            .expect("the protocol default limit is accepted");
+        assert!(
+            validate_query_request_limits(&request_with_fetch_size(default_limit + 1), limits)
+                .is_err()
+        );
     }
 }
 /// Validate a fresh client query without exposing a reusable execution capability.
@@ -3207,7 +3274,7 @@ pub fn validate_fresh_query_for_client_world_parts(
     request: QueryRequest,
     authority: &AccountId,
     world_ro: &impl WorldReadOnly,
-    latest_block: Option<BlockHeader>,
+    latest_block: Option<&BlockHeader>,
     limits: QueryLimits,
     budget: &iroha_allocation::AllocationBudget,
 ) -> Result<(), ValidationFail> {
@@ -3231,7 +3298,7 @@ pub(crate) struct ValidQueryRequest {
     request: QueryRequest,
     limits: QueryLimits,
 }
-/// Lightweight trait abstraction for IVM-side query validation to decouple from `ivm::state`.
+/// Authority-bound query validation supplied by the current IVM host.
 pub(crate) trait IvmQueryValidator {
     /// Account on whose behalf the query will run.
     fn authority(&self) -> &AccountId;
@@ -3948,7 +4015,7 @@ mod tests {
             limits: QueryLimits::default(),
         };
         let view = state.view();
-        let (response, stats) = request
+        let (response, execution_stats) = request
             .execute_ephemeral_with_stats(
                 view.query_handle(),
                 &view,
@@ -3961,7 +4028,7 @@ mod tests {
             QueryResponse::Singular(SingularQueryOutputBox::AccountAliasBindingRecords(records))
                 if records.is_empty()
         ));
-        assert_eq!(stats.processed_items(), 0);
+        assert_eq!(execution_stats.processed_items(), 0);
     }
     #[test]
     fn sorafs_anonymity_queries_require_bounded_lane_and_fail_closed() {
@@ -4009,8 +4076,10 @@ mod tests {
                 0,
             );
             assert_eq!(
-                query.execute(&view),
-                Err(QueryAttemptError::Rejected(Error::Find(expected)))
+                crate::execution_attempt::expect_completed_rejection(
+                    (query.execute(&view)).expect_err("completed rejection")
+                ),
+                Error::Find(expected)
             );
         }
     }
@@ -4196,7 +4265,7 @@ mod tests {
     #[test]
     fn ephemeral_sort_derives_and_charges_each_large_tiebreak_key_once() {
         let derivations = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut stats = QueryExecutionStats::default();
+        let mut execution_stats = QueryExecutionStats::default();
         let values = (0_u8..32).map(|id| CountingTiebreakValue {
             id,
             derivations: derivations.clone(),
@@ -4208,7 +4277,7 @@ mod tests {
             SortOrder::Asc,
             16,
             Some(budget),
-            &mut stats,
+            &mut execution_stats,
         )
         .expect("sort values with precomputed keys");
         assert_eq!(count, 32);
@@ -4218,7 +4287,7 @@ mod tests {
             32,
             "sorting comparisons must reuse the one admitted key per item",
         );
-        assert!(stats.processed_bytes() >= 32 * 16 * 1024);
+        assert!(execution_stats.processed_bytes() >= 32 * 16 * 1024);
     }
     #[test]
     fn ephemeral_sort_rejects_large_tiebreak_key_before_materialization() {
@@ -4236,11 +4305,11 @@ mod tests {
             0,
             1,
         );
-        let mut stats = QueryExecutionStats::default();
-        stats
+        let mut execution_stats = QueryExecutionStats::default();
+        execution_stats
             .record_item(&value, Some(budget))
             .expect("item fits before its large key");
-        let error = materialize_admitted_tiebreak_key(&value, &mut stats, Some(budget))
+        let error = materialize_admitted_tiebreak_key(&value, &mut execution_stats, Some(budget))
             .expect_err("oversized key must fail its allocation-free preflight");
         assert!(matches!(error, Error::GasBudgetExceeded));
         assert_eq!(
@@ -4302,11 +4371,11 @@ mod tests {
             0,
             1,
         );
-        let mut stats = QueryExecutionStats::default();
-        stats
+        let mut execution_stats = QueryExecutionStats::default();
+        execution_stats
             .record_item(&output, Some(budget))
             .expect("singular item alone fits");
-        let error = stats
+        let error = execution_stats
             .record_response(&response, Some(budget))
             .expect_err("framed response must be admitted before serialization");
         assert!(matches!(error, Error::GasBudgetExceeded));
@@ -4330,7 +4399,7 @@ mod tests {
             1,
             1,
         );
-        let (output, stats) = apply_query_postprocessing_ephemeral_with_budget(
+        let (output, execution_stats) = apply_query_postprocessing_ephemeral_with_budget(
             vec![skipped, first.clone(), second.clone()].into_iter(),
             SelectorTuple::default(),
             &params,
@@ -4350,8 +4419,8 @@ mod tests {
             .expect("response length fits u64"),
             "iterable framing measurement must match the canonical codec",
         );
-        assert_eq!(stats.processed_items(), 3);
-        assert_eq!(stats.processed_bytes(), byte_budget);
+        assert_eq!(execution_stats.processed_items(), 3);
+        assert_eq!(execution_stats.processed_bytes(), byte_budget);
         assert_eq!(
             domain_ids_from_batch(output.batch),
             vec![first.id, second.id]
@@ -4375,7 +4444,7 @@ mod tests {
             },
         };
         let selector = SelectorTuple::<Domain>::default();
-        let (output, stats) = apply_query_postprocessing_ephemeral_with_budget(
+        let (output, execution_stats) = apply_query_postprocessing_ephemeral_with_budget(
             vec![d1.clone(), d2.clone(), d3].into_iter(),
             selector,
             &params,
@@ -4386,7 +4455,7 @@ mod tests {
         let (batch, remaining, cursor) = output.into_parts();
         assert!(cursor.is_none());
         assert_eq!(remaining, 1);
-        assert_eq!(stats.processed_items(), 3);
+        assert_eq!(execution_stats.processed_items(), 3);
         assert_eq!(domain_ids_from_batch(batch), vec![d1.id, d2.id]);
     }
     #[tokio::test]
@@ -4408,7 +4477,7 @@ mod tests {
             },
         };
         let selector = SelectorTuple::<Domain>::default();
-        let (output, stats) = apply_query_postprocessing_ephemeral_with_budget(
+        let (output, execution_stats) = apply_query_postprocessing_ephemeral_with_budget(
             vec![d1.clone(), d2.clone(), d3, d4].into_iter(),
             selector,
             &params,
@@ -4421,7 +4490,7 @@ mod tests {
         let (batch, remaining_hint, cursor) = output.into_parts();
         assert!(cursor.is_none());
         assert_eq!(remaining_hint, 0);
-        assert_eq!(stats.processed_items(), 3);
+        assert_eq!(execution_stats.processed_items(), 3);
         assert_eq!(domain_ids_from_batch(batch), vec![d1.id, d2.id]);
     }
     #[tokio::test]
@@ -4581,7 +4650,7 @@ mod tests {
         // One page and three retained rows fit; the fifth source row is an overflow probe.
         assert!(
             prepare_stored_unsorted_bounded_start(
-                values[..4].to_vec().into_iter(),
+                values[..4].iter().cloned(),
                 SelectorTuple::<RoleId>::default(),
                 &params,
                 QueryLimits::new(1)
@@ -4633,7 +4702,7 @@ mod tests {
         };
         assert!(
             prepare_stored_unsorted_bounded_start(
-                values[..values.len() - 1].to_vec().into_iter(),
+                values[..values.len() - 1].iter().cloned(),
                 SelectorTuple::<Domain>::default(),
                 &params,
                 QueryLimits::new(1).with_count_mode(QueryCountMode::Bounded),
@@ -6701,15 +6770,14 @@ mod tests {
         .map(|header| header.height().get())
         .collect::<Vec<_>>();
         assert_eq!(headers, vec![7, 3, 2]);
-        let missing = ValidQuery::execute(
+        let mut missing = ValidQuery::execute(
             FindBlockHeaders,
             CompoundPredicate::<iroha_data_model::block::BlockHeader>::build(|p| {
                 p.equals("height", 42_u64)
             }),
             &state_view,
-        )?
-        .collect::<Vec<_>>();
-        assert!(missing.is_empty());
+        )?;
+        assert!(missing.next().is_none());
         Ok(())
     }
     #[tokio::test]
@@ -7214,7 +7282,10 @@ mod tests {
             .unwrap()
             .network_input_hashes()
             .len();
-        assert_eq!(txs.len(), genesis_rows + (num_blocks as usize - 1) * 2);
+        assert_eq!(
+            txs.len(),
+            genesis_rows + (usize::try_from(num_blocks).expect("fixture value fits usize") - 1) * 2
+        );
         assert_eq!(
             txs.iter().filter(|txn| txn.result().is_err()).count() as u64,
             num_blocks - 1
@@ -7351,13 +7422,13 @@ mod tests {
             )
             .expect_err("every original genesis and successor work unit must be charged");
             assert_eq!(
-                rejected,
-                QueryAttemptError::Rejected(Error::GasBudgetExceeded)
+                crate::execution_attempt::expect_completed_rejection(rejected),
+                Error::GasBudgetExceeded
             );
         }
         state_view.kura().reset_canonical_query_reads_for_test();
         let item_budget = QueryExecutionBudget::from_weighted_limit(original_work_units, 1, 0);
-        let (QueryResponse::Iterable(output), stats) = validated
+        let (QueryResponse::Iterable(output), execution_stats) = validated
             .execute_ephemeral_with_stats(&query_handle, &state_view, &ALICE_ID, Some(item_budget))
             .expect("execute exact transaction query")
         else {
@@ -7368,7 +7439,7 @@ mod tests {
         assert_eq!(remaining_items, Some(32));
         assert!(has_more);
         assert!(cursor.is_none());
-        assert_eq!(stats.processed_items(), original_work_units);
+        assert_eq!(execution_stats.processed_items(), original_work_units);
         assert_eq!(
             state_view.kura().canonical_query_reads_for_test().0,
             17,
@@ -7404,7 +7475,10 @@ mod tests {
                     Some(item_budget),
                 )
                 .expect_err("exact full-history scan must exceed a one-item budget");
-            assert_eq!(err, QueryAttemptError::Rejected(Error::GasBudgetExceeded));
+            assert_eq!(
+                crate::execution_attempt::expect_completed_rejection(err),
+                Error::GasBudgetExceeded
+            );
         }
     }
     #[test]
@@ -7456,7 +7530,10 @@ mod tests {
                     Some(item_budget),
                 )
                 .expect_err("eager carrier projection must be precharged before proof work");
-            assert_eq!(err, QueryAttemptError::Rejected(Error::GasBudgetExceeded));
+            assert_eq!(
+                crate::execution_attempt::expect_completed_rejection(err),
+                Error::GasBudgetExceeded
+            );
             assert_eq!(
                 crate::smartcontracts::isi::tx::canonical_network_projection_calls_for_test(),
                 0,
@@ -8261,9 +8338,10 @@ mod tests {
         assert_eq!(state_view.height() as u64, num_blocks);
         assert_eq!(
             expected_heights,
-            std::collections::BTreeSet::from([
-                std::num::NonZeroUsize::new(num_blocks as usize).unwrap(),
-            ]),
+            std::collections::BTreeSet::from([std::num::NonZeroUsize::new(
+                usize::try_from(num_blocks).expect("fixture value fits usize")
+            )
+            .unwrap(),]),
             "distinct source timestamps select only the latest matching carrier"
         );
         Ok(())
@@ -8355,25 +8433,23 @@ mod tests {
             vec![target.clone(), same_backend_wrong_status.clone()],
             "backend-specific proof query must not leak records from another backend",
         );
-        let missing_backend = ValidQuery::execute(
+        let mut missing_backend = ValidQuery::execute(
             iroha_data_model::query::proof::prelude::FindProofRecordsByBackend {
                 backend: "missing/backend".into(),
             },
             CompoundPredicate::<iroha_data_model::proof::ProofRecord>::PASS,
             &state_view,
-        )?
-        .collect::<Vec<_>>();
-        assert!(missing_backend.is_empty());
-        let contradictory_backend = ValidQuery::execute(
+        )?;
+        assert!(missing_backend.next().is_none());
+        let mut contradictory_backend = ValidQuery::execute(
             iroha_data_model::query::proof::prelude::FindProofRecords,
             CompoundPredicate::<iroha_data_model::proof::ProofRecord>::build(|p| {
                 p.equals("backend", "halo2/test")
                     .equals("backend", "stark/test")
             }),
             &state_view,
-        )?
-        .collect::<Vec<_>>();
-        assert!(contradictory_backend.is_empty());
+        )?;
+        assert!(contradictory_backend.next().is_none());
         Ok(())
     }
     iter_dispatch_rank_sort_test!(

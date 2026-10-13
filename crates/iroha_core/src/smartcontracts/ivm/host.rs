@@ -623,6 +623,10 @@ pub struct CoreHostImpl<QS> {
     access_log_enabled: bool,
     zk_verify_limits: ivm::host::ZkVerifyLimits,
     zk_gas_schedule: ivm::gas::ZkGasScheduleV1,
+    /// Verification gas schedule of the block this host executes in, installed
+    /// with the block's frozen ZK settings by [`Self::set_zk_config`]. It prices
+    /// the proof-bearing instructions the host queues.
+    confidential_gas: iroha_config::parameters::actual::ConfidentialGas,
     stark_config: iroha_config::parameters::actual::Stark,
     pipa_r_config: iroha_config::parameters::actual::PipaR,
     crypto: Arc<iroha_config::parameters::actual::Crypto>,
@@ -960,11 +964,11 @@ where
     }
 }
 fn map_query_validation_error(
-    error: &crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+    error: crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
 ) -> ivm::VMError {
     let error = match error {
         crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-            return reason.clone().into_vm_error();
+            return reason.into_vm_error();
         }
         crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
     };
@@ -980,11 +984,11 @@ fn map_validation_fail(error: &ValidationFail) -> ivm::VMError {
     }
 }
 fn map_query_execution_error(
-    error: &crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+    error: crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
 ) -> ivm::VMError {
     let error = match error {
         crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-            return reason.clone().into_vm_error();
+            return reason.into_vm_error();
         }
         crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
     };
@@ -1042,14 +1046,14 @@ fn execute_query_on_state_with_count_mode<R: StateReadOnly>(
     }
     .with_count_mode(count_mode);
     let validated = ValidQueryRequest::validate_for_ivm(request, &mut validator, limits)
-        .map_err(|err| map_query_validation_error(&err))?;
-    let (response, stats) = validated
+        .map_err(map_query_validation_error)?;
+    let (response, execution_stats) = validated
         .execute_ephemeral_with_stats(state.query_handle(), state, authority, budget)
-        .map_err(|err| map_query_execution_error(&err))?;
+        .map_err(map_query_execution_error)?;
     Ok(QueryExecutionResult {
         response,
-        processed_items: stats.processed_items(),
-        processed_bytes: stats.processed_bytes(),
+        processed_items: execution_stats.processed_items(),
+        processed_bytes: execution_stats.processed_bytes(),
     })
 }
 fn execute_query_on_state_with_budget<R: StateReadOnly>(
@@ -1092,17 +1096,19 @@ fn execute_optional_singular_query_on_state<R: StateReadOnly>(
         )) if is_missing_query_error(&error) => {
             return Ok((None, QueryExecutionStats::default()));
         }
-        Err(error) => return Err(map_query_validation_error(&error)),
+        Err(error) => return Err(map_query_validation_error(error)),
     };
     match validated.execute_ephemeral_with_stats(state.query_handle(), state, authority, budget) {
-        Ok((QueryResponse::Singular(output), stats)) => Ok((Some(output), stats)),
+        Ok((QueryResponse::Singular(output), execution_stats)) => {
+            Ok((Some(output), execution_stats))
+        }
         Ok((QueryResponse::Iterable(_), _)) => Err(ivm::VMError::DecodeError),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(error))
             if is_missing_query_error(&error) =>
         {
             Ok((None, QueryExecutionStats::default()))
         }
-        Err(error) => Err(map_query_execution_error(&error)),
+        Err(error) => Err(map_query_execution_error(error)),
     }
 }
 // The filter's original decoded graph is consumed by the synchronous ephemeral
@@ -1354,6 +1360,11 @@ pub trait QueryStateRefOps {
     ) -> Result<ContractInstance, ivm::VMError>;
     /// Resolve an authenticated contract identity, runtime subject, and artifact length without
     /// copying its manifest or bytecode.
+    ///
+    /// # Errors
+    /// Returns a VM error if committed scope authorization or contract identity
+    /// lookup fails. Missing identity, subject or deployed artifact instead
+    /// returns `Ok(None)`.
     fn bound_contract_dispatch_identity_by_address(
         &self,
         contract_address: &ContractAddress,
@@ -1366,6 +1377,10 @@ pub trait QueryStateRefOps {
         ivm::VMError,
     >;
     /// Prepare a content-addressed cache miss while borrowing deployed bytecode in place.
+    ///
+    /// # Errors
+    /// Returns a VM error if the deployed artifact is absent or cannot be read,
+    /// authenticated or prepared within the cache owner's resources.
     fn prepare_contract_cache_miss(
         &self,
         cache: &PreparedContractCache,
@@ -1571,7 +1586,6 @@ fn visit_merged_durable_state_keys(
         Ok(())
     };
     visit_live(&mut merge_live)?;
-    drop(merge_live);
     while let Some((key, present)) = local.next() {
         if !key.as_ref().starts_with(physical_prefix) {
             break;
@@ -1618,7 +1632,6 @@ fn visit_bounded_durable_state_positions(
         Ok(ControlFlow::Continue(()))
     };
     let flow = visit_live(&mut merge_live)?;
-    drop(merge_live);
     if flow.is_break() {
         return Ok(());
     }
@@ -1782,7 +1795,7 @@ mod durable_state_merge_tests {
             vec![state_path("state/b"), state_path("state/a")],
             vec![state_path("state/a"), state_path("other/a")],
         ] {
-            assert_eq!(
+            assert!(matches!(
                 visit_merged_durable_state_keys(
                     &base,
                     &overlay,
@@ -1791,7 +1804,7 @@ mod durable_state_merge_tests {
                     &mut |_, _| Ok(()),
                 ),
                 Err(ivm::VMError::NoritoInvalid)
-            );
+            ));
         }
     }
     #[test]
@@ -1888,17 +1901,19 @@ mod durable_state_merge_tests {
             .expect("contract path is scoped");
         assert_eq!(exact_physical.as_ref().len(), MAX_STATE_PATH_BYTES);
         let oversized = state_path(&"x".repeat(MAX_STATE_PATH_BYTES - scope_len + 1));
-        assert_eq!(
+        assert!(matches!(
             host.scoped_durable_state_path(&oversized),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         let path_len = norito::to_bytes(&oversized)
             .expect("encode logical prefix")
             .len();
         let vm = IVM::new(u64::MAX);
-        assert_eq!(
-            host.count_durable_state_keys(&vm, &oversized, path_len),
-            Err(ivm::VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.count_durable_state_keys(&vm, &oversized, path_len),
+                Err(ivm::VMError::NoritoInvalid)
+            ),
             "scans must not turn an unrepresentable physical prefix into an empty success"
         );
     }
@@ -2535,9 +2550,14 @@ impl PartialEq<InstructionBox> for QueuedEffect {
     }
 }
 #[derive(Clone)]
+enum OriginalMapEntry<T> {
+    Absent,
+    Present(T),
+}
+#[derive(Clone)]
 struct DurableStateOriginal {
-    overlay: Option<Option<Vec<u8>>>,
-    authorization: Option<Option<ContractEntrypointAuthorizationSnapshot>>,
+    overlay: OriginalMapEntry<Option<Vec<u8>>>,
+    authorization: OriginalMapEntry<Option<ContractEntrypointAuthorizationSnapshot>>,
 }
 #[derive(Default)]
 struct NestedContractCallJournal {
@@ -3093,6 +3113,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -3224,6 +3245,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -3309,6 +3331,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -4160,7 +4183,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     cfg.allowed_signing.sort();
                     cfg.allowed_signing.dedup();
                     if !cfg.default_hash.eq_ignore_ascii_case("sm3-256") {
-                        cfg.default_hash = "sm3-256".to_owned();
+                        "sm3-256".clone_into(&mut cfg.default_hash);
                     }
                     if cfg.sm2_distid_default.trim().is_empty() {
                         cfg.sm2_distid_default = defaults::sm2_distid_default();
@@ -4200,6 +4223,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             cfg.gas.per_proof_byte,
         );
         self.zk_gas_schedule = schedule;
+        self.confidential_gas = cfg.gas;
         self.default.set_zk_gas_schedule(schedule);
         self.zk_verify_limits = ivm::host::ZkVerifyLimits {
             max_verify_batch: cfg.max_verify_batch,
@@ -4469,6 +4493,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// epoch boundary are projected, after full public-session/signature and
     /// canonical block-anchor verification. Missing or conflicting evidence
     /// leaves that epoch absent so the syscall fails closed with `found=false`.
+    ///
+    /// # Errors
+    /// Returns the original execution-attempt error if committed NPoS parameters
+    /// cannot be read or validated. Invalid or conflicting beacon evidence is
+    /// instead omitted from the successful epoch projection.
     pub fn set_vrf_epoch_seeds_from_state(
         &mut self,
         state: &impl StateReadOnly,
@@ -4510,7 +4539,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             let Ok(pulse) = crate::beacon::verified_persisted_global_threshold_beacon_pulse_v1(
                 state.world(),
                 state.network_id(),
-                *candidate,
+                candidate,
             ) else {
                 continue;
             };
@@ -4644,7 +4673,12 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 return Err(ivm::VMError::NoritoInvalid);
             }
             let material = crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &rec)
-                .map_err(|_| ivm::VMError::NoritoInvalid)?;
+                .map_err(|error| match error {
+                    crate::zk::VerificationAttemptError::Rejected(_) => ivm::VMError::NoritoInvalid,
+                    crate::zk::VerificationAttemptError::Deferred(original) => {
+                        ivm::VMError::VerificationDeferred(original)
+                    }
+                })?;
             let commitment = rec.commitment;
             let record = Arc::new(rec);
             let prepared = PreparedVerifyingKey {
@@ -4880,7 +4914,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         ),
         u64,
     > {
-        let env = ivm::host::decode_canonical_zk_envelope(payload)?;
+        let env = ivm::host::decode_canonical_zk_envelope(payload).map_err(|error| {
+            error
+                .into_status()
+                .expect("test fixture decode must complete locally")
+        })?;
         self.enforce_zk_envelope_value_impl(env, payload.len(), Some(namespace))
     }
     fn enforce_zk_envelope_value(
@@ -4926,7 +4964,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         env: iroha_data_model::zk::OpenVerifyEnvelope,
         payload: &[u8],
         namespace: &str,
-    ) -> Result<bool, u64> {
+    ) -> Result<bool, crate::zk::VerificationAttemptError<u64>> {
         let (_env, prepared) = self.enforce_zk_envelope_value(env, payload.len(), namespace)?;
         let vk_box = prepared
             .record
@@ -4942,13 +4980,14 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             Some(vk_box),
             guardrails,
         )
+        .map_err(crate::zk::VerificationAttemptError::Deferred)?
         .ok)
     }
     fn verify_any_namespace_envelope(
         &self,
         env: iroha_data_model::zk::OpenVerifyEnvelope,
         payload: &[u8],
-    ) -> Result<bool, u64> {
+    ) -> Result<bool, crate::zk::VerificationAttemptError<u64>> {
         let (_env, prepared) = self.enforce_zk_envelope_any_namespace_value(env, payload.len())?;
         let vk_box = prepared
             .record
@@ -4964,6 +5003,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             Some(vk_box),
             guardrails,
         )
+        .map_err(crate::zk::VerificationAttemptError::Deferred)?
         .ok)
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -5055,10 +5095,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         let items = u64::try_from(items).unwrap_or(u64::MAX);
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
-        let attempted_items = self
-            .instruction_queue_count
-            .checked_add(items)
-            .unwrap_or(u64::MAX);
+        let attempted_items = self.instruction_queue_count.saturating_add(items);
         if attempted_items > limits.max_items {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::ItemCount {
                 attempted: attempted_items,
@@ -5066,10 +5103,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             });
             return false;
         }
-        let attempted_bytes = self
-            .instruction_queue_encoded_bytes
-            .checked_add(bytes)
-            .unwrap_or(u64::MAX);
+        let attempted_bytes = self.instruction_queue_encoded_bytes.saturating_add(bytes);
         if attempted_bytes > limits.max_bytes {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::EncodedBytes {
                 attempted: attempted_bytes,
@@ -5166,15 +5200,19 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .into_iter()
             .map(|mut queued| {
                 if queued.contract_runtime_context.is_none() {
-                    queued.contract_runtime_context = fallback.clone();
+                    queued.contract_runtime_context.clone_from(&fallback);
                 }
                 if queued.entrypoint_authorization.is_none() {
-                    queued.entrypoint_authorization = authorization_fallback.clone();
+                    queued
+                        .entrypoint_authorization
+                        .clone_from(&authorization_fallback);
                 }
                 queued
             })
             .collect()
     }
+    /// Extract queued effects for the test overlay builders, retaining their context.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_queued_effects_with_contract_runtime_context(
         &mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
@@ -5186,7 +5224,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.durable_state_authorizations.clear();
         mem::take(&mut self.durable_state_overlay)
     }
-    /// Drain durable writes together with the immutable authorization for each write.
+    /// Extract test overlay writes with the immutable authorization for each write.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_durable_state_overlay_with_authorizations(
         &mut self,
     ) -> (
@@ -5198,8 +5237,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             mem::take(&mut self.durable_state_authorizations),
         )
     }
-    /// Drain completed AXT states so deterministic proof replay can persist them after
-    /// verification using the same lane/height materialization as raw execution.
+    /// Extract completed AXT states for test overlays that compare proof replay with
+    /// raw execution using the same lane and height materialization.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_completed_axt_states(&mut self) -> Vec<axt::HostAxtState> {
         mem::take(&mut self.completed_axt)
     }
@@ -5369,17 +5409,36 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     pub(crate) fn into_execution_artifacts(
         mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
-    ) -> Result<HostExecutionArtifacts, ValidationFail> {
+    ) -> Result<
+        HostExecutionArtifacts,
+        crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+    > {
         self.take_execution_artifacts(contract_runtime_context)
     }
     fn take_execution_artifacts(
         &mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
-    ) -> Result<HostExecutionArtifacts, ValidationFail> {
-        self.ensure_output_budget()
-            .map_err(|error| ValidationFail::NotPermitted(error.to_string()))?;
+    ) -> Result<
+        HostExecutionArtifacts,
+        crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
+    > {
+        self.ensure_output_budget().map_err(|error| {
+            crate::execution_attempt::vm_attempt_error(error, |error| {
+                ValidationFail::NotPermitted(error.to_string())
+            })
+        })?;
         self.ensure_execution_artifacts_are_committable()?;
         self.ensure_view_execution_has_no_effect_artifacts()?;
+        let confidential_gas_delta = crate::gas::sum_confidential_gas_costs(
+            self.queued.iter().filter_map(QueuedEffect::instruction),
+            &self.confidential_gas,
+        )
+        .map_err(|original| {
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+        })?;
+        // TransferAssetBatch contributes no confidential surcharge. Preserve an unfinished
+        // batch intact until every fallible quote over the existing queue has completed.
+        self.flush_pending_fastpq_batch();
         let queued = self.drain_queued_effects_with_fallback(contract_runtime_context);
         self.validate_queued_for_zk(
             &queued
@@ -5387,9 +5446,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 .filter_map(|queued| queued.instruction().cloned())
                 .collect::<Vec<_>>(),
         )?;
-        let confidential_gas_delta = crate::gas::sum_confidential_gas_costs(
-            queued.iter().filter_map(QueuedEffect::instruction),
-        );
         let completed_axt = mem::take(&mut self.completed_axt);
         let durable_state_overlay = mem::take(&mut self.durable_state_overlay);
         let durable_state_authorizations = mem::take(&mut self.durable_state_authorizations);
@@ -5423,7 +5479,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         authority: &AccountId,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<Vec<InstructionBox>, ValidationFail> {
-        self.take_execution_artifacts(contract_runtime_context.cloned())?
+        self.confidential_gas = tx.zk.gas;
+        self.take_execution_artifacts(contract_runtime_context.cloned())
+            .map_err(|error| tx.attempt_error_to_validation_fail(error))?
             .apply_to_transaction(tx, authority)
     }
     fn journal_durable_state_before_write(&mut self, key: &StatePath) {
@@ -5431,8 +5489,16 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             return;
         }
         let original = DurableStateOriginal {
-            overlay: self.durable_state_overlay.get(key).cloned(),
-            authorization: self.durable_state_authorizations.get(key).cloned(),
+            overlay: self
+                .durable_state_overlay
+                .get(key)
+                .cloned()
+                .map_or(OriginalMapEntry::Absent, OriginalMapEntry::Present),
+            authorization: self
+                .durable_state_authorizations
+                .get(key)
+                .cloned()
+                .map_or(OriginalMapEntry::Absent, OriginalMapEntry::Present),
         };
         for journal in &mut self.nested_contract_call_journals {
             journal
@@ -5487,14 +5553,16 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .durable_read_paths
             .contains(&physical_path);
         let items = usize::from(new_logical_key).saturating_add(usize::from(new_physical_path));
-        let bytes = new_logical_key
-            .then_some(key.len().saturating_add(64))
-            .unwrap_or(0)
-            .saturating_add(
-                new_physical_path
-                    .then_some(physical_path.len().saturating_add(64))
-                    .unwrap_or(0),
-            );
+        let bytes = if new_logical_key {
+            key.len().saturating_add(64)
+        } else {
+            0
+        }
+        .saturating_add(if new_physical_path {
+            physical_path.len().saturating_add(64)
+        } else {
+            0
+        });
         if !self.try_reserve_output(items, bytes) {
             self.state_access_log.durable_read_paths_complete = false;
             return;
@@ -5508,11 +5576,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         let unique_key = !self.state_access_log.write_keys.contains(key);
         let items = 1_usize.saturating_add(usize::from(unique_key));
-        let bytes = key.len().saturating_add(64).saturating_add(
-            unique_key
-                .then_some(key.len().saturating_add(32))
-                .unwrap_or(0),
-        );
+        let bytes = key.len().saturating_add(64).saturating_add(if unique_key {
+            key.len().saturating_add(32)
+        } else {
+            0
+        });
         if !self.try_reserve_output(items, bytes) {
             return;
         }
@@ -5743,18 +5811,19 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         (instructions, sequence)
     }
-    fn create_nfts_for_all_instructions_gas(instructions: &[InstructionBox]) -> u64 {
-        instructions
-            .iter()
-            .fold(0_u64, |gas, instruction| {
-                gas.saturating_add(crate::gas::meter_instruction(instruction))
-            })
-            .max(Self::create_nfts_for_all_gas())
+    fn create_nfts_for_all_instructions_gas(
+        &self,
+        instructions: &[InstructionBox],
+    ) -> Result<u64, ivm::VMError> {
+        let gas = crate::gas::meter_instructions(instructions, &self.confidential_gas)
+            .map_err(ivm::VMError::VerificationDeferred)?;
+        Ok(gas.max(Self::create_nfts_for_all_gas()))
     }
     #[cfg(test)]
     fn create_nfts_for_all_gas_quote(&self) -> u64 {
         let (instructions, _) = self.create_nfts_for_all_preview();
-        Self::create_nfts_for_all_instructions_gas(&instructions)
+        self.create_nfts_for_all_instructions_gas(&instructions)
+            .expect("completed NFT fixture gas quote")
     }
     fn axt_verify_gas(payload_len: usize) -> u64 {
         AXT_VERIFY_GAS_BASE.saturating_add(
@@ -5888,7 +5957,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             },
             &mut emit,
         )?;
-        drop(emit);
         Ok((total, scan_work_gas))
     }
     fn decode_name_payload(payload: &[u8]) -> Result<Name, ivm::VMError> {
@@ -5961,11 +6029,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// # Errors
     /// Returns an error if the pointer type does not match, the type is not allowed
     /// by the current syscall policy, or the Norito payload cannot be decoded.
-    fn decode_pointer_tlv<'a>(
-        vm: &'a IVM,
+    fn decode_pointer_tlv(
+        vm: &IVM,
         ptr: u64,
         expected: PointerType,
-    ) -> Result<pointer_abi::Tlv<'a>, ivm::VMError> {
+    ) -> Result<pointer_abi::Tlv<'_>, ivm::VMError> {
         let tlv = vm.validate_tlv(ptr)?;
         if tlv.type_id != expected {
             return Err(ivm::VMError::NoritoInvalid);
@@ -6898,18 +6966,18 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.queued.truncate(queued_len);
         for (key, original) in durable_state_originals {
             match original.overlay {
-                Some(value) => {
+                OriginalMapEntry::Present(value) => {
                     self.durable_state_overlay.insert(key.clone(), value);
                 }
-                None => {
+                OriginalMapEntry::Absent => {
                     self.durable_state_overlay.remove(&key);
                 }
             }
             match original.authorization {
-                Some(authorization) => {
+                OriginalMapEntry::Present(authorization) => {
                     self.durable_state_authorizations.insert(key, authorization);
                 }
-                None => {
+                OriginalMapEntry::Absent => {
                     self.durable_state_authorizations.remove(&key);
                 }
             }
@@ -7119,7 +7187,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             }
             let instr =
                 InstructionBox::from(UnregisterBox::from(Unregister::trigger(trigger_id.clone())));
-            return Ok(self.queue_instruction(instr));
+            return self.queue_instruction(instr);
         }
         let charge_asset_def = context.charge_asset_def.clone();
         let billing = plan.billing;
@@ -7222,11 +7290,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     subscription_json,
                 );
                 let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-                gas = gas.saturating_add(self.queue_instruction(instr));
+                gas = gas.saturating_add(self.queue_instruction(instr)?);
                 let unregister = InstructionBox::from(UnregisterBox::from(Unregister::trigger(
                     trigger_id.clone(),
                 )));
-                gas = gas.saturating_add(self.queue_instruction(unregister));
+                gas = gas.saturating_add(self.queue_instruction(unregister)?);
                 return Ok(gas);
             }
         }
@@ -7278,7 +7346,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 );
                 let isi = Transfer::asset_quantity(asset_id, amount.clone(), plan.provider.clone());
                 let instr = InstructionBox::from(TransferBox::from(isi));
-                gas = gas.saturating_add(self.queue_instruction(instr));
+                gas = gas.saturating_add(self.queue_instruction(instr)?);
             }
             subscription_state.failure_count = 0;
             subscription_state.status = SubscriptionStatus::Active;
@@ -7339,7 +7407,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             subscription_json,
         );
         let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-        gas = gas.saturating_add(self.queue_instruction(instr));
+        gas = gas.saturating_add(self.queue_instruction(instr)?);
         let invoice_key: Name = SUBSCRIPTION_INVOICE_METADATA_KEY
             .parse()
             .map_err(|_| ivm::VMError::NoritoInvalid)?;
@@ -7350,14 +7418,14 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             invoice_json,
         );
         let invoice_instr = InstructionBox::from(SetKeyValueBox::from(invoice_isi));
-        gas = gas.saturating_add(self.queue_instruction(invoice_instr));
+        gas = gas.saturating_add(self.queue_instruction(invoice_instr)?);
         if matches!(
             subscription_state.status,
             SubscriptionStatus::Suspended | SubscriptionStatus::Canceled
         ) {
             let instr =
                 InstructionBox::from(UnregisterBox::from(Unregister::trigger(trigger_id.clone())));
-            gas = gas.saturating_add(self.queue_instruction(instr));
+            gas = gas.saturating_add(self.queue_instruction(instr)?);
             return Ok(gas);
         }
         let schedule = Schedule {
@@ -7382,9 +7450,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let trigger = Trigger::new(trigger_id.clone(), action);
         let unregister =
             InstructionBox::from(UnregisterBox::from(Unregister::trigger(trigger_id.clone())));
-        gas = gas.saturating_add(self.queue_instruction(unregister));
+        gas = gas.saturating_add(self.queue_instruction(unregister)?);
         let register = InstructionBox::from(RegisterBox::from(Register::trigger(trigger)));
-        gas = gas.saturating_add(self.queue_instruction(register));
+        gas = gas.saturating_add(self.queue_instruction(register)?);
         Ok(gas)
     }
     fn subscription_record_usage(&mut self) -> Result<u64, ivm::VMError> {
@@ -7437,7 +7505,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             subscription_json,
         );
         let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-        Ok(self.queue_instruction(instr))
+        self.queue_instruction(instr)
     }
     fn subscription_context_for_trigger<S: StateReadOnly>(
         state: &S,
@@ -8027,7 +8095,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             fetch_size: FetchSize::new(Some(fetch_size)),
         };
         macro_rules! request_for {
-            ($item:ty, $query:expr, $kind:ident) => {{
+            ($item:ty, $query:expr, $kind:ident, $params:ident) => {{
                 QueryRequest::Start(QueryWithParams {
                     query: (),
                     query_payload: norito::codec::Encode::encode(&$query),
@@ -8038,7 +8106,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     selector_bytes: norito::codec::Encode::encode(
                         &SelectorTuple::<$item>::default(),
                     ),
-                    params,
+                    params: $params,
                 })
             }};
         }
@@ -8046,32 +8114,42 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             CoreQueryEntityTagV1::Account => request_for!(
                 Account,
                 iroha_data_model::query::account::prelude::FindAccounts,
-                Account
+                Account,
+                params
             ),
             CoreQueryEntityTagV1::Asset if account.is_some() => request_for!(
                 Asset,
                 iroha_data_model::query::asset::prelude::FindAssetsByAccountId::new(
                     account.ok_or(ivm::VMError::DecodeError)?
                 ),
-                Asset
+                Asset,
+                params
             ),
             CoreQueryEntityTagV1::Asset => request_for!(
                 Asset,
                 iroha_data_model::query::asset::prelude::FindAssets,
-                Asset
+                Asset,
+                params
             ),
             CoreQueryEntityTagV1::AssetDefinition => request_for!(
                 AssetDefinition,
                 iroha_data_model::query::asset::prelude::FindAssetDefinitions,
-                AssetDefinition
+                AssetDefinition,
+                params
             ),
             CoreQueryEntityTagV1::Domain => request_for!(
                 Domain,
                 iroha_data_model::query::domain::prelude::FindDomains,
-                Domain
+                Domain,
+                params
             ),
             CoreQueryEntityTagV1::Nft => {
-                request_for!(Nft, iroha_data_model::query::nft::prelude::FindNfts, Nft)
+                request_for!(
+                    Nft,
+                    iroha_data_model::query::nft::prelude::FindNfts,
+                    Nft,
+                    params
+                )
             }
         })
     }
@@ -8122,7 +8200,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         if let Some(metrics) = &mut self.core_query_page_metrics {
             metrics.host_queries = metrics.host_queries.saturating_add(1);
         }
-        let (output, stats) =
+        let (output, execution_stats) =
             state_ref.execute_optional_singular_query(&self.authority, request, Some(budget))?;
         let projected = output.map(project).transpose()?;
         let payload = Self::encode_norito_payload(&projected)?;
@@ -8130,8 +8208,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             vm,
             gas_remaining,
             &gas_ctx,
-            stats.processed_items(),
-            stats.processed_bytes(),
+            execution_stats.processed_items(),
+            execution_stats.processed_bytes(),
             &payload,
             payload_words,
             prepare,
@@ -8478,7 +8556,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let conservative = self.preflight_zk_verify_payload(vm, payload)?;
         let envelope = match ivm::host::decode_canonical_zk_envelope(payload) {
             Ok(envelope) => envelope,
-            Err(status) => return Ok((Err(status), conservative)),
+            Err(error) => return Ok((Err(error.into_status()?), conservative)),
         };
         let actual = self
             .zk_gas_schedule
@@ -8524,8 +8602,14 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             |context| context.contract_subject.clone(),
         )
     }
-    fn queue_instruction(&mut self, instr: InstructionBox) -> u64 {
-        let gas = crate::gas::meter_instruction(&instr);
+    fn queue_instruction(&mut self, instr: InstructionBox) -> Result<u64, ivm::VMError> {
+        let gas = crate::gas::meter_instruction(&instr, &self.confidential_gas)
+            .map_err(ivm::VMError::VerificationDeferred)?;
+        self.enqueue_priced_instruction(instr);
+        Ok(gas)
+    }
+    /// Publish an effect only after its caller has obtained the complete gas quote.
+    fn enqueue_priced_instruction(&mut self, instr: InstructionBox) {
         let queued = QueuedEffect {
             payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(instr),
             authority: self.effect_authority(),
@@ -8536,7 +8620,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         {
             self.queued.push(queued);
         }
-        gas
     }
     fn queue_instruction_after_preflight(
         &mut self,
@@ -8544,10 +8627,10 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         instruction: InstructionBox,
     ) -> Result<u64, ivm::VMError> {
         self.ensure_instruction_queue_allowed(&instruction)?;
-        let gas = crate::gas::meter_instruction(&instruction);
+        let gas = crate::gas::meter_instruction(&instruction, &self.confidential_gas)
+            .map_err(ivm::VMError::VerificationDeferred)?;
         ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
-        let queued_gas = self.queue_instruction(instruction);
-        debug_assert_eq!(queued_gas, gas);
+        self.enqueue_priced_instruction(instruction);
         Ok(gas)
     }
     fn stage_queued_syscall(
@@ -8570,7 +8653,10 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     {
         let mut gas = 0_u64;
         for instr in instrs {
-            gas = gas.saturating_add(self.queue_instruction(instr));
+            gas = gas.saturating_add(
+                self.queue_instruction(instr)
+                    .expect("completed fixture gas quote"),
+            );
         }
         gas
     }
@@ -8626,7 +8712,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let asset_id = AssetId::of(asset_def.clone(), from.clone());
         let isi = Transfer::asset_quantity(asset_id, amount.clone(), to.clone());
         let instruction = InstructionBox::from(TransferBox::from(isi));
-        let gas = crate::gas::meter_instruction(&instruction);
+        let gas = crate::gas::meter_instruction(&instruction, &self.confidential_gas)
+            .map_err(ivm::VMError::VerificationDeferred)?;
         if self.try_reserve_serialized_output(&instruction, 1) {
             self.fastpq_batch_entries
                 .as_mut()
@@ -8662,7 +8749,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             return Err(ivm::VMError::DecodeError);
         }
         let instr = InstructionBox::from(batch);
-        Ok(self.queue_instruction(instr))
+        self.queue_instruction(instr)
     }
     fn handle_axt_begin(&mut self, vm: &mut IVM) -> Result<u64, ivm::VMError> {
         self.clear_axt_reject();
@@ -8867,6 +8954,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         Ok(gas)
     }
     fn handle_axt_stage_anchored_spend(&mut self, vm: &IVM) -> Result<u64, ivm::VMError> {
+        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
+
         self.clear_axt_reject();
         let Some(state_view) = self.axt_state.as_ref() else {
             self.record_axt_reject(
@@ -8880,7 +8969,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let tlv = Self::expect_tlv(vm, vm.register(10), PointerType::AxtAnchoredSpendV1)?;
         // The canonical proof is capped at 2 MiB; this larger envelope ceiling
         // leaves room for signed source metadata while bounding decode work.
-        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
         if tlv.payload.len() > MAX_SPEND_FRAME_BYTES_V1 {
             return Err(ivm::VMError::NoritoInvalid);
         }
@@ -9049,7 +9137,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             commit_height,
         }
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     fn flush_durable_state(
         &mut self,
         tx: &mut StateTransaction<'_, '_>,
@@ -9628,14 +9716,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let id: DomainId = Self::decode_tlv_typed(vm, ptr, PointerType::DomainId)?;
                     let isi = Register::domain(Domain::new(id));
                     let instr = InstructionBox::from(RegisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_UNREGISTER_DOMAIN => {
                     let ptr = vm.register(10);
                     let id: DomainId = Self::decode_tlv_typed(vm, ptr, PointerType::DomainId)?;
                     let isi = Unregister::domain(id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_TRANSFER_DOMAIN => {
                     // r10=&DomainId, r11=&AccountId(to)
@@ -9646,7 +9734,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let from = self.authority.clone();
                     let isi = Transfer::domain(from, id, to);
                     let instr = InstructionBox::from(TransferBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // ----------------- Peer ISIs via pointer-ABI -----------------
                 ivm::syscalls::SYSCALL_REGISTER_PEER => {
@@ -9654,7 +9742,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let payload: Json = Self::decode_tlv_json(vm, ptr)?;
                     let request = Self::register_peer_from_json(&payload)?;
                     let instr = InstructionBox::from(request);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_UNREGISTER_PEER => {
                     let ptr = vm.register(10);
@@ -9665,7 +9753,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let peer_id = Self::peer_id_from_value(&value)?;
                     let isi = Unregister::peer(peer_id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // ----------------- Account ISIs via pointer-ABI -----------------
                 ivm::syscalls::SYSCALL_REGISTER_ACCOUNT => {
@@ -9673,14 +9761,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let id: AccountId = Self::decode_tlv_typed(vm, ptr, PointerType::AccountId)?;
                     let isi = Register::account(Account::new(id));
                     let instr = InstructionBox::from(RegisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_UNREGISTER_ACCOUNT => {
                     let ptr = vm.register(10);
                     let id: AccountId = Self::decode_tlv_typed(vm, ptr, PointerType::AccountId)?;
                     let isi = Unregister::account(id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_ADD_SIGNATORY => {
                     let account_ptr = vm.register(10);
@@ -9691,7 +9779,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let signatory = Self::public_key_from_json(&payload)?;
                     let isi = AddSignatory::new(account, signatory);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REMOVE_SIGNATORY => {
                     let account_ptr = vm.register(10);
@@ -9702,7 +9790,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let signatory = Self::public_key_from_json(&payload)?;
                     let isi = RemoveSignatory::new(account, signatory);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_SET_ACCOUNT_QUORUM => {
                     let account_ptr = vm.register(10);
@@ -9714,7 +9802,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let quorum = NonZeroU16::new(quorum_u16).ok_or(ivm::VMError::DecodeError)?;
                     let isi = SetAccountQuorum::new(account, quorum);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // ----------------- Asset quantity ISIs via pointer-ABI -----------------
                 ivm::syscalls::SYSCALL_REGISTER_ASSET => {
@@ -9744,7 +9832,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     .with_mintable(registration.mintable);
                     let isi = Register::asset_definition(definition);
                     let instr = InstructionBox::from(RegisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_UNREGISTER_ASSET => {
                     let ptr = vm.register(10);
@@ -9752,7 +9840,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         Self::decode_tlv_typed(vm, ptr, PointerType::AssetDefinitionId)?;
                     let isi = Unregister::asset_definition(id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_MINT_ASSET => {
                     let account_ptr = vm.register(10);
@@ -9766,7 +9854,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let asset_id = AssetId::of(asset_def, account);
                     let isi = Mint::asset_quantity(amount, asset_id);
                     let instr = InstructionBox::from(MintBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_BURN_ASSET => {
                     let account_ptr = vm.register(10);
@@ -9780,7 +9868,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let asset_id = AssetId::of(asset_def, account);
                     let isi = Burn::asset_quantity(amount, asset_id);
                     let instr = InstructionBox::from(BurnBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_TRANSFER_V1 => {
                     if self.fastpq_batch_entries.is_some() {
@@ -9825,7 +9913,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let asset_id = AssetId::with_scope(asset_def, from, scope);
                     let isi = Transfer::asset_quantity(asset_id, amount, to);
                     let instr = InstructionBox::from(TransferBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_SET_ASSET_TRANSFER_AVAILABILITY => {
                     let account: AccountId =
@@ -9974,30 +10062,33 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         amount,
                         evidence_hashes,
                     });
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_ESCROW_ACCEPT => {
                     let escrow_id = Self::decode_escrow_id(vm, vm.register(10))?;
                     Ok(self
-                        .queue_instruction(InstructionBox::from(AcceptAssetEscrow { escrow_id })))
+                        .queue_instruction(InstructionBox::from(AcceptAssetEscrow { escrow_id }))?)
                 }
                 ivm::syscalls::SYSCALL_ESCROW_MARK_PAYMENT_SENT => {
                     let escrow_id = Self::decode_escrow_id(vm, vm.register(10))?;
                     Ok(
                         self.queue_instruction(InstructionBox::from(MarkEscrowPaymentSent {
                             escrow_id,
-                        })),
+                        }))?,
                     )
                 }
                 ivm::syscalls::SYSCALL_ESCROW_RELEASE => {
                     let escrow_id = Self::decode_escrow_id(vm, vm.register(10))?;
-                    Ok(self
-                        .queue_instruction(InstructionBox::from(ReleaseAssetEscrow { escrow_id })))
+                    Ok(
+                        self.queue_instruction(InstructionBox::from(ReleaseAssetEscrow {
+                            escrow_id,
+                        }))?,
+                    )
                 }
                 ivm::syscalls::SYSCALL_ESCROW_CANCEL => {
                     let escrow_id = Self::decode_escrow_id(vm, vm.register(10))?;
                     Ok(self
-                        .queue_instruction(InstructionBox::from(CancelAssetEscrow { escrow_id })))
+                        .queue_instruction(InstructionBox::from(CancelAssetEscrow { escrow_id }))?)
                 }
                 ivm::syscalls::SYSCALL_ESCROW_OPEN_DISPUTE => {
                     let escrow_id = Self::decode_escrow_id(vm, vm.register(10))?;
@@ -10007,7 +10098,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         self.queue_instruction(InstructionBox::from(OpenEscrowDispute {
                             escrow_id,
                             evidence_hashes,
-                        })),
+                        }))?,
                     )
                 }
                 ivm::syscalls::SYSCALL_ESCROW_RESOLVE_DISPUTE => {
@@ -10025,7 +10116,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                             buyer_amount,
                             seller_amount,
                             evidence_hashes,
-                        })),
+                        }))?,
                     )
                 }
                 // Account metadata (SetKeyValue<Account>)
@@ -10039,7 +10130,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let value: Json = Self::decode_tlv_json(vm, value_ptr)?;
                     let isi = SetKeyValue::account(account, key, value);
                     let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // ----------------- Role and permission ISIs via pointer-ABI -----------------
                 ivm::syscalls::SYSCALL_CREATE_ROLE => {
@@ -10055,14 +10146,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     }
                     let isi = Register::role(role);
                     let instr = InstructionBox::from(RegisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_DELETE_ROLE => {
                     let name_ptr = vm.register(10);
                     let name: Name = Self::decode_tlv_typed(vm, name_ptr, PointerType::Name)?;
                     let isi = Unregister::role(RoleId::new(name));
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_GRANT_ROLE => {
                     let account_ptr = vm.register(10);
@@ -10072,7 +10163,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let name: Name = Self::decode_tlv_typed(vm, name_ptr, PointerType::Name)?;
                     let isi = Grant::account_role(RoleId::new(name), account);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REVOKE_ROLE => {
                     let account_ptr = vm.register(10);
@@ -10082,7 +10173,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let name: Name = Self::decode_tlv_typed(vm, name_ptr, PointerType::Name)?;
                     let isi = Revoke::account_role(RoleId::new(name), account);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_GRANT_PERMISSION => {
                     let account_ptr = vm.register(10);
@@ -10092,7 +10183,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let permission = Self::decode_permission(vm, perm_ptr)?;
                     let isi = Grant::account_permission(permission, account);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REVOKE_PERMISSION => {
                     let account_ptr = vm.register(10);
@@ -10102,7 +10193,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let permission = Self::decode_permission(vm, perm_ptr)?;
                     let isi = Revoke::account_permission(permission, account);
                     let instr = InstructionBox::from(isi);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION
                 | ivm::syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION => {
@@ -10134,7 +10225,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     } else {
                         InstructionBox::from(Revoke::account_permission(permission, account))
                     };
-                    Ok(self.queue_instruction(instruction))
+                    Ok(self.queue_instruction(instruction)?)
                 }
                 ivm::syscalls::SYSCALL_CREATE_TRIGGER => {
                     let ptr = vm.register(10);
@@ -10169,7 +10260,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         return Err(ivm::VMError::PermissionDenied);
                     }
                     let instr = InstructionBox::from(Register::trigger(trigger));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REMOVE_TRIGGER => {
                     let ptr = vm.register(10);
@@ -10177,7 +10268,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let id = TriggerId::new(name);
                     let isi = Unregister::trigger(id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_SET_TRIGGER_ENABLED => {
                     let ptr = vm.register(10);
@@ -10189,7 +10280,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         .map_err(|_| ivm::VMError::DecodeError)?;
                     let isi = SetKeyValue::trigger(id, key, Json::from(enabled));
                     let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_CODE => {
                     let ptr = vm.register(10);
@@ -10202,14 +10293,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         decode_canonical_norito(tlv.payload)
                             .map_err(|_| ivm::VMError::DecodeError)?;
                     let instr = InstructionBox::from(request);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES => {
                     let ptr = vm.register(10);
                     let request: scode::RegisterSmartContractBytes =
                         Self::decode_tlv_typed(vm, ptr, PointerType::NoritoBytes)?;
                     let instr = InstructionBox::from(request);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_ACTIVATE_CONTRACT_INSTANCE => {
                     let ptr = vm.register(10);
@@ -10217,7 +10308,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         Self::decode_tlv_typed(vm, ptr, PointerType::NoritoBytes)?;
                     let instr = InstructionBox::from(request);
                     self.ensure_instruction_queue_allowed(&instr)?;
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_DEACTIVATE_CONTRACT_INSTANCE => {
                     let ptr = vm.register(10);
@@ -10225,14 +10316,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         Self::decode_tlv_typed(vm, ptr, PointerType::NoritoBytes)?;
                     let instr = InstructionBox::from(request);
                     self.ensure_instruction_queue_allowed(&instr)?;
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_REMOVE_SMART_CONTRACT_BYTES => {
                     let ptr = vm.register(10);
                     let request: scode::RemoveSmartContractBytes =
                         Self::decode_tlv_typed(vm, ptr, PointerType::NoritoBytes)?;
                     let instr = InstructionBox::from(request);
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // ----------------- NFT (Non-fungible) ISIs -----------------
                 ivm::syscalls::SYSCALL_NFT_MINT_ASSET => {
@@ -10243,14 +10334,14 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let nft_id: NftId = Self::decode_tlv_typed(vm, nft_id_ptr, PointerType::NftId)?;
                     let nft = Nft::new(nft_id.clone(), Metadata::default());
                     let issuer = self.effect_authority();
-                    let mut gas = self.queue_instruction(InstructionBox::from(RegisterBox::from(
-                        Register::nft(nft),
-                    )));
+                    let mut gas = self.queue_instruction(InstructionBox::from(
+                        RegisterBox::from(Register::nft(nft)),
+                    ))?;
                     if owner != issuer {
                         let transfer = InstructionBox::from(TransferBox::from(Transfer::nft(
                             issuer, nft_id, owner,
                         )));
-                        gas = gas.saturating_add(self.queue_instruction(transfer));
+                        gas = gas.saturating_add(self.queue_instruction(transfer)?);
                     }
                     Ok(gas)
                 }
@@ -10264,7 +10355,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let to: AccountId = Self::decode_tlv_typed(vm, to_ptr, PointerType::AccountId)?;
                     let isi = Transfer::nft(from, nft_id, to);
                     let instr = InstructionBox::from(TransferBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_NFT_SET_METADATA => {
                     let nft_id_ptr = vm.register(10);
@@ -10275,25 +10366,24 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let value: Json = Self::decode_tlv_json(vm, value_ptr)?;
                     let isi = SetKeyValue::nft(nft_id, key, value);
                     let instr = InstructionBox::from(SetKeyValueBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 ivm::syscalls::SYSCALL_NFT_BURN_ASSET => {
                     let nft_id_ptr = vm.register(10);
                     let nft_id: NftId = Self::decode_tlv_typed(vm, nft_id_ptr, PointerType::NftId)?;
                     let isi = Unregister::nft(nft_id);
                     let instr = InstructionBox::from(UnregisterBox::from(isi));
-                    Ok(self.queue_instruction(instr))
+                    Ok(self.queue_instruction(instr)?)
                 }
                 // Sample convenience: create one NFT per known account (from snapshot)
                 ivm::syscalls::SYSCALL_CREATE_NFTS_FOR_ALL_USERS => {
                     let (instructions, next_sequence) = self.create_nfts_for_all_preview();
-                    let exact_gas = Self::create_nfts_for_all_instructions_gas(&instructions);
+                    let exact_gas = self.create_nfts_for_all_instructions_gas(&instructions)?;
                     ivm::host::preflight_reserved_syscall_gas(vm, exact_gas)?;
-                    let gas = instructions.into_iter().fold(0_u64, |gas, instruction| {
-                        gas.saturating_add(self.queue_instruction(instruction))
-                    });
+                    for instruction in instructions {
+                        self.enqueue_priced_instruction(instruction);
+                    }
                     self.nft_seq = next_sequence;
-                    debug_assert_eq!(gas.max(Self::create_nfts_for_all_gas()), exact_gas);
                     Ok(exact_gas)
                 }
                 // Set SmartContract execution depth parameter to x10
@@ -10311,10 +10401,11 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
                     );
                     let instr = InstructionBox::from(SetParameter::new(param));
-                    let gas =
-                        crate::gas::meter_instruction(&instr).max(Self::smartcontract_depth_gas());
+                    let gas = crate::gas::meter_instruction(&instr, &self.confidential_gas)
+                        .map_err(ivm::VMError::VerificationDeferred)?
+                        .max(Self::smartcontract_depth_gas());
                     ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
-                    let _queued_gas = self.queue_instruction(instr);
+                    self.enqueue_priced_instruction(instr);
                     Ok(gas)
                 }
                 // Accept one of the operation-tagged instruction bridges used by Kotodama.
@@ -10343,16 +10434,16 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                                 ballot_proof: proof,
                                 nullifier: sb.nullifier,
                             });
-                            let gas = crate::gas::meter_instruction(&instruction);
+                            let gas =
+                                crate::gas::meter_instruction(&instruction, &self.confidential_gas)
+                                    .map_err(ivm::VMError::VerificationDeferred)?;
                             ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
                             if pending_hash.is_some() {
-                                debug_assert_eq!(
-                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front(),
-                                    pending_hash
-                                );
+                                let consumed_hash =
+                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front();
+                                debug_assert_eq!(consumed_hash, pending_hash);
                             }
-                            let queued_gas = self.queue_instruction(instruction);
-                            debug_assert_eq!(queued_gas, gas);
+                            self.enqueue_priced_instruction(instruction);
                             Ok(gas)
                         }
                         // ABI v1 defines only `1=SubmitBallot`. Contracts record no SCCP
@@ -10537,7 +10628,10 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let env_hash: [u8; 32] = Hash::new(tlv.payload).into();
                     let ok = match self.verify_bound_envelope(envelope, tlv.payload, "ballot") {
                         Ok(ok) => ok,
-                        Err(code) => {
+                        Err(crate::zk::VerificationAttemptError::Deferred(original)) => {
+                            return Err(ivm::VMError::VerificationDeferred(original));
+                        }
+                        Err(crate::zk::VerificationAttemptError::Rejected(code)) => {
                             vm.set_register(10, 0);
                             vm.set_register(11, code);
                             return Ok(gas);
@@ -10569,7 +10663,10 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let env_hash: [u8; 32] = Hash::new(tlv.payload).into();
                     let ok = match self.verify_bound_envelope(envelope, tlv.payload, "tally") {
                         Ok(ok) => ok,
-                        Err(code) => {
+                        Err(crate::zk::VerificationAttemptError::Deferred(original)) => {
+                            return Err(ivm::VMError::VerificationDeferred(original));
+                        }
+                        Err(crate::zk::VerificationAttemptError::Rejected(code)) => {
                             vm.set_register(10, 0);
                             vm.set_register(11, code);
                             return Ok(gas);
@@ -10600,7 +10697,10 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     };
                     let ok = match self.verify_any_namespace_envelope(envelope, tlv.payload) {
                         Ok(ok) => ok,
-                        Err(code) => {
+                        Err(crate::zk::VerificationAttemptError::Deferred(original)) => {
+                            return Err(ivm::VMError::VerificationDeferred(original));
+                        }
+                        Err(crate::zk::VerificationAttemptError::Rejected(code)) => {
                             vm.set_register(10, 0);
                             vm.set_register(11, code);
                             return Ok(gas);
@@ -10631,7 +10731,8 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         );
                     let envs = match ivm::host::decode_canonical_zk_batch(tlv.payload, max_items) {
                         Ok(envs) => envs,
-                        Err(status) => {
+                        Err(error) => {
+                            let status = error.into_status()?;
                             vm.set_register(10, 0);
                             vm.set_register(11, status);
                             vm.set_register(12, u64::MAX);
@@ -10684,7 +10785,8 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                             &proof,
                             Some(vk_box),
                             guardrails,
-                        );
+                        )
+                        .map_err(ivm::VMError::VerificationDeferred)?;
                         status = u8::from(report.ok);
                         if !report.ok {
                             first_error.get_or_insert(ivm::host::ERR_VERIFY);
@@ -11260,13 +11362,11 @@ mod pointer_abi_tests {
         host.nested_contract_call_depth = MAX_NESTED_CONTRACT_CALL_DEPTH;
         let mut vm = IVM::new(1_000);
         let result = host.handle_call_contract(&mut vm);
-        assert_eq!(
-            result,
-            Err(ivm::VMError::metered(
-                ivm::gas::G_CALL_CONTRACT,
-                ivm::VMError::CallDepthExceeded,
-            ))
-        );
+        let (gas, original) = result
+            .expect_err("call depth must be enforced")
+            .split_metered();
+        assert_eq!(gas, Some(ivm::gas::G_CALL_CONTRACT));
+        assert!(matches!(original, ivm::VMError::CallDepthExceeded));
         assert_eq!(
             host.nested_contract_call_depth, MAX_NESTED_CONTRACT_CALL_DEPTH,
             "rejection must not mutate the active-frame counter"
@@ -11279,7 +11379,7 @@ mod pointer_abi_tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 7;
@@ -11289,7 +11389,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
     return 8;
   }
 }
-"#,
+",
             43,
         );
         grant_named_permission_to_account(
@@ -11388,7 +11488,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ReadOnlyBinding { permission CanInspectContract;
   state int missing;
 
@@ -11400,7 +11500,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
     return 8;
   }
 }
-"#,
+",
             46,
         );
         grant_named_permission_to_account(
@@ -11445,15 +11545,19 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         );
         for syscall in effect_syscalls {
             let vm = IVM::new(1_000_000);
-            assert_eq!(
-                host.prepare_syscall(syscall, &vm),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    host.prepare_syscall(syscall, &vm),
+                    Err(ivm::VMError::PermissionDenied)
+                ),
                 "view preparation must reject effect syscall 0x{syscall:02x} before pointer decoding"
             );
             let mut vm = IVM::new(1_000_000);
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    host.syscall(syscall, &mut vm),
+                    Err(ivm::VMError::PermissionDenied)
+                ),
                 "direct view dispatch must reject effect syscall 0x{syscall:02x} before pointer decoding"
             );
         }
@@ -11498,30 +11602,29 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let mut host = CoreHost::new(authority.clone());
         host.bind_contract_runtime_context(contract_address.subject_id(), authorization.clone());
         assert_eq!(host.effect_authority(), contract_address.subject_id());
-        assert_eq!(
+        assert!(matches!(
             host.execution_class
                 .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET),
             Ok(())
-        );
+        ));
         host.execution_class = HostExecutionClass::View;
         host.set_generic_execution();
         assert_eq!(host.execution_class, HostExecutionClass::Generic);
         assert!(host.current_contract_runtime_context.is_none());
         assert!(host.current_entrypoint_authorization.is_none());
         assert_eq!(host.effect_authority(), authority);
-        assert_eq!(
-            host.execution_class
-                .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(matches!((&(host.execution_class
+                .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_SET,
-            })
-        );
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed { syscall: __actual_syscall }), ivm::VMError::GenericSyscallNotAllowed { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall));
         host.bind_contract_runtime_context(contract_address.subject_id(), authorization);
         assert_eq!(host.execution_class, HostExecutionClass::Contract);
-        assert_eq!(
-            host.execution_class
-                .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET),
-            Ok(()),
+        assert!(
+            matches!(
+                host.execution_class
+                    .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET),
+                Ok(())
+            ),
             "a prior view binding must not leave the host over-restricted"
         );
     }
@@ -11534,25 +11637,27 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         assert!(host.current_contract_runtime_context.is_none());
         assert!(host.current_entrypoint_authorization.is_none());
         assert!(host.ensure_execution_artifacts_are_committable().is_err());
-        assert_eq!(
+        assert!(matches!(
             host.execution_class
                 .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_SET),
             Ok(())
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             host.execution_class
                 .ensure_syscall_allowed(ivm_sys::SYSCALL_REGISTER_DOMAIN),
             Ok(())
-        );
+        ));
         for syscall in [
             ivm_sys::SYSCALL_AXT_BEGIN,
             ivm_sys::SYSCALL_AXT_TOUCH,
             ivm_sys::SYSCALL_AXT_COMMIT,
             ivm_sys::SYSCALL_VERIFY_DS_PROOF,
         ] {
-            assert_eq!(
-                host.execution_class.ensure_syscall_allowed(syscall),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    host.execution_class.ensure_syscall_allowed(syscall),
+                    Err(ivm::VMError::PermissionDenied)
+                ),
                 "state-free local debug calls must reject AXT syscall 0x{syscall:02x}"
             );
         }
@@ -11561,15 +11666,17 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         assert!(host.current_contract_runtime_context.is_none());
         assert!(host.current_entrypoint_authorization.is_none());
         assert!(host.ensure_execution_artifacts_are_committable().is_err());
-        assert_eq!(
+        assert!(matches!(
             host.execution_class
                 .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_GET),
             Ok(())
-        );
+        ));
         for syscall in [ivm_sys::SYSCALL_STATE_SET, ivm_sys::SYSCALL_REGISTER_DOMAIN] {
-            assert_eq!(
-                host.execution_class.ensure_syscall_allowed(syscall),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    host.execution_class.ensure_syscall_allowed(syscall),
+                    Err(ivm::VMError::PermissionDenied)
+                ),
                 "local debug views must reject effect syscall 0x{syscall:02x}"
             );
         }
@@ -11596,27 +11703,26 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let mut host = CoreHost::new(ALICE_ID.clone());
         host.set_state_free_generic_execution();
         assert_eq!(host.execution_class, HostExecutionClass::StateFreeGeneric);
-        assert_eq!(
+        assert!(matches!(
             host.execution_class
                 .ensure_syscall_allowed(ivm_sys::SYSCALL_REGISTER_DOMAIN),
             Ok(())
-        );
-        assert_eq!(
-            host.execution_class
-                .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_GET),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        ));
+        assert!(matches!((&(host.execution_class
+                .ensure_syscall_allowed(ivm_sys::SYSCALL_STATE_GET)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_GET,
-            })
-        );
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed { syscall: __actual_syscall }), ivm::VMError::GenericSyscallNotAllowed { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall));
         for syscall in [
             ivm_sys::SYSCALL_AXT_BEGIN,
             ivm_sys::SYSCALL_AXT_TOUCH,
             ivm_sys::SYSCALL_AXT_COMMIT,
             ivm_sys::SYSCALL_VERIFY_DS_PROOF,
         ] {
-            assert_eq!(
-                host.execution_class.ensure_syscall_allowed(syscall),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    host.execution_class.ensure_syscall_allowed(syscall),
+                    Err(ivm::VMError::PermissionDenied)
+                ),
                 "state-free generic execution must reject AXT syscall 0x{syscall:02x}"
             );
             assert!(
@@ -11638,7 +11744,8 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let attempted = InstructionBox::from(RegisterBox::from(Register::domain(Domain::new(
             attempted_domain.clone(),
         ))));
-        host.queue_instruction(attempted.clone());
+        host.queue_instruction(attempted.clone())
+            .expect("completed fixture gas quote");
         let contract_address = ContractAddress::derive(
             &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
                 .parse()
@@ -11691,7 +11798,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         };
         assert!(matches!(
             error,
-            ValidationFail::NotPermitted(message)
+            crate::execution_attempt::ExecutionAttemptError::Rejected(ValidationFail::NotPermitted(message))
                 if message == "local debug execution artifacts cannot be committed"
         ));
     }
@@ -11727,7 +11834,8 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let attempted = InstructionBox::from(RegisterBox::from(Register::domain(Domain::new(
             attempted_domain.clone(),
         ))));
-        host.queue_instruction(attempted.clone());
+        host.queue_instruction(attempted.clone())
+            .expect("completed fixture gas quote");
         let world = World::new();
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
@@ -11756,7 +11864,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         };
         assert!(matches!(
             error,
-            ValidationFail::NotPermitted(message)
+            crate::execution_attempt::ExecutionAttemptError::Rejected(ValidationFail::NotPermitted(message))
                 if message == "read-only view execution retained mutable host artifacts"
         ));
     }
@@ -11819,7 +11927,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let legitimate_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 1;
@@ -11829,19 +11937,19 @@ seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspect
     return 2;
   }
 }
-"#,
+",
             44,
         );
         let privileged_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku PrivilegedBinding { permission CanAdministerContract;
   kotoage fn administer() authorize(CanAdministerContract) -> int {
     return 3;
   }
 }
-"#,
+",
             45,
         );
         grant_named_permission_to_account(
@@ -12010,9 +12118,11 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes as u16, &path_payload))
             .expect("allocate state path");
         vm.set_register(10, path_pointer);
-        assert_eq!(
-            host.syscall(ivm::syscalls::SYSCALL_STATE_GET, &mut vm),
-            Err(ivm::VMError::InvalidMetadata),
+        assert!(
+            matches!(
+                host.syscall(ivm::syscalls::SYSCALL_STATE_GET, &mut vm),
+                Err(ivm::VMError::InvalidMetadata)
+            ),
             "a contract runtime context must never fall back to untyped durable state"
         );
     }
@@ -12231,8 +12341,9 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             let ptr = store_tlv(&mut vm, PointerType::AxtAnchoredSpendV1, &payload);
             vm.set_register(10, ptr);
             assert_eq!(
-                host.syscall(ivm_sys::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm),
-                Ok(CoreHost::axt_gas(payload.len()))
+                (host.syscall(ivm_sys::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm))
+                    .expect("expected successful fixture result"),
+                CoreHost::axt_gas(payload.len())
             );
         }
         let active = host.axt_state.as_ref().expect("active AXT envelope");
@@ -12279,9 +12390,11 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let proof_bytes = norito_blob(&proof);
         let proof_ptr = store_tlv(&mut vm, PointerType::ProofBlob, &proof_bytes);
         vm.set_register(11, proof_ptr);
-        assert_eq!(
-            host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm),
+                Err(VMError::PermissionDenied)
+            ),
             "a valid caller-carried FASTPQ proof must not become standalone authorization"
         );
         assert_eq!(
@@ -12342,9 +12455,11 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let proof_ptr = store_tlv(&mut vm, PointerType::ProofBlob, &norito_blob(&opaque));
         vm.set_register(10, ds_ptr);
         vm.set_register(11, proof_ptr);
-        assert_eq!(
-            host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm),
-            Err(VMError::PermissionDenied),
+        assert!(
+            matches!(
+                host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm),
+                Err(VMError::PermissionDenied)
+            ),
             "an old valid cache bit must not make an opaque carrier contract-observable"
         );
         let reject = host.take_axt_reject_for_tests().expect("reject context");
@@ -12370,10 +12485,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             expiry_slot: Some(20),
         };
 
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let reject = host.take_axt_reject_for_tests().expect("reject context");
         assert_eq!(reject.reason, AxtRejectReason::Proof);
         assert!(reject.detail.contains("decode limit"));
@@ -12412,14 +12527,16 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             payload: live_proof.payload.clone(),
             expiry_slot: Some(4),
         };
-        assert_eq!(
-            host.validate_axt_proof(
-                dsid,
-                &expired_alias,
-                policy,
-                AxtProofAdmission::AuthenticatedHandle,
+        assert!(
+            matches!(
+                host.validate_axt_proof(
+                    dsid,
+                    &expired_alias,
+                    policy,
+                    AxtProofAdmission::AuthenticatedHandle,
+                ),
+                Err(VMError::PermissionDenied)
             ),
-            Err(VMError::PermissionDenied),
             "an expired outer expiry must not alias a cached live payload"
         );
         let reject = host.take_axt_reject_for_tests().expect("reject context");
@@ -12433,14 +12550,16 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             payload: live_proof.payload.clone(),
             expiry_slot: Some(200),
         };
-        assert_eq!(
-            host.validate_axt_proof(
-                dsid,
-                &extended_alias,
-                policy,
-                AxtProofAdmission::AuthenticatedHandle,
+        assert!(
+            matches!(
+                host.validate_axt_proof(
+                    dsid,
+                    &extended_alias,
+                    policy,
+                    AxtProofAdmission::AuthenticatedHandle,
+                ),
+                Err(VMError::PermissionDenied)
             ),
-            Err(VMError::PermissionDenied),
             "a longer outer expiry must not alias a cached proof payload"
         );
         let reject = host.take_axt_reject_for_tests().expect("reject context");
@@ -12521,10 +12640,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         begin_axt_envelope(&mut host, &mut vm, &descriptor);
         let proof = proof_blob_for(dsid, manifest_root, b"raw-expiry", 11);
         let policy = host.policy_entry_for(dsid).expect("policy entry");
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
             Ok(())
-        );
+        ));
         let recorded = host
             .axt_state
             .as_ref()
@@ -12552,10 +12671,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         begin_axt_envelope(&mut host, &mut vm, &descriptor);
         let proof = proof_blob_for(dsid, manifest_root, b"cache-slot", 30);
         let policy = host.policy_entry_for(dsid).expect("policy entry");
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
             Ok(())
-        );
+        ));
         let entry = host.axt_proof_cache.get(&dsid).expect("cache populated");
         assert_eq!(entry.verified_slot, current_slot);
         assert_eq!(entry.manifest_root, Some(manifest_root));
@@ -12564,9 +12683,16 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             snapshot.entries[0].policy.current_slot = current_slot;
         }
         let policy = host.policy_entry_for(dsid).expect("updated policy entry");
-        assert_eq!(
-            host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
-            Ok(()),
+        assert!(
+            matches!(
+                host.validate_axt_proof(
+                    dsid,
+                    &proof,
+                    policy,
+                    AxtProofAdmission::AuthenticatedHandle,
+                ),
+                Ok(())
+            ),
             "slot change should re-verify and refresh cache"
         );
         let entry = host
@@ -12580,14 +12706,16 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         }
         let new_proof = proof_blob_for(dsid, new_manifest_root, b"cache-rotated-root", 30);
         let policy = host.policy_entry_for(dsid).expect("rotated policy entry");
-        assert_eq!(
-            host.validate_axt_proof(
-                dsid,
-                &new_proof,
-                policy,
-                AxtProofAdmission::AuthenticatedHandle,
+        assert!(
+            matches!(
+                host.validate_axt_proof(
+                    dsid,
+                    &new_proof,
+                    policy,
+                    AxtProofAdmission::AuthenticatedHandle,
+                ),
+                Ok(())
             ),
-            Ok(()),
             "manifest rotation must invalidate prior cache entry"
         );
         let entry = host
@@ -12661,10 +12789,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         begin_axt_envelope(&mut host, &mut vm, &descriptor);
         let proof = proof_blob_for(dsid, manifest_root, b"telemetry-cache", 30);
         let policy = host.policy_entry_for(dsid).expect("policy entry");
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
             Ok(())
-        );
+        ));
         let snapshot = telemetry.axt_proof_cache_status_snapshot();
         assert_eq!(snapshot.len(), 1);
         let entry = &snapshot[0];
@@ -12685,7 +12813,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         begin_axt_envelope(&mut host, &mut vm, &descriptor);
         let rotated_proof = proof_blob_for(dsid, rotated_root, b"telemetry-cache-rotated", 40);
         let policy = host.policy_entry_for(dsid).expect("rotated policy entry");
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(
                 dsid,
                 &rotated_proof,
@@ -12693,7 +12821,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 AxtProofAdmission::AuthenticatedHandle,
             ),
             Ok(())
-        );
+        ));
         let refreshed_snapshot = telemetry.axt_proof_cache_status_snapshot();
         assert_eq!(refreshed_snapshot.len(), 1);
         let entry = &refreshed_snapshot[0];
@@ -12740,7 +12868,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         );
         assert!(host.axt_proof_cache.is_empty());
         let live_proof = proof_blob_for(dsid, manifest_root, b"live-proof", 50);
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(
                 dsid,
                 &live_proof,
@@ -12748,12 +12876,13 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 AxtProofAdmission::AuthenticatedHandle,
             ),
             Ok(())
-        );
+        ));
         assert!(host.axt_proof_cache.contains_key(&dsid));
         vm.set_register(11, 0);
         assert_eq!(
-            host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm),
-            Ok(CoreHost::axt_verify_gas(0)),
+            (host.syscall(ivm::syscalls::SYSCALL_VERIFY_DS_PROOF, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::axt_verify_gas(0),
             "proof clear should drop cache entry"
         );
         assert!(host.axt_proof_cache.is_empty());
@@ -12884,10 +13013,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         host.axt_state = Some(Arc::new(axt::HostAxtState::new(descriptor, binding)));
         let proof = proof_blob_for(dsid, manifest_root, b"cache-snapshot", 30);
         let policy = host.policy_entry_for(dsid).expect("policy entry");
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof, policy, AxtProofAdmission::AuthenticatedHandle,),
             Ok(())
-        );
+        ));
         let snapshot = host.axt_proof_cache_snapshot();
         assert_eq!(snapshot.len(), 1);
         let entry = &snapshot[0];
@@ -13017,8 +13146,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_CODE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13045,8 +13178,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             &mut vm,
         );
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13087,8 +13224,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             &mut vm,
         );
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13189,13 +13330,19 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 .unwrap_or_else(|error| panic!("allocate {label} fixture: {error:?}"));
             vm.set_register(10, pointer);
             let mut host = local_contract_host(authority.clone());
-            assert_eq!(
-                host.syscall(
-                    ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
-                    &mut vm,
+            let actual = host.syscall(
+                ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES,
+                &mut vm,
+            );
+            assert!(
+                matches!(
+                    (&actual, &expected),
+                    (
+                        Err(ivm::VMError::NoritoInvalid),
+                        ivm::VMError::NoritoInvalid
+                    ) | (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
                 ),
-                Err(expected),
-                "{label} must fail closed"
+                "{label} must fail closed: {actual:?} != {expected:?}"
             );
             assert!(host.queued.is_empty());
         }
@@ -13227,8 +13374,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_ACTIVATE_CONTRACT_INSTANCE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13258,8 +13409,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_DEACTIVATE_CONTRACT_INSTANCE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13307,15 +13462,19 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 let pointer = store_tlv(&mut vm, PointerType::NoritoBytes, payload);
                 vm.set_register(10, pointer);
                 let gas_before = vm.remaining_gas();
-                assert_eq!(
-                    host.prepare_syscall(*syscall, &vm),
-                    Err(ivm::VMError::PermissionDenied),
+                assert!(
+                    matches!(
+                        host.prepare_syscall(*syscall, &vm),
+                        Err(ivm::VMError::PermissionDenied)
+                    ),
                     "{entrypoint} must fail during syscall preparation"
                 );
                 assert_eq!(vm.remaining_gas(), gas_before);
-                assert_eq!(
-                    host.syscall(*syscall, &mut vm),
-                    Err(ivm::VMError::PermissionDenied),
+                assert!(
+                    matches!(
+                        host.syscall(*syscall, &mut vm),
+                        Err(ivm::VMError::PermissionDenied)
+                    ),
                     "{entrypoint} must also fail closed when the host is invoked directly"
                 );
                 assert_eq!(vm.remaining_gas(), gas_before);
@@ -13350,12 +13509,14 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         }));
         let mut exhausted_vm = IVM::new(0);
         exhausted_vm.set_register(10, u64::MAX);
-        assert_eq!(
-            exhausted_host.prepare_syscall(
-                ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
-                &exhausted_vm,
+        assert!(
+            matches!(
+                exhausted_host.prepare_syscall(
+                    ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
+                    &exhausted_vm,
+                ),
+                Err(ivm::VMError::OutOfGas)
             ),
-            Err(ivm::VMError::OutOfGas),
             "an unaffordable opaque call must fail before its invalid pointer is decoded"
         );
         assert!(exhausted_host.queued.is_empty());
@@ -13378,10 +13539,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
                 "opaque instruction quotation must not decode attacker-controlled payloads"
             );
             assert_eq!(vm.remaining_gas(), gas_before);
-            assert_eq!(
+            assert!(matches!(
                 host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
                 Err(ivm::VMError::PermissionDenied)
-            );
+            ));
             assert_eq!(vm.remaining_gas(), gas_before);
             assert!(host.queued.is_empty());
         }
@@ -13407,8 +13568,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SMART_CONTRACT_BYTES, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13424,8 +13589,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_ACCOUNT, &mut vm);
         let expected = InstructionBox::from(Register::account(Account::new(expected_account)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13524,8 +13693,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_ACCOUNT, &mut vm);
         let expected = InstructionBox::from(Unregister::account(account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13566,8 +13739,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             )
             .with_mintable(mintable),
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13601,10 +13778,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             vm.set_register(11, name);
             vm.set_register(12, spec_word);
             vm.set_register(13, mintable_word);
-            assert_eq!(
+            assert!(matches!(
                 host.syscall(ivm::syscalls::SYSCALL_REGISTER_ASSET, &mut vm),
                 Err(ivm::VMError::DecodeError)
-            );
+            ));
             assert!(host.queued.is_empty());
         }
     }
@@ -13612,21 +13789,24 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
     fn transfer_scope_requires_dataspace_only_for_restricted_definitions() {
         let dataspace = DataSpaceId::new(7);
         assert_eq!(
-            transfer_scope_for_policy(AssetBalancePolicy::Global, None),
-            Ok(AssetBalanceScope::Global)
+            (transfer_scope_for_policy(AssetBalancePolicy::Global, None))
+                .expect("expected successful fixture result"),
+            AssetBalanceScope::Global
         );
         assert_eq!(
-            transfer_scope_for_policy(AssetBalancePolicy::Global, Some(dataspace)),
-            Ok(AssetBalanceScope::Global)
+            (transfer_scope_for_policy(AssetBalancePolicy::Global, Some(dataspace)))
+                .expect("expected successful fixture result"),
+            AssetBalanceScope::Global
         );
         assert_eq!(
-            transfer_scope_for_policy(AssetBalancePolicy::DataspaceRestricted, Some(dataspace)),
-            Ok(AssetBalanceScope::Dataspace(dataspace))
+            (transfer_scope_for_policy(AssetBalancePolicy::DataspaceRestricted, Some(dataspace)))
+                .expect("expected successful fixture result"),
+            AssetBalanceScope::Dataspace(dataspace)
         );
-        assert_eq!(
+        assert!(matches!(
             transfer_scope_for_policy(AssetBalancePolicy::DataspaceRestricted, None),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn unregister_asset_syscall_queues_instruction() {
@@ -13646,8 +13826,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_ASSET, &mut vm);
         let expected = InstructionBox::from(Unregister::asset_definition(asset_def));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13681,12 +13865,18 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         );
         let retired_blob_evidence_ptr =
             store_tlv(&mut vm, PointerType::Blob, &norito_blob(&evidence_hashes));
-        let assert_queued = |host: &mut CoreHost, res, expected: InstructionBox| {
-            let expected_gas = crate::gas::meter_instruction(&expected);
-            assert_eq!(res, Ok(expected_gas));
-            assert_eq!(host.queued, vec![expected]);
-            host.queued.clear();
-        };
+        let assert_queued =
+            |host: &mut CoreHost, res: Result<u64, ivm::VMError>, expected: InstructionBox| {
+                let expected_gas =
+                    crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+                        .expect("completed fixture gas quote");
+                assert_eq!(
+                    (res).expect("expected successful fixture result"),
+                    expected_gas
+                );
+                assert_eq!(host.queued, vec![expected]);
+                host.queued.clear();
+            };
         vm.set_register(10, escrow_ptr);
         vm.set_register(11, asset_ptr);
         vm.set_register(12, amount_ptr);
@@ -13808,8 +13998,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(request);
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13837,17 +14031,21 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(RegisterPeerWithPop::new(peer_id, vec![0xAB, 0xCD]));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
         request_map.insert("unknown".to_owned(), norito::json::Value::Null);
         let json = Json::from(&norito::json::Value::Object(request_map));
         let ptr = store_tlv(&mut vm, PointerType::Json, &norito_blob(&json));
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(ivm::syscalls::SYSCALL_REGISTER_PEER, &mut vm),
             Err(ivm::VMError::DecodeError)
-        );
+        ));
         assert_eq!(host.queued.len(), 1);
     }
     #[test]
@@ -13861,8 +14059,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(Unregister::peer(peer_id));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     fn soracloud_read_config_request() -> SoracloudHostRequestEnvelopeV1 {
@@ -13971,8 +14173,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let mut role = Role::new(RoleId::new(role_name), authority);
         role = role.add_permission(Permission::new("read_assets".to_string(), Json::new(())));
         let expected = InstructionBox::from(Register::role(role));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -13995,8 +14201,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, name_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_DELETE_ROLE, &mut vm);
         let expected = InstructionBox::from(Unregister::role(RoleId::new(role_name)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14012,8 +14222,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, role_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_GRANT_ROLE, &mut vm);
         let expected = InstructionBox::from(Grant::account_role(RoleId::new(role_name), account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14029,8 +14243,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, role_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REVOKE_ROLE, &mut vm);
         let expected = InstructionBox::from(Revoke::account_role(RoleId::new(role_name), account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14049,8 +14267,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             Permission::new(perm_name.as_ref().to_string(), Json::new(())),
             account,
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14067,8 +14289,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, perm_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REVOKE_PERMISSION, &mut vm);
         let expected = InstructionBox::from(Revoke::account_permission(permission, account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14085,8 +14311,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_ADD_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(AddSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14103,8 +14333,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(RemoveSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14126,8 +14360,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(RemoveSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14142,8 +14380,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, quorum.get().into());
         let res = host.syscall(ivm::syscalls::SYSCALL_SET_ACCOUNT_QUORUM, &mut vm);
         let expected = InstructionBox::from(SetAccountQuorum::new(account, quorum));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14170,8 +14412,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_CREATE_TRIGGER, &mut vm);
         let expected = InstructionBox::from(Register::trigger(trigger));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14211,8 +14457,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         .with_metadata(action.metadata.clone());
         let expected =
             InstructionBox::from(Register::trigger(Trigger::new(trigger_id, expected_action)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14262,8 +14512,12 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         .with_metadata(action.metadata.clone());
         let expected =
             InstructionBox::from(Register::trigger(Trigger::new(trigger_id, expected_action)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14307,7 +14561,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let ptr = store_tlv(&mut vm, PointerType::Json, &norito_blob(&spec));
         vm.set_register(10, ptr);
         let result = host.syscall(ivm::syscalls::SYSCALL_CREATE_TRIGGER, &mut vm);
-        assert_eq!(result, Err(ivm::VMError::DecodeError));
+        assert!(matches!(result, Err(ivm::VMError::DecodeError)));
         assert!(
             host.queued.is_empty(),
             "an invalid trigger action must not leave queued effects"
@@ -14374,9 +14628,11 @@ None),
                 let mut vm = ivm::IVM::new(1_000);
                 let ptr = store_tlv(&mut vm, PointerType::Json, &norito_blob(&json));
                 vm.set_register(10, ptr);
-                assert_eq!(
-                    host.syscall(ivm::syscalls::SYSCALL_CREATE_TRIGGER, &mut vm),
-                    Err(ivm::VMError::PermissionDenied),
+                assert!(
+                    matches!(
+                        host.syscall(ivm::syscalls::SYSCALL_CREATE_TRIGGER, &mut vm),
+                        Err(ivm::VMError::PermissionDenied)
+                    ),
                     "executable {index} (contract frame: {contract_frame})"
                 );
                 assert!(
@@ -14396,8 +14652,12 @@ None),
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_TRIGGER, &mut vm);
         let expected = InstructionBox::from(Unregister::trigger(TriggerId::new(name)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14418,8 +14678,12 @@ None),
             key,
             Json::from(true),
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
-        assert_eq!(res, Ok(expected_gas));
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            expected_gas
+        );
         assert_eq!(host.queued, vec![expected]);
     }
     #[test]
@@ -14505,7 +14769,11 @@ None),
             .expect("mint syscall");
         let asset_id = AssetId::of(asset_def, authority);
         let isi = Mint::asset_quantity(5u64, asset_id);
-        let expected = crate::gas::meter_instruction(&InstructionBox::from(MintBox::from(isi)));
+        let expected = crate::gas::meter_instruction(
+            &InstructionBox::from(MintBox::from(isi)),
+            &crate::gas::DEFAULT_ZK_GAS,
+        )
+        .expect("completed fixture gas quote");
         assert_eq!(gas, expected);
     }
     #[test]
@@ -14634,10 +14902,11 @@ None),
     }
     #[test]
     fn unknown_syscall_is_rejected_by_policy() {
+        const UNKNOWN_SYSCALL: u32 = u32::MAX;
+
         let mut vm = ivm::IVM::new(10_000);
         let mut host = CoreHost::new(fixture_account("alice"));
         // Pick a syscall number outside allowed/known ranges.
-        const UNKNOWN_SYSCALL: u32 = u32::MAX;
         let res = host.syscall(UNKNOWN_SYSCALL, &mut vm);
         assert!(matches!(
             res,
@@ -14880,22 +15149,22 @@ mod tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku RuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
   view fn inspect() authorize(anyone) -> int { return 1; }
 }
-"#,
+",
             0,
         );
         let stale_contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StaleRuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -15622,7 +15891,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             .unwrap();
         let binding = ivm_abi::contract_call::ContractCallBindingV1 {
             code_hash,
-            entrypoint: entrypoint as u32,
+            entrypoint: u32::try_from(entrypoint).expect("fixture value fits u32"),
         };
         target.as_ref().len() + binding.to_bytes().unwrap().len()
     }
@@ -15641,7 +15910,7 @@ seiyaku AliasPayout {{ permission AssetOps;
                 .sum::<u64>()
             + ivm::gas::cost_of(wide::encode_sys(
                 system::SCALL,
-                ivm_sys::SYSCALL_CALL_CONTRACT as u8,
+                u8::try_from(ivm_sys::SYSCALL_CALL_CONTRACT).expect("fixture value fits u8"),
             ))
             .unwrap()
     }
@@ -15654,7 +15923,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             vm,
             schema,
             vm.register(14),
-            vm.register(15) as usize,
+            usize::try_from(vm.register(15)).expect("fixture value fits usize"),
         )
         .expect("canonical typed A9 result table")
     }
@@ -15673,7 +15942,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
     ) -> (
@@ -15685,7 +15954,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             state,
             outer_authority,
             caller_contract,
-            callee_contract,
+            nested_contract,
             entrypoint,
             payload,
             PreparedContractCache::default(),
@@ -15695,7 +15964,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         prepared_cache: PreparedContractCache,
@@ -15712,7 +15981,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let mut vm = IVM::new(1_000_000);
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
         let registers =
-            store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+            store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         let result = host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm);
         assert_eq!(
             (10..16).map(|index| vm.register(index)).collect::<Vec<_>>(),
@@ -15726,7 +15995,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
     ) -> (Result<u64, ivm::VMError>, ivm::host::AccessLog) {
@@ -15738,7 +16007,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             .unwrap();
         let mut vm = IVM::new(1_000_000);
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
-        store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+        store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         let result = host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm);
         let access_log = host.finish_tx().expect("finish nested access log");
         (result, access_log)
@@ -15747,7 +16016,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         gas_limit: u64,
@@ -15761,7 +16030,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             state,
             outer_authority,
             caller_contract,
-            callee_contract,
+            nested_contract,
             entrypoint,
             payload,
             gas_limit,
@@ -15785,7 +16054,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         code.extend_from_slice(
             &wide::encode_sys(
                 ivm::instruction::wide::system::SCALL,
-                ivm_sys::SYSCALL_CALL_CONTRACT as u8,
+                u8::try_from(ivm_sys::SYSCALL_CALL_CONTRACT).expect("fixture value fits u8"),
             )
             .to_le_bytes(),
         );
@@ -15840,7 +16109,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         gas_limit: u64,
@@ -15859,7 +16128,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let mut vm = IVM::new(gas_limit.max(1_000_000));
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
         let registers =
-            store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+            store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         for (index, value) in registers.iter().enumerate() {
             vm.set_register(18 + index, *value);
         }
@@ -15882,7 +16151,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let pool_contract = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku TypedPoolViews { permission AssetOps;
   state AssetDefinitionId QuoteAsset;
   state AccountId PoolAccount;
@@ -15905,25 +16174,24 @@ seiyaku TypedPoolViews { permission AssetOps;
     return PoolAccount;
   }
 }
-"#,
+",
             0,
         );
         let outer_caller = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku OuterCaller {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(state, authority, authority.clone());
         grant_asset_ops_to_account(state, authority, outer_caller.subject_id());
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
         let pool_bind_payload = Json::from_str_norito(&format!(
-            r#"{{"bound_pool_account":"{}","bound_quote_asset":"{}"}}"#,
-            actual_account, actual_asset
+            r#"{{"bound_pool_account":"{actual_account}","bound_quote_asset":"{actual_asset}"}}"#
         ))
         .expect("pool bind payload");
         execute_contract_call_transaction(
@@ -16156,11 +16424,31 @@ seiyaku OuterCaller {
                 expected_register.clone()
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_transfer)
-            .saturating_add(crate::gas::meter_instruction(&expected_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister))
-            .saturating_add(crate::gas::meter_instruction(&expected_register));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_transfer, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+                .saturating_add(
+                    crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                        .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_invoice_set,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_unregister,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(&expected_register, &crate::gas::DEFAULT_ZK_GAS)
+                        .expect("completed fixture gas quote"),
+                );
         assert_eq!(gas, expected_gas);
         #[cfg(feature = "telemetry")]
         {
@@ -16335,7 +16623,10 @@ seiyaku OuterCaller {
         assert_eq!(
             billing_gas,
             QueuedEffect::instructions(&billing_host.queued).fold(0_u64, |gas, instruction| {
-                gas.saturating_add(crate::gas::meter_instruction(instruction))
+                gas.saturating_add(
+                    crate::gas::meter_instruction(instruction, &crate::gas::DEFAULT_ZK_GAS)
+                        .expect("completed fixture gas quote"),
+                )
             })
         );
         let mut expected_billed_state = subscription_state.clone();
@@ -16404,7 +16695,11 @@ seiyaku OuterCaller {
             Json::new(expected_state),
         ));
         assert_eq!(host.queued, vec![expected_set.clone()]);
-        assert_eq!(gas, crate::gas::meter_instruction(&expected_set));
+        assert_eq!(
+            gas,
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+        );
     }
     #[test]
     fn subscription_plan_metadata_rejects_negative_usage_unit_price() {
@@ -16656,10 +16951,27 @@ seiyaku OuterCaller {
                 expected_register.clone()
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_set)
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister))
-            .saturating_add(crate::gas::meter_instruction(&expected_register));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_invoice_set,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_unregister,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(&expected_register, &crate::gas::DEFAULT_ZK_GAS)
+                        .expect("completed fixture gas quote"),
+                );
         assert_eq!(gas, expected_gas);
     }
     #[test]
@@ -16828,9 +17140,23 @@ seiyaku OuterCaller {
                 expected_unregister.clone(),
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_set)
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_invoice_set,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                )
+                .saturating_add(
+                    crate::gas::meter_instruction(
+                        &expected_unregister,
+                        &crate::gas::DEFAULT_ZK_GAS,
+                    )
+                    .expect("completed fixture gas quote"),
+                );
         assert_eq!(gas, expected_gas);
     }
     #[test]
@@ -16841,8 +17167,12 @@ seiyaku OuterCaller {
             InstructionBox::from(Log::new(iroha_logger::Level::INFO, "one".to_string()));
         let instr_two =
             InstructionBox::from(Log::new(iroha_logger::Level::WARN, "two".to_string()));
-        let expected = crate::gas::meter_instruction(&instr_one)
-            .saturating_add(crate::gas::meter_instruction(&instr_two));
+        let expected = crate::gas::meter_instruction(&instr_one, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote")
+            .saturating_add(
+                crate::gas::meter_instruction(&instr_two, &crate::gas::DEFAULT_ZK_GAS)
+                    .expect("completed fixture gas quote"),
+            );
         let gas = host.queue_instructions(vec![instr_one.clone(), instr_two.clone()]);
         assert_eq!(gas, expected);
         assert_eq!(host.queued, vec![instr_one, instr_two]);
@@ -16855,7 +17185,8 @@ seiyaku OuterCaller {
         let instruction =
             InstructionBox::from(Log::new(iroha_logger::Level::INFO, "bounded".to_owned()));
         for _ in 0..10_000 {
-            host.queue_instruction(instruction.clone());
+            host.queue_instruction(instruction.clone())
+                .expect("completed fixture gas quote");
         }
         assert_eq!(host.queued.len(), 2);
         assert!(matches!(
@@ -16870,9 +17201,11 @@ seiyaku OuterCaller {
     fn tooling_output_limit_cannot_widen_consensus_budget() {
         let authority = (*ALICE_ID).clone();
         let mut host = CoreHost::new(authority);
-        let mut parameters = SmartContractParameters::default();
-        parameters.max_output_items = NonZeroU64::new(7).expect("non-zero item limit");
-        parameters.max_output_bytes = NonZeroU64::new(4096).expect("non-zero byte limit");
+        let parameters = SmartContractParameters {
+            max_output_items: NonZeroU64::new(7).expect("non-zero item limit"),
+            max_output_bytes: NonZeroU64::new(4096).expect("non-zero byte limit"),
+            ..Default::default()
+        };
         host.set_output_limits_from_parameters(parameters);
         host.restrict_output_limits(HostOutputLimits::new(70, 40_960));
         assert_eq!(
@@ -16890,15 +17223,19 @@ seiyaku OuterCaller {
             InstructionBox::from(Log::new(iroha_logger::Level::INFO, "bounded".to_owned()));
         let host_with = |items: u64, bytes: u64| {
             let mut host = CoreHost::new((*ALICE_ID).clone());
-            let mut parameters = SmartContractParameters::default();
-            parameters.max_output_items = NonZeroU64::new(items).expect("non-zero item limit");
-            parameters.max_output_bytes = NonZeroU64::new(bytes).expect("non-zero byte limit");
+            let parameters = SmartContractParameters {
+                max_output_items: NonZeroU64::new(items).expect("non-zero item limit"),
+                max_output_bytes: NonZeroU64::new(bytes).expect("non-zero byte limit"),
+                ..Default::default()
+            };
             host.set_output_limits_from_parameters(parameters);
             host
         };
         // The retained cost of one queued instruction, measured under the default budget.
         let mut measure = CoreHost::new((*ALICE_ID).clone());
-        measure.queue_instruction(instruction.clone());
+        measure
+            .queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
         assert_eq!(measure.retained_output_items(), 1);
         let cost = measure.retained_output_bytes();
         assert!(
@@ -16908,12 +17245,15 @@ seiyaku OuterCaller {
 
         // Bytes: two instructions use the budget exactly; the third is one item's bytes over.
         let mut host = host_with(8, 2 * cost);
-        host.queue_instruction(instruction.clone());
-        host.queue_instruction(instruction.clone());
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
         assert_eq!(host.queued.len(), 2);
         assert_eq!(host.retained_output_bytes(), 2 * cost);
         assert_eq!(host.output_budget_violation(), None);
-        host.queue_instruction(instruction.clone());
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
         assert_eq!(host.queued.len(), 2, "nothing over the budget is retained");
         assert_eq!(
             host.output_budget_violation(),
@@ -16925,8 +17265,10 @@ seiyaku OuterCaller {
         );
         // One byte less budget cannot retain the second instruction.
         let mut host = host_with(8, 2 * cost - 1);
-        host.queue_instruction(instruction.clone());
-        host.queue_instruction(instruction.clone());
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
         assert_eq!(host.queued.len(), 1);
         assert!(matches!(
             host.output_budget_violation(),
@@ -16948,12 +17290,15 @@ seiyaku OuterCaller {
 
         // Items: the committed count is inclusive and the next item is refused.
         let mut host = host_with(2, 1024 * 1024);
-        host.queue_instruction(instruction.clone());
-        host.queue_instruction(instruction.clone());
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
+        host.queue_instruction(instruction.clone())
+            .expect("completed fixture gas quote");
         assert_eq!(host.queued.len(), 2);
         assert_eq!(host.retained_output_items(), 2);
         assert_eq!(host.output_budget_violation(), None);
-        host.queue_instruction(instruction);
+        host.queue_instruction(instruction)
+            .expect("completed fixture gas quote");
         assert_eq!(host.queued.len(), 2);
         assert_eq!(
             host.output_budget_violation(),
@@ -16964,15 +17309,12 @@ seiyaku OuterCaller {
         );
         // The violation is sticky and surfaces to the guest as a deterministic VM error.
         assert!(!host.try_reserve_output(0, 0));
-        assert_eq!(
-            host.output_budget_violation()
-                .map(HostOutputBudgetViolation::into_vm_error),
-            Some(ivm::VMError::HostOutputBudgetExceeded {
+        assert!(matches!((&(host.output_budget_violation()
+                .map(HostOutputBudgetViolation::into_vm_error)), &(ivm::VMError::HostOutputBudgetExceeded {
                 resource: ivm::HostOutputResource::Items,
                 attempted: 3,
                 limit: 2,
-            })
-        );
+            })), (Some(ivm::VMError::HostOutputBudgetExceeded { resource: __actual_resource, attempted: __actual_attempted, limit: __actual_limit }), ivm::VMError::HostOutputBudgetExceeded { resource: __expected_resource, attempted: __expected_attempted, limit: __expected_limit }) if __actual_resource == __expected_resource && __actual_attempted == __expected_attempted && __actual_limit == __expected_limit));
     }
     #[test]
     fn bounded_host_stops_unique_durable_state_growth_before_insert() {
@@ -17034,11 +17376,10 @@ seiyaku OuterCaller {
         let ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
         vm.set_register(10, ptr);
         vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
-            })
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed { syscall: __actual_syscall }), ivm::VMError::GenericSyscallNotAllowed { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall)
         );
         assert!(host.queued.is_empty());
     }
@@ -17058,10 +17399,10 @@ seiyaku OuterCaller {
             let ptr = store_tlv(&mut vm, PointerType::Blob, &retired_payload);
             vm.set_register(10, ptr);
             vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
-            assert_eq!(
+            assert!(matches!(
                 host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
                 Err(ivm::VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(vm.register(10), ptr);
             assert!(host.queued.is_empty());
         }
@@ -17086,10 +17427,10 @@ seiyaku OuterCaller {
             let ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
             vm.set_register(10, ptr);
             vm.set_register(11, operation_tag);
-            assert_eq!(
+            assert!(matches!(
                 host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-                Err(ivm::VMError::PermissionDenied),
-            );
+                Err(ivm::VMError::PermissionDenied)
+            ));
             assert!(
                 host.queued.is_empty(),
                 "rejected tag must not enqueue an ISI"
@@ -17131,10 +17472,19 @@ seiyaku OuterCaller {
                         syscall: ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
                     }
                 };
-                assert_eq!(
-                    host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-                    Err(expected),
-                    "tag {operation_tag} (contract frame: {contract_frame}) must not execute RecordSccpMessage"
+                let actual =
+                    host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm);
+                let equivalent = match (&actual, &expected) {
+                    (Err(ivm::VMError::PermissionDenied), ivm::VMError::PermissionDenied) => true,
+                    (
+                        Err(ivm::VMError::GenericSyscallNotAllowed { syscall: actual }),
+                        ivm::VMError::GenericSyscallNotAllowed { syscall: expected },
+                    ) => actual == expected,
+                    _ => false,
+                };
+                assert!(
+                    equivalent,
+                    "tag {operation_tag} (contract frame: {contract_frame}) must not execute RecordSccpMessage: {actual:?} != {expected:?}"
                 );
                 assert!(
                     host.queued.is_empty(),
@@ -17157,31 +17507,82 @@ seiyaku OuterCaller {
         let ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
         vm.set_register(10, ptr);
         vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-            Err(ivm::VMError::PermissionDenied),
-        );
+            Err(ivm::VMError::PermissionDenied)
+        ));
         assert!(host.queued.is_empty());
     }
     #[test]
-    fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {
-        let _gas_lock = crate::gas::lock_confidential_gas_for_tests();
-        struct ResetConfidentialGas;
-        impl Drop for ResetConfidentialGas {
-            fn drop(&mut self) {
-                crate::gas::configure_confidential_gas(
-                    crate::gas::ConfidentialGasSchedule::default(),
+    fn execute_instruction_ballot_consumes_each_pending_envelope_once() {
+        let first = [0x41; 32];
+        let second = [0x42; 32];
+        let explicit = [0x43; 32];
+        for (provided, expected_hashes) in [
+            (None, [Some(first), Some(second), None]),
+            (Some(explicit), [Some(explicit); 3]),
+        ] {
+            let mut host = CoreHost::new((*ALICE_ID).clone());
+            bind_test_contract_runtime(&mut host, 306);
+            host.__test_seed_ballot_latch(first);
+            host.__test_seed_ballot_latch(second);
+            let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+            let mut proof = ProofAttachment::new_ref(
+                backend.clone(),
+                ProofBox::new(backend.clone(), vec![0xa5]),
+                VerifyingKeyId::new(backend.as_str(), "ordered-ballot-envelope"),
+            );
+            proof.envelope_hash = provided;
+            let ballot = DMZk::SubmitBallot {
+                election_id: "election".to_owned(),
+                ciphertext: vec![0x11; 32],
+                ballot_proof: proof,
+                nullifier: [0x22; 32],
+            };
+            let payload = norito::to_bytes(&InstructionBox::from(ballot.clone()))
+                .expect("encode ballot instruction");
+            let mut vm = IVM::new(50_000_000);
+            let instruction_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
+            for (index, expected_hash) in expected_hashes.into_iter().enumerate() {
+                vm.set_register(10, instruction_ptr);
+                vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
+                host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)
+                    .expect("affordable ballot instruction");
+                let mut expected = ballot.clone();
+                expected.ballot_proof.envelope_hash = expected_hash;
+                let expected = InstructionBox::from(expected);
+                assert_eq!(host.queued.len(), index + 1);
+                assert_eq!(host.queued[index].instruction(), Some(&expected));
+                let pending = if provided.is_some() {
+                    vec![first, second]
+                } else if index == 0 {
+                    vec![second]
+                } else {
+                    Vec::new()
+                };
+                assert_eq!(
+                    host.zk_last_env_hash_ballot
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    pending,
+                    "only an inherited envelope consumes one original pending hash"
                 );
+                assert_eq!(host.zk_verified_ballot.len(), 2);
             }
         }
-        let _reset = ResetConfidentialGas;
-        crate::gas::configure_confidential_gas(crate::gas::ConfidentialGasSchedule {
-            base_verify: u64::MAX,
+    }
+    #[test]
+    fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {
+        // The schedule is the host's own value (the block's frozen ZK settings),
+        // so this test cannot disturb any other host in the process.
+        let extreme_gas = iroha_config::parameters::actual::ConfidentialGas {
+            proof_base: u64::MAX,
             per_public_input: u64::MAX,
             per_proof_byte: u64::MAX,
             per_nullifier: u64::MAX,
             per_commitment: u64::MAX,
-        });
+        };
         let backend: iroha_schema::Ident = "pipa-r/pasta".into();
         let proof = ProofAttachment::new_ref(
             backend.clone(),
@@ -17209,11 +17610,12 @@ seiyaku OuterCaller {
         vm.set_register(15, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
         let pending_hash = [0x42; 32];
         let mut host = local_contract_host((*ALICE_ID).clone());
+        host.confidential_gas = extreme_gas;
         Arc::make_mut(&mut host.zk_last_env_hash_ballot).push_back(pending_hash);
         let error = vm
             .run_with_host(&mut host)
             .expect_err("extreme proof gas exceeds the reserved budget");
-        assert_eq!(error, ivm::VMError::OutOfGas);
+        assert!(matches!(error, ivm::VMError::OutOfGas));
         assert_eq!(
             vm.remaining_gas(),
             0,
@@ -17230,7 +17632,7 @@ seiyaku OuterCaller {
     #[test]
     fn by_call_bytes_param_can_coexist_with_canonical_asset_operation() {
         let authority = (*ALICE_ID).clone();
-        let source = r#"
+        let source = r"
 seiyaku BurnWithMemo { permission AssetTransferRole;
   kotoage fn burn_with_memo(
     AccountId sender,
@@ -17241,7 +17643,7 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     ledger::asset::burn(account: sender, asset_definition: settlement_asset, amount: amount);
   }
 }
-"#;
+";
         let compiler = kotodama_lang::compiler::Compiler::new_with_options(
             kotodama_lang::compiler::CompilerOptions {
                 force_zk: true,
@@ -17310,13 +17712,13 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     }
     #[test]
     fn kotodama_source_rejects_opaque_instruction_submission() {
-        let source = r#"
+        let source = r"
 seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
   kotoage fn submit(bytes record_instruction) authorize(AssetTransferRole) {
     execute_instruction(record_instruction);
   }
 }
-"#;
+";
         // This is intentionally the non-deployable local harness profile: the
         // retired opaque-instruction escape must remain outside the public language surface.
         let error = kotodama_lang::compiler::Compiler::new_with_options(
@@ -17327,7 +17729,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         )
         .compile_source_with_manifest(source)
         .expect_err("opaque instruction submission must remain source-inaccessible");
-        let rendered = error.to_string();
+        let rendered = error.clone();
         assert!(
             rendered.contains("error[K2002]")
                 && rendered.contains("unknown function or builtin `execute_instruction`"),
@@ -17336,7 +17738,6 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
     }
     #[test]
     fn execute_instruction_syscall_accepts_code_literal_ballot_instruction() {
-        let _gas_lock = crate::gas::lock_confidential_gas_for_tests();
         let authority = (*ALICE_ID).clone();
         let mut host = CoreHost::new(authority);
         bind_test_contract_runtime(&mut host, 303);
@@ -17399,8 +17800,16 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         program.extend_from_slice(&contract_section);
         program.extend_from_slice(b"LTLB");
         program.extend_from_slice(&1u32.to_le_bytes());
-        program.extend_from_slice(&(post_pad as u32).to_le_bytes());
-        program.extend_from_slice(&(tlv.len() as u32).to_le_bytes());
+        program.extend_from_slice(
+            &u32::try_from(post_pad)
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
+        program.extend_from_slice(
+            &u32::try_from(tlv.len())
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
         let literal_descriptor = ivm::encode_literal_descriptor(
             ivm::LiteralKindV1::PointerTlv,
             u64::try_from(literal_data_offset).expect("literal offset fits u64"),
@@ -17426,7 +17835,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         program.extend_from_slice(
             &ivm::encoding::wide::encode_sys(
                 ivm::instruction::wide::system::SCALL,
-                ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION as u8,
+                u8::try_from(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION)
+                    .expect("fixture value fits u8"),
             )
             .to_le_bytes(),
         );
@@ -17464,8 +17874,16 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         .encode();
         program.extend_from_slice(b"LTLB");
         program.extend_from_slice(&0u32.to_le_bytes());
-        program.extend_from_slice(&(post_pad as u32).to_le_bytes());
-        program.extend_from_slice(&(tlv.len() as u32).to_le_bytes());
+        program.extend_from_slice(
+            &u32::try_from(post_pad)
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
+        program.extend_from_slice(
+            &u32::try_from(tlv.len())
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
         program.extend_from_slice(&tlv);
         program.extend(std::iter::repeat_n(0u8, post_pad));
         program.extend_from_slice(&ivm::encoding::wide::encode_halt().to_le_bytes());
@@ -17546,7 +17964,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let error = vm
             .run_with_host(&mut host)
             .expect_err("NFT fan-out exceeds the syscall reserve");
-        assert_eq!(error, ivm::VMError::OutOfGas);
+        assert!(matches!(error, ivm::VMError::OutOfGas));
         assert_eq!(vm.remaining_gas(), 0);
         assert!(host.queued.is_empty(), "must not queue partial fan-out");
         assert_eq!(host.nft_seq, 0, "must not advance the NFT sequence");
@@ -17642,13 +18060,12 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         host.restrict_output_limits(HostOutputLimits::new(0, u64::MAX));
         let mut vm = ivm::IVM::new(1_000);
         vm.set_register(10, 3);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_SET_SMARTCONTRACT_EXECUTION_DEPTH, &mut vm,),
-            Err(ivm::VMError::HostOutputBudgetExceeded {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_SET_SMARTCONTRACT_EXECUTION_DEPTH, &mut vm,)), &(ivm::VMError::HostOutputBudgetExceeded {
                 resource: ivm::HostOutputResource::Items,
                 attempted: 1,
                 limit: 0,
-            })
+            })), (Err(ivm::VMError::HostOutputBudgetExceeded { resource: __actual_resource, attempted: __actual_attempted, limit: __actual_limit }), ivm::VMError::HostOutputBudgetExceeded { resource: __expected_resource, attempted: __expected_attempted, limit: __expected_limit }) if __actual_resource == __expected_resource && __actual_attempted == __expected_attempted && __actual_limit == __expected_limit)
         );
         assert!(
             host.queued.is_empty(),
@@ -17700,18 +18117,21 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             .syscall(ivm_sys::SYSCALL_TRANSFER_V1, &mut vm)
             .expect("batch entry");
         for _ in 0..10_000 {
-            assert_eq!(
-                host.syscall(ivm_sys::SYSCALL_TRANSFER_V1, &mut vm),
-                Err(ivm::VMError::HostOutputBudgetExceeded {
+            assert!(
+                matches!((&(host.syscall(ivm_sys::SYSCALL_TRANSFER_V1, &mut vm)), &(ivm::VMError::HostOutputBudgetExceeded {
                     resource: ivm::HostOutputResource::Items,
                     attempted: 2,
                     limit: 1,
-                }),
+                })), (Err(ivm::VMError::HostOutputBudgetExceeded { resource: __actual_resource, attempted: __actual_attempted, limit: __actual_limit }), ivm::VMError::HostOutputBudgetExceeded { resource: __expected_resource, attempted: __expected_attempted, limit: __expected_limit }) if __actual_resource == __expected_resource && __actual_attempted == __expected_attempted && __actual_limit == __expected_limit)
             );
         }
         let asset_id = AssetId::of(asset_def, from.clone());
         let isi = Transfer::asset_quantity(asset_id, amount, to);
-        let expected = crate::gas::meter_instruction(&InstructionBox::from(TransferBox::from(isi)));
+        let expected = crate::gas::meter_instruction(
+            &InstructionBox::from(TransferBox::from(isi)),
+            &crate::gas::DEFAULT_ZK_GAS,
+        )
+        .expect("completed fixture gas quote");
         assert_eq!(gas, expected);
         assert!(host.queued.is_empty());
         assert_eq!(host.fastpq_batch_entries.as_ref().map(Vec::len), Some(1));
@@ -17857,8 +18277,9 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                 dataspace,
             );
             assert_eq!(
-                host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
-                Ok(crate::gas::BASE_TRANSFER)
+                (host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm))
+                    .expect("expected successful fixture result"),
+                crate::gas::BASE_TRANSFER
             );
             assert!(
                 ivm::host::conservative_syscall_gas_quote(
@@ -17882,7 +18303,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                 destination.clone(),
             )));
             assert_eq!(
-                crate::gas::meter_instruction(&expected),
+                crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+                    .expect("completed fixture gas quote"),
                 crate::gas::BASE_TRANSFER
             );
             assert_eq!(host.queued, vec![expected]);
@@ -17953,7 +18375,10 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             // The exact budget completes only the syscall; it intentionally has
             // no gas for the protected-return epilogue. One less gas must refuse
             // the syscall itself, before the native instruction is queued.
-            assert_eq!(vm.run_with_host(&mut host), Err(ivm::VMError::OutOfGas));
+            assert!(matches!(
+                vm.run_with_host(&mut host),
+                Err(ivm::VMError::OutOfGas)
+            ));
             if available == crate::gas::BASE_TRANSFER {
                 assert_eq!(vm.remaining_gas(), 0);
                 assert_eq!(host.queued, vec![expected.clone()]);
@@ -17987,21 +18412,22 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             DataSpaceId::new(7),
         );
         assert_eq!(
-            host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
-            Ok(crate::gas::BASE_TRANSFER)
+            (host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm))
+                .expect("expected successful fixture result"),
+            crate::gas::BASE_TRANSFER
         );
         host.fastpq_batch_entries = Some(Vec::new());
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
             Err(ivm::VMError::PermissionDenied)
-        );
+        ));
         host.fastpq_batch_entries = None;
         let pointer = store_tlv(&mut vm, PointerType::Name, b"not-a-dataspace");
         vm.set_register(14, pointer);
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(vm.remaining_gas(), 1_000, "quote must not debit gas");
         assert!(host.queued.is_empty());
         assert!(host.durable_state_overlay.is_empty());
@@ -18033,10 +18459,10 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             &amount,
             DataSpaceId::new(7),
         );
-        assert_eq!(
+        assert!(matches!(
             host.syscall(ivm_sys::SYSCALL_TRANSFER_V1, &mut vm),
             Err(ivm::VMError::PermissionDenied)
-        );
+        ));
         assert!(host.queued.is_empty());
     }
     #[test]
@@ -18161,8 +18587,9 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             );
             vm.set_register(14, 0);
             assert_eq!(
-                host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
-                Ok(crate::gas::BASE_TRANSFER),
+                (host.prepare_syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &vm))
+                    .expect("expected successful fixture result"),
+                crate::gas::BASE_TRANSFER,
                 "an omitted scope is a valid quote for {asset_name}"
             );
             let result = host.syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm);
@@ -18178,7 +18605,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                     assert_eq!(host.queued, vec![expected]);
                 }
                 AssetBalancePolicy::DataspaceRestricted => {
-                    assert_eq!(result, Err(ivm::VMError::NoritoInvalid));
+                    assert!(matches!(result, Err(ivm::VMError::NoritoInvalid)));
                     assert!(host.queued.is_empty());
                 }
             }
@@ -18211,7 +18638,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             .syscall(ivm_sys::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut vm)
             .expect("apply batch");
         let expected = InstructionBox::from(batch.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
         assert_eq!(gas, expected_gas);
         assert_eq!(host.queued, vec![expected]);
     }
@@ -18296,7 +18724,11 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             .syscall(ivm_sys::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut control_vm)
             .expect("current canonical amount passes through the same frame construction");
         let expected = InstructionBox::from(current);
-        assert_eq!(gas, crate::gas::meter_instruction(&expected));
+        assert_eq!(
+            gas,
+            crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+        );
         assert_eq!(control_host.queued, vec![expected]);
         let payload = norito::core::frame_bare_with_header_flags::<TransferAssetBatch>(
             &forged_payload,
@@ -18428,8 +18860,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                     from_balance_after: Quantity::from(9_u64),
                     to_balance_before: Quantity::from(5_u64),
                     to_balance_after: Quantity::from(6_u64),
-                    from_smt_witness: Default::default(),
-                    to_smt_witness: Default::default(),
+                    from_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
+                    to_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
                 }],
                 authority_digest: Hash::new(b"axt-host-test:transfer-authority"),
                 poseidon_preimage_digest: None,
@@ -18523,10 +18955,10 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
     }
     #[test]
     fn compute_envelope_hash_rejects_opaque_bytes_unconditionally() {
-        assert_eq!(
+        assert!(matches!(
             CoreHost::compute_envelope_hash(b"opaque bytes"),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn norito_blob_roundtrips_with_header_decoder() {
@@ -18563,8 +18995,12 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let mut vm = IVM::new(1_000_000);
         vm.load_program(&ivm::ProgramMetadata::default().encode())
             .expect("load metadata");
-        vm.alloc_input_tlv(&vec![0; ivm::Memory::INPUT_SIZE as usize])
-            .expect("fill INPUT exactly");
+        vm.alloc_input_tlv(&vec![
+            0;
+            usize::try_from(ivm::Memory::INPUT_SIZE)
+                .expect("fixture value fits usize")
+        ])
+        .expect("fill INPUT exactly");
         host.syscall(ivm::syscalls::SYSCALL_GET_AUTHORITY, &mut vm)
             .expect("authority syscall must spill");
         let authority_pointer = vm.register(10);
@@ -18583,8 +19019,9 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         vm.load_program(&ivm::ProgramMetadata::default().encode())
             .expect("load meta");
         assert_eq!(
-            host.syscall(ivm::syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm),
-            Ok(CoreHost::sysvar_gas(0))
+            (host.syscall(ivm::syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 1_717_171_717_000);
     }
@@ -19151,30 +19588,30 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, durable_state_overlay) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -19219,7 +19656,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in } }",
@@ -19229,7 +19666,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller,
-            &callee,
+            &target_contract,
             "quote",
             Json::from(norito::json!({"amount_in":"10", "min_out":"7"})),
         );
@@ -19243,7 +19680,7 @@ seiyaku Callee {
         assert_eq!(decode_quantity_leaf(&vm, pointer), Quantity::from(10u32));
         assert_eq!(
             vm.validate_tlv(vm.register(10)).unwrap().payload,
-            callee.as_ref().as_bytes(),
+            target_contract.as_ref().as_bytes(),
             "typed calls preserve the target register"
         );
     }
@@ -19257,7 +19694,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in } }",
@@ -19271,7 +19708,7 @@ seiyaku Callee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee,
+            &target_contract,
             "quote",
             &Json::from(norito::json!({"amount_in":"10","min_out":"7"})),
         );
@@ -19289,7 +19726,7 @@ seiyaku Callee {
             (10..16).map(|index| vm.register(index)).collect::<Vec<_>>(),
             registers
         );
-        assert_eq!(vm.load_u64(registers[4]), Ok(0));
+        assert!(matches!(vm.load_u64(registers[4]), Ok(0)));
     }
     #[test]
     fn generic_contract_call_rejects_stale_return_schema_binding_before_state_changes() {
@@ -19301,7 +19738,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { state int counter; hajimari() {counter=0;} kotoage fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> int { counter=9; return 1; } }",
@@ -19316,7 +19753,7 @@ seiyaku Callee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee,
+            &target_contract,
             "quote",
             &Json::from(norito::json!({"amount_in":"10","min_out":"7"})),
         );
@@ -19340,7 +19777,7 @@ seiyaku Callee {
         assert!(host.durable_state_overlay.is_empty());
         assert!(host.queued.is_empty());
         assert_eq!(vm.register(10), registers[0]);
-        assert_eq!(vm.load_u64(registers[4]), Ok(0));
+        assert!(matches!(vm.load_u64(registers[4]), Ok(0)));
     }
     #[test]
     fn typed_contract_call_rejects_forged_caller_scope_before_authorization() {
@@ -19352,7 +19789,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Child { view fn read() authorize(anyone) -> bool {true} }",
@@ -19364,8 +19801,13 @@ seiyaku Callee {
             host.set_query_state(&view);
             let mut vm = IVM::new(1_000_000);
             bind_nested_caller(&mut host, &mut vm, &view, &authority, &caller);
-            let registers =
-                store_typed_contract_call(&mut vm, &state, &callee, "read", &Json::new(()));
+            let registers = store_typed_contract_call(
+                &mut vm,
+                &state,
+                &target_contract,
+                "read",
+                &Json::new(()),
+            );
             match case {
                 0 => {
                     host.current_contract_runtime_context
@@ -19397,7 +19839,7 @@ seiyaku Callee {
                 ),
                 "case {case}"
             );
-            assert_eq!(vm.load_u64(registers[4]), Ok(0));
+            assert!(matches!(vm.load_u64(registers[4]), Ok(0)));
             assert!(host.queued.is_empty());
             assert!(host.durable_state_overlay.is_empty());
         }
@@ -19413,7 +19855,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku PrivateCallee { kotoage fn main() authorize(anyone) {} }",
@@ -19421,7 +19863,7 @@ seiyaku Callee {
         );
         let syscall = ivm::encoding::wide::encode_sys(
             ivm::instruction::wide::system::SCALL,
-            ivm_sys::SYSCALL_GET_PRIVATE_INPUT as u8,
+            u8::try_from(ivm_sys::SYSCALL_GET_PRIVATE_INPUT).expect("fixture value fits u8"),
         );
         let program = build_authenticated_test_contract_program(&syscall.to_le_bytes(), 0, true);
         assert_eq!(
@@ -19430,15 +19872,21 @@ seiyaku Callee {
                 .entrypoint_requires_private_inputs("main"),
             Some(true)
         );
-        rebind_test_contract_program(&state, &authority, &callee, program);
-        let (result, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "main", Json::new(()));
+        rebind_test_contract_program(&state, &authority, &target_contract, program);
+        let (result, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "main",
+            Json::new(()),
+        );
         assert!(matches!(
             result.unwrap_err().as_unmetered(),
             ivm::VMError::PermissionDenied
         ));
         assert!(effects.is_empty());
-        assert_eq!(vm.load_u64(vm.register(14)), Ok(0));
+        assert!(matches!(vm.load_u64(vm.register(14)), Ok(0)));
     }
 
     #[test]
@@ -19451,14 +19899,20 @@ seiyaku Callee {
             "seiyaku Caller { view fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { state StateMap<int,int> Values; view fn read() authorize(anyone) -> bool { true } kotoage fn write() authorize(anyone) { Values[1] = 9; } }",
             1,
         );
-        let (read, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "read", Json::new(()));
+        let (read, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "read",
+            Json::new(()),
+        );
         read.expect("a view may call another authenticated view");
         assert_eq!(
             render_nested_result(
@@ -19468,14 +19922,20 @@ seiyaku Callee {
             norito::json!(true)
         );
         assert!(effects.is_empty());
-        let (result, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "write", Json::new(()));
+        let (result, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "write",
+            Json::new(()),
+        );
         assert!(matches!(
             result.unwrap_err().as_unmetered(),
             ivm::VMError::PermissionDenied
         ));
         assert!(effects.is_empty());
-        assert_eq!(vm.load_u64(vm.register(14)), Ok(0));
+        assert!(matches!(vm.load_u64(vm.register(14)), Ok(0)));
     }
 
     #[test]
@@ -19574,9 +20034,14 @@ seiyaku Callee {
             vm.registers.set_tag(10, private_descriptor);
             let error = ivm::value_record::quote_completed_return_record(&vm, &schema, u64::MAX)
                 .expect_err("private payload must not be returned");
-            assert_eq!(
-                error.as_unmetered(),
-                &ivm::VMError::PrivacyViolation,
+            assert!(
+                matches!(
+                    (&(error.as_unmetered()), &(&ivm::VMError::PrivacyViolation)),
+                    (
+                        ivm::VMError::PrivacyViolation,
+                        ivm::VMError::PrivacyViolation
+                    )
+                ),
                 "private payload rejection must depend on completed table memory, not register tags"
             );
             assert!(error.metered_gas().is_some_and(|gas| gas > 0));
@@ -19609,7 +20074,10 @@ seiyaku Callee {
         };
         let error = ivm::value_record::quote_completed_return_record(&vm, &schema, u64::MAX)
             .expect_err("repeated pointers exceed the canonical return record bound");
-        assert_eq!(error.as_unmetered(), &ivm::VMError::DecodeError);
+        assert!(matches!(
+            (&(error.as_unmetered()), &(&ivm::VMError::DecodeError)),
+            (ivm::VMError::DecodeError, ivm::VMError::DecodeError)
+        ));
         assert!(error.metered_gas().is_some_and(|gas| gas > 0));
     }
     #[test]
@@ -19632,7 +20100,10 @@ seiyaku Callee {
         };
         let error = ivm::value_record::quote_completed_return_record(&vm, &schema, 1024)
             .expect_err("unaffordable return is rejected before cloning");
-        assert_eq!(error.as_unmetered(), &ivm::VMError::OutOfGas);
+        assert!(matches!(
+            (&(error.as_unmetered()), &(&ivm::VMError::OutOfGas)),
+            (ivm::VMError::OutOfGas, ivm::VMError::OutOfGas)
+        ));
         assert_eq!(error.metered_gas(), Some(1024));
     }
     #[test]
@@ -19649,21 +20120,21 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let prepared_cache = PreparedContractCache::with_capacity(2);
@@ -19671,7 +20142,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
             prepared_cache.clone(),
@@ -19693,7 +20164,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
             prepared_cache.clone(),
@@ -19729,11 +20200,11 @@ seiyaku Callee {
         let contract = install_contract(
             &populated_state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             7,
         );
         let stale_record = {
@@ -19767,31 +20238,31 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let payload = Json::new(());
-        let request_bytes = typed_contract_request_bytes(&state, &callee_contract, "value");
+        let request_bytes = typed_contract_request_bytes(&state, &nested_contract, "value");
         let gas_limit = 1_000_000;
         let (result, vm, durable_state_overlay, _) = dispatch_call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             payload,
             gas_limit,
@@ -19816,17 +20287,17 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Caller {
       kotoage fn main() authorize(anyone) -> int { return 0; }
     }
-    "#,
+    ",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Callee { permission AssetOps;
       state int counter;
 
@@ -19837,14 +20308,14 @@ seiyaku Callee {
         return counter;
       }
     }
-    "#,
+    ",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let payload = Json::new(());
         let request_gas = ivm::gas::syscall_byte_gas(
             ivm::gas::G_CALL_CONTRACT,
-            typed_contract_request_bytes(&state, &callee_contract, "write"),
+            typed_contract_request_bytes(&state, &nested_contract, "write"),
             0,
         );
         // After authenticated staging and request validation, only one gas remains
@@ -19856,12 +20327,12 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "write",
             payload,
             gas_limit,
         );
-        assert_eq!(result, Err(ivm::VMError::OutOfGas));
+        assert!(matches!(result, Err(ivm::VMError::OutOfGas)));
         assert!(
             durable_state_overlay.is_empty(),
             "failed child state must roll back"
@@ -19918,12 +20389,12 @@ seiyaku Callee { permission AssetOps;
             .into_iter()
             .find(|error| error.identity.ends_with("::CalleeError"))
             .expect("callee nominal error");
-        let callee_contract = install_contract(&state, &authority, callee_source, 1);
+        let nested_contract = install_contract(&state, &authority, callee_source, 1);
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let payload = Json::new(());
         let request_gas = ivm::gas::syscall_byte_gas(
             ivm::gas::G_CALL_CONTRACT,
-            typed_contract_request_bytes(&state, &callee_contract, "fail_after_write"),
+            typed_contract_request_bytes(&state, &nested_contract, "fail_after_write"),
             0,
         );
         let gas_limit = 1_000_000;
@@ -19931,22 +20402,21 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "fail_after_write",
             payload,
             gas_limit,
         );
         let error = result.expect_err("nested assertion should fail the syscall");
-        assert_eq!(
-            error.as_unmetered(),
-            &ivm::VMError::ContractAbort {
+        assert!(
+            matches!((&(error.as_unmetered()), &(&ivm::VMError::ContractAbort {
                 contract: "Callee".into(),
                 error_type: expected.identity.clone(),
                 schema_hash: expected.schema_hash(),
                 name: "ForcedFailure".to_owned(),
                 code: 1,
                 message: Some("Callee rejected the operation".into()),
-            }
+            })), (ivm::VMError::ContractAbort { contract: __actual_contract, error_type: __actual_error_type, schema_hash: __actual_schema_hash, name: __actual_name, code: __actual_code, message: __actual_message }, ivm::VMError::ContractAbort { contract: __expected_contract, error_type: __expected_error_type, schema_hash: __expected_schema_hash, name: __expected_name, code: __expected_code, message: __expected_message }) if __actual_contract == __expected_contract && __actual_error_type == __expected_error_type && __actual_schema_hash == __expected_schema_hash && __actual_name == __expected_name && __actual_code == __expected_code && __actual_message == __expected_message)
         );
         assert_eq!(
             crate::execution_attempt::expect_completed_rejection(
@@ -19985,23 +20455,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   view fn value() authorize(AssetOps) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         grant_named_permission_to_account(
@@ -20014,7 +20484,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20025,7 +20495,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20044,23 +20514,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Lifecycle {
   state int initialized;
   hajimari() { initialized = 1; }
   kaizen() {}
 }
-"#,
+",
             1,
         );
         for selector in ["hajimari", "kaizen"] {
@@ -20068,7 +20538,7 @@ seiyaku Lifecycle {
                 &state,
                 &authority,
                 &caller_contract,
-                &callee_contract,
+                &nested_contract,
                 selector,
                 Json::new(()),
             );
@@ -20087,17 +20557,17 @@ seiyaku Lifecycle {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract_with_pending_lifecycle(
+        let nested_contract = install_contract_with_pending_lifecycle(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku AwaitingHajimari {
   hajimari() {}
 
@@ -20105,14 +20575,14 @@ seiyaku AwaitingHajimari {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, _, durable_state_overlay) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20130,21 +20600,21 @@ seiyaku AwaitingHajimari {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku HeldCallee {
   view fn value(int input) authorize(anyone) -> int { return input; }
 }
-"#,
+",
             1,
         );
         // `contract_test_state` has already applied its original signed genesis.
@@ -20174,7 +20644,7 @@ seiyaku HeldCallee {
             let binding = tx
                 .world
                 .contract_subject_bindings
-                .get_mut(&callee_contract)
+                .get_mut(&nested_contract)
                 .expect("callee lifecycle binding");
             binding.lifecycle.emergency_hold =
                 Some(iroha_data_model::smart_contract::ContractEmergencyHoldV1 {
@@ -20205,7 +20675,7 @@ seiyaku HeldCallee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "value",
             &Json::from(norito::json!({ "input": "42" })),
         );
@@ -20241,30 +20711,30 @@ seiyaku HeldCallee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn who_called() authorize(anyone) -> AccountId {
     return context::authority();
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, _) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "who_called",
             Json::new(()),
         );
@@ -20365,17 +20835,17 @@ seiyaku Callee {
         let caller = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ViewCaller { permission NestedView;
   kotoage fn main() authorize(NestedView) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku EffectfulView { permission NestedView;
   state int Counter;
 
@@ -20392,7 +20862,7 @@ seiyaku EffectfulView { permission NestedView;
     return Counter;
   }
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -20406,14 +20876,14 @@ seiyaku EffectfulView { permission NestedView;
             &state,
             &authority,
             authority.clone(),
-            &callee,
+            &target_contract,
             "seed",
         );
         grant_contract_entrypoint_to_account(
             &state,
             &authority,
             caller.subject_id(),
-            &callee,
+            &target_contract,
             "increment_then_return",
         );
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
@@ -20422,17 +20892,19 @@ seiyaku EffectfulView { permission NestedView;
             &state,
             &authority,
             &fixture_signing_keypair(&authority),
-            contract_invocation_from_json(&state, callee.clone(), "seed", &seed_payload),
+            contract_invocation_from_json(&state, target_contract.clone(), "seed", &seed_payload),
             &mut ivm_cache,
         );
         // The embedded, verified contract interface is the execution authority.
         // Corrupt the separately registered manifest after deployment and prove
         // that it cannot relabel effectful bytecode as a view whose effects the
         // nested-call boundary would silently roll back.
-        let record =
-            crate::smartcontracts::code::fetch_bound_contract_record(&state.view(), &callee)
-                .expect("registry read completes")
-                .expect("installed effectful contract record");
+        let record = crate::smartcontracts::code::fetch_bound_contract_record(
+            &state.view(),
+            &target_contract,
+        )
+        .expect("registry read completes")
+        .expect("installed effectful contract record");
         let mut malicious_manifest = record.manifest;
         let descriptor = malicious_manifest
             .entrypoints
@@ -20458,7 +20930,7 @@ seiyaku EffectfulView { permission NestedView;
             .expect("next block height must fit in u64 and be non-zero");
         let mut block = state.block(BlockHeader::new(next_height, None, None, 0, 0));
         let mut tx = block.transaction();
-        let artifact_id = ContractArtifactId::for_address(&callee, record.code_hash)
+        let artifact_id = ContractArtifactId::for_address(&target_contract, record.code_hash)
             .expect("callee retains its exact artifact dataspace");
         tx.world
             .contract_manifests
@@ -20472,7 +20944,7 @@ seiyaku EffectfulView { permission NestedView;
                 &state,
                 &authority,
                 &caller,
-                &callee,
+                &target_contract,
                 "increment_then_return",
                 Json::new(()),
             );
@@ -20494,7 +20966,7 @@ seiyaku EffectfulView { permission NestedView;
     fn contract_view_of_persisted_account_state_returns_account_tlv() {
         let authority: AccountId = fixture_account("alice");
         let state = contract_test_state(&authority);
-        let source = r#"
+        let source = r"
 seiyaku StoredAccountView { permission AssetOps;
   state AccountId Stored;
 
@@ -20510,11 +20982,11 @@ seiyaku StoredAccountView { permission AssetOps;
     return Stored;
   }
 }
-"#;
+";
         let contract = install_contract(&state, &authority, source, 0);
         grant_asset_ops_to_account(&state, &authority, authority.clone());
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
-        let bind_payload = Json::from_str_norito(&format!(r#"{{"account_id":"{}"}}"#, authority))
+        let bind_payload = Json::from_str_norito(&format!(r#"{{"account_id":"{authority}"}}"#))
             .expect("bind payload");
         execute_contract_call_transaction(
             &state,
@@ -20556,7 +21028,7 @@ seiyaku StoredAccountView { permission AssetOps;
         vm.set_register(1, vm.memory.code_len());
         vm.set_program_counter(entry_pc).expect("seek stored view");
         vm.run_with_host(&mut host).expect("run stored view");
-        assert_eq!(vm.call_result_word_count(), Ok(1));
+        assert!(matches!(vm.call_result_word_count(), Ok(1)));
         let returned_pointer = vm
             .public_call_result_word(0)
             .expect("completed public result owns one account pointer word");
@@ -20575,17 +21047,17 @@ seiyaku StoredAccountView { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   state int backlog;
   state int safe_mode;
@@ -20600,7 +21072,7 @@ seiyaku Callee { permission AssetOps;
     safe_mode = safe_mode_value;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20612,7 +21084,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "report",
             payload,
         );
@@ -20656,7 +21128,7 @@ seiyaku Callee { permission AssetOps;
             "seiyaku Caller { kotoage fn main() authorize(anyone) -> int { return 0; } }",
             0,
         );
-        let source = r#"
+        let source = r"
 seiyaku Callee { permission AssetOps;
   error enum ReceiptError { Refused = 7 }
   struct Receipt {
@@ -20679,8 +21151,8 @@ seiyaku Callee { permission AssetOps;
     return reload();
   }
 }
-"#;
-        let callee_contract = install_contract(&state, &authority, source, 1);
+";
+        let nested_contract = install_contract(&state, &authority, source, 1);
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let expected = norito::json!({
             "marker": null,
@@ -20696,7 +21168,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "roundtrip",
             payload,
         );
@@ -20734,17 +21206,17 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   error enum CalleeError {
     ForcedFailure = 1,
@@ -20762,7 +21234,7 @@ seiyaku Callee { permission AssetOps;
     return 0;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20770,7 +21242,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "fail_after_write",
             Json::new(()),
         );
@@ -20787,14 +21259,14 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract_with_interface(
+        let nested_contract = install_contract_with_interface(
             &state,
             &authority,
             r#"
@@ -20867,7 +21339,7 @@ seiyaku Callee { permission AssetOps;
         store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "write_then_return",
             &Json::new(()),
         );
@@ -20912,7 +21384,7 @@ seiyaku Callee { permission AssetOps;
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn no_args() authorize(anyone) -> int {1} view fn echo(int value) authorize(anyone) -> int {value} }",
@@ -20927,7 +21399,7 @@ seiyaku Callee { permission AssetOps;
             let registers = store_typed_contract_call(
                 &mut vm,
                 &state,
-                &callee,
+                &target_contract,
                 selector,
                 &Json::from(norito::json!({"value":"7"})),
             );
@@ -21001,9 +21473,8 @@ seiyaku Callee { permission AssetOps;
                 error.execution_deferral().is_none(),
                 "case {case}: {error:?}"
             );
-            assert_eq!(
-                vm.load_u64(vm.register(14)),
-                Ok(0),
+            assert!(
+                matches!(vm.load_u64(vm.register(14)), Ok(0)),
                 "case {case} published no output"
             );
         }
@@ -21053,14 +21524,18 @@ seiyaku Callee { permission AssetOps;
         let registers_before = vm.registers.snapshot();
         let tags_before = vm.registers.snapshot_tags();
         let memory_root_before = vm.memory.current_root();
-        assert_eq!(
-            host.prepare_syscall(ivm_sys::SYSCALL_GET_PRIVATE_INPUT, &vm),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                host.prepare_syscall(ivm_sys::SYSCALL_GET_PRIVATE_INPUT, &vm),
+                Err(ivm::VMError::PermissionDenied)
+            ),
             "consensus quote preparation must not expose the prover/test witness transport"
         );
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_GET_PRIVATE_INPUT, &mut vm),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                host.syscall(ivm_sys::SYSCALL_GET_PRIVATE_INPUT, &mut vm),
+                Err(ivm::VMError::PermissionDenied)
+            ),
             "a direct host call must remain fail-closed if entrypoint admission is bypassed"
         );
         assert_eq!(vm.registers.snapshot(), registers_before);
@@ -21109,9 +21584,11 @@ seiyaku Callee { permission AssetOps;
         }
         vm.set_gas_limit(request_gas.saturating_sub(1));
         ivm::reset_argument_record_decode_count();
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm),
-            Err(ivm::VMError::OutOfGas),
+        assert!(
+            matches!(
+                host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm),
+                Err(ivm::VMError::OutOfGas)
+            ),
             "unaffordable calls must fail before the absent query state is consulted"
         );
         assert_eq!(ivm::argument_record_decode_count(), 0);
@@ -21200,14 +21677,14 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn open_position() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
             r#"
@@ -21232,7 +21709,7 @@ seiyaku Callee { permission AssetOps;
         );
         grant_test_asset_transfer(
             &state,
-            callee_contract.subject_id(),
+            nested_contract.subject_id(),
             AssetId::of(asset_def_id.clone(), caller_contract.subject_id()),
         );
         let view = state.view();
@@ -21286,7 +21763,7 @@ seiyaku Callee { permission AssetOps;
         vm.set_register(14, dataspace_ptr);
         host.syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm)
             .expect("root transfer should enqueue");
-        let nested_target = callee_contract.subject_id().to_string();
+        let nested_target = nested_contract.subject_id().to_string();
         let nested_asset = asset_def_id.to_string();
         let nested_payload = Json::from(norito::json!({
             "target": nested_target,
@@ -21296,7 +21773,7 @@ seiyaku Callee { permission AssetOps;
         store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "pull_into_vault",
             &nested_payload,
         );
@@ -21311,7 +21788,7 @@ seiyaku Callee { permission AssetOps;
                 .into_iter()
                 .map(|(effect_authority, _)| effect_authority)
                 .collect::<Vec<_>>(),
-            vec![caller_contract.subject_id(), callee_contract.subject_id()],
+            vec![caller_contract.subject_id(), nested_contract.subject_id()],
             "root and nested effects retain their respective contract subjects"
         );
         // Apply these component artifacts in ordinary execution, with no
@@ -21341,10 +21818,10 @@ seiyaku Callee { permission AssetOps;
             .value()
             .clone();
         let caller_asset_id = AssetId::of(asset_def_id.clone(), caller_contract.subject_id());
-        let callee_asset_id = AssetId::of(asset_def_id, callee_contract.subject_id());
+        let nested_asset = AssetId::of(asset_def_id, nested_contract.subject_id());
         let callee_balance = stx
             .world
-            .asset(&callee_asset_id)
+            .asset(&nested_asset)
             .expect("callee contract asset exists")
             .value()
             .clone();
@@ -21603,9 +22080,11 @@ seiyaku Callee { permission AssetOps;
         let (paynet, catalog) = retail_dataspace_catalog();
         let mut config = crate::sumeragi::test_chain::TestChainConfig::new(world, 0);
         config.chain_id = ChainId::from("test-chain");
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.dataspace_catalog = catalog.clone();
-        nexus.configured_dataspace_catalog = catalog;
+        let mut nexus = iroha_config::parameters::actual::Nexus {
+            dataspace_catalog: catalog.clone(),
+            configured_dataspace_catalog: catalog,
+            ..Default::default()
+        };
         // Alias authorization is independent of monetary admission. Bind the
         // zero-fee policy and catalog before preparing this exact signed genesis.
         nexus.fees.base_fee = 0_u32.into();
@@ -22226,7 +22705,9 @@ seiyaku Callee { permission AssetOps;
             ),
         )
         .into();
-        let confidential_gas_delta = crate::gas::confidential_gas_cost(&instruction);
+        let confidential_gas_delta =
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote");
         assert!(confidential_gas_delta > 0);
         let artifacts = HostExecutionArtifacts {
             queued: vec![QueuedEffect {
@@ -22266,8 +22747,9 @@ seiyaku Callee { permission AssetOps;
             .finish_execution_effect_budget()
             .expect("close artifact test root");
 
-        assert_eq!(transaction.zk_confidential_ops_in_tx, 1);
-        assert_eq!(transaction.zk_verify_calls_in_tx, 1);
+        // Missing-key rejection precedes completed verification registration.
+        assert_eq!(transaction.zk_confidential_ops_in_tx, 0);
+        assert_eq!(transaction.zk_verify_calls_in_tx, 0);
         assert_eq!(
             transaction.confidential_gas_used_in_tx, confidential_gas_delta,
             "host-artifact gas must be retained before queued execution can reject"
@@ -22275,7 +22757,9 @@ seiyaku Callee { permission AssetOps;
         drop(transaction);
 
         let mut mutable_host = CoreHost::new(authority.clone());
-        mutable_host.queue_instruction(instruction);
+        mutable_host.queue_instruction(instruction).expect(
+            "completed fixture quote must enqueue before execution rejects the missing key",
+        );
         let mut mutable_host_transaction = block.transaction();
         bind_artifact_test_signed_root(&mut mutable_host_transaction, &authority);
         let error = mutable_host
@@ -22292,8 +22776,8 @@ seiyaku Callee { permission AssetOps;
         mutable_host_transaction
             .finish_execution_effect_budget()
             .expect("close artifact test root");
-        assert_eq!(mutable_host_transaction.zk_confidential_ops_in_tx, 1);
-        assert_eq!(mutable_host_transaction.zk_verify_calls_in_tx, 1);
+        assert_eq!(mutable_host_transaction.zk_confidential_ops_in_tx, 0);
+        assert_eq!(mutable_host_transaction.zk_verify_calls_in_tx, 0);
         assert_eq!(
             mutable_host_transaction.confidential_gas_used_in_tx, confidential_gas_delta,
             "mutable-host gas must be retained before queued execution can reject"
@@ -22390,11 +22874,11 @@ seiyaku Callee { permission AssetOps;
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku DurableOwner {
   view fn inspect() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             411,
         );
         let identity = crate::smartcontracts::code::fetch_bound_contract_identity(
@@ -22496,8 +22980,9 @@ seiyaku DurableOwner {
         let desc_ptr = store_tlv(vm, PointerType::AxtDescriptor, &descriptor_bytes);
         vm.set_register(10, desc_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_AXT_BEGIN, vm),
-            Ok(CoreHost::axt_gas(descriptor_bytes.len())),
+            (host.syscall(ivm_sys::SYSCALL_AXT_BEGIN, vm))
+                .expect("expected successful fixture result"),
+            CoreHost::axt_gas(descriptor_bytes.len()),
             "AXT_BEGIN should seed envelope state"
         );
     }
@@ -23338,8 +23823,9 @@ seiyaku DurableOwner {
         vm.load_program(&program)
             .expect("load typed bytes contract");
         assert_eq!(
-            host.prepare_syscall(ivm::syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS, &vm),
-            Ok(CoreHost::sysvar_gas(contract_address.as_str().len()))
+            (host.prepare_syscall(ivm::syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS, &vm))
+                .expect("expected successful fixture result"),
+            CoreHost::sysvar_gas(contract_address.as_str().len())
         );
         vm.set_register(1, vm.memory.code_len());
         vm.set_program_counter(entry_pc("capture"))
@@ -23373,7 +23859,7 @@ seiyaku DurableOwner {
         read_vm
             .run_with_host(&mut host)
             .expect("read canonical durable contract address bytes");
-        assert_eq!(read_vm.call_result_word_count(), Ok(1));
+        assert!(matches!(read_vm.call_result_word_count(), Ok(1)));
         let returned_pointer = read_vm
             .public_call_result_word(0)
             .expect("completed public result owns one pointer word");
@@ -23489,7 +23975,7 @@ seiyaku DurableOwner {
             .find_map(|(path, value)| {
                 path.as_ref()
                     .contains("BytesMap/")
-                    .then(|| value.as_ref())
+                    .then_some(value.as_ref())
                     .flatten()
             })
             .expect("compiler-emitted bytes record")
@@ -23502,18 +23988,20 @@ seiyaku DurableOwner {
         let wrong_value_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &bytes_record);
         vm.set_register(10, wrong_path_ptr);
         vm.set_register(11, wrong_value_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Err(ivm::VMError::DecodeError),
+        assert!(
+            matches!(
+                host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
+                Err(ivm::VMError::DecodeError)
+            ),
             "a record for bytes must not be staged under an int declaration"
         );
         let malformed_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, b"not a state record");
         vm.set_register(10, wrong_path_ptr);
         vm.set_register(11, malformed_ptr);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
             Err(ivm::VMError::DecodeError)
-        );
+        ));
         assert_eq!(host.durable_state_overlay, before_overlay);
         assert_eq!(host.state_access_log.read_keys, before_reads);
         assert_eq!(host.state_access_log.write_keys, before_writes);
@@ -23573,7 +24061,7 @@ seiyaku DurableOwner {
         )
         .expect("store authenticated ledger-time fixture block");
         state.append_committed_block_header_for_tests(authenticated_block.header());
-        let source = r#"
+        let source = r"
             seiyaku ValidationFeeConversionReader {
                 state StateMap<int, quantity> ValidationFeeConversion;
                 view fn main() authorize(anyone) -> quantity {
@@ -23581,7 +24069,7 @@ seiyaku DurableOwner {
                     return ValidationFeeConversion.get(0).unwrap_or(zero);
                 }
             }
-        "#;
+        ";
         let (code, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile validation-fee credit reader");
@@ -23607,7 +24095,7 @@ seiyaku DurableOwner {
             .set_program_counter(main_entry_pc)
             .expect("select credit-reader main entrypoint");
         contract_vm.run().expect("read native consensus credit");
-        assert_eq!(contract_vm.call_result_word_count(), Ok(1));
+        assert!(matches!(contract_vm.call_result_word_count(), Ok(1)));
         let returned_pointer = contract_vm
             .public_call_result_word(0)
             .expect("completed public result owns one pointer word");
@@ -23672,8 +24160,9 @@ seiyaku DurableOwner {
         vm.set_register(10, encoded_ptr);
         vm.set_register(11, u64::from(PointerType::Int as u16));
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(16 + envelope.len() as u64)
+            (host.syscall(ivm_sys::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            16 + envelope.len() as u64
         );
         let restored = vm
             .memory
@@ -23681,11 +24170,12 @@ seiyaku DurableOwner {
             .expect("restored Int");
         assert_eq!(restored.type_id, PointerType::Int);
         assert_eq!(
-            ivm::numeric_tlv::decode_int_bytes(&make_tlv(
+            (ivm::numeric_tlv::decode_int_bytes(&make_tlv(
                 PointerType::Int as u16,
                 restored.payload
-            )),
-            Ok(value)
+            )))
+            .expect("expected successful fixture result"),
+            value
         );
     }
     #[test]
@@ -23761,10 +24251,12 @@ seiyaku DurableOwner {
             vm.set_register(10, token_json_ptr);
             vm.set_register(11, key_ptr);
             // A present JSON number token is malformed input, never an absent field.
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(ivm::VMError::DecodeError),
-                "{key} must reject a JSON number token",
+            assert!(
+                matches!(
+                    host.syscall(syscall, &mut vm),
+                    Err(ivm::VMError::DecodeError)
+                ),
+                "{key} must reject a JSON number token"
             );
         }
     }
@@ -23780,13 +24272,11 @@ seiyaku DurableOwner {
             let gas_before = vm.remaining_gas();
             let queued_before = host.queued.len();
             let overlay_before = host.durable_state_overlay.len();
-            assert_eq!(
-                host.prepare_syscall(number, &vm),
-                Err(ivm::VMError::UnknownSyscall(number))
+            assert!(
+                matches!(host.prepare_syscall(number, &vm), Err(ivm::VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
             );
-            assert_eq!(
-                host.syscall(number, &mut vm),
-                Err(ivm::VMError::UnknownSyscall(number))
+            assert!(
+                matches!(host.syscall(number, &mut vm), Err(ivm::VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
             );
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
             assert_eq!(
@@ -23831,8 +24321,9 @@ seiyaku DurableOwner {
         host.begin_tx(&ivm::parallel::StateAccessSet::default())
             .expect("begin_tx should reset access log");
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(&path, value_bytes.len())),
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(&path, value_bytes.len()),
             "STATE_SET should succeed when access logging is enabled"
         );
         vm.set_register(10, path_ptr);
@@ -23873,8 +24364,9 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(&path, value_bytes.len())),
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(&path, value_bytes.len()),
             "STATE_GET should read from the world snapshot"
         );
         let out_ptr = vm.register(10);
@@ -23907,8 +24399,9 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(&path, value_bytes.len())),
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(&path, value_bytes.len()),
             "STATE_GET should read from live query state without cloning the durable map"
         );
         assert!(
@@ -24035,15 +24528,17 @@ seiyaku DurableOwner {
         let target_ptr = store_state_path_tlv(&mut vm, &target);
         vm.set_register(10, target_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_HAS, &mut vm),
-            Ok(test_state_path_gas(&target))
+            (host.syscall(ivm_sys::SYSCALL_STATE_HAS, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&target)
         );
         assert_eq!(vm.register(10), 1);
         assert!(host.durable_state_base.is_empty());
         vm.set_register(10, target_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_LEN, &mut vm),
-            Ok(test_state_path_gas(&target))
+            (host.syscall(ivm_sys::SYSCALL_STATE_LEN, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&target)
         );
         assert_eq!(
             vm.register(10),
@@ -24075,7 +24570,7 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         let code = [ivm::encoding::wide::encode_sys(
             ivm::instruction::wide::system::SCALL,
-            ivm_sys::SYSCALL_STATE_GET as u8,
+            u8::try_from(ivm_sys::SYSCALL_STATE_GET).expect("fixture value fits u8"),
         )
         .to_le_bytes()]
         .concat();
@@ -24095,7 +24590,7 @@ seiyaku DurableOwner {
         let error = vm
             .run_with_host(&mut host)
             .expect_err("world-state response cost exceeds the syscall reserve");
-        assert_eq!(error, ivm::VMError::OutOfGas);
+        assert!(matches!(error, ivm::VMError::OutOfGas));
         assert_eq!(
             vm.remaining_gas(),
             15,
@@ -24128,13 +24623,14 @@ seiyaku DurableOwner {
         while vm.alloc_input_tlv(&filler).is_ok() {}
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&expected)
                     .expect("encode state value")
                     .len()
-            )),
+            ),
             "STATE_GET should spill to heap when input space is exhausted"
         );
         let out_ptr = vm.register(10);
@@ -24222,25 +24718,27 @@ seiyaku DurableOwner {
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&expected)
                     .expect("encode state value")
                     .len()
-            ))
+            )
         );
         let filler = make_tlv(PointerType::Blob as u16, b"");
         while vm.alloc_input_tlv(&filler).is_ok() {}
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&expected)
                     .expect("encode state value")
                     .len()
-            )),
+            ),
             "scoped overlay STATE_GET should spill to heap when input space is exhausted"
         );
         let out_ptr = vm.register(10);
@@ -24301,13 +24799,14 @@ seiyaku DurableOwner {
         while vm.alloc_input_tlv(&filler).is_ok() {}
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&11_u64)
                     .expect("encode scoped state value")
                     .len()
-            )),
+            ),
             "STATE_GET must resolve only the scoped persisted value"
         );
         let out_ptr = vm.register(10);
@@ -24371,8 +24870,9 @@ seiyaku DurableOwner {
         let unscoped_ptr = store_state_path_tlv(&mut vm, &unscoped_key);
         vm.set_register(10, unscoped_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm),
-            Ok(test_state_path_gas(&unscoped_key))
+            (host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&unscoped_key)
         );
         let prefix: StatePath = "orders".parse().unwrap();
         let prefix_ptr = store_state_path_tlv(&mut vm, &prefix);
@@ -24381,21 +24881,24 @@ seiyaku DurableOwner {
             .expect("measure scoped state count");
         vm.set_register(10, prefix_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_COUNT, &mut vm),
-            Ok(ivm::host::STATE_QUERY_GAS_BASE.saturating_add(count_scan_work_gas))
+            (host.syscall(ivm_sys::SYSCALL_STATE_COUNT, &mut vm))
+                .expect("expected successful fixture result"),
+            ivm::host::STATE_QUERY_GAS_BASE.saturating_add(count_scan_work_gas)
         );
         assert_eq!(vm.register(10), 1);
         let scoped_ptr = store_state_path_tlv(&mut vm, &scoped_key);
         vm.set_register(10, scoped_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_HAS, &mut vm),
-            Ok(test_state_path_gas(&scoped_key))
+            (host.syscall(ivm_sys::SYSCALL_STATE_HAS, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&scoped_key)
         );
         assert_eq!(vm.register(10), 1);
         vm.set_register(10, scoped_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_LEN, &mut vm),
-            Ok(test_state_path_gas(&scoped_key))
+            (host.syscall(ivm_sys::SYSCALL_STATE_LEN, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&scoped_key)
         );
         assert_eq!(
             vm.register(10),
@@ -24460,23 +24963,25 @@ seiyaku DurableOwner {
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&22_u64)
                     .expect("encode overlay state value")
                     .len()
-            ))
+            )
         );
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&22_u64)
                     .expect("encode overlay state value")
                     .len()
-            )),
+            ),
             "scoped overlay should win over scoped persisted state"
         );
         let tlv = vm
@@ -24545,13 +25050,15 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm),
-            Ok(test_state_path_gas(&path))
+            (host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&path)
         );
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_path_gas(&path)),
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&path),
             "scoped tombstone should hide the scoped base value"
         );
         assert_eq!(vm.register(10), 0);
@@ -24593,13 +25100,14 @@ seiyaku DurableOwner {
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_a_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&11_u64)
                     .expect("encode state value A")
                     .len()
-            ))
+            )
         );
         let contract_b = ContractAddress::derive(
             &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
@@ -24616,21 +25124,22 @@ seiyaku DurableOwner {
             contract_alias: Some("fixture::shared".parse().expect("contract alias B")),
             entrypoint: "write".to_owned(),
         }));
-        let value_b_ptr = store_tlv(
+        let alternate_value_pointer = store_tlv(
             &mut vm,
             PointerType::NoritoBytes,
             &norito::to_bytes(&22_u64).expect("encode state value B"),
         );
         vm.set_register(10, path_ptr);
-        vm.set_register(11, value_b_ptr);
+        vm.set_register(11, alternate_value_pointer);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&22_u64)
                     .expect("encode state value B")
                     .len()
-            ))
+            )
         );
         host.set_contract_runtime_context(Some(ContractRuntimeExecutionContext {
             contract_subject: contract_a.subject_id(),
@@ -24640,13 +25149,14 @@ seiyaku DurableOwner {
         }));
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&11_u64)
                     .expect("encode state value A")
                     .len()
-            ))
+            )
         );
         let value_a_tlv = vm
             .memory
@@ -24663,20 +25173,21 @@ seiyaku DurableOwner {
         }));
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_value_gas(
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(
                 &path,
                 norito::to_bytes(&22_u64)
                     .expect("encode state value B")
                     .len()
-            ))
+            )
         );
-        let value_b_tlv = vm
+        let alternate_value_tlv = vm
             .memory
             .validate_tlv(vm.register(10))
             .expect("state get tlv B");
         let value_b: u64 =
-            norito::decode_from_bytes(value_b_tlv.payload).expect("decode state value B");
+            norito::decode_from_bytes(alternate_value_tlv.payload).expect("decode state value B");
         assert_eq!(value_b, 22);
     }
     #[test]
@@ -24714,8 +25225,9 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         vm.set_register(10, path_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Ok(test_state_path_gas(&path))
+            (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_path_gas(&path)
         );
         assert_eq!(
             vm.register(10),
@@ -24858,10 +25370,10 @@ seiyaku DurableOwner {
         let payload = norito::to_bytes(&request).expect("encode request");
         let request_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
         vm.set_register(10, request_ptr);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(ivm_sys::SYSCALL_ZK_VOTE_GET_TALLY, &mut vm),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             vm.register(10),
             request_ptr,
@@ -24877,10 +25389,10 @@ seiyaku DurableOwner {
             .expect("two-option election is valid");
         let mut invalid_selector = BTreeMap::new();
         invalid_selector.insert("invalid/election".to_owned(), (2, false, vec![0, 0]));
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_elections_snapshot(invalid_selector),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         assert!(
             host.zk_elections.contains_key("valid"),
             "a noncanonical snapshot key must not replace the prior snapshot"
@@ -24895,10 +25407,10 @@ seiyaku DurableOwner {
         ] {
             let mut invalid = BTreeMap::new();
             invalid.insert(id.to_string(), (options, false, tally));
-            assert_eq!(
+            assert!(matches!(
                 host.set_zk_elections_snapshot(invalid),
                 Err(ivm::VMError::NoritoInvalid)
-            );
+            ));
             assert!(
                 host.zk_elections.contains_key("valid"),
                 "failed replacement must preserve the prior snapshot"
@@ -24915,11 +25427,13 @@ seiyaku DurableOwner {
             .expect("bounded response");
         assert!(response.finalized);
         assert_eq!(response.tally.len(), 64);
-        assert_eq!(
-            host.vote_get_tally_response(&ivm::zk_verify::VoteGetTallyRequest {
-                election_id: ".maximum".to_owned(),
-            }),
-            Err(ivm::VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.vote_get_tally_response(&ivm::zk_verify::VoteGetTallyRequest {
+                    election_id: ".maximum".to_owned(),
+                }),
+                Err(ivm::VMError::NoritoInvalid)
+            ),
             "noncanonical requests must fail before lookup or response construction"
         );
         for (id, options, tally) in [
@@ -24933,12 +25447,12 @@ seiyaku DurableOwner {
             let tally_len = tally.len();
             host.zk_elections
                 .insert(id.to_string(), (options, false, tally));
-            assert_eq!(
+            assert!(matches!(
                 host.vote_get_tally_response(&ivm::zk_verify::VoteGetTallyRequest {
                     election_id: id.to_string(),
                 }),
                 Err(ivm::VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(
                 host.zk_elections
                     .get(id)
@@ -25012,10 +25526,10 @@ seiyaku DurableOwner {
         // A hostile WorldReadOnly view still exercises the host's atomic replacement
         // boundary. A durable State must refuse this world before hydration starts.
         let zk_cfg = crate::state::default_zk_config();
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_snapshots_from_world(&world.view(), &zk_cfg),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(host.zk_roots, roots_before);
         assert_eq!(host.zk_elections, elections_before);
         assert_eq!(host.verifying_keys, verifying_keys_before);
@@ -25076,13 +25590,13 @@ seiyaku DurableOwner {
                 );
                 assert!(!host.zk_elections.contains_key("prior"));
             } else {
-                assert_eq!(
+                assert!(matches!(
                     host.set_zk_snapshots_from_world(
                         &world.view(),
                         &crate::state::default_zk_config(),
                     ),
                     Err(ivm::VMError::NoritoInvalid)
-                );
+                ));
                 assert_eq!(
                     host.zk_elections.get("prior").cloned(),
                     Some((2, true, vec![9, 0]))
@@ -25120,10 +25634,10 @@ seiyaku DurableOwner {
         prior.insert("prior".to_owned(), (2, true, vec![9, 0]));
         host.set_zk_elections_snapshot(prior)
             .expect("seed prior snapshot");
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_snapshots_from_world(&world.view(), &crate::state::default_zk_config(),),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             host.zk_elections.get("prior").cloned(),
             Some((2, true, vec![9, 0])),
@@ -25151,10 +25665,14 @@ seiyaku DurableOwner {
     fn from_state_hydrates_zk_snapshots() {
         let mut world = World::new();
         let mut parameters = world.parameters.block();
-        parameters.get_mut().smart_contract.max_output_items =
+        let mut original = (**parameters.get()).clone();
+        original.smart_contract.max_output_items =
             NonZeroU64::new(23).expect("non-zero item limit");
-        parameters.get_mut().smart_contract.max_output_bytes =
+        original.smart_contract.max_output_bytes =
             NonZeroU64::new(65_536).expect("non-zero byte limit");
+        parameters
+            .replace(original)
+            .expect("valid fixture parameters");
         parameters.commit();
         let asset_def_id: AssetDefinitionId =
             iroha_data_model::asset::AssetDefinitionId::derive_from_components(
@@ -25170,10 +25688,12 @@ seiyaku DurableOwner {
             .expect("canonical confidential tree roots");
         let expected_roots = zk_state.root_history.clone();
         world.zk_assets.insert(asset_def_id.clone(), zk_state);
-        let mut election = ElectionState::default();
-        election.options = 2;
-        election.finalized = true;
-        election.tally = vec![1, 2];
+        let election = ElectionState {
+            options: 2,
+            finalized: true,
+            tally: vec![1, 2],
+            ..Default::default()
+        };
         world.elections.insert("election-1".to_string(), election);
         let backend = "pipa-r/pasta";
         let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
@@ -25284,16 +25804,16 @@ seiyaku DurableOwner {
         let mut drifted = ZkAssetState::default();
         drifted.commitments.push([0x25; 32]);
         drifted.root_history.push([0x66; 32]);
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_roots_snapshot(BTreeMap::from([(asset.clone(), drifted)])),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         let mut missing_current_root = ZkAssetState::default();
         missing_current_root.commitments.push([0x25; 32]);
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_roots_snapshot(BTreeMap::from([(asset.clone(), missing_current_root)])),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         let mut drifted_checkpoint = ZkAssetState::default();
         drifted_checkpoint
             .frontier_checkpoints
@@ -25302,10 +25822,10 @@ seiyaku DurableOwner {
                 commitment_count: 0,
                 root: [0x66; 32],
             });
-        assert_eq!(
+        assert!(matches!(
             host.set_zk_roots_snapshot(BTreeMap::from([(asset.clone(), drifted_checkpoint)])),
             Err(ivm::VMError::NoritoInvalid)
-        );
+        ));
         let retained = host
             .roots_get_response(&ivm::zk_verify::RootsGetRequest {
                 asset_id: asset.to_string(),
@@ -25395,8 +25915,9 @@ seiyaku DurableOwner {
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Ok(test_state_value_gas(&path, value_bytes.len())),
+            (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            test_state_value_gas(&path, value_bytes.len()),
             "STATE_SET should stage the overlay"
         );
         // Exercise the durable-state flush primitive directly. Local-debug
@@ -25702,14 +26223,14 @@ seiyaku DurableOwner {
         };
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku PreparedBoundaryArguments {
   view fn invoke(bytes small, bytes payload) authorize(anyone) -> bytes {
     let _small = small;
     return payload;
   }
 }
-"#,
+",
             )
             .expect("compile bytes-parameter contract");
         let metadata = ivm::ProgramMetadata::parse(&program).expect("parse contract metadata");
@@ -25829,10 +26350,10 @@ seiyaku PreparedBoundaryArguments {
         prepared
             .precharge_vm(&mut constrained_vm)
             .expect("precharge constrained prepared arguments");
-        assert_eq!(
+        assert!(matches!(
             constrained_vm.run_with_host(&mut constrained_host),
             Err(VMError::OutOfMemory)
-        );
+        ));
         assert_eq!(ivm::argument_record_decode_count(), 1);
         assert!(constrained_vm.call_result_word_count().is_err());
         assert_eq!(
@@ -25860,8 +26381,9 @@ seiyaku PreparedBoundaryArguments {
         let name_ptr = store_tlv(&mut vm, PointerType::Name, &norito_blob(&name));
         vm.set_register(10, name_ptr);
         assert_eq!(
-            host.prepare_syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &vm),
-            Ok(vm.remaining_gas())
+            (host.prepare_syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &vm))
+                .expect("expected successful fixture result"),
+            vm.remaining_gas()
         );
         let err = host
             .syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &mut vm)
@@ -25895,7 +26417,7 @@ seiyaku PreparedBoundaryArguments {
         let error = vm
             .run_with_host(&mut host)
             .expect_err("public input response exceeds the syscall reserve");
-        assert_eq!(error, ivm::VMError::OutOfGas);
+        assert!(matches!(error, ivm::VMError::OutOfGas));
         assert_eq!(vm.remaining_gas(), 0);
         assert_eq!(vm.register(10), name_ptr, "must not allocate guest output");
         assert_eq!(vm.register(11), 0xfeed, "must not mutate output registers");
@@ -25930,7 +26452,10 @@ mod native_pipa_r_admission_tests {
             proof_bytes: vec![1, 2],
             aux: Vec::new(),
         };
-        assert_eq!(host.validate_envelope_header(&envelope, 100), Ok(()));
+        assert!(matches!(
+            host.validate_envelope_header(&envelope, 100),
+            Ok(())
+        ));
         assert_eq!(
             host.validate_envelope_header(&envelope, 101),
             Err(ivm::host::ERR_ENVELOPE_SIZE)
@@ -25943,10 +26468,10 @@ mod native_pipa_r_admission_tests {
             [1; 32],
             [2; 32],
         );
-        assert_eq!(
+        assert!(matches!(
             host.validate_proof_len(&record, "pipa-r/pasta", &envelope),
             Ok(())
-        );
+        ));
         envelope.proof_bytes.push(3);
         assert_eq!(
             host.validate_proof_len(&record, "pipa-r/pasta", &envelope),

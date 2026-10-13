@@ -51,6 +51,12 @@ impl ParliamentAttemptStateV1 {
             expected_release_height,
             opening_deadline_height,
         ) = timed_ballot_schedule(registered_at_height, timed_ovn_policy)?;
+        // The frozen release slot creates no consensus obligation: consensus produces only
+        // its native boundary pulses. The ballot opens only if a native pulse happens to be
+        // committed at exactly `release_height`; otherwise it ends
+        // `ReleasePulseUnavailable` through `fail_ballot_no_result`, governance-locally.
+        // TODO: retire with the timed-OVN ballot path
+        // (specs/parliament_private_ballot_design.md 12.2 step 4).
         if release_height != expected_release_height {
             return Err(ParliamentReducerErrorV1::InvalidBallotSchedule);
         }

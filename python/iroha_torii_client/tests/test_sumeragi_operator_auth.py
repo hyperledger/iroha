@@ -43,22 +43,25 @@ def _sumeragi_native_evidence_record(
 ) -> Dict[str, Any]:
     return {
         "kind": "NativeSumeragiEvidence",
-        "class": "phase_vote",
-        "height": 31,
-        "epoch": 2,
-        "context_id": "11" * 32,
-        "instance": "22" * 32,
-        "authority_generation": "33" * 32,
-        "offenders": [{"signer": 3, "peer_id": "ea0130" + "22" * 48}],
-        "safety_violation": False,
-        "native_frame_hash": "44" * 32,
-        "recorded_height": 40,
-        "recorded_view": 2,
-        "recorded_ms": 1_700_000_000_000,
-        "consensus_admitted_height": 41,
-        "penalty_status": penalty_status
-        if penalty_status is not None
-        else {"status": "pending", "details": None},
+        "value": {
+            "scope": {"kind": "root", "value": None},
+            "class": "phase_vote",
+            "height": 31,
+            "epoch": 2,
+            "context_id": "11" * 32,
+            "instance": "22" * 32,
+            "authority_generation": "33" * 32,
+            "offenders": [{"signer": 3, "peer_id": "ea0130" + "22" * 48}],
+            "safety_violation": False,
+            "native_frame_hash": "44" * 32,
+            "recorded_height": 40,
+            "recorded_view": 2,
+            "recorded_ms": 1_700_000_000_000,
+            "consensus_admitted_height": 41,
+            "penalty_status": penalty_status
+            if penalty_status is not None
+            else {"status": "pending", "details": None},
+        },
     }
 
 
@@ -131,24 +134,24 @@ def test_list_sumeragi_evidence_signs_canonical_query_and_parses_records() -> No
     assert len(page.items) == 3
     equivocation = page.items[0]
     assert isinstance(equivocation, client_module.SumeragiEvidenceRecord)
-    assert equivocation.class_ == "phase_vote"
-    assert equivocation.offenders[0].signer == 3
-    assert equivocation.context_id == "11" * 32
-    assert equivocation.consensus_admitted_height == 41
+    assert equivocation.value.class_ == "phase_vote"
+    assert equivocation.value.offenders[0].signer == 3
+    assert equivocation.value.context_id == "11" * 32
+    assert equivocation.value.consensus_admitted_height == 41
     assert isinstance(
-        equivocation.penalty_status,
+        equivocation.value.penalty_status,
         client_module.SumeragiEvidencePendingPenaltyStatus,
     )
     assert isinstance(
-        page.items[1].penalty_status,
+        page.items[1].value.penalty_status,
         client_module.SumeragiEvidenceAppliedPenaltyStatus,
     )
-    assert page.items[1].penalty_status.details.height == 42
+    assert page.items[1].value.penalty_status.details.height == 42
     assert isinstance(
-        page.items[2].penalty_status,
+        page.items[2].value.penalty_status,
         client_module.SumeragiEvidenceAppliedPenaltyStatus,
     )
-    assert page.items[2].penalty_status.details.height == 43
+    assert page.items[2].value.penalty_status.details.height == 43
     call = session.calls[0]
     assert call["url"].endswith(
         "/v1/sumeragi/evidence?kind=NativeSumeragiEvidence&limit=5&offset=1"
@@ -229,7 +232,7 @@ def test_sumeragi_evidence_reads_enforce_strict_bounded_json(
 
 def test_evidence_preserves_unattributed_certificate_safety_violation() -> None:
     record = _sumeragi_native_evidence_record()
-    record.update({
+    record["value"].update({
         "class": "conflicting_certificates", "safety_violation": True, "offenders": [],
     })
     session = RecordingSession()
@@ -238,10 +241,10 @@ def test_evidence_preserves_unattributed_certificate_safety_violation() -> None:
         "http://node.test", session=session, operator_signing_context=_operator_context()
     )
     parsed = client.list_sumeragi_evidence().items[0]
-    assert parsed.class_ == "conflicting_certificates"
-    assert parsed.safety_violation is True
-    assert parsed.offenders == ()
-    assert parsed.native_frame_hash == record["native_frame_hash"]
+    assert parsed.value.class_ == "conflicting_certificates"
+    assert parsed.value.safety_violation is True
+    assert parsed.value.offenders == ()
+    assert parsed.value.native_frame_hash == record["value"]["native_frame_hash"]
 
 
 @pytest.mark.parametrize("evidence_class,safety_violation", [
@@ -252,7 +255,7 @@ def test_empty_offenders_require_exact_certificate_safety_violation(
     evidence_class: str, safety_violation: Any,
 ) -> None:
     record = _sumeragi_native_evidence_record()
-    record.update({
+    record["value"].update({
         "class": evidence_class, "safety_violation": safety_violation, "offenders": [],
     })
     session = RecordingSession()

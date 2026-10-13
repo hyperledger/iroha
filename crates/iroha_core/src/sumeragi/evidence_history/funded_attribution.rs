@@ -174,7 +174,9 @@ impl FundedEvidenceAttribution {
         unsafe {
             self.0.map_payload(|attribution| {
                 crate::sumeragi::evidence::record::EvidenceRecordBodyFields {
-                    evidence,
+                    evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                        evidence,
+                    ),
                     attribution,
                 }
             })

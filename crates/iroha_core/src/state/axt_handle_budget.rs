@@ -23,7 +23,7 @@ pub(crate) enum AxtSpendReplayReservationErrorV1 {
 }
 
 #[allow(single_use_lifetimes)]
-impl<'block, 'world> WorldTransaction<'block, 'world> {
+impl WorldTransaction<'_, '_> {
     /// Reserve one issuer nonce and one physical source transfer in the same transaction.
     ///
     /// The caller must first verify finalized State, successful source execution,
@@ -124,8 +124,7 @@ pub(crate) fn axt_counter_after_block_boundary(
                 .filter(|policy| axt_policy_is_active(policy))
                 .map(|_| AxtHandleCounterRecord::initial(minimum_generation))
         });
-    let revokes_authority = previous_was_active
-        || (counter_before_block.is_some() && !previous_was_active && next_is_active);
+    let revokes_authority = previous_was_active || counter_before_block.is_some() && next_is_active;
     let raises_generation_floor = counter
         .as_ref()
         .is_some_and(|counter| minimum_generation > counter.authorization_generation());

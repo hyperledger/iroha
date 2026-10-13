@@ -77,7 +77,11 @@ pub fn start_chain(
         // limits, so the initial World supplies them.
         let mut block = world.block();
         for parameter in world_parameters() {
-            block.parameters.get_mut().set_parameter(parameter);
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(parameter)
+                .expect("valid fixture parameters");
         }
         block.commit();
     }
@@ -393,9 +397,6 @@ pub fn generate_ids(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
-    use mv::storage::StorageReadOnly as _;
 
     #[test]
     fn start_chain_applies_the_benchmark_genesis() {

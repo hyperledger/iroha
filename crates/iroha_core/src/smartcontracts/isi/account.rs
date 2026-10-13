@@ -1178,7 +1178,7 @@ pub mod query {
     #[cfg(test)]
     use iroha_model_base::metadata::Metadata;
     use norito::json::Value;
-    use std::{collections::BTreeSet, sync::Arc};
+    use std::collections::BTreeSet;
     fn account_from_entry(
         _world: &impl WorldReadOnly,
         account_id: &AccountId,
@@ -1390,16 +1390,24 @@ pub mod query {
             norito::codec::Encode::encode(&record),
         );
     }
+    enum AccountAliasValue {
+        Unsupported,
+        Resolved(Option<String>),
+    }
     fn account_alias_value(
         account_id: &AccountId,
         account_value: &AccountValue,
         field: &str,
-    ) -> Option<Option<String>> {
+    ) -> AccountAliasValue {
         let details = account_value.as_ref();
         match field {
-            "id" | "account" | "account_id" => Some(Some(account_id.to_string())),
-            "uaid" | "universal_account_id" => Some(details.uaid().map(ToString::to_string)),
-            _ => None,
+            "id" | "account" | "account_id" => {
+                AccountAliasValue::Resolved(Some(account_id.to_string()))
+            }
+            "uaid" | "universal_account_id" => {
+                AccountAliasValue::Resolved(details.uaid().map(ToString::to_string))
+            }
+            _ => AccountAliasValue::Unsupported,
         }
     }
     fn account_field_is_id(field: &str) -> bool {
@@ -1438,9 +1446,7 @@ pub mod query {
     ///
     /// Returns `None` when the predicate does not constrain id/account fields.
     /// Returns `Some(empty-set)` when id/account constraints are unsatisfiable.
-    fn account_predicate_candidate_ids(
-        predicate: &PredicateJson,
-    ) -> Option<Arc<BTreeSet<AccountId>>> {
+    fn account_predicate_candidate_ids(predicate: &PredicateJson) -> Option<BTreeSet<AccountId>> {
         let mut candidates: Option<BTreeSet<AccountId>> = None;
         for cond in &predicate.equals {
             if !account_field_is_id(&cond.field) {
@@ -1462,12 +1468,12 @@ pub mod query {
                 .collect::<BTreeSet<_>>();
             intersect_account_id_candidates(&mut candidates, next);
         }
-        candidates.map(Arc::new)
+        candidates
     }
     fn account_predicate_candidate_domain_ids(
         world: &impl WorldReadOnly,
         predicate: &PredicateJson,
-    ) -> Option<Arc<BTreeSet<AccountId>>> {
+    ) -> Option<BTreeSet<AccountId>> {
         let mut candidates: Option<BTreeSet<AccountId>> = None;
         for cond in &predicate.equals {
             if !account_field_is_domain(&cond.field) {
@@ -1491,19 +1497,18 @@ pub mod query {
                 .collect::<BTreeSet<_>>();
             intersect_account_id_candidates(&mut candidates, next);
         }
-        candidates.map(Arc::new)
+        candidates
     }
     fn merge_account_candidate_sets(
-        ids: Option<Arc<BTreeSet<AccountId>>>,
-        domains: Option<Arc<BTreeSet<AccountId>>>,
-    ) -> Option<Arc<BTreeSet<AccountId>>> {
+        ids: Option<BTreeSet<AccountId>>,
+        domains: Option<BTreeSet<AccountId>>,
+    ) -> Option<BTreeSet<AccountId>> {
         match (ids, domains) {
-            (Some(ids), Some(domains)) => Some(Arc::new(
-                ids.iter()
-                    .filter(|account_id| domains.contains(*account_id))
-                    .cloned()
+            (Some(ids), Some(domains)) => Some(
+                ids.into_iter()
+                    .filter(|account_id| domains.contains(account_id))
                     .collect(),
-            )),
+            ),
             (Some(ids), None) => Some(ids),
             (None, Some(domains)) => Some(domains),
             (None, None) => None,
@@ -1520,7 +1525,7 @@ pub mod query {
     }
     enum AccountSimpleIdPath {
         One(AccountId),
-        Set(Arc<BTreeSet<AccountId>>),
+        Set(BTreeSet<AccountId>),
     }
     fn account_predicate_simple_id_path(predicate: &PredicateJson) -> Option<AccountSimpleIdPath> {
         if !predicate.exists.is_empty() {
@@ -1543,7 +1548,7 @@ pub mod query {
                 .iter()
                 .map(parse_account_id_value)
                 .collect::<Option<BTreeSet<_>>>()?;
-            return Some(AccountSimpleIdPath::Set(Arc::new(ids)));
+            return Some(AccountSimpleIdPath::Set(ids));
         }
         None
     }
@@ -1583,13 +1588,13 @@ pub mod query {
         let mut remaining = PredicateJson::default();
         for cond in &predicate.equals {
             match account_alias_value(account_id, account_value, &cond.field) {
-                Some(Some(alias)) => {
+                AccountAliasValue::Resolved(Some(alias)) => {
                     if !predicate_value_equals_str(&cond.value, &alias) {
                         return AccountPredicateMatch::Mismatched;
                     }
                 }
-                Some(None) => return AccountPredicateMatch::Mismatched,
-                None if account_field_is_domain(&cond.field) => {
+                AccountAliasValue::Resolved(None) => return AccountPredicateMatch::Mismatched,
+                AccountAliasValue::Unsupported if account_field_is_domain(&cond.field) => {
                     let Some(domain) = parse_account_domain_value(&cond.value) else {
                         return AccountPredicateMatch::Mismatched;
                     };
@@ -1597,18 +1602,18 @@ pub mod query {
                         return AccountPredicateMatch::Mismatched;
                     }
                 }
-                None => remaining.equals.push(cond.clone()),
+                AccountAliasValue::Unsupported => remaining.equals.push(cond.clone()),
             }
         }
         for cond in &predicate.r#in {
             match account_alias_value(account_id, account_value, &cond.field) {
-                Some(Some(alias)) => {
+                AccountAliasValue::Resolved(Some(alias)) => {
                     if !predicate_values_contain_str(&cond.values, &alias) {
                         return AccountPredicateMatch::Mismatched;
                     }
                 }
-                Some(None) => return AccountPredicateMatch::Mismatched,
-                None if account_field_is_domain(&cond.field) => {
+                AccountAliasValue::Resolved(None) => return AccountPredicateMatch::Mismatched,
+                AccountAliasValue::Unsupported if account_field_is_domain(&cond.field) => {
                     if !cond
                         .values
                         .iter()
@@ -1618,14 +1623,14 @@ pub mod query {
                         return AccountPredicateMatch::Mismatched;
                     }
                 }
-                None => remaining.r#in.push(cond.clone()),
+                AccountAliasValue::Unsupported => remaining.r#in.push(cond.clone()),
             }
         }
         for field in &predicate.exists {
             match account_alias_value(account_id, account_value, field) {
-                Some(Some(_)) => {}
-                Some(None) => return AccountPredicateMatch::Mismatched,
-                None if account_field_is_domain(field) => {
+                AccountAliasValue::Resolved(Some(_)) => {}
+                AccountAliasValue::Resolved(None) => return AccountPredicateMatch::Mismatched,
+                AccountAliasValue::Unsupported if account_field_is_domain(field) => {
                     let Ok(domains) = world.account_domains(account_id) else {
                         return AccountPredicateMatch::Mismatched;
                     };
@@ -1633,7 +1638,7 @@ pub mod query {
                         return AccountPredicateMatch::Mismatched;
                     }
                 }
-                None => remaining.exists.push(field.clone()),
+                AccountAliasValue::Unsupported => remaining.exists.push(field.clone()),
             }
         }
         if remaining.is_empty() {
@@ -1734,7 +1739,6 @@ pub mod query {
                         ))
                     }
                     AccountSimpleIdPath::Set(account_ids) => {
-                        let account_ids = account_ids.iter().cloned().collect::<Vec<_>>();
                         Box::new(account_ids.into_iter().filter_map(move |account_id| {
                             world.accounts().get_key_value(&account_id).map(
                                 |(account_id, account_value)| {
@@ -1756,7 +1760,6 @@ pub mod query {
             );
             let id_only_predicate = predicate_json.as_ref().is_some_and(predicate_is_id_only);
             if let Some(candidates) = candidate_ids {
-                let candidates = candidates.iter().cloned().collect::<Vec<_>>();
                 let iter: Box<dyn Iterator<Item = Account> + '_> =
                     Box::new(candidates.into_iter().filter_map(move |account_id| {
                         let Some((account_id, account_value)) =
@@ -1814,7 +1817,6 @@ pub mod query {
                             .into_iter(),
                     ),
                     AccountSimpleIdPath::Set(account_ids) => {
-                        let account_ids = account_ids.iter().cloned().collect::<Vec<_>>();
                         Box::new(account_ids.into_iter().filter_map(move |account_id| {
                             world
                                 .accounts()
@@ -1830,7 +1832,6 @@ pub mod query {
                 .and_then(account_predicate_candidate_ids);
             let id_only_predicate = predicate_json.as_ref().is_some_and(predicate_is_id_only);
             if let Some(candidates) = candidate_ids {
-                let candidates = candidates.iter().cloned().collect::<Vec<_>>();
                 let iter: Box<dyn Iterator<Item = AccountId> + '_> =
                     Box::new(candidates.into_iter().filter_map(move |account_id| {
                         let Some((account_id, _)) = world.accounts().get_key_value(&account_id)
@@ -1866,9 +1867,7 @@ pub mod query {
             let filter_payload = filter.json_payload();
             trace!(%asset_definition_id);
             if filter_payload.is_none() {
-                let subjects = nonzero_asset_holders_for_definition(world, &asset_definition_id)
-                    .into_iter()
-                    .collect::<Vec<_>>();
+                let subjects = nonzero_asset_holders_for_definition(world, &asset_definition_id);
                 let iter: Box<dyn Iterator<Item = Account> + '_> =
                     Box::new(subjects.into_iter().filter_map(move |subject| {
                         let Some((account_id, account_value)) =
@@ -2046,7 +2045,7 @@ pub mod query {
                 let alias = crate::sns::active_account_alias_literal(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|err| {
@@ -2055,7 +2054,7 @@ pub mod query {
                 if crate::sns::resolve_active_account_alias(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|error| Error::Conversion(error.to_string()))?
@@ -2076,7 +2075,7 @@ pub mod query {
                 let selector = crate::sns::active_account_alias_selector(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|err| {
@@ -2103,7 +2102,7 @@ pub mod query {
                     alias,
                     dataspace,
                     domain: label.domain.as_ref().map(ToString::to_string),
-                    is_primary: account.as_ref().label() == Some(&label),
+                    is_primary: account.as_ref().label() == Some(label),
                     status,
                     lease_expiry_ms,
                     grace_until_ms,

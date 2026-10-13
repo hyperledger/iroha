@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 # Exact current-source native census. Both scopes retain the closed MV/Concread
 # ownership suite, including funded replacement/snapshot and deletion controls.
 # Current reward accounting and owner custody regressions remain mandatory.
-# Every accepted leaf remains explicit.
+# Every accepted leaf remains explicit and bound to its current source owner.
 # Linux additionally selects OpenSSH descriptor custody. All platforms select
 # the same genuine four-peer beacon workload.
 EXPECTED_BEACON_NETWORK_TEST = (
@@ -1767,6 +1767,23 @@ class BasicReleaseQualificationTests(unittest.TestCase):
                     self.assertNotIn(regression, names)
                     with self.assertRaisesRegex(selected_gate.CheckError, "not selected in this scope"):
                         selected_gate.focused_regression_stages(scope, ("cli=" + regression,))
+
+    def test_borrowed_intent_and_authenticated_epoch_controls_remain_in_both_scope_censuses(self):
+        required = (
+            'query::native_context_archive::prepared_intents::tests::borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent',
+            'sumeragi::certified_chain::tests::boundaries::npos_epoch_schedule_uses_committed_epoch_length',
+        )
+        for scope in gate.QUALIFICATION_SCOPES:
+            stages = gate.qualification_stages(scope)["core"]
+            names = [name for _, tests in stages for name in tests]
+            for regression in required:
+                with self.subTest(scope=scope, regression=regression):
+                    self.assertEqual(names.count(regression), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + regression,))
+                    self.assertEqual([name for _, tests in focused["core"] for name in tests], [regression])
+                    listing = "\n".join(name + ": test" for name in names if name != regression)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, stages)
 
     def test_epoch_retention_platform_census_and_exact_network_fixture(self):
         preflight = 'production_beacon_bootstrap::epoch_retention::production_epoch_retention_requires_exact_source_identity_before_setup'

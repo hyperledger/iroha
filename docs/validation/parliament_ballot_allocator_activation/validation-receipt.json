@@ -1,0 +1,48 @@
+{
+  "analysis_sha256": "a8ac71f6b5d0e473496d9931652c7eda435d860c90c04120aad4cfd9da225e06",
+  "commands": [
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "scripts/tests/parliament_ballot_allocator_activation_test.py"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_allocator_activation/tests.txt",
+      "log_sha256": "d5270d73d347a26ca693fcc935ca13188ec250d2fa940fb9e322d14615579956"
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "scripts/parliament_ballot_allocator_activation.py",
+        "--output",
+        "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_allocator_activation/analysis"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_allocator_activation/analysis.txt",
+      "log_sha256": "90083f1f76480445cad4673a9893dabe45e73670accf2bc1bf847ff6f2da9ccc"
+    }
+  ],
+  "complete_stack_bound_bytes": null,
+  "complete_workspace_certificate": false,
+  "guarded_analysis_inputs": 42,
+  "independent_read_only_review": "Three reported helper escape gaps corrected; final review acknowledged bounded resolved-only scope. Review is engineering evidence, not an ISA or whole-binary proof.",
+  "no_rebuild_or_worker_execution": true,
+  "observed_at_utc": "2026-10-13T08:56:46.104699+00:00",
+  "profile_qualified": false,
+  "schema": "parliament-allocator-activation-validation-v1",
+  "source_after": {
+    "docs/validation/parliament_ballot_allocator_activation/README.md": "c8ea245b9003fbd2a734014593937b8beb49082e986fe018a96d1849d4117814",
+    "scripts/parliament_ballot_allocator_activation.py": "83d59d7c3bd2f05121d0674bf24a9cea92df45f39c67a68e308de0f41c31dfe0",
+    "scripts/tests/parliament_ballot_allocator_activation_test.py": "f08a5ce8d3259c1d66ffff205fce537b17571e29fa86c4b72e6c46bdddbadb7c"
+  },
+  "source_before": {
+    "docs/validation/parliament_ballot_allocator_activation/README.md": "c8ea245b9003fbd2a734014593937b8beb49082e986fe018a96d1849d4117814",
+    "scripts/parliament_ballot_allocator_activation.py": "83d59d7c3bd2f05121d0674bf24a9cea92df45f39c67a68e308de0f41c31dfe0",
+    "scripts/tests/parliament_ballot_allocator_activation_test.py": "f08a5ce8d3259c1d66ffff205fce537b17571e29fa86c4b72e6c46bdddbadb7c"
+  },
+  "source_unchanged": true,
+  "unconditional_activation": "UNKNOWN"
+}

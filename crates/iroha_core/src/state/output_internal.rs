@@ -239,6 +239,14 @@ impl ExecutionOutputProducer<'_, '_, '_> {
         // Native fee settlement shares the internal invocation's disposable overlay.
         execution = execution
             .and_then(|()| crate::retail_fee::finalize(tx).map_err(|reason| (reason, None)));
+        if height != 1 {
+            // Genesis callbacks belong to the authenticated complete genesis result.
+            // Every later invocation must be coherent before publishing its overlay.
+            execution = execution.and_then(|()| {
+                crate::resource_coherence::validate_final_policy(&tx.world, height)
+                    .map_err(|error| (error.into_transaction_rejection(), None))
+            });
+        }
         if tx.fastpq_source_quota.intrinsic_rejected()? {
             execution = Err((
                 TransactionRejectionReason::Validation(ValidationFail::NotPermitted(
@@ -247,9 +255,8 @@ impl ExecutionOutputProducer<'_, '_, '_> {
                 None,
             ));
         }
-        if let Some(reason) = tx.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        tx.ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if tx.tx_call_hash != Some(call)
             || tx.current_tx_hash.is_some()
             || tx.current_entrypoint_index.is_some()

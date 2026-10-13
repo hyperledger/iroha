@@ -28,13 +28,15 @@ def test_local_unit_scope_never_qualifies_release_or_deploy(scope, profile):
     with pytest.raises(RuntimeError): unit.local_policy(scope, profile)
 
 
-def test_exact_warm_recipe_bounds_jobs_keeps_incremental_existing_lane_and_real_napi():
+def test_exact_warm_recipe_is_serial_nonincremental_zero_debug_and_real_napi():
     target = ROOT / 'target/cargo-fast/kot'
     argv = unit.expected_build(ROOT, target)
     assert argv == [str(ROOT / 'scripts/cargo_fast.sh'), '--target-dir', str(target),
-                    '--stable-local-metadata', '--incremental', '--jobs', '2', '--', 'build', '--locked', '--offline',
+                    '--stable-local-metadata', '--no-incremental', '--zero-debug', '--jobs', '1', '--', 'build', '--locked', '--offline',
                     '-p', 'iroha_js_host', '--lib', '--message-format=json']
-    assert argv.count('--jobs') == 1 and argv[argv.index('--jobs') + 1] == '2'
+    assert argv.count('--jobs') == 1 and argv[argv.index('--jobs') + 1] == '1'
+    assert '--incremental' not in argv
+    assert argv.count('--no-incremental') == argv.count('--zero-debug') == 1
 
 
 def artifact_fixture():

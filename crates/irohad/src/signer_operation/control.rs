@@ -174,7 +174,7 @@ pub fn signer_custody_transition_request_digest_v1(
             transition_digest,
         ),
     )
-    .map_err(|_| SignerOperationErrorV1::InvalidOperation)
+    .map_err(|()| SignerOperationErrorV1::InvalidOperation)
 }
 
 /// Enroll only the first generation, with independently configured trust and authoritative CAS.
@@ -340,7 +340,7 @@ impl SignerOperationV1<'_> {
     pub(in crate::signer_operation) fn finish_custody_activation(
         mut self,
         source: &dyn SignerCustodyControlStateSourceV1,
-        prepared: PreparedSignerCustodyActivationV1,
+        prepared: &PreparedSignerCustodyActivationV1,
         audit: SignerOperationAuditHeadV1,
     ) -> Result<CompletedSignerCustodyTransitionV1, SignerOperationErrorV1> {
         if self.intent.action != SignerOperationActionV1::ActivateCustody {

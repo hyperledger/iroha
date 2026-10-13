@@ -52,14 +52,21 @@ fn block_authenticated_genesis_rejects_invalid_per_transaction_bls_proof() {
         &[(0, genesis_keypair.private_key())],
     );
     let topology = Topology::new(vec![PeerId::new(genesis_keypair.public_key().clone())]);
-    let result = ValidBlock::validate_signed_genesis(
-        block,
-        &topology,
-        &genesis_account,
-        &TimeSource::new_system(),
-        &state,
-        iroha_data_model::block::consensus::ConsensusMode::Permissioned,
-    )
+    let result = {
+        let selected_genesis = block;
+        let selected_scope =
+            iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::new()
+                .root_scope();
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &genesis_account,
+            &TimeSource::new_system(),
+            &state,
+            iroha_data_model::block::consensus::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     let Err(error) = result else {
         panic!(
@@ -172,14 +179,21 @@ fn signed_genesis_validation_rejects_a_non_genesis_header() {
     let leader = crate::block::checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let topology = Topology::new(vec![PeerId::new(leader.public_key().clone())]);
     let block: SignedBlock = ValidBlock::new_dummy(leader.private_key()).into();
-    let result = ValidBlock::validate_signed_genesis(
-        block,
-        &topology,
-        &ALICE_ID,
-        &TimeSource::new_system(),
-        &state,
-        iroha_data_model::block::consensus::ConsensusMode::Permissioned,
-    )
+    let result = {
+        let selected_genesis = block;
+        let selected_scope =
+            iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::new()
+                .root_scope();
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &ALICE_ID,
+            &TimeSource::new_system(),
+            &state,
+            iroha_data_model::block::consensus::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {});
     assert!(matches!(
         result,

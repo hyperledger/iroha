@@ -128,7 +128,7 @@ pub(super) struct ServiceAuthority {
     certificate_scope: certificate_seed::Scope,
     pub(super) prepared: PreparedLocalnet,
     pub(super) directory: PrivateDirectory,
-    pub(super) _lock: File,
+    pub(super) lock: File,
     pub(super) manifest: StreamTokenAuthorityManifest,
     pub(super) config: Config,
     pub(super) genesis: GenesisAnchor,
@@ -149,7 +149,7 @@ pub(super) struct OriginalServiceIntent<'a> {
     authority: &'a ServiceAuthority,
 }
 
-/// Immutable constructor input borrowed only within one closed RuntimeSelection read.
+/// Immutable constructor input borrowed only within one closed `RuntimeSelection` read.
 /// Child locks and all mutable reads remain independently owned. This scope cannot create
 /// a purpose, authorize a wallet or carry a current-state result beyond the enclosing read.
 pub(super) struct RuntimeOriginalRead<'a> {
@@ -418,6 +418,7 @@ impl ServiceAuthority {
         Self::open(prepared, None, purpose.directory_name(), false)
     }
 
+    #[cfg(test)]
     pub(super) fn open_provider_existing(
         prepared: &PreparedLocalnet,
         provider: ProviderId,
@@ -662,7 +663,7 @@ impl ServiceAuthority {
             certificate_scope: certificate_seed::Scope::default(),
             prepared: prepared.clone(),
             directory,
-            _lock: lock,
+            lock,
             manifest,
             config,
             genesis,
@@ -725,6 +726,7 @@ impl ServiceAuthority {
 
     /// Project singleton publication intent from the original parsed client and manifest.
     /// The network operation retains full-image custody; this grants no current eligibility.
+    #[cfg(test)]
     pub(super) fn publication_plan(
         &self,
     ) -> Result<crate::localnet::service_authorities::RetainedPublicationServicePlan> {
@@ -827,7 +829,7 @@ impl ServiceAuthority {
         profile_validation_test_support::record_operation_path(self.directory.path());
         self.directory.revalidate()?;
         if iroha_fs::FileIdentity::of(&self.directory.open_read("operation.lock")?)?
-            != iroha_fs::FileIdentity::of(&self._lock)?
+            != iroha_fs::FileIdentity::of(&self.lock)?
         {
             return Err(invalid("managed native operation lock was replaced"));
         }
@@ -838,10 +840,10 @@ impl ServiceAuthority {
         &self,
         read: Option<&RuntimeOriginalRead<'_>>,
     ) -> Result<()> {
-        match read {
-            Some(read) => read.validate_profile(self),
-            None => self.validate_profile(),
-        }
+        read.map_or_else(
+            || self.validate_profile(),
+            |read| read.validate_profile(self),
+        )
     }
 
     pub(super) fn original_intent_in_runtime(

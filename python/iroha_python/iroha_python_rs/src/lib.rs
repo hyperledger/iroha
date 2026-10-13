@@ -5805,11 +5805,14 @@ mod tests {
             .expect("builder remains signable after rejected append");
         assert_eq!(
             signed
-                .attachments()
-                .expect("signed transaction retains attachments")
+                .proof_attachments_v1()
+                .expect("signed transaction retains its proof carriers")
                 .len(),
             iroha_data_model::proof::PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1
         );
+        signed
+            .validate_signed_attachments_v1()
+            .expect("carriers are bound to the signed payload");
         signed.verify_signature().expect("signature remains valid");
         builder.clear_attachments();
         assert!(builder.attachments.is_none());
@@ -6198,6 +6201,126 @@ mod tests {
                     assert_eq!(
                         instruction.to_json().expect("original instruction JSON"),
                         json::to_json(&decoded).expect("decoded instruction JSON")
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn bilateral_settlement_retry_is_a_rejected_carrier_for_both_dispositions() {
+        use iroha_data_model::executor::{SettlementReplayDispositionV1, SettlementReplayV1};
+        let owner = parse_account_id(&canonical_i105_from_seed(0x11)).unwrap();
+        for disposition in [
+            SettlementReplayDispositionV1::AlreadySettled,
+            SettlementReplayDispositionV1::ConflictingIntent,
+        ] {
+            let reason = TransactionRejectionReason::Validation(ValidationFail::SettlementReplay(
+                Box::new(SettlementReplayV1 {
+                    settlement_id: SettlementId::new(owner.clone(), "retry".parse().unwrap()),
+                    disposition,
+                    committed_block_height: 2,
+                    committed_block_hash: HashOf::from_untyped_unchecked(Hash::new(
+                        b"original successful payment",
+                    )),
+                }),
+            ));
+            assert_eq!(transaction_rejection_code(&reason), "SettlementReplay");
+        }
+    }
+
+    #[test]
+    fn bilateral_atomicity_rejects_retired_partial_names() {
+        ensure_python();
+        Python::attach(|_| {
+            assert_eq!(
+                parse_settlement_atomicity("all_or_nothing").unwrap(),
+                SettlementAtomicity::AllOrNothing
+            );
+            for value in [
+                "commit_first_leg",
+                "commit_second_leg",
+                "CommitFirstLeg",
+                "CommitSecondLeg",
+                "unknown",
+            ] {
+                let error = parse_settlement_atomicity(value).expect_err("closed atomicity policy");
+                assert!(error.to_string().contains("unknown settlement atomicity"));
+            }
+        });
+    }
+    #[test]
+    fn bilateral_settlement_identity_is_scoped_and_survives_native_json() {
+        use iroha_data_model::isi::SettlementInstructionBox;
+        ensure_python();
+        Python::attach(|py| {
+            let instruction_type = py.get_type::<Instruction>();
+            let payer = canonical_i105_from_seed(0x11);
+            let counterparty = canonical_i105_from_seed(0x22);
+            let unrelated = canonical_i105_from_seed(0x33);
+            let leg = |definition: &str, from: &str, to: &str| {
+                let value = PyDict::new(py);
+                value.set_item("asset_definition_id", definition).unwrap();
+                value.set_item("quantity", "10").unwrap();
+                value.set_item("from", from).unwrap();
+                value.set_item("to", to).unwrap();
+                value
+            };
+            let first = leg("7cgpbDVabB1g8uax9JkhGckEHwfe", &payer, &counterparty);
+            let second = leg("4eaant86faGEgeH21U4qTTfpvwSb", &counterparty, &payer);
+            let id = SettlementId::new(
+                parse_account_id(&payer).unwrap(),
+                "payment-42".parse().unwrap(),
+            );
+            for dvp in [true, false] {
+                let build = |text: &str| {
+                    if dvp {
+                        Instruction::settlement_dvp(
+                            &instruction_type,
+                            text,
+                            first.as_any(),
+                            second.as_any(),
+                            "delivery_then_payment",
+                            "all_or_nothing",
+                            None,
+                        )
+                    } else {
+                        Instruction::settlement_pvp(
+                            &instruction_type,
+                            text,
+                            first.as_any(),
+                            second.as_any(),
+                            "payment_then_delivery",
+                            "all_or_nothing",
+                            None,
+                        )
+                    }
+                };
+                let instruction = build(&id.to_string()).expect("scoped identity");
+                let json = instruction.to_json().unwrap();
+                let decoded = json::from_str::<InstructionBox>(&json).unwrap();
+                assert_eq!(
+                    norito::encode_canonical(&decoded).unwrap(),
+                    norito::encode_canonical(&instruction.inner).unwrap()
+                );
+                let scoped_id = match decoded
+                    .as_any()
+                    .downcast_ref::<SettlementInstructionBox>()
+                    .unwrap()
+                {
+                    SettlementInstructionBox::Dvp(value) => value.settlement_id(),
+                    SettlementInstructionBox::Pvp(value) => value.settlement_id(),
+                    _ => panic!("unexpected settlement variant"),
+                };
+                assert_eq!(scoped_id, &id);
+                for invalid in [
+                    "payment-42".to_owned(),
+                    format!("payment-42${unrelated}"),
+                    format!("payment-42${payer}@domain"),
+                ] {
+                    assert!(
+                        build(&invalid).is_err(),
+                        "accepted invalid owner identity {invalid}"
                     );
                 }
             }
@@ -8780,12 +8903,6 @@ fn parse_settlement_atomicity(value: &str) -> PyResult<SettlementAtomicity> {
     let normalized = value.replace('-', "_").to_ascii_lowercase();
     match normalized.as_str() {
         "all_or_nothing" => Ok(SettlementAtomicity::AllOrNothing),
-        "commit_first_leg" => Err(PyValueError::new_err(
-            "atomicity `commit_first_leg` is not supported yet; choose `all_or_nothing`",
-        )),
-        "commit_second_leg" => Err(PyValueError::new_err(
-            "atomicity `commit_second_leg` is not supported yet; choose `all_or_nothing`",
-        )),
         _ => Err(PyValueError::new_err(format!(
             "unknown settlement atomicity `{value}` (expected `all_or_nothing`)"
         ))),
@@ -10274,6 +10391,13 @@ impl Instruction {
         let py = cls.py();
         let delivery_leg = parse_settlement_leg(py, delivery_leg, "delivery_leg")?;
         let payment_leg = parse_settlement_leg(py, payment_leg, "payment_leg")?;
+        if settlement_id.owner() != delivery_leg.from()
+            && settlement_id.owner() != payment_leg.from()
+        {
+            return Err(PyValueError::new_err(
+                "settlement identity owner must authorize an actual debit",
+            ));
+        }
         let order = parse_settlement_order(order)?;
         let atomicity = parse_settlement_atomicity(atomicity)?;
         let plan = SettlementPlan::new(order, atomicity);
@@ -10308,6 +10432,13 @@ impl Instruction {
         let py = cls.py();
         let primary_leg = parse_settlement_leg(py, primary_leg, "primary_leg")?;
         let counter_leg = parse_settlement_leg(py, counter_leg, "counter_leg")?;
+        if settlement_id.owner() != primary_leg.from()
+            && settlement_id.owner() != counter_leg.from()
+        {
+            return Err(PyValueError::new_err(
+                "settlement identity owner must authorize an actual debit",
+            ));
+        }
         let order = parse_settlement_order(order)?;
         let atomicity = parse_settlement_atomicity(atomicity)?;
         let plan = SettlementPlan::new(order, atomicity);
@@ -10819,6 +10950,12 @@ struct TransactionBuilder {
 }
 impl TransactionBuilder {
     fn try_add_proof_attachment(&mut self, attachment: ProofAttachment) -> PyResult<()> {
+        // Each staged attachment travels as one transaction-level proof
+        // carrier; refuse here what the signed attachment schema refuses.
+        iroha_data_model::transaction::signed_attachments::PlannedActionV1::transaction_proof(
+            &attachment,
+        )
+        .map_err(|error| PyValueError::new_err(format!("invalid proof attachment: {error}")))?;
         match &mut self.attachments {
             Some(attachments) => attachments.try_push(attachment),
             None => ProofAttachmentList::try_from(vec![attachment]).map(|attachments| {
@@ -10974,8 +11111,16 @@ impl TransactionBuilder {
             }));
         }
         builder = builder.with_metadata(self.metadata.clone());
-        if let Some(attachments) = self.attachments.clone() {
-            builder = builder.with_attachments(attachments);
+        if let Some(attachments) = &self.attachments {
+            // Staging validated every attachment and the list bounds are below
+            // the signed attachment bounds, so the plan is complete. The
+            // statement digests are bound to the payload here and admission
+            // validates the result again.
+            let plan = iroha_data_model::transaction::SignedAttachmentPlanV1::transaction_proofs(
+                attachments.as_slice(),
+            )
+            .expect("staged proof attachments were validated when they were added");
+            builder = builder.with_signed_attachments(plan.declare());
         }
         builder
     }
@@ -11831,17 +11976,23 @@ impl SignedTransactionEnvelope {
             .map_err(|err| {
                 PyValueError::new_err(format!("failed to decode signed transaction: {err}"))
             })?;
-        match signed.attachments() {
-            Some(list) => {
-                let value = norito::json::to_value(list).map_err(|err| {
-                    PyValueError::new_err(format!("failed to serialize attachments: {err}"))
-                })?;
-                norito::json::to_string(&value).map(Some).map_err(|err| {
-                    PyValueError::new_err(format!("failed to serialize attachments: {err}"))
-                })
-            }
-            None => Ok(None),
+        if signed.attachments().is_none() {
+            return Ok(None);
         }
+        // The wrapped proof attachments of the transaction-level carriers, as
+        // the bounded proof attachment list this boundary has always returned.
+        let carriers = signed.proof_attachments_v1().map_err(|err| {
+            PyValueError::new_err(format!("failed to decode proof attachments: {err}"))
+        })?;
+        let list = ProofAttachmentList::try_from(carriers).map_err(|err| {
+            PyValueError::new_err(format!("failed to serialize attachments: {err}"))
+        })?;
+        let value = norito::json::to_value(&list).map_err(|err| {
+            PyValueError::new_err(format!("failed to serialize attachments: {err}"))
+        })?;
+        norito::json::to_string(&value)
+            .map(Some)
+            .map_err(|err| PyValueError::new_err(format!("failed to serialize attachments: {err}")))
     }
     /// Return a JSON string representation with base64-encoded binary fields.
     fn to_json(&self) -> PyResult<String> {
@@ -12228,6 +12379,7 @@ fn transaction_rejection_code(reason: &TransactionRejectionReason) -> &str {
             ValidationFail::ContractRejected(rejection) => rejection.name.as_str(),
             ValidationFail::QueryFailed(_) => "QueryFailed",
             ValidationFail::AxtReject(_) => "AxtRejected",
+            ValidationFail::SettlementReplay(_) => "SettlementReplay",
             ValidationFail::TooComplex => "TooComplex",
             ValidationFail::InternalError(_) => "InternalError",
         },

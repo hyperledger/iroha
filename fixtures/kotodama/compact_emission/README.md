@@ -8,6 +8,6 @@ Rounded and typed integer helpers retain their existing synchronous numeric cons
 
 The native compiler producer `compiler::compact_emission::native_pairs::capture_actual_compact_emission_native_pairs` must run explicitly before parity or VM consumers. Save only its eight complete COMPACT_EMISSION_NATIVE rows, without the prefix, as `native_v1.tsv`; the parser checks full source/artifact identities, canonical bounded hex, order-independent uniqueness and the exact mandatory case inventory. Never construct artifact bytes from declarations. No capture or execution result is a network or release qualification verdict.
 
-The checked-in eight-row capture comes from the complete successful native compiler producer; focused current-artifact compiler parity and metadata controls pass. VM execution and whole-candidate qualification remain open.
+The checked-in eight-row capture comes from the complete successful native compiler producer on the current compiler and sources; the compiler parity and metadata controls and the six compact_emission VM consumers pass on it. The frame and private captures were taken again from the same compiler. Whole-candidate qualification remains open.
 
-TODO: execute the actual VM controls, rerun affected genuine existing frame/private captures and qualify the actual Core payout and disposable network under the unchanged default4M limit and 64gas/byte price.
+TODO: qualify the actual Core payout and disposable network under the unchanged default4M limit and 64gas/byte price.

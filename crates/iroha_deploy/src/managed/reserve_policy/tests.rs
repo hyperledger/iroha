@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::policy;
 use iroha_crypto::{Algorithm, HashOf, KeyPair};
 use iroha_data_model::{account::AccountId, transaction::FeePaymentIntent};
@@ -97,7 +98,7 @@ fn generated_reserve_roles_and_exclusive_original_profile_are_required() {
 fn reserve_original_roundtrip_preserves_expired_utc_and_rejects_replacement() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, _prepared, coordinator) = fixture();
-    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&coordinator.authority.directory, "set").unwrap();
     let original = codec_original(&coordinator);
     let mut terms = Terms::new(now_ms().unwrap() + 60_000, &options()).unwrap();
     terms.requested_deadline_unix_ms = now_ms().unwrap() - 100;
@@ -218,7 +219,7 @@ fn reserve_original_rejects_selection_mutations_and_invalid_native_checkpoint_be
     );
     coordinator.validate_original_selection(&original).unwrap();
     assert_eq!(encode(&original, 256 * 1024).unwrap(), original_bytes);
-    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&coordinator.authority.directory, "set").unwrap();
     let original = retain_explicit_request(
         &coordinator,
         &directory,
@@ -306,7 +307,7 @@ fn exact_reserve_record_comparison_does_not_create_activation_without_native_evi
 fn original_reserve_codec_preserves_checkpoint_larger_than_small_collection_limit() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, _prepared, coordinator) = fixture();
-    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&coordinator.authority.directory, "set").unwrap();
     let mut original = codec_original(&coordinator);
     // Codec-only bytes exercise Vec<u8> admission, never native finality or initial eligibility.
     original.checkpoint = vec![0xa5; 16 * 1024];
@@ -343,6 +344,20 @@ fn selected_recovery_distinguishes_absent_empty_and_dirty_without_http() {
     );
     assert!(!owner.authority.directory.path().join("set").exists());
     let directory = owner.authority.directory.ensure_child("set").unwrap();
+    assert!(matches!(
+        owner
+            .recover_selected_if_present(
+                &policy,
+                &Fees::from_options(&options).unwrap(),
+                options.deadline
+            )
+        , Err(crate::managed::Error::Invalid(message)) if message == "operation metadata image is absent"
+    ));
+    crate::managed::native_operation::require_empty(&directory).unwrap();
+    let path = directory.path().to_path_buf();
+    drop(directory);
+    std::fs::remove_dir(&path).unwrap();
+    let directory = metadata::ensure_operation(&owner.authority.directory, "set").unwrap();
     assert!(
         owner
             .recover_selected_if_present(
@@ -353,7 +368,7 @@ fn selected_recovery_distinguishes_absent_empty_and_dirty_without_http() {
             .unwrap()
             .is_none()
     );
-    require_empty(&directory).unwrap();
+    metadata::require_unselected(&directory).unwrap();
     directory
         .write_atomic("incomplete.nrt", &[1], iroha_fs::PublishMode::CreateNew)
         .unwrap();
@@ -386,7 +401,10 @@ pub(super) fn retain_explicit_request(
     journal::publish_intent(directory, original).unwrap();
     assert_eq!(
         directory.entries(3).unwrap(),
-        vec![std::ffi::OsString::from("original.nrt")]
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("original.nrt"),
+        ]
     );
     assert!(
         journal::required_original(directory).is_err(),

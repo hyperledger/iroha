@@ -43,7 +43,7 @@ fn owner_principal(
         })
 }
 
-pub(crate) async fn registration(
+pub async fn registration(
     State(app): State<SharedAppState>,
     headers: axum::http::HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -51,7 +51,7 @@ pub(crate) async fn registration(
     export(app, headers, remote, None).await
 }
 
-pub(crate) async fn anchor(
+pub async fn anchor(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<String>,
     headers: axum::http::HeaderMap,

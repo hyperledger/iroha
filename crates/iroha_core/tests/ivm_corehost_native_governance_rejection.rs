@@ -81,8 +81,12 @@ fn generic_native_verification_cannot_authorize_vendor_ballot() {
     // Governance and ISI verification consult the node `Zk` config guardrails, so ensure
     // native verification is enabled here (in addition to the host-local native config used by
     // the syscall verifier).
-    state.zk.pipa_r.enabled = true;
-    state.zk.verify_timeout = Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
+        .expect("fixture ZK settings install");
     let mut gov_cfg = state.gov.clone();
     gov_cfg.citizenship_bond_amount = 0_u64.into();
     state.set_gov(gov_cfg);
@@ -120,7 +124,7 @@ fn generic_native_verification_cannot_authorize_vendor_ballot() {
     let mut vk_map = BTreeMap::new();
     vk_map.insert(VerifyingKeyId::new(backend_label, "vk_ballot"), vk_record);
     host.set_verifying_keys(vk_map).expect("set registry");
-    host.set_zk_config(&state.zk);
+    host.set_zk_config(&state.zk_snapshot());
     vm.set_host(host);
     // Grant authority permissions and register verifying keys in the WSV for governance plumbing.
     let perm_vk = Permission::new("CanManageVerifyingKeys".to_string(), Json::new(()));
@@ -228,12 +232,22 @@ fn generic_native_verification_cannot_authorize_vendor_ballot() {
     let tlv2 = make_tlv(PointerType::NoritoBytes as u16, &sb_bytes);
     let ptr2 = store_tlv(&mut vm, &mut cursor, &tlv2);
     vm.set_register(10, ptr2);
-    assert_eq!(
-        vm.load_program(&prog2),
-        Err(ivm::VMError::GenericSyscallNotAllowed {
+    assert!(match (
+        &(vm.load_program(&prog2)),
+        &(ivm::VMError::GenericSyscallNotAllowed {
             syscall: ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
         })
-    );
+    ) {
+        (
+            Err(ivm::VMError::GenericSyscallNotAllowed {
+                syscall: actual_field_0,
+            }),
+            ivm::VMError::GenericSyscallNotAllowed {
+                syscall: expected_field_0,
+            },
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
     // Generic verification creates no queued instruction or governance authority.
     assert!(
         CoreHost::with_host(&mut vm, |host| host.apply_queued(&mut stx, &authority))

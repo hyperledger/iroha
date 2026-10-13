@@ -222,7 +222,7 @@ fn expected_sese025_schema() -> Sese025 {
         receiving_party_bic: Some("MARKDEFF".to_owned()),
         receiving_account: Some("RCVG-ACC".to_owned()),
         execution_order: "PAYMENT_THEN_DELIVERY".to_owned(),
-        atomicity: "COMMIT_SECOND_LEG".to_owned(),
+        atomicity: "ALL_OR_NOTHING".to_owned(),
         hold_indicator: Some(false),
         partial_settlement_indicator: Some("NPAR".to_owned()),
         settlement_condition: Some("NOMC".to_owned()),
@@ -1801,6 +1801,24 @@ fn versioned_pacs029_supported() {
     assert!(msg_validate());
 }
 #[test]
+fn bilateral_iso_rejects_retired_partial_atomicity() {
+    for (message, populate) in [
+        ("sese.023", populate_sese023_minimal as fn()),
+        ("sese.025", populate_sese025_minimal as fn()),
+    ] {
+        reset();
+        msg_create(message);
+        populate();
+        assert!(msg_validate());
+        for retired in ["COMMIT_FIRST_LEG", "COMMIT_SECOND_LEG"] {
+            msg_set("Plan/Atomicity", retired.as_bytes());
+            assert!(!msg_validate(), "{message} must reject {retired}");
+        }
+        msg_set("Plan/Atomicity", b"ALL_OR_NOTHING");
+        assert!(msg_validate());
+    }
+}
+#[test]
 fn sese023_roundtrip_and_norito_snapshot() {
     reset();
     let schema = expected_sese023_schema();
@@ -1876,10 +1894,7 @@ fn sese025_validation_and_serialization() {
     let materialized = Sese025::from_parsed(&parsed).expect("materialize sese.025 into schema");
     assert_eq!(materialized, schema);
     assert_eq!(parsed.field_text("ConfSts"), Some("ACCP"));
-    assert_eq!(
-        parsed.field_text("Plan/Atomicity"),
-        Some("COMMIT_SECOND_LEG")
-    );
+    assert_eq!(parsed.field_text("Plan/Atomicity"), Some("ALL_OR_NOTHING"));
     assert_eq!(
         parsed.field_text("SttlmTpAndAddtlParams/SctiesMvmntTp"),
         Some("RECE")
@@ -2121,4 +2136,111 @@ fn decode_base64_into_reuses_buffer() {
 fn decode_base64_into_rejects_invalid() {
     let mut out = Vec::new();
     assert!(decode_base64_into(b"@@@=", &mut out).is_none());
+}
+
+fn native_settlement_extension() -> String {
+    format!(
+        "<SplmtryData><Envlp><nx:NexusSettlement xmlns:nx=\"{}\"><nx:NetworkId>selected-network</nx:NetworkId><nx:ExpiresAtHeight>100</nx:ExpiresAtHeight><nx:SourceAccountId>canonical-payer</nx:SourceAccountId><nx:TargetAccountId>canonical-recipient</nx:TargetAccountId><nx:AssetDefinitionId>canonical-asset</nx:AssetDefinitionId></nx:NexusSettlement></Envlp></SplmtryData>",
+        super::NEXUS_SETTLEMENT_XML_NAMESPACE,
+    )
+}
+
+#[test]
+fn native_settlement_xml_extension_preserves_owned_fields_and_source_binding() {
+    for (message, source, closing) in [
+        ("pacs.008", SAMPLE_PACS008_XML, "</FIToFICstmrCdtTrf>"),
+        ("pacs.009", SAMPLE_PACS009_XML, "</FICdtTrf>"),
+    ] {
+        reset();
+        let xml = source.replace(
+            closing,
+            &format!("{}{closing}", native_settlement_extension()),
+        );
+        let parsed = parse_xml_message(message, xml.as_bytes()).unwrap();
+        assert_eq!(
+            parsed.field_text("NexusSettlement/NetworkId"),
+            Some("selected-network")
+        );
+        assert_eq!(
+            parsed.field_text("NexusSettlement/ExpiresAtHeight"),
+            Some("100")
+        );
+        for (field, value) in [
+            ("NexusSettlement/SourceAccountId", "canonical-payer"),
+            ("NexusSettlement/TargetAccountId", "canonical-recipient"),
+            ("NexusSettlement/AssetDefinitionId", "canonical-asset"),
+        ] {
+            assert_eq!(parsed.field_text(field), Some(value));
+        }
+        assert!(parsed.fields_are_covered_by_xml_range(xml.as_bytes(), 0..xml.len()));
+    }
+}
+
+#[test]
+fn native_settlement_xml_extension_refuses_namespace_shape_and_duplicate_ambiguity() {
+    let extension = native_settlement_extension();
+    let closing = "</FIToFICstmrCdtTrf>";
+    let valid = SAMPLE_PACS008_XML.replace(closing, &format!("{extension}{closing}"));
+    let cases = [
+        valid.replace(
+            super::NEXUS_SETTLEMENT_XML_NAMESPACE,
+            "urn:attacker:nexus:v1",
+        ),
+        valid.replace("<nx:NetworkId>", "<nx:NetworkId unexpected=\"1\">"),
+        valid.replace(
+            "<nx:NetworkId>selected-network</nx:NetworkId>",
+            "<nx:NetworkId><nx:NetworkId>selected-network</nx:NetworkId></nx:NetworkId>",
+        ),
+        valid.replace("<nx:ExpiresAtHeight>100</nx:ExpiresAtHeight>", ""),
+        valid.replace(
+            "</nx:NexusSettlement>",
+            "<nx:Unknown>100</nx:Unknown></nx:NexusSettlement>",
+        ),
+        valid.replace(
+            "</nx:NexusSettlement>",
+            "<nx:NetworkId>selected-network</nx:NetworkId></nx:NexusSettlement>",
+        ),
+        SAMPLE_PACS008_XML.replace(closing, &format!("{extension}{extension}{closing}")),
+        SAMPLE_PACS008_XML.replace("</CdtTrfTxInf>", &format!("{extension}</CdtTrfTxInf>")),
+    ];
+    for xml in cases {
+        reset();
+        assert!(matches!(
+            parse_xml_message("pacs.008", xml.as_bytes()),
+            Err(MsgError::InvalidFormat)
+        ));
+    }
+    for (field, value) in [
+        ("SourceAccountId", "canonical-payer"),
+        ("TargetAccountId", "canonical-recipient"),
+        ("AssetDefinitionId", "canonical-asset"),
+    ] {
+        let element = format!("<nx:{field}>{value}</nx:{field}>");
+        for xml in [
+            valid.replace(&element, ""),
+            valid.replace(&element, &format!("{element}{element}")),
+            valid.replace(&element, &format!("<{field}>{value}</{field}>")),
+            valid.replace(
+                &element,
+                &format!("<nx:{field} extra=\"1\">{value}</nx:{field}>"),
+            ),
+        ] {
+            reset();
+            assert!(matches!(
+                parse_xml_message("pacs.008", xml.as_bytes()),
+                Err(MsgError::InvalidFormat)
+            ));
+        }
+    }
+    let start = SAMPLE_PACS008_XML.find("<CdtTrfTxInf>").unwrap();
+    let end = SAMPLE_PACS008_XML.find("</CdtTrfTxInf>").unwrap() + "</CdtTrfTxInf>".len();
+    let duplicated = valid.replace(
+        closing,
+        &format!("{}{closing}", &SAMPLE_PACS008_XML[start..end]),
+    );
+    reset();
+    assert!(matches!(
+        parse_xml_message("pacs.008", duplicated.as_bytes()),
+        Err(MsgError::InvalidFormat)
+    ));
 }

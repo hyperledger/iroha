@@ -87,7 +87,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    crypto::{Crypto, Signer},
+    crypto::{AggregationError, Crypto, Signer, SigningError},
     message::{BlockHeader, Proposal, Qc, TcEntry, TimeoutCert, TimeoutVote, Vote, VoteKind},
     preimage,
     types::{
@@ -180,12 +180,12 @@ impl Crypto for FakeCrypto {
         fake_sig(pk, msg) == *sig
     }
 
-    fn aggregate(&self, sigs: &[Signature]) -> AggregateSignature {
+    fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
         let agg = Self::sum(sigs);
         if let Some(log) = &self.log {
             log.record_aggregate(agg, sigs.to_vec());
         }
-        agg
+        Ok(agg)
     }
 
     fn verify_aggregate(&self, pks: &[&PublicKey], msg: &[u8], agg: &AggregateSignature) -> bool {
@@ -354,12 +354,12 @@ impl Signer for FakeSigner {
         &self.key
     }
 
-    fn sign(&self, preimage: &[u8]) -> Signature {
+    fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
         let sig = fake_sig(&self.key, preimage);
         if let Some(log) = &self.log {
             log.record_signature(&self.key, preimage, sig);
         }
-        sig
+        Ok(sig)
     }
 }
 
@@ -440,7 +440,10 @@ impl FakeValidators {
             block_hash: *block_hash,
             result: *result,
             signer,
-            sig: self.signer(signer).sign(&msg),
+            sig: self
+                .signer(signer)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 
@@ -469,7 +472,11 @@ impl FakeValidators {
         sorted.dedup();
         let sigs: Vec<Signature> = sorted
             .iter()
-            .map(|index| self.signer(*index).sign(&msg))
+            .map(|index| {
+                self.signer(*index)
+                    .sign(&msg)
+                    .expect("fixture signing succeeds")
+            })
             .collect();
         Qc {
             epoch: crate::testing::TEST_EPOCH.id,
@@ -481,7 +488,10 @@ impl FakeValidators {
             result: *result,
             signers: Bitmap::from_indices(self.committee.n(), sorted.iter().copied())
                 .unwrap_or_else(|| Bitmap::new(self.committee.n())),
-            agg_sig: self.crypto.aggregate(&sigs),
+            agg_sig: self
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
         }
     }
 
@@ -504,7 +514,10 @@ impl FakeValidators {
             view,
             high_pqc,
             signer,
-            sig: self.signer(signer).sign(&msg),
+            sig: self
+                .signer(signer)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 
@@ -540,7 +553,10 @@ impl FakeValidators {
                     hq: t.hq(),
                 })
                 .collect(),
-            agg_sig: self.crypto.aggregate(&sigs),
+            agg_sig: self
+                .crypto
+                .aggregate(&sigs)
+                .expect("fixture aggregation succeeds"),
             high_pqc,
         }
     }
@@ -573,7 +589,10 @@ impl FakeValidators {
             header,
             justify,
             parent_qc,
-            sig: self.signer(leader).sign(&msg),
+            sig: self
+                .signer(leader)
+                .sign(&msg)
+                .expect("fixture signing succeeds"),
         }
     }
 }
@@ -595,6 +614,59 @@ pub fn author_body(
         .complete(instance, config, budget, crypto, signer)
         .unwrap_or_else(|(_, error)| panic!("fixture authoring failed: {error:?}"))
         .body
+}
+
+/// Explicit admission of the deterministic fixture application, which has no native effects.
+/// This helper is compiled only for tests or the simulator; native executors supply their
+/// own source-bound owner and never call it.
+pub fn no_sensitive_work_admission(result: Hash32) -> crate::prepare_admission::ExecutionAdmission {
+    #[derive(Debug)]
+    struct FixtureApplication(Hash32);
+    impl crate::prepare_admission::PrepareAdmission for FixtureApplication {
+        fn result(&self) -> Hash32 {
+            self.0
+        }
+        fn check(
+            &self,
+            _: &crate::prepare_admission::PrepareSigningRequest,
+        ) -> Result<(), crate::crypto::SigningError> {
+            Ok(())
+        }
+    }
+    let owner = iroha_allocation::shared::Shared::new(FixtureApplication(result), ());
+    crate::prepare_admission::ExecutionAdmission::from_owner(
+        owner.project::<dyn crate::prepare_admission::PrepareAdmission>(|value| value),
+    )
+}
+
+/// Successful deterministic fixture execution with its explicit application admission.
+pub fn valid_execution(result: crate::types::Hash32) -> crate::api::ExecOutcome {
+    crate::api::ExecOutcome::Valid {
+        result,
+        admission: no_sensitive_work_admission(result),
+    }
+}
+
+/// Construct an exact signing request for native adapter and simulator controls only.
+/// Production callers obtain this value solely from the consensus core.
+pub fn prepare_signing_request(
+    instance: Hash32,
+    epoch: crate::types::EpochId,
+    height: u64,
+    view: u64,
+    block_hash: Hash32,
+    result: Hash32,
+    certified: bool,
+) -> crate::prepare_admission::PrepareSigningRequest {
+    crate::prepare_admission::PrepareSigningRequest {
+        instance,
+        epoch,
+        height,
+        view,
+        block_hash,
+        result,
+        certified,
+    }
 }
 
 #[cfg(test)]
@@ -824,18 +896,32 @@ mod tests {
         let a = FakeSigner::from_seed(b"a", None);
         let b = FakeSigner::from_seed(b"b", None);
         assert_eq!(a.public_key().as_bytes().len(), 32);
-        let sig_a = a.sign(b"m");
-        let sig_b = b.sign(b"m");
+        let sig_a = a.sign(b"m").expect("fixture signing succeeds");
+        let sig_b = b.sign(b"m").expect("fixture signing succeeds");
         assert!(crypto.verify(a.public_key(), b"m", &sig_a));
         assert!(!crypto.verify(b.public_key(), b"m", &sig_a));
         assert!(!crypto.verify(a.public_key(), b"n", &sig_a));
-        let agg = crypto.aggregate(&[sig_a, sig_b]);
-        assert_eq!(agg, crypto.aggregate(&[sig_b, sig_a]), "order independent");
+        let agg = crypto
+            .aggregate(&[sig_a, sig_b])
+            .expect("fixture aggregation succeeds");
+        assert_eq!(
+            agg,
+            crypto
+                .aggregate(&[sig_b, sig_a])
+                .expect("fixture aggregation succeeds"),
+            "order independent"
+        );
         assert!(crypto.verify_aggregate(&[a.public_key(), b.public_key()], b"m", &agg));
         assert!(!crypto.verify_aggregate(&[a.public_key()], b"m", &agg));
-        assert!(!crypto.verify_aggregate(&[], b"m", &crypto.aggregate(&[])));
-        let sig_c = b.sign(b"other");
-        let multi = crypto.aggregate(&[sig_a, sig_c]);
+        assert!(!crypto.verify_aggregate(
+            &[],
+            b"m",
+            &crypto.aggregate(&[]).expect("fixture aggregation succeeds")
+        ));
+        let sig_c = b.sign(b"other").expect("fixture signing succeeds");
+        let multi = crypto
+            .aggregate(&[sig_a, sig_c])
+            .expect("fixture aggregation succeeds");
         assert!(crypto.verify_aggregate_multi(
             &[
                 (vec![a.public_key()], b"m".to_vec()),
@@ -868,7 +954,7 @@ mod tests {
         let signer = FakeSigner::from_seed(b"x", Some(log.clone()));
         let crypto = FakeCrypto::with_log(log.clone());
         assert!(crypto.log().is_some());
-        let sig = signer.sign(b"hello");
+        let sig = signer.sign(b"hello").expect("fixture signing succeeds");
         assert_eq!(log.len(), 1);
         assert!(log.was_signed(signer.public_key(), b"hello"));
         assert!(!log.was_signed(signer.public_key(), b"bye"));
@@ -876,12 +962,14 @@ mod tests {
         let forged = fake_sig(signer.public_key(), b"bye");
         assert!(crypto.verify(signer.public_key(), b"bye", &forged));
         assert!(!log.was_signed(signer.public_key(), b"bye"));
-        let agg = crypto.aggregate(&[sig]);
+        let agg = crypto
+            .aggregate(&[sig])
+            .expect("fixture aggregation succeeds");
         assert_eq!(log.aggregate_parts(&agg), Some(vec![sig]));
         assert_eq!(log.signatures_by(signer.public_key()).len(), 1);
         assert_eq!(log.signatures()[0].preimage, b"hello".to_vec());
         let other = FakeSigner::with_key(PublicKey::new(vec![1; 32]).unwrap(), None);
-        other.sign(b"unlogged");
+        other.sign(b"unlogged").expect("fixture signing succeeds");
         assert_eq!(log.len(), 1);
     }
 

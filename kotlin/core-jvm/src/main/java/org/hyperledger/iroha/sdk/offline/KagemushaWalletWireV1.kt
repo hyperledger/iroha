@@ -14,7 +14,7 @@ import org.hyperledger.iroha.sdk.norito.Varint
 /**
  * Exact role label of one domain-separated KAGEMUSHA wallet V1 digest `H(role, body)`.
  *
- * Mirrors Rust `iroha_data_model::kagemusha::KagemushaWalletDigestRoleV1::ALL` (20 roles, including the NEW unsigned E1 policy identities) in
+ * Mirrors Rust `iroha_data_model::kagemusha::KagemushaWalletDigestRoleV1::ALL` (21 roles, including the NEW unsigned E1 policy identities) in
  * declaration order. `H` remains only for values no relation recomputes: fixed identities,
  * ledger, platform-attestation and artifact boundaries, output descriptors and local custody
  * records (wire record section 1). Only the artifact manifest hashes `m || signature`; other signed-object digests
@@ -55,6 +55,9 @@ enum class KagemushaWalletDigestRoleV1(
     VERIFYING_KEY_SET("verifying-key-set"),
     OUTPUT("output"),
     MARKER("marker"),
+    /** Frozen private recovery body frame, before its independent opening is sampled. */
+    CAPSULE_BODY("capsule-body"),
+    /** Private recovery wrapper containing the exact body frame and opening. */
     CAPSULE("capsule"),
     COMPLETION("completion"),
     FOLD("fold"),

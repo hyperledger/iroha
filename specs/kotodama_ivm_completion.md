@@ -133,7 +133,12 @@ of the one keyed State commitment that replaces the accumulator, with
 inclusion, absence and complete-range witnesses, is [`sumeragi.md`](sumeragi.md)
 §16; its typed interface and conformance suite are
 `crates/iroha_core/src/state/authority_registry/keyed_commitment.rs`. It is
-specified, not built. The
+specified, not built. Four development-only candidate constructions were
+measured against it: natively under five hash profiles and, for the three tree
+candidates under the Poseidon2 and Rescue-Prime profiles, in-circuit with the
+uncommitted B.1 reference
+([`state_commitment_candidates.json`](state_commitment_candidates.json)); none
+is selected and no candidate root is published or certified. The
 complete-table catalog checks exact identities and materializers, and the typed
 inventory admits its canonical schema metadata. Inventory admission
 is not complete State capture, publication, recovery or finalized-anchor evidence.

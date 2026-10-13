@@ -910,7 +910,7 @@ fn nexus_localnet_signed_genesis_uses_peer_config_da_proof_policies() {
     let parsed = actual::Root::from_toml_source(source).expect("config should parse");
     let expected_hash = iroha_core::da::proof_policy_bundle_hash(&parsed.nexus.lane_config);
     let expected_confidential_policy_hash =
-        iroha_core::state::compute_genesis_confidential_policy_hash(&parsed.zk);
+        iroha_core::state::default_genesis_confidential_policy_hash();
     let bytes = fs::read(temp.path().join("genesis.signed.nrt")).expect("read signed genesis");
     let block =
         decode_framed_signed_block(&bytes).expect("decode signed genesis from framed payload");
@@ -1103,11 +1103,13 @@ fn client_config_selects_the_generated_identity_file_only() {
         DEFAULT_CHAIN_ID,
         None,
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");
     let contents = fs::read_to_string(root.join("client.toml")).expect("read client config");
     assert!(contents.contains("private_key = \"802620"));
+    assert!(contents.contains("http_transport_policy = \"ordinary\""));
     let value: toml::Value = toml::from_str(&contents).expect("parse client config");
     assert_eq!(
         value.get("network_id_file").and_then(toml::Value::as_str),
@@ -1160,6 +1162,7 @@ fn client_config_records_chain_discriminant_when_known() {
         DEFAULT_CHAIN_ID,
         Some(369),
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");
@@ -1190,6 +1193,7 @@ fn client_config_preserves_publication_with_explicit_network_context() {
             DEFAULT_CHAIN_ID,
             configured,
             &client,
+            HttpTransportPolicy::DirectLoopback,
             Some(&publication),
         )
         .expect("render client config");
@@ -1199,6 +1203,10 @@ fn client_config_preserves_publication_with_explicit_network_context() {
         assert_eq!(
             value["account"]["chain_discriminant"].as_integer(),
             Some(i64::from(expected))
+        );
+        assert_eq!(
+            value["http_transport_policy"].as_str(),
+            Some("direct_loopback")
         );
         assert_eq!(
             value["musubi"]["publication"].as_table(),
@@ -1328,7 +1336,7 @@ fn generated_permissioned_localnet_cannot_mint_additional_xor() {
             .expect("derive generated operator");
     let manifest = RawGenesisTransaction::from_path(temp.path().join("genesis.json"))
         .expect("parse generated genesis");
-    let operator_mint_permissions = manifest
+    let mut operator_mint_permissions = manifest
         .instructions()
         .filter_map(|instruction| instruction.as_any().downcast_ref::<GrantBox>())
         .filter_map(|grant| match grant {
@@ -1336,9 +1344,8 @@ fn generated_permissioned_localnet_cannot_mint_additional_xor() {
                 CanMintAssetWithDefinition::try_from(grant.object()).ok()
             }
             _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert!(operator_mint_permissions.is_empty());
+        });
+    assert!(operator_mint_permissions.next().is_none());
     let signed = read_signed_genesis(&temp.path().join("genesis.signed.nrt"))
         .expect("read executed permissioned genesis");
     assert!(signed.network_entrypoint_count() > 0);
@@ -1683,16 +1690,12 @@ fn generated_nexus_localnet_keeps_fee_asset_convertible_for_taira_wallets() {
         &fs::read_to_string(temp.path().join("peer0.toml")).expect("read peer config"),
     )
     .expect("parse peer config");
-    assert_eq!(
-        peer_cfg
-            .get("zk")
-            .and_then(toml::Value::as_table)
-            .and_then(|zk| zk.get("pipa_r"))
-            .and_then(toml::Value::as_table)
-            .and_then(|pipa_r| pipa_r.get("enabled"))
-            .and_then(toml::Value::as_bool),
-        Some(true),
-        "generated TAIRA configs must enable native PIPA-R verification for shielded sends"
+    // Native PIPA-R verification is chain policy (`zk_validity_policy_v1`, on by
+    // protocol default); a generated node configuration carries no ZK
+    // validity value.
+    assert!(
+        peer_cfg.get("zk").is_none(),
+        "generated TAIRA configs must not carry chain-policy ZK values"
     );
     let manifest = genesis_json_from_path(&temp.path().join("genesis.json"));
     let raw_genesis =
@@ -1802,10 +1805,11 @@ fn generated_fee_unshield_verifier_uses_canonical_native_registry_material() {
         iroha_data_model::zk::verifier_backend_registry_tag_v1(&retired_id.backend),
         None
     );
-    assert_eq!(
+    assert!(matches!(
         validate_and_prepare_verifying_key_record_v1(&retired_id, &record).unwrap_err(),
-        "verifying-key record backend does not match the production registry backend"
-    );
+        iroha_core_zk::VerificationAttemptError::Rejected(error)
+            if error == "verifying-key record backend does not match the production registry backend"
+    ));
     assert_eq!(
         validate_and_prepare_verifying_key_record_v1(&id, &record).unwrap(),
         expected,
@@ -1881,6 +1885,7 @@ fn client_config_renders_ipv6_torii_url() {
         DEFAULT_CHAIN_ID,
         None,
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");
@@ -2443,7 +2448,7 @@ fn permissioned_localnet_uses_mandatory_nexus_default() {
     );
     assert_eq!(
         nexus["storage"]["local_budget_bytes"].as_integer(),
-        Some(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES as i64),
+        Some(i64::try_from(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES).unwrap()),
         "mandatory Nexus storage must have a finite developer cap in permissioned mode"
     );
 }
@@ -2558,15 +2563,17 @@ fn npos_without_sora_profile_uses_mandatory_nexus() {
         .get("pipeline")
         .and_then(toml::Value::as_table)
         .expect("pipeline table");
-    let pipeline_gas = pipeline
-        .get("gas")
-        .and_then(toml::Value::as_table)
-        .expect("pipeline.gas table");
+    assert!(
+        pipeline.get("gas").is_none(),
+        "fee policy is committed chain state"
+    );
+    let manifest = genesis_json_from_path(&temp.path().join("genesis.json"));
+    let parameters = genesis_parameters(&manifest);
+    let projected = iroha_core::state::StateParameters::try_from(parameters).unwrap();
     assert_eq!(
-        pipeline_gas
-            .get("tech_account_id")
-            .and_then(toml::Value::as_str),
-        Some(gas_account_id.as_str())
+        AccountId::parse_encoded(&projected.gas().tech_account_id).unwrap(),
+        localnet_gas_account_id(&genesis_public_key),
+        "the same deterministic custody account is pinned in signed parameters"
     );
 }
 include!("../private_fee_and_account_tests.rs");
@@ -2580,6 +2587,22 @@ fn localnet_gas_custody_derivation_is_deterministic() {
     let custody = localnet_gas_account_id(genesis.public_key());
     assert_eq!(custody, localnet_gas_account_id(genesis.public_key()));
     assert_ne!(custody, AccountId::new(genesis.public_key().clone()));
+}
+
+#[test]
+fn localnet_gas_custody_parameter_projects_the_original_account() {
+    let custody = localnet_gas_account_id(KeyPair::random().public_key());
+    let mut parameters = Parameters::default();
+    parameters.set_parameter(localnet_gas_custody_parameter(&custody));
+    let projected = iroha_core::state::StateParameters::try_from(parameters).unwrap();
+    assert_eq!(
+        AccountId::parse_encoded(&projected.gas().tech_account_id).unwrap(),
+        custody
+    );
+    assert!(
+        projected.gas().accepted_assets.is_empty(),
+        "pinning a receiver alone enables no fee asset"
+    );
 }
 #[test]
 fn localnet_gas_custody_is_bound_to_genesis_identity() {

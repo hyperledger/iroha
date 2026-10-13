@@ -770,18 +770,48 @@ pub fn quote_zk_batch_at(
         gas: schedule.conservative_batch_gas(quoted_proof_count, payload_len),
     })
 }
+/// Canonical ZK read outcome that keeps unfinished local attempts out of ABI statuses.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ZkDecodeError {
+    /// Completed format or intrinsic batch-bound rejection.
+    Rejected(u64),
+    /// Original non-wire decoder refusal; no proof verdict or output is available.
+    Deferred(norito::core::DecodeLocalRefusal),
+}
+
+impl ZkDecodeError {
+    fn from_canonical_read(error: VMError) -> Self {
+        match error {
+            VMError::DecodeDeferred(original) => Self::Deferred(original),
+            _ => Self::Rejected(ERR_DECODE),
+        }
+    }
+
+    /// Return a completed ABI rejection or propagate the original local refusal.
+    ///
+    /// # Errors
+    /// Returns [`VMError::DecodeDeferred`] before the caller publishes registers or output.
+    pub fn into_status(self) -> Result<u64, VMError> {
+        match self {
+            Self::Rejected(status) => Ok(status),
+            Self::Deferred(original) => Err(VMError::DecodeDeferred(original)),
+        }
+    }
+}
+
 /// Decode the sole ABI-v1 public ZK envelope schema canonically.
 ///
 /// # Errors
 ///
-/// Returns [`ERR_DECODE`] for invalid headers, flags, schema, checksum, or payloads.
-pub fn decode_canonical_zk_envelope(payload: &[u8]) -> Result<OpenVerifyEnvelope, u64> {
+/// Returns a completed [`ERR_DECODE`] rejection for invalid headers, flags, schema,
+/// checksum, or payloads. Local refusals retain their original opaque owner.
+pub fn decode_canonical_zk_envelope(payload: &[u8]) -> Result<OpenVerifyEnvelope, ZkDecodeError> {
     // Pointer-ABI payloads begin seven bytes into their TLV envelope, so a
     // valid nested Norito frame is not necessarily aligned for the zero-copy
     // `from_bytes` path. The canonical slice decoder validates the same
     // header, schema, flags, padding, and checksum while safely realigning
     // when required.
-    decode_canonical_norito(payload).map_err(|_| ERR_DECODE)
+    decode_canonical_norito(payload).map_err(ZkDecodeError::from_canonical_read)
 }
 /// Decode the sole ABI-v1 public ZK batch schema with a bounded item count.
 ///
@@ -789,10 +819,11 @@ pub fn decode_canonical_zk_envelope(payload: &[u8]) -> Result<OpenVerifyEnvelope
 ///
 /// Returns [`ERR_DECODE`] for invalid headers, flags, schema, checksum, an
 /// empty batch, or malformed elements, and [`ERR_BATCH`] above `max_items`.
+/// These are completed rejections; local refusals retain their original opaque owner.
 pub fn decode_canonical_zk_batch(
     payload: &[u8],
     max_items: usize,
-) -> Result<Vec<OpenVerifyEnvelope>, u64> {
+) -> Result<Vec<OpenVerifyEnvelope>, ZkDecodeError> {
     type Batch = Vec<OpenVerifyEnvelope>;
     let _canonical_flags =
         norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
@@ -800,9 +831,15 @@ pub fn decode_canonical_zk_batch(
     // Validate the complete frame without requiring the TLV payload address
     // itself to satisfy `Batch` payload-storage alignment. Inspect the bounded
     // top-level count before materializing any elements.
-    let view = norito::core::from_bytes_view(payload).map_err(|_| ERR_DECODE)?;
-    if view.schema() != norito::schema::identity::frame_hash::<Batch>() {
-        return Err(ERR_DECODE);
+    let view = norito::core::classify_decode_attempt(|| norito::core::from_bytes_view(payload))
+        .map_err(|error| match error.into_local_refusal() {
+            Ok(original) => ZkDecodeError::Deferred(original),
+            Err(_) => ZkDecodeError::Rejected(ERR_DECODE),
+        })?;
+    if view.schema() != norito::schema::identity::frame_hash::<Batch>()
+        || view.flags() != norito::core::default_encode_flags()
+    {
+        return Err(ZkDecodeError::Rejected(ERR_DECODE));
     }
     let alignment = norito::core::archived_payload_align::<Batch>();
     let expected_padding = if alignment <= 1 {
@@ -814,20 +851,30 @@ pub fn decode_canonical_zk_batch(
         .len()
         .checked_sub(Header::SIZE)
         .and_then(|tail| tail.checked_sub(view.as_bytes().len()))
-        .ok_or(ERR_DECODE)?;
+        .ok_or(ZkDecodeError::Rejected(ERR_DECODE))?;
     if actual_padding != expected_padding {
-        return Err(ERR_DECODE);
+        return Err(ZkDecodeError::Rejected(ERR_DECODE));
     }
-    let (count, _) = norito::core::read_seq_len_slice(view.as_bytes()).map_err(|_| ERR_DECODE)?;
+    // Canonical Norito sequences start with a fixed little-endian u64 count.
+    // Inspect only those validated frame-prefix bytes here: this is an intrinsic
+    // batch bound, not a second element/allocation admission. The canonical decoder below
+    // remains the sole materializer and preserves every enclosing budget's original cause.
+    let count = view
+        .as_bytes()
+        .get(..8)
+        .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+        .map(u64::from_le_bytes)
+        .ok_or(ZkDecodeError::Rejected(ERR_DECODE))?;
     if count == 0 {
-        return Err(ERR_DECODE);
+        return Err(ZkDecodeError::Rejected(ERR_DECODE));
     }
-    if count > max_items {
-        return Err(ERR_BATCH);
+    if count > u64::try_from(max_items).unwrap_or(u64::MAX) {
+        return Err(ZkDecodeError::Rejected(ERR_BATCH));
     }
-    let batch: Batch = decode_canonical_norito(payload).map_err(|_| ERR_DECODE)?;
-    if batch.len() != count {
-        return Err(ERR_DECODE);
+    let batch: Batch =
+        decode_canonical_norito(payload).map_err(ZkDecodeError::from_canonical_read)?;
+    if u64::try_from(batch.len()).ok() != Some(count) {
+        return Err(ZkDecodeError::Rejected(ERR_DECODE));
     }
     Ok(batch)
 }
@@ -4372,7 +4419,8 @@ impl IVMHost for DefaultHost {
                     .saturating_add(1);
                 let envelope = match decode_canonical_zk_envelope(tlv.payload) {
                     Ok(envelope) => envelope,
-                    Err(status) => {
+                    Err(error) => {
+                        let status = error.into_status()?;
                         vm.set_register(10, 0);
                         vm.set_register(11, status);
                         return Ok(conservative);
@@ -4468,7 +4516,8 @@ impl IVMHost for DefaultHost {
                     .saturating_add(1);
                 let envelopes = match decode_canonical_zk_batch(tlv.payload, max_items) {
                     Ok(envelopes) => envelopes,
-                    Err(status) => {
+                    Err(error) => {
+                        let status = error.into_status()?;
                         vm.set_register(10, 0);
                         vm.set_register(11, status);
                         vm.set_register(12, u64::MAX);
@@ -4889,14 +4938,14 @@ mod tests {
         )
         .expect("configured maximum header lengths");
         assert!(configured_output_bound <= syscalls::STATE_MAX_PATH_FRAME_BYTES);
-        assert_eq!(
+        assert!(matches!(
             canonical_state_map_path(&base, &[0u8; syscalls::STATE_MAP_MAX_KEY_BYTES + 1]),
             Err(VMError::NoritoInvalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             quote_canonical_state_map_path_lengths(syscalls::STATE_MAP_MAX_BASE_FRAME_BYTES + 1, 1),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!("b".repeat(MAX_NAME_BYTES + 1).parse::<Name>().is_err());
         assert!(
             "p".repeat(syscalls::STATE_MAX_PATH_BYTES + 1)
@@ -4932,10 +4981,10 @@ mod tests {
             );
             assert!(encoded.len() <= syscalls::STATE_MAP_MAX_PAGE_BYTES);
         }
-        assert_eq!(
+        assert!(matches!(
             state_scan_page_payload_bound_from_parts(maximum_items + 1, 0),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn state_path_and_page_bounds_ignore_ambient_layout() {
@@ -4957,13 +5006,14 @@ mod tests {
             "fixture must distinguish the ambient layout from canonical V1"
         );
         assert_eq!(
-            state_path_payload_len(&path),
-            Ok(canonical_path_len),
+            (state_path_payload_len(&path)).expect("expected successful fixture result"),
+            canonical_path_len,
             "path admission and gas must use canonical V1 lengths"
         );
         assert_eq!(
-            state_scan_response_tail_after_item(0, 0, path.as_ref()),
-            Ok(canonical_tail),
+            (state_scan_response_tail_after_item(0, 0, path.as_ref()))
+                .expect("expected successful fixture result"),
+            canonical_tail,
             "page selection and response bounds must use canonical V1 lengths"
         );
     }
@@ -5012,9 +5062,11 @@ mod tests {
             vec![first.clone(), foreign],
         ] {
             let page = encode_canonical_norito(&paths).expect("encode adversarial page");
-            assert_eq!(
-                canonical_state_map_key_at(&page, &base, u64::MAX),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    canonical_state_map_key_at(&page, &base, u64::MAX),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "the complete page must be validated even when the index is out of range"
             );
         }
@@ -5029,9 +5081,11 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let page = encode_canonical_norito(&paths).expect("encode oversized map page");
-        assert_eq!(
-            canonical_state_map_key_at(&page, &base, 0),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                canonical_state_map_key_at(&page, &base, 0),
+                Err(VMError::DecodeError)
+            ),
             "the top-level sequence limit must reject before Vec<StatePath> materialization"
         );
     }
@@ -5052,13 +5106,165 @@ mod tests {
         assert_eq!(quoted, actual);
         assert_eq!(actual, debug_log_gas(256));
     }
+
+    #[test]
+    fn canonical_zk_read_refusal_retains_owner_and_intrinsic_batch_rejection() {
+        let envelope = dummy_zk_batch_envelope();
+        let bytes = encode_canonical_norito(&envelope).unwrap();
+        let batch = encode_canonical_norito(&vec![envelope.clone()]).unwrap();
+        let limit =
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let single_error =
+            norito::core::with_decode_limits_scope(limit, || decode_canonical_zk_envelope(&bytes))
+                .unwrap_err();
+        let batch_error =
+            norito::core::with_decode_limits_scope(limit, || decode_canonical_zk_batch(&batch, 1))
+                .unwrap_err();
+        for error in [single_error, batch_error] {
+            let ZkDecodeError::Deferred(original) = &error else {
+                panic!("actual decode refusal cannot become an ABI status");
+            };
+            let retained = original.clone();
+            let error =
+                norito::core::with_decode_limits_scope(limit, || error.into_status()).unwrap_err();
+            assert!(matches!(&error, VMError::DecodeDeferred(actual) if actual == &retained));
+            assert_eq!(error.fault_kind(), None);
+            assert_eq!(error.metered_gas(), None);
+        }
+        assert_eq!(decode_canonical_zk_envelope(&bytes).unwrap(), envelope);
+        assert_eq!(
+            decode_canonical_zk_batch(&batch, 1).unwrap(),
+            vec![envelope]
+        );
+        let rejected =
+            norito::core::with_decode_limits_scope(limit, || decode_canonical_zk_batch(&batch, 0))
+                .unwrap_err();
+        assert_eq!(rejected.into_status().unwrap(), ERR_BATCH);
+        assert_eq!(
+            decode_canonical_zk_envelope(&bytes[..7])
+                .unwrap_err()
+                .into_status()
+                .unwrap(),
+            ERR_DECODE
+        );
+    }
+
+    #[test]
+    fn batch_prefix_does_not_duplicate_decode_charges_or_hide_an_enclosing_refusal() {
+        use norito::core::{DecodeBudgetContext, DecodeLimits, DecodeLocalRefusalKind};
+        let values = vec![dummy_zk_batch_envelope()];
+        let bytes = encode_canonical_norito(&values).unwrap();
+        let unbounded =
+            DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX);
+        let direct = DecodeBudgetContext::new(unbounded);
+        direct.with(|| {
+            assert_eq!(
+                decode_canonical_norito::<Vec<OpenVerifyEnvelope>>(&bytes).unwrap(),
+                values
+            )
+        });
+        let batch = DecodeBudgetContext::new(unbounded);
+        batch.with(|| assert_eq!(decode_canonical_zk_batch(&bytes, 1).unwrap(), values));
+        assert!(direct.consumed_allocated_bytes() > 0);
+        assert_eq!(
+            batch.consumed_allocated_bytes(),
+            direct.consumed_allocated_bytes()
+        );
+        for limits in [
+            DecodeLimits::new(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+            DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX),
+            DecodeLimits::new(usize::MAX, usize::MAX, 0, usize::MAX, usize::MAX),
+            DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 0),
+        ] {
+            let error = norito::core::with_decode_limits_scope(limits, || {
+                decode_canonical_zk_batch(&bytes, 1)
+            })
+            .unwrap_err();
+            let ZkDecodeError::Deferred(original) = error else {
+                panic!("original batch decoder refusal lost");
+            };
+            assert_eq!(original.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+            let retained = original.clone();
+            let error = norito::core::with_decode_limits_scope(limits, || {
+                ZkDecodeError::Deferred(original).into_status()
+            })
+            .unwrap_err();
+            assert!(matches!(error, VMError::DecodeDeferred(actual) if actual == retained));
+            // A completed intrinsic count rejection takes no element admission at all.
+            let rejected = norito::core::with_decode_limits_scope(limits, || {
+                decode_canonical_zk_batch(&bytes, 0)
+            })
+            .unwrap_err();
+            assert_eq!(rejected.into_status().unwrap(), ERR_BATCH);
+            assert_eq!(decode_canonical_zk_batch(&bytes, 1).unwrap(), values);
+        }
+    }
+
+    #[test]
+    fn default_zk_syscalls_publish_nothing_for_original_decode_refusal_then_retry() {
+        for syscall in [
+            syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
+            syscalls::SYSCALL_ZK_VOTE_VERIFY_TALLY,
+            syscalls::SYSCALL_ZK_VERIFY_BATCH,
+        ] {
+            let envelope = dummy_zk_batch_envelope();
+            let payload = if syscall == syscalls::SYSCALL_ZK_VERIFY_BATCH {
+                encode_canonical_norito(&vec![envelope]).unwrap()
+            } else {
+                encode_canonical_norito(&envelope).unwrap()
+            };
+            let mut vm = IVM::new(u64::MAX);
+            let pointer = vm
+                .alloc_input_tlv(&test_tlv(PointerType::NoritoBytes, &payload))
+                .unwrap();
+            vm.set_register(10, pointer);
+            vm.set_register(11, 0xfeed);
+            vm.set_register(12, 0xcafe);
+            let mut host = DefaultHost::new();
+            let limit =
+                norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let error =
+                norito::core::with_decode_limits_scope(limit, || host.syscall(syscall, &mut vm))
+                    .unwrap_err();
+            assert!(matches!(error, VMError::DecodeDeferred(_)));
+            assert_eq!(error.fault_kind(), None);
+            assert_eq!(error.metered_gas(), None);
+            assert_eq!(
+                (vm.register(10), vm.register(11), vm.register(12)),
+                (pointer, 0xfeed, 0xcafe)
+            );
+            assert_eq!(vm.remaining_gas(), u64::MAX);
+            assert_eq!(
+                host.zk_execution_counters(),
+                ZkExecutionCounters {
+                    canonical_decodes: 1,
+                    backend_invocations: 0,
+                    response_allocations: 0,
+                }
+            );
+            assert_eq!(vm.validate_tlv(pointer).unwrap().payload, payload);
+            host.syscall(syscall, &mut vm)
+                .expect("same original frame now completes decoding");
+            assert_eq!(vm.register(11), ERR_BACKEND);
+            assert_eq!(host.zk_execution_counters().canonical_decodes, 2);
+            assert_eq!(
+                host.zk_execution_counters().response_allocations,
+                u64::from(syscall == syscalls::SYSCALL_ZK_VERIFY_BATCH)
+            );
+        }
+    }
+
     #[test]
     fn default_host_accepts_only_the_canonical_envelope_schema() {
         let host = DefaultHost::new();
         let envelope = dummy_zk_batch_envelope();
         assert_eq!(host.validate_zk_open_envelope(&envelope), Err(ERR_BACKEND));
         let legacy = norito::to_bytes(&42_u64).expect("encode non-envelope archive");
-        assert_eq!(decode_canonical_zk_envelope(&legacy), Err(ERR_DECODE));
+        assert_eq!(
+            decode_canonical_zk_envelope(&legacy),
+            Err(ZkDecodeError::Rejected(ERR_DECODE))
+        );
         let canonical =
             encode_canonical_norito(&envelope).expect("encode canonical data-model envelope");
         assert!(decode_canonical_zk_envelope(&canonical).is_ok());
@@ -5073,7 +5279,10 @@ mod tests {
             norito::decode_from_bytes::<OpenVerifyEnvelope>(&alternate).is_ok(),
             "ordinary Norito decoding must accept the advertised alternate layout"
         );
-        assert_eq!(decode_canonical_zk_envelope(&alternate), Err(ERR_DECODE));
+        assert_eq!(
+            decode_canonical_zk_envelope(&alternate),
+            Err(ZkDecodeError::Rejected(ERR_DECODE))
+        );
     }
     #[test]
     fn default_host_rejects_every_reserved_privacy_circuit_label_before_dispatch() {
@@ -5109,14 +5318,16 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let mut host = DefaultHost::new();
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm),
-            Ok(DefaultHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 0);
         host.set_current_time_ms(42);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_TIME_MS, &mut vm),
-            Ok(DefaultHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_TIME_MS, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 42);
     }
@@ -5126,14 +5337,16 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let mut host = DefaultHost::new();
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm),
-            Ok(DefaultHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 0);
         host.set_current_block_height(77);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm),
-            Ok(DefaultHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 77);
     }
@@ -5144,8 +5357,9 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let mut host = DefaultHost::new().with_chain_id(chain_id.clone());
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_CHAIN_ID, &mut vm),
-            Ok(DefaultHost::sysvar_gas(chain_id.len()))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_CHAIN_ID, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sysvar_gas(chain_id.len())
         );
         let tlv = vm.validate_tlv(vm.register(10)).expect("chain tlv");
         assert_eq!(tlv.type_id, PointerType::Blob);
@@ -5163,8 +5377,9 @@ mod tests {
             .expect("alloc wrong type");
         vm.set_register(10, wrong_type_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(0, wrong_type_payload.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(0, wrong_type_payload.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 1);
@@ -5174,8 +5389,9 @@ mod tests {
             .expect("alloc malformed request");
         vm.set_register(10, malformed_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(0, malformed.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(0, malformed.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 2);
@@ -5192,8 +5408,9 @@ mod tests {
             .expect("alloc bad pk request");
         vm.set_register(10, bad_pk_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(1, body.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(1, body.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 4);
@@ -5227,8 +5444,9 @@ mod tests {
         assert_ne!(ambient_before, canonical_probe);
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(0, body.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(0, body.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 9);
@@ -5265,8 +5483,9 @@ mod tests {
         vm.set_register(10, pointer);
         let mut host = DefaultHost::new();
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(1, body.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(1, body.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 8);
@@ -5282,8 +5501,9 @@ mod tests {
         vm.set_register(11, u64::MAX);
         vm.set_register(12, u64::MAX);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &mut vm),
-            Ok(DefaultHost::vrf_verify_gas(1, batch_body.len()))
+            (host.syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::vrf_verify_gas(1, batch_body.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), 8);
@@ -5519,10 +5739,10 @@ mod tests {
             .expect("allocate wrong-type VRF request");
         vm.set_register(10, wrong_type);
         let host = DefaultHost::new();
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let oversized = vec![0_u8; crate::vrf::MAX_VRF_VERIFY_PAYLOAD_BYTES_V1 + 1];
         let envelope = test_tlv(PointerType::NoritoBytes, &oversized);
         let pointer = vm
@@ -5531,10 +5751,10 @@ mod tests {
         vm.store_bytes(pointer, &envelope)
             .expect("store oversized envelope");
         vm.set_register(10, pointer);
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             host.vrf_execution_counters(),
             VrfExecutionCounters::default()
@@ -5566,7 +5786,10 @@ mod tests {
             .prepare_syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &vm)
             .expect("quote VRF batch");
         vm.set_gas_limit(quote);
-        assert_eq!(vm.run_with_host(&mut host), Err(VMError::OutOfGas));
+        assert!(matches!(
+            vm.run_with_host(&mut host),
+            Err(VMError::OutOfGas)
+        ));
         assert_eq!(vm.register(10), pointer);
         assert_eq!(vm.register(11), 0xfeed);
         assert_eq!(vm.register(12), 0xbeef);
@@ -5603,7 +5826,9 @@ mod tests {
         let error = host
             .syscall(syscalls::SYSCALL_VRF_VERIFY_BATCH, &mut vm)
             .expect_err("response allocation must fail");
-        assert_eq!(error.split_metered(), (Some(actual), VMError::OutOfMemory));
+        let (metered_gas, original) = error.split_metered();
+        assert_eq!(metered_gas, Some(actual));
+        assert!(matches!(original, VMError::OutOfMemory));
         assert_eq!(vm.register(10), pointer);
         assert_eq!(vm.register(11), 0xfeed);
         assert_eq!(vm.register(12), 0xbeef);
@@ -5627,8 +5852,9 @@ mod tests {
             .expect("alloc malformed envelope");
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT, &mut vm),
-            Ok(gas::zk_verify_gas(malformed.len()))
+            (host.syscall(syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::zk_verify_gas(malformed.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), ERR_DECODE);
@@ -5639,10 +5865,10 @@ mod tests {
             .expect("allocate canonical envelope");
         vm.set_register(10, canonical_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT, &mut vm),
-            Ok(host
-                .zk_gas_schedule()
-                .actual_single_gas(canonical.len(), 64))
+            (host.syscall(syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT, &mut vm))
+                .expect("expected successful fixture result"),
+            host.zk_gas_schedule()
+                .actual_single_gas(canonical.len(), 64)
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), ERR_BACKEND);
@@ -5652,10 +5878,10 @@ mod tests {
             .expect("alloc batch envelope");
         vm.set_register(10, batch_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm),
-            Ok(host
-                .zk_gas_schedule()
-                .conservative_batch_gas(1, batch_payload.len()))
+            (host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm))
+                .expect("expected successful fixture result"),
+            host.zk_gas_schedule()
+                .conservative_batch_gas(1, batch_payload.len())
         );
         assert_eq!(vm.register(10), 0);
         assert_eq!(vm.register(11), ERR_DECODE);
@@ -5684,8 +5910,9 @@ mod tests {
             .expect("allocate bounded ZK batch");
         vm.set_register(10, pointer);
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &vm),
-            Ok(gas::zk_verify_batch_gas(3, payload.len()))
+            (host.prepare_syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &vm))
+                .expect("expected successful fixture result"),
+            gas::zk_verify_batch_gas(3, payload.len())
         );
         let oversized = norito::to_bytes(
             &std::iter::repeat_with(dummy_zk_batch_envelope)
@@ -5698,11 +5925,9 @@ mod tests {
             .expect("allocate oversized ZK batch");
         vm.set_register(10, pointer);
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &vm),
-            Ok(gas::zk_verify_batch_gas(
-                gas::HOST_ZK_VERIFY_MAX_BATCH_PROOFS + 1,
-                oversized.len()
-            ))
+            (host.prepare_syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &vm))
+                .expect("expected successful fixture result"),
+            gas::zk_verify_batch_gas(gas::HOST_ZK_VERIFY_MAX_BATCH_PROOFS + 1, oversized.len())
         );
     }
     #[test]
@@ -5736,7 +5961,7 @@ mod tests {
         );
         assert!(matches!(
             decode_canonical_zk_batch(&alternate_layout, 16),
-            Err(ERR_DECODE)
+            Err(ZkDecodeError::Rejected(ERR_DECODE))
         ));
         let mut wrong_schema = canonical.clone();
         wrong_schema[6] ^= 1; // schema starts after magic + major + minor
@@ -5861,10 +6086,10 @@ mod tests {
             .expect("disable heap spill allocation");
         vm.set_register(10, pointer);
         let mut host = DefaultHost::new();
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm),
             Err(VMError::OutOfMemory)
-        );
+        ));
         assert_eq!(
             host.zk_execution_counters(),
             ZkExecutionCounters {
@@ -5901,7 +6126,10 @@ mod tests {
             .prepare_syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &vm)
             .expect("quote bounded ZK batch");
         vm.set_gas_limit(quote);
-        assert_eq!(vm.run_with_host(&mut host), Err(VMError::OutOfGas));
+        assert!(matches!(
+            vm.run_with_host(&mut host),
+            Err(VMError::OutOfGas)
+        ));
         assert_eq!(vm.register(10), pointer);
         assert_eq!(vm.register(11), 0xfeed);
         assert_eq!(vm.register(12), 0xbeef);
@@ -6021,10 +6249,10 @@ mod tests {
             .alloc_input_tlv(&test_tlv(PointerType::NoritoBytes, &payload))
             .expect("allocate tally request");
         vm.set_register(10, request_ptr);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_ZK_VOTE_GET_TALLY, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             vm.register(10),
             request_ptr,
@@ -6066,8 +6294,9 @@ mod tests {
         vm.set_register(10, key_ptr);
         vm.set_register(11, value_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
-            Ok(state_value_gas(key_payload.len(), b"value".len()))
+            (host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm))
+                .expect("expected successful fixture result"),
+            state_value_gas(key_payload.len(), b"value".len())
         );
         vm.set_register(10, key_ptr);
         host.syscall(syscalls::SYSCALL_STATE_HAS, &mut vm)
@@ -6080,16 +6309,18 @@ mod tests {
         assert_eq!(vm.register(11), 1);
         vm.set_register(10, prefix_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_COUNT, &mut vm),
-            Ok(STATE_QUERY_GAS_BASE
+            (host.syscall(syscalls::SYSCALL_STATE_COUNT, &mut vm))
+                .expect("expected successful fixture result"),
+            STATE_QUERY_GAS_BASE
                 + u64::try_from(prefix_payload.len()).expect("path length fits")
-                + u64::try_from(1 + key.as_ref().len()).expect("scan length fits"))
+                + u64::try_from(1 + key.as_ref().len()).expect("scan length fits")
         );
         assert_eq!(vm.register(10), 1);
         vm.set_register(10, key_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_DEL, &mut vm),
-            Ok(state_path_gas(key_payload.len()))
+            (host.syscall(syscalls::SYSCALL_STATE_DEL, &mut vm))
+                .expect("expected successful fixture result"),
+            state_path_gas(key_payload.len())
         );
         vm.set_register(10, key_ptr);
         host.syscall(syscalls::SYSCALL_STATE_HAS, &mut vm)
@@ -6120,9 +6351,11 @@ mod tests {
             DefaultHost::path_gas(name_payload.len(), output.payload.len())
         );
         vm.set_register(10, name_ptr);
-        assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_HAS, &mut vm),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.syscall(syscalls::SYSCALL_STATE_HAS, &mut vm),
+                Err(VMError::NoritoInvalid)
+            ),
             "durable-state operations must not accept Name as a compatibility carrier"
         );
         assert_eq!(vm.register(10), name_ptr);
@@ -6157,30 +6390,41 @@ mod tests {
             syscalls::SYSCALL_VERIFY_DS_PROOF,
             syscalls::SYSCALL_AXT_COMMIT,
         ] {
-            assert_eq!(empty.prepare_syscall(syscall, &vm), Ok(available));
-            assert_eq!(populated.prepare_syscall(syscall, &vm), Ok(available));
+            assert_eq!(
+                (empty.prepare_syscall(syscall, &vm)).expect("expected successful fixture result"),
+                available
+            );
+            assert_eq!(
+                (populated.prepare_syscall(syscall, &vm))
+                    .expect("expected successful fixture result"),
+                available
+            );
         }
         let path_len = quote_state_path_payload_len_at(&vm, path).expect("quote state path");
         assert_eq!(
-            empty.prepare_syscall(syscalls::SYSCALL_STATE_GET, &vm),
-            Ok(available)
+            (empty.prepare_syscall(syscalls::SYSCALL_STATE_GET, &vm))
+                .expect("expected successful fixture result"),
+            available
         );
         assert_eq!(
-            populated.prepare_syscall(syscalls::SYSCALL_STATE_GET, &vm),
-            Ok(available)
+            (populated.prepare_syscall(syscalls::SYSCALL_STATE_GET, &vm))
+                .expect("expected successful fixture result"),
+            available
         );
         assert_eq!(
-            empty.prepare_syscall(syscalls::SYSCALL_STATE_LEN, &vm),
-            Ok(state_path_gas(path_len))
+            (empty.prepare_syscall(syscalls::SYSCALL_STATE_LEN, &vm))
+                .expect("expected successful fixture result"),
+            state_path_gas(path_len)
         );
         assert_eq!(
-            populated.prepare_syscall(syscalls::SYSCALL_STATE_LEN, &vm),
-            Ok(state_path_gas(path_len))
+            (populated.prepare_syscall(syscalls::SYSCALL_STATE_LEN, &vm))
+                .expect("expected successful fixture result"),
+            state_path_gas(path_len)
         );
-        assert_eq!(
+        assert!(matches!(
             reserve_available_syscall_gas(&IVM::new(0)),
             Err(VMError::OutOfGas)
-        );
+        ));
     }
     #[test]
     fn default_host_pointer_helpers_roundtrip_and_charge_gas() {
@@ -6208,8 +6452,9 @@ mod tests {
         let envelope_len = 2 + 1 + 4 + payload.len() + iroha_crypto::Hash::LENGTH;
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm),
-            Ok(DefaultHost::pointer_gas(envelope_len))
+            (host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::pointer_gas(envelope_len)
         );
         let wrapped_ptr = vm.register(10);
         let wrapped = vm.validate_tlv(wrapped_ptr).expect("wrapped tlv");
@@ -6218,8 +6463,9 @@ mod tests {
         vm.set_register(10, wrapped_ptr);
         vm.set_register(11, PointerType::Blob as u64);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(DefaultHost::pointer_gas(envelope_len))
+            (host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::pointer_gas(envelope_len)
         );
         let roundtrip = vm.validate_tlv(vm.register(10)).expect("roundtrip tlv");
         assert_eq!(roundtrip.type_id, PointerType::Blob);
@@ -6230,10 +6476,10 @@ mod tests {
             .expect("alloc blob carrier");
         vm.set_register(10, blob_carrier_ptr);
         vm.set_register(11, PointerType::Blob as u64);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(vm.register(10), blob_carrier_ptr);
     }
     #[test]
@@ -6247,8 +6493,9 @@ mod tests {
         let source = vm.alloc_input_tlv(&inner).expect("allocate Int");
         vm.set_register(10, source);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm),
-            Ok(DefaultHost::pointer_gas(inner.len()))
+            (host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::pointer_gas(inner.len())
         );
         let wrapped = vm.register(10);
         assert_eq!(
@@ -6258,13 +6505,15 @@ mod tests {
         vm.set_register(10, wrapped);
         vm.set_register(11, u64::from(PointerType::Int as u16));
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(DefaultHost::pointer_gas(inner.len()))
+            (host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::pointer_gas(inner.len())
         );
         let restored = vm.validate_tlv(vm.register(10)).expect("restored Int");
         assert_eq!(
-            crate::numeric_tlv::decode_int_bytes(&test_tlv(PointerType::Int, restored.payload)),
-            Ok(value)
+            (crate::numeric_tlv::decode_int_bytes(&test_tlv(PointerType::Int, restored.payload)))
+                .expect("expected successful fixture result"),
+            value
         );
 
         let malformed = test_tlv(PointerType::Int, b"17");
@@ -6295,9 +6544,11 @@ mod tests {
         ] {
             vm.set_register(10, 0);
             vm.set_register(11, u64::from(kind as u16));
-            assert_eq!(
-                host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "numeric {kind:?} cannot decode from null"
             );
             assert_eq!(vm.register(10), 0);
@@ -6445,20 +6696,20 @@ mod tests {
             vm.set_register(12, public_key);
             vm.set_register(13, u64::MAX);
             let mut host = DefaultHost::new();
-            assert_eq!(
+            assert!(matches!(
                 host.prepare_syscall(syscalls::SYSCALL_VERIFY_SIGNATURE, &vm),
                 Err(VMError::NoritoInvalid)
-            );
-            assert_eq!(
+            ));
+            assert!(matches!(
                 host.syscall(syscalls::SYSCALL_VERIFY_SIGNATURE, &mut vm),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(vm.register(10), message);
             let mut sm_host = DefaultHost::new().with_sm_enabled(true);
-            assert_eq!(
+            assert!(matches!(
                 sm_host.syscall(syscalls::SYSCALL_SM2_VERIFY, &mut vm),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(vm.register(10), message);
         }
     }
@@ -6496,7 +6747,7 @@ mod tests {
         let error = vm
             .run_with_host(&mut host)
             .expect_err("the quote is one gas beyond the post-SCALL budget");
-        assert_eq!(error, VMError::OutOfGas);
+        assert!(matches!(error, VMError::OutOfGas));
         assert_eq!(vm.register(10), message);
         assert_eq!(vm.register(11), signature);
         assert_eq!(vm.register(12), public_key);
@@ -6536,15 +6787,15 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let stack_top = vm.memory.stack_top();
         vm.set_register(10, stack_top);
-        assert_eq!(
+        assert!(matches!(
             DefaultHost::new().prepare_syscall(syscalls::SYSCALL_GET_MERKLE_PATH, &vm),
             Err(VMError::MemoryOutOfBounds)
-        );
+        ));
         vm.set_register(10, crate::parallel::REGISTER_COUNT as u64);
-        assert_eq!(
+        assert!(matches!(
             DefaultHost::new().prepare_syscall(syscalls::SYSCALL_GET_REGISTER_MERKLE_COMPACT, &vm),
             Err(VMError::RegisterOutOfBounds)
-        );
+        ));
     }
     #[test]
     fn merkle_path_quote_rounds_partial_leaf_up_at_power_of_two_boundary() {
@@ -6571,14 +6822,17 @@ mod tests {
     fn disabled_and_unknown_syscall_quotes_fail_closed_without_over_reserving() {
         let vm = IVM::new(u64::MAX);
         let host = DefaultHost::new();
-        assert_eq!(host.prepare_syscall(syscalls::SYSCALL_SM3_HASH, &vm), Ok(0));
+        assert!(matches!(
+            host.prepare_syscall(syscalls::SYSCALL_SM3_HASH, &vm),
+            Ok(0)
+        ));
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_REGISTER_DOMAIN, &vm),
-            Ok(MUTATION_GAS)
+            (host.prepare_syscall(syscalls::SYSCALL_REGISTER_DOMAIN, &vm))
+                .expect("expected successful fixture result"),
+            MUTATION_GAS
         );
-        assert_eq!(
-            host.prepare_syscall(0xffff_fffe, &vm),
-            Err(VMError::UnknownSyscall(0xffff_fffe))
+        assert!(
+            matches!(host.prepare_syscall(0xffff_fffe, &vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xffff_fffe))
         );
     }
     #[test]
@@ -6621,8 +6875,9 @@ mod tests {
         vm.set_register(12, aad_ptr);
         vm.set_register(13, plaintext_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SM4_GCM_SEAL, &mut vm),
-            Ok(DefaultHost::sm4_gas(aad.len(), plaintext.len()))
+            (host.syscall(syscalls::SYSCALL_SM4_GCM_SEAL, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sm4_gas(aad.len(), plaintext.len())
         );
         let sealed_ptr = vm.register(10);
         let sealed_len = {
@@ -6636,8 +6891,9 @@ mod tests {
         vm.set_register(12, aad_ptr);
         vm.set_register(13, sealed_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SM4_GCM_OPEN, &mut vm),
-            Ok(DefaultHost::sm4_gas(aad.len(), sealed_len))
+            (host.syscall(syscalls::SYSCALL_SM4_GCM_OPEN, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::sm4_gas(aad.len(), sealed_len)
         );
         let opened = vm.validate_tlv(vm.register(10)).expect("opened tlv");
         assert_eq!(opened.type_id, PointerType::Blob);
@@ -6671,8 +6927,9 @@ mod tests {
         vm.set_register(10, left);
         vm.set_register(11, right);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TLV_EQ, &mut vm),
-            Ok(DefaultHost::tlv_eq_gas(4, 4))
+            (host.syscall(syscalls::SYSCALL_TLV_EQ, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::tlv_eq_gas(4, 4)
         );
         assert_eq!(vm.register(10), 1);
     }
@@ -6700,8 +6957,9 @@ mod tests {
             .expect("alloc tlv");
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TLV_LEN, &mut vm),
-            Ok(DefaultHost::tlv_len_gas(6))
+            (host.syscall(syscalls::SYSCALL_TLV_LEN, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::tlv_len_gas(6)
         );
         assert_eq!(vm.register(10), 6);
     }
@@ -6717,12 +6975,14 @@ mod tests {
             .expect("store public heap TLV");
         vm.set_register(10, pointer);
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &vm),
-            Ok(DefaultHost::input_publish_gas(envelope.len()))
+            (host.prepare_syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::input_publish_gas(envelope.len())
         );
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm),
-            Ok(DefaultHost::input_publish_gas(envelope.len()))
+            (host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::input_publish_gas(envelope.len())
         );
         assert_eq!(vm.register(10), pointer);
     }
@@ -6766,13 +7026,16 @@ mod tests {
         vm.set_register(10, 0);
         vm.set_register(11, PrivateInputKindV1::Int.tag());
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_GET_PRIVATE_INPUT, &mut vm),
-            Ok(GET_PRIVATE_INPUT_GAS)
+            (host.syscall(syscalls::SYSCALL_GET_PRIVATE_INPUT, &mut vm))
+                .expect("expected successful fixture result"),
+            GET_PRIVATE_INPUT_GAS
         );
         assert!(vm.register(10) >= Memory::HEAP_START);
-        assert_eq!(
-            vm.ensure_public_tlv_register(10),
-            Err(VMError::PrivacyViolation),
+        assert!(
+            matches!(
+                vm.ensure_public_tlv_register(10),
+                Err(VMError::PrivacyViolation)
+            ),
             "the host must mark the complete private-input envelope as private memory"
         );
         vm.memory
@@ -6780,19 +7043,22 @@ mod tests {
             .expect("shrink heap limit for grow test");
         vm.set_register(10, 4097);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_GROW_HEAP, &mut vm),
-            Ok(DefaultHost::grow_heap_gas(4097))
+            (host.syscall(syscalls::SYSCALL_GROW_HEAP, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::grow_heap_gas(4097)
         );
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_COMMIT_OUTPUT, &mut vm),
-            Ok(COMMIT_OUTPUT_GAS)
+            (host.syscall(syscalls::SYSCALL_COMMIT_OUTPUT, &mut vm))
+                .expect("expected successful fixture result"),
+            COMMIT_OUTPUT_GAS
         );
         let tlv = test_tlv(PointerType::Blob, b"publish");
         let publish_ptr = vm.alloc_input_tlv(&tlv).expect("alloc publish tlv");
         vm.set_register(10, publish_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm),
-            Ok(DefaultHost::input_publish_gas(tlv.len()))
+            (host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::input_publish_gas(tlv.len())
         );
         let account_ptr = vm
             .alloc_input_tlv(&test_tlv(PointerType::AccountId, b""))
@@ -6808,8 +7074,9 @@ mod tests {
         vm.set_register(11, name_ptr);
         vm.set_register(12, json_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SET_ACCOUNT_DETAIL, &mut vm),
-            Ok(DefaultHost::mutation_gas(json_payload.len()))
+            (host.syscall(syscalls::SYSCALL_SET_ACCOUNT_DETAIL, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::mutation_gas(json_payload.len())
         );
         let msg = test_tlv(PointerType::Blob, b"m");
         let sig = test_tlv(PointerType::Blob, b"sig");
@@ -6822,8 +7089,9 @@ mod tests {
         vm.set_register(12, pk_ptr);
         vm.set_register(13, u64::MAX);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_VERIFY_SIGNATURE, &mut vm),
-            Ok(DefaultHost::signature_verify_gas(1, 3, 2))
+            (host.syscall(syscalls::SYSCALL_VERIFY_SIGNATURE, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::signature_verify_gas(1, 3, 2)
         );
         assert_eq!(vm.register(10), 0);
         let addr = crate::Memory::HEAP_START;
@@ -6834,8 +7102,9 @@ mod tests {
         vm.set_register(11, crate::Memory::OUTPUT_START);
         vm.set_register(12, 0);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_GET_MERKLE_PATH, &mut vm),
-            Ok(DefaultHost::merkle_path_gas(path_len))
+            (host.syscall(syscalls::SYSCALL_GET_MERKLE_PATH, &mut vm))
+                .expect("expected successful fixture result"),
+            DefaultHost::merkle_path_gas(path_len)
         );
         assert_eq!(
             vm.register(10),

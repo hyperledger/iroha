@@ -13,6 +13,32 @@ use ivm::{
 
 use super::*;
 
+fn assert_debug_error(actual: &VMError, expected: &VMError) {
+    match (actual, expected) {
+        (VMError::AllocationDeferred(a), VMError::AllocationDeferred(e)) => assert_eq!(a, e),
+        (VMError::ExecutionDeferred(a), VMError::ExecutionDeferred(e)) => assert_eq!(a, e),
+        (VMError::UnknownSyscall(a), VMError::UnknownSyscall(e)) => assert_eq!(a, e),
+        (
+            VMError::Metered {
+                gas: a,
+                source: actual,
+            },
+            VMError::Metered {
+                gas: e,
+                source: expected,
+            },
+        ) => {
+            assert_eq!(a, e);
+            assert_debug_error(actual, expected);
+        }
+        (VMError::OutOfGas, VMError::OutOfGas)
+        | (VMError::PrivacyViolation, VMError::PrivacyViolation) => {}
+        (actual, expected) => {
+            panic!("debug fixture error differs: {actual:?}; expected {expected:?}")
+        }
+    }
+}
+
 fn vm() -> IVM {
     let mut vm = IVM::try_new(100).unwrap();
     let words = [encode_syscallx(ivm::syscalls::SYSCALL_ABORT), encode_halt()];
@@ -62,12 +88,18 @@ fn actual_trace_policy_change_cannot_reach_completed_report() {
     .unwrap_err();
     assert_eq!(host.calls, 1);
     assert!(!report_built);
-    assert_eq!(
-        report.downcast_ref::<VMError>(),
-        Some(&VMError::ExecutionDeferred(
+    assert!(match (
+        &(report.downcast_ref::<VMError>()),
+        &(Some(&VMError::ExecutionDeferred(
             ExecutionDeferral::TraceOwnerUnavailable
-        ))
-    );
+        )))
+    ) {
+        (
+            Some(VMError::ExecutionDeferred(actual_field_0)),
+            Some(VMError::ExecutionDeferred(expected_field_0)),
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
 }
 
 #[test]
@@ -88,10 +120,16 @@ fn nested_metered_local_errors_retain_their_original_type_without_gas() {
                 source: Box::new(VMError::ExecutionDeferred(reason)),
             }),
         };
-        let expected = error.clone();
+
         let report = completed(Err(error)).unwrap_err();
         let retained = report.downcast_ref::<VMError>().unwrap();
-        assert_eq!(retained, &expected);
+        let VMError::Metered { gas: 31, source } = retained else {
+            panic!("outer meter lost");
+        };
+        let VMError::Metered { gas: 17, source } = &**source else {
+            panic!("inner meter lost");
+        };
+        assert!(matches!(&**source, VMError::ExecutionDeferred(actual) if *actual == reason));
         assert_eq!(retained.execution_deferral(), Some(reason));
         assert_eq!(retained.metered_gas(), None);
     }
@@ -106,43 +144,49 @@ fn allocation_refusal_retains_the_original_pool_release_observation() {
         .try_reserve_bytes(original.limit_bytes() - baseline)
         .unwrap();
     let refusal = original.try_reserve_bytes(1).unwrap_err();
-    let expected = VMError::AllocationDeferred(refusal);
+    let expected = VMError::AllocationDeferred(refusal.clone());
     let mut host = Host {
         change_mode: false,
-        error: Some(expected.clone()),
+        error: Some(VMError::AllocationDeferred(refusal)),
         calls: 0,
     };
     let mut vm = vm();
     let report = run(&mut vm, &mut host).unwrap_err();
     assert_eq!(host.calls, 1);
-    assert_eq!(report.downcast_ref::<VMError>(), Some(&expected));
+    assert_debug_error(report.downcast_ref::<VMError>().unwrap(), &expected);
     assert_eq!(original.reserved_bytes(), original.limit_bytes());
     drop(retained);
     assert_eq!(original.reserved_bytes(), baseline);
-    assert_eq!(report.downcast_ref::<VMError>(), Some(&expected));
+    assert_debug_error(report.downcast_ref::<VMError>().unwrap(), &expected);
 }
 
 #[test]
 fn ordinary_success_and_semantic_faults_remain_completed_outcomes() {
-    for error in [
-        None,
-        Some(VMError::OutOfGas),
-        Some(VMError::PrivacyViolation),
-    ] {
+    for fixture in 0..3 {
+        let error = match fixture {
+            0 => None,
+            1 => Some(VMError::OutOfGas),
+            2 => Some(VMError::PrivacyViolation),
+            _ => unreachable!(),
+        };
         let mut vm = vm();
         let mut host = Host {
             change_mode: false,
-            error: error.clone(),
+            error,
             calls: 0,
         };
-        assert_eq!(run(&mut vm, &mut host).unwrap(), error.map_or(Ok(()), Err));
+        assert!(matches!(
+            (fixture, run(&mut vm, &mut host).unwrap()),
+            (0, Ok(())) | (1, Err(VMError::OutOfGas)) | (2, Err(VMError::PrivacyViolation))
+        ));
         assert_eq!(host.calls, 1);
     }
     let semantic = VMError::Metered {
         gas: 13,
         source: Box::new(VMError::OutOfGas),
     };
-    assert_eq!(completed(Err(semantic.clone())).unwrap(), Err(semantic));
+    assert!(matches!(completed(Err(semantic)).unwrap(),
+        Err(VMError::Metered { gas: 13, source }) if matches!(*source, VMError::OutOfGas)));
 }
 
 fn completed_return() -> (IVM, PreparedContractCache, EntrypointValueTypeV1) {
@@ -200,7 +244,7 @@ fn actual_return_refusal_keeps_typed_original_owner_and_retries() {
             panic!("return refusal must retain its typed owner");
         };
         assert_eq!(*word_index, 0);
-        assert_eq!(reason, &expected);
+        assert_debug_error(reason, &expected);
         assert_eq!(reason.metered_gas(), None);
         assert_eq!(report.to_string(), context);
         assert_eq!(vm.remaining_gas(), gas);
@@ -244,15 +288,15 @@ fn actual_semantic_return_error_keeps_type_and_full_display_chain() {
 #[test]
 fn borrowed_trap_rendering_uses_exact_original_error_and_success_has_no_trap() {
     let mut vm = vm();
+    let source_hash = iroha_crypto::Hash::prehashed(vm.code_hash());
     let original = VMError::UnknownSyscall(0x7fff);
     let mut host = Host {
         change_mode: false,
-        error: Some(original.clone()),
+        error: Some(original),
         calls: 0,
     };
     let error = run(&mut vm, &mut host).unwrap().unwrap_err();
     assert_eq!(error, original);
-    let source_hash = iroha_crypto::Hash::prehashed(vm.code_hash());
     let diagnostic =
         super::super::map_local_vm_diagnostic(vm.last_diagnostic().unwrap(), &error, &source_hash);
     assert_eq!(diagnostic.message, error.to_string());

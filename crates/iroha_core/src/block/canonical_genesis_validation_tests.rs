@@ -27,10 +27,10 @@ fn install_genesis_outputs(
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &limits,
         )
         .expect("structural genesis outputs must fit their explicit finite fixture policy");
@@ -548,14 +548,22 @@ fn authenticated_genesis_uses_the_actual_whole_output_owner() {
             .map(|key| PeerId::new(key.public_key().clone())),
     );
     let (_, clock) = TimeSource::new_mock(original.header().creation_time());
-    let (valid, block) = ValidBlock::validate_signed_genesis(
-        original.clone(),
-        &topology,
-        &account,
-        &clock,
-        &prepared.state,
-        iroha_data_model::parameter::system::ConsensusMode::Permissioned,
-    )
+    let (valid, block) = {
+        let selected_genesis = original.clone();
+        let selected_scope = crate::sumeragi::epoch::authenticated_genesis(&selected_genesis)
+            .expect("signed fixture root scope")
+            .into_parts()
+            .1;
+        ValidBlock::validate_signed_genesis(
+            selected_genesis,
+            &topology,
+            &account,
+            &clock,
+            &prepared.state,
+            iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+            selected_scope,
+        )
+    }
     .unpack(|_| {})
     .unwrap();
     let source = valid.as_ref();

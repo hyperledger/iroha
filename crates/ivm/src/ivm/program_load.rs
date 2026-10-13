@@ -1,25 +1,45 @@
-//! Shared static loader admission, independent of mutable VM allocation.
+//! Shared loader admission whose image producers return before VM installation.
 
 use super::*;
 
-pub(super) enum PreparedLoadImage<'a> {
-    Contract(crate::PreparedContract),
-    Generic(ProgramLoadImage<'a>),
-}
-
-pub(super) fn prepare<'a>(
-    program: &'a [u8],
-    budget: Option<&AllocationBudget>,
-) -> Result<PreparedLoadImage<'a>, VMError> {
+/// Prepare the canonical image, installing it only when a VM was supplied.
+/// Validation-only callers retire the same admitted image without mutable VM storage.
+pub(super) fn prepare(program: &[u8], destination: Option<&mut IVM>) -> Result<(), VMError> {
+    let budget = destination
+        .as_deref()
+        .and_then(|vm| vm.memory.allocation_budget());
     let header = ProgramMetadata::parse_header(program)?;
     if header.declares_contract_interface() {
-        let contract = match budget {
-            Some(budget) => crate::prepare_contract_with_memory_budget(program, budget),
-            None => crate::prepare_contract(Arc::<[u8]>::from(program)),
-        }
-        .map_err(crate::ContractArtifactError::into_vm_error)?;
-        return Ok(PreparedLoadImage::Contract(contract));
+        let contract = prepare_contract_image(program, budget)?;
+        return destination.map_or(Ok(()), |vm| vm.load_prepared(&contract));
     }
+    let image = prepare_generic_image(program, header, budget)?;
+    destination.map_or(Ok(()), |vm| vm.install_program(image))
+}
+
+// Keep contract admission/preparation scratch in a returning frame. Mutable
+// installation must start only after this frame and its temporaries retire.
+#[inline(never)]
+fn prepare_contract_image(
+    program: &[u8],
+    budget: Option<&AllocationBudget>,
+) -> Result<crate::PreparedContract, VMError> {
+    match budget {
+        Some(budget) => crate::prepare_contract_with_memory_budget(program, budget),
+        None => crate::prepare_contract(Arc::<[u8]>::from(program)),
+    }
+    .map_err(crate::ContractArtifactError::into_vm_error)
+}
+
+// The private dispatcher forwards the header parsed from this same original
+// program. Keep section decoding and instruction preparation out of installation's
+// live call stack; returning the image transfers its existing owners unchanged.
+#[inline(never)]
+fn prepare_generic_image<'a>(
+    program: &'a [u8],
+    header: crate::metadata::ParsedProgramHeader<'a>,
+    budget: Option<&AllocationBudget>,
+) -> Result<ProgramLoadImage<'a>, VMError> {
     let parsed = header.parse_sections()?;
     let strict_return_integrity = false;
     let header_len = parsed.header_len;
@@ -62,7 +82,7 @@ pub(super) fn prepare<'a>(
         )?;
         (Some(decoded), Some(prepared))
     };
-    Ok(PreparedLoadImage::Generic(ProgramLoadImage {
+    let image = ProgramLoadImage {
         code_region,
         metadata: meta,
         contract_interface: parsed.contract_interface.map(|interface| {
@@ -80,7 +100,8 @@ pub(super) fn prepare<'a>(
         entry_pc,
         strict_return_integrity,
         allow_koto_test_syscalls: false,
-    }))
+    };
+    Ok(image)
 }
 
 #[cfg(test)]
@@ -96,7 +117,35 @@ mod tests {
     fn same_static_verdict(program: &[u8], valid: bool) {
         let admitted = IVM::validate_program(program);
         let loaded = IVM::new(100_000).load_program(program);
-        assert_eq!(admitted, loaded, "static and mutable loaders disagree");
+        // These fixtures cover completed header/instruction failures, never local owners.
+        let equivalent = match (&admitted, &loaded) {
+            (Ok(()), Ok(())) | (Err(VMError::InvalidMetadata), Err(VMError::InvalidMetadata)) => {
+                true
+            }
+            (Err(VMError::InvalidOpcode(a)), Err(VMError::InvalidOpcode(b))) => a == b,
+            (Err(VMError::UnknownSyscall(a)), Err(VMError::UnknownSyscall(b))) => a == b,
+            (
+                Err(VMError::GenericSyscallNotAllowed { syscall: a }),
+                Err(VMError::GenericSyscallNotAllowed { syscall: b }),
+            ) => a == b,
+            (
+                Err(VMError::MemoryAccessViolation { addr: a, perm: p }),
+                Err(VMError::MemoryAccessViolation { addr: b, perm: q }),
+            ) => a == b && p == q,
+            (
+                Err(VMError::UnsupportedProgramAbiVersion { version: a }),
+                Err(VMError::UnsupportedProgramAbiVersion { version: b }),
+            ) => a == b,
+            (
+                Err(VMError::UnsupportedProgramFeatureBits { bits: a }),
+                Err(VMError::UnsupportedProgramFeatureBits { bits: b }),
+            ) => a == b,
+            _ => false,
+        };
+        assert!(
+            equivalent,
+            "static and mutable loaders disagree: {admitted:?} != {loaded:?}"
+        );
         assert_eq!(admitted.is_ok(), valid);
     }
 
@@ -165,12 +214,12 @@ mod tests {
         let refused = crate::cache_memory::with_refused_shared_allocation_for_test(|| {
             IVM::validate_program(&contract)
         });
-        assert_eq!(
+        assert!(matches!(
             refused,
             Err(VMError::ExecutionDeferred(
-                crate::error::ExecutionDeferral::AllocationUnavailable,
+                crate::error::ExecutionDeferral::AllocationUnavailable
             ))
-        );
+        ));
         IVM::validate_program(&contract).unwrap();
     }
 }

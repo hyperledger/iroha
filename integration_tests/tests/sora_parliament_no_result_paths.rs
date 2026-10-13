@@ -56,7 +56,8 @@ pub(super) async fn exercise_public_finding_no_result_retries_and_restore(
     ];
     let request_height =
         next_execution_height(client, 0, "no-result sortition registration").await?;
-    let sortition_pulse_height = request_height + 4;
+    let sortition_pulse_height =
+        expected_sortition_slot(network, client, attempt_id, request_height, None).await?;
     let mut election_ids = BTreeMap::new();
     let mut request_ids = Vec::new();
     let mut registrations = Vec::new();
@@ -94,21 +95,17 @@ pub(super) async fn exercise_public_finding_no_result_retries_and_restore(
     )
     .await?;
     assert_eq!(current_height(client).await?, request_height);
-    advance_to_autonomous_predecessor(
+    // Governance-local wait for the consensus-native pre-boundary pulse at the slot;
+    // the draw is consumed after the epoch boundary that the same pulse scheduled.
+    let pulse = await_native_sortition_pulse(
         network,
         client,
         sortition_pulse_height,
         "no-result retry sortition pulse",
     )
     .await?;
-    network.ensure_blocks(sortition_pulse_height).await?;
-    assert_eq!(current_height(client).await?, sortition_pulse_height);
-    let mut pulses = Vec::with_capacity(network.peers().len());
-    for peer in network.peers() {
-        pulses.push(pulse_at(&peer.client(), sortition_pulse_height).await?);
-    }
-    assert!(pulses.windows(2).all(|pair| pair[0] == pair[1]));
-    let pulse = &pulses[0];
+    cross_native_boundary_after_pulse(network, client, &pulse, "no-result retry sortition pulse")
+        .await?;
     submit_transition(
         client,
         attempt_id,
@@ -319,9 +316,14 @@ pub(super) async fn exercise_public_finding_no_result_retries_and_restore(
     .await?;
     let retry_request_height =
         next_execution_height(client, 0, "deadline retry sortition registration").await?;
-    let retry_pulse_height = retry_request_height
-        .checked_add(4)
-        .ok_or_else(|| eyre!("deadline retry sortition pulse height overflow"))?;
+    // A fresh governance attempt starts its own generation history, so its first slot is
+    // again the first native pulse height at or after its own request plus the frozen delay.
+    let retry_pulse_height =
+        expected_sortition_slot(network, client, retry_id, retry_request_height, None).await?;
+    assert!(
+        retry_pulse_height > sortition_pulse_height,
+        "a later attempt cannot draw from the boundary pulse an earlier attempt consumed",
+    );
     let mut retry_election_ids = BTreeMap::new();
     let mut retry_request_ids = Vec::new();
     let mut retry_registrations = Vec::new();
@@ -359,19 +361,21 @@ pub(super) async fn exercise_public_finding_no_result_retries_and_restore(
     )
     .await?;
     assert_eq!(current_height(client).await?, retry_request_height);
-    advance_to_autonomous_predecessor(
+    let retry_pulse = await_native_sortition_pulse(
         network,
         client,
         retry_pulse_height,
         "deadline retry sortition pulse",
     )
     .await?;
-    network.ensure_blocks(retry_pulse_height).await?;
-    let mut retry_pulses = Vec::with_capacity(network.peers().len());
-    for peer in network.peers() {
-        retry_pulses.push(pulse_at(&peer.client(), retry_pulse_height).await?);
-    }
-    assert!(retry_pulses.windows(2).all(|pair| pair[0] == pair[1]));
+    assert_ne!(retry_pulse.pulse_id, pulse.pulse_id);
+    cross_native_boundary_after_pulse(
+        network,
+        client,
+        &retry_pulse,
+        "deadline retry sortition pulse",
+    )
+    .await?;
     submit_transition(
         client,
         retry_id,
@@ -380,7 +384,7 @@ pub(super) async fn exercise_public_finding_no_result_retries_and_restore(
                 request_ids: retry_request_ids,
                 beacon_session_id: logical_beacon,
                 pulse_height: retry_pulse_height,
-                pulse_id: BeaconPulseId::new(retry_pulses[0].pulse_id),
+                pulse_id: BeaconPulseId::new(retry_pulse.pulse_id),
             },
         ),
     )

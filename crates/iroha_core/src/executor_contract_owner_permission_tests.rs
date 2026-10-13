@@ -22,7 +22,7 @@ fn seed_owner_permission_contract(
     {
         let (_, mut manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku OwnerGrantFixture {
   hajimari() {}
   permission read;
@@ -32,7 +32,7 @@ seiyaku OwnerGrantFixture {
   kotoage fn write_value() authorize(write) {}
   view fn read_value() authorize(read) -> int { return 1; }
 }
-"#,
+",
             )
             .expect("compile declared permission fixture");
         manifest.code_hash = Some(code_hash);

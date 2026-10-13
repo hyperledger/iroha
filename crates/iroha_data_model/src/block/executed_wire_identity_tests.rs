@@ -30,7 +30,7 @@ fn reference_wire(block: &SignedBlock) -> Vec<u8> {
 fn assert_exact_identity(block: &SignedBlock) -> (u64, Hash) {
     let original = block.encode_wire().unwrap();
     let wire = reference_wire(block);
-    assert_eq!(wire[0], block.version());
+    assert_eq!(wire[0], SignedBlock::WIRE_VERSION);
     let frame = norito::core::from_bytes_view(&wire[1..]).unwrap();
     assert_eq!(
         frame.schema(),
@@ -88,9 +88,12 @@ fn executed_identity_excludes_original_complete_certificate_only() {
     let uncertified = certified.clone().with_commit_certificate(None);
     assert_eq!(assert_exact_identity(&uncertified), identity);
     assert!(certified.encode_wire().unwrap().len() > usize::try_from(identity.0).unwrap());
-    let commitment =
-        crate::sumeragi_finality::ExecutionResultCommitment::decode(certificate.result_preimage())
-            .unwrap();
+    let commitment = crate::sumeragi_finality::CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let commitment = commitment.commitment();
     assert_eq!(commitment.execution.executed_block_wire_len, identity.0);
     assert_eq!(commitment.execution.executed_block_wire_hash, identity.1);
 }

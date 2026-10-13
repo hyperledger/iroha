@@ -6,4 +6,6 @@ Each row binds one complete `.ko` source to two artifacts emitted by the same co
 
 To regenerate, explicitly run `compiler::single_use_fixtures::capture_private_single_use_native_pairs` with `--exact --ignored --nocapture` from the current compiler test artifact. Save only the six tab-separated fields after `PRIVATE_SINGLE_USE_NATIVE`, in emitted case order. They are case identity, complete source hash, complete before/after artifact hashes and canonical before/after artifact hex. The fixture parser rejects missing, extra, duplicate, altered or oversized rows. The producer is maintenance, not a qualification test.
 
-TODO: populate `native_v1.tsv` solely from the exact fresh compiler producer before running the parity and VM gates; no binary bytes are fabricated or borrowed from another compiler artifact.
+The checked-in seven rows are the output of that producer on the current compiler and sources; the compiler parity gate and the five IVM group 05 consumers pass on them. No binary bytes are fabricated or borrowed from another compiler artifact.
+
+TODO: run the production Core payout and default-fee qualification on this capture; they are separate mandatory gates and no result of this directory establishes them.

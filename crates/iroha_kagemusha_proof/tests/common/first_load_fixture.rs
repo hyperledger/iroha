@@ -15,7 +15,7 @@ use std::{
 
 /// Admit the unchanged receipt before producing keys and bind every reconstruction to
 /// a fresh original directory. The caller checks the exact final reconstruction count.
-pub(crate) fn first_load_fixture(expected_rebuilds: usize) -> (LoadFixture, Arc<AtomicUsize>) {
+pub fn first_load_fixture(expected_rebuilds: usize) -> (LoadFixture, Arc<AtomicUsize>) {
     let capture = ordinary_load_receipt::first_capture();
     // Bind scheme, asset, wallet, ordinal and the actual local sigma relation to
     // the Bootstrap fixture before producing any key or proof.

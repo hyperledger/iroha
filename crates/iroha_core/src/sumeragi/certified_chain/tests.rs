@@ -157,16 +157,16 @@ fn uncommitted_heights_are_not_read() {
     let reader = CertifiedChain::new(&view).expect("reader");
     for height in [0, 6, u64::MAX] {
         assert_eq!(
-            committed_block(&view, height).err(),
-            Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                ChainReadError::NotCommitted { height }
-            ))
+            crate::execution_attempt::expect_completed_rejection(
+                committed_block(&view, height).expect_err("completed rejection")
+            ),
+            ChainReadError::NotCommitted { height }
         );
         assert_eq!(
-            reader.certified(height).err(),
-            Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                ChainReadError::NotCommitted { height }
-            ))
+            crate::execution_attempt::expect_completed_rejection(
+                reader.certified(height).expect_err("completed rejection")
+            ),
+            ChainReadError::NotCommitted { height }
         );
     }
     assert_eq!(
@@ -186,47 +186,47 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
     let bare = crate::block::reserve_block_for_tests()
         .initialize(original.as_ref().clone().with_commit_certificate(None));
     assert_eq!(
-        read_frame(bare, 3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::MissingCertificate { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            read_frame(bare, 3, chain.root_scope()).expect_err("completed rejection")
+        ),
+        ChainReadError::MissingCertificate { height: 3 }
     );
     // A header for another payload.
     let wrong_payload = with_parts(&original, |header, _, _| {
         header.payload_hash = Hash32([7; 32])
     });
     assert_eq!(
-        read_frame(wrong_payload, 3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::HeaderMismatch { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            read_frame(wrong_payload, 3, chain.root_scope()).expect_err("completed rejection")
+        ),
+        ChainReadError::HeaderMismatch { height: 3 }
     );
     // A header of another height.
     let wrong_height = with_parts(&original, |header, _, _| header.height = 4);
     assert_eq!(
-        read_frame(wrong_height, 3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::HeaderMismatch { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            read_frame(wrong_height, 3, chain.root_scope()).expect_err("completed rejection")
+        ),
+        ChainReadError::HeaderMismatch { height: 3 }
     );
     // A result preimage that commits another executed block.
     let wrong_wire = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (original_x, mut commitment) = fixture_result_parts(preimage);
         commitment.execution.executed_block_wire_len += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = fixture_result_preimage(&original_x, &commitment);
     });
     assert_eq!(
-        read_frame(wrong_wire, 3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::ExecutionMismatch { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            read_frame(wrong_wire, 3, chain.root_scope()).expect_err("completed rejection")
+        ),
+        ChainReadError::ExecutionMismatch { height: 3 }
     );
     // Garbage in the preimage or header.
     let garbage = with_parts(&original, |_, _, preimage| *preimage = vec![1, 2, 3]);
     assert!(matches!(
-        read_frame(garbage, 3),
+        read_frame(garbage, 3, chain.root_scope()),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::Malformed { height: 3, .. }
+            ChainReadError::ResultMismatch { height: 3 }
         ))
     ));
     // Genesis must carry the result-only certificate.
@@ -243,7 +243,7 @@ fn frames_without_a_matching_header_preimage_or_certificate_are_refused() {
         )),
     );
     assert!(matches!(
-        read_frame(headed, 1),
+        read_frame(headed, 1, chain.root_scope()),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
             ChainReadError::Malformed { height: 1, .. }
         ))
@@ -261,70 +261,70 @@ fn certificates_that_do_not_certify_the_stored_block_are_refused() {
     certify(Clone::clone(&original)).expect("the stored certificate verifies");
     // A preimage whose `R` is not the certified one (its executed wire is unchanged).
     let other_result = with_parts(&original, |_, _, preimage| {
-        let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (original_x, mut commitment) = fixture_result_parts(preimage);
         let schedule::ScheduledSlot::Ready(next) = &mut commitment.schedule.after_next else {
             unreachable!()
         };
         next.params.block_time_ms += 1;
-        *preimage = commitment.preimage().unwrap();
+        *preimage = fixture_result_preimage(&original_x, &commitment);
     });
     assert_eq!(
-        certify(other_result).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::ResultMismatch { height: 4 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            certify(other_result).expect_err("completed rejection")
+        ),
+        ChainReadError::ResultMismatch { height: 4 }
     );
     // A header whose hash is not the certified block hash.
     let other_header = with_parts(&original, |header, _, _| header.origin_view = 3);
     assert_eq!(
-        certify(other_header).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::HeaderMismatch { height: 4 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            certify(other_header).expect_err("completed rejection")
+        ),
+        ChainReadError::HeaderMismatch { height: 4 }
     );
     // A Prepare certificate is not finality authority.
     let edits: [fn(&mut BlockHeader, &mut Qc, &mut Vec<u8>); 1] =
         [|_, qc, _| qc.kind = VoteKind::Prepare];
     for edit in edits {
         assert_eq!(
-            certify(with_parts(&original, edit)).err(),
-            Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                ChainReadError::HeaderMismatch { height: 4 }
-            ))
+            crate::execution_attempt::expect_completed_rejection(
+                certify(with_parts(&original, edit)).expect_err("completed rejection")
+            ),
+            ChainReadError::HeaderMismatch { height: 4 }
         );
     }
     // Another instance.
     let other_instance = with_parts(&original, |_, qc, _| qc.instance = Hash32([5; 32]));
     assert_eq!(
-        certify(other_instance).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::WrongInstance { height: 4 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            certify(other_instance).expect_err("completed rejection")
+        ),
+        ChainReadError::WrongInstance { height: 4 }
     );
     // Below the quorum, or a forged aggregate.
     let (header, qc) = decode_certificate(original.commit_certificate().unwrap()).unwrap();
     let below = chain.commit_qc(4, qc.block_hash, qc.result, Signers::BelowQuorum);
     let below = with_parts(&original, |_, qc, _| *qc = below);
     assert_eq!(
-        certify(below).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::Certificate {
-                height: 4,
-                error: CertError::TooFewSigners
-            }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            certify(below).expect_err("completed rejection")
+        ),
+        ChainReadError::Certificate {
+            height: 4,
+            error: CertError::TooFewSigners
+        }
     );
     // More signatures cannot widen the protocol's exact finality authority either.
     let all = chain.commit_qc(4, qc.block_hash, qc.result, Signers::All);
     let all = with_parts(&original, |_, qc, _| *qc = all);
     assert_eq!(
-        certify(all).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::Certificate {
-                height: 4,
-                error: CertError::TooManySigners
-            }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            certify(all).expect_err("completed rejection")
+        ),
+        ChainReadError::Certificate {
+            height: 4,
+            error: CertError::TooManySigners
+        }
     );
     let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[5] ^= 1);
     assert!(matches!(
@@ -395,8 +395,8 @@ fn assert_two_valid_certificates_of_one_block_give_one_consensus_receipt(
     assert_ne!(other_qc.signers, qc.signers);
     let other = with_parts(&original, |_, qc, _| *qc = other_qc.clone());
     assert_ne!(other.commit_certificate(), original.commit_certificate());
-    let left = read_frame(Clone::clone(&original), 3).expect("committed read");
-    let right = read_frame(Clone::clone(&other), 3).expect("committed read");
+    let left = read_frame(Clone::clone(&original), 3, chain.root_scope()).expect("committed read");
+    let right = read_frame(Clone::clone(&other), 3, chain.root_scope()).expect("committed read");
     assert_eq!(left.id(), right.id());
     assert_eq!(left.header(), right.header());
     assert_eq!(
@@ -462,10 +462,10 @@ fn a_view_of_another_network_is_refused() {
         "header-only foreign State has no original execution tip"
     );
     assert_eq!(
-        CertifiedChain::new(&view).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::ForeignGenesis
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            CertifiedChain::new(&view).expect_err("completed rejection")
+        ),
+        ChainReadError::ForeignGenesis
     );
     // A view whose journal names another block at a height does not read Kura's.
     let mut other = State::new_with_chain_and_network_id_for_testing(
@@ -502,7 +502,7 @@ fn historical_committee_material_cannot_bypass_global_voting_geometry() {
             super::super::crypto::core_key(member.validator.public_key()).unwrap()
         });
         let result = validate_committee(&members);
-        if count >= 4 && count <= 31 && (count - 1) % 3 == 0 {
+        if (4..=31).contains(&count) && (count - 1) % 3 == 0 {
             result.expect("exact global committee");
             let entry = schedule::global_committee(
                 members
@@ -624,16 +624,16 @@ fn pinned_prefix_uses_the_exact_cut_without_a_world_authority() {
     assert_eq!(receipts[2].commitment(), chain.committed(3).commitment());
     // Kura also holds heights four and five, but they are outside this restoration cut.
     assert_eq!(
-        reader.certified(4).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotCommitted { height: 4 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(4).expect_err("completed rejection")
+        ),
+        ChainReadError::NotCommitted { height: 4 }
     );
     assert_eq!(
-        reader.committed(0).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotCommitted { height: 0 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.committed(0).expect_err("completed rejection")
+        ),
+        ChainReadError::NotCommitted { height: 0 }
     );
     assert!(matches!(reader.source, ChainSource::Pinned { .. }));
     let prefix = reader.prefix.lock();
@@ -651,61 +651,61 @@ fn pinned_prefix_rejects_empty_foreign_changed_and_unavailable_sources() {
         .map(|height| frame(&chain, height).hash())
         .collect::<Vec<_>>();
     assert_eq!(
-        CertifiedChain::from_pinned(
-            &chain_id,
-            &network,
-            &[],
-            chain.kura(),
-            &chain.state().ivm_execution_budget(),
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotCommitted { height: 1 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            CertifiedChain::from_pinned(
+                &chain_id,
+                &network,
+                &[],
+                chain.kura(),
+                &chain.state().ivm_execution_budget(),
+            )
+            .expect_err("completed rejection")
+        ),
+        ChainReadError::NotCommitted { height: 1 }
     );
     let wrong_hash = HashOf::from_untyped_unchecked(Hash::new(b"not the pinned block"));
     let foreign = NetworkId::from_genesis_hash(wrong_hash);
     assert_eq!(
-        CertifiedChain::from_pinned(
-            &chain_id,
-            &foreign,
-            &hashes,
-            chain.kura(),
-            &chain.state().ivm_execution_budget(),
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::ForeignGenesis
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            CertifiedChain::from_pinned(
+                &chain_id,
+                &foreign,
+                &hashes,
+                chain.kura(),
+                &chain.state().ivm_execution_budget(),
+            )
+            .expect_err("completed rejection")
+        ),
+        ChainReadError::ForeignGenesis
     );
     let absent = Kura::blank_kura_for_testing();
     assert_eq!(
-        CertifiedChain::from_pinned(
-            &chain_id,
-            &network,
-            &hashes,
-            &absent,
-            &chain.state().ivm_execution_budget(),
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotInView { height: 1 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            CertifiedChain::from_pinned(
+                &chain_id,
+                &network,
+                &hashes,
+                &absent,
+                &chain.state().ivm_execution_budget(),
+            )
+            .expect_err("completed rejection")
+        ),
+        ChainReadError::NotInView { height: 1 }
     );
     let mut changed = hashes.clone();
     changed[0] = wrong_hash;
     assert_eq!(
-        CertifiedChain::from_pinned(
-            &chain_id,
-            &network,
-            &changed,
-            chain.kura(),
-            &chain.state().ivm_execution_budget(),
-        )
-        .err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotInView { height: 1 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            CertifiedChain::from_pinned(
+                &chain_id,
+                &network,
+                &changed,
+                chain.kura(),
+                &chain.state().ivm_execution_budget(),
+            )
+            .expect_err("completed rejection")
+        ),
+        ChainReadError::NotInView { height: 1 }
     );
     let mut changed = hashes.clone();
     changed[2] = wrong_hash;
@@ -718,10 +718,10 @@ fn pinned_prefix_rejects_empty_foreign_changed_and_unavailable_sources() {
     )
     .unwrap();
     assert_eq!(
-        reader.certified(3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotInView { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(3).expect_err("completed rejection")
+        ),
+        ChainReadError::NotInView { height: 3 }
     );
     let wrong_chain = ChainId::from("another-configured-consensus-instance");
     let reader = CertifiedChain::from_pinned(
@@ -733,10 +733,10 @@ fn pinned_prefix_rejects_empty_foreign_changed_and_unavailable_sources() {
     )
     .unwrap();
     assert_eq!(
-        reader.certified(2).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::WrongInstance { height: 2 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(2).expect_err("completed rejection")
+        ),
+        ChainReadError::WrongInstance { height: 2 }
     );
     chain
         .kura()
@@ -751,10 +751,10 @@ fn pinned_prefix_rejects_empty_foreign_changed_and_unavailable_sources() {
     )
     .unwrap();
     assert_eq!(
-        reader.certified(3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotInView { height: 3 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(3).expect_err("completed rejection")
+        ),
+        ChainReadError::NotInView { height: 3 }
     );
 }
 
@@ -763,14 +763,14 @@ fn pinned_genesis_result_is_unsigned_until_a_real_successor_authenticates_it() {
     let (chain, _) = chain();
     let genesis = frame(&chain, 1);
     let certificate = genesis.commit_certificate().unwrap();
-    let mut result = ExecutionResultCommitment::decode(certificate.result_preimage()).unwrap();
+    let (original_x, mut result) = fixture_result_parts(certificate.result_preimage());
     result.execution.world_state_root = Hash::new(b"unsigned pinned genesis execution replacement");
     let changed = crate::block::reserve_block_for_tests().initialize(
         genesis.as_ref().clone().with_commit_certificate(Some(
             CommitCertificate::from_untrusted_parts(
                 certificate.consensus_header().to_vec(),
                 certificate.commit_qc().to_vec(),
-                result.preimage().unwrap(),
+                fixture_result_preimage(&original_x, &result),
                 certificate.availability().to_vec(),
             ),
         )),
@@ -805,10 +805,10 @@ fn pinned_genesis_result_is_unsigned_until_a_real_successor_authenticates_it() {
     )
     .unwrap();
     assert_eq!(
-        reader.certified(2).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::Discontinuous { height: 2 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(2).expect_err("completed rejection")
+        ),
+        ChainReadError::Discontinuous { height: 2 }
     );
 }
 
@@ -872,43 +872,44 @@ fn borrowed_native_frames_use_the_same_verifier_and_exact_cut() {
     ));
     assert_eq!(reads[2].commitment(), chain.committed(3).commitment());
     assert_eq!(
-        reader.certified(4).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotCommitted { height: 4 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(4).expect_err("completed rejection")
+        ),
+        ChainReadError::NotCommitted { height: 4 }
     );
     assert!(retain_native_frame_reader(&chain_id, &network, &hashes[..2], &frames).is_err());
     assert!(retain_native_frame_reader(&chain_id, &network, &[], &[]).is_err());
     let foreign =
         NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"foreign")));
     assert_eq!(
-        retain_native_frame_reader(&chain_id, &foreign, &hashes, &frames).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::ForeignGenesis
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            retain_native_frame_reader(&chain_id, &foreign, &hashes, &frames)
+                .expect_err("completed rejection")
+        ),
+        ChainReadError::ForeignGenesis
     );
     let other_chain = ChainId::from("foreign-instance");
     let reader = retain_native_frame_reader(&other_chain, &network, &hashes, &frames).unwrap();
     assert_eq!(
-        reader.certified(3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::WrongInstance { height: 2 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(3).expect_err("completed rejection")
+        ),
+        ChainReadError::WrongInstance { height: 2 }
     );
     assert_eq!(
-        retain_native_walk(&reader, 1, 3).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::WrongInstance { height: 2 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            retain_native_walk(&reader, 1, 3).expect_err("completed rejection")
+        ),
+        ChainReadError::WrongInstance { height: 2 }
     );
     let mut reordered = frames.clone();
     reordered.swap(1, 2);
     let reader = retain_native_frame_reader(&chain_id, &network, &hashes, &reordered).unwrap();
     assert_eq!(
-        reader.certified(2).err(),
-        Some(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::NotInView { height: 2 }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            reader.certified(2).expect_err("completed rejection")
+        ),
+        ChainReadError::NotInView { height: 2 }
     );
 }
 
@@ -922,9 +923,9 @@ fn borrowed_native_frames_reject_changed_result_even_under_unchanged_header_hash
         .collect::<Vec<_>>();
     let hashes = frames.iter().map(|block| block.hash()).collect::<Vec<_>>();
     frames[1] = with_parts(&frames[1], |_, _, preimage| {
-        let mut result = ExecutionResultCommitment::decode(preimage).unwrap();
+        let (original_x, mut result) = fixture_result_parts(preimage);
         result.execution.ordinary_writes_root = Hash::new(b"changed borrowed R");
-        *preimage = result.preimage().unwrap();
+        *preimage = fixture_result_preimage(&original_x, &result);
     });
     assert_eq!(frames[1].hash(), hashes[1]);
     let reader = CertifiedChain::from_frames(&chain_id, &network, &hashes, &frames).unwrap();
@@ -1076,4 +1077,307 @@ fn signed_genesis_initialization_does_not_repeat_completed_scope_decode() {
     drop(view);
     drop(context);
     assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+/// Actual persisted frames must bind X to their complete body, selected scope and signed time.
+#[test]
+fn current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body() {
+    use iroha_data_model::block::consensus::SumeragiRootScope;
+    use iroha_data_model::sumeragi_finality::{
+        SccpFinalityHeaderFieldsV1,
+        certified_result::{FLAG_ACTIVE, X_LEN, context_committee_root},
+        test_fixtures::NativeFinalityFixture,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+
+    let (chain, _) = chain();
+    let original = frame(&chain, 3);
+    let receipt = read_frame(original.clone(), 3, chain.root_scope()).unwrap();
+    let original_result = receipt.result();
+    let original_x = *receipt.certified_result().header();
+    assert_eq!(
+        original_x.as_bytes().as_slice(),
+        &original.commit_certificate().unwrap().result_preimage()[..X_LEN]
+    );
+    assert_eq!(
+        original_x.timestamp_ms(),
+        u64::try_from(original.header().creation_time().as_millis()).unwrap()
+    );
+
+    // A well-shaped header with an altered time is still a different signed result, and
+    // structural admission must reject it before producing an executed receipt (C5).
+    let wrong_time = with_parts(&original, |_, _, bytes| {
+        let (x, body) = fixture_result_parts(bytes);
+        let changed = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            timestamp_ms: x.timestamp_ms().checked_add(1).unwrap(),
+            ..x.fields()
+        })
+        .unwrap();
+        *bytes = fixture_result_preimage(&changed, &body);
+        assert_ne!(result_of_preimage(bytes), Some(original_result));
+    });
+    assert!(matches!(read_frame(wrong_time, 3, chain.root_scope()),
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, reason }))
+            if reason.contains("height or time differs from the block")));
+
+    let wrong_network = with_parts(&original, |_, _, bytes| {
+        let (x, body) = fixture_result_parts(bytes);
+        let mut fields = x.fields();
+        fields.network_id[0] ^= 1;
+        *bytes =
+            fixture_result_preimage(&SccpFinalityHeaderV1::from_fields(&fields).unwrap(), &body);
+    });
+    assert!(matches!(read_frame(wrong_network, 3, chain.root_scope()),
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, reason }))
+            if reason.contains("network differs")));
+
+    // The active header is test data, never a production execution or published authority.
+    // Select the rejecting non-global policy from a separately signed real genesis fixture.
+    let private = NativeFinalityFixture::start_with_scope(
+        "result-scope-control",
+        SumeragiRootScope::Dataspace {
+            parent_network_id: chain.network_id(),
+            dataspace_id: DataSpaceId::new(29),
+        },
+    );
+    let active = with_parts(&original, |_, _, bytes| {
+        let (x, body) = fixture_result_parts(bytes);
+        let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            flags: FLAG_ACTIVE,
+            generation: 1,
+            committee_root: context_committee_root(&body.schedule.current).unwrap(),
+            ..x.fields()
+        })
+        .unwrap();
+        *bytes = fixture_result_preimage(&x, &body);
+    });
+    assert!(read_frame(active.clone(), 3, chain.root_scope()).is_ok());
+    assert!(matches!(read_frame(active, 3, private.root_scope()),
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, reason }))
+            if reason.contains("non-global root carries an active")));
+
+    for malformed in [receipt.commitment().preimage().unwrap(), vec![1, 2, 3]] {
+        assert_eq!(result_of_preimage(&malformed), None);
+        let changed = with_parts(&original, |_, _, bytes| *bytes = malformed);
+        assert!(matches!(
+            read_frame(changed, 3, chain.root_scope()),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                ChainReadError::ResultMismatch { height: 3 }
+            ))
+        ));
+    }
+    let retry = read_frame(original.clone(), 3, chain.root_scope()).unwrap();
+    assert_eq!(retry.result(), original_result);
+    assert_eq!(retry.certified_result(), receipt.certified_result());
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        retry.block(),
+        &original
+    ));
+}
+
+/// Every structural consumer keeps the fixed X and checks its exact carrier time.
+#[test]
+fn native_frame_requires_fixed_header_and_exact_block_binding() {
+    let (chain, _) = chain();
+    let original = frame(&chain, 3);
+    let receipt = read_frame(original.clone(), 3, chain.root_scope()).unwrap();
+    assert_eq!(
+        receipt.certified_result().header().timestamp_ms(),
+        original.header().creation_time_ms
+    );
+    for mutation in 0..4 {
+        let changed = with_parts(&original, |_, _, preimage| {
+            let (header, body) =
+                CertifiedResultV1::decode(preimage, CertifiedResultScope::TairaGlobal)
+                    .unwrap()
+                    .into_parts();
+            if mutation == 0 {
+                *preimage = body.preimage().unwrap();
+            } else if mutation == 1 {
+                preimage[0] ^= 1;
+            } else {
+                let mut fields = header.fields();
+                if mutation == 2 {
+                    fields.timestamp_ms += 1;
+                } else {
+                    fields.network_id[0] ^= 1;
+                }
+                *preimage = CertifiedResultV1::from_parts_unvalidated(
+                    SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+                    body,
+                )
+                .preimage()
+                .unwrap();
+            }
+        });
+        assert!(
+            matches!(
+                read_frame(changed.clone(), 3, chain.root_scope()),
+                Err(ExecutionAttemptError::Rejected(
+                    ChainReadError::Malformed { height: 3, .. }
+                        | ChainReadError::ResultMismatch { height: 3 }
+                ))
+            ),
+            "mutation {mutation}"
+        );
+        let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+        assert!(
+            matches!(
+                read_frame_admitted(
+                    changed,
+                    3,
+                    chain.root_scope(),
+                    &mut EpochValidationScope::new(),
+                    &budget
+                ),
+                Err(ExecutionAttemptError::Rejected(
+                    ChainReadError::Malformed { height: 3, .. }
+                        | ChainReadError::ResultMismatch { height: 3 }
+                ))
+            ),
+            "placed mutation {mutation}"
+        );
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+/// Scope checking consumes the already retained fixed X, even with no decoder allowance.
+#[test]
+fn authenticated_scope_rejects_active_non_global_without_redecoding_result() {
+    use iroha_data_model::sumeragi_finality::certified_result::{
+        FLAG_ACTIVE, context_committee_root,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+    let (chain, _) = chain();
+    let original = frame(&chain, 3);
+    let changed = with_parts(&original, |_, _, preimage| {
+        let (header, body) = CertifiedResultV1::decode(preimage, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .into_parts();
+        let mut fields = header.fields();
+        fields.flags = FLAG_ACTIVE;
+        fields.generation = 1;
+        fields.committee_root = context_committee_root(&body.schedule.current).unwrap();
+        *preimage = CertifiedResultV1::new(
+            SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+            body,
+            CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .preimage()
+        .unwrap();
+    });
+    let retained = read_frame(changed, 3, chain.root_scope()).unwrap();
+    let non_global = SumeragiRootScope::Dataspace {
+        parent_network_id: chain.network_id(),
+        dataspace_id: DataSpaceId::new(7),
+    };
+    let (global, private) =
+        norito::with_decode_limits_scope(norito::DecodeLimits::new(0, 0, 0, 0, 0), || {
+            (
+                check_result_scope(&retained, SumeragiRootScope::Global),
+                check_result_scope(&retained, non_global),
+            )
+        });
+    global.unwrap();
+    assert!(
+        matches!(private, Err(ChainReadError::Malformed { height: 3, reason }) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    let context = PrefixVerifierContext {
+        instance: chain.instance(),
+        root_scope: non_global,
+    };
+    let budget = iroha_allocation::AllocationBudget::new(0);
+    for (parent, current) in [
+        (chain.committed(2), retained.clone()),
+        (retained, chain.committed(4)),
+    ] {
+        let refused = context.verify_executed_successor(&parent, current, &budget);
+        assert!(matches!(
+            refused,
+            Err(VerificationReadError::Source(ChainReadError::Malformed {
+                height: 3,
+                reason,
+            })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string()
+        ));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let prefix = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
+    assert_eq!(
+        prefix.root_scope,
+        authenticate_genesis(chain.genesis(), &chain.network_id(), &id)
+            .unwrap()
+            .2
+    );
+}
+
+/// The original private genesis scope survives both prefix constructors; unsigned X cannot widen it.
+#[test]
+fn original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners() {
+    use iroha_data_model::sumeragi_finality::{
+        certified_result::{FLAG_ACTIVE, context_committee_root},
+        test_fixtures::NativeFinalityFixture,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"original parent",
+        ))),
+        dataspace_id: DataSpaceId::new(7),
+    };
+    let fixture = NativeFinalityFixture::start_with_scope("private-prefix-scope", scope);
+    let id: ChainId = fixture.chain_id().parse().unwrap();
+    let genesis = crate::block::reserve_block_for_tests().initialize(
+        iroha_data_model::block::decode_framed_signed_block(&fixture.genesis_proof().block_wire)
+            .expect("result-bearing signed genesis fixture"),
+    );
+    let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+    let owned = CertifiedPrefix::new(&id, fixture.network_id(), genesis.clone()).unwrap();
+    assert_eq!(owned.root_scope, scope);
+    let admitted =
+        CertifiedPrefix::new_admitted(&id, fixture.network_id(), genesis.clone(), &budget).unwrap();
+    assert_eq!(admitted.as_slice()[0].root_scope, scope);
+    drop(admitted);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let certificate = genesis.commit_certificate().unwrap();
+    let (header, body) = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap()
+    .into_parts();
+    let mut fields = header.fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&body.schedule.current).unwrap();
+    let preimage = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        body,
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap()
+    .preimage()
+    .unwrap();
+    let changed = crate::block::reserve_block_for_tests().initialize(
+        genesis.as_ref().clone().with_commit_certificate(Some(
+            CommitCertificate::from_untrusted_parts(Vec::new(), Vec::new(), preimage, Vec::new()),
+        )),
+    );
+    assert_eq!(
+        changed.hash(),
+        genesis.hash(),
+        "result preimage is outside the signed genesis body"
+    );
+    assert!(
+        read_frame(changed.clone(), 1, SumeragiRootScope::Global).is_ok(),
+        "structural C1–C5 checks confer no scope authority"
+    );
+    assert!(
+        matches!(CertifiedPrefix::new(&id, fixture.network_id(), changed.clone()), Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, reason })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    assert!(
+        matches!(CertifiedPrefix::new_admitted(&id, fixture.network_id(), changed, &budget), Err(ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, reason })) if reason == CertifiedResultError::ActiveOutsideGlobal.to_string())
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
 }

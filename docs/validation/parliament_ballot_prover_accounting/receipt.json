@@ -1,0 +1,66 @@
+{
+  "artifact_sha256": {
+    "scripts/parliament_ballot_prover_accounting.py": "93ed56419f129eb95d492fad91c63eff58f1947a19132ab27c8eb6b5b8ee8998",
+    "scripts/tests/parliament_ballot_prover_accounting_test.py": "18a648bb6db7ff0bb230e37df1e31c96333ab9e6aa92f63a5193bb5a30309152",
+    "specs/parliament_ballot_b6_prover_accounting.md": "1c669675f88faffab91d42c826d37d75c0edb7a76a1deccf3ab4e13a9c6ede2b"
+  },
+  "commands": [
+    {
+      "command": [
+        "python3.11",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-p",
+        "parliament_ballot_prover_accounting_test.py",
+        "-v"
+      ],
+      "cwd": "/Users/mtakemiya/dev/iroha",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output": "tests.txt",
+      "output_sha256": "8325dd821357129bafda49524848b7d05da18740158c6881aac81795a3456099",
+      "started_utc": "2026-10-13T08:13:55.791711+00:00"
+    },
+    {
+      "command": [
+        "python3.11",
+        "scripts/parliament_ballot_prover_accounting.py",
+        "--json"
+      ],
+      "cwd": "/Users/mtakemiya/dev/iroha",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output": "report.json",
+      "output_sha256": "d4d132eb647d13d2aacf94a4e67d77b7648b7765014ff729e0208dacf9aa7add",
+      "started_utc": "2026-10-13T08:13:57.335890+00:00"
+    },
+    {
+      "command": [
+        "python3.11",
+        "scripts/parliament_ballot_prover_accounting.py",
+        "--require-qualified"
+      ],
+      "cwd": "/Users/mtakemiya/dev/iroha",
+      "exit_code": 2,
+      "expected_exit_code": 2,
+      "output": "qualification-refusal.txt",
+      "output_sha256": "027f095d6b79d1f520752b25dbc7c7dc6ca1e98c536c9c19f85a4f410ea94b7a",
+      "started_utc": "2026-10-13T08:13:57.905067+00:00"
+    }
+  ],
+  "complete_gate_or_memory_bound": false,
+  "complete_honest_oracle_or_simulator_bound": false,
+  "complete_primitive_resource_bound": false,
+  "component_check_passed": true,
+  "profile_qualified": false,
+  "python_version": "3.11.17 (main, Oct  1 2026, 00:48:48) [Clang 21.0.0 (clang-2100.3.34.2)]",
+  "review": "Separate sibling-agent source review checked entry/hash/retry paths; not independent human attestation.",
+  "schema": "parliament-real-prover-accounting-execution-v1",
+  "source_manifest_sha256": "49d7fa0af0dc1211d7d10a7835b2f2b335b76c360117b67c36dd31fa474c4ca1",
+  "source_scope": "76 symbolic Rust/formula sources, not a compiled binary or dependency graph",
+  "source_unchanged_during_validation": true,
+  "test_count": 19
+}

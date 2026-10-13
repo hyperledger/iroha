@@ -207,17 +207,27 @@ fn complete_enacted_fixture_body(
     }
 }
 
+/// Session of the proposal-bound fixture's only sortition slot.
 #[cfg(any(test, feature = "iroha-core-tests"))]
-fn build_certified_parliament_attempt_for_testing<F>(
+const FIXTURE_SORTITION_SESSION: BeaconSessionId = BeaconSessionId::new([0xB0; 32]);
+/// Height of the proposal-bound fixture's only sortition slot.
+#[cfg(any(test, feature = "iroha-core-tests"))]
+const FIXTURE_SORTITION_PULSE_HEIGHT: u64 = 2;
+
+/// Build a proposal-bound attempt whose complete initial generation awaits the pulse of
+/// slot `(FIXTURE_SORTITION_SESSION, FIXTURE_SORTITION_PULSE_HEIGHT)`.
+///
+/// Returns the attempt, its sorted request ids and the canonical candidate snapshot.
+#[cfg(any(test, feature = "iroha-core-tests"))]
+fn build_pulse_awaiting_parliament_attempt_for_testing(
     proposal: &ProposalKind,
     mut candidates: Vec<AccountId>,
-    network_id: &NetworkId,
-    enact_at_height: u64,
-    mut complete_body: F,
-) -> ParliamentAttemptStateV1
-where
-    F: FnMut(&mut ParliamentAttemptStateV1, RequiredParliamentBodyV1, BodyElectionAttemptId, u8),
-{
+) -> (
+    ParliamentAttemptStateV1,
+    Vec<SortitionRequestId>,
+    Vec<AccountId>,
+    Vec<RequiredParliamentBodyV1>,
+) {
     candidates.sort_unstable();
     candidates.dedup();
     assert!(candidates.len() >= 3, "fixture requires three candidates");
@@ -235,6 +245,8 @@ where
         },
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         1,
+        // Height 2, the fixture's only sortition slot, is the first native pulse height.
+        3,
         proposal.effect_preimage_hash_v1(),
         GovernanceExpectedHeadV1::Absent(
             iroha_data_model::governance::types::GovernanceExpectedHeadAbsentV1 {
@@ -250,7 +262,7 @@ where
         .complete_qualification(governance_attempt_id)
         .expect("complete enacted-attempt fixture qualification");
     let candidate_count = u32::try_from(candidates.len()).expect("candidate count fits u32");
-    let sortition_session = BeaconSessionId::new([0xB0; 32]);
+    let sortition_session = FIXTURE_SORTITION_SESSION;
     let mut request_ids = Vec::with_capacity(requirements.len());
     for requirement in &requirements {
         let election_attempt_id =
@@ -263,7 +275,7 @@ where
             candidate_count,
             3,
             1,
-            2,
+            FIXTURE_SORTITION_PULSE_HEIGHT,
             sortition_session,
             None,
         )
@@ -274,6 +286,54 @@ where
             .expect("register enacted-attempt fixture sortition request");
     }
     request_ids.sort_unstable();
+    (attempt, request_ids, candidates, requirements)
+}
+
+/// Build one proposal-bound Parliament attempt whose initial sortition generation still
+/// awaits the pulse of its frozen slot. Returns the attempt, that slot and the waiting
+/// election ids.
+#[cfg(test)]
+pub(crate) fn pulse_awaiting_parliament_attempt_for_testing(
+    proposal: &ProposalKind,
+    candidates: Vec<AccountId>,
+) -> (
+    ParliamentAttemptStateV1,
+    (BeaconSessionId, u64),
+    Vec<BodyElectionAttemptId>,
+) {
+    let (attempt, _, _, requirements) =
+        build_pulse_awaiting_parliament_attempt_for_testing(proposal, candidates);
+    attempt
+        .validate_proposal_bindings_v1(proposal)
+        .expect("pulse-awaiting fixture retains exact proposal bindings");
+    let election_attempt_ids = requirements
+        .iter()
+        .map(|requirement| {
+            BodyElectionAttemptId::derive_v1(attempt.attempt().id, requirement.body, 0)
+        })
+        .collect();
+    (
+        attempt,
+        (FIXTURE_SORTITION_SESSION, FIXTURE_SORTITION_PULSE_HEIGHT),
+        election_attempt_ids,
+    )
+}
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+fn build_certified_parliament_attempt_for_testing<F>(
+    proposal: &ProposalKind,
+    candidates: Vec<AccountId>,
+    network_id: &NetworkId,
+    enact_at_height: u64,
+    mut complete_body: F,
+) -> ParliamentAttemptStateV1
+where
+    F: FnMut(&mut ParliamentAttemptStateV1, RequiredParliamentBodyV1, BodyElectionAttemptId, u8),
+{
+    let (mut attempt, request_ids, _candidates, requirements) =
+        build_pulse_awaiting_parliament_attempt_for_testing(proposal, candidates);
+    let governance_attempt_id = attempt.attempt().id;
+    let sortition_session = FIXTURE_SORTITION_SESSION;
     let sortition_pulse_id = BeaconPulseId::new([0xB1; 32]);
     attempt
         .consume_sortition_pulse_batch(
@@ -360,4 +420,154 @@ pub fn certified_parliament_attempt_for_testing(
         enact_at_height,
         complete_enacted_fixture_body,
     )
+}
+
+#[cfg(test)]
+impl ParliamentAttemptStateV1 {
+    /// Reach `NoRoster` for the whole generation of `election_attempt_id` through the only
+    /// path an election has to it: consume the pulse of its exact frozen slot with every
+    /// request awaiting that slot, open a one-block invitation window at the slot, and let
+    /// it close without one accepted member.
+    ///
+    /// Stops early once the retry or redraw budget rejects the attempt.
+    pub(crate) fn fail_sortition_generation_with_empty_roster_for_tests(
+        &mut self,
+        election_attempt_id: BodyElectionAttemptId,
+        pulse_id: BeaconPulseId,
+        network_id: &NetworkId,
+        governance: &Governance,
+        failure_height: u64,
+    ) -> Result<(), ParliamentReducerErrorV1> {
+        let governance_attempt_id = self.attempt.id;
+        let request = self
+            .elections
+            .get(&election_attempt_id)
+            .ok_or(ParliamentReducerErrorV1::UnknownEntity(
+                ParliamentReducerEntityV1::BodyElection,
+            ))?
+            .attempt
+            .request;
+        let generation: Vec<_> = self
+            .elections
+            .iter()
+            .filter(|(_, election)| {
+                election.attempt.status == BodyElectionAttemptStatusV1::AwaitingPulse
+                    && election.attempt.request.beacon_session_id == request.beacon_session_id
+                    && election.attempt.request.pulse_height == request.pulse_height
+            })
+            .map(|(election_id, election)| (*election_id, election.attempt.request.id))
+            .collect();
+        let mut request_ids: Vec<_> = generation
+            .iter()
+            .map(|(_, request_id)| *request_id)
+            .collect();
+        request_ids.sort_unstable();
+        self.consume_sortition_pulse_batch(
+            governance_attempt_id,
+            request_ids,
+            request.beacon_session_id,
+            request.pulse_height,
+            pulse_id,
+            *pulse_id.as_bytes(),
+            network_id,
+            governance,
+        )?;
+        for (election_id, _) in &generation {
+            self.begin_invitation_acceptance(
+                governance_attempt_id,
+                *election_id,
+                request.pulse_height,
+                1,
+            )?;
+        }
+        for (election_id, _) in generation {
+            if self.attempt.status != GovernanceAttemptStatusV1::Active {
+                break;
+            }
+            self.fail_body_election_no_roster(governance_attempt_id, election_id, failure_height)?;
+        }
+        Ok(())
+    }
+}
+
+/// Install the genesis `NPoS` policy with `epoch_length_blocks` in a test World.
+///
+/// This is one of the two committed signals Parliament attempt creation requires.
+#[cfg(test)]
+pub(crate) fn seed_npos_policy_for_tests(
+    state_transaction: &mut crate::state::StateTransaction<'_, '_>,
+    epoch_length_blocks: u64,
+) {
+    let policy = iroha_data_model::parameter::system::SumeragiNposParameters {
+        epoch_length_blocks: core::num::NonZeroU64::new(epoch_length_blocks)
+            .expect("nonzero fixture epoch length"),
+        epoch_seed: [0x31; 32],
+        evidence_horizon_blocks: 1,
+        slashing_delay_blocks: 1,
+        ..iroha_data_model::parameter::system::SumeragiNposParameters::default()
+    };
+    state_transaction
+        .world
+        .parameters
+        .get_mut()
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+            policy.into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
+}
+
+/// Install a committed consensus schedule whose window starts at the transaction's block
+/// height and whose genesis epoch has `mode` and ends at height `epoch_length_blocks`.
+///
+/// This is the other committed signal Parliament attempt creation requires.
+#[cfg(test)]
+pub(crate) fn seed_consensus_schedule_for_tests(
+    state_transaction: &mut crate::state::StateTransaction<'_, '_>,
+    mode: iroha_data_model::parameter::system::SumeragiConsensusMode,
+    epoch_length_blocks: u64,
+) {
+    use crate::sumeragi::schedule::{
+        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule, ScheduledConfig,
+        ScheduledSlot,
+    };
+    let signed = crate::sumeragi::epoch::tests::genesis_fixture(mode, epoch_length_blocks, false);
+    let epoch = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .expect("authenticated fixture genesis epoch");
+    let params = ChainParamsRecord::from_parameters(
+        &iroha_data_model::parameter::system::SumeragiParameters::default(),
+    );
+    let first_height = state_transaction.block_height();
+    let graph = ConsensusSchedule::from_owned_entries(
+        (first_height..first_height + 3)
+            .map(|height| {
+                ScheduledSlot::Ready(ScheduledConfig {
+                    height,
+                    epoch: epoch.clone(),
+                    params,
+                })
+            })
+            .collect(),
+    )
+    .expect("fixture schedule window lies inside the genesis epoch");
+    *state_transaction.world.consensus_schedule.get_mut() = RetainedConsensusSchedule::admit(
+        &graph,
+        &iroha_allocation::AllocationBudget::new(1024 * 1024),
+    )
+    .expect("admit fixture schedule");
+}
+
+/// Seed the complete committed `NPoS` pulse cadence Parliament attempt creation requires:
+/// the genesis policy and a matching consensus schedule at the transaction's block height.
+#[cfg(test)]
+pub(crate) fn seed_npos_sortition_cadence_for_tests(
+    state_transaction: &mut crate::state::StateTransaction<'_, '_>,
+    epoch_length_blocks: u64,
+) {
+    seed_npos_policy_for_tests(state_transaction, epoch_length_blocks);
+    seed_consensus_schedule_for_tests(
+        state_transaction,
+        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
+        epoch_length_blocks,
+    );
 }

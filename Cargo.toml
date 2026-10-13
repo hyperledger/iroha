@@ -71,6 +71,9 @@ connect_norito_bridge = { path = "crates/connect_norito_bridge" }
 fastpq_prover = { path = "crates/fastpq_prover" }
 iroha_zkp_halo2 = { path = "crates/iroha_zkp_halo2" }
 iroha_zkp_poseidon = { path = "crates/iroha_zkp_poseidon" }
+# Experimental VOLE-in-the-head backend and Parliament ballot relations; no profile is selected.
+iroha_zkp_vole = { path = "crates/iroha_zkp_vole", default-features = false }
+iroha_parliament_ballot_proof = { path = "crates/iroha_parliament_ballot_proof", default-features = false }
 # Native PLONK/IPA stack; one first-release proof implementation.
 iroha_pasta = { path = "crates/iroha_pasta" }
 iroha_plonk = { path = "crates/iroha_plonk" }
@@ -167,6 +170,8 @@ hex-literal = "1.1.0"
 
 rand = { version = "0.9.3", default-features = false, features = ["alloc", "os_rng", "small_rng", "std", "std_rng", "thread_rng"] }
 rand_core_06 = { package = "rand_core", version = "0.6.4", default-features = false, features = ["std"] }
+# Operating-system entropy for the seeds of `iroha_fhe::bgv`.
+getrandom = "0.3.4"
 axum = { version = "0.8.6", default-features = false }
 
 # Libraries never force tracing->log forwarding; binaries or SDK consumers that
@@ -208,6 +213,8 @@ num-bigint = { path = "vendor/num-bigint-0.4.6" }
 find_cuda_helper = { path = "vendor/find_cuda_helper" }
 cust_raw = { path = "vendor/cust_raw" }
 wayland-scanner = { path = "vendor/wayland-scanner-0.31.10" }
+# Hardware AES is a positive `hardware` feature; `aes::soft` always names the portable backend.
+aes = { path = "vendor/aes" }
 
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
@@ -349,6 +356,7 @@ members = [
     "vendor/axum-core",
     "vendor/find_cuda_helper",
     "vendor/cust_raw",
+    "vendor/aes",
     "mochi/*",
     "data_model/samples/*",
     "integration_tests",

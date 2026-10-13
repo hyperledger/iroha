@@ -654,9 +654,32 @@ pub(crate) fn read_finalized_execution_carrier(
     FinalizedExecutionCarrier,
     crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
 > {
-    use crate::sumeragi::certified_chain::{
-        NativeExecutionReadError, NativeExecutionReadLimits, read_authenticated_execution,
-    };
+    let limits =
+        admit_finalized_execution_read(kura, hashes, height, expected_hash, max_work, max_bytes)?;
+    let verified = crate::sumeragi::certified_chain::read_authenticated_execution(
+        kura,
+        chain_id,
+        network,
+        hashes,
+        u64::try_from(height.get()).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
+        limits,
+        budget,
+    )
+    .map_err(finalized_execution_read_error)?;
+    finalized_execution_carrier_from_read(verified, max_work)
+}
+
+fn admit_finalized_execution_read(
+    kura: &crate::kura::Kura,
+    hashes: &dyn crate::state::BlockHashRead,
+    height: NonZeroUsize,
+    expected_hash: HashOf<BlockHeader>,
+    max_work: u64,
+    max_bytes: u64,
+) -> Result<
+    crate::sumeragi::certified_chain::NativeExecutionReadLimits,
+    crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+> {
     if max_work == 0 || max_bytes == 0 {
         return Err(QueryExecutionFail::GasBudgetExceeded.into());
     }
@@ -683,33 +706,36 @@ pub(crate) fn read_finalized_execution_carrier(
     if target_wire_bytes > max_bytes {
         return Err(QueryExecutionFail::GasBudgetExceeded.into());
     }
-    let verified = read_authenticated_execution(
-        kura,
-        chain_id,
-        network,
-        hashes,
-        height_u64,
-        NativeExecutionReadLimits {
+    Ok(
+        crate::sumeragi::certified_chain::NativeExecutionReadLimits {
             admitted_target_wire_bytes: target_wire_bytes,
             max_source_blocks: max_work,
             max_source_wire_bytes: max_bytes,
             max_frame_wire_bytes: max_bytes,
         },
-        budget,
     )
-    .map_err(|error| match error {
-        NativeExecutionReadError::Capacity { .. } => {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(
-                QueryExecutionFail::GasBudgetExceeded,
-            )
-        }
+}
+
+fn finalized_execution_read_error(
+    error: crate::sumeragi::certified_chain::NativeExecutionReadError,
+) -> crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail> {
+    use crate::sumeragi::certified_chain::NativeExecutionReadError;
+    match error {
+        NativeExecutionReadError::Capacity { .. } => QueryExecutionFail::GasBudgetExceeded.into(),
         NativeExecutionReadError::Deferred(reason) => {
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason)
         }
-        error => crate::execution_attempt::ExecutionAttemptError::Rejected(
-            canonical_transaction_history_error(error),
-        ),
-    })?;
+        error => canonical_transaction_history_error(error).into(),
+    }
+}
+
+fn finalized_execution_carrier_from_read(
+    verified: crate::sumeragi::certified_chain::NativeExecutionRead,
+    max_work: u64,
+) -> Result<
+    FinalizedExecutionCarrier,
+    crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+> {
     let block = verified.authority.block().clone();
     let work = u64::try_from(
         block
@@ -741,6 +767,116 @@ pub(crate) fn read_finalized_execution_carrier(
         wire_bytes: verified.source_wire_bytes,
         work_items: work,
     })
+}
+
+/// One durable caller's finalized carrier read across original local capacity refusal.
+///
+/// Holds only the original immutable committed hash generation, current frame and
+/// bounded prefix; no World view or all-history vector survives the read. Dropping
+/// this operation cancels the read and refunds its original physical owners.
+/// Retains the original prefix, committed-frame and result verification slots when
+/// a later original-pool admission refuses. TODO: retain partially decoded nested
+/// graphs; this owner does not complete decoder graph or crypto scratch funding.
+pub struct FinalizedExecutionCarrierReadAttempt<'state> {
+    state: &'state crate::state::State,
+    hashes: crate::state::BlockHashesView<'state>,
+    height: NonZeroUsize,
+    expected_hash: HashOf<BlockHeader>,
+    max_work: u64,
+    read: crate::sumeragi::certified_chain::NativeExecutionReadAttempt<'state>,
+}
+impl<'state> FinalizedExecutionCarrierReadAttempt<'state> {
+    pub(crate) fn new(
+        state: &'state crate::state::State,
+        kura: &'state crate::kura::Kura,
+        hashes: crate::state::BlockHashesView<'state>,
+        height: NonZeroUsize,
+        max_work: u64,
+        max_bytes: u64,
+    ) -> Result<Self, crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>> {
+        let expected_hash = hashes.get(height.get() - 1).copied().ok_or_else(|| {
+            QueryExecutionFail::Conversion("canonical carrier height is unavailable".into())
+        })?;
+        let limits = admit_finalized_execution_read(
+            kura,
+            &hashes,
+            height,
+            expected_hash,
+            max_work,
+            max_bytes,
+        )?;
+        let read = crate::sumeragi::certified_chain::NativeExecutionReadAttempt::new(
+            kura,
+            state.chain_id_ref(),
+            *state.network_id_ref(),
+            &hashes,
+            u64::try_from(height.get()).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
+            limits,
+            &state.ivm_execution_budget(),
+        )
+        .map_err(finalized_execution_read_error)?;
+        Ok(Self {
+            state,
+            hashes,
+            height,
+            expected_hash,
+            max_work,
+            read,
+        })
+    }
+
+    /// Exact original committed target retained by this operation.
+    pub const fn height(&self) -> NonZeroUsize {
+        self.height
+    }
+
+    /// Continue this same immutable source and original pool, retaining local refusal.
+    ///
+    /// # Errors
+    /// Preserves the original source, finite-limit, canonical/authority and local
+    /// refusal classification. A removed or rebound State target is rejected.
+    /// Native completion consumes this operation; further calls reject the invalid
+    /// reentry without reporting the still-committed source as absent.
+    pub fn advance(
+        &mut self,
+    ) -> Result<
+        FinalizedExecutionCarrier,
+        crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+    > {
+        if self.read.is_completed() {
+            return Err(QueryExecutionFail::Conversion(
+                "finalized carrier read attempt already completed".into(),
+            )
+            .into());
+        }
+        self.recheck_binding()?;
+        let verified = self
+            .read
+            .advance(&self.hashes)
+            .map_err(finalized_execution_read_error)?;
+        let carrier = finalized_execution_carrier_from_read(verified, self.max_work)?;
+        self.recheck_binding()?;
+        Ok(carrier)
+    }
+
+    fn recheck_binding(
+        &self,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>> {
+        if self
+            .state
+            .block_hashes
+            .view()
+            .get(self.height.get() - 1)
+            .copied()
+            != Some(self.expected_hash)
+        {
+            return Err(QueryExecutionFail::Conversion(
+                "canonical carrier changed during finalized read".into(),
+            )
+            .into());
+        }
+        Ok(())
+    }
 }
 
 /// Read one event-only carrier from the actual immutable State source.
@@ -1517,7 +1653,9 @@ fn walk_committed_transactions(
             return Err(QueryExecutionFail::CursorMismatch.into());
         }
         for index in transaction_offset..transaction_count {
-            let input_index = projection.count - 1 - index as u32;
+            let input_index = projection.count
+                - 1
+                - u32::try_from(index).map_err(|_| QueryExecutionFail::CursorMismatch)?;
             let transaction = projection.transaction_at(input_index, max_row_bytes, |bytes| {
                 before_project.borrow_mut()(0, bytes)
             })?;
@@ -2062,10 +2200,10 @@ pub(crate) mod tests {
             .set_execution_outputs(
                 outputs,
                 fragments,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &crate::execution_output_test_support::structural_output_limits(),
             )
             .unwrap();
@@ -2198,13 +2336,29 @@ pub(crate) mod tests {
         }
         let mut config = TestChainConfig::new(world, 1000);
         if let Some(units) = query_stored_min_gas_units {
-            config.pipeline.query_stored_min_gas_units = units;
+            let policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1 {
+                query_stored_min_gas_units: units,
+                ..crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default()
+            };
+            config
+                .genesis_parameters
+                .push(iroha_data_model::parameter::Parameter::Custom(
+                    policy.into_custom_parameter(),
+                ));
         }
         let mut chain = CertifiedTestChain::start(config).unwrap();
+        if let Some(units) = query_stored_min_gas_units {
+            assert_eq!(
+                chain.state().view().pipeline().query_stored_min_gas_units,
+                units,
+                "the signed genesis owns the exact stored-query gas policy",
+            );
+        }
         for epoch in 1..=carriers {
             let transactions = (0..2)
                 .map(|index| {
-                    let key = &keys[((epoch - 1) * 2 + index) as usize];
+                    let key = &keys[usize::try_from((epoch - 1) * 2 + index)
+                        .expect("fixture value fits usize")];
                     let mut tx = TransactionBuilder::new(
                         chain.network_id(),
                         AccountId::new(key.public_key().clone()),
@@ -2250,7 +2404,7 @@ pub(crate) mod tests {
     pub(crate) fn canonical_query_fixture() -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(None)
     }
-    /// The same original history with a finite query configuration fixed before execution.
+    /// The same original history with a finite query policy committed in signed genesis.
     pub(crate) fn canonical_query_fixture_with_query_gas(units: u64) -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(Some(units))
     }
@@ -2479,11 +2633,14 @@ pub(crate) mod tests {
             .state
             .read_finalized_execution_carrier(height, work, bytes)
             .unwrap();
-        let input_index = carrier
-            .block()
-            .network_entrypoints()
-            .position(|entrypoint| entrypoint.hash() == hash)
-            .unwrap() as u32;
+        let input_index = u32::try_from(
+            carrier
+                .block()
+                .network_entrypoints()
+                .position(|entrypoint| entrypoint.hash() == hash)
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         let details = carrier.transaction_at(input_index, bytes).unwrap();
         assert_eq!(details.entrypoint_hash, hash);
         assert!(details.result().is_ok());
@@ -2532,11 +2689,14 @@ pub(crate) mod tests {
             .state()
             .read_finalized_execution_carrier(NonZeroUsize::new(2).unwrap(), work, bytes)
             .unwrap();
-        let index = carrier
-            .block()
-            .network_entrypoints()
-            .position(|entry| entry.hash() == hash)
-            .unwrap() as u32;
+        let index = u32::try_from(
+            carrier
+                .block()
+                .network_entrypoints()
+                .position(|entry| entry.hash() == hash)
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         let (_, original) = carrier.block().network_output_at(index).unwrap();
         assert!(original.result.is_err());
         assert_eq!(
@@ -2742,8 +2902,7 @@ pub(crate) mod tests {
             CompoundPredicate::PASS,
             &state_view,
         )
-        .err()
-        .expect("unindexed history must reject the same hash-only carrier");
+        .expect_err("unindexed history must reject the same hash-only carrier");
         let paginated_error = visit_committed_transactions(
             &state_view,
             &CompoundPredicate::PASS,
@@ -2866,6 +3025,10 @@ pub(crate) mod tests {
         let frame_error = crate::sumeragi::certified_chain::read_frame(
             crate::block::reserve_block_for_tests().initialize(decoded),
             expected_height,
+            iroha_genesis::signed_genesis_consensus_metadata(&fixture.store.blocks[0])
+                .unwrap()
+                .sumeragi_context
+                .root_scope,
         )
         .expect_err("original execution certificate cannot commit the changed output");
         assert!(matches!(&frame_error,
@@ -2881,8 +3044,7 @@ pub(crate) mod tests {
             }),
             &fixture.state.view(),
         )
-        .err()
-        .expect("original QC must reject self-consistent changed output");
+        .expect_err("original QC must reject self-consistent changed output");
         assert_eq!(
             error, expected_error,
             "query must reject the exact original execution commitment mismatch"
@@ -2949,11 +3111,11 @@ pub(crate) mod tests {
             .expect("an ample budget reaches the newest transaction");
         let mut budgeted = Vec::new();
         let mut resume = None;
-        let mut pages = 0;
+        let mut page_count = 0;
         let out_of_reach = loop {
             let (page, end) = walk(resume, work, usize::MAX);
             budgeted.extend(page);
-            pages += 1;
+            page_count += 1;
             match end {
                 TransactionHistoryPageEnd::BudgetSpent(position) => resume = Some(position),
                 TransactionHistoryPageEnd::OutOfReach => break true,
@@ -2961,7 +3123,10 @@ pub(crate) mod tests {
                 TransactionHistoryPageEnd::Stopped(_) => unreachable!("the visitor never stops"),
             }
         };
-        assert!(pages > 1, "a minimal budget spreads history over pages");
+        assert!(
+            page_count > 1,
+            "a minimal budget spreads history over pages"
+        );
         assert!(!budgeted.is_empty());
         assert_eq!(
             budgeted[..],
@@ -3241,12 +3406,19 @@ pub(crate) mod tests {
                 |_| panic!("unpaid source cannot reach a receipt visitor"),
             )
             .expect_err("source work and bytes are admitted before physical I/O");
-        assert_eq!(
-            err,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into()
-            )
-        );
+        {
+            let crate::execution_attempt::ExecutionAttemptError::Deferred(actual) = err else {
+                panic!("local refusal cannot become a completed verdict")
+            };
+            assert_eq!(
+                actual.reason(),
+                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity
+            );
+            assert_eq!(actual.phase(), None);
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.decode_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+        };
         assert_eq!(store.kura.canonical_query_reads_for_test(), (0, 0));
     }
 

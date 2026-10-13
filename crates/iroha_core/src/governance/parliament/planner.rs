@@ -125,8 +125,8 @@ impl ParliamentAttemptStateV1 {
             return plan;
         }
 
-        // Pulses of committed heights: consume complete batches or fail elections whose pulse
-        // never arrived.
+        // Pulses of committed heights: consume complete batches whose exact slot pulse is
+        // committed. An election whose pulse is absent stays pending.
         let mut awaiting: BTreeMap<
             (BeaconSessionId, u64),
             Vec<(BodyElectionAttemptId, SortitionRequestId)>,
@@ -167,20 +167,10 @@ impl ParliamentAttemptStateV1 {
                         governance,
                     )
                 });
-            } else {
-                for (election_id, _) in elections {
-                    try_due(
-                        &mut state,
-                        due,
-                        ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(
-                            ParliamentFailBodyElectionNoRosterV1 {
-                                election_attempt_id: election_id,
-                            },
-                        ),
-                        |state| state.fail_body_election_no_roster(id, election_id, false, height),
-                    );
-                }
             }
+            // No committed pulse at the frozen slot: nothing is due, at any height.
+            // The wait is governance-local; no other pulse, height or classification
+            // may substitute the draw.
         }
 
         // Drawn elections open invitations; closed invitation windows seal or fail.
@@ -235,7 +225,7 @@ impl ParliamentAttemptStateV1 {
                             election_attempt_id: election_id,
                         },
                     ),
-                    |state| state.fail_body_election_no_roster(id, election_id, true, height),
+                    |state| state.fail_body_election_no_roster(id, election_id, height),
                 );
             }
         }
@@ -307,6 +297,10 @@ impl ParliamentAttemptStateV1 {
                 .filter(|(_, release_height)| *release_height <= committed_height)
                 .map(|(session, release_height)| world.verified_pulse(session, release_height));
             // A release height that is not committed yet cannot prove the pulse absent.
+            // The release slot creates no consensus obligation; a committed release height
+            // without a native pulse ends the ballot `ReleasePulseUnavailable`.
+            // TODO: retire with the timed-OVN ballot path
+            // (specs/parliament_private_ballot_design.md 12.2 step 4).
             let release_pulse_available = release_pulse.is_none_or(|pulse| pulse.is_some());
             let failed = try_due(
                 &mut state,
@@ -510,7 +504,7 @@ impl<W: crate::state::WorldReadOnly> ParliamentPlanWorldV1 for WorldPlanInputsV1
         let seed = crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             self.world,
             self.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .ok()?;

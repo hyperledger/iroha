@@ -602,8 +602,8 @@ async fn exact_committed_transaction(
             "entrypoint hash matched transaction bytes that differ from the exact signed entrypoint"
         );
         ensure!(
-            committed.result_hash() == &committed.result().hash(),
-            "finalized transaction result hash differs from its full typed result"
+            committed.output_hash() == &HashOf::new(committed.output()),
+            "finalized transaction output hash differs from its full typed output"
         );
         let blocks = client
             .client()
@@ -728,7 +728,7 @@ async fn assert_all_exact_duplicate_certificate_nullifier_results(
             .ok_or_else(|| {
                 eyre!("{context}: peer {index} omitted the exact finalized transaction")
             })?;
-        let observed_hash = committed.result_hash().clone();
+        let observed_hash = committed.result().hash();
         let observed_result = committed.result().clone();
         match &observed_result {
             TransactionResult(
@@ -738,6 +738,8 @@ async fn assert_all_exact_duplicate_certificate_nullifier_results(
                     ),
                 ))),
                 batch_outcomes,
+                _,
+                _,
             ) => {
                 ensure!(
                     message.as_str() == DUPLICATE_CERTIFICATE_NULLIFIER_MESSAGE,
@@ -1006,7 +1008,6 @@ async fn canonical_zk_x509_action_survives_four_peer_activation_replay_and_resta
         .with_permissioned_consensus()
         .with_config_layer(|layer| {
             layer
-                .write(["zk", "stark", "enabled"], true)
                 .write(["torii", "max_content_len"], TORII_CONTENT_BUDGET_BYTES)
                 .write(
                     ["torii", "query_fanout_max_retained_bytes"],

@@ -105,7 +105,7 @@ impl StateBlock<'_> {
         // configuration and snapshot schema consumers; no controller runs here.
         self.stage_autoscale_sample_record_for_count(signed_block, committed_fragment_count)
             .map_err(|error| invalid(&format!("runtime work sample: {error}")))?;
-        self.axt_authorization_transitioned = transitions.clone();
+        self.axt_authorization_transitioned.clone_from(transitions);
         self.replace_axt_policy_projection(snapshot);
         self.finalize_axt_policy_transition_ratchets()
             .map_err(|error| invalid(&format!("AXT counter ratchets: {error}")))?;

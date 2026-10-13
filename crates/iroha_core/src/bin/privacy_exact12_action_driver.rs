@@ -6,10 +6,17 @@
 //! input. Each admitted v1 operation accepts one bounded public network context
 //! on stdin and returns one genuine proof-bearing transaction on stdout.
 //! Witness and signing material are derived and consumed inside this process
-//! and never cross the IPC boundary. Vega remains absent until its exact
-//! governed Figure 9 proving artifacts are available; ZK-AMS and ZK-X509 also
-//! remain absent until their native release paths are genuinely available, so
-//! receipt issuance remains closed.
+//! and never cross the IPC boundary.
+//!
+//! The driver is one entry of the single Exact12 path, not a second route.
+//! Every operation names one [`PrivacyActionRoleV1`]; a role the Core dispatch
+//! registry records as unsupported (ZK-ACE and Vega here; ZK-AMS and ZK-X509
+//! have no operation) is refused with the registry's typed limitation before
+//! any request material is derived. A constructed transaction is returned only
+//! when it carries exactly one `SubmitPrivacyProofV1` whose envelope is the
+//! canonical binding of its own statement and proof and selects the requested
+//! role, so it reaches the same handler, verifier dispatch and state executor
+//! as a directly submitted instruction.
 use iroha_core::privacy_release_evidence::{
     PrivacyReleaseTransactionContextV1, build_privacy_release_anonymous_pgc_network_action_v1,
     build_privacy_release_bootle_lantern_network_action_v1,
@@ -20,21 +27,28 @@ use iroha_core::privacy_release_evidence::{
     build_privacy_release_verange_network_action_v1,
     build_privacy_release_zk_ace_network_action_v1,
 };
-use iroha_core_privacy::privacy_profiles::{CompiledPrivacyProfileV1, compiled_privacy_profile_v1};
+use iroha_core_privacy::{
+    privacy_dispatch::require_supported_privacy_action_role_v1,
+    privacy_profiles::{CompiledPrivacyProfileV1, compiled_privacy_profile_v1},
+};
 use iroha_crypto::{Algorithm, Hash, HashOf, PrivateKey, PublicKey};
 use iroha_data_model::{
     block::BlockHeader,
     isi::{
         InstructionBox,
-        privacy::{RegisterPrivacyProtocolActivationV1, TransitionPrivacyProtocolLifecycleV1},
+        privacy::{
+            RegisterPrivacyProtocolActivationV1, SubmitPrivacyProofV1,
+            TransitionPrivacyProtocolLifecycleV1,
+        },
     },
     prelude::{AccountId, AssetDefinitionId, NetworkId},
     privacy::{
-        PrivacyActiveLifecycleV1, PrivacyCompiledProfileSnapshotV1, PrivacyPolicyIdV1,
-        PrivacyPoolIdV1, PrivacyProposedLifecycleV1, PrivacyProtocolActivationLimitsV1,
-        PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1, TAIRA_PRIVACY_MAX_ACTION_BYTES_V1,
+        PrivacyActionRoleV1, PrivacyActiveLifecycleV1, PrivacyCompiledProfileSnapshotV1,
+        PrivacyPolicyIdV1, PrivacyPoolIdV1, PrivacyProofEnvelopeV1, PrivacyProposedLifecycleV1,
+        PrivacyProtocolActivationLimitsV1, PrivacyProtocolIdV1, PrivacyProtocolLifecycleV1,
+        TAIRA_PRIVACY_MAX_ACTION_BYTES_V1,
     },
-    transaction::{FeePaymentIntent, SignedTransaction},
+    transaction::{Executable, FeePaymentIntent, SignedTransaction},
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_version::codec::EncodeVersioned;
@@ -65,12 +79,12 @@ const SEED_DOMAIN: &[u8] = b"iroha.taira.privacy_action_driver_seed.v1\0";
 const VERANGE_SETUP_SEED_DOMAIN: &[u8] = b"iroha.taira.verange_qualification_setup_seed.v1\0";
 const VERANGE_SETUP_IDENTITY_BINDING_DOMAIN: &[u8] =
     b"iroha.taira.verange_qualification_setup_identity.v1\0";
-const MAX_REQUEST_BYTES: u64 = 16 * 1024;
+const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_TRANSACTION_BYTES: usize = TAIRA_PRIVACY_MAX_ACTION_BYTES_V1 as usize;
 const MAX_RESPONSE_BYTES: usize = 2 * MAX_TRANSACTION_BYTES
     + 2 * MAX_COMPILED_PROFILE_BYTES
     + 2 * MAX_ACTIVATION_TEMPLATE_BYTES
-    + MAX_REQUEST_BYTES as usize;
+    + MAX_REQUEST_BYTES;
 const MAX_TTL_MILLIS: u64 = 2 * 60 * 60 * 1_000;
 const MAX_CREATION_TIME_MILLIS: u64 = 9_223_372_036_854_775_807;
 const MAX_ASSET_DEFINITION_ID_BYTES: usize = 1024;
@@ -81,7 +95,6 @@ const QUALIFICATION_SCOPE: &str = "native-action-construction-only";
 const CONSTRUCTION_STATE: &str = "constructed";
 const MISSING_CONTROLLER_CASE_EVIDENCE: &str = "MissingSealedControllerProtocolCaseEvidence";
 const MISSING_ADMISSION_ARTIFACT_BUNDLE: &str = "MissingCanonicalAdmissionArtifactBundle";
-const MISSING_GOVERNED_FIGURE9_PROVER_ARTIFACTS: &str = "MissingGovernedFigure9ProverArtifacts";
 const MISSING_JINDO_KNOWLEDGE_SOUNDNESS: &str = "MissingDistributionWideKnowledgeSoundnessEvidence";
 const MISSING_VERANGE_SETUP_AUTHORITY: &str =
     "MissingExactGenesisSourceClosedControllerSetupAuthorityIdentity";
@@ -103,57 +116,114 @@ const VERANGE_GOVERNANCE_PERMISSION: &str = "CanEnactGovernance";
 const VERANGE_ACTIVATION_TEMPLATE_PROPOSED_AT_HEIGHT: u64 = 1;
 const MAX_COMPILED_PROFILE_BYTES: usize = 64 * 1024;
 const MAX_ACTIVATION_TEMPLATE_BYTES: usize = 64 * 1024;
+/// One driver operation and the single Exact12 role it constructs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ConstructibleOperationSpecV1 {
+struct OperationSpecV1 {
     operation: &'static str,
-    protocol: &'static str,
+    role: PrivacyActionRoleV1,
 }
-const CONSTRUCTIBLE_OPERATION_SPECS_V1: [ConstructibleOperationSpecV1; 9] = [
-    ConstructibleOperationSpecV1 {
+impl OperationSpecV1 {
+    /// Canonical label of the registered protocol of this operation's role.
+    const fn protocol(self) -> &'static str {
+        self.role.protocol_id().canonical_label()
+    }
+}
+/// Every operation of the driver contract. Whether an operation can be
+/// constructed is decided by the Core dispatch registry, never by this table.
+const OPERATION_SPECS_V1: [OperationSpecV1; 10] = [
+    OperationSpecV1 {
         operation: ZK_ACE_OPERATION,
-        protocol: "zk-ace-pq-authorization-v1",
+        role: PrivacyActionRoleV1::ZkAceAuthorization,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: ANONYMOUS_PGC_OPERATION,
-        protocol: "anonymous-pgc-k-out-of-n-v1",
+        role: PrivacyActionRoleV1::AnonymousPgcPayment,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: VERANGE_OPERATION,
-        protocol: "verange-transparent-range-v1",
+        role: PrivacyActionRoleV1::VeRangeRange,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
+        operation: UNAVAILABLE_VEGA_OPERATION,
+        role: PrivacyActionRoleV1::VegaCredentialPresentation,
+    },
+    OperationSpecV1 {
         operation: JINDO_OPERATION,
-        protocol: "iroha-jindo-polynomial-commitment-v1",
+        role: PrivacyActionRoleV1::JindoBatchedEvaluation,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: BOOTLE_LANTERN_OPERATION,
-        protocol: "iroha-bootle-lantern-anoncred-v1",
+        role: PrivacyActionRoleV1::BootleLanternPresentation,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: ORCHARD_OPERATION,
-        protocol: "orchard-halo2-actions-v1",
+        role: PrivacyActionRoleV1::OrchardActions,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: FCMP_OPERATION,
-        protocol: "monero-fcmp-plus-plus-v1",
+        role: PrivacyActionRoleV1::FcmpTransfer,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: IVM_PRIVATE_NOTE_OPERATION,
-        protocol: "iroha-ivm-private-note-stark-v1",
+        role: PrivacyActionRoleV1::IvmPrivateNoteTransition,
     },
-    ConstructibleOperationSpecV1 {
+    OperationSpecV1 {
         operation: PQ_MASP_OPERATION,
-        protocol: "pq-masp-stark-v1",
+        role: PrivacyActionRoleV1::PqMaspTransition,
     },
 ];
-fn constructible_operation_spec_v1(operation: &str) -> Option<ConstructibleOperationSpecV1> {
-    CONSTRUCTIBLE_OPERATION_SPECS_V1
+fn operation_spec_v1(operation: &str) -> Option<OperationSpecV1> {
+    OPERATION_SPECS_V1
         .iter()
         .copied()
         .find(|spec| spec.operation == operation)
 }
-fn unavailable_operation_reason_v1(operation: &str) -> Option<&'static str> {
-    (operation == UNAVAILABLE_VEGA_OPERATION).then_some(MISSING_GOVERNED_FIGURE9_PROVER_ARTIFACTS)
+/// Typed refusal of an operation whose role the dispatch registry does not verify.
+///
+/// The text carries the role and the registry's concrete limitation. Nothing
+/// is constructed for such a role, so no transaction can reach the ledger and
+/// be mistaken for a supported operation.
+fn unsupported_operation_refusal_v1(role: PrivacyActionRoleV1) -> Option<String> {
+    require_supported_privacy_action_role_v1(role)
+        .err()
+        .map(|refusal| format!("UnsupportedOperation: {refusal}"))
+}
+/// Require a constructed transaction to be the single canonical submission of `role`.
+///
+/// This is what makes the driver an entry of the one Exact12 path: the
+/// transaction carries exactly one `SubmitPrivacyProofV1`, its envelope is the
+/// canonical binding of its own statement and proof, and the single resolver
+/// names the requested role for it.
+fn require_canonical_role_submission_v1(
+    transaction: &SignedTransaction,
+    role: PrivacyActionRoleV1,
+) -> Result<(), String> {
+    let Executable::Instructions(instructions) = transaction.instructions() else {
+        return Err("action-driver transaction is not a direct instruction list".to_owned());
+    };
+    if instructions.len() != 1 {
+        return Err("action-driver transaction does not carry exactly one instruction".to_owned());
+    }
+    let submission = instructions[0]
+        .as_any()
+        .downcast_ref::<SubmitPrivacyProofV1>()
+        .ok_or_else(|| "action-driver instruction is not SubmitPrivacyProofV1".to_owned())?;
+    let envelope = &submission.envelope;
+    let resolved = envelope
+        .action_role_v1()
+        .map_err(|error| format!("action-driver envelope selects no single role: {error}"))?;
+    if resolved != role {
+        return Err(format!(
+            "action-driver envelope selects role {resolved}, not the requested {role}"
+        ));
+    }
+    let canonical =
+        PrivacyProofEnvelopeV1::bind_v1(envelope.statement.clone(), envelope.proof.clone())
+            .map_err(|error| format!("action-driver envelope cannot be rebound: {error}"))?;
+    if &canonical != envelope {
+        return Err("action-driver envelope is not the canonical binding".to_owned());
+    }
+    Ok(())
 }
 #[derive(Debug, Clone, norito::JsonDeserialize, norito::JsonSerialize)]
 #[norito(deny_unknown_fields)]
@@ -199,7 +269,7 @@ struct BuildActionResponseV1 {
     transaction_sha256: String,
 }
 /// Public-only material a future sealed controller needs to admit the exact
-/// deterministic VeRange action identity and compiled verifier profile.
+/// deterministic `VeRange` action identity and compiled verifier profile.
 ///
 /// This deliberately contains neither a setup transaction nor any secret,
 /// witness, endpoint, credential, or network outcome.  The explicit response
@@ -291,18 +361,18 @@ fn request_id_body(request: &BuildActionRequestV1) -> RequestIdBodyV1 {
         ttl_millis: request.ttl_millis,
     }
 }
-fn operation_missing_evidence_v1(protocol: &str) -> Vec<String> {
+fn operation_missing_evidence_v1(role: PrivacyActionRoleV1) -> Vec<String> {
     let mut missing_evidence = vec![MISSING_CONTROLLER_CASE_EVIDENCE.to_owned()];
-    if protocol == "verange-transparent-range-v1" {
-        missing_evidence.extend([
+    match role {
+        PrivacyActionRoleV1::VeRangeRange => missing_evidence.extend([
             MISSING_VERANGE_SETUP_AUTHORITY.to_owned(),
             MISSING_VERANGE_SETUP_TRANSACTION_BUNDLE.to_owned(),
             MISSING_VERANGE_STATE_QUERY_EVIDENCE.to_owned(),
-        ]);
-    } else if protocol != "iroha-jindo-polynomial-commitment-v1" {
-        missing_evidence.push(MISSING_ADMISSION_ARTIFACT_BUNDLE.to_owned());
-    } else {
-        missing_evidence.push(MISSING_JINDO_KNOWLEDGE_SOUNDNESS.to_owned());
+        ]),
+        PrivacyActionRoleV1::JindoBatchedEvaluation => {
+            missing_evidence.push(MISSING_JINDO_KNOWLEDGE_SOUNDNESS.to_owned());
+        }
+        _ => missing_evidence.push(MISSING_ADMISSION_ARTIFACT_BUNDLE.to_owned()),
     }
     missing_evidence
 }
@@ -526,10 +596,10 @@ fn read_request() -> Result<(BuildActionRequestV1, Vec<u8>), String> {
     let mut input = Vec::new();
     std::io::stdin()
         .lock()
-        .take(MAX_REQUEST_BYTES + 1)
+        .take(u64::try_from(MAX_REQUEST_BYTES + 1).expect("16 KiB request limit fits u64"))
         .read_to_end(&mut input)
         .map_err(|error| format!("cannot read action-driver request: {error}"))?;
-    if input.is_empty() || input.len() as u64 > MAX_REQUEST_BYTES {
+    if input.is_empty() || input.len() > MAX_REQUEST_BYTES {
         return Err("action-driver request is empty or exceeds 16384 bytes".to_owned());
     }
     let request: BuildActionRequestV1 = norito::json::from_slice(&input)
@@ -573,11 +643,13 @@ fn build_response(request: BuildActionRequestV1) -> Result<BuildActionResponseV1
     if request.schema != REQUEST_SCHEMA || request.schema_version != SCHEMA_VERSION {
         return Err("action-driver request selects an unsupported contract".to_owned());
     }
-    if let Some(reason) = unavailable_operation_reason_v1(&request.operation) {
-        return Err(reason.to_owned());
-    }
-    let operation = constructible_operation_spec_v1(&request.operation)
+    let operation = operation_spec_v1(&request.operation)
         .ok_or_else(|| "action-driver request selects an unsupported contract".to_owned())?;
+    // The dispatch registry decides support. A refused role returns its typed
+    // limitation before any request material is derived or validated.
+    if let Some(refusal) = unsupported_operation_refusal_v1(operation.role) {
+        return Err(refusal);
+    }
     if request.creation_time_millis == 0
         || request.creation_time_millis > MAX_CREATION_TIME_MILLIS
         || request.ttl_millis == 0
@@ -760,6 +832,7 @@ fn build_response(request: BuildActionRequestV1) -> Result<BuildActionResponseV1
         }
         _ => return Err("action-driver operation table is internally inconsistent".to_owned()),
     };
+    require_canonical_role_submission_v1(&transaction, operation.role)?;
     let transaction_bytes = transaction.encode_versioned();
     if transaction_bytes.is_empty() || transaction_bytes.len() > MAX_TRANSACTION_BYTES {
         return Err("encoded action-driver transaction violates its byte bound".to_owned());
@@ -768,10 +841,10 @@ fn build_response(request: BuildActionRequestV1) -> Result<BuildActionResponseV1
     Ok(BuildActionResponseV1 {
         candidate_binding_sha256: request.candidate_binding_sha256,
         construction_state: CONSTRUCTION_STATE.to_owned(),
-        missing_evidence: operation_missing_evidence_v1(operation.protocol),
+        missing_evidence: operation_missing_evidence_v1(operation.role),
         network_outcome_authoritative: false,
         operation: operation.operation.to_owned(),
-        protocol: operation.protocol.to_owned(),
+        protocol: operation.protocol().to_owned(),
         public_admission_artifacts,
         qualification_scope: QUALIFICATION_SCOPE.to_owned(),
         request_id: request.request_id,
@@ -911,31 +984,87 @@ mod tests {
         assert_ne!(before, substituted);
     }
     #[test]
-    fn operation_table_contains_only_genuine_release_action_paths() {
-        assert_eq!(CONSTRUCTIBLE_OPERATION_SPECS_V1.len(), 9);
+    fn operation_table_names_one_role_per_operation_and_derives_its_protocol() {
+        assert_eq!(OPERATION_SPECS_V1.len(), 10);
+        let mut roles = OPERATION_SPECS_V1.map(|spec| spec.role);
+        let mut operations = OPERATION_SPECS_V1.map(|spec| spec.operation);
+        roles.sort_unstable();
+        operations.sort_unstable();
+        assert!(roles.windows(2).all(|pair| pair[0] != pair[1]));
+        assert!(operations.windows(2).all(|pair| pair[0] != pair[1]));
+        for spec in OPERATION_SPECS_V1 {
+            assert_eq!(operation_spec_v1(spec.operation), Some(spec));
+            assert_eq!(
+                spec.protocol(),
+                spec.role.protocol_id().canonical_label(),
+                "the protocol label is derived from the role"
+            );
+        }
+        // ZK-AMS and ZK-X509 have no driver operation; nothing here can build them.
+        for absent in [
+            PrivacyActionRoleV1::ZkAmsBatchAdmission,
+            PrivacyActionRoleV1::ZkAmsProvisionAccount,
+            PrivacyActionRoleV1::ZkX509CertificatePresentation,
+        ] {
+            assert!(OPERATION_SPECS_V1.iter().all(|spec| spec.role != absent));
+        }
+        assert!(operation_spec_v1("build-unknown-action").is_none());
+    }
+
+    #[test]
+    fn the_dispatch_registry_decides_which_operations_are_refused() {
+        let refused = OPERATION_SPECS_V1
+            .iter()
+            .filter(|spec| unsupported_operation_refusal_v1(spec.role).is_some())
+            .map(|spec| spec.operation)
+            .collect::<Vec<_>>();
+        assert_eq!(refused, [ZK_ACE_OPERATION, UNAVAILABLE_VEGA_OPERATION]);
+        for spec in OPERATION_SPECS_V1 {
+            assert_eq!(
+                unsupported_operation_refusal_v1(spec.role).is_some(),
+                require_supported_privacy_action_role_v1(spec.role).is_err()
+            );
+        }
+    }
+
+    fn refused_request(operation: &str) -> BuildActionRequestV1 {
+        BuildActionRequestV1 {
+            asset_definition_id: String::new(),
+            candidate_binding_sha256: String::new(),
+            creation_time_millis: 0,
+            network_id_hex: String::new(),
+            nonce: 0,
+            operation: operation.to_owned(),
+            request_id: String::new(),
+            schema: REQUEST_SCHEMA.to_owned(),
+            schema_version: SCHEMA_VERSION,
+            ttl_millis: 0,
+        }
+    }
+
+    #[test]
+    fn unsupported_roles_are_refused_with_the_typed_limitation_before_material_derivation() {
+        // Every other field of these requests is invalid, so reaching any later
+        // check would return a different error.
+        for (operation, role) in [
+            (ZK_ACE_OPERATION, PrivacyActionRoleV1::ZkAceAuthorization),
+            (
+                UNAVAILABLE_VEGA_OPERATION,
+                PrivacyActionRoleV1::VegaCredentialPresentation,
+            ),
+        ] {
+            let refusal = require_supported_privacy_action_role_v1(role)
+                .expect_err("the registry refuses this role");
+            let error = build_response(refused_request(operation))
+                .expect_err("an unsupported role constructs nothing");
+            assert_eq!(error, format!("UnsupportedOperation: {refusal}"));
+            assert!(error.contains(role.canonical_label()));
+            assert!(error.contains(refusal.limitation.description()));
+        }
         assert_eq!(
-            CONSTRUCTIBLE_OPERATION_SPECS_V1.map(|spec| spec.protocol),
-            [
-                "zk-ace-pq-authorization-v1",
-                "anonymous-pgc-k-out-of-n-v1",
-                "verange-transparent-range-v1",
-                "iroha-jindo-polynomial-commitment-v1",
-                "iroha-bootle-lantern-anoncred-v1",
-                "orchard-halo2-actions-v1",
-                "monero-fcmp-plus-plus-v1",
-                "iroha-ivm-private-note-stark-v1",
-                "pq-masp-stark-v1",
-            ]
-        );
-        assert!(
-            CONSTRUCTIBLE_OPERATION_SPECS_V1
-                .iter()
-                .all(|spec| !matches!(
-                    spec.protocol,
-                    "vega-existing-credential-zk-v1"
-                        | "iroha-zk-ams-v1"
-                        | "iroha-zk-x509-stark-p256-v1"
-                ))
+            build_response(refused_request("build-zk-ams-action"))
+                .expect_err("ZK-AMS has no driver operation"),
+            "action-driver request selects an unsupported contract"
         );
     }
 
@@ -997,7 +1126,7 @@ mod tests {
         );
         assert_eq!(
             object["protocol"].as_str(),
-            Some("iroha-jindo-polynomial-commitment-v1")
+            Some(PrivacyProtocolIdV1::IrohaJindoPolynomialCommitmentV1.canonical_label())
         );
         assert_eq!(
             object["missing_evidence"],
@@ -1012,24 +1141,125 @@ mod tests {
         assert_eq!(response.transaction_sha256, sha256_hex(&transaction));
     }
 
-    #[test]
-    fn vega_is_rejected_before_request_material_derivation_with_exact_reason() {
-        let request = BuildActionRequestV1 {
-            asset_definition_id: String::new(),
-            candidate_binding_sha256: String::new(),
-            creation_time_millis: 0,
-            network_id_hex: String::new(),
-            nonce: 0,
-            operation: UNAVAILABLE_VEGA_OPERATION.to_owned(),
+    fn jindo_request() -> BuildActionRequestV1 {
+        let domain = iroha_model_base::domain::DomainId::try_new("privacy", "universal")
+            .expect("typed asset domain");
+        let asset = AssetDefinitionId::derive_from_components(
+            domain,
+            "jindo_value".parse().expect("asset name"),
+        );
+        let mut request = BuildActionRequestV1 {
+            asset_definition_id: asset.to_string(),
+            candidate_binding_sha256: "11".repeat(32),
+            creation_time_millis: 1_900_000_000_000,
+            network_id_hex: "23".repeat(32),
+            nonce: 17,
+            operation: JINDO_OPERATION.to_owned(),
             request_id: String::new(),
             schema: REQUEST_SCHEMA.to_owned(),
             schema_version: SCHEMA_VERSION,
-            ttl_millis: 0,
+            ttl_millis: 60_000,
         };
-        assert!(constructible_operation_spec_v1(UNAVAILABLE_VEGA_OPERATION).is_none());
+        request.request_id = compute_request_id(&request).expect("bind the Jindo request body");
+        request
+    }
+
+    /// The driver's output is the one canonical `SubmitPrivacyProofV1` of the
+    /// requested role: the same instruction a direct submission carries.
+    #[test]
+    fn constructed_transaction_is_the_single_canonical_submission_of_its_role() {
+        use iroha_version::codec::DecodeVersioned as _;
+        let response = build_response(jindo_request()).expect("construct a native Jindo response");
+        let bytes = hex::decode(&response.transaction_norito_hex).expect("transaction hex");
+        let transaction =
+            SignedTransaction::decode_all_versioned(&bytes).expect("decode the transaction");
+        let role = PrivacyActionRoleV1::JindoBatchedEvaluation;
+        require_canonical_role_submission_v1(&transaction, role)
+            .expect("the driver delegates to the canonical envelope and instruction");
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            panic!("direct instruction list");
+        };
+        assert_eq!(instructions.len(), 1);
+        let submission = instructions[0]
+            .as_any()
+            .downcast_ref::<SubmitPrivacyProofV1>()
+            .expect("the single instruction is SubmitPrivacyProofV1");
+        assert_eq!(submission.envelope.action_role_v1(), Ok(role));
         assert_eq!(
-            build_response(request).expect_err("Vega must remain unavailable"),
-            MISSING_GOVERNED_FIGURE9_PROVER_ARTIFACTS
+            PrivacyProofEnvelopeV1::bind_v1(
+                submission.envelope.statement.clone(),
+                submission.envelope.proof.clone()
+            )
+            .as_ref(),
+            Ok(&submission.envelope)
         );
+        // The same transaction is not a submission of any other role.
+        for other in PrivacyActionRoleV1::ALL {
+            if other != role {
+                assert!(require_canonical_role_submission_v1(&transaction, other).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn delegation_check_rejects_noncanonical_and_multiple_submissions() {
+        use iroha_data_model::transaction::TransactionBuilder;
+        use iroha_version::codec::DecodeVersioned as _;
+        let response = build_response(jindo_request()).expect("construct a native Jindo response");
+        let bytes = hex::decode(&response.transaction_norito_hex).expect("transaction hex");
+        let transaction =
+            SignedTransaction::decode_all_versioned(&bytes).expect("decode the transaction");
+        let role = PrivacyActionRoleV1::JindoBatchedEvaluation;
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            panic!("direct instruction list");
+        };
+        let submission = instructions[0]
+            .as_any()
+            .downcast_ref::<SubmitPrivacyProofV1>()
+            .expect("the single instruction is SubmitPrivacyProofV1")
+            .clone();
+        let key = iroha_crypto::KeyPair::random();
+        let network_id = NetworkId::from_genesis_hash(
+            HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0x23; 32])),
+        );
+        let rebuild = |instructions: Vec<InstructionBox>| {
+            TransactionBuilder::new(
+                network_id,
+                AccountId::new(key.public_key().clone()),
+                FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions(instructions)
+            .sign(key.private_key())
+        };
+
+        // A relabelled protocol no longer resolves to one role.
+        let mut relabelled = submission.clone();
+        relabelled.envelope.protocol_id = PrivacyProtocolIdV1::VeRangeTransparentRangeV1;
+        let error = require_canonical_role_submission_v1(&rebuild(vec![relabelled.into()]), role)
+            .expect_err("protocol substitution");
+        assert!(error.contains("selects no single role"), "{error}");
+
+        // A hand-assembled digest differs from the canonical binding.
+        let mut redigested = submission.clone();
+        redigested.envelope.statement_digest =
+            iroha_data_model::privacy::PrivacyStatementDigestV1::new([0x5A; 32]);
+        let error = require_canonical_role_submission_v1(&rebuild(vec![redigested.into()]), role)
+            .expect_err("non-canonical envelope");
+        assert_eq!(error, "action-driver envelope is not the canonical binding");
+
+        // Two submissions are not the single instruction of the path.
+        let error = require_canonical_role_submission_v1(
+            &rebuild(vec![submission.clone().into(), submission.clone().into()]),
+            role,
+        )
+        .expect_err("two instructions");
+        assert_eq!(
+            error,
+            "action-driver transaction does not carry exactly one instruction"
+        );
+
+        // The untouched submission still passes after re-signing.
+        require_canonical_role_submission_v1(&rebuild(vec![submission.into()]), role)
+            .expect("canonical single submission");
     }
 }

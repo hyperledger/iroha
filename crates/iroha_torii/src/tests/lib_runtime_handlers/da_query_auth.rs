@@ -77,6 +77,10 @@ mod da_query_auth {
         );
     }
 
+    #[expect(
+        clippy::future_not_send,
+        reason = "current-thread tests retain the global authentication configuration guard across requests"
+    )]
     async fn assert_authentication(path: &'static str, body: Vec<u8>) {
         let _guard = app_auth_test_guard(crate::app_auth::CanonicalRequestAuthConfig::default());
         let signer = checked_torii_test_ed25519_keypair(0xB1, "DA proof request signer");
@@ -154,10 +158,10 @@ mod da_query_auth {
         )
         .await;
 
-        let signed = signed_app_headers(&account, &signer, &Method::POST, &uri, &body);
+        let signed_payload = signed_app_headers(&account, &signer, &Method::POST, &uri, &body);
         let response = router
             .clone()
-            .oneshot(request(path, &body, signed.clone()))
+            .oneshot(request(path, &body, signed_payload.clone()))
             .await
             .expect("signed DA handler response");
         assert_eq!(
@@ -195,7 +199,7 @@ mod da_query_auth {
         }
         assert_rejected(
             router,
-            request(path, &body, signed),
+            request(path, &body, signed_payload),
             StatusCode::FORBIDDEN,
             "query_validation_failed",
             "nonce already used",

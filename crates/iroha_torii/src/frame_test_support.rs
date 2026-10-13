@@ -3,7 +3,7 @@
 /// Verify one literal owner and the exact payload without printing fixture contents.
 ///
 /// Temporary buffers are not scrubbed; use only non-secret test fixtures.
-pub(crate) fn assert_current_frame<T>(value: &T, owner: &str) -> Vec<u8>
+pub fn assert_current_frame<T>(value: &T, owner: &str) -> Vec<u8>
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
 {

@@ -67,13 +67,35 @@ fun SccpTairaXorMinter.sendSccpInit(
     return net.send(from, genericMsg);
 }
 
+fun SccpTairaXorMinter.sendSccpCheckpoint(
+    self,
+    from: address,
+    queryId: uint64,
+    response: address,
+    cert: TairaCert,
+    nextKeys: cell?,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SccpCheckpoint {
+            queryId,
+            response,
+            cert: cert.toCell(),
+            nextKeys,
+        },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun SccpTairaXorMinter.sendSccpFinalize(
     self,
     from: address,
     queryId: uint64,
     response: address,
-    attestation: Attestation,
-    signatures: cell,
+    cert: TairaCert,
     message: MessageProof,
     config: SendParams = {},
 ): SendResultList {
@@ -84,22 +106,19 @@ fun SccpTairaXorMinter.sendSccpFinalize(
         body: SccpFinalize {
             queryId,
             response,
-            attestation: attestation.toCell(),
-            signatures,
+            cert: cert.toCell(),
             message: message.toCell(),
         },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpFinalizeHistorical(
+fun SccpTairaXorMinter.sendSccpFinalizeCheckpoint(
     self,
     from: address,
     queryId: uint64,
     response: address,
-    attestation: Attestation,
-    signatures: cell,
-    history: HistoryProof,
+    ref: CheckpointRef,
     message: MessageProof,
     config: SendParams = {},
 ): SendResultList {
@@ -107,12 +126,10 @@ fun SccpTairaXorMinter.sendSccpFinalizeHistorical(
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpFinalizeHistorical {
+        body: SccpFinalizeCheckpoint {
             queryId,
             response,
-            attestation: attestation.toCell(),
-            signatures,
-            history: history.toCell(),
+            ref: ref.toCell(),
             message: message.toCell(),
         },
     });
@@ -125,8 +142,7 @@ fun SccpTairaXorMinter.sendSccpVoidExpired(
     queryId: uint64,
     response: address,
     nonce: uint64,
-    attestation: Attestation,
-    signatures: cell,
+    cert: TairaCert,
     message: MessageProof,
     config: SendParams = {},
 ): SendResultList {
@@ -138,23 +154,20 @@ fun SccpTairaXorMinter.sendSccpVoidExpired(
             queryId,
             response,
             nonce,
-            attestation: attestation.toCell(),
-            signatures,
+            cert: cert.toCell(),
             message: message.toCell(),
         },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpVoidExpiredHistorical(
+fun SccpTairaXorMinter.sendSccpVoidExpiredCheckpoint(
     self,
     from: address,
     queryId: uint64,
     response: address,
     nonce: uint64,
-    attestation: Attestation,
-    signatures: cell,
-    history: HistoryProof,
+    ref: CheckpointRef,
     message: MessageProof,
     config: SendParams = {},
 ): SendResultList {
@@ -162,13 +175,11 @@ fun SccpTairaXorMinter.sendSccpVoidExpiredHistorical(
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpVoidExpiredHistorical {
+        body: SccpVoidExpiredCheckpoint {
             queryId,
             response,
             nonce,
-            attestation: attestation.toCell(),
-            signatures,
-            history: history.toCell(),
+            ref: ref.toCell(),
             message: message.toCell(),
         },
     });
@@ -193,38 +204,12 @@ fun SccpTairaXorMinter.sendSccpVoidFrozen(
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpRotate(
-    self,
-    from: address,
-    queryId: uint64,
-    response: address,
-    attestation: Attestation,
-    signatures: cell,
-    next: RosterSpec,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpRotate {
-            queryId,
-            response,
-            attestation: attestation.toCell(),
-            signatures,
-            next: next.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
 fun SccpTairaXorMinter.sendSccpApplyControl(
     self,
     from: address,
     queryId: uint64,
     response: address,
-    attestation: Attestation,
-    signatures: cell,
+    cert: TairaCert,
     control: ControlProof,
     config: SendParams = {},
 ): SendResultList {
@@ -235,22 +220,19 @@ fun SccpTairaXorMinter.sendSccpApplyControl(
         body: SccpApplyControl {
             queryId,
             response,
-            attestation: attestation.toCell(),
-            signatures,
+            cert: cert.toCell(),
             control: control.toCell(),
         },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpApplyControlHistorical(
+fun SccpTairaXorMinter.sendSccpApplyControlCheckpoint(
     self,
     from: address,
     queryId: uint64,
     response: address,
-    attestation: Attestation,
-    signatures: cell,
-    history: HistoryProof,
+    ref: CheckpointRef,
     control: ControlProof,
     config: SendParams = {},
 ): SendResultList {
@@ -258,12 +240,10 @@ fun SccpTairaXorMinter.sendSccpApplyControlHistorical(
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpApplyControlHistorical {
+        body: SccpApplyControlCheckpoint {
             queryId,
             response,
-            attestation: attestation.toCell(),
-            signatures,
-            history: history.toCell(),
+            ref: ref.toCell(),
             control: control.toCell(),
         },
     });
@@ -292,111 +272,34 @@ fun SccpTairaXorMinter.sendSccpRetry(
     from: address,
     queryId: uint64,
     response: address,
-    nonce: uint64,
+    operationId: uint64,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpRetry { queryId, response, nonce },
+        body: SccpRetry { queryId, response, operationId },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpConsumed(
+fun SccpTairaXorMinter.sendSccpRecoveryAck(
     self,
     from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    result: uint8,
     queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    tail: ConsumeTail,
+    response: address,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpConsumed {
-            queryId,
-            nonce,
-            amount,
-            tail: tail.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpAlreadyConsumed(
-    self,
-    from: address,
-    queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    tail: ConsumeTail,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpAlreadyConsumed {
-            queryId,
-            nonce,
-            amount,
-            tail: tail.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpConsumeReverted(
-    self,
-    from: address,
-    queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpConsumeReverted { queryId, nonce, amount },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpRangeConsumed(
-    self,
-    from: address,
-    queryId: uint64,
-    first: uint64,
-    count: uint16,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpRangeConsumed { queryId, first, count },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpRangeRejected(
-    self,
-    from: address,
-    queryId: uint64,
-    first: uint64,
-    count: uint16,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpRangeRejected { queryId, first, count },
+        body: SccpRecoveryAck { operationId, stage, attempt, result, queryId, response },
     });
     return net.send(from, genericMsg);
 }
@@ -486,8 +389,12 @@ fun SccpTairaXorMinter.getSccpState(self): SccpStateReply {
     return net.runGetMethod(self.address, "get_sccp_state");
 }
 
-fun SccpTairaXorMinter.getSccpMembers(self): array<int> {
-    return net.runGetMethod(self.address, "get_sccp_members");
+fun SccpTairaXorMinter.getSccpCommittee(self): SccpCommitteeReply {
+    return net.runGetMethod(self.address, "get_sccp_committee");
+}
+
+fun SccpTairaXorMinter.getSccpCheckpoints(self): SccpCheckpointsReply {
+    return net.runGetMethod(self.address, "get_sccp_checkpoints");
 }
 
 fun SccpTairaXorMinter.getBucketAddress(self, index: int): address {
@@ -514,8 +421,8 @@ fun SccpTairaXorMinter.applyControlRequiredValue(self): int {
     return net.runGetMethod(self.address, "apply_control_required_value");
 }
 
-fun SccpTairaXorMinter.rotateRequiredValue(self): int {
-    return net.runGetMethod(self.address, "rotate_required_value");
+fun SccpTairaXorMinter.checkpointRequiredValue(self): int {
+    return net.runGetMethod(self.address, "checkpoint_required_value");
 }
 
 fun SccpTairaXorMinter.retryRequiredValue(self): int {
@@ -526,6 +433,10 @@ fun SccpTairaXorMinter.minterFloor(self): int {
     return net.runGetMethod(self.address, "minter_floor");
 }
 
-fun SccpTairaXorMinter.getSccpRetry(self, nonce: int): int {
-    return net.runGetMethod(self.address, "get_sccp_retry", [nonce]);
+fun SccpTairaXorMinter.getSccpRecovery(self, operationId: int): cell? {
+    return net.runGetMethod(self.address, "get_sccp_recovery", [operationId]);
+}
+
+fun SccpTairaXorMinter.getSccpRecoveryState(self): (int, int, int) {
+    return net.runGetMethod(self.address, "get_sccp_recovery_state");
 }

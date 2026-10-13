@@ -146,6 +146,14 @@ in §1.2. An ordinary user may interrupt operations, restore app backups, change
 the wall clock or replay messages. Those actions must not create another spend.
 A compromised OS or modified wallet executable is outside this selected model.
 
+The first release retains Pasta/Poseidon recursive proofs and explicitly assumes
+that the concrete RP57 Fiat–Shamir instantiation preserves the argument and
+accumulation security required by recursive composition. This additional
+heuristic is specified in the [recursive soundness memo](kagemusha_recursion_soundness_v1.md#selected-recursive-fiatshamir-assumption);
+it is not a proved consequence of the single-proof random-oracle results. The
+joint privacy-composition argument and candidate acceptance tests remain
+required, and unbounded lineage depth remains heuristic.
+
 The lineage proof (Ω, §3) establishes conserved, authorized lineage. It cannot establish the
 absence of a rootkit, or discover another valid fork by itself. The state
 provider prevents forks under the assumptions above. Insurance or later fraud
@@ -543,13 +551,13 @@ recomputes is Poseidon:
   credit-digest tree. `P_bytes` for the large-input digests: `proof_digest` in
   both its domains (§4.1), the Payment digest, the lineage digest over Ω, the
   credit-opening, credit-status and credited digests (§5.1), and every signed
-  message (below).
+  message (below), and the public recovery `capsule_commitment` (§4.1).
 - **SHA-256.** `H` only where no relation recomputes the value: `scheme_id` and
   the identities fixed at enrollment (asset scope, wallet, enrollment), the
   enrollment and renewal transcripts given to platform attestation, `account`,
   the artifact digests (relation, verifying-key set, artifact manifest), the
   evidence digest, the output descriptor and local custody records (marker,
-  capsule, completion, fold). The wire record lists each one and why it stays
+  capsule-body, capsule, completion, fold). The wire record lists each one and why it stays
   SHA-256.
 
 **Signatures.** Every P-256 signature in the protocol (hardware receipts τ,
@@ -1060,7 +1068,7 @@ proofs do not debit value; only the winning commit can become a package.
 
 The signed receipt binds the scheme, wallet, provider-contract identity,
 sequence, operation ID, old/new commitments, statement digest, proof digest
-and recovery capsule digest. The operation tag fixes the `proof_digest` domain
+and recovery capsule commitment. The operation tag fixes the `proof_digest` domain
 (§3.1). For Send, Unload and Retiring,
 `proof_digest = P_bytes(proof domain, LE32 len(Ω) ‖ Ω ‖ LE32 len(σ) ‖ σ)` over
 Ω(pred) and σ. Bootstrap, Load, Receive, ArchiveSent and RefreshPolicy use
@@ -1085,13 +1093,52 @@ When a write error leaves the outcome unknown, report the operation pending
 until reconciliation. Show a resumed operation's released result, and show an
 operation whose staging was discarded as not performed.
 
-Freeze the private recovery capsule body before signing: actual next state
-openings, proof, required map nodes, retained input bytes, output descriptors
-and operation recovery data. The receipt signs this immutable body's digest.
+Freeze the exact canonical private recovery body B before sampling its opening:
+actual next state openings, proof, required map nodes, retained input bytes,
+output descriptors and operation recovery data. Let `b = H("capsule-body", B)`
+and split all 32 bytes injectively into `m0 = LE128(b[0..16])` and
+`m1 = LE128(b[16..32])`, represented in Fp without reduction. Independently sample
+uniform canonical `r ∈ Fp`, including zero, and compute the Vesta commitment
+`C = m0 g[0] + m1 g[1] + r w` under the installed IPA generator tuple. The receipt
+binds the nonzero 32-byte value `capsule_commitment = P_bytes(kgwcapc1, enc(C))`.
+Identity C is valid and has its canonical encoding. SHA collision resistance,
+Poseidon collision resistance and the existing IPA generator-relation premise
+bind this value to every B byte; no SHA hiding assumption is used.
+
+Sample r from at most 128 independent 32-byte OS entropy fills. Clear only bit
+255 of each candidate, then accept its first canonical little-endian Fp encoding.
+This gives each accepted scalar exactly two raw preimages, retaining a uniform
+opening including zero; under ideal independent fills the exhaustion probability
+is `(1 - p/2^255)^128`, at most `2^-128`. An entropy error fails immediately; exhaustion or
+a zero public commitment refuses this attempt before selection. Do not reduce
+arbitrary bytes, derive r from the state nonce or proof coins, reseal internally,
+or regenerate the body/proof to avoid refusal. Construction consumes the frozen
+body, and verification reconstructs it deterministically without sampling.
+
+The selected private recovery capsule is the exact canonical wrapper W=(B,r).
+Its private custody identity is `H("capsule", W)`. Markers, manifests, predecessor
+links, plans, fold records and completion records authenticate this identity;
+public receipts carry only `capsule_commitment`. Every join between a receipt
+and local custody verifies the authenticated wrapper's commitment and exact
+retained output. A caller-supplied association between these identifiers is not
+authentication. After W is collected, retained output is returned only after its
+exact completion frame and both identifiers match the authenticated permanent
+step entry; a sequence parsed from its explicit canonical output schema is only
+a bounded lookup locator. Neither the body hash, wrapper hash nor opening is exported in
+a receipt. The opening is required to open the commitment and remains in the
+same redundant non-backup custody as the body for its entire retention lifetime.
+Once W is durable, retries reuse its exact B, r and commitment. A missing opening
+is reconciled from an authenticated copy or reported as custody loss, never
+replaced by fresh randomness.
+
 Append the receipt and assembled output bytes in a separate durable completion
-record excluded from that digest. Neither the body nor a monetary map leaf
-contains its own final receipt/package. Persist both records before returning;
-a hash or a key-store marker alone is insufficient for onward spending.
+record excluded from W. Neither B nor a monetary map leaf contains its own final
+receipt/package. Persist both records before returning; a commitment or a
+key-store marker alone is insufficient for onward spending. Capacity checks
+count the complete wrapper, including its opening and framing, for both retained
+copies within the unchanged 524,288-byte capsule cap. The sole first-release
+provider-contract identity binds these semantics; regenerated credentials,
+fixtures and authenticated artifacts use that identity without a fallback.
 
 Until a durable Ω covers a step, the capsule and completion records of that
 step retain every input that Λ verifies for it: σ, τ, every consumed input (the

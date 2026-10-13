@@ -1,0 +1,143 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_of_a_round_that_never_started",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back",
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "The process stopped right after the round intent was persisted. Cancellation makes the workflow cancelling. Recovery without the driver cannot resolve a round; recovery with the driver proves no external effect exists, and the workflow ends cancelled with nothing started.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "cancel-of-a-round-that-never-started",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelling",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "recover",
+      "driver": "absent",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelling",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "recover",
+      "script": {
+        "round_recoveries": [
+          "not_started"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "planned",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

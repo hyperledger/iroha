@@ -361,12 +361,10 @@ fn retired_phase_four_extraction_format_has_no_encoder_or_writer_beside_the_orig
         original.durable.prepare_intent(
             4,
             &context,
-            claim,
-            root_hash,
-            fifos,
+            (claim, root_hash, fifos),
             None,
             [[0; 32]; 2],
-            generations
+            generations,
         ),
         Err(AttemptError::Phase)
     ));

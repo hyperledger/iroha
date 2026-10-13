@@ -67,34 +67,34 @@ fn call(
 fn contract_permission_delegation_requires_instance_and_exact_effect_authority() {
     let (mut host, mut vm, contract, actor) = fixture();
     let grant = syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION;
-    assert_eq!(
+    assert!(matches!(
         call(&mut host, &mut vm, &actor, "Member", grant),
         Err(VMError::PermissionDenied)
-    );
+    ));
     host.bind_contract_runtime_context(actor.clone(), contract.clone(), "manage".into())
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         call(&mut host, &mut vm, &actor, "Member", grant),
         Err(VMError::PermissionDenied)
-    );
+    ));
     let token = PermissionToken::ContractPermission {
         contract: contract.clone(),
         permission: "Member".parse().unwrap(),
     };
     host.wsv.grant_permission(&actor, token.clone());
-    assert_eq!(
+    assert!(matches!(
         call(&mut host, &mut vm, &actor, "Member", grant),
         Err(VMError::PermissionDenied)
-    );
+    ));
     host.wsv.revoke_permission(&actor, &token);
     host.wsv
         .grant_permission(&contract.subject_id(), token.clone());
     call(&mut host, &mut vm, &actor, "Member", grant).unwrap();
     assert!(host.wsv.has_permission(&actor, &token));
-    assert_eq!(
+    assert!(matches!(
         call(&mut host, &mut vm, &actor, "Member", grant),
         Err(VMError::PermissionDenied)
-    );
+    ));
     call(
         &mut host,
         &mut vm,
@@ -104,7 +104,7 @@ fn contract_permission_delegation_requires_instance_and_exact_effect_authority()
     )
     .unwrap();
     assert!(!host.wsv.has_permission(&actor, &token));
-    assert_eq!(
+    assert!(matches!(
         call(
             &mut host,
             &mut vm,
@@ -113,7 +113,7 @@ fn contract_permission_delegation_requires_instance_and_exact_effect_authority()
             syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION
         ),
         Err(VMError::PermissionDenied)
-    );
+    ));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn contract_permission_delegation_rejects_shared_and_undeclared_names() {
                 permission: name.parse().unwrap(),
             },
         );
-        assert_eq!(
+        assert!(matches!(
             call(
                 &mut host,
                 &mut vm,
@@ -138,14 +138,14 @@ fn contract_permission_delegation_rejects_shared_and_undeclared_names() {
                 syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION
             ),
             Err(VMError::PermissionDenied)
-        );
+        ));
     }
     let wrong_type = vm
         .alloc_input_tlv(&tlv(PointerType::Blob, b"Member"))
         .unwrap();
     vm.set_register(11, wrong_type);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
 }

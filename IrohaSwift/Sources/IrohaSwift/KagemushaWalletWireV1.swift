@@ -37,7 +37,7 @@ public enum KagemushaWalletWireErrorV1: Error, Equatable, Sendable {
 
 /// Exact role label of one domain-separated KAGEMUSHA wallet V1 digest `H(role, body)`.
 ///
-/// The 18 cases and their order mirror the Rust `KagemushaWalletDigestRoleV1::ALL`. `H` remains
+/// The 21 cases and their order mirror the Rust `KagemushaWalletDigestRoleV1::ALL`. `H` remains
 /// only for values no relation recomputes: fixed identities, ledger, platform-attestation and
 /// artifact boundaries, output descriptors and local custody records. Only the artifact manifest hashes
 /// `m || signature`. Signed-object, certificate-set, package, statement, operation and nullifier
@@ -77,7 +77,9 @@ public enum KagemushaWalletDigestRoleV1: String, CaseIterable, Sendable {
   case output = "output"
   /// Local provider marker frame.
   case marker = "marker"
-  /// Local recovery capsule frame.
+  /// Frozen private recovery body frame, before its independent opening is sampled.
+  case capsuleBody = "capsule-body"
+  /// Private recovery wrapper containing the exact body frame and opening.
   case capsule = "capsule"
   /// Local completion record frame.
   case completion = "completion"

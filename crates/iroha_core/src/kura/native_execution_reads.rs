@@ -66,6 +66,11 @@ impl AsMut<[u8]> for NativeFrameDestination {
 /// Capturing this receipt reads only bounded index/hash metadata, never the frame body.
 pub(crate) struct NativeFrameRead<'kura> {
     kura: &'kura Kura,
+    binding: NativeFrameBinding,
+}
+
+// The two handle forms share these original journal descriptors and the sole read kernel.
+struct NativeFrameBinding {
     height: u64,
     hash: HashOf<BlockHeader>,
     wire_len: u64,
@@ -75,26 +80,21 @@ pub(crate) struct NativeFrameRead<'kura> {
 impl NativeFrameRead<'_> {
     /// Exact occupied slot length to admit before any body allocation or I/O.
     pub(crate) const fn wire_len(&self) -> u64 {
-        self.wire_len
+        self.binding.wire_len
     }
 
-    /// Compare the original native journal images across one complete byte scan.
-    /// Metadata alone never authenticates bytes: the caller must also join full raw
-    /// bytes to genuinely verified canonical receipts before any cursor reuse.
+    /// Compare original journal images without granting byte or certificate authority.
     pub(crate) fn same_journal_image(&self, other: &Self) -> bool {
         core::ptr::eq(self.kura, other.kura)
-            && Kura::native_frame_journal_images_unchanged(&self.journals, &other.journals)
+            && Kura::native_frame_journal_images_unchanged(
+                &self.binding.journals,
+                &other.binding.journals,
+            )
     }
 
-    /// Bind the same original occupied slot while allowing later journal appends.
-    /// This identifies the source owner and geometry, not continued disk-byte or QC authority.
+    /// Identify the original occupied slot while allowing later journal appends.
     pub(crate) fn same_original_slot(&self, other: &Self) -> bool {
-        core::ptr::eq(self.kura, other.kura)
-            && self.height == other.height
-            && self.hash == other.hash
-            && self.wire_len == other.wire_len
-            && self.start == other.start
-            && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
+        core::ptr::eq(self.kura, other.kura) && self.binding.same_original_slot(&other.binding)
     }
 
     /// Load only this admitted slot, rechecking all durable metadata under storage guards.
@@ -113,11 +113,51 @@ impl NativeFrameRead<'_> {
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
+        self.binding
+            .read_original(self.kura, admitted_wire_len, budget)
+    }
+}
+
+/// The same untrusted original slot, retaining its actual Kura owner across State views.
+/// No descriptor, frame, receipt or committee is reconstructed by sharing this handle.
+pub(crate) struct OwnedNativeFrameRead {
+    binding: NativeFrameBinding,
+    kura: Arc<Kura>,
+}
+impl OwnedNativeFrameRead {
+    pub(crate) const fn wire_len(&self) -> u64 {
+        self.binding.wire_len
+    }
+    pub(crate) fn same_original_slot(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.kura, &other.kura) && self.binding.same_original_slot(&other.binding)
+    }
+    pub(crate) fn read_original(
+        &self,
+        admitted_wire_len: u64,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
+        self.binding
+            .read_original(&self.kura, admitted_wire_len, budget)
+    }
+}
+impl NativeFrameBinding {
+    fn same_original_slot(&self, other: &Self) -> bool {
+        self.height == other.height
+            && self.hash == other.hash
+            && self.wire_len == other.wire_len
+            && self.start == other.start
+            && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
+    }
+    fn read_original(
+        &self,
+        kura: &Kura,
+        admitted_wire_len: u64,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
         // Failed backing and partial reads can refund this pool. Every storage guard
         // must retire before a synchronous refund waker may reenter the same source.
         budget.with_deferred_refund_notifications(|_| {
             let Self {
-                kura,
                 height,
                 hash,
                 wire_len,
@@ -169,7 +209,10 @@ impl NativeFrameRead<'_> {
             } else {
                 // Inline storage owns its buffer here; subsequent native decoding retains
                 // this inherited cumulative scope and accounts for its separate graph.
-                norito::core::reserve_decode_allocation(length).map_err(Error::NoritoFrame)?;
+                norito::core::classify_decode_attempt(|| {
+                    norito::core::reserve_decode_allocation(length)
+                })
+                .map_err(Error::CodecAttempt)?;
                 let mut bytes = NativeFrameDestination::new(length, budget)?;
                 store.read_block_data(slot.start, bytes.as_mut())?;
                 bytes
@@ -195,6 +238,21 @@ impl Kura {
     /// Bind each retained original journal descriptor to its regular direct pathname.
     /// Missing, replaced, linked or special paths refuse before frame allocation or I/O.
     fn native_frame_journal_binding(
+        &self,
+        store: &mut BlockStore,
+    ) -> Result<StableCanonicalBlockStoreMetadata> {
+        // Failure to reacquire the original pathname is source unavailability,
+        // not proof that the retained journal's authenticated bytes are corrupt.
+        // Keep this classification at the metadata identity boundary only;
+        // frame, slot and byte validation errors retain their own classification.
+        self.native_frame_journal_binding_inner(store)
+            .map_err(|error| match error {
+                Error::IO(source, path) => Error::NativeJournalUnavailable(source, path),
+                error => error,
+            })
+    }
+
+    fn native_frame_journal_binding_inner(
         &self,
         store: &mut BlockStore,
     ) -> Result<StableCanonicalBlockStoreMetadata> {
@@ -287,14 +345,31 @@ impl Kura {
         }
         Ok(Some(NativeFrameRead {
             kura: self,
-            height,
-            hash,
-            wire_len,
-            start: slot.start,
-            journals,
+            binding: NativeFrameBinding {
+                height,
+                hash,
+                wire_len,
+                start: slot.start,
+                journals,
+            },
         }))
     }
 
+    /// Capture the same original slot while retaining the actual shared storage owner.
+    pub(crate) fn native_frame_read_owned(
+        self: &Arc<Self>,
+        height: u64,
+        hash: HashOf<BlockHeader>,
+    ) -> Result<Option<OwnedNativeFrameRead>> {
+        Ok(self
+            .native_frame_read(height, hash)?
+            .map(|source| OwnedNativeFrameRead {
+                binding: source.binding,
+                kura: Arc::clone(self),
+            }))
+    }
+
+    #[cfg(test)]
     /// Read the exact frame of an already authenticated original execution graph.
     /// The caller admits its full stored length first. No second decoded graph is constructed.
     pub(crate) fn read_authenticated_execution_wire(
@@ -411,6 +486,7 @@ mod native_execution_read_tests {
     #[test]
     fn native_original_frame_admission_preserves_cumulative_allocation_on_both_stores() {
         for evicted in [false, true] {
+            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let mut chain =
                 CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
             chain.commit(Vec::new());
@@ -448,7 +524,6 @@ mod native_execution_read_tests {
             });
             // Include the real repeated durable-marker decodes; source metadata is not free.
             // Probe cumulative consumption without guessing those current codec allocations.
-            const PROBE_LIMIT: usize = 16 * 1024 * 1024;
             let limits =
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, PROBE_LIMIT, 64);
             let exact = norito::with_decode_limits_scope(limits, || {
@@ -466,22 +541,40 @@ mod native_execution_read_tests {
             let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, exact, 64);
             norito::with_decode_limits_scope(limits, || {
                 assert_eq!(read(length as u64).unwrap().unwrap().as_slice(), wire);
-                assert!(matches!(
-                    read(length as u64),
-                    Err(Error::NoritoFrame(
-                        norito::Error::TotalAllocationExceeded { .. }
-                    ))
-                ));
+                let error = read(length as u64).unwrap_err();
+                let Error::CodecAttempt(error) = error else {
+                    panic!("original observed native input quota: {error:?}");
+                };
+                let original = error
+                    .local_refusal()
+                    .expect("genuine enclosing quota owner");
+                assert_eq!(
+                    original.kind(),
+                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
+                );
+                assert!(
+                    matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit)
+                );
+                assert_eq!(error.into_local_refusal().unwrap(), original);
             });
             let limits =
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, exact - 1, 64);
             norito::with_decode_limits_scope(limits, || {
-                assert!(matches!(
-                    read(length as u64),
-                    Err(Error::NoritoFrame(
-                        norito::Error::TotalAllocationExceeded { .. }
-                    ))
-                ));
+                let error = read(length as u64).unwrap_err();
+                let Error::CodecAttempt(error) = error else {
+                    panic!("original observed native input quota: {error:?}");
+                };
+                let original = error
+                    .local_refusal()
+                    .expect("genuine enclosing quota owner");
+                assert_eq!(
+                    original.kind(),
+                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
+                );
+                assert!(
+                    matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit)
+                );
+                assert_eq!(error.into_local_refusal().unwrap(), original);
             });
             assert_eq!(read(length as u64).unwrap().unwrap().as_slice(), wire);
         }
@@ -825,10 +918,10 @@ mod native_execution_read_tests {
                     "{journal}: {kind}"
                 );
                 assert!(
-                    chain
-                        .kura()
-                        .native_frame_read(2, original.block_hash())
-                        .is_err(),
+                    matches!(
+                        chain.kura().native_frame_read(2, original.block_hash()),
+                        Err(Error::NativeJournalUnavailable(_, _))
+                    ),
                     "a fresh owner cannot adopt {journal}: {kind}"
                 );
                 assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
@@ -924,5 +1017,35 @@ impl Kura {
         store.read_block_data(slot.start, &mut bytes).unwrap();
         *bytes.last_mut().expect("native frame is nonempty") ^= 1;
         store.write_block_data(slot.start, &bytes).unwrap();
+    }
+}
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+impl Kura {
+    /// Replace only the original durable frame's certificate, preserving its header and
+    /// exact occupied slot extent. The hash/index and cached executed source stay unchanged.
+    pub fn replace_native_certificate_for_test(
+        &self,
+        height: NonZeroUsize,
+        certificate: iroha_data_model::block::CommitCertificate,
+    ) {
+        let mut store = self.block_store.lock();
+        let slot = store
+            .read_block_index(u64::try_from(height.get() - 1).unwrap())
+            .unwrap();
+        assert!(!slot.is_evicted());
+        let mut bytes = vec![0; usize::try_from(slot.length).unwrap()];
+        store.read_block_data(slot.start, &mut bytes).unwrap();
+        let mut original = iroha_data_model::block::decode_framed_signed_block(&bytes).unwrap();
+        let original_hash = original.hash();
+        original.set_commit_certificate(Some(certificate));
+        assert_eq!(original.hash(), original_hash, "only certificate changes");
+        let replacement = original.encode_wire().unwrap();
+        assert_eq!(
+            replacement.len(),
+            bytes.len(),
+            "original occupied slot extent"
+        );
+        store.write_block_data(slot.start, &replacement).unwrap();
     }
 }

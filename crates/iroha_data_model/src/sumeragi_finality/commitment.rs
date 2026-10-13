@@ -20,15 +20,11 @@ use norito::{
 };
 use thiserror::Error;
 /// Largest consensus frame every node's transport accepts, the chain-wide bound that on-chain
-/// chain parameters are validated against (§9.4, O10): 16 MiB of payload plus the core's frame
-/// overhead. It is a protocol constant, not node configuration, so validation is deterministic;
-/// it is the driver's default frame limit.
-// TODO(X.2): a payload limit above `CHAIN_TRANSPORT_FRAME_LIMIT - 2 * FRAME_OVERHEAD`
-// (16,512,992 bytes) passes this validation but leaves no `sync_max_bytes` that both serves
-// the block and fits this frame limit, so no node can start. Raise the frame limits for the
-// 16 MiB payload default and reject such parameters here
-// (`specs/zk_resource_contract.json`, `committed_payload_has_a_feasible_sync_setting`).
-pub const CHAIN_TRANSPORT_FRAME_LIMIT: u64 = 16 * 1024 * 1024 + FRAME_OVERHEAD as u64;
+/// chain parameters are validated against (§9.4, O10): 16 MiB of payload, the sync entry's
+/// certificate/header allowance and the outer response allowance. This remains below the
+/// 17 MiB P2P plaintext cap. It is a protocol constant, not node configuration, so validation
+/// is deterministic; it is the driver's default frame limit.
+pub const CHAIN_TRANSPORT_FRAME_LIMIT: u64 = 16 * 1024 * 1024 + 2 * FRAME_OVERHEAD as u64;
 
 /// Chain parameters of one height as stored in World and committed in `R` (§10.1, §12.4): the
 /// Norito and JSON form of the core's [`ChainParams`].
@@ -122,13 +118,6 @@ pub fn chain_hash(bytes: &[u8]) -> Hash32 {
     Hash32(<[u8; 32]>::from(Hash::new(bytes)))
 }
 
-/// `R` of a canonical result preimage: `H(RESULT_TAG ‖ preimage)`.
-/// Streams the domain and borrowed preimage without allocating a second payload buffer.
-#[must_use]
-pub fn result_of_preimage(preimage: &[u8]) -> Hash32 {
-    Hash32(Hash::new_from_chunks(&[RESULT_TAG, preimage]).into())
-}
-
 /// The deterministic outcome of executing one block: the complete World state before and after
 /// it, the events it emitted, roots over its execution witness and the identity of the
 /// result-bearing block (`specs/sumeragi.md` §4.1, Appendix E, E51).
@@ -188,8 +177,9 @@ impl ExecutionCommitment {
     }
 }
 
-/// The canonical preimage of `R`: exact executed height, execution, complete native schedule
-/// graph and the finalized beacon pulse consumed by this execution, when present.
+/// The canonical body bound by `R` together with the fixed native finality header `X`:
+/// exact executed height, execution, complete native schedule graph and the finalized
+/// beacon pulse consumed by this execution, when present.
 #[derive(Clone, Debug, PartialEq, Eq, iroha_schema::IntoSchema)]
 #[schema(transparent = "wire::OwnedResult")]
 pub struct ExecutionResultCommitment {
@@ -313,20 +303,22 @@ impl ExecutionResultCommitment {
         Ok(())
     }
 
-    /// The canonical preimage bytes (stored as `CommitCertificate.result_preimage`).
+    /// The canonical result body. A certificate stores the enclosing
+    /// [`super::CertifiedResultV1`] preimage `X ‖ body`, never this body alone.
     ///
     /// # Errors
     /// A Norito serialization failure.
     pub fn preimage(&self) -> Result<Vec<u8>, CommitmentError> {
         let len = norito::canonical_frame_len(self)
             .map_err(|error| CommitmentError::Encoding(error.to_string()))?;
-        if len > MAX_RESULT_PREIMAGE_BYTES {
+        if len > super::MAX_RESULT_BODY_BYTES {
             return Err(CommitmentError::PreimageLength(len));
         }
         norito::encode_canonical(self).map_err(|error| CommitmentError::Encoding(error.to_string()))
     }
 
-    /// Decode a canonical preimage (e.g. from a stored or received certificate).
+    /// Decode a canonical result body. Read a certificate with
+    /// [`super::CertifiedResultV1::decode`] to check its finality header as well.
     ///
     /// # Errors
     /// The bytes are not one canonical frame of this type.
@@ -358,7 +350,7 @@ impl ExecutionResultCommitment {
         validation: &mut EpochValidationScope,
         finish: impl FnOnce(Self) -> Output,
     ) -> Result<Output, CommitmentError> {
-        if preimage.len() > MAX_RESULT_PREIMAGE_BYTES {
+        if preimage.len() > super::MAX_RESULT_BODY_BYTES {
             return Err(CommitmentError::PreimageLength(preimage.len()));
         }
         // The compact wire retains complete current/boundary/preparation credentials once;
@@ -367,44 +359,38 @@ impl ExecutionResultCommitment {
         // 31 seats, alongside the tighter per-sequence, field and nesting caps. The 64 KiB
         // frame ceiling bounds both budgets; stricter original caller limits stay in force.
         // Decode accounting alone grants no production pool owner.
-        // Intrinsic schema/protocol ceilings remain terminal without an inherited caller
-        // scope. A local allocator failure is always operational, even at the outer boundary.
-        let outer_scope = norito::core::decode_limits_active();
+        // Capture the actual enforcing scope before it retires. An enclosing owner alone
+        // does not make an intrinsic schema/protocol ceiling a local resource refusal.
         let canonical = norito::canonical_decode_limits(preimage.len());
-        let decoded: Self = norito::decode_canonical_with_limits(
+        norito::decode_canonical_for_admission_into(
             preimage,
             norito::DecodeLimits::new(
                 96,
-                MAX_RESULT_PREIMAGE_BYTES,
+                super::MAX_RESULT_BODY_BYTES,
                 canonical.max_total_elements(),
                 canonical.max_total_allocated_bytes(),
                 32,
             ),
+            |decoded: Self| {
+                decoded.validate_with_validation(validation)?;
+                Ok(finish(decoded))
+            },
         )
-        .map_err(|error| {
-            if (outer_scope || matches!(error, norito::Error::AllocationFailed { .. }))
-                && let Some(resource) = error.decode_resource_error()
-            {
-                return CommitmentError::Resource(resource);
+        .map_err(|error| match error.kind() {
+            norito::core::DecodeAttemptErrorKind::Allocator
+            | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+                CommitmentError::Resource(error)
             }
-            CommitmentError::Encoding(error.to_string())
-        })?;
-        decoded.validate_with_validation(validation)?;
-        Ok(finish(decoded))
-    }
-
-    /// `R` of this commitment.
-    ///
-    /// # Errors
-    /// A Norito serialization failure.
-    pub fn result(&self) -> Result<Hash32, CommitmentError> {
-        self.preimage().map(|bytes| result_of_preimage(&bytes))
+            norito::core::DecodeAttemptErrorKind::Invalid => {
+                CommitmentError::Encoding(error.to_string())
+            }
+        })?
     }
 }
 
 /// Why `R` could not be computed or its canonical preimage could not be decoded.
 /// Local decoder resource refusals are distinct from deterministic invalid input.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum CommitmentError {
     /// The executed block carries no execution result.
     #[error("the executed block has no execution result")]
@@ -435,7 +421,7 @@ pub enum CommitmentError {
     Encoding(String),
     /// The caller's original decoder scope or local allocator refused without a verdict.
     #[error("local result decoder resource refusal: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    Resource(#[source] norito::core::DecodeAttemptError),
 }
 
 #[cfg(test)]
@@ -472,7 +458,9 @@ mod execution_validation_tests {
         for length in [0, MAX_EXECUTED_BLOCK_WIRE_BYTES + 1] {
             let mut bad = valid;
             bad.executed_block_wire_len = length;
-            assert_eq!(bad.validate(), Err(CommitmentError::WireLength(length)));
+            assert!(
+                matches!(bad.validate(), Err(CommitmentError::WireLength(actual)) if actual == length)
+            );
         }
         let mut geometry = valid;
         geometry.transaction_input_commitment = Some(MerkleTreeCommitment::new(
@@ -492,7 +480,13 @@ mod execution_validation_tests {
     #[test]
     fn complete_native_result_decode_rejects_invalid_execution_geometry() {
         let fixture = super::super::tests::Fixture::new();
-        let mut commitment = fixture.second.decode_checked().unwrap().commitment;
+        let mut commitment = fixture
+            .second
+            .decode_checked(crate::sumeragi_finality::CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .certified_result
+            .into_parts()
+            .1;
         commitment.execution.executed_block_wire_len = 0;
         assert!(commitment.validate().is_err());
         let frame = norito::encode_canonical(&commitment).unwrap();

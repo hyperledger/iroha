@@ -632,7 +632,7 @@ fn sample_bundle(
                 health_window_secs: NonZeroU32::new(30).expect("nonzero"),
                 automatic_rollback_failures: NonZeroU32::new(2).expect("nonzero"),
             },
-            economics: Default::default(),
+            economics: iroha_data_model::soracloud::SoraHttpServiceEconomicsV1::default(),
             state_bindings: vec![SoraStateBindingV1 {
                 schema_version: iroha_data_model::soracloud::SORA_STATE_BINDING_VERSION_V1,
                 binding_name: "session".parse().expect("valid name"),

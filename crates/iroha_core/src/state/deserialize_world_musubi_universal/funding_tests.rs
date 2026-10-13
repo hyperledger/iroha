@@ -118,8 +118,9 @@ fn malformed_package_is_rejected_before_universal_scratch_admission() {
     let error =
         validate_musubi_universal_projection_cut(&world.view(), ProjectionCut::Current, &budget)
             .unwrap_err();
+    let error = error.map_rejection(ProjectionRejection::into_json);
     assert!(
-        matches!(&error.clone().map_rejection(ProjectionRejection::into_json), ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
+        matches!(&error, ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
         if field == "world.musubi_public_directory" && message == "current World cut: package lookup key differs from its canonical identity"),
         "unexpected semantic result: {error:?}"
     );
@@ -157,8 +158,9 @@ fn universal_source_and_directory_failures_release_all_accumulator_credit() {
             &budget,
         )
         .unwrap_err();
+        let error = error.map_rejection(ProjectionRejection::into_json);
         assert!(
-            matches!(&error.clone().map_rejection(ProjectionRejection::into_json), ExecutionAttemptError::Rejected(json::Error::InvalidField { field, .. })
+            matches!(&error, ExecutionAttemptError::Rejected(json::Error::InvalidField { field, .. })
             if field == if directory { "world.musubi_public_directory" } else { "world.musubi_resolver_index" }),
             "unexpected semantic result: {error:?}"
         );
@@ -193,9 +195,12 @@ fn accumulator_borrows_latest_selectable_version_and_counts_every_revision() {
     assert_eq!(accumulator.maximum, Some(20));
     assert!(std::ptr::eq(
         accumulator.latest.unwrap(),
-        &versions[1].version
+        &raw const versions[1].version
     ));
-    assert!(std::ptr::eq(accumulator.package, &release.package));
+    assert!(std::ptr::eq(
+        accumulator.package,
+        &raw const release.package
+    ));
 }
 
 #[test]
@@ -220,8 +225,9 @@ fn shared_selector_cannot_satisfy_a_second_package_identity() {
             &budget,
         )
         .unwrap_err();
+        let error = error.map_rejection(ProjectionRejection::into_json);
         assert!(
-            matches!(&error.clone().map_rejection(ProjectionRejection::into_json), ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
+            matches!(&error, ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
             if field == "world.musubi_public_directory" && message == "current World cut: package is missing its exact public-directory entry"),
             "unexpected semantic result: {error:?}"
         );

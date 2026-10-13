@@ -43,13 +43,13 @@ pub const FINAL_PROMOTION_NATIVE_TRANSACTION_MAX_BYTES_V1: usize = 64 * 1024;
 const MAX_ROUND: Duration = Duration::from_secs(60);
 /// Maximum canonical lineage a one-use native Check may replay from its trusted floor.
 /// Shared preflight runs before any Kura finality or block-body read.
-const MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1: u64 = 4_096;
+const MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1: u16 = 4_096;
 
 fn check_history_span_v1(floor_height: u64, applied_height: u64) -> Result<(), Error> {
     if applied_height
         .checked_sub(floor_height)
         .and_then(|distance| distance.checked_add(1))
-        .is_none_or(|span| span > MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1)
+        .is_none_or(|span| span > u64::from(MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1))
     {
         return Err(Error::Finality);
     }
@@ -158,7 +158,9 @@ impl NativeCheckRoundV1 {
     }
     #[cfg(test)]
     pub(crate) fn expire_for_test(&mut self) {
-        self.started = Instant::now() - Duration::from_secs(61);
+        self.started = Instant::now()
+            .checked_sub(Duration::from_secs(61))
+            .expect("fixture clock supports the original expired deadline");
     }
 }
 

@@ -300,12 +300,7 @@ fn read_owner_private_bounded_direct_file(
     #[cfg(unix)]
     {
         let expected_private_owner = Some(current_process_owner_uid()?);
-        return read_bounded_direct_file_with_owner(
-            path,
-            maximum,
-            artifact,
-            expected_private_owner,
-        );
+        read_bounded_direct_file_with_owner(path, maximum, artifact, expected_private_owner)
     }
     #[cfg(not(unix))]
     {
@@ -914,7 +909,7 @@ fn decode_secret_hex_key_text(
     }
     Ok(decoded)
 }
-fn validate_hex_key_text<'a>(bytes: &'a [u8], limits: KeyFileLimits) -> Result<&'a str, String> {
+fn validate_hex_key_text(bytes: &[u8], limits: KeyFileLimits) -> Result<&str, String> {
     let text = std::str::from_utf8(bytes).map_err(|err| {
         format!(
             "{} must contain UTF-8 hexadecimal text: {err}",

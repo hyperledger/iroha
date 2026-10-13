@@ -1,7 +1,6 @@
-/// Get running Iroha version (block header version).
+/// Return the sole supported canonical block-wire version after genesis is applied.
 #[iroha_futures::telemetry_future]
 pub async fn handle_version(state: Arc<CoreState>) -> Response {
-    use iroha_version::Version;
     let latest_block = match std::num::NonZeroUsize::new(state.committed_height()) {
         Some(height) => match state.block_by_height(height) {
             Ok(block) => block,
@@ -12,7 +11,9 @@ pub async fn handle_version(state: Arc<CoreState>) -> Response {
         None => None,
     };
     let mut resp = match latest_block {
-        Some(block) => Response::new(Body::from(block.version().to_string())),
+        Some(_) => Response::new(Body::from(
+            iroha_data_model::block::SignedBlock::WIRE_VERSION.to_string(),
+        )),
         None => {
             let mut resp = Response::new(Body::from("genesis not applied"));
             *resp.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
@@ -31,6 +32,34 @@ mod version_tests {
     use super::*;
     use http_body_util::BodyExt as _;
     use iroha_core::{kura::Kura, query::store::LiveQueryStore, state::World};
+    #[tokio::test]
+    async fn handle_version_matches_applied_canonical_wire() {
+        use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+        let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000))
+            .expect("apply genuine signed genesis");
+        let version = chain.committed(1).block().encode_wire().unwrap()[0];
+        assert_eq!(
+            version, 1,
+            "first release has exactly one block-wire layout"
+        );
+        let response = handle_version(Arc::clone(chain.state())).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .as_ref(),
+            version.to_string().as_bytes()
+        );
+    }
+
     #[tokio::test]
     async fn handle_version_reports_unavailable_without_genesis() {
         let state = Arc::new(CoreState::new_for_testing(
@@ -76,7 +105,7 @@ fn status_snapshot_failure(error: iroha_core::telemetry::StatusSnapshotError) ->
         StatusSnapshotError::MailboxUnavailable => StatusFailureReason::MailboxUnavailable,
         StatusSnapshotError::ActorClosed => StatusFailureReason::ActorClosed,
         StatusSnapshotError::DeadlineElapsed => StatusFailureReason::DeadlineElapsed,
-        StatusSnapshotError::StateBusy | StatusSnapshotError::Deferred(_) => {
+        StatusSnapshotError::StateBusy | StatusSnapshotError::HistoryReadDeferred(_) => {
             StatusFailureReason::StateBusy
         }
         StatusSnapshotError::StateUnavailable | StatusSnapshotError::HistoryRead(_) => {
@@ -194,7 +223,9 @@ mod status_failure_reason_tests {
             .expect_err("original capacity occupied");
         let cases = [
             (
-                StatusSnapshotError::Deferred(refusal.into()),
+                StatusSnapshotError::HistoryReadDeferred(
+                    iroha_core::execution_attempt::ExecutionDeferred::from(refusal).reason(),
+                ),
                 StatusFailureReason::StateBusy,
             ),
             (

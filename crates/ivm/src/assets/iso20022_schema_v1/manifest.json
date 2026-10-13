@@ -4,9 +4,9 @@
   "assets": [
     {
       "path": "schema_v1.tsv",
-      "byte_length": 28963,
-      "sha256": "fecd8317ab0a49f92be6e6ee5acedce79601a42b80d973f144e2c9b1f503311a",
-      "layout": "19 ordered schema records, 193 ordered field records, and 183 ordered alias records in fixed eight-column TSV form",
+      "byte_length": 30627,
+      "sha256": "b4de3d2e6226691367aaa8942791dfab9511b8b2ede45b167676f23667414e9c",
+      "layout": "19 ordered schema records, 200 ordered field records, and 193 ordered alias records in fixed eight-column TSV form",
       "source_preimages": [
         {
           "path": "../../../build.rs"

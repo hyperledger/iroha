@@ -9,9 +9,9 @@ contained them. Governance belongs to the SORA Parliament: binding juries use
 anonymous on-chain ballots per `specs/parliament_private_ballot_design.md`,
 there is no Parliament key or custodian, and destinations need no Parliament
 key. A pause-only fast pause track complements it. SCCP registers no route
-until the Parliament's post-quantum ballot exists (§10.2). Much of this
-revision is not implemented yet: §12 records the implementation status of every
-part, and §14 records the binding decisions. SCCP does not change generic
+until the Parliament's qualified post-quantum ballot exists (§10.2). Section 12
+records the implemented source, remaining integration and qualification work,
+and external gates; §14 records the binding decisions. SCCP does not change generic
 Sumeragi bridge finality (`specs/bridge_finality.md`) beyond the
 certified-result layout of `specs/sumeragi.md` §4.1.1 and the consensus
 signature suite of `specs/sumeragi.md` §1 item 6.
@@ -369,7 +369,17 @@ exactly, whatever was lost or reordered before it (§5.1.6).
   certificate's `effect_preimage_hash` (§4.14.7).
 - Constraints, checked by Taira and by destinations (`BadControl`): `track ∈
   {1, 2}`; `parliament_paused ∈ {0, 1}`; `track = 2 ⇒ fast_pause_until_ms ≠ 0`;
-  `certificate_id ≠ 0`; `effect_hash ≠ 0`.
+  `certificate_id ≠ 0`; `effect_hash ≠ 0`. A destination takes
+  `parliament_paused` through a typed field (`bool parliamentPaused` on EVM,
+  where the ABI decoder refuses a dirty word before any contract check, and
+  `Bool` on TON), so a value other than 0 or 1 never reaches its check: that
+  constraint is observable on Taira and in the references only.
+- Recording rules, checked by Taira before the constraints (§4.14.6): the
+  target is a first-release external network, `route_revision ≥ 1` and
+  `control_nonce ≥ 1`. The Rust and Python references label their refusals
+  `TargetNotExternal`, `ZeroRevision` and `ZeroControlNonce`
+  (`control_v1.json`, `rejected[].error`). These are reference labels, not
+  contract errors: a destination is never asked to record a control.
 - There is no lapse leaf: destinations expire a fast pause from the
   authenticated `fast_pause_until_ms` by their own clock.
 
@@ -485,8 +495,13 @@ function, `SccpFinalityHeaderV1::parse`:
 | X3 | `ACTIVE` set ⇒ `generation ≥ 1` and `committee_root ≠ 0` |
 | X4 | `message_count = 0 ⇔ sccp_root = 0`, and `message_count ≤ 512` |
 | X5 | `history_size = 0 ⇔ history_root = 0`, and `history_size ≤ 2^32` |
-| X6 | `ROTATION` set ⇒ `next_committee_root ≠ 0` and `1 ≤ validity_ms ≤ MAX_VALIDITY_MS`. `ROTATION` unset ⇒ `next_committee_root = 0` and `validity_ms = 0`. `next_committee_root = committee_root` is allowed (heartbeat) |
+| X6 | `ROTATION` set ⇒ `next_committee_root ≠ 0`, `1 ≤ validity_ms ≤ MAX_VALIDITY_MS`, `height ≤ 2^64 − 2` and `generation ≤ 2^64 − 2` (the successor's start, `height + 1`, and its generation, `generation + 1`, are `u64` values). `ROTATION` unset ⇒ `next_committee_root = 0` and `validity_ms = 0`. `next_committee_root = committee_root` is allowed (heartbeat) |
 | X7 | `height ≥ 1` |
+
+`parse` first requires exactly 221 bytes (`Length`). It then evaluates the
+invariants in the order X1, X2 (`ACTIVE` unset) or X3 (`ACTIVE` set), X4, X5,
+X6, X7, and reports the first one violated. A destination reports every one of
+them, and a wrong length, as `BadHeader` (§5.1.3).
 
 **Inactive form.** `X = magic ‖ network_id ‖ be64(h) ‖ be64(t(h)) ‖ 0x00 ‖
 0^156`. It is used by every non-global root that uses
@@ -521,21 +536,30 @@ R      = SHA-256(RESULT_TAG ‖ X ‖ D_body)                          // 277-by
 
 **Readers.** Every Rust reader that holds `X ‖ body` without executing it MUST
 decode it through `CertifiedResultV1::decode(p, scope)`, with `scope ∈
-{TairaGlobal, NonGlobal}`, and MUST check:
+{TairaGlobal, NonGlobal}`. `decode` performs C1–C4 and the scope rule. A reader
+that also holds the block MUST then call
+`CertifiedResultV1::check_block(height, timestamp_ms)` with the block's height
+and canonical time; it performs C5.
 
 - **C1.** X1–X7 hold, and `X.height = body.height`.
 - **C2.** `X.network_id` equals the network of the epoch context that the
-  certified schedule assigns to `X.height`.
+  certified schedule assigns to `X.height`: the body's own `schedule.current`.
 - **C3.** With `ACTIVE`: `X.committee_root` equals the `committee_root` of that
   context's committee keys.
-- **C4.** With `ACTIVE`: if the body carries a boundary decision whose
-  successor committee root differs from `X.committee_root`, then `ROTATION` is
-  set and `X.next_committee_root` equals that root; if `ROTATION` is set with
+- **C4.** With `ACTIVE`: if the body carries a boundary decision
+  (`schedule.boundary`) whose successor committee (`boundary.next`) has a root
+  that differs from `X.committee_root`, then `ROTATION` is set and
+  `X.next_committee_root` equals that root; if `ROTATION` is set with
   `X.next_committee_root ≠ X.committee_root`, the body MUST carry that boundary
   decision.
-- **C5.** When the reader holds the block: `X.timestamp_ms = t(X.height)` and
-  `X.height` equals the block height.
-- **Scope.** `NonGlobal` requires `ACTIVE` unset.
+- **C5** (`check_block`). `X.height` equals the block height, and
+  `X.timestamp_ms = t(X.height)`.
+- **Scope** (`decode`). `NonGlobal` requires `ACTIVE` unset.
+
+`decode` runs its checks in this order and reports the first failure: the
+preimage length (`222 ≤ len(p) ≤ 65 536`); the parse of `X` (X1–X7); the scope
+rule; the decode of the body and the body's own validation; then the height
+equality of C1, C2, C3 and C4.
 
 The SCCP fields (`sccp_root`, `message_count`, `history_*`, `generation`,
 `validity_ms` and heartbeat rotations) cannot be derived from the body. Their
@@ -555,6 +579,11 @@ Compressed keys suit TON's BLS opcodes, and EVM takes each signer's `y` from
 calldata, which avoids a square root per key. Example (synthetic, not points):
 keys `0x01^48, 0x02^48, 0x03^48, 0x04^48` give
 `0xfe8902a93a6592a748b8528a9f49312e9cbc5d1abcccb1ff7431b0acba92b2b9`.
+
+The root is defined for `1 ≤ n ≤ 255` keys only, the counts the `u8` names. A
+list with no key, or with more than 255, has no root: the function returns
+nothing for it, and no value (the zero root included) stands in for a missing
+root. Committees are further restricted to `n ∈ {4, 7, …, 31}` (§3.8).
 
 **`QC_FIXED` (116 bytes)** carries the fields of a `CommitQC` that a
 destination needs:
@@ -583,12 +612,16 @@ m = SHA-256(P)
 checkpoint_id(X) = keccak256(X)
 ```
 
-**Signatures and committee on the wire.** The aggregate signature is the
-96-byte compressed `qc.agg_sig` (TON, Taira) or its 192-byte EIP-2537 form
-`x.c0 ‖ x.c1 ‖ y.c0 ‖ y.c1` (EVM; ZCash compression stores `c1` first). On EVM
-the committee is supplied as `48n` bytes of compressed keys and `signerYs`,
-`48q` bytes holding each signer's `y` in ascending index order; TON reads the
-keys from storage.
+**Signatures and committee on the wire.** On TON and Taira the aggregate
+signature is the 96-byte compressed `qc.agg_sig`. On EVM it is the same point
+uncompressed, as four 48-byte big-endian limbs in the order `x.c0 ‖ x.c1 ‖
+y.c0 ‖ y.c1`: 192 bytes of calldata (ZCash compression stores `c1` first). The
+192 bytes are not a precompile input: the contract zero-extends each limb to 64
+bytes (16 zero bytes, then the limb) to form the 256-byte G2 input of EIP-2537.
+On EVM the committee is supplied as `48n` bytes of compressed keys and
+`signerYs`, `48q` bytes holding each signer's `y` in ascending index order; a
+signer's `x` and `y` are zero-extended the same way to the 128-byte G1 input.
+TON reads the keys from storage.
 
 ### 3.8 Consensus signatures and the destination verification relation
 
@@ -605,11 +638,16 @@ consensus API ever hashes under `DST_SIG`, so no signature obtained in another
 context (Torii's chosen-challenge node attestation, P2P relay digests,
 lifecycle certificates) can verify as a vote or a `CommitQC` share.
 
-**Signing relation** (the Rust reference equals the destination relation):
+**Signing relation** (the Rust reference
+`iroha_sccp::v1::finality::verify_certificate` applies `KeyValidate` to every
+signer key; it equals the destination relation on every committee whose keys
+pass `KeyValidate`, which is every committee under a root Taira admitted):
 
 - `KeyValidate(PK)`: the encoding is canonical, not the identity, and in the
-  subgroup. It is an admission invariant on Taira; TON's aggregate opcode check
-  does not replace it.
+  subgroup. It is an admission invariant on Taira, and no destination
+  re-checks it key by key: an EVM destination observes the aggregate key only
+  (`verify_certificate_by_aggregate` is that form), and a TON destination has
+  the verdict of its aggregate opcode (§5.1.3 steps 10–11, §5.3.4).
 - `FastAggregateVerify(PK_1..k, m, σ)`: `k ≥ 1`; every key is w3f-PoP-admitted
   or comes from an authenticated committee root; `apk = Σ PK_i ≠ O`; `σ` is
   canonical, in the subgroup and not O; `e(apk, H(m)) = e(g1, σ)`.
@@ -627,7 +665,10 @@ the current generation.
    `block_hash` come unverified from `QC_FIXED`. Kind `0x03` is mandatory: a
    PrepareQC is never accepted.
 6. `m = SHA-256(P)`.
-7. `apk = Σ_{bit i set} PK_i ≠ O`.
+7. `apk = Σ_{bit i set} PK_i ≠ O`, a point of the G1 subgroup. The keys of a
+   root Taira admitted are in G1, so their sum is. A destination presented
+   with other key bytes (a pin or a forged rotation that commits to them)
+   answers as §5.1.3 steps 10–11 state.
 8. `Q = hash_to_curve_G2(m, DST_SIG)` per RFC 9380: `expand_message_xmd(m,
    DST_SIG, 256)` with `Z_pad = 0^64`, `l_i_b_str = 0x0100` and `DST_prime =
    DST_SIG ‖ 0x2b`; `u0 = (OS2IP(b[0..64]) mod p, OS2IP(b[64..128]) mod p)`,
@@ -710,13 +751,17 @@ InitializeSccpV1 {
 }
 ```
 
-`InitializeSccpV1` is valid only inside the genesis block, and only under NPoS
-consensus parameters whose committees satisfy `n = 3f + 1`, `4 ≤ n ≤ 31`. It
+`InitializeSccpV1` is valid only inside the independently authenticated Global
+genesis block, and only under NPoS consensus parameters whose committees satisfy
+`n = 3f + 1`, `4 ≤ n ≤ 31`. The root role comes from the original signed genesis,
+never from a supplied finality header. It
 checks every rule of the table below, the epoch-duration guard (§4.2) and the
 staking floor L1 against the genesis-pinned staking policy (§4.8), so a genesis
 that fails any of them is invalid. It stores the parameters, creates the three
-route escrow accounts (§4.15), an empty registry and committee generation 1
-(§4.2 G1), and **no route**: routes are registered only by the Parliament after
+route escrow accounts (§4.15) and an empty registry. The same genesis execution's
+post-execution finalizer installs committee generation 1 (§4.2 G1) from the
+reconciled authenticated height inputs before sealing the result; no later block
+or supplied certificate can initialize it. It creates **no route**: routes are registered only by the Parliament after
 the launch gate opens (§10.2). SCCP exists on a network iff `sccp_parameters`
 is present; no compiled chain id gates it.
 
@@ -778,11 +823,12 @@ produces no empty blocks and block counts have no wall-clock bound.
 Node-local behavior (keeper key directory, keepalive stagger, watch and
 light-client endpoints) lives in `iroha_config` `[sccp.keeper]` and
 `[sccp.light_client_keeper]` (§4.13.4), with defaults that need no operator
-input. The `[zk.sccp]` native verifier work limits stay in `iroha_config` and
-remain bound into the consensus policy hash. Each category has a
-per-transaction and a per-block limit: proofs, proof bytes (plus a per-frame
-bound), native headers and header bytes, Ethereum light-client updates, BSC
-vote attestations and Ed25519 signature checks (TON). Defaults admit one full
+input. Native verifier work limits are the `sccp` section of the committed
+`zk_validity_policy_v1` chain parameter (protocol defaults when absent),
+bound into the consensus policy hash. Each category has a per-transaction
+and a per-block limit: proofs, proof bytes (plus a per-frame bound), native
+headers and header bytes, Ethereum light-client updates, BSC vote
+attestations and Ed25519 signature checks (TON). Defaults admit one full
 advance of every chain in a transaction and four in a block.
 
 ### 4.2 Committee generations and consensus anchors
@@ -860,18 +906,18 @@ against its commit certificate.
 The rules use the authenticated height inputs (`SccpHeightInputsV1` from the
 Sumeragi core's lag-2 `consensus_schedule` in world state; its committee fields
 are key lists), never Kura or a parent finality artifact. S0 runs at block
-start; G2–G7 and A1 run in the post-execution hook (§4.5).
+start; G1–G7 and A1 run in the post-execution hook (§4.5).
 
 | # | Rule |
 |---|---|
-| S0 | **Begin-block step** (`sccp::hook::begin_block`). It runs before the governance block-start pass (§4.7) and before any transaction, sets `lc(h)` (§4.8) and never fails the block. |
+| S0 | **Begin-block step** (`sccp::hook::begin_block`). It runs before the governance block-start pass (§4.7) and before any transaction, sets `lc(h)` (§4.8) and never invalidates the block; a local storage or resource refusal defers execution as a local failure; missing authenticated SCCP inputs produce the inactive header. |
 | A1 | **Anchor append.** Append the anchor of `h − 1` from the parent's native execution tip and close the chunk when it is full. It runs in every block while SCCP exists. |
-| G1 | **Genesis.** `InitializeSccpV1` creates generation 1 with the keys of `C_genesis`, `cause = Genesis`, `start_height` = the genesis height, `start_timestamp_ms = start_lc = t(genesis)`, and `validity_ms`, `deadline_ms`, `grace_ms`, `progress_cap_ms` and `liable_until_lc` from the initial parameters. |
+| G1 | **Genesis.** In the same atomic execution as `InitializeSccpV1`, the post-execution finalizer creates generation 1 after reconciling the original authenticated Global genesis height inputs and before sealing its active `X`. It uses the keys of `C_genesis`, `cause = Genesis`, `start_height` = the genesis height, `start_timestamp_ms = start_lc = t(genesis)`, and `validity_ms`, `deadline_ms`, `grace_ms`, `progress_cap_ms` and `liable_until_lc` from the initial parameters. The instruction cannot substitute an offered committee for those original inputs. |
 | G2 | **Generation change at `h`.** Let `KEY := h is the last height of its epoch ∧ committee_root(C_{h+1}) ≠ current.committee_root` and `BEAT := t(h) ≥ current.start_timestamp_ms + committee_heartbeat_ms`. If G4 passes and `KEY ∨ BEAT`: (1) set `current.end = {h, t(h), committee_root(C_{h+1}), committee_validity_ms}`; (2) insert `g + 1` with `keys(C_{h+1})`, members (G6), `cause = KeyChange` if `KEY` else `Heartbeat`, `start_height = h + 1`, `start_timestamp_ms = t(h)`, `start_lc = lc(h)`, `validity_ms = committee_validity_ms`, `deadline_ms = t(h) + validity_ms`, the current `grace_ms` and `progress_cap_ms`, `liable_until_lc = lc(h) + validity_ms + grace_ms` and `dest_cleared_lc = None`; (3) set `sccp_committee_current = g + 1`; (4) emit `SccpCommitteeGenerationCreated { generation, cause, committee_root, start_height, deadline_ms }`. At a non-boundary height `C_{h+1} = C_h`, so a heartbeat keeps the keys. |
 | G3 | **No other trigger** besides G7: no forced rotation, no fault rotation and no inertness. |
 | G4 | **Inputs (fail-closed in SCCP only).** Every block checks that the authenticated inputs of `h` are present. On failure, §4.6 applies: inactive `X`, `sccp_degraded_run` incremented, an event, and no G2 or G7. Otherwise `sccp_degraded_run` is reset to 0. It is never `Invalid`. |
 | G5 | **`X` fields.** `X.generation` is the generation current before G2 runs at `h`, after any G7 at `h`; at a rotation that is the outgoing generation. `X.committee_root = committee_root(C_h)` from the authenticated inputs. `ROTATION` is set iff G2 fired at `h`; then `X.next_committee_root = committee_root(C_{h+1})` and `X.validity_ms = (g + 1).validity_ms`, otherwise both are zero. |
-| G6 | **Member resolution.** For each key of a new generation, Core resolves the NPoS validator record bound to that consensus key at `h`: `(lane_id, validator, activation_height)`, through the same peer-key lookup the penalty pipeline uses. The stored binding, not a later lookup, is what liability and penalties use (§4.9). A key cannot be rebound after activation. An unresolvable key is stored as `None` and emits `SccpGenerationMemberUnslashable { generation, index }`; under NPoS every elected member has a record, so `None` signals a misconfiguration. `TODO:` assert in genesis validation that every genesis peer has a staking record. |
+| G6 | **Member resolution.** For each key of a new generation, Core reads the original NPoS registrations at executing height `h`, restricts them to the canonical global election owner (`LaneId::SINGLE`), then resolves `(lane_id, validator, activation_height)` by immutable consensus-peer binding and tenure. Fresh mutable consensus-key registrations cannot replace that original binding. Duplicate qualifying registrations within that owner are unresolved; participant-dataspace registrations cannot shadow a global signer. Tenure is checked at `start_height(g)`: inclusive activation and exclusive deactivation at `h + 1` for G2, at `h` for G7, and at the genesis height for G1. Thus a newly elected member activating at `h + 1` backs the handoff generation, while a member deactivated at that height does not. The stored binding, not a later lookup, is what liability and penalties use (§4.9). A key cannot be rebound after activation. An unresolvable key is stored as `None` and emits `SccpGenerationMemberUnslashable { generation, index }`; under NPoS every elected member has a record, so `None` signals a misconfiguration. Genesis initialization refuses unless every original signer resolves to exactly one global staking binding before generation 1 is published. |
 | G7 | **Resync.** It applies when G4 passes but `committee_root(current) ≠ committee_root(C_h)`, which happens only when a key change was missed at a degraded boundary. Before G5: (1) set `current.end = {h − 1, t(h − 1), committee_root(C_h), committee_validity_ms}`, taking `t(h − 1)` from the parent tip; (2) insert `g + 1` with `keys(C_h)`, members (G6), `cause = Resync`, `start_height = h`, `start_timestamp_ms = t(h)`, `start_lc = lc(h)` and the other fields as in G2; (3) set the current generation; (4) emit `SccpCommitteeResync { generation, committee_root, start_height }`. `X_h` is then certified by `g + 1`, and G2 runs normally afterwards. No certificate of `g` names `g + 1`, so destinations still at `g` freeze at `deadline_ms(g)` and new deployments pin `g + 1` or later. |
 
 **Rate.** G2 fires at most once per block. `KEY` needs an epoch boundary, and
@@ -888,7 +934,8 @@ keepalive is due exactly then (§4.7), so an idle Taira produces one block per
 `committee_heartbeat_ms` and no other SCCP block.
 
 **Epoch-duration guard.** While SCCP exists, `epoch_length_blocks ×
-block_cadence_ms ≥ SCCP_MIN_EPOCH_MS` MUST hold. `InitializeSccpV1` and
+block_cadence_ms ≥ SCCP_MIN_EPOCH_MS` MUST hold, and this product MUST fit the
+`u64` millisecond clock. `InitializeSccpV1` and
 `validate_parameter_change` for `EpochLengthBlocks` check it. Canonical time
 advances by at least the cadence per block, so key changes happen at most 24
 times a day, and each change and each heartbeat costs every destination one
@@ -898,13 +945,17 @@ rotation (§5.4).
 
 - A destination installs generation `g + 1` from a rotation certificate `X_B`
   signed by `g`, with `untilMs = min(X_B.timestamp_ms, now_ms) +
-  X_B.validity_ms`. Because `X_B.timestamp_ms = start_timestamp_ms(g + 1)` and
+  X_B.validity_ms`, saturating at `2^64 − 1` (§5.1.2). Because
+  `X_B.timestamp_ms = start_timestamp_ms(g + 1)` and
   `X_B.validity_ms = validity_ms(g + 1)`, this is at most `deadline_ms(g + 1)`.
   For the pinned generation, `untilMs = deadline_ms(g)` (§4.14.3 P1).
 - No destination therefore accepts any certificate of `g` after
   `deadline_ms(g)` by its own clock, whatever is submitted in whatever order.
   No certificate other than a genuine handoff (a rotation certificate of the
-  current generation) ever renews trust.
+  current generation) ever renews trust. The deadline bounds the first
+  admission of a forgery while the destination's trust is genuinely anchored.
+  It does not bound the later use of a forged handoff that installed `cur`, or
+  the completion of effects already admitted (§5.1.2 properties 3 and 4).
 - "By its own clock" matters: a destination's block time can lag real time
   after a destination halt, so Taira's liability waits for authenticated
   destination progress (§4.8 L5).
@@ -919,11 +970,14 @@ rotation (§5.4).
 
 ### 4.3 Certified time
 
-Canonical block time is `max(parent + cadence, lane time floor, max
-tx.creation_time + 1)`, and only genesis is checked against a wall clock. One
-Byzantine leader could therefore move Taira's clock arbitrarily far forward
-with a post-dated transaction, or include an old due transaction and anchor due
-work at a stale time. SCCP and the governance clock anchor deadlines at
+Certified block time is the original authenticated timestamp in the proposal body.
+Validity requires at least `max(parent + cadence, lane time floor, max
+tx.creation_time + 1)`. A fresh proposer also includes one captured wall-clock
+reading in that maximum. It can reuse the exact same still-admissible signed
+inputs at a fresh view after an idle period; certified blocks retain their
+original bytes and time. Followers and replay never restamp them. Without the
+Prepare guards below, a Byzantine leader could choose an arbitrarily far-future
+time or include old due work at a stale time. SCCP and the governance clock anchor deadlines at
 certified block times (generation starts, fast-pause expiries, Parliament
 anchors), so both directions need a bound. The rules are application-level
 executor rules, specified normatively in `specs/sumeragi.md` §4.5; no validity
@@ -1184,9 +1238,14 @@ D17); the Parliament workstream owns the ballot items that the pass runs.
 
 S0 (§4.2) runs first and is not part of the pass. The pass runs, on the global
 chain's ordinary carrier only, in this order under the shared budget
-`gov.governance_block_start_work_units` (default 64):
+`gov.governance_block_start_work_units` (default 64, minimum 10):
+The committed minimum funds all six possible cost-one SCCP conclusions and one
+cost-four enactment in a pass, preventing recertification alone from starving
+every enactment. Genesis and parameter updates enforce the same minimum.
 
-- **G0** pause-panel draw (§4.14.7). Outside the budget; not due work.
+- **G0** pause-panel draw (§4.14.7), at the native pre-boundary pulse
+  carrying height, one block before the committee boundary. Outside the budget;
+  not due work.
 - **G1** Parliament sortition, at the exact pulse slot, in the request order of
   the Parliament pipeline.
 - **G2** transitions with `due_ms ≤ t(B)`, in three segments:
@@ -1194,9 +1253,12 @@ chain's ordinary carrier only, in this order under the shared budget
     are Parliament lifecycle transitions (phase-advance intents, invitation
     closes, public-finding conclusions), whose keys and costs the Parliament
     workstream fixes. Rank 3 is the SCCP rank: the pause-panel conclusion,
-    keyed `(network tag, panel role)` with the primary first (§4.14.7), and
-    the end of a reconciliation window, keyed `(network tag, revision)`
-    (§4.10).
+    and the end of a reconciliation window (§4.10). Their common item key is
+    `(network tag, SCCP kind, subkey)`: pause conclusions have kind 0 and
+    subkey primary 0 or backup 1; reconciliation ends have kind 1 and subkey
+    revision. A pause conclusion is due at `t(B)`; a reconciliation keeps its
+    original `closes_at_ms`. Thus overdue windows precede newly due conclusions,
+    and equal-time items have one total order.
   - **G2b**, rank 4: binding-ballot closures whose closing time
     `t(h_open + 1) + casting_window_ms` has been reached, in `(closing time,
     governance_attempt_id, body_role)` order. `h_open = s0.height` is the
@@ -1234,6 +1296,11 @@ cost exceeds the remaining budget, order is never skipped, and leftover items
 stay due. A ballot closure that the budget defers changes no corpus, because
 block validation checks each ballot against its own block's timestamp (ballot
 spec §3.6); a deferred opening takes its `s0` at the pass that opens it.
+
+A fast pause certified in G2 but deferred in G3 keeps its original round and
+`certify_due` flag. The next pass certifies it again from that pass's current
+state and time before attempting enactment. No certificate survives its pass,
+no extra window is granted, and an expired round ends `NoResult`.
 
 **Positions.** Every processed G1–G3 item gets a position: its 0-based index
 among the items processed in that block's pass, in processing order. Ballot
@@ -1352,7 +1419,9 @@ whatever their order.
 | L2 | **Liability anchor.** A forgery against generation `g` is a root-consensus offence at offence height `start_height(g)`: the penalty uses `ConsensusSlashLiability::Root(start_height(g))`. The liable exposure is bonded stake plus every pending unbond whose `slashable_through_height ≥ start_height(g)`, which is exactly the stake that backed `g`. |
 | L3 | **Release gate.** `FinalizePublicLaneUnbond` of a pending unbond of validator `v` with `slashable_through_height = H` is refused with `SccpLiabilityActive` while some retained `g` with `v ∈ members(g)` and `start_height(g) ≤ H` is `liable(g)`, and with `SccpPenaltyPending` while a `Pending` SCCP forgery record names `v`, until its penalty is `Applied`. The same two conditions refuse the pruning of an exited zero-custody validator and a `RegisterPublicLaneValidator` that replaces `v`'s exited record (a re-registration would otherwise give `v` a registration that G6 never named). The gate adds to the existing `unbond_liability_release_height` check and scans at most the retained generations. |
 | L4 | **Exit is never blocked.** `ExitPublicLaneValidator` is unchanged. A validator leaves the committee at the next election; only the release of its stake waits. |
-| L5 | **Destination-progress gate.** In the post-execution hook, after pruning, Core visits at most 64 retained, ended generations with `dest_cleared_lc = None`, in ascending order, and sets `dest_cleared_lc = lc(h)` iff, for every network that has a non-`Retired` route revision, the network's active inbound light client has a finalized checkpoint with `source_time_ms > deadline_ms(g)`; it then emits `SccpGenerationDestinationCleared { generation, lc }`. A network with such a revision but no active light client blocks the clearance. With no such network, as before launch, clearance is immediate. |
+| L5 | **Destination-progress gate.** In the post-execution hook, after pruning, Core visits at most 64 retained, ended generations with `dest_cleared_lc = None`, in ascending order through the committed pending-generation index (so previously cleared history is not traversed), and sets `dest_cleared_lc = lc(h)` iff, for every network that has a non-`Retired` route revision, the network's active inbound light client has a finalized checkpoint with `source_time_ms > deadline_ms(g)`; it then emits `SccpGenerationDestinationCleared { generation, lc }`. A network with such a revision but no active light client blocks the clearance. With no such network, as before launch, clearance is immediate. |
+
+The index is derived from generation records, updated in the same transaction when a generation ends or clears, and rebuilt from both current and exact predecessor records on snapshot restore. It has no independent authority.
 
 **Why L5.** A destination accepts `g` while its own block time is at most
 `deadline_ms(g)`, and that time is chosen by the destination's proposers. After
@@ -1362,7 +1431,12 @@ after Taira had released the collateral. Destination timestamps strictly
 increase, so once a finalized header with a time above the deadline exists, no
 later block of that chain accepts `g`, and every earlier block is final and
 public. L5 waits until Taira's light client sees such a header, then leaves
-`grace_ms` of liability clock for evidence. The time leg keeps the bound while
+`grace_ms` of liability clock for evidence. Like the deadline itself (§4.2.3),
+this bounds the first admission of a forgery of `g` on a destination whose
+trust is genuinely anchored. It does not bound the later use of a forged
+handoff that installed `cur`, or the completion of effects already admitted
+(§5.1.2 properties 3 and 4); the forgery hold and quarantine answer those
+(§4.10). The time leg keeps the bound while
 light clients are current, and the cap bounds the stake lock when a destination
 halts or nobody advances its light client.
 
@@ -1462,10 +1536,13 @@ SCCP_LC_SLACK_MS)`; at execution they run against the parent state with
      be32(signers))`;
    - append a consensus `EvidenceRecord` whose `evidence` field is the closed
      enum `RecordedEvidenceV1 { Native(Evidence),
-     SccpForgery(SccpForgeryRecordV1) }`, with `SccpForgeryRecordV1 { evidence:
+     SccpForgery(Box<SccpForgeryRecordV1>) }`, with `SccpForgeryRecordV1 { evidence:
      SubmitSccpForgeryEvidenceV1, rule: E1..E4, generation: g, start_height:
      rec.start_height, offenders: Vec<SccpForgeryOffenderV1 { signer: u32,
      lane_id, validator, activation_height }> }`;
+     the Box's exact allocation and ledger slot are prepaid and retained with the
+     record. Its canonical v1 binary field includes the owned-value length prefix
+     inside the variant-field prefix; JSON keeps the direct record in `value`;
    - attribution: `scope: EvidenceScope::SccpGeneration { generation: g }` and
      `instance: I`; `height: rec.start_height`, the offence height (L2), not
      `X.height`; `epoch` and `context_id` as signed in `QC_FIXED` (unverified);
@@ -1540,10 +1617,23 @@ SccpRouteRevisionV1 gains:
   for `Frozen`. Preconditions: `generation ≤ current`, and `committee_root`
   equals the record of `generation` while that record is retained. The revision
   is released as soon as `forgery_floor(r) > sccp_forgery_max_generation`. The
-  attestation states a destination fact that reviewers check with `iroha sccp
-  monitor`: the deployment's `committeeState()` names that genuine generation
+  attestation states destination facts that reviewers check with `iroha sccp
+  monitor`. The deployment's `committeeState()` names that genuine generation
   and root, or the deployment is frozen (expired or latched) at a genuine
-  generation. Destinations never move backwards, so the attestation stays true.
+  generation. If the deployment has rotated (`cur.generation >
+  initial_committee.generation`), the handoff that installed `cur`, at height
+  `cur.start − 1`, is Taira's: its checkpoint id equals `keccak256` of Taira's
+  canonical header of that height. The id is read from
+  `checkpointHeader(cur.start − 1)` on EVM. On TON it is read from
+  `get_sccp_checkpoints()` while the entry is retained, and otherwise from the
+  `sccp_checkpointed` or `sccp_certificate` external message of the installing
+  rotation (TON evicts the entry after three higher checkpoints, §5.1.3). A
+  deployment still at its pin has no installing handoff: its `cur` root,
+  generation and start equal the registered `initial_committee` (§4.14.3 P1).
+  And no forged certificate took effect on the deployment since its last clean
+  attestation, pending TON mints included. A deployment that fails one of
+  these is not attested: the revision is quarantined (below).
+  Destinations never move backwards, so the generation fact stays true.
 - **Ordering.** Attestation and evidence commute. Evidence recorded later for a
   generation `≥ forgery_floor(r)` holds `r` again, which is correct, because
   the deployment may be at that generation.
@@ -1554,8 +1644,10 @@ SccpRouteRevisionV1 gains:
 - **Quarantine.** `QuarantineSccpRevision { network, revision }` (subject
   `ForgeryHold(network)`) sets `r.quarantine = { certificate_id, since_height
   }` from the enacting certificate, for a deployment that the Parliament finds
-  captured: its `committeeState()` root is not a genuine Taira root, or
-  `monitor` shows forged mints. The quarantine record is permanent: no
+  captured: its `committeeState()` root is not a genuine Taira root, its
+  installing handoff is not Taira's header of that height, or `monitor` shows
+  that a forged certificate took effect (a forged mint, pending TON mints
+  included, or a forged control). The quarantine record is permanent: no
   attestation, lapse, Parliament resume or reconciliation removes it, and a
   quarantined revision never records outbound again (§4.4 step 1). What ends
   is the quarantine's hold on settlement: it ends at the end of the
@@ -1583,14 +1675,29 @@ revision without it would let attacker-minted burns drain its remaining
 backing. Its state is:
 
 ```
-sccp_reconciliations: (SccpNetworkV1, u32) → SccpReconciliationV1 {
-    opened_at_ms: u64, closes_at_ms: u64,   // t(B) of the enacting block; + window_ms
-    forged_supply: u128,                    // F: checked sum of the proven forged amounts
-    proven_ids: BTreeSet<[u8; 32]>,
-    rho: Option<(u128, u128)>,              // (B, B + F), fixed at the window end
-    settled_face: u128,                     // S: face amount of r's claims settled under rho
+sccp_reconciliations: (SccpNetworkV1, u32) → SccpReconciliationStateV1 {
+    opened_at_ms: u64, closes_at_ms: u64,   // t(B); + positive window_ms, checked
+    forged_supply: u128,                    // F: checked sum of distinct proven amounts
+    rho: Option<SccpReconciliationRatioV1 { backing: u128, denominator: u128 }>,
+    settled_face: u128,                     // S: face amount settled under rho
 }
+sccp_reconciliation_proven: (SccpNetworkV1, u32, [u8; 32]) → u128
+sccp_pending_refund_amount: (SccpNetworkV1, u32) → u128
 ```
+
+The accounting record is fixed-size. Permanent proof ids and their authenticated
+amounts occupy a separate admitted map, so adding one proof or settling one claim
+never clones the revision's proof history. An ordered deadline index is derived
+from the exact current and undo records. Restore checks each cut's proof sum,
+pending-refund sum, quarantine binding and open-window supply bound before
+publishing any field. The read API returns the scalar accounting record.
+
+`SccpForgedMintProofV1` carries both the source light-client proof and the canonical
+outbound payload preimage (1–4096 bytes). Verification binds the registered
+emitter, network, revision, nonce and message id; an EVM event's amount must also
+match. TON's finalized event has no amount, so its authenticated id binds the
+payload from which the amount is obtained. A caller-supplied amount is never
+independent evidence.
 
 A quarantined revision is in exactly one phase, derived from this record:
 **Held** (no record), **Reconciling** (a record with `rho = None`) or
@@ -1607,12 +1714,13 @@ counter. `⊖` is saturating subtraction.
 | R5 | **Retirement.** A quarantined revision retires only when Reconciled, under the ordinary `RetireRevision` precondition (`liability(r) = 0` and no inbound record or refund of `r` `Pending`, §4.14.3). Until then it stays Reconciled indefinitely and keeps settling later claims under R4. Its quarantine record and its outbound refusal never end. |
 | R6 | Deterministic, with bounded work per block: the window end is constant work, and each claim or refund is one ordinary settlement. Every step is evented. |
 
-`TODO:` (Team S, launch blocker, §13 item 3): whether pro-rata pricing with a
-proof window stays the rule or a claims bar date replaces it; the disposition
-of liability that backs genuine messages the captured deployment never minted
-and that no void proof can reach (their senders have no refund path, so
-`liability(r) = 0`, and with it R5, may never be reached); and the Norito
-layouts, events, Torii routes and `iroha sccp reconcile` tooling.
+R1–R6 are the implemented pro-rata rule. Liability backing genuine messages
+that a captured deployment never minted and that no void proof can reach may
+prevent `liability(r) = 0`, so R5 deliberately permits indefinite retention.
+The Norito records, events, scalar hold/reconciliation route and
+`iroha sccp reconcile` status/proof commands are implemented. The original
+Parliament G1/G2 prefix, shared positions and carried work budget remain the
+external inputs required to close windows; combined qualification remains open.
 
 ### 4.11 Storage and pruning
 
@@ -1631,7 +1739,9 @@ layouts, events, Torii routes and `iroha sccp reconcile` tooling.
 | `sccp_governance_revisions` | permanent (one counter per SCCP governance subject, §4.14.3) |
 | Parliament proposals, attempts and certificates | owned by the Parliament pipeline |
 
-**Pruning** runs in the post-execution hook, after G2 and G7 (§4.5):
+**Pruning** runs in the post-execution hook, after G2 and G7 (§4.5), and reads
+pending penalties from the original permanent forgery-evidence owner. An absent
+or unavailable owner is never an empty pending set.
 
 - **Generation records.** Scan in ascending order and delete at most 8 records
   `g` with `g < sccp_committee_current`, `¬liable(g)` and no `Pending` SCCP
@@ -1683,8 +1793,8 @@ Validation:
    normalized source event `{ kind: TransferToTaira, emitter, message_id,
    sender, nonce, payload_hash }`. Its `emitter` equals revision `r`'s
    deployment address, and its fields equal those recomputed from `payload`.
-5. Verifier work is estimated from the frame alone (`SccpVerifierWorkV1`) and
-   reserved under the `[zk.sccp]` transaction and block limits before any
+5. Verifier work is estimated from the frame alone (`SccpVerifierWorkV1`)
+   and reserved under the committed `sccp` transaction and block limits before any
    cryptography runs; advances and equivocation evidence are reserved the same
    way. A reservation reaches the block only when its transaction commits. A
    transaction carries at most one inbound or void proof, preceded by any
@@ -1789,9 +1899,10 @@ hold against the committed parent state (the state the block executes on,
   nothing fails and is charged.
 
 `[Register<Account>(authority)?, AdvanceSccpLightClientV1+,
-SubmitSccpInboundMessageV1]` is a self-claim shape too, but it becomes eligible
-only once admission verifies the proof against the light client with the
-bundled advances applied (`TODO(ws41)`); until then it pays the ordinary fee.
+SubmitSccpInboundMessageV1]` is a self-claim shape too. Admission verifies its
+proof against the same-network light client with the bundled advances applied
+in order to an original-pool overlay. Each signed expected state hash and the
+original allocation and verifier-work limits are enforced before eligibility.
 
 A transaction that is not eligible is never refused for its shape: it pays the
 ordinary fee. This covers relayers, third-party settles, amounts at or below
@@ -1995,9 +2106,12 @@ the event block's from its transaction proof. The normalized sender is codec 7
 (`int32 0 ‖ account`), and a transfer's payload must carry the event's amount,
 nonce and sender. A Simplex transcript signs the `session_id` it carries; the
 candidate data binds the block id and the header fixes the subset, so another
-session's votes could only finalize the same block (`TODO(WP13)`: binding
-`session_id` to the epoch needs the config-29 options hash and the vertical
-seqno of the epoch's state, which the stored epoch lacks). TON records no
+session's votes could only finalize the same block. Current v1 verifies the
+signed session id, block id, selected validator subset and strict weighted
+quorum. Deriving that session id independently from the epoch is optional
+future strengthening (WP13), not an additional v1 acceptance rule: it would
+require the config-29 options hash and the vertical seqno of the epoch's
+state, which the stored epoch does not retain. TON records no
 checkpoints and refuses `InstallTrustedCheckpoint`. Recorded mainnet answers
 (`fixtures/sccp/rpc/ton/transport`) replay through the verifier: the config-28
 shuffle reproduces the subset hash of real headers, Simplex signatures of a
@@ -2080,6 +2194,14 @@ verify the deployment before the vote (§4.14.4).
   endpoint or build failure, an over-budget build, an oversized advance or a
   refused submission) doubles that wait, up to 64 × `poll_interval_ms`, and a
   poll that needs no RPC or submits an advance resets it.
+
+  The existing telemetry registry exports `sccp_keeper_unconfigured` for a
+  local keeper-key failure, `sccp_keeper_needs_recovery{network}` for a frozen
+  or aged inbound light client, and `sccp_keeper_poll_success{network,duty}`
+  for the latest remote attempt (`1` success, `0` refusal). The duty labels
+  are `advance` and `watch`; no poll sample exists before the first attempt.
+  Labels never include endpoints or revision identifiers. These node-local
+  observations do not authorize recovery or protocol effects.
 
   A hostile or broken endpoint can cost a node bounded time and memory only
   (§8, `iroha_sccp_rpc` RPC hygiene): every attempt has one wall-clock deadline
@@ -2504,14 +2626,17 @@ time `T`):
     pin, the live `NetworkId`, `I`, the revision, the cap and the wallet and
     bucket code refs, using `iroha_sccp::v1::ton_cell` (`minter_account_id`
     over `state_init`, code cells as `CellRef::opaque`; only code hashes and
-    depths are needed).
+    depths are needed). All three code references MUST equal
+    `ton_cell::locked_code_refs()`, the compiled minter, wallet and bucket
+    hashes and depths pinned by `fixtures/sccp/ton_stateinit_v1.json`; a
+    matching address for substituted code is refused.
   - **P4 (EVM).** `address` equals `keccak256(0xff ‖ SCCP_EVM_DEPLOYER ‖ 0^32 ‖
     keccak256(SCCP_EVM_CREATION_CODE ‖ abi.encode(ctor)))[12..32]` with `ctor =
     (TAIRA_NETWORK_ID, I, networkTag(network), revision, max_wrapped_supply,
     pin.generation, pin.committee_root, pin.start_height, pin.until_ms)`
     (§5.2.1). `SCCP_EVM_CREATION_CODE` is the exact creation bytecode pinned by
     `scripts/contract_tooling/artifact-lock.json` and embedded in
-    `iroha_sccp::v1::constants`; CI fails if the two differ.
+    `iroha_sccp::v1::evm_abi`; its drift tests fail if the two differ.
   - **P5.** `sccp_forgery_max_generation < initial_committee.generation`, or no
     forgery evidence has been recorded; otherwise the revision would start held
     (§4.10).
@@ -2607,12 +2732,19 @@ again before an `ActivateRevision` is proposed, reviewers (the Review Panel and
 FMA Committee members first, and anyone else) run locally:
 
 ```
-iroha sccp deployment verify --network <p> --address <a> --initial-generation <G>
+iroha sccp deployment verify <original-authority flags> --network <p> --revision <r> --actions <actions.json>
 ```
 
-The tool reads generations from the reviewer's own node or cross-checks several
-Torii peers, and reads the destination from the reviewer's configured RPC at a
-finalized (EVM `finalized` tag) block. It MUST confirm:
+The tool authenticates generations and compiled profiles against the selected
+original native World cut. `--actions` reviews a proposed action file;
+`--proposal-id` selects the exact stored proposal body. These flags are mutually
+exclusive. Omitting both reviews the authenticated registered revision. It reads
+the destination from the reviewer's configured RPC at one fixed finalized EVM
+block or TON masterchain block. Initial `until_ms` must equal the original
+native generation deadline; later installed generations follow the protocol
+bounds. An initial committee at `high = start − 1` has no checkpoint yet.
+EVM checks sample the highest accepted checkpoint and at most sixteen explicit
+`--checkpoint-height` values; TON checks every occupied one of its three slots. It MUST confirm:
 
 - **EVM.** The address equals the P4 recomputation, and the runtime code
   (`eth_getCode`) equals the runtime that `SCCP_EVM_CREATION_CODE` deploys with
@@ -2783,12 +2915,15 @@ citizens' invitation responses, endorsements and ballots itself. Disposable
 devnets MAY build irohad with the `test-network-parliament-signers` feature for
 the beacon signers; public Taira never does.
 
-**Bring-up.** Once the launch gate is open (§10.2), three proposals seat the
-three routes (§4.18): one for ETH and BSC (`RegisterRoute`,
-`InitializeLightClient` and `ActivateRevision` each, 6 actions over 4
-subjects), one with only the TON `InitializeLightClient`, both proposed at
-once, and after the TON light client is installed, one with the TON
-`RegisterRoute` and `ActivateRevision`. The TON light client is proposed alone
+**Bring-up.** Once the launch gate is open (§10.2), first install the three
+source light clients (§4.18): one proposal may initialize ETH and BSC, while
+a separate proposal initializes TON. After each initialization is authenticated
+at the operator's selected cut, deploy and prove the destination under that light
+client (§7.4). Subsequent proposals register and activate those proven
+deployments: ETH and BSC may share a proposal, while TON may proceed separately.
+Initialization requires no registered route. A combined initialization and
+registration proposal is usable only when a prior authenticated light client
+already established deployment finality. The TON light client is proposed alone
 because a TON bootstrap stays fresh only until `utime_until + stake_held_for −
 margin`, 9.1 to 27.3 hours after capture with mainnet values (65 536 s rounds,
 32 768 s stake hold), and actions are atomic: a stale TON bootstrap at
@@ -2905,8 +3040,8 @@ SccpPausePanelV1 { panel_seq: u64, pulse_id: [u8; 32], seated_height: u64, seate
 
 - **One panel per chain** serves every network; `k = fast_pause_panel_seats`.
 - **When.** A draw happens in step G0 of the block-start pass (§4.7.2) of a
-  block `B` that carries the NPoS epoch-boundary global beacon pulse (the pulse
-  consensus already requires when `(h + 1) % epoch_length_blocks == 0`,
+  block `B` that carries the NPoS pre-boundary global beacon pulse (the pulse
+  consensus already requires at `h + 1 = current.authorization.last_height`,
   `specs/sumeragi.md` "Governed NPoS reconfiguration"), if no panel is seated
   or `t(B) ≥ term_ends_at_ms`. The draw reads that pulse as captured before
   execution, or, where an implementation cannot read it at block start, the
@@ -2921,10 +3056,9 @@ SccpPausePanelV1 { panel_seq: u64, pulse_id: [u8; 32], seated_height: u64, seate
   1 h and each draw is a fresh chance to seat a captured panel: with the
   default 9/6 panel and an attacker share of 0.2, either panel is captured with
   probability 0.0061 per draw, which is about 53 expected captures a year with
-  hourly draws and about 0.32 with weekly draws. This default deviates from the
-  literal owner decision and awaits owner confirmation (§13 item 1);
-  implementations MUST support both values, and the choice is a parameter
-  change, not a code change.
+  hourly draws and about 0.32 with weekly draws. The owner-selected default is
+  7 d; implementations support both values, and changing the term is a
+  parameter change.
 - **Who.** The candidate snapshot is every eligible citizen at the parent
   state, in canonical order: a bond of at least `gov.citizenship_bond_amount`,
   no slash or suspension in force, and an active account. Core draws up to `3k`
@@ -2970,8 +3104,9 @@ SccpPausePanelV1 { panel_seq: u64, pulse_id: [u8; 32], seated_height: u64, seate
 
 ```
 EndorseSccpFastPauseV1 { network_id: NetworkId, network: SccpNetworkV1, panel_id: [u8; 32], head: u64, incident_digest: [u8; 32] }
+SccpFastPauseEndorsementV1 { incident_digest: [u8; 32], recorded_at_height: u64 /* committed height, not timestamp */ }
 SccpFastPauseRoundV1 { panel_id, panel_seq, head, opened_at_ms, closes_at_ms,
-                       endorsers: BTreeMap<AccountId, (incident_digest, height)>, certify_due: bool }
+                       endorsers: BTreeMap<AccountId, SccpFastPauseEndorsementV1>, certify_due: bool }
 ```
 
 An endorsement is a public, account-signed transaction from a seat holder,
@@ -3031,6 +3166,21 @@ SccpFastPauseCertificateV1 { network_id, network, panel_id, panel_role: Primary 
 effect_preimage_hash = fingerprint(SCCP_FAST_PAUSE_EFFECT_V1, (network_id, network, head))
 certificate id       = SccpFastPauseCertificateId::derive_v1   // fingerprint domain SCCP_FAST_PAUSE_CERTIFICATE_ID_V1
 ```
+
+Both roots use the eligible current seat-holding endorsers in canonical
+`AccountId` order, with `n = endorsement_count`. Their exact preimages are:
+
+```
+endorsement_root = H_iroha("sccp/pause-endorsements/v1" ‖ be32(n) ‖
+    concat(be64(len(account_payload)) ‖ account_payload ‖ incident_digest ‖ be64(recorded_at_height)))
+incident_root = H_iroha("sccp/pause-incidents/v1" ‖ be32(n) ‖ concat(incident_digest))
+```
+
+`account_payload` is the canonical fixed-layout v1 Norito bare `AccountId`
+payload. Incident digests retain the same account order and repetitions; they
+are not deduplicated or independently sorted. A round may retain up to `3k`
+endorsers across lazy seat replacements, but only its current eligible seat
+holders count toward quorum.
 
 It is not a `GovernanceCertificateV1`, so that type's Policy Jury requirement
 does not apply.
@@ -3453,9 +3603,12 @@ validation-fee DS classification of `Register<Account>`.
 - **Latch:** `equivocated: bool`.
 - **Pause state:** `parliamentPaused: bool`, `fastPauseUntilMs: u64`,
   `controlNonce: u64` (the nonce of the last applied control, 0 initially).
-- **Counters:** the consumed set over outbound nonces; outbound source nonces;
-  token supply; and `opCount`, which is monotone and counts finalizations,
-  voids, burns and applied controls, but not checkpoints or rotations.
+- **Counters:** the consumed set over outbound nonces; outbound source nonces,
+  which are `0 ..= 2^64 − 2` (§5.1.7); token supply; and `opCount`, which is
+  monotone and counts finalizations, voids, burns and applied controls, but not
+  checkpoints or rotations. `opCount` saturates at `2^64 − 1`: it never wraps,
+  and the operation that reaches the bound, like every one after it, still
+  succeeds.
 - **Initial values** from the pin: `cur = {root, generation, start =
   pin.start_height, high = pin.start_height − 1, untilMs = pin.until_ms}`, no
   checkpoints, `equivocated = false`, pause state `{false, 0, 0}`.
@@ -3475,8 +3628,13 @@ validation-fee DS classification of `Register<Account>`.
   signature check; it never changes state and never latches, whether genuine or
   not.
 
-**Violation predicates.** They are evaluated only on a CUR certificate whose
-signature verified, and each is a conflict signed by `cur` itself:
+**Violation predicates.** They are evaluated only on a CUR certificate that
+passed `VerifyCertificate` (§5.1.3): its signature verified in this call, or
+its `X` is already stored and the mandatory cheap path applied, so the
+signature verified when `X` was stored. A `ROTATION` header that an inline
+call stored, which installs nothing, can therefore latch through V3 in a later
+`submitCheckpoints` without a second signature check. Each predicate is a
+conflict signed by `cur` itself:
 
 | # | Predicate | Meaning |
 |---|---|---|
@@ -3488,10 +3646,13 @@ signature verified, and each is a conflict signed by `cur` itself:
 `SccpLatched(reason, X.generation, X.height, a, b)`, persist, and stop
 processing. Reason codes: V1 → 1 (`a` = stored id, `b` = new id); V2 → 2; V3 →
 3 (for codes 2 and 3, `a = X.committee_root` and `b = keccak256(X)`). Latching
-MUST NOT revert. When `cur` is a genuine Taira generation, every V1–V3 trigger
-involves a certificate Taira never made, and its signers are slashable on Taira
-(§4.9): V2 through E1; V1 and V3 through E1, E3 or E4, for whichever of the two
-conflicting certificates is not genuine.
+MUST NOT revert. When `cur` is a genuine Taira generation that a genuine
+handoff installed (or is the pin), every V1–V3 trigger involves a certificate
+Taira never made, and its signers are slashable on Taira (§4.9): V2 through
+E1; V1 and V3 through E1, E3 or E4, for whichever of the two conflicting
+certificates is not genuine. After a forged handoff that names the genuine
+successor root, a genuine certificate can trip V2 (property 4): the evidence
+is then the published forged handoff, not the certificate that latched.
 
 **Updates** (`submitCheckpoints`; CUR only; requires `Live`; no violation):
 
@@ -3499,9 +3660,10 @@ conflicting certificates is not genuine.
    `SccpCheckpointed(height, id)`.
 2. `cur.high = max(cur.high, X.height)`.
 3. **Rotation** (`X.ROTATION`): set `cur = { X.next_committee_root,
-   cur.generation + 1, X.height + 1, X.height, t_eff(X) + X.validity_ms }`. On
-   TON, `next_keys` is required iff `X.next_committee_root ≠ cur.root`, and it
-   is hashed against the new root (else `BadCommittee`); at a heartbeat the
+   cur.generation + 1, X.height + 1, X.height, min(t_eff(X) + X.validity_ms,
+   2^64 − 1) }`. On TON, `next_keys` is required iff `X.next_committee_root ≠
+   cur.root`; it MUST hold a valid `n` of strictly ascending keys whose
+   committee root is the new root (else `BadCommittee`); at a heartbeat the
    stored keys are kept. Emit `SccpCommitteeRotated(generation, root, untilMs,
    start)`. If the destination is no longer `Live` after the rotation (it
    lagged past the successor's deadline), the state persists and processing
@@ -3509,13 +3671,70 @@ conflicting certificates is not genuine.
 4. Nothing else changes `cur.untilMs`: a non-rotation certificate, or the same
    certificate replayed, never extends trust.
 
+**Arithmetic.** No destination call aborts for arithmetic, and no value wraps:
+
+- The clock is `now_ms = min(block.timestamp × 1000, 2^64 − 1)`, computed in
+  256 bits on EVM, so it saturates instead of reverting or truncating for
+  `block.timestamp ≥ 18 446 744 073 709 552`. TON's `now()` is a 32-bit
+  unixtime, so `now_ms < 2^42` there and no TON time sum can reach `2^64`.
+- `X.height + 1` and `cur.generation + 1` are `u64` values. X6 bounds a
+  rotation's height and generation by `2^64 − 2`, and a CUR header has
+  `X.generation = cur.generation`. The eligibility rule U2 (§5.1.3) adds 1 to
+  the height and generation of a `ROTATION` header only.
+- The two time sums saturate at `2^64 − 1`: a rotation sets `cur.untilMs =
+  min(t_eff(X) + X.validity_ms, 2^64 − 1)`, and a control sets
+  `fastPauseUntilMs = min(leaf.fast_pause_until_ms, min(now_ms +
+  MAX_FAST_PAUSE_MS, 2^64 − 1))` (§5.1.6).
+- The deployment bound `now_ms < initialUntilMs ≤ now_ms + MAX_VALIDITY_MS +
+  MAX_INIT_SLACK_MS` of the constructor and `sccp_init` (§5.2.1, §5.3.1) is
+  compared as `initialUntilMs − now_ms ≤ MAX_VALIDITY_MS + MAX_INIT_SLACK_MS`
+  after `now_ms < initialUntilMs`, so its sum is never formed. A failure is
+  `BadConfig`; `committee_transitions_v1.json` lists the bound under
+  `init_bounds`.
+- A range or a cap is compared without forming a value above its width.
+  `voidFrozen(firstNonce, count)` accepts `firstNonce + count = 2^64` and
+  refuses any range beyond it (§5.1.8). A mint compares `amount` with
+  `maxWrappedSupply − totalSupply`, and answers `SupplyCapExceeded` when it is
+  larger (§5.1.5).
+- The two counters have a top. `opCount` saturates at `2^64 − 1` (§5.1.1). A
+  source nonce is at most `2^64 − 2`: a stored next nonce of `2^64 − 1` is
+  exhausted, and a burn of that sender is refused with `BadNonce` before any
+  state change, so no source nonce is used twice (§5.1.7). The TON minter
+  applies both bounds to its `op_count` and `outbound_nonce`, where the one
+  `outbound_nonce` serves every sender, and its Acton harness pins them.
+
 **Which entry points may do what.**
 
 | Entry point | Classes accepted | Records checkpoint / raises `high` | Installs successor | On V1–V3 |
 |---|---|---|---|---|
 | `submitCheckpoints` / `sccp_checkpoint` | CUR, `Live` | yes | yes | latch |
 | inline `finalizeFromTaira`, `applyControl`, `voidExpired` (and TON equivalents) | CUR, `Live` | yes | no | revert `LatchRequired`; the relayer resubmits through `submitCheckpoints` |
-| `*FromCheckpoint` | stored id | no | no | — |
+| `*FromCheckpoint` | a stored id whose header is CUR or the handoff that installed `cur` (§5.1.3), `Live` | no | no | — |
+
+**Check order and errors.** After the chain-identity check:
+
+- `submitCheckpoints` checks `TooManyCertificates`, then an empty batch
+  (`NothingToDo`), then `Live`, then each certificate.
+- The inline entry points obtain `X` first, through `VerifyCertificate` with
+  V1–V3, where a violation gives `LatchRequired`. They check `Live` after it,
+  in the step order of §5.1.5. On a destination that is not `Live`, an inline
+  call therefore answers for its certificate first: one that does not verify
+  is `BadSignature`, and a verified CUR certificate without a violation gets
+  the `Live` answer below. Neither stores a checkpoint, because the call
+  reverts.
+- **TON finalize and void:** the minter checks the payload and its recipient
+  (`BadPayload`, `BadRecipient`) before it obtains `X`, on the inline and the
+  checkpoint form alike, because the value it requires depends on the payload
+  nonce (§5.3.4). EVM checks them where §5.1.5 step 4 puts them, after `X`,
+  `Live`, the pause and the block reference. On both flavours the deadline is
+  checked before the leaf path.
+- The checkpoint entry points obtain `X` through the checkpoint use check of
+  §5.1.3: the length of `X` (`BadHeader`), the stored id (`UnknownCheckpoint`),
+  X1–X7 with `ACTIVE` (`BadHeader`), `Live`, then eligibility
+  (`CommitteeNotAccepted`).
+- `voidFrozen` checks its range before `Frozen` (§5.1.8).
+- A failed `Live` check answers `Equivocated` when the latch is set, and
+  `CommitteeNotAccepted` when only `cur.untilMs` has passed.
 
 **Properties.**
 
@@ -3527,56 +3746,120 @@ conflicting certificates is not genuine.
    generations (including K→K′→K returns and heartbeats with identical keys)
    are refused without effect.
 2. **Anchored expiry.** `cur.untilMs` changes only when a CUR rotation installs
-   a successor, at `t_eff(X_rot) + X_rot.validity_ms ≤ deadline_ms(successor)`.
-   Identical, stale, replayed and future-dated certificates leave it unchanged.
-   Trust in any generation ends by its deadline, at most `MAX_VALIDITY_MS`
-   after its certified start.
-3. **Retired quorums.** Once a destination installs `g + 1`, nothing signed by
-   `g` has any effect on it. A departed quorum of `g` can act only on a
-   destination still at `g`, only until `deadline_ms(g)` by that destination's
-   clock, and only by signing certificates that are slashable on Taira while
-   `g` is liable (§4.8).
+   a successor (and at a latch, which zeroes it). The rotation sets it to
+   `min(t_eff(X_rot) + X_rot.validity_ms, 2^64 − 1)`, which is at most
+   `deadline_ms(successor)` and, because `t_eff ≤ now_ms`, at most `now_ms +
+   X_rot.validity_ms`: a future-dated rotation installs its successor, but
+   never with more than `validity_ms` from the destination's own clock.
+   Non-rotation certificates, and identical or replayed certificates of any
+   kind, leave `untilMs` unchanged. Trust in any generation ends by its
+   deadline, at most `MAX_VALIDITY_MS` after its certified start.
+3. **Retired quorums: no new authorizations.** Once a destination installs `g +
+   1`, it accepts no certificate of `g`: none records a checkpoint, raises
+   `high`, rotates or latches there. A departed quorum of `g` can therefore
+   present certificates only to a destination still at `g`, only until
+   `deadline_ms(g)` by that destination's clock, and only certificates that are
+   slashable on Taira while `g` is liable (§4.8). The checkpoints of `g` give
+   no new authorization either, with one exception: the handoff that installed
+   `g + 1` stays usable until the next rotation (§5.1.3, U2). Effects already
+   applied survive a rotation: mints, consumed nonces, applied controls
+   (including a forged control with a maximal nonce, after which no genuine
+   control applies) and, on TON, the mints already admitted (§5.3.4). The
+   property is "no new authorizations from a retired generation", not "nothing
+   signed by `g` has any effect".
 4. **Departed-quorum attacks on a destination still at `g`:**
    - forged certificates of `g` at `H > end_g` (E1) are accepted and
      checkpointed and raise `high`; the genuine handoff `X_{end_g}` then trips
      V3 and latches;
-   - a forged `X` at an in-tenure height (E3 or E4): V1 fires when the genuine
-     `X` of that height is or becomes stored; otherwise the damage is bounded
-     by the supply cap and `deadline_ms(g)`;
-   - a forged rotation (E1, E3 or E4) installs an attacker generation, and the
-     destination is captured: it no longer accepts Taira's genuine
-     certificates, so neither controls nor voids reach it. Detection is
-     off-chain (the keeper watch, `iroha sccp monitor`, the destination's own
-     events and the full certificates it publishes, §5.1.3). The response is
-     slashing of every signer, the per-revision forgery hold, and quarantine
-     with reconciliation (§4.9–§4.10). Damage is bounded by the cap, and
-     Taira-side release of every revision that can be at the forged generation
-     stops once the evidence is recorded.
+   - a forged `X` at an in-tenure height that is not a handoff (E3 or E4): V1
+     fires when the genuine `X` of that height is already stored, or is
+     submitted while `g` is still current. Otherwise the forged checkpoint is
+     usable while `g` is current (U1), and stops being usable when the genuine
+     handoff of `g` is installed, which anyone can submit, or at
+     `deadline_ms(g)`. A forged `X` commits to a tree of the forger's choosing,
+     so the message deadlines and the control leaves proven under it are the
+     forger's own: until it stops being usable, the supply cap and a freeze or
+     latch of the destination bound what it authorizes, and Taira answers with
+     the slashing of its signers and the forgery hold (§4.9–§4.10);
+   - a forged handoff (E1, E3 or E4) is the capture case. Submitted through
+     `submitCheckpoints` while `g` is current, it installs `cur`, also when it
+     names the genuine successor root with forged message or history roots. It
+     stays eligible under U2 until the next rotation, and the genuine handoff
+     is then refused as not CUR, without latching. With the genuine successor
+     root, genuine certificates of `g + 1` are CUR from the forged start
+     `H_f + 1`: one at a height in `(end_g, H_f]` trips V2 and latches, and
+     the successor's `untilMs` is the one the forged handoff granted. With an
+     attacker root the
+     destination no longer accepts Taira's genuine certificates, so neither
+     controls nor voids reach it. Detection is the published `SccpCertificate`
+     (§5.1.3 step 12), which the keeper watch and `iroha sccp monitor` read.
+     The response is slashing of every signer, the per-revision forgery hold,
+     and quarantine with reconciliation (§4.9–§4.10). Damage is bounded by the
+     cap, and Taira-side release of every revision that can be at the forged
+     generation stops once the evidence is recorded.
 5. **No skipping.** One rotation per generation, in order: at most 16 per EVM
    call and one per TON message.
 6. `voidFrozen` is allowed iff `Frozen`, which includes the latch.
 
 #### 5.1.3 Certificate verification and checkpoints
 
-`VerifyCertificate(cert)` runs these checks in order, cheapest first:
+`VerifyCertificate(cert)` runs these checks in order, cheapest first, and the
+first failure is the call's error:
 
-1. Exact lengths: `QC_FIXED` 116, `X` 221, signature 192 (EVM) or 96 (TON). EVM
-   also checks `committee = 48n` with `n ∈ {4, 7, …, 31}` and `signerYs = 48q`.
-2. Parse `X` (X1–X7, §3.6): `X.network_id = tairaNetworkId` and `ACTIVE` is
-   set. There is no skew check.
+1. Exact lengths: `QC_FIXED` 116 (else `BadCertificate`), `X` 221 (else
+   `BadHeader`), signature 192 on EVM or 96 on TON (else `BadCertificate`). EVM
+   also checks `committee = 48n` with `n ∈ {4, 7, …, 31}` (else
+   `BadCommittee`) and `signerYs = 48q` (else `BadCertificate`).
+2. Parse `X` (X1–X7, §3.6), and require `X.network_id = tairaNetworkId` and
+   `ACTIVE` set; any failure gives `BadHeader`. There is no skew check.
 3. Classify (§5.1.2): anything other than CUR gives `CommitteeNotAccepted`.
-4. EVM: `keccak256("SCCP/COMMITTEE/V1" ‖ u8 n ‖ committee) = cur.root`.
-5. `signers >> n = 0`; `popcount(signers) = q(n)`.
-6. EVM: every signer `y` and every `σ` limb is `< p`; `σ ≠ 0^192`; every signer
-   key's byte 0 satisfies `& 0xc0 = 0x80` and `(byte0 & 0x20 ≠ 0) = (y >
-   HALF_P)`.
-7. `id = keccak256(X)` and `R = SHA-256(RESULT_TAG ‖ X ‖ result_body)`.
-8. **Cheap path (MAY):** if `checkpoint[X.height] = id`, skip steps 9–12. Only
-   `X` is ever used, and it is already certified.
-9. `m = SHA-256(P)` (§3.7).
-10. Aggregate: EVM uses `G1ADD` over `(x = key with byte0 & 0x1f, y)` and
-    checks `apk ≠ O`; TON pushes the key slices.
-11. Pairing check (§3.8); failure gives `BadSignature`.
+4. EVM: `keccak256("SCCP/COMMITTEE/V1" ‖ u8 n ‖ committee) = cur.root`, else
+   `BadCommittee`.
+5. `signers >> n = 0` and `popcount(signers) = q(n)`, else `BadCertificate`.
+6. Encodings, in this order, before the cheap path and before any curve
+   operation:
+   1. **Both flavours** reject the identity signature (`σ = O`) with
+      `BadSignature`: on EVM the 192 bytes are all zero; on TON, as on Taira,
+      the compressed form is `0xc0` followed by 95 zero bytes. The check sits
+      here so that EVM and TON agree on a certificate whose `X` is already
+      stored.
+   2. **EVM:** every signer `y` is `< p` (else `BadCommittee`).
+   3. **EVM:** every `σ` limb is `< p` (else `BadSignature`).
+   4. **EVM:** for every signer key, with `x` = the key with `byte0 & 0x1f`:
+      byte 0 satisfies `& 0xc0 = 0x80` and `(byte0 & 0x20 ≠ 0) = (y >
+      HALF_P)`, `x < p`, and `(x, y) ≠ (0, 0)` (else `BadCommittee`). No
+      precompile runs before these checks: `G1ADD` reads `(0, 0)` as the
+      point at infinity, which would drop the signer from the aggregate, and
+      on `x ≥ p` it fails and burns the gas forwarded to it.
+7. `id = keccak256(X)`.
+8. **Cheap path (MUST):** if `checkpoint[X.height] = id`, skip steps 9–12. Only
+   `X` is ever used, and it is already certified. The path is mandatory, with
+   no deployment or build option, because it is observable: a certificate
+   whose `X` is stored is not checked against its signature and is not
+   published again, and the shared outcome table pins both (§11.4). Steps 1–6
+   have run, so the lengths, the classification as CUR, the signer set and the
+   encodings of step 6 are enforced on this path too.
+9. `R = SHA-256(RESULT_TAG ‖ X ‖ result_body)` (§3.6) and `m = SHA-256(P)`
+   (§3.7). `R` enters nothing but `P`, so it is computed here, on the full
+   path only.
+10. Aggregate. **EVM** uses `G1ADD` over `(x, y)`, each coordinate
+    zero-extended to 64 bytes (§3.7); a signer point off the curve, then `apk =
+    O`, give `BadCommittee`, before `σ` is read as a point. **TON** pushes the
+    key slices and has no aggregate step of its own.
+11. Pairing check (§3.8). **EVM** zero-extends the four `σ` limbs to the
+    256-byte G2 input (§3.7). `BadSignature` answers a `σ` that is not the
+    canonical encoding of a point of the G2 subgroup, an aggregate key outside
+    the G1 subgroup (`PAIRING_CHECK` refuses either input) and a failed
+    pairing; the identity signature was refused at step 6. `G1ADD` adds any
+    points of the curve, so the contract observes the aggregate key and never
+    a single signer key: signer keys outside G1 whose components outside the
+    subgroup cancel are accepted when the pairing holds. **TON** has one
+    verdict for steps 10 and 11, the result of `BLS_FASTAGGREGATEVERIFY`, and
+    `false` throws `BadSignature` (§5.3.4 item 5): a stored signer key that is
+    no canonical point, is the identity or lies outside G1, an identity
+    aggregate, a `σ` that is no point of the G2 subgroup, and a failed
+    pairing. None of these inputs exists under a root Taira admitted (§3.8),
+    so the two flavours differ on no certificate of a genuine committee.
 12. **Publish the certificate.** EVM emits `SccpCertificate(X.height,
     X.generation, qc, header, signature)`; TON sends the external message
     `sccp_certificate`. This happens after every successful full-path
@@ -3601,23 +3884,45 @@ about 8k gas per full-path certificate on EVM.
   absent and either `count < 3` or `height > min stored`; the minimum is
   evicted. A height already present with an equal id is a no-op. Conflict
   detection covers retained entries only.
-- **Using a checkpoint** (`CheckpointRefV1 = {header: X}`): require
-  `checkpoint[X.height] = keccak256(X) ≠ 0` (else `UnknownCheckpoint`), X1–X7
-  with `ACTIVE`, and `Live`. The generation that signed it need not still be
-  current: the checkpoint was verified while that generation was trusted, and
-  the latch and the freeze still block use.
+- **Using a checkpoint** (`CheckpointRefV1 = {header: X}`): a `*FromCheckpoint`
+  entry point requires, in this order:
+  1. `X` of 221 bytes (else `BadHeader`);
+  2. `checkpoint[X.height] = keccak256(X) ≠ 0` (else `UnknownCheckpoint`);
+  3. X1–X7 with `ACTIVE` (else `BadHeader`);
+  4. `Live` (else `Equivocated` when latched and `CommitteeNotAccepted` when
+     expired, §5.1.2);
+  5. the stored header is eligible (else `CommitteeNotAccepted`):
+     - **U1.** `X.generation = cur.generation` and `X.committee_root =
+       cur.root`; or
+     - **U2.** `X` is the handoff that installed `cur`: `ROTATION` is set,
+       `X.generation + 1 = cur.generation`, `X.height + 1 = cur.start` and
+       `X.next_committee_root = cur.root`.
+
+  The messages and controls of a retired generation are proven under the
+  handoff that installed `cur`, or under a newer certificate of the current
+  generation, with a history proof (§5.1.5). Nothing else about checkpoints
+  depends on eligibility: storage, the TON slots, V1 conflict detection over
+  the stored ids, and the cheap path of step 8, which still requires the CUR
+  classification of step 3 first. U2 applies to checkpoint-reference entry
+  points only. It never makes a certificate CUR, so an old certificate cannot
+  rotate, latch or skip classification through it. §5.1.2 properties 3 and 4
+  state what this leaves to a forged checkpoint.
 - **TON eviction race.** A `*_checkpoint` message whose checkpoint was evicted
-  throws `UnknownCheckpoint` and bounces with its value; the inline form is
-  always available as the fallback.
+  throws `UnknownCheckpoint` and bounces with its value. The inline form is the
+  fallback only for a certificate of the current generation. A header of an
+  earlier generation is not CUR and cannot be presented inline: its messages
+  and controls are proven under a newer certificate of the current generation,
+  with a history proof (§5.1.5).
 
 **`submitCheckpoints(certs[1..16])`** (TON: one `sccp_checkpoint` per message)
 is permissionless, works while paused and does not count toward `opCount`. Like
 every entry point, it first checks chain identity (EVM `block.chainid` of the
-profile; TON `GLOBALID = −239`). It processes certificates in order (§5.1.2
-updates). A latch, or a rotation that leaves the destination not `Live`,
-persists and stops processing. Any other failure reverts the whole call: the
-batch is atomic. It reverts `NothingToDo` iff no state changed, and
-`TooManyCertificates` with more than 16 certificates.
+profile; TON `GLOBALID = −239`). It then checks `TooManyCertificates` (more
+than 16 certificates), an empty batch (`NothingToDo`) and `Live`, in this
+order, and processes the certificates in order (§5.1.2 updates). A latch, or a
+rotation that leaves the destination not `Live`, persists and stops processing.
+Any other failure reverts the whole call: the batch is atomic. A call that
+changed no state reverts `NothingToDo`.
 
 #### 5.1.4 Supply cap
 
@@ -3627,10 +3932,11 @@ batch is atomic. It reverts `NothingToDo` iff no state changed, and
 #### 5.1.5 Block and message proofs, and finalization
 
 `BlockRefV1 = {height, sccpRoot, messageCount, historyIndex, historyPath}` is
-checked against a verified `X`:
+checked against a verified `X`, and a reference that fails is `BadProof`:
 
 - If `height = X.height`: require `sccpRoot = X.sccp_root ≠ 0`, `messageCount =
-  X.message_count`, `historyIndex = 0` and an empty path.
+  X.message_count`, `historyIndex = 0` and an empty path. The certified block
+  itself takes no history proof.
 - Otherwise: require `height < X.height`, `1 ≤ messageCount ≤ 512`, `sccpRoot ≠
   0` and `len(historyPath) ≤ 32`, and `merkle_root(history_leaf(height,
   sccpRoot, messageCount), historyIndex, X.history_size, historyPath) =
@@ -3639,13 +3945,14 @@ checked against a verified `X`:
 
 Leaves are checked with `merkle_root(leaf, leafIndex, messageCount, path) =
 sccpRoot` (path ≤ 9 siblings). Any certificate of the current generation, or
-any stored checkpoint, therefore proves any older message or control.
+any usable stored checkpoint (§5.1.3), therefore proves any older message or
+control.
 
 **`finalizeFromTaira(cert, proof)` / `finalizeFromCheckpoint(ref, proof)`:**
 
 1. Chain identity: EVM `block.chainid` of the profile; TON `GLOBALID = −239`.
 2. Obtain `X`: inline, `VerifyCertificate` as CUR (which records the checkpoint
-   and raises `high`); otherwise the checkpoint use check.
+   and raises `high`); otherwise the checkpoint use check (§5.1.3).
 3. Require `Live` and no effective pause (`MintingIsPaused`, §5.1.6).
 4. The block reference, as above. The payload is valid per §3.2 with
    `source_domain 0`; `dest_domain`, `route_revision` and `route_id` equal to
@@ -3655,7 +3962,9 @@ any stored checkpoint, therefore proves any older message or control.
 5. The transfer `leaf` per §3.4 with the own destination word verifies against
    the block reference.
 6. The payload's `nonce` is not consumed; mark it consumed.
-7. `totalSupply (+ pending) + amount ≤ maxWrappedSupply`.
+7. `totalSupply (+ pending) + amount ≤ maxWrappedSupply`, compared as `amount ≤
+   maxWrappedSupply − totalSupply (− pending)` so that no sum exceeds its
+   width; else `SupplyCapExceeded`.
 8. Mint `amount` to the recipient; `opCount += 1`; emit `SccpFinalized`. Return
    the message id.
 
@@ -3677,8 +3986,9 @@ fastPauseUntilMs, certificateId, effectHash, leafIndex, path, block}`.
 4. `controlNonce > stored`, else `StaleControl`. Gaps are allowed: only the
    newest control needs to be applied.
 5. Set `parliamentPaused = leaf.parliament_paused` and `fastPauseUntilMs =
-   min(leaf.fast_pause_until_ms, now_ms + MAX_FAST_PAUSE_MS)`, store the nonce,
-   `opCount += 1`, and emit `SccpControlApplied(controlNonce, track,
+   min(leaf.fast_pause_until_ms, min(now_ms + MAX_FAST_PAUSE_MS, 2^64 − 1))`:
+   the bound saturates, so the step never aborts for arithmetic. Store the
+   nonce, `opCount += 1`, and emit `SccpControlApplied(controlNonce, track,
    parliamentPaused, fastPauseUntilMs, certificateId)`.
 
 The **effective pause** is `parliamentPaused ∨ now_ms < fastPauseUntilMs`. It
@@ -3706,11 +4016,21 @@ Burns wrapped XOR from the caller and emits the source event:
 - recipient: `taira_account` bytes, 1..=1024.
 - `tokenAmount > 0` and `tokenAmount < 2^128` (units are Taira units).
 - **EVM:** `nonce = transferNonces[msg.sender]` MUST equal the caller-supplied
-  `expectedNonce`, then increments. Per-sender nonces make the payload
-  derivable from the call.
+  `expectedNonce`, else `BadNonce(nonce)`; it then increments. Per-sender
+  nonces make the payload derivable from the call.
+- **Nonce range.** A source nonce is in `0 ..= 2^64 − 2`, so the stored next
+  nonce is at most `2^64 − 1`, and that value means the nonces are exhausted.
+  On EVM, when `transferNonces[msg.sender] = 2^64 − 1`, every call of that
+  sender that passes the checks above reverts `BadNonce(2^64 − 1)`, whatever
+  `expectedNonce` it supplies, before any state change. The nonce `2^64 − 1`
+  is never used, and no nonce is reused or wrapped. Other senders are not
+  affected.
 - **TON:** the owner MUST be `addr_std` in workchain 0 without anycast.
   Otherwise the minter throws, and the standard bounce restores the wallet
-  balance. `nonce = outbound_nonce++` (the Jetton master serializes all burns).
+  balance. `nonce = outbound_nonce++` (the Jetton master serializes all
+  burns), in the same range: at `outbound_nonce = 2^64 − 1` the minter throws
+  `BadNonce` before any state change, for every owner, and the bounce restores
+  the wallet balance (§5.1.2 "Arithmetic").
 - Build the payload per §3.2 (`dest_domain 0`, `deadline_ms 0`, sender =
   caller, route constants) and `message_id` per §3.3 with lane `(own, Taira)`.
   Burn, `opCount += 1`, emit.
@@ -3723,14 +4043,19 @@ Burns are allowed while paused, after expiry and after a latch.
   proof)`** run the steps of §5.1.5 except the pause check (step 3's pause
   part) and the cap check (step 7), and require `now_ms > deadline_ms` instead
   of `≤`. They require `Live`. The `nonce` argument MUST equal the payload
-  nonce. They mark the nonce consumed, set `opCount += 1` and emit
+  nonce, else `BadNonce`; it is checked after the leaf path and before the
+  consumed set, so a wrong argument for a consumed payload is `BadNonce`. They
+  mark the nonce consumed, set `opCount += 1` and emit
   `SccpVoided(messageId, nonce)`. Nothing is minted.
-- **`voidFrozen(firstNonce, count)`** requires `Frozen` (expired or latched);
-  `1 ≤ count ≤ 256` and `firstNonce + count ≤ 2^64` (on TON `≤ 512` within one
-  bucket); and every nonce in the range unconsumed, else revert. It marks them
-  all consumed, sets `opCount += 1`, and emits `SccpVoided(0, nonce)` per nonce
-  (TON: one external-out message for the range). It is permissionless: a frozen
-  destination can never mint again, so voiding any nonce is safe. A mint
+- **`voidFrozen(firstNonce, count)`** checks its range first: `1 ≤ count ≤ 256`
+  and `firstNonce + count ≤ 2^64`, compared without forming a value above
+  `u64` (`firstNonce + count = 2^64` is valid, since the last nonce is `2^64 −
+  1`); on TON `count ≤ 512` within one bucket. A range failure gives
+  `BadAmount` on EVM and `BadRange` on TON. It then requires `Frozen` (expired or latched), else
+  `NotFrozen`, and every nonce in the range unconsumed, else revert. It marks
+  them all consumed, sets `opCount += 1`, and emits `SccpVoided(0, nonce)` per
+  nonce (TON: one external-out message for the range). It is permissionless: a
+  frozen destination can never mint again, so voiding any nonce is safe. A mint
   already in flight on TON when the latch fires is not minted (§5.3.4).
 - **Canonical calldata** (EVM): `voidFrozen` reverts with
   `NonCanonicalCalldata()` unless `msg.data.length = 0x44`. Voids are proven to
@@ -3739,8 +4064,9 @@ Burns are allowed while paused, after expiry and after a latch.
 
 ### 5.2 EVM: Ethereum and BSC (`contracts/evm/sccp/SccpTairaXor.sol`)
 
-One source file is compiled by `solc` 0.8.31 for Ethereum and BSC. The contract
-is the ERC-20/BEP-20 token itself. It makes no external calls other than
+One contract source and the one library it imports
+(`contracts/evm/sccp/lib/BLS12_381.sol`, §5.2.4) are compiled by `solc` 0.8.31
+for Ethereum and BSC. The contract is the ERC-20/BEP-20 token itself. It makes no external calls other than
 precompiles (so it needs no reentrancy guard), and has no owner, no upgrade
 path and no setters. Token metadata: name `Taira XOR`, symbol `tXOR`, decimals
 9, initial supply 0.
@@ -3758,8 +4084,17 @@ constructor(bytes32 tairaNetworkId, bytes32 consensusInstance, uint8 networkTag 
 - The constructor derives the domain, identity word and route id text from
   `networkTag`, requires `block.chainid` to equal the identity word, sets `cur
   = {root, generation, start, high = start − 1, untilMs}` and the pause state
-  `{false, 0, 0}`, and stores every argument as an immutable, plus
-  `MAX_VALIDITY_MS` and `MAX_FAST_PAUSE_MS`.
+  `{false, 0, 0}`, and stores every argument as an immutable.
+  `MAX_VALIDITY_MS` and `MAX_FAST_PAUSE_MS` are compile-time constants of the
+  source, not arguments, so they are part of `SCCP_EVM_CREATION_CODE`.
+- **Constructor errors.** A `networkTag` other than `0x41` or `0x42`, or a
+  `block.chainid` that differs from the tag's identity word, reverts
+  `WrongChain()`; this is checked first. Every other violated bound reverts
+  `BadConfig()`: a zero `tairaNetworkId` or `consensusInstance`, the bounds
+  written in the signature above, and the `init_bounds` rows of
+  `committee_transitions_v1.json`. The contract is initialized by its
+  constructor only, so the EVM ABI does not declare `NotInitialized` or
+  `AlreadyInitialized`.
 - **The slack on `initialUntilMs`.** `until_ms = deadline_ms(g)` is anchored at
   Taira's certified time, which can be ahead of a destination's clock by up to
   `2·max_clock_drift_ms` plus the destination's own lag. Without the slack, a
@@ -3772,9 +4107,14 @@ constructor(bytes32 tairaNetworkId, bytes32 consensusInstance, uint8 networkTag 
   The address is then a function of the arguments, and Taira recomputes it
   (§4.14.3 P4). `iroha sccp deployment deploy` refuses any other path. A
   front-runner that deploys the same arguments first produces the identical
-  contract at the same address. `TODO:` verify that the proxy's runtime code
-  hash is identical on Ethereum and BSC, and record it in
-  `iroha_sccp::v1::constants`.
+  contract at the same address. Before signing, the deploy CLI requires the
+  exact 69-byte `SCCP_EVM_DEPLOYER_RUNTIME` from `iroha_sccp::v1::constants`
+  on either chain; its Keccak-256 is `SCCP_EVM_DEPLOYER_RUNTIME_HASH`
+  (`2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989`).
+  Rust and the independent EVM model check that pin. Local chain-id 1 and 56
+  tests exercise the same proxy runtime; they do not attest the current code
+  at a public endpoint. Live deployment performs the exact-code inspection
+  against the selected chain before preparing its transaction.
 
 #### 5.2.2 ABI
 
@@ -3786,6 +4126,13 @@ struct MessageProofV1 { bytes payload; uint32 leafIndex; bytes32[] path; BlockRe
 struct ControlProofV1 { uint64 controlNonce; uint8 track; bool parliamentPaused; uint64 fastPauseUntilMs;
                         bytes32 certificateId; bytes32 effectHash; uint32 leafIndex; bytes32[] path; BlockRefV1 block; }
 ```
+
+`parliamentPaused` is a Solidity `bool`. A calldata word above 1 in that
+position is refused by Solidity's ABI decoder with empty revert data, not with
+`BadControl()`: `applyControl` and `applyControlFromCheckpoint` read the member
+as their first statement, so the refusal precedes every check of the contract,
+including the chain check. This is the one row of `control_v1.json`
+(`parliament_paused_2`) whose EVM outcome differs from the reference's.
 
 | Selector | Function | Notes |
 |---|---|---|
@@ -3800,12 +4147,12 @@ struct ControlProofV1 { uint64 controlNonce; uint8 track; bool parliamentPaused;
 | `0xebfc6ca8` | `transferToTaira(bytes tairaRecipient,uint256 tokenAmount,uint64 expectedNonce) returns (bytes32 messageId)` | §5.1.7 |
 | `0x620ae238` | `committeeState() view returns (bytes32 root, uint64 untilMs, uint64 start, uint64 high, uint64 generation)` | |
 | `0x405cf530` | `checkpointHeader(uint64) view returns (bytes32)` | `keccak256(X)` or 0 |
-| `0xd7118351` | `pauseState() view returns (bool parliamentPaused, uint64 fastPauseUntilMs, uint64 controlNonce, bool effective)` | |
+| `0xd7118351` | `pauseState() view returns (bool parliamentPaused, uint64 fastPauseUntilMs, uint64 controlNonce, bool effective)` | the compiled ABI names the third output `controlNonce_` (below) |
 | `0xe1a283d6` | `mintingPaused() view returns (bool)` | the effective pause at `block.timestamp` |
 | `0x1682dae6` | `consensusInstance() view returns (bytes32)` | |
 | `0x86645f61` | `initialCommittee() view returns (uint64 generation, bytes32 root, uint64 start, uint64 untilMs)` | |
 | `0x78048149` | `equivocated() view returns (bool)` | |
-| `0x5cffa161` | `maxValidityMs() view returns (uint64)` | |
+| `0x5cffa161` | `maxValidityMs() pure returns (uint64)` | the constant `MAX_VALIDITY_MS` |
 | `0x95b67034` | `isConsumed(uint64 nonce) view returns (bool)` | |
 | `0x4faac8ca` | `controlNonce() view returns (uint64)` | nonce of the last applied control |
 | `0xcb58065f` | `opCount() view returns (uint64)` | |
@@ -3818,7 +4165,12 @@ Unchanged views: `transferNonces(address)` (`0xf6f0e8a6`), `tairaNetworkId()`
 these signatures. Selectors are the first four bytes of Keccak-256 over the
 canonical signature with tuples expanded, for example
 `submitCheckpoints((bytes,bytes,bytes,bytes,bytes)[])` → `0x07a5e706`. None
-collides with an ERC-20 selector or with another listed one. Removed with the
+collides with an ERC-20 selector or with another listed one. Two details of
+the compiled ABI JSON change no selector and no encoding: `maxValidityMs()` is
+`pure`, because its bound is a compile-time constant (§5.2.1), and the third
+output of `pauseState()` is named `controlNonce_`, because Solidity cannot
+declare an output named like the `controlNonce()` getter without a warning,
+and the artifact corridor fails a build that warns. Removed with the
 attestation transport: `finalizeFromTairaHistorical`, `rotateRosters`,
 `applyControlHistorical`, `voidExpiredHistorical`, `rosterState`,
 `domainSeparator`, `initialRosterDigest`, `initialRosterGeneration` and
@@ -3852,7 +4204,7 @@ accept exactly the same entries (§11).
 | `SccpCheckpointed(uint64 indexed height, bytes32 header)` (the value is `keccak256(X)`) | `0xfe0aa9a242fa773b609fa05dac2bc7034ac693373de95b042f61db6c8d218853` |
 | `SccpLatched(uint8 indexed reason, uint64 generation, uint64 height, bytes32 a, bytes32 b)` | `0x0567b58957c8b229342697465e6c4c3c6f0f63efb05b97d09469929c47a331f7` |
 | `SccpControlApplied(uint64 indexed controlNonce, uint8 track, bool parliamentPaused, uint64 fastPauseUntilMs, bytes32 certificateId)` | `0xb069397cc6f8fa22bf7c0216c554253ab0fc92a3178d10969760b028dd174238` |
-| `SccpCertificate(uint64 indexed height, uint64 indexed generation, bytes qc, bytes header, bytes signature)` (every full-path verification, §5.1.3 step 12; `signature` is the 192-byte EIP-2537 form) | `0xa89e234faf229fd8a8a7add0e9aec37a1986183e842549427a65eb2fb88c116e` |
+| `SccpCertificate(uint64 indexed height, uint64 indexed generation, bytes qc, bytes header, bytes signature)` (every full-path verification, §5.1.3 step 12; `signature` is the 192-byte calldata form of §3.7) | `0xa89e234faf229fd8a8a7add0e9aec37a1986183e842549427a65eb2fb88c116e` |
 
 `SccpTransferToTaira` is the inbound source event consumed by Taira (§4.12.2):
 `data = abi.encode(uint64 nonce, bytes payload)` and `topics[2] =
@@ -3870,14 +4222,27 @@ cross-check harness keys on the names:
 | `BadCommittee` | 403 | `StaleControl` | 417 |
 | `BadCertificate` | 404 | `NotInitialized` / `AlreadyInitialized` | 418 / 419 |
 | `BadSignature` | 405 | `BadControl` | 420 |
-| `BadHeader` | 406 | `BadNonce(uint64 expected)` (a nonce argument that differs from the payload's or the sender's next nonce) | 425 (unchanged) |
+| `BadHeader` | 406 | `BadNonce(uint64 expected)` (a nonce argument that differs from the payload's or the sender's next nonce; a sender whose source nonces are exhausted, §5.1.7) | 425 (unchanged) |
 | `BadProof` / `BadPayload` | 407 / 408 | `NothingToDo` | 428 |
 | `SupplyCapExceeded` | 410 | `BadConfig` | 429 |
 | `UnknownCheckpoint` | 411 | `Equivocated` | 433 |
 | `BadRecipient` / `BadAmount` | 412 / 413 | `LatchRequired` | 434 |
 | `TooManyCertificates`, `NonCanonicalCalldata`, `AlreadyConsumed(uint64 nonce)` | EVM only | TEP-74 codes 47–74, 333 | unchanged |
 
-TON-only codes keep their current values
+**Reverts with empty data.** Two kinds of EVM revert carry no error of the
+table. One is a refusal by Solidity itself: a typed calldata word above its
+width, calldata that is too short, an unknown selector, or value sent with a
+call (no function is payable). The other is a failed precompile call inside
+the commit message or hash-to-G2 (`SHA256`, `MODEXP`, `MAP_FP2_TO_G2`,
+`G2ADD`, §5.2.4), which is possible only when the call runs out of gas or on a
+chain without the precompile. It is not a verdict on the certificate, and
+neither is the answer of a `G1ADD` or `PAIRING_CHECK` call that ran out of
+gas, which is the one a refused input gets (`BadCommittee`, `BadSignature`).
+A relayer simulates with ample gas before it treats any of these as a
+rejection.
+
+`NotInitialized` and `AlreadyInitialized` are TON codes only; the EVM ABI does
+not declare them (§5.2.1). TON-only codes keep their current values
 (`contracts/ton/sccp/contracts/sccp-errors.tolk`): `BadSnake` 421,
 `BucketNotDeployed` 422, `NotMinter` 423, `NotBucket` 424, `BadRange` 426,
 `BadBurnPayload` 427, `BucketNotActive` 430 and `NothingToRetry` 431. Code 432
@@ -3898,6 +4263,16 @@ ERC-20: totalSupply, balances, allowances
 immutable: TAIRA_NETWORK_ID, CONSENSUS_INSTANCE, NETWORK_TAG, ROUTE_REVISION, MAX_WRAPPED_SUPPLY, the initial pin
 ```
 
+Slots follow this order from slot 0: A, B and C are slots 0, 1 and 2, the
+three mappings are slots 3, 4 and 5, `totalSupply` is slot 6, and the balances
+and allowances are slots 7 and 8. Within a packed slot the first-named field
+is the low-order one (Solidity declaration order): in slot B `untilMs` is bits
+0..63 and `generation` bits 192..255, and in slot C `controlNonce` is bits
+0..63, `opCount` 64..127, `fastPauseUntilMs` 128..191, `parliamentPaused` bit
+192 and `equivocated` bit 200. The initial pin is the four immutables
+`INITIAL_GENERATION`, `INITIAL_COMMITTEE_ROOT`, `INITIAL_START_HEIGHT` and
+`INITIAL_UNTIL_MS`, so the runtime code has exactly nine immutables.
+
 #### 5.2.4 BLS implementation (EIP-2537)
 
 Ethereum provides EIP-2537 since Pectra and BSC since BEP-439; both price the
@@ -3909,13 +4284,23 @@ precompiles identically.
   forbidden, because the contract is immutable and repricings happen. Every
   call checks `success`, the return length and the value.
 - **Fail fast.** Precompile errors consume all forwarded gas, so step 6 of
-  §5.1.3 MUST run before any precompile.
-- **Hash to G2.** Vendor Lido `BLS12_381.hashToG2(bytes32)` (MIT; derived from
-  Solady and Ithaca; Sigma Prime assessment) as
-  `contracts/evm/sccp/lib/BLS12_381.sol`, verbatim except for one documented
-  deviation: restore Solady's `calldatacopy(s, calldatasize(), 0x40)` zeroing
-  of `Z_pad` immediately after `let s := add(b, 0x100)`. The vendored file
-  states the upstream revision and this diff.
+  §5.1.3 MUST run before any precompile: every coordinate and limb is below
+  `p`, no signer has the coordinates `(0, 0)`, which the precompiles read as
+  the point at infinity, and `σ` is not `0^192`.
+- **Hash to G2.** `contracts/evm/sccp/lib/BLS12_381.sol` is written for this
+  repository from RFC 9380 and EIP-2537; it is not a copy of a third-party
+  file. `hashToG2(bytes32)` is `expand_message_xmd` with SHA-256 and `DST_SIG`
+  (§3.8) to four 64-byte values, each reduced mod `p` by `MODEXP` with
+  exponent 1, then `MAP_FP2_TO_G2` twice and one `G2ADD`. `Z_pad` and every
+  16-byte field padding are written explicitly, so no result depends on prior
+  memory contents. A failed or wrong-length precompile call inside it reverts
+  with empty data. The library has only internal functions and is compiled
+  into the contract. Its audit is part of the EIP-2537 glue audit gate.
+- **Point encodings.** Every field element of a precompile input is a 64-byte
+  big-endian word whose top 16 bytes are zero: a G1 point is 128 bytes (`x ‖
+  y`) and a G2 point is 256 bytes (`x.c0 ‖ x.c1 ‖ y.c0 ‖ y.c1`). The contract
+  builds them by zero-extending the 48-byte values it holds: each signer's `x`
+  and `y`, and the four limbs of the 192-byte calldata signature (§3.7).
 - **Pairing input** is 768 bytes, `apk ‖ Q ‖ (−g1) ‖ σ`, and must return 32
   bytes equal to 1.
 - **Not used:** BSC's precompile `0x66`. It returns empty on failure, does not
@@ -3927,8 +4312,8 @@ precompiles identically.
 The same creation code serves Ethereum and BSC; runtime code differs only in
 immutables. Compile with `evmVersion: cancun` (`mcopy`). The build is
 reproducible from `scripts/contract_tooling/compiler-lock.json`, and its exact
-creation bytes are `SCCP_EVM_CREATION_CODE` (§4.14.3 P4). The EDR harness runs
-at Prague or later (BSC: Pascal). Payload parsing reads calldata slices, with
+creation bytes are `SCCP_EVM_CREATION_CODE` (§4.14.3 P4). The EDR suites run
+under both the Prague and the Osaka rules (BSC: Pascal or later). Payload parsing reads calldata slices, with
 no memory copies of the payload; `transferToTaira` builds the payload in memory
 and hashes it once for `payload_hash` and once for `message_id`.
 
@@ -3944,7 +4329,7 @@ built in), `SccpTairaXorWallet` (TEP-74 wallet) and `SccpConsumedBucket`
 minter_data#_ initialized:Bool equivocated:Bool total_supply:Coins pending_supply:Coins outbound_nonce:uint64
   op_count:uint64 control_nonce:uint64 parliament_paused:Bool fast_pause_until_ms:uint64 deployed_buckets:uint64
   config:^MinterConfig committee:^CommitteeState checkpoints:^Checkpoints
-  retries:(HashmapE 64 uint8) = MinterData;                                                  // ≤ 572 data bits, ≤ 4 refs
+  recovery:^RecoveryBook = MinterData;                                                     // ≤ 571 data bits, 4 refs
 minter_config#_ taira_network_id:bits256 consensus_instance:bits256 route_revision:uint32 max_supply:Coins
   initial:^InitialPin wallet_code:^Cell bucket_code:^Cell = MinterConfig;
 initial_pin#_ generation:uint64 root:bits256 start:uint64 until_ms:uint64 = InitialPin;
@@ -3953,22 +4338,27 @@ checkpoints#_ count:uint2 entries:(count × (height:uint64 id:bits256)) = Checkp
 key_chunk#_ keys:(k × bits384) next:(Maybe ^KeyChunk) = KeyChunk;                             // k = 2, last chunk 1..2
 ```
 
-- `retries` maps a nonce to a recorded asynchronous step (§5.3.4): `1`
-  (`SCCP_RETRY_UNCONSUME`) for an `sccp_unconsume` of that nonce, `2`
-  (`SCCP_RETRY_ACTIVATE`) for the activation of bucket `i` under the key `i ·
-  512`. Without it, a consumed nonce whose mint never arrived could be neither
-  minted nor voided. It is empty in the initial data.
+- `RecoveryBook` has `next_id:uint64`, `count:uint10`,
+  `activated_buckets:uint64` and `operations:(HashmapE 64 ^RecoveryOperation)`.
+  Its canonical empty cell is exactly 139 bits with no references: next id 1,
+  count 0, activated prefix 0 and an empty dictionary.
+- `RecoveryOperation` retains, in order, `stage:uint3 phase:uint2 attempt:uint64
+  nonce:uint64 amount:uint96 count:uint10 next_id:uint64 query_id:uint64
+  result:uint2 tail:^ConsumeTail`. The dictionary holds at most 512 rows.
+  A complete activation batch reserves its rows before the first dispatch.
+  Operation ids increase monotonically and never repeat after capacity is freed;
+  exhausted operation or attempt counters reject before wrapping.
 - `get_jetton_data` builds the TEP-64 content (on-chain name `Taira XOR`,
   symbol `tXOR`, decimals `9`) at run time from constants, so no content cell
   is stored.
 - **State size is constant.** There is no tenure dictionary. A rotation
   replaces the `KeyChunk` chain (at most 16 cells), or keeps it at a heartbeat;
-  `retries` is bounded by the outstanding asynchronous steps.
+  recovery custody has a fixed capacity of 512 operations and no evictable history.
 
 **Canonical initial data** for a deployment pinned to Taira generation `G`:
 `initialized = false`, `equivocated = false`, every counter and supply zero,
 `parliament_paused = false`, `fast_pause_until_ms = 0`, `deployed_buckets = 0`,
-`checkpoints.count = 0` and `retries` empty; `config` holds the live
+`checkpoints.count = 0` and the exact empty `RecoveryBook`; `config` holds the live
 `NetworkId`, `I`, the revision, the cap, the pin and the wallet and bucket
 code; `committee` holds the pin with the generation's keys and `high = start −
 1`. Taira recomputes the minter address from exactly this data at
@@ -4023,11 +4413,7 @@ shown otherwise):
 | `0x53435633` | `sccp_void_frozen first_nonce:uint64 count:uint16` | anyone; value ≥ `void_frozen_required_value(first_nonce)` |
 | `0x53434d31` / `0x53434d32` | `sccp_apply_control cert:^TairaCert control:^ControlProof` / `sccp_apply_control_checkpoint ref:^CheckpointRef control:^ControlProof` | anyone (§5.1.6); value ≥ `apply_control_required_value()` |
 | `0x53434431` | `sccp_deploy_buckets count:uint8` | anyone; value ≥ `deploy_buckets_required_value(count)` |
-| `0x53435931` | `sccp_retry nonce:uint64` | anyone; value ≥ `retry_required_value()`; throws `NothingToRetry` (431) when no step is recorded |
-| `0x53434332` | `sccp_consumed query_id:uint64 nonce:uint64 amount:uint96 tail:^ConsumeTail` | own bucket (bounceable) |
-| `0x53434336` | `sccp_already_consumed query_id:uint64 nonce:uint64 amount:uint96 tail:^ConsumeTail` | own bucket (bounceable) |
-| `0x53434339` | `sccp_consume_reverted query_id:uint64 nonce:uint64 amount:uint96` | own bucket (bounceable) |
-| `0x53434334` / `0x53434337` | `sccp_range_consumed` (bounceable) / `sccp_range_rejected query_id:uint64 first:uint64 count:uint16` | own bucket |
+| `0x53435931` | `sccp_retry operation_id:uint64` | anyone; value ≥ `retry_required_value()`; throws `NothingToRetry` (431) when no operation is retained |
 | `0x7bdd97de` | `burn_notification query_id:uint64 amount:Coins sender:MsgAddress response_destination:MsgAddress sccp:^SccpBurnToTaira` | own wallet |
 | `0xd372158c` | `top_up query_id:uint64` | anyone |
 | standard | `provide_wallet_address` / TEP-89 | anyone |
@@ -4035,25 +4421,38 @@ shown otherwise):
 `0x53434531` (`sccp_evidence`), `0x53435231` (`sccp_rotate`) and the historical
 finalize, void and control ops are deleted.
 
-To a bucket (sender MUST be the minter; every message is bounceable):
+Internal recovery messages (bounceable; IHR disabled):
 
-| Op | TL-B |
-|---|---|
-| `0x53434338` | `sccp_activate_bucket query_id:uint64 index:uint64`, sent with the canonical `StateInit` |
-| `0x53434331` | `sccp_consume query_id:uint64 nonce:uint64 amount:uint96 tail:^ConsumeTail` (first 256 body bits = `op ‖ query_id ‖ nonce ‖ amount`) |
-| `0x53434333` | `sccp_consume_range query_id:uint64 first:uint64 count:uint16` |
-| `0x53434335` | `sccp_unconsume nonce:uint64` |
+| Op | TL-B fields after op | Sender and destination |
+|---|---|---|
+| `0x53435241` | `operation_id:uint64 stage:uint8 attempt:uint64 nonce:uint64 count:uint16 amount:uint96 query_id:uint64 response:MsgAddressInt` | minter → canonical bucket or wallet |
+| `0x53435242` | `operation_id:uint64 stage:uint8 attempt:uint64 query_id:uint64 response:MsgAddressInt` | minter → destination; confirm the retained receipt |
+| `0x53435243` | same fields as confirmation | minter → destination; delete the exact receipt |
+| `0x53435244` | `operation_id:uint64 stage:uint8 attempt:uint64 result:uint8 query_id:uint64 response:MsgAddressInt` | canonical destination → minter; authenticated ACK |
 
-A bucket accepts `sccp_consume`, `sccp_consume_range` and `sccp_unconsume` only
-when `activated` (else it throws `BucketNotActive` and the message bounces).
-Only `sccp_activate_bucket` from the minter, whose `index` must match, sets
-`activated`. Anyone may `top_up` a bucket.
+Stages are activation 1, consume 2, mint 3, unconsume 4 and range 5. Results
+are missing 0, applied 1, rejected 2 and deletion confirmed 3. A bucket accepts
+activation only for its own index, and the other bucket stages only after
+activation. A wallet accepts only mint dispatches from its minter. Ordinary
+TEP-74 wallet-to-wallet transfers require the authenticated peer wallet address.
+Anyone may top up either child.
 
 ```
-consume_tail#_ kind:uint1 recipient:MsgAddress response:MsgAddressInt message_id:uint256 = ConsumeTail;  // kind 0 mint, 1 void
-bucket_data#_ minter:MsgAddressInt index:uint64 activated:Bool bits:uint512 = BucketData;  // StateInit: activated 0, bits 0
+consume_tail#_ kind:uint1 recipient:MsgAddress response:MsgAddressInt message_id:uint256 = ConsumeTail;
+recovery_receipts#_ count:uint10 receipts:(HashmapE 72 RecoveryReceipt) = RecoveryReceipts;
+recovery_receipt#_ attempt:uint64 result:uint2 = RecoveryReceipt;
+bucket_data#_ minter:MsgAddressInt index:uint64 activated:Bool bits:uint512 recovery:^RecoveryReceipts = BucketData;
+wallet_data#_ jetton_balance:Coins owner:MsgAddressInt minter:MsgAddressInt recovery:^RecoveryReceipts = WalletData;
 sccp_burn_to_taira#53434254 recipient:^SnakeBytes = SccpBurnToTaira;
 ```
+
+Each child's receipt key is `(operation_id << 8) | stage`; each retains at most
+512 receipts. Canonical child StateInit has an exact empty 11-bit receipt cell
+(count 0, empty dictionary); a missing reference is invalid. Bucket StateInit
+also has `activated = false` and zero bits. The minter's immutable tail retains
+the original response and message id; each in-flight recovery exchange echoes
+its own query id and response, so a concurrent caller cannot redirect another
+caller's excess by starting a retry.
 
 External-out messages from the minter:
 
@@ -4091,117 +4490,144 @@ and bounces the inbound message, so no step completes without its event.
 4. **Keys:** `loadBits(384)` slices of exactly 384 bits from the `KeyChunk`s,
    selected by ascending set bits. The signature slice is exactly 768 bits.
    384-bit keys MUST NOT be loaded as integers.
-5. **Call:** build the tuple `t = [k_1 … k_q, q, m, σ]` (length `q + 3 ≤ 24`),
-   then `asm "DUP" "TLEN" "UNTUPLEVAR" "BLS_FASTAGGREGATEVERIFY"` (`TLEN`
-   `0x6F88`, `UNTUPLEVAR` `0x6F82`, `BLS_FASTAGGREGATEVERIFY` `0xF93002`).
+5. **Call:** the minter MUST reject the compressed identity signature, `0xc0`
+   followed by 95 zero bytes, with `BadSignature` at §5.1.3 step 6, before the
+   checkpoint lookup of the cheap path: `BLS_FASTAGGREGATEVERIFY` does not
+   enforce `σ ≠ O`, which §3.8 requires, and the cheap path never calls it. On
+   the full path the minter then builds the tuple `t = [k_1 … k_q, q, m, σ]`
+   (length `q + 3 ≤ 24`) and runs `asm "DUP" "TLEN" "UNTUPLEVAR"
+   "BLS_FASTAGGREGATEVERIFY"` (`TLEN` `0x6F88`, `UNTUPLEVAR` `0x6F82`,
+   `BLS_FASTAGGREGATEVERIFY` `0xF93002`).
    `UNTUPLEVAR` consumes `t n`, and `TLEN` supplies `n = q + 3`; an
    implementation MAY push `q + 3` explicitly instead. The resulting stack `k_1
    … k_q q m σ` (σ on top) is exactly the opcode's pop order. Gas is 58 000 + 3
-   000·q. The opcode applies `DST_SIG` and checks the aggregate; individual-key
-   validity rests on Taira's admission (§3.8). `false` throws `BadSignature`.
-   The Acton harness pins this stack shape at n = 4, 7 and 31.
+   000·q. The opcode applies `DST_SIG`, and its result is the minter's only
+   verdict on the keys, the aggregate and the signature: `false` throws
+   `BadSignature`, including for an identity aggregate, which EVM reports as
+   `BadCommittee` (§5.1.3 steps 10–11). The minter runs no aggregate step of
+   its own. The opcode refuses a signer key that is no canonical point, is the
+   identity or lies outside G1, as the reference models read it; a root Taira
+   admitted holds no such key (§3.8). The Acton harness
+   (`tests/unit/sccp-bls.test.tolk`) pins that the opcode answers `false`, and
+   the minter `BadSignature` after the opcode's gas, for a stored signer key
+   with the infinity flag (`0xc0…`), without the compression flag, with `x ≥
+   p`, with the coordinates `(0, 0)`, on the curve outside G1 (one key with the
+   genuine signature, and two keys shifted by `T` and `−T` whose sum is the
+   genuine aggregate), and for keys that sum to the identity; the opcode also
+   answers `false` for the identity key alone under the identity signature.
+   Both reference generators record `BadSignature` as `expected.ton` for
+   those shared negative and flavour-specific certificate rows. The harness
+   also pins the stack shape and the opcode gas at n = 4, 7 and 31.
 6. **Latch:** commit state, emit `sccp_latched`, and return the excess value to
-   `response` with no throw. A mint in flight whose bucket `sccp_consumed`
-   reply arrives after the latch is not minted: the minter sends
-   `sccp_unconsume`, releases `pending_supply`, and the nonce stays voidable
+   `response` with no throw. A mint in flight whose consume completion
+   arrives after the latch is not minted: the minter dispatches a retained
+   unconsume operation and releases `pending_supply`, and the nonce stays voidable
    through `voidFrozen`. Expiry alone does not cancel an in-flight mint.
+   Exit codes: an `sccp_checkpoint` that finds V1–V3 persists the latch and
+   throws nothing, neither 433 nor 434. An inline entry point that finds V1–V3
+   throws `LatchRequired` (434) and changes nothing. Once the latch is set,
+   every entry point that requires `Live` (`sccp_checkpoint`, `sccp_finalize*`,
+   `sccp_void_expired*` and `sccp_apply_control*`) throws `Equivocated` (433)
+   at its `Live` check (§5.1.2); an expired minter without a latch throws
+   `CommitteeNotAccepted` (402) there, and so does a `*_checkpoint` message on
+   a `Live` minter whose stored header is neither U1 nor U2 (§5.1.3). No other
+   message throws 433: the bucket replies of a mint in flight follow the
+   unconsume flow above.
 7. **Sends:** event sends use `SEND_MODE_REGULAR |
    SEND_MODE_BOUNCE_ON_ACTION_FAIL`; burns never pay toward the floor (§5.3.5).
    Failing messages throw and bounce their value.
 
 **Finalize (Taira→TON).**
 
-1. **Minter checks.** `initialized`; `GLOBALID = −239`; the payload (§5.1.5,
-   `amount < 2^96`) and, from its nonce, the deploy count of step 2; `msg_value
-   ≥` the step value plus the floor deficit (§5.3.5), checked **before** any
-   signature; then `X` (inline `VerifyCertificate` as CUR with keys from
-   storage, or the checkpoint use check), `Live`, no effective pause, the
-   Merkle paths and the deadline. It then checks `total_supply + pending_supply +
-   amount ≤ max_supply` and sets `pending_supply += amount`.
-2. **Bucket dispatch.** Let `idx = nonce >> 9`.
-   - If `idx < deployed_buckets`, send `sccp_consume` (bounceable) to
-     `bucket(idx)`.
-   - If `deployed_buckets ≤ idx < deployed_buckets + 4`, send
-     `sccp_activate_bucket` (bounceable, canonical `StateInit` with `activated
-     = false`, `bits = 0`, value = bucket gas + `BUCKET_FLOOR`) to buckets
-     `deployed_buckets..=idx` in order, then `sccp_consume` to `bucket(idx)`,
-     and set `deployed_buckets = idx + 1`. Messages from the minter to one
-     bucket arrive in order, so the bucket is active when the consume arrives.
-   - Otherwise throw: the caller first calls `sccp_deploy_buckets`.
+1. **Admission.** Require initialization and TON mainnet. Parse the payload,
+   recipient and amount (`amount < 2^96`); determine the bounded deployment
+   count and require an active bucket or a new contiguous activation batch.
+   Admit capacity for every activation plus the consume before verification or
+   storage mutation. Check attached value including the floor deficit before
+   signatures, then authenticate `X`, `Live`, pause, block reference, deadline
+   and leaf path in the specified order. Check `total_supply + pending_supply
+   + amount ≤ max_supply`, reserve pending supply and retain the immutable row.
+2. **Activation.** A finalize/void can reserve up to four new buckets; an
+   explicit `sccp_deploy_buckets` call can reserve 1..16. `deployed_buckets`
+   advances when the whole chain is reserved. `activated_buckets` advances
+   only after each successful activation's receipt deletion is acknowledged.
+   Dispatch one activation at a time, then the consume. Active buckets remain
+   usable while a chain is in flight; further extension waits for that chain.
+   Only activation carries bucket StateInit. A deleted bucket recreated from
+   StateInit is inactive and cannot replay a formerly consumed nonce.
+3. **Destination effect.** Authenticate the minter and the exact operation,
+   stage and attempt. Before a new effect, require receipt capacity and the
+   funded maximum-state floor. Atomically apply the effect and retain its
+   result receipt. A consumed bit produces `rejected`, without changing the
+   bit. An identical already-receipted dispatch only repeats its ACK.
+4. **Receipt completion.** The minter authenticates the canonical destination
+   and exact operation/stage/attempt. An applied/rejected ACK changes its row
+   from `WAIT` to `DROP`, retaining the result, and sends receipt deletion.
+   Only authenticated deletion confirmation advances or releases the row.
+   A consume rejection releases its pending amount. An applied mint consume
+   releases pending supply, reserves the amount in total supply, and changes
+   the same reserved row to wallet mint.
+   If equivocation latched before this point, change it to unconsume instead.
+   Only authenticated wallet receipt deletion completion increments `op_count`,
+   emits `sccp_finalized` and releases the slot. Thus Finalized proofs attest an
+   actual wallet credit, never a tentative dispatch that can still bounce.
+   Expiry alone does not
+   cancel an already admitted operation.
+5. **Authenticated original failure.** The first 168 body bits bind a bounced
+   dispatch to operation id, stage and attempt. Exact sender and `WAIT` phase
+   are mandatory. A consume/range failure frees its row (and mint pending
+   supply). A failed wallet mint removes its unminted total supply and changes
+   the existing row to `FAILED` unconsume. Activation/unconsume failure keeps
+   that row `FAILED`. These handlers send no new messages and allocate no new
+   rows, so a low-value bounce cannot lose the recovery instruction.
+   `op_count` stays monotone and saturates at `2^64 − 1`.
 
-   `sccp_consume` never carries a `StateInit`. The minter activates each index
-   exactly once, when `deployed_buckets` passes it, or again only through a
-   recorded retry of an activation that bounced (and so never took effect).
-   Anyone can deploy a bucket's canonical `StateInit`, before the minter does
-   or again after a deletion for unpaid rent, but such a bucket stays inactive
-   and rejects every consume, range and unconsume. A bucket's flags are
-   therefore never reset: a deleted bucket's nonces stay unfinalizable and
-   unvoidable rather than becoming voidable again.
-3. **Bucket.** Require sender = minter and `activated`, and top the balance up
-   to `BUCKET_FLOOR` (§5.3.5). If bit `nonce & 511` is unset, set it and reply
-   `sccp_consumed` with the remaining value. Otherwise reply
-   `sccp_already_consumed`. Both replies are bounceable.
-4. **Minter on `sccp_consumed`.** Require sender = `bucket(nonce >> 9)`,
-   recomputed from `bucket_code`.
-   - Kind **mint**: if `equivocated`, send `sccp_unconsume` and release
-     `pending_supply` (step 6 of the binding). Otherwise `pending_supply −=
-     amount`; `total_supply += amount`; `op_count += 1`; send the standard
-     `internal_transfer#178d4519` (bounceable, `query_id = nonce`) to the
-     recipient's wallet with StateInit and `response_destination = response`;
-     emit `sccp_finalized`.
-   - Kind **void**: `op_count += 1`; emit `sccp_voided` (count 1); return the
-     excess to `response`.
+**Retry.** Anyone can fund `sccp_retry{operation_id}`. A `FAILED` row alone may
+advance its attempt and dispatch the original action again. A `WAIT` row sends
+confirmation; a `DROP` row repeats exact receipt deletion. A queued activation
+cannot be retried before its predecessor. Prepared/Drop ACK loss never clears
+a bit, releases pending supply or blindly repeats a mint. Destination deletion
+is idempotent, and stale operation/stage/attempt messages cannot touch a newer
+receipt or a reused capacity slot. Missing receipt is observational only: it
+cannot prove original failure after possible destination deletion/recreation,
+so it retains the row without reminting or clearing a replay flag.
 
-   Every value this handler spends was checked at entry. If it fails anyway
-   (for example after a forwarding-price rise between the steps), its
-   transaction aborts and `sccp_consumed` bounces: the bucket clears the bit
-   and sends `sccp_consume_reverted{nonce, amount}`, paid from its own balance,
-   and the minter releases `pending_supply −= amount` (kind void carries
-   `amount = 0`). The message becomes finalizable or voidable again.
-5. **Minter on `sccp_already_consumed`.** For kind mint, `pending_supply −=
-   amount`. Return the value to `response`. If this handler fails, the bounce
-   makes the bucket send `sccp_consume_reverted` with the bit unchanged, which
-   releases the pending amount.
-6. **Minter on a bounced `sccp_consume`** (bucket failed, does not exist or is
-   not active): `pending_supply −= amount`. The value stays in the minter,
-   because the 256-bit bounce body does not carry `response`.
-7. **Minter on a bounced `internal_transfer`**, whose first 256 bits carry
-   `query_id = nonce` and `amount`: `total_supply −= amount`, and send a
-   bounceable `sccp_unconsume{nonce}` to the bucket, or record the nonce in
-   `retries` if the balance cannot pay it. The bucket clears the bit only for
-   the minter and only when active, and the message becomes finalizable again.
-   A bounced `sccp_unconsume` records the nonce in `retries`. No nonce is ever
-   consumed without a mint, a void or a recorded unconsume.
+TON validates same-source/destination order with IHR disabled (whitepaper
+§§2.2.9–2.2.11; `ValidateQuery::check_message_processing_order`, including
+emitted logical times and deferred queues). The pinned compiler's message
+header is tested with `ihr_disabled = true`. Monetary safety also holds for
+confirmation before a delayed original: absence never authorizes replay, and
+stages advance only on positive authenticated completion or original failure.
 
-**Retry.** A bounced `sccp_unconsume` or `sccp_activate_bucket` changed nothing
-at the bucket, so the minter records it in `retries` instead of losing it.
-`sccp_retry{nonce}` requires a record, deletes it and sends the recorded
-message again (bounceable); if that bounces too, the record returns. Each
-record therefore runs at most once at a time, and an activation is never sent
-for a bucket that was ever active. An activation of bucket `i` uses the key `i
-· 512`, which cannot collide with an unconsume because no nonce of a
-never-activated bucket is ever consumed. A record exists only after a bounce of
-a message the minter sent, so `retries` stays empty in practice.
-
-**Void (TON).** `sccp_void_expired*` runs finalize steps 1–4 with kind void: no
-pause check, no cap or pending supply, and `now_ms > deadline_ms`, where the
-`nonce` field MUST equal the payload nonce. `sccp_void_frozen` requires
-`Frozen` and a range inside one bucket (`count ≤ 512`). It applies the same
-activation rule and sends `sccp_consume_range`. An active bucket sets all bits
-in the range iff all are unset and replies `sccp_range_consumed` (bounceable),
-or `sccp_range_rejected` otherwise. The minter then emits `sccp_voided(0,
-first, count)`, and a bounced `sccp_range_consumed` makes the bucket clear the
-range. A bounced `sccp_consume_range` changes nothing and may be sent again.
+**Void (TON).** Expired voids use the same retained consume flow with kind void,
+no pause/cap/pending-supply check and `now_ms > deadline_ms`; the supplied nonce
+must equal the payload nonce. Frozen voids require `Frozen` and 1..512 nonces
+inside one bucket, use the same activation reservation and dispatch range.
+The bucket sets the whole range iff all its bits are clear. After receipt
+deletion confirmation an applied result emits one `sccp_voided(0, first,
+count)` and increments `op_count`; a rejection changes neither. ACK loss keeps
+the flags and result available for permissionless recovery.
 
 **Burn (TON→Taira).**
 
 1. The owner sends TEP-74 `burn#595f07bc query_id amount response_destination
    custom_payload` to its wallet with `custom_payload = sccp_burn_to_taira`.
-2. The wallet requires the custom payload, so a plain burn is rejected and no
-   value can be burned without a Taira record. It debits the balance and sends
-   the extended `burn_notification`.
+2. Before debiting or forwarding, the wallet requires the custom payload and
+   opens it as an ordinary cell containing exactly 32 bits (opcode
+   `0x53434254`) and one reference. A missing payload or wrong opcode is
+   `BadBurnPayload`; an exotic wrapper or any extra/missing bits or references
+   is `BadSnake`. It traverses the **entire** referenced recipient as ordinary
+   canonical `SnakeBytes` (§5.3.2): 127 bytes in every nonterminal chunk,
+   1..=127 bytes in the final chunk, exactly one continuation reference when
+   present and no extra bits or references. The total MUST be 1..=1024 bytes;
+   an oversized recipient is `BadRecipient`, and an empty, noncanonical or
+   exotic snake is `BadSnake`. Only after these checks and the required-value
+   check does the wallet debit and send the extended `burn_notification`.
+   This admission bound makes the maximal notification size priced by
+   `burn_required_value()` a real upper bound on the forwarded body.
 3. The minter verifies the wallet address; requires the owner to be `addr_std`
-   in workchain 0 without anycast; validates the recipient bytes (1..=1024);
+   in workchain 0 without anycast; repeats the same ordinary, exact wrapper
+   and full canonical 1..=1024-byte recipient checks;
    applies `total_supply −= amount` and `nonce = outbound_nonce++`; builds the
    payload (`sender_codec 7` = owner) and computes `message_id`; sets `op_count
    += 1`; reserves only its prior balance (a burn never pays toward
@@ -4230,8 +4656,9 @@ value returns to `response`.
   computed at entry with `GETGASFEE` (per-step gas limits pinned from measured
   maxima), `GETFORWARDFEE` (per-message sizes, including the bucket and wallet
   StateInit and the `sccp_certificate` message) and `GETSTORAGEFEE` (the bucket
-  floor and wallet storage). There is no fixed TON constant, so price-config
-  changes cannot break flows.
+  floor and wallet storage). There is no fixed TON constant. A price increase
+  between asynchronous steps can fail a delivery; retained custody permits a
+  newly funded retry without repeating an effect whose outcome is unknown.
 - **Minter floor.** `MINTER_FLOOR` = `GETSTORAGEFEE` for the minter's maximal
   cells and bits over 100 years. Every entry requires `msg_value ≥ step +
   max(0, MINTER_FLOOR − stored)`, where `stored` is the balance before the
@@ -4242,12 +4669,10 @@ value returns to `response`.
   caller's value, but never from the part the step needs. Storage the caller
   did not pay for stays a deficit for the next caller. Anyone may add to the
   floor with `top_up`.
-- **Burns and replies.** Burns and the bucket replies (`sccp_consumed`,
-  `sccp_already_consumed`) reserve only the prior balance: they never pay
-  toward the floor, so a minter below its floor cannot make them fail. The
-  range reply, `sccp_consume_reverted`, the bounce handlers and TEP-89 answers
-  send nothing that carries the balance; bounce handlers run on the minter's
-  balance, since a bounce may carry little value.
+- **Burns and replies.** Burns and recovery ACKs reserve the minter's prior
+  balance rather than charging its floor deficit. Original-bounce handlers
+  update existing custody without sending or allocating. Their bounded gas is
+  paid from the minter balance when the bounce carries little value.
 - **Quotes.** The `*_required_value` get methods return `step + max(0,
   MINTER_FLOOR − balance) + grace`, where a get method's balance is exactly
   `stored`, so a quote does not go stale as time passes. `grace` is
@@ -4255,9 +4680,15 @@ value returns to `response`.
   other minter transactions collect between the quote and the send; beyond it,
   the call fails `NotEnoughValue` before any signature and bounces. Every
   unused nanoton returns to `response`. Clients add a margin on top.
-- **Bucket floor.** Each bucket keeps `BUCKET_FLOOR` = 100 years of its storage
-  fee at current prices: its activation carries it, and each consume message
-  tops it up again. Anyone may top up a bucket.
+- **Child custody floors.** Before dispatch, attached value covers 100 years
+  of each destination's maximum 512-receipt state at current prices; activation,
+  consume and minted-wallet delivery require and reserve that floor. Ordinary
+  peer wallet deployment retains the separate five-year minimum. The maximum
+  minter (512 operations) is bounded by 2,380 cells/790,000 bits; each bucket
+  by 1,080 cells/83,000 bits and wallet by 1,080 cells/86,000 bits. Native maximum
+  fixtures cover those graphs with at most 5% headroom. No eviction discards
+  recovery. Repeated lost responses consume capacity until funded recovery
+  completes; full capacity rejects before another irreversible dispatch.
 - **Buckets are never reset.** A bucket deleted for unpaid rent (practically
   excluded by the floor) makes its nonces unfinalizable and unvoidable until
   someone unfreezes it with its exact public state. Anyone can redeploy its
@@ -4283,7 +4714,8 @@ value returns to `response`.
   the call activates), `deploy_buckets_required_value(count)`,
   `apply_control_required_value()` and `retry_required_value()`;
   `minter_floor()` returns `MINTER_FLOOR` at current prices;
-  `get_sccp_retry(nonce)` returns the recorded retry kind (0 when none).
+  `get_sccp_recovery(operation_id)` returns the retained operation cell or null;
+  `get_sccp_recovery_state()` returns `(count, next_id, activated_buckets)`.
 - Buckets: `get_bucket_data() → (minter, index, activated, bits_hi, bits_lo)`,
   `get_bits()`, `is_consumed(nonce)` and `is_activated()`.
 
@@ -4303,49 +4735,89 @@ have been live on mainnet since 2023. The `ECRECOVER` helpers
 
 ### 5.4 Cost estimates
 
-These are estimates, not measurements, at current pricing. `n = 4` is Taira
-today and `n = 31` is the protocol maximum. Tests MUST record measured values
-(§11); the first measured run records the baseline here, and CI then fails
-above 1.1 × that baseline.
+`n = 4` is Taira today and `n = 31` is the protocol maximum. The EVM and the
+TON values are measurements. Tests MUST record measured values (§11). The TON
+baseline is `contracts/ton/sccp/gas-baseline.json`: the builder
+(`scripts/ton_sccp_builder.py test`) fails when a step exceeds its gas limit
+or 1.1 × its baseline row, and when a row is missing from the baseline or
+from a complete run. The EVM baseline is
+`contracts/evm/sccp/test/gas_baseline_v1.json` (hardfork → row → profile, with
+`n = 7` as well), and the EVM table below lists its values. The gas suite
+(`contracts/evm/sccp/test/sccp_gas.test.js`) measures every row under two
+hardforks, Prague and Osaka, and fails when a measurement is outside
+0.9..1.1 × its baseline: above 1.1 × is a regression, and below 0.9 × is a
+stale baseline that would hide a later one. A row that is missing from the
+baseline or from the run fails too.
 
-**EVM (Prague pricing; BSC prices the precompiles identically).** The
-certificate core is hash-to-G2 (≈ 53k) plus the pairing (102.9k) plus `G1ADD`
-(≈ 475·(q − 1)) plus checks (≈ 300·q) plus parsing, hashing and memory (≈ 10k):
-≈ 167k at `n = 4` and ≈ 183k at `n = 31`. Calldata is ≈ 1.1 KB at `n = 4` (≈
-15k gas) and ≈ 3.25 KB at `n = 31` (≈ 48k gas); the EIP-7623 floor does not
-bind.
+**EVM (measured on the locked EDR runtime under the Prague and the Osaka
+rules; BSC prices the precompiles identically).** A cell reads Prague / Osaka,
+or one value when both agree. Values are the gas used by the whole transaction
+under the Ethereum profile; the BSC profile differs by at most 70 gas, from
+calldata bytes. The certificate core is hash-to-G2 (54 036 / 55 236), the
+pairing (103 124) and one `G1ADD` per signer (591 each with its call
+overhead), plus encoding checks, parsing, hashing and memory. The `MODEXP`
+repricing of EIP-7883 (Osaka) raises each of the four field reductions of
+hash-to-G2 from 200 to 500 gas, so every full-path certificate costs exactly
+1 200 gas more under Osaka and nothing else differs. The `submitCheckpoints`
+calldata of one certificate is 1 316 bytes at `n = 4` (35 096 intrinsic gas)
+and 3 492 bytes at `n = 31` (69 696). The EIP-7623 floor binds on one measured
+row only: an inline `finalizeFromTaira` on the cheap path at `n = 31` (155 110).
 
 | Operation | n = 4 | n = 31 |
 |---|---|---|
-| `submitCheckpoints`, 1 certificate (checkpoint SSTORE, `high`) | ≈ 230k | ≈ 280k |
-| … with rotation (root and slot B) | +≈ 3k | +≈ 3k |
-| … each extra certificate | ≈ 205k | ≈ 255k (16 ≈ 4.1M, below the EIP-7825 cap of 2^24) |
-| `finalizeFromCheckpoint` / `voidExpiredFromCheckpoint` / `applyControlFromCheckpoint` | 60–105k / 50–80k / 45–60k | same |
-| `finalizeFromTaira` inline | ≈ 275–305k | ≈ 325–355k |
-| `applyControl` inline | ≈ 255k | ≈ 305k |
-| `voidFrozen`, 256 nonces | ≈ 55k + 1.2k per nonce | same |
-| `transferToTaira` | 55k–75k | same |
+| `submitCheckpoints`, 1 certificate (checkpoint SSTORE, `high`) | 253 265 / 254 465 | 316 706 / 317 906 |
+| … with rotation (root and slot B) | heartbeat (slot B) 256 908 / 258 108; key change (root and slot B) 259 660 / 260 860 | heartbeat 320 337 / 321 537; key change 323 149 / 324 349 |
+| … each extra certificate | 221 999 / 223 199 (16 = 3 583 256 / 3 602 456) | 285 735 / 286 935 (16 = 4 602 731 / 4 621 931, below the EIP-7825 cap of 2^24) |
+| `finalizeFromCheckpoint` / `voidExpiredFromCheckpoint` / `applyControlFromCheckpoint` | 71 400–148 843 / 58 374–118 642 / 51 196–94 377 | same |
+| `finalizeFromTaira` inline | 288 866–356 192 / 290 066–357 392; cheap path 92 578 | 352 284–419 646 / 353 484–420 846; cheap path 155 110 |
+| `applyControl` inline | 267 508 / 268 708 | 330 986 / 332 186 |
+| `voidFrozen`, 256 nonces | 450 206 in one bitmap word, 472 836 across two (1 nonce: 54 458; ≈ 1.55k per further nonce) | same |
+| `transferToTaira` | 51 558–75 829 | same |
 
+- The ranges are the measured cases of each row. `*FromCheckpoint`: the low
+  end is a 1-leaf block, and the high end a 512-leaf block proved through a
+  32-sibling history path; for a finalization the low end also has an
+  existing balance and a used bitmap word (139 788 as the destination's first
+  operation, which also initializes the balance, the bitmap word and slot C).
+  `finalizeFromTaira` inline: an existing balance and a used bitmap word, up to
+  the first operation. `transferToTaira`: a later burn with a 34-byte
+  recipient (68 646 for a sender's first burn), up to a 1 024-byte recipient.
+- An inline `voidExpired` costs 274 694 / 275 894 at `n = 4` and 338 172 /
+  339 372 at `n = 31`. Sixteen key-changing rotations in one call cost
+  3 641 232 / 3 660 432 at `n = 4` and 4 660 695 / 4 679 895 at `n = 31`.
+  Deployment through `SCCP_EVM_DEPLOYER` costs 3 811 293.
 - One checkpoint serves every proof at or below its height while the
-  destination is `Live`.
-- Upkeep is one rotation per heartbeat (default once a day, ≈ 233k gas at `n =
-  4`) plus one per key-set change (at most 24 a day with the defaults; at most
-  48 rotations a day at the 1 h minima, §4.2.2).
-- `SccpCertificate` costs ≈ 8k gas on every full-path verification (LOG3 with ≈
-  736 bytes of ABI data); the cheap path emits nothing.
+  destination is `Live` and the checkpoint is usable (§5.1.3, U1 and U2).
+  After a rotation, the handoff that installed the current generation serves
+  the proofs of every earlier height.
+- Upkeep is one rotation per heartbeat (default once a day, 256 908 / 258 108
+  gas at `n = 4`) plus one per key-set change (at most 24 a day with the
+  defaults; at most 48 rotations a day at the 1 h minima, §4.2.2).
+- `SccpCertificate` costs 7 388 gas on every full-path verification (LOG3 with
+  736 bytes of ABI data at every `n`); the cheap path emits nothing.
+- `voidFrozen` costs more per nonce than a bitmap update alone because every
+  nonce emits its own `SccpVoided(0, nonce)`.
 - Under the scheduled Glamsterdam repricing (EIP-7976: a 64 gas per calldata
   byte floor; EIP-8037: ≈ 98k per new slot), calldata-heavy inline calls become
   floor-bound; the checkpoint path and the bitmap consumed set keep
   finalization robust to it.
 
-**TON (400 nanoTON per gas).**
+**TON (Acton 1.2.0 emulator).** `contracts/ton/sccp/gas-baseline.json` pins
+named gas measurements for committees of 4, 7 and 31, maximal certificate and
+payload paths, ordinary wallet operations and each recovery stage. The native
+suite separately measures inserts and acknowledgements with all 512 retained
+rows/receipts. Every measurement is checked against the corresponding limit
+used by the current-price required-value calculation. Recovery transitions
+have an 80,000-gas bound, including the 63-fork dictionary path; deployment admission for 16 buckets has an 800,000-gas
+bound. Certificate-step bounds are 250,000/550,000/535,000/260,000 for
+checkpoint/finalize/void/control. These are compute bounds, not fixed TON fees.
 
-| Operation | n = 4 | n = 31 |
-|---|---|---|
-| Certificate check | ≈ 80k gas (≈ 0.032 TON) | ≈ 140k gas (≈ 0.056 TON) |
-| Rotation extra (keccak, ≤ 16 `KeyChunk`s) | +≈ 15k; heartbeat +≈ 2k | +≈ 30k; heartbeat +≈ 2k |
-| Inline finalize | check + ≈ 15–20k, plus the unchanged bucket and wallet round trips (≈ 0.02–0.05 TON consumed in total) | same |
-| `voidFrozen` | ≈ 10k gas + bucket round trip | same |
+The minter graph includes 31 keys, all three checkpoint slots, full-width
+scalars, 512 distinct operation rows and immutable tails; destination fixtures
+include 512 distinct receipts. The fixed admission caps turn those measured
+maximum graphs into enforceable custody bounds. Ten thousand rotations retain
+the same layout. StateInit hashes and Rust/Python cell mirrors change in lockstep
+with compiled code and the mandatory empty recovery references.
 
 A certificate is 4 cells; a key-changing rotation adds at most 16. Stack depth
 is at most `q + 3`. The `sccp_certificate` external message re-references the
@@ -4359,7 +4831,7 @@ certificate cells and adds one forward fee.
 | TON | Acton 1.2.0 bundling Tolk 1.4.2 (`acton-aarch64-apple-darwin`, linux builds) | fixed optimization; code cell hashes and depths locked |
 
 - `scripts/contract_tooling/compiler-lock.json` pins the URLs and sha256 of
-  these binaries. `contract_artifact_corridor.py` builds, locks and verifies
+  the solc binaries. `contract_artifact_corridor.py` builds, locks and verifies
   artifacts, including each contract's creation code
   (`SCCP_EVM_CREATION_CODE`), runtime template and `immutableReferences`. No
   Rosetta or Docker is needed on macOS arm64.
@@ -4367,8 +4839,20 @@ certificate cells and adds one forward fee.
   `osaka`. The legacy pipeline avoids the via-IR-only 0.8.31 bugs. The source
   MUST NOT `delete` memory `bytes` elements or use custom storage layouts
   (0.8.31 legacy-pipeline bug patterns).
-- `Acton.toml` pins `acton = "1.2.0"` (PascalCase wrapper names), and `acton
-  simulator` provides local end-to-end emulation.
+- The EVM lock lists exactly two sources, `SccpTairaXor.sol` and
+  `lib/BLS12_381.sol`, and `scripts/contract_tooling/artifact-lock.json`
+  records the creation code built from them. The EDR suites run that locked
+  build under both the Prague and the Osaka rules
+  (`scripts/sccp_evm_contract_smoke.sh`).
+- The TON toolchain is pinned outside `compiler-lock.json`:
+  `contracts/ton/sccp/Acton.toml` pins `acton = "1.2.0"` (PascalCase wrapper
+  names), and `scripts/ton_sccp_builder.py` pins the Acton version
+  (`ACTON_VERSION`, with the exact reported version line), the SHA-256 of the
+  release archive of each host (`ACTON_ARCHIVES`) and the bundled Tolk version
+  (`TOLK_VERSION`), which it checks against the project stdlib after a build.
+  `fixtures/sccp/ton_stateinit_v1.json` locks the code cell hashes and depths
+  and records both versions; `scripts/sccp_ton_contract_build.sh` fails on any
+  drift. `acton simulator` provides local end-to-end emulation.
 
 ## 6. Torii read API (served by every Taira peer from state)
 
@@ -4380,7 +4864,10 @@ proofs and digests are verified locally (§7).
 
 Errors are `{code, message}` JSON: `400 sccp_invalid_query`, `404
 sccp_not_found`, `410 sccp_pruned` (the data existed but retention removed it,
-§4.11, §4.13.1) and `410 sccp_rotation_pruned` (below). A message or control
+§4.11, §4.13.1) and `410 sccp_rotation_pruned` (below). A node that cannot acquire or verify its
+original native certificate custody returns `503 sccp_unavailable`; it never
+substitutes an attestation or reports a local resource refusal as a bad query.
+A message or control
 proof is available as soon as its record height commits; there is no
 attestation wait. Immutable responses (proof bundles of an explicit height,
 history paths of an explicit `size`, certificates of an explicit height, and
@@ -4409,11 +4896,31 @@ SccpAnchorWitnessBundleV1 { height, chunk, witness: Option<SccpAnchorWitnessV1> 
 SccpForgeryEvidenceStatusV1 { evidence_id, generation, height, rule, offenders, penalty_status, recorded_at_height }
 SccpForgeryHoldViewV1 { max_generation: Option<u64>,
                         revisions: Vec<{ network, revision, forgery_floor, held: bool, quarantine: Option<SccpQuarantineV1>,
-                                         reconciliation: Option<SccpReconciliationV1> /* phase per §4.10 */ }> }
-SccpFastPauseViewV1 { panel: Option<SccpPausePanelV1>, seats: { primary: Vec<AccountId>, backup: Vec<AccountId> },
-                      rounds: Vec<(network, role, SccpFastPauseRoundV1)>, active: Vec<(network, SccpFastPauseV1)>,
-                      suspended: Vec<(network, u64)> }
+                                         reconciliation: Option<SccpReconciliationStateV1> /* scalar phase/accounting per §4.10; no proof-id history */ }>,
+                        next: Option<{ network, revision }> /* exclusive cursor; at most 64 rows */ }
+SccpFastPauseViewV1 { panel: Option<SccpPausePanelV1>,
+                      seats: Option<{ primary: Vec<AccountId>, backup: Vec<AccountId> }>, eligibility_available: bool,
+                      rounds: Vec<{ network, role, round: SccpFastPauseRoundV1 }>,
+                      active: Vec<{ network, pause: SccpFastPauseV1 }>, suspended: Vec<{ network, until_ms: u64 }> }
 ```
+
+The fast-pause view retains the original draw and records even when Parliament
+eligibility is unavailable. In that case `seats` is null and
+`eligibility_available` is false. It returns at most six rounds, three pause
+records and three suspension deadlines; expired records remain distinguishable
+by their deadlines. Anchor witnesses reconstruct a closed chunk from the
+original Kura certificate custody and check its retained root. Both routes use
+the admitted request allocation budget and deadline through encoding, reject
+query parameters and return `Cache-Control: no-store`.
+
+Registry, governance, message and light-client metadata use the same admitted
+request owner. Response row backing is reserved from that request's pool before
+allocation; nested account, proposal and payload graphs are borrowed from the
+captured view, and retained validator-set bytes share their original charged
+owner. Source scans check the request deadline and cancellation flag. Encoding
+retains both source custody and the response reservation, and publication
+retains the admitted transport owner. Insufficient local capacity is a retryable
+service refusal, never an empty list or a claim that source data was pruned.
 
 | Route | Path | Content |
 |---|---|---|
@@ -4423,18 +4930,18 @@ SccpFastPauseViewV1 { panel: Option<SccpPausePanelV1>, seats: { primary: Vec<Acc
 | `sccp.message.status` | `GET /v1/sccp/messages/{message_id}` | `SccpMessageStatusV1`: `outbound{record, state}` with state `recorded{deadline_ms, provable}\|voided\|refunded\|stranded` (`provable` once the record height is committed), `inbound{record}` whose status is `pending{reason}\|released\|bounced{bounce_message_id}`, or `unknown` (no record: a burn not proven yet) |
 | `sccp.message.proof` | `GET /v1/sccp/messages/{message_id}/proof?at=record\|latest\|<H>` | `SccpMessageProofBundleV1`: payload, `deadline_ms`, leaf index, path, the block reference (with a history path when `H` is above the record height) and the certificate of `H`. `at=record` uses the record height; `latest` the durable tip. Immutable per explicit `H` (ETag) |
 | `sccp.outbound.by_nonce` | `GET /v1/sccp/outbound/{network}/{revision}?from_nonce&limit≤256` | `next_outbound_nonce` and the records from `from_nonce`, ascending, with state and deadline (finding a just-recorded transfer, void and refund planning) |
-| `sccp.controls` | `GET /v1/sccp/controls/{network}/{revision}?after_nonce&limit≤64` | `next_control_nonce` and the control records (§4.14.6) above `after_nonce`: nonce, track, full pause state, certificate id, effect hash, height and commitment index |
+| `sccp.controls` | `GET /v1/sccp/controls/{network}/{revision}?after_nonce&limit≤64` | `next_control_nonce` and the control records (§4.14.6) above `after_nonce`: nonce, track, full pause state, certificate id, effect hash, height, commitment index and `provable` from the original committed native tip |
 | `sccp.control.proof` | `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?at=record\|latest\|<H>` | `SccpControlProofBundleV1`, ready for one `applyControl*` or `sccp_apply_control*`. Immutable per explicit `H` (ETag) |
 | `sccp.history.proof` | `GET /v1/sccp/history/{height}?size=S` | the block's history leaf index, `history_root(S)` and the path within it (`S` defaults to the current size; an explicit `S` is immutable, ETag). Served in `O(log n)`: Torii caches the roots of complete perfect subtrees, validated against the stored peaks before each use, and hashes only subtrees below 32 leaves |
 | `sccp.finality` | `GET /v1/sccp/finality/{height}`, `/latest` | `SccpCertificateV1` of that height |
 | `sccp.committees` | `GET /v1/sccp/committees/current`, `/{generation}` | `SccpGenerationV1`, including `liable` |
 | `sccp.committees.rotations` | `GET /v1/sccp/committees/rotations?after_generation=G&limit≤16` | the ordered `[SccpRotationV1]` catch-up chain, ready for one `submitCheckpoints` call; `410 sccp_rotation_pruned` beyond retention |
-| `sccp.evidence` | `GET /v1/sccp/evidence`, `/evidence/{evidence_id}` | `SccpForgeryEvidenceStatusV1` |
+| `sccp.evidence` | `GET /v1/sccp/evidence?after=&limit=`, `/evidence/{evidence_id}` | `SccpForgeryEvidencePageV1` (default/max 64, exclusive raw evidence-id cursor) or exact `SccpForgeryEvidenceStatusV1`: original id, generation, claimed height, E1–E4 rule, retained offenders, penalty status and recorded height. Pages borrow the original evidence graph and reserve row backing from the admitted request before allocation; encoding retains that charge and observes cancellation/deadline. Both routes are `no-store`. |
 | `sccp.evidence.anchor` | `GET /v1/sccp/evidence/anchor/{height}` | `SccpAnchorWitnessBundleV1`, built from the node's Kura (below) |
-| `sccp.forgery_hold` | `GET /v1/sccp/forgery-hold` | `SccpForgeryHoldViewV1` |
+| `sccp.forgery_hold` | `GET /v1/sccp/forgery-hold?network=&revision=&after_network=&after_revision=&limit=` | `SccpForgeryHoldViewV1`: lexicographic `(network, revision)` pages, default/max 64 rows. `revision` requires `network`; both exclusive cursor fields are required together. The original admitted request funds row backing and encoding, retains the authenticated committed source and observes its deadline/cancellation. |
 | `sccp.fast_pause` | `GET /v1/sccp/fast-pause` | `SccpFastPauseViewV1` |
 | `sccp.light_clients` | `GET /v1/sccp/light-clients`, `/{network}`, `/{network}/sets`, `/{network}/checkpoints?covering=N` | the stored light clients; per network the record (params, head, freeze, `state_hash`), `usable` at the committed block time, weak-subjectivity deadline, `supported_until` of the active profile version (§4.13.2), the latest finalized source time (the L5 input, §4.8) and set/checkpoint summaries; the stored sets; for `covering=N` the nearest retained checkpoint ≥ N (the ancestry anchor) and the nearest permanent one, 404 while the head is below N and 410 when the head covers N but no checkpoint ≥ N is retained. Target: claim windows (§4.13.5) |
-| `sccp.governance` | `GET /v1/sccp/governance`, `/proposals?status&after`, `/proposals/{proposal_id}` | the revisions per subject; `/proposals` listing every open proposal oldest first with its full `SccpGovernanceProposalV1` body, subjects and `base_revisions`, whether a new attempt would pass the preflight, and its newest attempt; `/proposals/{proposal_id}` showing one proposal in any phase (`proposed\|rejected\|enacted\|superseded\|execution_failed`) with its proposer, body, preflight result and newest attempt. Target: the expected head frozen into each attempt, a diff against current state for `SetParameters` and activation changes, Parliament attempt id, stage and status, and enactment outcome; `readiness`: eligible citizens against the `[gov]` body sizes, the beacon session active and matching the current roster, both launch-gate legs (§10.2), and every active SCCP attempt with its next due item |
+| `sccp.governance` | `GET /v1/sccp/governance`, `/proposals?status&after`, `/proposals/{proposal_id}`, `/readiness` | Revisions per subject; open proposals oldest first with full body, subjects, base revisions, current preflight and newest attempt; detail in every phase with each retained attempt's original frozen expected head, stage/status and terminal outcome. `parameters_before` and the ordered proposal actions expose exact parameter comparisons. `activation_diff` lists requested activation changes against current committed state, resolving pause targets through preceding intents without predicting enactment success. Readiness exposes `[gov]` body sizes, the original active beacon session and exact ordered current-roster match, both launch legs (§10.2), qualified latency and every active/certified SCCP attempt. Until the Parliament owner supplies eligibility and next-due observations, `eligible_citizens` and due coordinates are null and `due_available` is false; unavailable never means zero or no work. |
 
 Removed with the attestation transport: `/v1/sccp/rosters/*`,
 `/v1/sccp/attestations/*` and `/v1/sccp/bridge-keys`. `/v1/bridge/finality/*`
@@ -4462,22 +4969,24 @@ the result preimage.
 
 **Retention.**
 
-- **Rotation archive.** Every node MUST retain an `SccpRotationV1` for every
-  generation end whose ending generation `g` has `deadline_ms(g) ≥ t_tip`,
-  because a destination still at `g` can use it. The entry is written to a
-  node-local archive (`<kura.store_dir>/sccp/rotations/`) when the end block
-  commits. Snapshot-bootstrapped nodes backfill missing entries from peers'
-  `/v1/sccp/committees/rotations` and verify each against their own state's
-  generation record (keys, root, deadline) before storing it. Beyond the
-  window, Torii returns `410 sccp_rotation_pruned`; destinations still at such
-  a generation are frozen.
+- **Original rotation history.** Nodes retain the original canonical
+  `SignedBlockWire` Kura history. For every ended generation whose
+  `deadline_ms(g) ≥ t_tip`, the rotation endpoint projects `SccpRotationV1`
+  from the State-pinned original end block and retained generation, verifies
+  the outgoing quorum, certified result and successor, and returns that
+  projection. A separately imported rotation file is never certificate
+  authority. First-release startup replays original Kura history and rejects
+  a snapshot as a substitute for missing historical blocks
+  (`specs/sumeragi.md`, E56); there is no snapshot-only SCCP backfill path.
+  Missing original source data fails unavailable. Beyond the generation's
+  retention window, Torii returns `410 sccp_rotation_pruned`; destinations
+  still at that generation are frozen.
 - **Anchor witnesses.** The anchor `(core_hash, R)` of height `a` is the
-  `(parent_hash, parent_result)` of block `a + 1`'s core header, which every
-  certified block carries. A node that holds the Kura blocks of a completed
-  chunk can build the 12-hash path for any height in it, and MAY cache chunk
-  leaves locally. Validators keep those blocks by default;
-  snapshot-bootstrapped nodes MAY answer `404`. Liveness of evidence needs one
-  honest archival node.
+  `(parent_hash, parent_result)` of block `a + 1`'s core header. The original
+  Kura blocks of a completed chunk supply its 12-hash path. Nodes MAY cache
+  derived chunk leaves, but verify them against the original committed
+  chunk root. Missing source data fails unavailable; a cache or imported
+  snapshot does not replace the authenticated history.
 
 Writes use the generic `POST /v1/pipeline/transactions`, `GET
 /v1/pipeline/transactions/{hash}/status` and `POST /v1/fees/quote`. There are
@@ -4497,7 +5006,51 @@ before paying: certificates against the destination's on-chain committee root,
 Merkle paths, and inbound and void proofs through the same `iroha_sccp`
 verifier Taira runs. Every flow journals its raw evidence and state transitions
 through `iroha_operation_journal`, keyed by `NetworkId`, before submitting
-anything, so it resumes after a crash. Deadlines anchored at certified Taira
+anything, so it resumes after a crash. A resumed command uses the retained
+original intent and signed bytes. `--rebroadcast` first reconciles the original
+operation, then may resend only those identical bytes; `--retry` cannot replace
+an unknown outcome. Confirmation derives the control nonce, checkpoint target,
+recovery baseline and deployment pin from the exact locked journal step selected
+by the driver. A cached deployment outcome must match that retained pin before
+printing its address or registration action. Concurrent selection cannot refresh
+the original authority or replace signed bytes. TON discovery retains a bounded, non-authoritative history
+cursor. Expiry or absence alone never proves execution or failure. Even after
+a destination effect is observed, native TON finality must authenticate a higher
+sequence in the exact original basechain wallet's state before the journal
+permits another action. The proof binds the signed masterchain anchor, registered
+shard block, state-update root, exact account dictionary key, immutable standard
+v5r1 code hash, wallet id and data sequence. A getter response, expiry or missing
+proof cannot retire that envelope. Missing evidence leaves the original pending
+and permits only exact-byte rebroadcast. Control, checkpoint, deployment and
+recovery progress require the same native account proof of the locked minter's
+storage; getters cannot complete a step. Recovery-row absence follows a complete
+bounded dictionary traversal and the monotonic operation-id frontier. A retry
+retains the authenticated minter cut with its original row and accepts progress
+only at a strictly later target masterchain cut with a changed registered shard
+block and a permitted forward recovery transition; an older authentic row cannot
+become progress merely because the payer's wallet sequence has advanced. Source
+proofs bind the exact discovered transaction root and the authenticated event's
+emitter, type, message, nonce and payload. All consumed native light-client,
+validator-set and retained-checkpoint records authenticate to the selected World
+cut; weak-subjectivity freshness uses the later of that cut's time and the
+current local time, so retaining an old cut cannot preserve an expired set.
+The journal retains the original light-client, validator-set and consumed
+checkpoint records, their source identifiers, selected cut identity and verification
+time alongside the proof, so offline replay does not depend on current RPC state.
+EVM terminal outcomes likewise require
+native-light-client-authenticated block ancestry and both the original signed
+transaction and receipt at one identical trie index; finalized mint completion
+also authenticates the consumed bitmap under that block's state root. The journal
+retains these proof bytes within its finite reopenable record bound. Taira terminal
+outcomes require native certified execution inclusion of the exact original signed
+envelope at or below the explicitly selected original cut. RPC `Applied`,
+`Rejected` or `Expired` status alone never completes a journal step. A final message
+also requires its exact authenticated World record, including the original route
+when deriving stranded state. A transaction beyond the selected cut remains
+pending; resume the same flow with a newer authenticated `--at-height` or
+`--world-snapshot`. `settle` therefore requires the original-authority arguments
+too. All network requests in each confirmation loop share one absolute deadline.
+Deadlines anchored at certified Taira
 time can fire up to `2·max_clock_drift_ms` early relative to an individual
 clock (§4.3), so wallets submit at least that plus inclusion latency before a
 deadline.
@@ -4529,7 +5082,12 @@ deadline.
    the status. Read `message_id` and `deadline_ms` from the
    `SccpMessageRecorded` event, or find the record (sender, amount, recipient)
    in `GET /v1/sccp/outbound/{network}/{r}?from_nonce=<next_outbound_nonce read
-   before submitting>` as `iroha sccp send` does, and show the deadline.
+   before submitting>` as `iroha sccp send` does, and show the deadline. Discovery
+   scans at most sixteen pages per poll and retains its next-page cursor under
+   the original signed step, so competing records cannot force every restart
+   back to the first page. The retained route and original nonce floor are
+   checked on every page; a missing, foreign or corrupt hint restarts discovery
+   without changing the signed submission or its outcome.
 4. The message is provable as soon as its block commits (`GET
    /v1/sccp/messages/{id}` reports `provable`).
 5. If the destination's generation is behind Taira's current one, `GET
@@ -4542,15 +5100,20 @@ deadline.
    the intended effect, and the message is refunded through a void after its
    deadline (§7.3).
 6. `GET /v1/sccp/messages/{id}/proof?at=record` (or `latest`, or a height whose
-   checkpoint the destination stores). Verify locally against the destination's
-   live `committeeState()`.
+   checkpoint the destination stores and may still use, §5.1.3: a header of
+   the current generation, or the handoff that installed it). Verify locally
+   against the destination's live `committeeState()`.
 7. Submit before `deadline_ms`: EVM `eth_sendRawTransaction` (EIP-1559 type 2)
-   of `finalizeFromCheckpoint` when a covering checkpoint is stored, else
-   `finalizeFromTaira`; TON `liteServer.sendMessage` of a wallet-v5 external
+   of `finalizeFromCheckpoint` when a usable covering checkpoint is stored
+   (a stored checkpoint of a retired generation answers
+   `CommitteeNotAccepted`), else `finalizeFromTaira`; TON `liteServer.sendMessage` of a wallet-v5 external
    message carrying `sccp_finalize_checkpoint` or `sccp_finalize`. With
-   `--emit`, the wallet instead exports the unsigned transaction as raw bytes
-   or a QR payload for an external signer. WalletConnect and TON Connect are
-   optional adapters.
+   `--emit`, the wallet instead exports the next required unsigned request:
+   an EIP-1559 transaction with `--payer`, or a wallet-v5r1 signing-request BoC
+   with `--ton-wallet`, including its signing hash. Export requires no key file
+   and submits nothing. If committee or control progress is needed, that request
+   is exported first; rerun after it is confirmed to export finalization.
+   QR rendering, WalletConnect and TON Connect are optional adapters.
 8. Confirm with `isConsumed(nonce)` or the bucket bits, and the `SccpFinalized`
    log.
 
@@ -4568,6 +5131,10 @@ the control step of step 5.
    /v1/sccp/light-clients/{network}`). The recipient literal decodes (checksum
    verified) to `AccountAddress` bytes of at most 1024 bytes whose controller
    account admission allows. The account need not exist. Refuse otherwise.
+   Retain the original route, light-client and controller-admission observations
+   with the signed burn before dispatch. Recovery reuses that original envelope
+   and its evidence; it does not replace a still-unknown burn after rechecking
+   newer state.
 2. **Burn.** EVM: read `transferNonces(sender)`, then call
    `transferToTaira(recipient, amount, expectedNonce)` with canonical ABI
    encoding. TON: jetton `burn` with `sccp_burn_to_taira`.
@@ -4600,14 +5167,17 @@ the control step of step 5.
    advances (`expected_state_hash: None`).
 5. Run the verifier locally against the light client, sets and checkpoints read
    in step 4, with the backfills applied in order, then submit **promptly**
-   (§4.13.5). The backfills go first, each in its own transaction (`iroha sccp
-   claim` does all of this). Then:
+   (§4.13.5). In the ordinary funded mode, backfills go first, each in its own
+   journaled transaction. `iroha sccp claim --self-claim` instead builds and
+   locally verifies one bounded recipient bundle, including its ordered
+   advances and backfills. `--register-self` adds only the recipient's bare
+   account registration when needed. Then:
    - A user without XOR submits a self-claim `[Register<Account>(self)?,
      AdvanceSccpLightClientV1…, SubmitSccpInboundMessageV1]` signed by the
-     recipient key (§4.12.4). Until bundled advances are verified at admission
-     (`TODO(ws41)`), only the form without advances is fee-exempt, so the
-     advances go first in a separate transaction (a keeper's, or a funded
-     account's).
+     recipient key (§4.12.4). Admission verifies the ordered bundled advances
+     and proof under the original allocation and work budgets; a qualifying
+     bundle is fee-exempt on success. Separate keeper advances remain useful
+     when catch-up exceeds one transaction's limits.
    - Otherwise the user submits the same instructions from any funded account.
 6. If the record is `Pending` (revision paused or held, SCCP disabled), retry
    later with `SettleSccpV1::Inbound(message_id)`.
@@ -4630,7 +5200,7 @@ the control step of step 5.
 
 ### 7.4 Destination upkeep, deployment and registration
 
-- **Committee sync.** Anyone runs `iroha sccp committee sync --target
+- **Committee sync.** Anyone runs `iroha sccp committee-sync --network
   <profile>`, which reads `committeeState()`, walks
   `/v1/sccp/committees/rotations`, submits one `submitCheckpoints` and applies
   the newest pending control. It must run at least once per
@@ -4641,7 +5211,7 @@ the control step of step 5.
   they hold no external-chain funds.
 - **Control relay.** After the Parliament enacts `SetDestinationPaused`, or the
   fast pause track enacts a pause, anyone (normally the proposer or a panel
-  member) runs `iroha sccp control apply --target <profile>`, which fetches
+  member) runs `iroha sccp control apply --network <profile>`, which fetches
   `/v1/sccp/controls/{network}/{revision}/{nonce}/proof` for the newest control
   and submits `applyControl*` (`sccp_apply_control*` on TON). `iroha sccp
   control status` compares Taira's newest control with the destination's
@@ -4652,31 +5222,53 @@ the control step of step 5.
   alerts at `untilMs − 3 d`, and builds forgery evidence on divergence (`iroha
   sccp evidence build|submit`, with `evidence anchor` for the witness). For
   every held revision it prints the `AttestSccpDeploymentProgress` or
-  `QuarantineSccpRevision` proposal it needs (§4.10). Validator nodes do the
+  `QuarantineSccpRevision` proposal it needs (§4.10). The CLI makes one bounded
+  read-only pass over at most 64 configured pinned deployments, using the
+  independently selected original native cut and configured RPC transports.
+  EVM discovery covers at most 2,048 blocks and consumes 16 certificates per
+  pass; its printed exclusive `BLOCK:LOG_INDEX` cursor resumes without
+  dropping additional events. TON discovery consumes one linked page of
+  16 transactions and prints the next older `LT:HASH` cursor. An observation
+  or unsigned suggested action never establishes Parliament authority.
+  Only a signature verified against the original generation plus an E1–E4
+  mismatch becomes a candidate accepted by `evidence submit`, which uses the
+  durable transaction journal and recovers its exact original envelope first.
+  Validator nodes do the
   same through the keeper watch (§4.13.4).
 - **Light-client keeper.** This runs in validator nodes by default (§4.13.4).
   Anyone may also run `iroha sccp light-client advance --network <p>`.
 - **Fast pause.** Panel members run `iroha sccp fast-pause
   panel|accept|endorse|status` (§4.14.7).
-- **Deployment.** `iroha sccp deployment deploy <evm|ton>` deploys from locked
+- **Source trust before deployment.** For a network without a usable native light
+  client, first obtain genuine Parliament enactment of `InitializeLightClient`,
+  using `iroha sccp light-client bootstrap build|verify`. Initialization does not
+  require a registered route. Select a cut containing that initialization before
+  deployment; no endpoint observation or bootstrap fallback substitutes for this
+  authenticated source-chain authority.
+- **Deployment.** `iroha sccp deploy --network <profile>` deploys from locked
   artifacts with the deployer's key: EVM only through `SCCP_EVM_DEPLOYER`
   (§5.2.1), TON with its canonical initial data followed by `sccp_init`. It
   pins a retained generation that satisfies P2 at the expected enactment time,
   read from the operator's own node or cross-checked across the configured
-  peers, and prints the `RegisterRoute` action. Ethereum and BSC deployments of
+  peers, proves deployment finality under the already authenticated source light
+  client, and prints the `RegisterRoute` action. Ethereum and BSC deployments of
   one revision get different addresses because their constructor arguments
   differ, so destination words stay unique (§4.14.3).
 - **Registration and every other decision.** Once the launch gate is open
   (§10.2), a bonded citizen (or a holder of `CanProposeSccpRouteGovernance`)
   runs `iroha sccp governance propose --actions <file>`, which builds and
-  checks an `SccpGovernanceProposalV1` (for a new route: `RegisterRoute`,
-  `InitializeLightClient` with a bootstrap from `iroha sccp light-client
-  bootstrap build`, and `ActivateRevision`) and submits
-  `ProposeSccpRouteGovernance`. Reviewers run `iroha sccp deployment verify`
+  checks an `SccpGovernanceProposalV1` (for a newly proven deployment:
+  `RegisterRoute` and `ActivateRevision`) and submits
+  `ProposeSccpRouteGovernance`. Reviewers run `iroha sccp deployment verify --network <p> --revision <r>
+  --actions <file>` before proposal, or select the stored `--proposal-id`,
   and `iroha sccp light-client bootstrap verify` (§4.14.4) against the body
   shown by `iroha sccp governance show`. Anyone MAY run `iroha sccp governance
   drive` (§4.14.5 item 4). Seated members act with the `iroha gov parliament`
   commands and the Parliament wallet, and enactment is automatic (§4.14.3).
+  A combined initialization and registration proposal remains legal only when
+  deployment was independently proven under a prior authenticated light client.
+  Both launch gates currently remain false (§10.2); this sequence introduces no
+  substitute authority or bypass.
 
 ## 8. Off-chain Rust
 
@@ -4685,14 +5277,22 @@ the control step of step 5.
   - the v1 payload codec and amount rules, hashes, transfer and control leaves,
     Merkle and history functions;
   - `v1::finality`: `X`, `QC_FIXED`, `R`, the Commit preimage `P`, `m`,
-    `checkpoint_id` and `verify_certificate`;
+    `checkpoint_id`, `verify_certificate` (with `KeyValidate` on every signer
+    key) and `verify_certificate_by_aggregate` (the form an EVM destination
+    evaluates, §5.1.3 steps 10–11);
   - `v1::committee`: the committee root and the §5.1.2 destination state
     machine as the reference for both contracts;
+  - `v1::control`: the 199-byte control leaf of §3.4, its constraints and the
+    fast-pause clamp of §5.1.6;
+  - `v1::destination` and `v1::destination_abi`: the executable model of both
+    destination contracts (§5.1: every entry point, the check order, events
+    and state), which writes the shared outcome tables, and the error, event
+    and selector tables of §5.2.2;
   - `v1::evidence`: the §4.9 E1–E4 reference, anchor leaves, chunk roots and
     paths, used by Torii, the CLI and the keeper for pre-checks;
-  - `v1::constants`, including `SCCP_EVM_DEPLOYER` and
-    `SCCP_EVM_CREATION_CODE`; `v1::evm_abi` and `v1::ton_cell` encoders for
-    every §5 entry point;
+  - `v1::constants`; `v1::evm_abi`, including `SCCP_EVM_DEPLOYER`,
+    `SCCP_EVM_CREATION_CODE`, constructor encoding and CREATE2 derivation;
+    `v1::evm_abi` and `v1::ton_cell` encoders for every §5 entry point;
   - the `SccpGovernanceProposalV1` static validation and subject mapping;
   - the per-chain inbound and void verifiers and light-client logic (Ethereum,
     BSC, TON);
@@ -4753,9 +5353,16 @@ the control step of step 5.
     state machine for planning `submitCheckpoints`, EVM ABI encoding and
     EIP-1559 signing, TON cell/BoC builders and wallet-v5 messages. These are
     FFI-exportable for SDK bridges;
-  - `journal.rs`: the resumable journal keyed by `NetworkId`, built on
-    `iroha_operation_journal`. The resumable, journaled flows of §7 that write
-    through it are still to be built (`TODO(ws51)`);
+  - `journal.rs` and `flow.rs`: the resumable journal keyed by `NetworkId`
+    and typed outbound, inbound, refund, deployment, evidence and destination
+    maintenance state machines, built on `iroha_operation_journal`. The CLI
+    adapters retain the exact signed public bytes and verified source evidence
+    before dispatch. Restart observes the original operation first; explicit
+    rebroadcast reuses its identical bytes, and a new attempt requires an
+    authenticated terminal outcome. Tests cover crashes on both sides of the
+    dispatch marker, altered intent, recovery without a second signature,
+    bounded discovery hints and private-directory custody. This component
+    qualification does not replace live route and external-chain qualification;
   - `config.rs`: the client-config `[sccp]` table (file-only): endpoint lists,
     timeouts and pinned deployments per `NetworkId`.
 - **`crates/irohad`** has the SCCP keeper `sccp_keeper.rs` (§4.13.4:
@@ -4765,11 +5372,21 @@ the control step of step 5.
   no environment variables), and the start-up refusal of a staking policy that
   fails L1 while SCCP exists (§4.8).
 - **CLI** `iroha sccp {info, routes, recent, send, status, proof, finalize,
-  committee show|rotations|sync, control status|apply, burn, claim, settle,
+  committee, rotations, committee-sync, control status|apply, burn, claim, settle,
   void, refund, light-client status|advance|backfill|bootstrap build|bootstrap
-  verify, lc-profile, deployment deploy|verify, governance propose|show|drive,
+  verify, lc-profile, deploy, deployment verify, governance propose|show|drive,
   evidence build|submit|status|anchor, fast-pause panel|accept|endorse|status,
-  monitor, reconcile prove-mint|status}`.
+  monitor, ton-retry, reconcile prove-mint|status}`.
+  - `reconcile status [--network <profile> --revision <n>] [--limit <1..64>]
+    [--after-network <profile> --after-revision <n>]` reads one bounded page of effective
+    holds and scalar reconciliation window, forged supply and payout rate from
+    `/v1/sccp/forgery-hold`. The default page has at most 64 rows and reports the
+    next exclusive cursor. It does not copy the permanent proof-id history.
+    `reconcile prove-mint --network <profile> --revision <n> --proof <file>`
+    submits a bounded Norito JSON `SccpForgedMintProofV1`: the authenticated
+    source proof and the canonical outbound payload preimage. The node verifies
+    the event, deployment and message-id binding; TON's event has no amount,
+    so the amount comes only from that bound payload.
   - `governance propose` builds, statically validates and submits
     `ProposeSccpRouteGovernance`; Parliament participation uses the `iroha gov
     parliament` commands and the Parliament wallet. There is no governance
@@ -4951,10 +5568,10 @@ accepted by the new Taira. The stranded value is the documented cost (§4.18).
 
 | Case | Bound |
 |---|---|
-| Departed key set; destination maintained | Rotated past at the next heartbeat or key change; afterwards its signatures have no effect there (§5.1.2) |
+| Departed key set; destination maintained | Rotated past at the next heartbeat or key change; afterwards no certificate it signs is accepted there, and no checkpoint of its generation gives a new authorization except the handoff that installed the next generation, until the rotation after it (§5.1.2 property 3, §5.1.3) |
 | Destination nobody maintains | Trusted until `deadline_ms(cur)` ≤ certified start + validity (14 d by default, 30 d at most), then frozen and drained through voids |
 | Replay of a certified `X`; future-dated `X` | No extension; `t_eff` caps a rotation's start at `now_ms` (§5.1.2) |
-| A departed quorum forges within its deadline | Out-of-tenure checkpoints lead to a V3 latch on the genuine handoff; an in-tenure false `X` leads to V1 if the genuine one is stored, else it is bounded by the cap and the deadline; a forged rotation captures the destination. In every case the signers are slashable while `g` is liable, and every revision that can be at `g` is held (§4.9–§4.10) |
+| A departed quorum forges within its deadline | Out-of-tenure checkpoints lead to a V3 latch on the genuine handoff; an in-tenure false `X` that is not a handoff leads to V1 if the genuine one is stored or is submitted while `g` is current, and otherwise stops being usable when the genuine handoff of `g` is installed or at `deadline_ms(g)`; a forged handoff captures the destination and stays usable until the next rotation (§5.1.2 property 4). In every case the signers are slashable while `g` is liable, and every revision that can be at `g` is held (§4.9–§4.10) |
 | Destination halts, then resumes with backdated blocks | `g` stays liable until the destination's light client finalizes a header past `deadline_ms(g)`, plus `grace_ms`, up to `progress_cap_ms` (§4.8 L5) |
 | Taira halts, then resumes with a time jump | The liability clock advances by at most one step across the halt, so no liability window is consumed (§4.8) |
 | Keys compromised after `g` stops being liable | Every destination's finalized time is past the deadline, or the cap has expired; no destination accepts them, stake may be released, and nothing needs slashing |
@@ -5019,29 +5636,40 @@ effect.
 - Taira releases, bounces and refunds only up to the revision's liability. A
   compromised source-chain verification can drain at most the route's escrow,
   and a forged bounce is bounded the same way. A forged Taira certificate can
-  mint at most the destination cap minus supply on the destinations still at
-  the forged generation.
+  mint at most the destination cap minus supply on the destinations that accept
+  it: those at the forged generation when it is presented. After such a
+  destination rotates, only a forged handoff that installed its current
+  generation still authorizes mints there (§5.1.2 property 4).
 - **The slashable floor.** Torii publishes `coalition_slashable_floor(g)` for
-  the current generation: the sum of the `f + 1` smallest liable exposures of
-  `g`'s members, times `max_slash_bps / 10 000`. The cheapest forging coalition
+  the current generation: calculate each original member's currently seizable
+  amount from bonded and generation-height-eligible pending-unbond custody,
+  multiply by `max_slash_bps / 10 000` and round toward zero at that exposure's
+  canonical decimal scale, exactly as the native penalty does; then sum the
+  `f + 1` smallest rounded amounts. Rounding occurs before summing: two integer
+  exposures of one unit at 50 % contribute zero, not one. Missing or inconsistent
+  original member provenance makes the read unavailable; a known zero exposure
+  contributes zero. Before initialization the field is null. The cheapest forging coalition
   has `f + 1` members, because up to `f` honest stray Commit votes can complete
   a certificate (§9.12). The floor is **seizable collateral**, not a guaranteed
   attacker loss: exposure includes nominators' delegated stake, so operators
   may lose less and nominators bear part of it. Slashed stake goes to
   `slash_sink_account_id`; it does not compensate holders of a captured
   deployment, whom reconciliation (§4.10) pays from that revision's escrow.
-  Each `(g, validator)` is penalized once, and a 100 % slash leaves nothing for
-  a later generation that reuses the key. `max_slash_bps ≥ 1` while SCCP exists
+  Each `(g, validator)` is penalized once: its permanent recorded offence makes
+  that member contribute zero further seizable amount for `g`, including while
+  the already-recorded penalty awaits application. A 100 % slash leaves nothing
+  for a later generation that reuses the key. `max_slash_bps ≥ 1` while SCCP exists
   (L1), and the Kagami profiles use 10 000.
 - **Damage and race window.** Damage is bounded by the sum of the caps of the
-  destinations that can be at the forged generation. Taira-side release of
-  every such revision stops when the evidence is recorded. An attacker can
-  forge, mint, burn and claim inbound settlement before that, within the time
-  from the forged destination transaction to evidence recording, measured
-  against the source chain's finality for the burn proof: seconds to minutes on
-  TON and BSC, about 13 minutes on Ethereum. The keeper watch and `monitor`
-  shrink it, using the published certificates (§5.1.3). An inbound settlement
-  delay is open (§13).
+  destinations that can be at the forged generation, or whose current
+  generation a forged handoff of it installed (§5.1.2 property 4). Taira-side
+  release of every revision that can be at that generation stops when the
+  evidence is recorded. An attacker can forge, mint, burn and claim inbound settlement
+  before that, within the time from the forged destination transaction to
+  evidence recording, measured against the source chain's finality for the
+  burn proof: seconds to minutes on TON and BSC, about 13 minutes on Ethereum.
+  The keeper watch and `monitor` shrink it, using the published certificates
+  (§5.1.3). An inbound settlement delay is open (§13).
 - **Coverage is not promised.** The Parliament SHOULD keep the sum of
   `max_wrapped_supply` at or below `coalition_slashable_floor`. This is not
   enforced on chain, because stake moves continuously (§13).
@@ -5070,9 +5698,12 @@ effect.
   led to sign conflicting Commits across views (`specs/sumeragi.md` §3.6), and
   strict liability may slash them; that happens only after `g`'s BFT assumption
   has failed.
-- **`q` keys of a departed generation, within its deadline:** this affects only
-  destinations still at that generation (§5.1.2). It is slashable while `g` is
-  liable, and those revisions are held.
+- **`q` keys of a departed generation, within its deadline:** the holders can
+  present certificates only to destinations still at that generation. A
+  checkpoint they forge there gives no new authorization once the genuine
+  handoff is installed; a handoff they forge captures the destination (§5.1.2
+  properties 3 and 4). It is slashable while `g` is liable, and those
+  revisions are held.
 - **`q` keys of the current generation:** the holders control Taira's
   consensus. They can halt it and censor evidence, so the Taira response does
   not apply. This is outside the model, like any compromise of Taira's
@@ -5167,12 +5798,12 @@ residual is `2·max_clock_drift_ms` relative to an individual honest clock
 the prepare-to-commit lag, a ballot's closure is anchored to the block after
 its opening (§4.7.2 G2b; ballot spec §3.4). The hold rule uses
 `parliament_sccp_attempt_latency_ms()` (§4.1; ballot spec §11). Still open
-(`TODO:`, tracked in §13): (3) the panel term: draws use the epoch-boundary
-pulse once per term (default 7 d), not at every epoch (§4.14.7), an owner
-question (ballot spec §11); (6) the G2 segments that place ballot closures
+(`TODO:`, tracked in §13): (6) the G2 segments that place ballot closures
 (rank 4) and openings (rank 5) after the other transitions, the capacity rule
 of G2c and the positions they give `s0` (§4.7.2), which the ballot spec
 delegates to this revision (ballot spec §8).
+Item (3) is settled: draws use the epoch-boundary pulse once per term, with a
+7 d default (§4.14.7).
 
 ### 10.2 Launch gate
 
@@ -5182,8 +5813,9 @@ delegates to this revision (ballot spec §8).
 - `parliament_binding_ballot_available()`, provided by the Parliament
   workstream: true once the qualified post-quantum ballot construction is
   active on the chain (ballot spec §5);
-- `sccp_reconciliation_available()`, provided by SCCP: true once reconciliation
-  of quarantined revisions (§4.10) is implemented.
+- `sccp_reconciliation_available()`, provided by SCCP: true once the implemented
+  accounting of quarantined revisions (§4.10) is qualified with the original
+  Parliament shared-pass producer, positions and carried remaining work budget.
 
 While `parliament_binding_ballot_available()` is false:
 
@@ -5222,12 +5854,52 @@ Parliament enacted this at `h`" holds exactly when Taira is safe.
 
 ## 11. Tests and fixtures
 
-Shared vectors live in `fixtures/sccp/` and `fixtures/crypto/`. Rust generates
-them (the TON StateInit vectors come from the contracts themselves),
-`scripts/sccp_reference/*.py` re-derives every contract-visible vector
-independently, and contract, node and SDK tests consume them. CI regenerates
-every vector file and fails on drift or on any difference from the Python
-re-derivation.
+Shared vectors live in `fixtures/sccp/`. Contract, node and SDK tests consume
+them, and every file has a generator with a drift check:
+
+- **Reference files.** `finality_v1.json`, `committee_transitions_v1.json` and
+  `control_v1.json` are written by two independent generators, whose outputs
+  MUST be byte-identical: the Python reference
+  (`scripts/sccp_reference/generate.py`, dependency-free) and the Rust
+  reference (the `crates/iroha_sccp` integration tests `v1_reference_finality`,
+  `v1_reference_transitions` and `v1_reference_control`, built on
+  `iroha_sccp::v1` and `iroha_crypto::bls::consensus`). `generate.py --check`
+  is the Python drift check. On the Rust side each file has a drift test
+  `reference_<file-stem>_matches_committed_fixture` and an ignored `regenerate`
+  test.
+- **`bls_consensus_v1.json`** is written by the Python reference alone, and the
+  `iroha_crypto::bls::consensus` tests reproduce it row by row.
+- **Rust-only files.** `finality_rust_v1.json` and
+  `bls_consensus_rust_v1.json` carry the vectors that need the w3f transcript
+  of `iroha_crypto`, which the Python reference does not implement. Rust
+  generates and drift-checks them. `pytests/scripts/test_sccp_reference.py`
+  checks with the Python reference every row of `finality_rust_v1.json`
+  (rejected, and its signature is the w3f aggregate of its signers), and of
+  `bls_consensus_rust_v1.json` the standard sign, verify and aggregate
+  vectors, the allowlist rows and rejections, and the key and consensus-API
+  negatives. Two things in that file are verdicts of the w3f transcript and
+  stay Rust-only: the proofs of possession (`keys[].w3f_pop`) and the
+  generic-API negative (`dst_sig_signature_presented_to_generic_api`), of
+  which Python confirms only that the signature is a consensus signature. The
+  pytest fails on a missing file and on a row shape it does not know.
+- **Other files.** The remaining Rust-generated files come from the
+  `crates/iroha_sccp` vector tests, and the Python reference re-derives the
+  payload, commitment-tree and history vectors among them. The TON StateInit
+  vectors come from the contracts themselves.
+
+The Rust drift tests run in CI with the crate tests of `iroha_sccp` and
+`iroha_crypto` (`scripts/rust_ci.py`). `.github/workflows/sccp.yml` also runs
+the independent Python reference suite, including in-memory regeneration and
+byte-for-byte comparison of every Python-owned fixture, and retains its test
+record alongside the Rust and destination-contract qualification artifacts.
+To regenerate after a reviewed change:
+
+```
+python3 scripts/sccp_reference/generate.py --write
+cargo test -p iroha_sccp --test v1_reference_finality \
+    --test v1_reference_transitions --test v1_reference_control \
+    -- --ignored regenerate
+```
 
 ### 11.1 Fixtures
 
@@ -5235,21 +5907,31 @@ re-derivation.
 |---|---|
 | `payload_v1.json` | payloads for all 6 directions (with `deadline_ms`), payload hashes, message ids, amount-scale conversions, rejected encodings (including the retired TRON domain and codec 5) |
 | `commitment_tree_v1.json` | transfer and control leaves, mixed trees, roots and every path for counts 1..=17 and 512, including promoted nodes; a transfer/control/node confusion negative |
-| `control_v1.json` | the §3.4 control-leaf vectors for every target network, both tracks and both pause values; constraint negatives (`track` 0 or 3, `parliament_paused` 2, `track = 2` with expiry 0, a zero id or a zero effect); the `SccpControlApplied` topic |
+| `control_v1.json` | the §3.4 control-leaf vectors for every target network, both tracks and both pause values; constraint negatives (`track` 0 or 3, `parliament_paused` 2, `track = 2` with expiry 0, a zero id or a zero effect) and the recording-rule refusals under their reference labels (§3.4; `parliament_paused` 2 cannot reach a contract through its typed interface, so no contract harness replays that row); the `SccpControlApplied` topic; `applyControl` scenarios (§5.1.6) in the row shape of `committee_transitions_v1.json`, including the `MAX_FAST_PAUSE_MS` clamp and a fast-pause expiry ending in 001 ms probed at the whole seconds on both sides |
 | `history_v1.json` | history leaves, roots and paths for sizes 1..=40; peak-bagging equivalence |
 | `governance_v1.json` | `SccpGovernanceProposalV1` frames with `base_revisions`, subject sets (including `FastHold`, `FastPauseControl` and `ForgeryHold`), proposal ids, expected heads (`subject_id`, `version`, `head_root`) for fixed revision maps |
-| `finality_v1.json` | `X` encodings (rotation, heartbeat, non-rotation, inactive), `R`, `checkpoint_id`, `P`, `m`, `QC_FIXED`, committee roots, anchor leaves, nodes and chunk roots, the forgery evidence id (§11.2); full certificates (§11.3) |
-| `committee_transitions_v1.json` | the §5.1.2 state machine as `(state, input, now) → (state', outcome, event)` rows (below) |
+| `finality_v1.json` | `X` encodings (rotation, heartbeat, non-rotation, inactive), `R`, `checkpoint_id`, `P`, `m`, `QC_FIXED`, committee roots, anchor leaves, nodes and chunk roots, the forgery evidence id (§11.2); valid headers, and invalid headers each with the first violated check of §3.6 (`Length`, X1–X7), including one row with two violations for every adjacent pair of that order, so that the order itself is pinned; `result_of_preimage` bounds; full certificates (§11.3) |
+| `finality_rust_v1.json` | schema `iroha.sccp.finality.rust.v1`: the §11.3 negative certificate whose aggregate is a w3f-transcript signature, with its expected rejection. Rust-generated by `v1_reference_finality`; the Python reference verifies that it rejects the row |
+| `committee_transitions_v1.json` | the §5.1.2 state machine as `(state, input, now) → (state', outcome, event)` rows (below); the error names and the check order of §5.1.2, §5.1.3 and §5.1.8 under `error_choices` |
 | `fast_pause_v1.json` | panel draws, seat replacement, endorsement rounds, certification, enactment, renewal, lift, suspension and lapse rows (below) |
 | `forgery_evidence_v1.json`, `liability_v1.json` | the §4.8–§4.9 rows (below) |
 | `evm_calldata_v1.json` | golden calldata of every §5.2.2 entry point, every selector and event topic, the view returns, `SccpTransferToTaira`, `SccpVoided` and `SccpCertificate` logs, the P4 CREATE2 address of a sample pin, and `calldata_conformance`: the shared table of `transferToTaira` and `voidFrozen` encodings (canonical, trailing byte and word, truncation, a dirty high bit in every integer field, every dynamic offset moved past an inserted word, nonzero padding of every `bytes`, recipient length and amount bounds, `voidFrozen` counts 0/1/256/257 and the `2^64` end) with the Rust decoder's and the contract's verdicts, which accept exactly the same entries |
 | `ton_boc_v1.json`, `ton_stateinit_v1.json` | BoCs of every §5.3.3 op, including `sccp_checkpoint` with and without `next_keys` and `sccp_retry`; snake-cell negatives; canonical minter initial data with an empty `retries` and the minter address for a fixed pin, `NetworkId`, `I`, revision, cap and code refs |
 | `native_transfer_event_v1.json` | inbound transfer and void vectors per source with the normalized event: `SccpTransferToTaira`/`SccpVoided` logs (ETH, BSC) and the `sccp_transfer_to_taira` external-out body (TON); the Rust light clients verify the ETH and TON vectors |
 | `rpc/{eth,bsc,ton}/` | captured public-RPC responses for real mainnet blocks, driving the proof builders and verifiers: finality, ancestry and inclusion. The recorded TON liteserver answers (`rpc/ton/transport`) also replay through the TON light client: a key-block bootstrap, the config-28 shuffle against real headers' subset hashes, Simplex signatures of a block and of a key-block hop, and header, shard and transaction proofs that prune `state_update` |
-| `fixtures/crypto/bls_consensus_v1.json` | `Sign`, `Verify`, `FastAggregateVerify` and `AggregateVerify` under `DST_SIG` over SHA-256 digests; imported Ethereum `bls12-381-tests`; each allowlist row positive, plus off-by-one lengths and wrong kinds; pinned w3f PoP vectors (algorithm unchanged); negatives: a w3f-transcript signature over a consensus digest, a `DST_SIG` signature presented to the generic API, a PoP used as a signature, the identity key, non-canonical and non-subgroup points |
+| `bls_consensus_v1.json` | `Sign`, `Verify`, `FastAggregateVerify` and `AggregateVerify` under `DST_SIG` over SHA-256 digests; imported Ethereum `bls12-381-tests`; each allowlist row positive, plus off-by-one lengths and wrong kinds; negatives: the identity key, non-canonical and non-subgroup points. Written by the Python reference; `iroha_crypto::bls::consensus` reproduces it row by row |
+| `bls_consensus_rust_v1.json` | the vectors that need the w3f transcript: pinned w3f PoP vectors (algorithm unchanged); negatives: a w3f-transcript signature over a consensus digest, a `DST_SIG` signature presented to the generic API, a PoP used as a signature. Rust-generated by `iroha_crypto`; the Python reference checks every row it can decide without the w3f transcript (above) |
 
 `eip712_v1.json` and `roster_v1.json` are deleted with the attestation
 transport.
+
+**Scenario time.** A destination's clock has one-second resolution: `now_ms` is
+`block.timestamp × 1000` on EVM and `now() × 1000` on TON (§0). Every `now_ms`
+of a scenario step, in `committee_transitions_v1.json` and in the
+`applyControl` scenarios of `control_v1.json`, is therefore a multiple of 1000
+and never decreases within a scenario; equal values are allowed.
+`X.timestamp_ms`, `until_ms`, message deadlines and fast-pause expiries may be
+sub-second.
 
 **Required `committee_transitions_v1.json` rows:** the initial pin; a
 checkpoint that raises `high` and leaves `untilMs` unchanged; a rotation at a
@@ -5267,7 +5949,60 @@ different `result_body`, which records nothing and does not latch); expiry,
 then refusal of `submitCheckpoints`, then `voidFrozen`; a latch inside a batch;
 an inline V3 giving `LatchRequired`, then `submitCheckpoints` latching; a
 future-dated rotation `X` (`t_eff` caps the start at `now_ms`); TON checkpoint
-eviction ordering.
+eviction ordering; a rotation `X` with a sub-second timestamp, whose
+sub-second `untilMs` is probed at the whole seconds on both sides; the cheap
+path on both flavours: a certificate of a stored `X` under a signature that
+does not verify is not refused with `BadSignature` (its signature is not
+checked and nothing is published; the call answers `NothingToDo` because it
+changes nothing), and the same `X` under the identity signature is refused
+with `BadSignature`; the step 6 encodings on the cheap path (EVM): a stored
+`X` under a signer `y ≥ p`, a signer `y` of the other sign and a `σ` limb `≥
+p` is refused; message deadlines: a finalization accepted at exactly `now_ms
+= deadline_ms` and refused one second later, with the void outcomes the
+other way round, and the same pairs for a `deadline_ms` ending in 999 ms at
+the whole seconds on both sides; checkpoint use after a rotation (§5.1.3 U1
+and U2) on both flavours: a non-handoff checkpoint of `g` refused with
+`CommitteeNotAccepted` once the handoff of `g` is installed, the installing
+handoff usable, and a checkpoint two generations old refused, for finalize,
+control and void on EVM; on TON, where a successful mint needs the bucket
+round trip that the models do not cover (§5.3.4), the refusals for finalize
+and control and the installing handoff usable for control; `voidFrozen` on a
+`Live` destination of each flavour: every range failure (`BadAmount` on EVM;
+`BadRange` on TON, including a range that crosses a bucket) and then a valid
+range answering `NotFrozen`, which pins the range check before `Frozen`; two
+faults in one call on each flavour: a payload of another revision, and one
+that pays the contract, under a checkpoint that is not stored
+(`UnknownCheckpoint` on EVM; `BadPayload` and `BadRecipient` on TON, §5.1.2
+"Check order and errors"), and a finalization after the deadline with a wrong
+leaf path (`DeadlinePassed` on both); the orders a single fault cannot show
+(EVM): a control leaf that violates a §3.4 constraint with a nonce below the
+stored one (`BadControl`), a consumed nonce at a full supply cap
+(`AlreadyConsumed`), and `voidExpired` of a consumed payload with a wrong
+nonce argument (`BadNonce`); a reference to the certified block itself that
+carries a history proof (§5.1.5), on both flavours: with `historyIndex = 1`,
+or with a `historyPath` of one sibling, it is `BadProof` for an inline
+finalization and, under the stored checkpoint, for a control, a finalization
+and a void, next to the unchanged proofs, which are accepted (on TON the
+control only); the inline entry points on a destination whose generation has
+expired (§5.1.2 "Check order and errors"), on both flavours: for a
+finalization, a control and a void, a certificate that does not verify is
+`BadSignature` and the genuine certificate of the current generation is
+`CommitteeNotAccepted`, and neither stores a checkpoint; and the deployment
+bound on the pinned `untilMs` around both ends (`init_bounds`).
+
+**Flavour and profile.** A TON row runs on `ton-mainnet`: Taira's leaves use
+`lane_bytes(sora-taira, ton-mainnet)`, recipients are 36-byte accounts of
+workchain 0, the destination word is a placeholder minter account id
+(`0x35…35`), and every step names the TON message of §5.3.2. An EVM row runs
+on `ethereum-mainnet`. Both models refuse any other pair of flavour and
+profile, because a contract computes its lane and its destination word from
+its own chain and address. The refusals of the TON rows do not depend on the
+minter address; the applied controls of `ton_checkpoint_use_after_rotation`
+and `ton_same_height_block_ref_with_history` do. The Acton harness installs
+its minter at `0:35…35`, matching those rows. An `SccpCertificate` event of a
+row names the pooled certificate whose
+`QC_FIXED`, header and signature the destination published, among the
+certificates of its own step.
 
 **Required `fast_pause_v1.json` rows:** a Parliament pause, then a fast pause,
 then the lapse (destination and Taira stay paused); a fast round certified
@@ -5353,21 +6088,45 @@ scattered sets including {0, 9, 30} at `n = 31`. The file also carries a
 key-change rotation certificate, a heartbeat rotation certificate (`next =
 committee root`), a non-rotation certificate, and an inactive `X`. Negatives,
 each mapped to its §5.2.2 error: kind `0x02`; popcount `q ± 1`; spare bits;
-noncanonical `QC_FIXED` lengths; wrong `I`; wrong network; each of X1–X7 violated (including `ROTATION`
-with `validity_ms = 0`, and non-`ROTATION` with a nonzero `validity_ms` or
-`next_committee_root`); root mismatch; a certificate of a past generation
-(`CommitteeNotAccepted`); flag `0xc0`; wrong sign bit; `y ≥ p`; off-curve `y`;
-`σ` outside the subgroup; `σ = 0`; any `σ` limb `≥ p`; `c0`/`c1` swapped; a
-w3f-transcript signature; raw-bitmap `signers`; `X.height ≠` the signed height.
+noncanonical `QC_FIXED` lengths; wrong `I`; wrong network; each of X1–X7
+violated (including `ROTATION` with `validity_ms = 0`, and non-`ROTATION` with
+a nonzero `validity_ms` or `next_committee_root`); root mismatch; a certificate
+of a past generation (`CommitteeNotAccepted`); flag `0xc0`; wrong sign bit; `y
+≥ p`; off-curve `y`; `σ` outside the subgroup; `σ = O` (`0^192` on EVM, the
+compressed identity on TON); any `σ` limb `≥ p`; `c0`/`c1` swapped; raw-bitmap
+`signers`; `X.height ≠` the signed height; and the EVM signer coordinates of
+§5.1.3 step 6, `x ≥ p` and `(x, y) = (0, 0)`, each pinned under a committee
+root that commits to that key. Keys that are points of the curve but no valid
+keys, each pinned under the root of its exact key bytes (§5.1.3 steps 10–11):
+`signer_key_outside_g1`, one signer key shifted by a point outside G1 with the
+genuine signature, so that the pairing equation holds and the aggregate key is
+outside G1 (`BadSignature` on both flavours); `aggregate_key_identity`, three
+valid signer keys that sum to the identity (`BadCommittee` on EVM,
+`BadSignature` on TON), and the same with an EVM `σ` off the curve
+(`BadCommittee`: `apk = O` is reported first). `flavor_specific_certificates`
+holds `signer_keys_outside_g1_cancelling`: two signer keys shifted by `T` and
+`−T`, which an EVM destination accepts because it observes the aggregate only;
+its TON outcome is `null` until the Acton harness confirms the per-key checks
+of the opcode (§5.3.4 item 5). The invalid headers of the file add
+`rotation_at_max_height` and `rotation_at_max_generation`: `ROTATION` at
+height or at generation `2^64 − 1`, which X6 refuses, and the rows named
+`<a>_and_<b>`, which violate two checks each and report the earlier one. A
+certificate row carries `forgery_evidence_id` only when the message that was
+signed is the `m` a verifier derives from the row's wire fields (§4.9). The
+w3f-transcript signature negative is the row of `finality_rust_v1.json`,
+because only `iroha_crypto` produces that transcript.
 
 ### 11.4 Conformance
 
-1. Rust `iroha_sccp::v1::{finality, committee, evidence}` and
-   `iroha_crypto::bls::consensus` are the reference.
-2. `scripts/sccp_reference/*.py` (`py_ecc` `G2ProofOfPossession` for `DST_SIG`,
-   an independent Keccak) re-derives every contract-visible vector and the
-   anchor vectors.
-3. **The Solidity EDR harness** (Prague) runs every calldata vector,
+1. Rust `iroha_sccp::v1::{finality, committee, control, evidence, destination,
+   destination_abi}` and `iroha_crypto::bls::consensus` are the reference.
+2. `scripts/sccp_reference/*.py` is an independent, dependency-free Python
+   reference: its own Keccak-256, BLS12-381 arithmetic and pairing, RFC 9380
+   hash-to-G2 under `DST_SIG`, and an executable model of §5.1. It derives
+   every contract-visible vector and the anchor vectors, writes the three
+   reference files byte for byte as the Rust reference does, and verifies the
+   rows of the Rust-only files (§11).
+3. **The Solidity EDR harness** (Prague and Osaka) runs every calldata vector,
    certificate and scenario, including dirty-memory runs (memory pre-filled
    before verification) for `n ∈ {4, 7, 31}` and 16-certificate batches. It
    checks that `SccpCertificate` is emitted exactly on the full path, and
@@ -5508,8 +6267,13 @@ w3f-transcript signature; raw-bitmap `signers`; `X.height ≠` the signed height
   while a release that lacks that version fails closed); the checkpoint stride
   retention rule.
 - **Contracts:** EDR (EVM) and Acton (TON) suites for every §5 rule: the
-  committee state machine rows; deadline edges; `voidExpired` and `voidFrozen`
-  range and revert rules, including `voidFrozen` after a latch; cap, bitmap
+  committee state machine rows; the cheap path with a signature that does not
+  verify and with the identity signature; checkpoint use across rotations (U1
+  and U2); the saturating clock and time sums at the top of `u64` (EDR only:
+  TON's 32-bit `now()` keeps every TON sum far below `2^64`, §5.1.2); the
+  deployment bound on the pinned `untilMs` at both ends; deadline edges;
+  `voidExpired` and `voidFrozen` range and revert rules, including
+  `voidFrozen` after a latch; cap, bitmap
   word boundaries, bucket boundaries and bucket activation (a bucket deployed
   early by a stranger, and one redeployed by a third party after deletion);
   bounced consume, bounced internal transfer and unconsume, a failed
@@ -5523,8 +6287,12 @@ w3f-transcript signature; raw-bitmap `signers`; `X.height ≠` the signed height
   fast-pause expiry and clamp, a control leaf of another network, destination,
   revision or Taira network rejected, a transfer leaf offered as a control
   rejected, and burns, checkpoints and voids open while paused); immutables,
-  `opCount`, `controlNonce = 0` and `sccp_init`. Measured gas is recorded
-  against §5.4.
+  `opCount`, `controlNonce = 0` and `sccp_init`; the two counter bounds of
+  §5.1.2, reached by storage injection: `opCount` saturating at `2^64 − 1`
+  under a burn, a mint, a control and a void, and a sender whose source
+  nonces are exhausted (`BadNonce(2^64 − 1)` for every `expectedNonce`,
+  nothing changed, other senders unaffected). Measured gas is recorded against
+  §5.4.
 - **ABI goldens:** the syscall `0xA0` argument text in
   `crates/ivm/spec/syscalls.toml`, the generated
   `crates/ivm_abi/src/syscalls_doc_gen.rs` and `crates/ivm/docs/syscalls.md`
@@ -5545,82 +6313,94 @@ w3f-transcript signature; raw-bitmap `signers`; `X.height ≠` the signed height
 
 ### 11.6 Mutation gate
 
-The Core mutation gate (`scripts/sumeragi_mutation_gate.py --core`) will gain the
-SCCP and certified-time cases SC1–SC25 when their source hooks and tests land.
-These are planning identifiers; each implemented case receives a unique HC
-mutation ID. HC1–HC146 belong to the current Core/daemon registry. The sans-IO
-core and simulator gate already carries MS51 and MS52. `specs/sumeragi.md`
-§13.4 is authoritative for each case's rule, named killing test and oracle.
-The rows map to the rules of this spec as follows:
+The active source registry is `scripts/sumeragi_mutation_gate.py`; Core controls
+run with `--core --strict`, while simulator and data-model controls run under
+their own owners. `specs/sumeragi.md` §13.4 records the named controls and
+oracles. SC1–SC25 originated as planning labels. SC4 is an implemented Core
+registry ID; the other implemented cases use the HC/MS IDs below. An adjacent
+rule's mutation is not a substitute for the exact planned fault. A registered
+hook is not a passing qualification result: discovery, baseline, causal failure
+and complete test accounting must all pass on the current candidate. Compiler,
+resource and process failures are errors, never killed mutations.
 
-| Rule (this spec) | Gate entries | Lands with |
+| Planned rule | Registered source controls | Remaining exact mutation scope |
 |---|---|---|
-| `R` binds `X` (§3.6); G5 boundary header fields (§4.2.2) | SC1; SC2, SC3 | Team C (WP-C5) |
-| Consensus signing through the consensus API (§3.8) | SC4 | Team C (WP-C5) |
-| CT1, CT3 and CT5 (§4.3); the simulator's model of CT1 | SC5, SC6, SC12; MS52 | Team C (WP-C5) |
-| `Execute.certified`: the executor's use, and the core's emission (§4.3) | SC17; MS51 | Team C (WP-C5) |
-| L3 release gate; liability clock step cap (§4.8) | SC15; SC19 | Team C (WP-C5) |
-| Self-contained penalty record: offence height and G6 offenders (§4.9 step 9) | SC21 | Team C (WP-C5) |
-| Due predicate: heartbeat leg, governance leg, degraded run (§4.7.3) | SC7, SC8, SC22 | Team S (WP-S3; SC8's killing test also needs the fast pause of WP-S5) |
-| K1, K2 (§4.7.4) | SC9, SC16 | Team S (WP-S3) |
-| G4 missing inputs never `Invalid`; G2 `BEAT`; G7 resync (§4.2.2, §4.6) | SC10, SC11, SC23 | Team S (WP-S2) |
-| E4, E0, E3 (§4.9) | SC13, SC14, SC18 | Team S (WP-S6) |
-| L5 destination-progress gate (§4.8) | SC20 | Team S (WP-S6) |
-| Pruning skips generations named by pending records (§4.11) | SC24 | Team S (WP-S2) |
-| Per-revision forgery hold keyed on `forgery_floor` (§4.10) | SC25 | Team S (WP-S10) |
+| SC1: `R` binds `X` (§3.6) | HC308 omits `X` from ordinary result publication; MS17 binds the vote to `R` | Current-candidate causal qualification required |
+| SC2/SC3: outgoing boundary identity and `ROTATION` (§4.2.2) | HC226 changes the outgoing generation; HC325 substitutes the successor committee root; HC309 omits a pre-heartbeat key-change rotation | Current-candidate causal qualification required |
+| SC4: dedicated consensus signing API (§3.8) | SC4, with actual single/aggregate cross-suite refusal controls | None for the registered suite fault |
+| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck; DM36 bounds committed drift | Run the controls under their respective owners |
+| SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC334, HC337; MS51, MS65, MS67 | Run the production and simulator controls independently |
+| SC7/SC8/SC22: heartbeat/governance due predicate and degraded run | HC278 bounds degraded heartbeat retries; HC302 preserves the original parent pause-due set; HC312 omits the heartbeat deadline; HC313 omits the pause-due leg | Current consumer controls require qualification; full cross-owner Parliament scheduling still needs its authoritative producer |
+| SC9/SC16: K1 and K2 (§4.7.4) | HC277 rejects a second carrier; HC279 and HC280 cover canonical shape and stale-carrier selection; HC314 admits without established due work | Current-candidate causal qualification required |
+| SC10/SC11/SC23: missing inputs, `BEAT`, resync | HC227 binds resync to the native parent; HC324 omits resync; HC228 preserves parent anchors through degradation; HC310 invalidates missing inputs; HC311 disables heartbeat rotation | Current-candidate causal qualification required |
+| SC13/SC14/SC18: E4, E0 and E3 (§4.9) | HC315 omits signed body-digest comparison; HC316 omits captured liability; HC317 replaces the original core anchor with the outer block hash | Current-candidate causal qualification required |
+| SC15/SC19: liable stake release and liability-clock cap (§4.8) | HC229 caps halt-time advancement; HC320 skips liability; HC321 skips the exact pending penalty | Current-candidate causal qualification required |
+| SC20: L5 destination progress (§4.8) | HC251 keeps clearance work on its bounded pending index; HC322 omits original destination clearance | Current-candidate causal qualification required |
+| SC21: immutable registration attribution and penalty coordinates | HC230, HC250 and HC305 bind captured members to original global registrations; HC318 substitutes forged height; HC319 substitutes the current peer-key mapping | Current-candidate causal qualification required |
+| SC24: pending evidence and anchor retention (§4.11) | HC292, HC293 | None for these registered pruning faults |
+| SC25: per-revision forgery hold (§4.10) | HC283 protects registration after forgery; HC285 protects monotone attestation; HC323 omits the forgery-floor hold | Current-candidate causal qualification required |
+
+HC276–HC307 additionally cover exact CREATE2 binding, the proposal launch gate,
+permanent quarantine and forged-mint payload binding, reconciliation reservation
+and refused-credit accounting, fast-pause seat/quorum/expiry/lift/suspension,
+signed instruction custody, bounded control enactment, original-parent due work,
+clock budget feasibility, bundled advance expectations and local verifier
+refusal. HC326 rejects substituted TON minter, wallet or bucket code even
+after the caller recomputes its matching StateInit address. These are
+source-owned hooks, not aliases for every open SC row.
 
 Format pins owned by `iroha_data_model` and `iroha_crypto` are enforced by the
-§11 golden tests in normal CI. Liveness tests that fail before their change and
-pass after it: `idle_chain_certifies_heartbeat_within_interval` (fake clock),
+§11 golden tests in normal CI. Present clock liveness controls include
 `clock_guard_liveness_with_f_plus_one_slow_clocks`,
-`missing_pulse_does_not_make_keepalive_due`,
-`f33_hidden_prepareqc_due_work_block_commits_after_lag` and
-`missed_boundary_resyncs_generation`.
+`clock_guard_accepts_exact_drift_allowance`,
+`clock_guard_due_work_lower_bound_at_first_prepare` and
+`f33_hidden_prepareqc_due_work_block_commits_after_lag`. The production
+`native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor`
+and `resync_uses_real_native_parent_time_then_boundary_rotates_again` tests
+exercise native heartbeat and resync behavior. Every planned SC fault now has
+an actual source switch and named control. Mutation qualification still requires
+the current baseline and exact causal kills under each implementation owner.
 
-**Rules without a gate entry yet** (`TODO:` Team S; the `specs/sumeragi.md`
-owner assigns the next free ids after SC25): the fast-pause lift rule
-(§4.14.7), the pass order and positions of §4.7.2 (closures before openings, G2
-before G3), the panel draw's registering no pulse demand (§4.14.7), the
-certification and enactment rechecks of a fast pause (§4.14.7), and the
-reconciliation payout and phase rules (§4.10 R3–R5). Each needs a named
-deterministic killing test before its rule lands.
+The full cross-owner G1–G3 order and original Policy Jury opening production still
+require the Parliament interface. Consumer tests refuse an absent producer;
+they never substitute an empty pass or a fabricated ballot anchor.
 
 ## 12. Phasing and implementation status
 
-This revision is the implementation baseline. "Implemented" means present in
-the candidate tree with tests; it does not mean qualified, and every
-implemented item is re-validated once the workspace builds again. "TODO" means
-specified here and not yet implemented; implementations carry `TODO:` markers
-until it lands.
+This revision is the implementation baseline. The table describes the current
+candidate source. Component test results do not establish whole-node, corridor,
+deployment or settlement readiness. The remaining internal integration and
+qualification work is stated separately from external Parliament authority.
 
 | Area | Status |
 |---|---|
-| Payload codec, amounts, transfer leaf, commitment tree, history accumulator (§3.1–§3.5) | Implemented. The control leaf is still the previous 126-byte single-flag layout; the 199-byte v1 leaf (§3.4) is TODO |
-| `RecordSccpMessage`, signed-only execution and the ABI closure for contract-originated sends (§4.4) | Implemented. The hold check of step 1 and the degraded refusal of step 2 are TODO (the tree still checks attestation liveness) |
-| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Implemented. The `Held` reason for forgery holds, quarantine and fast pauses, and reconciliation settlement, are TODO |
-| Exempt eligibility predicate and charge-on-failure (§4.19) | Implemented for the current exempt kinds. The classes `Keepalive`, `ForgeryEvidence` and any-authority `KeeperAdvance`, the per-class quotas and R-EX are TODO |
-| Light clients for Ethereum, BSC and TON; versioned profiles activated by Parliament enactment; aged-proof builders with backfills; RPC hygiene (§4.13, §8) | Implemented |
-| Light-client keeper task | Implemented as `irohad/src/sccp_attestor/keeper.rs`, gated on a bridge key. Its move to `irohad/src/sccp_keeper.rs` with the keeper key, keepalive and watch duties, and the L5 feed, are TODO |
-| Parliament SCCP payload, per-subject heads, permissionless core-derived attempts and manager transitions, `OnlyGenesis` grant, `governance drive` (§4.14.3, §4.14.5) | Implemented. The new actions and subjects, `enact` with `s0`, the lift rule, the removal of `ClearBridgeKeyFault`, and the launch gate are TODO |
-| Torii read routes for capabilities, registry, messages, outbound, controls, history, light clients and governance (§6) | Implemented on the attestation model. The finality, committee, evidence, anchor, forgery-hold and fast-pause routes, the new bundle types and the removal of roster routes are TODO |
-| EVM contract: ERC-20, consumed bitmap, canonical calldata, supply cap (§5.1.4, §5.1.7) | Implemented on the attestation ABI. BLS verification (EIP-2537), the committee state machine, checkpoints, `SccpCertificate`, the v1 control leaf, CREATE2 deployment and the §5.2.2 ABI are TODO |
-| TON contracts: value safety, floors, bucket activation, `retries` and `sccp_retry` (§5.3.4–§5.3.5) | Implemented on the attestation layout. BLS verification, the committee state machine and checkpoints, the §5.3 storage, ops and events, and exit codes 433/434 are TODO |
-| Consensus signing API and `DST_SIG` (§3.8; `specs/sumeragi.md` §1 item 6) | TODO (WP-C1) |
-| Finality header, certified result `R`, `CertifiedResultV1` and every reader (§3.6, §4.6; `specs/sumeragi.md` §4.1.1) | TODO (WP-C2). Its first deliverable is the 31-seat body-size measurement (§13 item 5) |
-| Certified time CT1–CT5 and `Execute.certified` (§4.3; `specs/sumeragi.md` §4.5) | TODO (WP-C3) |
-| Genesis and Kagami regeneration, including the SCCP staking profile (§4.8 L1) | TODO (WP-C4) |
-| Frozen-surface golden test and mutation-gate entries (§11.6) | TODO: Team C lands its entries in WP-C5; Team S adds its entries with the work packages named in §11.6 |
-| Self-contained SCCP penalty records, the L3 release gate, the `irohad` L1 refusal (§4.8–§4.9) | TODO (WP-C6) |
-| Committee generations, anchors, the `X` producer, degraded and resync paths, pruning (§4.2, §4.5, §4.6, §4.11) | TODO (WP-S2) |
-| Shared `Keepalive`, `governance_due`, positions, the millisecond governance clock (§4.7) | TODO (WP-S3), coordinated with the Parliament workstream |
-| Control leaf v1 and the separated pause state (§3.4, §4.14.6) | TODO (WP-S4) |
-| Fast pause track (§4.14.7) | TODO (WP-S5) |
-| Liability clock, L5, forgery evidence, L1 parameter checks (§4.8–§4.9) | TODO (WP-S6) |
-| Per-revision holds, attestation, quarantine and reconciliation (§4.10) | TODO (WP-S10); reconciliation is a launch blocker |
-| Launch gates (§10.2) | TODO (WP-S9): both stubs return `false` |
-| `specs/governance_pipeline.md`: the fast pause track, governance clock, keepalive and launch-gate sections that SCCP owns | Written ("SCCP-owned governance mechanisms"); their implementation is the work packages above. The ballot sections belong to the Parliament workstream |
-| Deletions still in the tree | TODO: bridge keys, attestations, subjects, attestation pruning, faults and rosters (`iroha_core`, `iroha_data_model`); the attestor (`irohad/src/sccp_attestor*`, `[sccp.attestor]`); EIP-712, secp256k1 and roster code in `iroha_sccp` and both contracts; the heartbeat marker and the SCCP part of `deterministic_start_work_pending`; the fixtures `eip712_v1.json` and `roster_v1.json`; and TRON everywhere (the `SccpNetworkV1` variant, constants, light client, RPC builders, wallet, CLI, `[zk.sccp]` limits, contract tooling and fixtures) |
-| Parliament post-quantum ballot (`specs/parliament_private_ballot_design.md`) | External dependency: specified, not implemented or qualified. Launch blocker |
+| Payload codec, amounts, transfer leaf, commitment tree, history accumulator (§3.1–§3.5) | Implemented with the sole 199-byte control leaf, complete independent pause state and exact authenticated cause. Native message/control/history proofs and wire fixtures cover the current layouts. |
+| `RecordSccpMessage`, signed-only execution and the ABI closure for contract-originated sends (§4.4) | Implemented. Original-parent degradation, permanent forgery/quarantine and active pause gates run before monetary, nonce or leaf writes. The instruction frame authenticates signed-only pause operations and prevents nested or repeated dispatch from substituting authority. |
+| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Accounting consumers and R1–R6 reconciliation are implemented, including exact proven payload binding, pending-refund reservation, floor-rounded U256 payouts and refusal without advancing claims. Native proof admission and self-claim retain their original allocation and work custody; current Core execution component qualification passes; end-to-end monetary enactment still requires qualified Parliament authority. |
+| Exempt eligibility predicate and charge-on-failure (§4.19) | Original-parent predicates, class quotas, any-authority keeper advances, shared Keepalive and R-EX are implemented. The admitted native proof pipeline and its original-budget queue/execution controls pass Core component qualification. |
+| Light clients for Ethereum, BSC and TON; profiles, aged-proof builders and RPC hygiene (§4.13, §8) | Protocol verifiers and builders are implemented. All three native kernels use original-pool admission and retained storage, including bootstrap, advance, proofs and equivocation. Component and Core dispatch tests cover the current kernels. Live RPC and real fork activation evidence remain external qualification. |
+| Light-client keeper task | Node-generated keeper key, independent light-client advance, Keepalive, bounded destination-watch and L5 duties are implemented. Watch queues retain verified evidence through publication or expiry, and endpoint rotation/health telemetry expose unavailable duties. Daemon component qualification passes; live source-network progress remains externally qualified. |
+| Parliament SCCP payload, subjects, attempts, `OnlyGenesis` grant and CLI (§4.14.3, §4.14.5) | Native actions, per-subject heads, monotone deployment progress, permanent quarantine, reconciliation opening and bounded pause suspension are implemented. Retired bridge-key fault clearing is removed. Proposer permission does not bypass the ballot launch gate. The actual binding certificate and casting-open provenance must come from the Parliament owner. |
+| Torii read routes and Rust SDK (§6) | Native finality, committee DATA, message/control/history, anchor, forgery-hold, fast-pause and reconciliation views are implemented with request admission and retained response custody. The current-generation coalition slashable-floor projection reads the original staking, incarnation and offence records and is implemented. SDK, Torii and daemon component qualification passes. CLI observers authenticate terminal state against the original certified source cut and retained signed submission. |
+| Wallet and CLI flows (§7) | Implemented with durable original signed submissions, authenticated native/EVM/TON terminal proofs, retained source-trust preimages and bounded confirmation deadlines. Recovery, maintenance and deployment read the exact locked journal step, including cached deployment outcomes. Current CLI regressions and independent step-selection review pass; live monetary flows still require qualified Parliament authority and external deployment evidence. |
+| EVM contract (§5.1–§5.2) | Native EIP-2537 verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment are implemented. Locked Prague/Osaka suites exercise authenticated deployment and native certificate/control artifacts. A genuine four-validator native certificate passes local chain-id-1 checkpoint replay on both forks, with signature, network, replay and expired-committee refusals. Monetary routes remain launch-gated; independent audit and live deployment/value qualification remain open. |
+| TON contracts (§5.3) | Minter, wallet and consumed buckets implement bounded 512-entry recovery with authenticated acknowledgements and exact finalized-event behavior. The minter storage allowance is 2,380 cells/790,000 bits; worst-case retained recovery and measured gas have native emulator coverage. Tolk/Python/Rust StateInit and message fixtures are updated. Independent audit and live deployment/value qualification remain open. |
+| Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component and current full certified-clock simulator qualification pass; the four-peer candidate exports a genuine native certificate for local EVM replay. |
+| Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; the four-peer native export and local EVM replay exercise the actual certificate boundary. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
+| `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Native finality, committee, control and destination models and generators are implemented. SCCP CI runs independent Python drift checks, Rust/BLS fixtures, native EVM and native TON suites. Current combined-candidate qualification remains required. |
+| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and the actual native Prepare signing guard are implemented; certified execution does not inherit a local-clock refusal. The simulator retains the original work and completed payload through committed-parent and immutable creation-floor pacing, and rechecks the clock immediately before fresh proposal signing. The current full simulator, clock baselines and all eight causal clock controls pass. Production Core controls remain part of the pending full Core mutation gate. |
+| Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented with matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. Current profile, signing-order and reset-history regressions pass; the real four-validator SCCP candidate also starts and publishes native finality while refusing unqualified route governance. |
+| Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Current clock controls pass with a passing baseline and causal named-test kills; the full current Core mutation gate remains open. Compiler failures never count as mutation kills. |
+| Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Native forgery evidence, permanent offence ownership, closed penalty records, retained liability release checks and configuration refusal are implemented. Current node/network qualification remains open. |
+| Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Original-pool SCCP records and current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed `X` publication are implemented. Bounded pruning reads the actual pending-forgery owner. Current combined candidate qualification remains open. |
+| Shared Keepalive, `governance_due`, positions and millisecond clock (§4.7) | SCCP original-parent due work, quotas, certified-time handling and positioned rank-3 pause/reconciliation consumers are implemented. The minimum work budget is ten. The actual Parliament due iterator, ranks 0–2 and carried remaining budget are external owner inputs; unavailable authority is never treated as an empty set or a successful pass. |
+| Control leaf and fast-pause track (§3.4, §4.14.6–§4.14.7) | Funded panels, acceptance/replacement, endorsement rounds, original-source certification, suspension, capacity/nonce preflight, enactment, expiry and selective lift consumers are implemented. Drawing reads the original verified pulse at its carrying height. Parliament must supply eligible citizens, the draw, shared positions and genuine Policy Jury casting-open provenance before this lifecycle can run end to end. |
+| Liability clock, L5, evidence and L1 checks (§4.8–§4.9) | Parent-time clamping, retained-generation parameter bounds, keeper L5 feed, original forgery floor and release guards are implemented. Daemon component qualification passes; monetary corridor qualification still requires qualified Parliament authority and live deployment evidence. |
+| Per-revision holds, quarantine and reconciliation (§4.10) | Original permanent causes and monotone floors, proof-window accounting and bounded shared due settlement are implemented. Opening/enactment require authentic external Parliament authority and cannot be manufactured by a component test. |
+| Launch gates (§10.2) | Both readiness gates remain `false`. Native proposer/registration paths fail closed; no interim governance or genesis route can substitute for the missing qualified Parliament authority. |
+| SCCP-owned governance specification | `specs/governance_pipeline.md` describes the implemented SCCP consumers and the explicit external Parliament interfaces. Full shared-pass qualification is still required. |
+| First-release retirement | EIP-712 attestations, rosters, bridge-key files/signature sets and their obsolete readers are removed. CLI and contracts use native committees/certificates. Ethereum transaction signing remains. Cross-workspace validation must establish that no retired surface remains. |
+| Parliament post-quantum ballot | External launch dependency. Standalone proof work does not supply a qualified binding ballot, authoritative eligibility/draw/due positions, casting-open anchor or finite attempt-latency contract. |
 
 **Order of work.** M0 freezes the interfaces (the consensus API constants and
 allowlist; the `CertifiedResultV1` types; the `Execute.certified` API; the
@@ -5629,7 +6409,7 @@ control, fast-pause and liability rows; the TON wrapper test and exit-code
 table; verification of `SCCP_EVM_DEPLOYER` on Ethereum and BSC) and asks the
 Parliament workstream to confirm the interface items of §10.1. M1 implements
 the core and contract work packages above in parallel. M2 produces
-real-certificate vectors, the Torii routes, the rotation archive, `monitor`,
+real-certificate vectors, the Torii routes, the original retained rotation projection, `monitor`,
 evidence and deployment tooling, gas baselines and the Python re-derivation. M3
 runs the 4-peer integration test and the three-way cross-check, rewrites
 `status.md` and `roadmap.md` in place, and starts external audits (EIP-2537
@@ -5646,34 +6426,33 @@ version, since no backward compatibility is required).
 
 ## 13. Open questions
 
-1. **Fast pause panel term (owner question).** The owner decision says panels
-   are drawn "per epoch". The 7 d default term draws at the first epoch
-   boundary after the term ends, because with 1 h epochs a 20 % attacker would
-   expect about 53 captures of either panel a year, enough to keep SCCP paused
-   permanently (§4.14.7). The literal reading is the parameter value
-   `fast_pause_panel_term_ms` = the epoch duration, and implementations support
-   both. Confirm the default.
-2. **Parliament interface items.** Items 3 and 6 of §10.1 (the panel term,
-   and the G2 segment order of ballot closures and openings with the capacity
-   rule and positions) need the Parliament workstream's confirmation before
-   the interfaces freeze. Items 1, 2, 4 and 5 were confirmed on 2026-10-05.
+1. **Fast pause panel term (resolved).** The default is 7 d. The first
+   epoch-boundary pulse at or after its end draws the replacement (§4.14.7).
+   An epoch-length term remains a supported Parliament parameter change.
+2. **Parliament interface items.** Item 6 of §10.1 (the G2 segment order of
+   ballot closures and openings with the capacity rule and positions) needs
+   the Parliament workstream's confirmation before the interfaces freeze.
+   Items 1, 2, 4 and 5 were confirmed on 2026-10-05; item 3 is settled above.
 3. **Reconciliation (launch blocker).** R1–R6 (§4.10) are normative: the
    quarantine's hold on settlement ends at the window end, later claims settle
    at the fixed rate with the payout of R4, and the quarantine record and the
-   outbound refusal never end. Open (Team S): whether the pro-rata rule with a
-   proof window is final or a claims bar date replaces it; liability that backs
-   genuine messages the captured deployment never minted and that no void can
-   reach; and the remaining layouts, routes and tooling.
+   outbound refusal never end. The layouts, routes and reconciliation commands
+   implement this rule. Liability that no genuine mint or void can reach may
+   keep the revision retained indefinitely under R5. The remaining launch
+   dependency is the authentic Parliament shared pass and its qualification.
 4. **The Parliament ballot (launch blocker).** `fast_pause_hold_ms` is pinned
    only once the ballot's windows are fixed; if one full-track attempt
    (`parliament_sccp_attempt_latency_ms()`) takes more than about 27 d, SCCP
    cannot be configured and the ballot timings must change (§4.1).
-5. **31-seat result body.** A 31-seat boundary with a frozen preparation must
-   fit 65 315 body bytes (§3.6). If the measurement fails, the fallback is an
-   explicit result-preimage bound change (raise `MAX_RESULT_PREIMAGE_BYTES` to
-   65 757 and re-run
-   the bound tests and the gate), never a silent one. It blocks the WP-C2
-   merge.
+5. **31-seat result body (measured).** The largest body the validation rules
+   admit is a 31-seat epoch boundary with a frozen preparation: three complete
+   rosters (the current context, the successor and the E+2 preparation), the
+   finalized pulse, every optional commitment, and the election bonds at their
+   widest. It is 30 763 bytes, 47.0 % of the 65 315-byte bound (§3.6), so
+   `X ‖ body` is 30 984 bytes and `MAX_RESULT_PREIMAGE_BYTES` stays 65 536.
+   The `iroha_data_model` test
+   `maximal_31_seat_boundary_with_frozen_preparation_fits_the_result_body_bound`
+   pins the number.
 6. **Measurements.** Gas and TON costs of §5.4, including `SccpCertificate`,
    and the CI baselines; TON's three checkpoint slots after measuring relayer
    races; generation, anchor and open-chunk storage on a 1 s-cadence chain with
@@ -5691,8 +6470,11 @@ version, since no backward compatibility is required).
    deployments on chain and automate progress attestation; not in v1.
 10. **Key custody and BLS unification.** External custody of consensus vote
     keys, and unifying every BLS signature on RFC 9380 suites (§3.8).
-11. **Genesis staking records.** Genesis validation should assert that every
-    genesis peer has a staking record, so that G6 never stores `None` (§4.2.2).
+11. **Genesis staking records (implemented).** Initialization requires every
+    original committee signer to have one global staking binding before G1
+    publication (§4.2.2). Kagami places its explicit initializer after NPoS
+    bootstrap; a missing binding refuses without creating parameters, escrows
+    or a generation.
 12. **Beacon re-keying.** Every validator-set change needs a new global-beacon
     session before the next pulse (§4.14.5 item 5). Who builds the in-node DKG
     and certificate automation, and the node-generated beacon credential?
@@ -5723,6 +6505,18 @@ version, since no backward compatibility is required).
     naming and user disclosure need product sign-off.
 19. **`SCCP_EVM_DEPLOYER`.** Confirm that the keyless proxy's runtime code is
     identical on Ethereum and BSC before relying on it (§5.2.1).
+20. **Checkpoint use across rotations (recorded rule and residual).** A stored
+    checkpoint is usable only while its header is of the current generation,
+    or is the handoff that installed it (§5.1.3, U1 and U2). The rule reads
+    `cur` and the header, so destination storage is unchanged (§5.2.3,
+    §5.3.1). Its residual is the forged handoff: it installs `cur`, stays
+    usable under U2 until the next rotation, and leaves the genuine handoff
+    not CUR, so nothing latches (§5.1.2 property 4). Detection is the
+    published `SccpCertificate`; the response is slashing, the per-revision
+    hold, and quarantine with reconciliation (§4.9–§4.10). Effects applied
+    before a rotation survive it (§5.1.2 property 3). A progress attestation
+    therefore asserts the installing handoff and the absence of forged
+    effects, and not the generation alone (§4.10).
 
 ## 14. Decisions (binding)
 

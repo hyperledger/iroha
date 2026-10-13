@@ -37,8 +37,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 64,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn other_domain() -> DomainId {
@@ -400,7 +400,7 @@ macro_rules! defect {
                 41,
                 restore.then_some(1)
             ),
-            14 | 15 | 16 => alter!(
+            14..=16 => alter!(
                 $target,
                 $kind,
                 confidential_policy_transition_counts,

@@ -38,11 +38,15 @@ const STREAM_TOKEN_HARDWARE_DECODE_POLICY_V1: DecodeResourcePolicyV1 = DecodeRes
 
 fn stream_token_backend_error(error: StreamTokenSignerCallErrorV1, mutating: bool) -> BrokerError {
     match error {
-        StreamTokenSignerCallErrorV1::Unavailable => BrokerError::Unavailable,
         StreamTokenSignerCallErrorV1::Refused => BrokerError::Rejected,
-        StreamTokenSignerCallErrorV1::AmbiguousCompletion if mutating => BrokerError::Ambiguous,
-        StreamTokenSignerCallErrorV1::AmbiguousCompletion => BrokerError::Unavailable,
-        StreamTokenSignerCallErrorV1::InvalidResponse if mutating => BrokerError::Ambiguous,
+        StreamTokenSignerCallErrorV1::AmbiguousCompletion
+        | StreamTokenSignerCallErrorV1::InvalidResponse
+            if mutating =>
+        {
+            BrokerError::Ambiguous
+        }
+        StreamTokenSignerCallErrorV1::Unavailable
+        | StreamTokenSignerCallErrorV1::AmbiguousCompletion => BrokerError::Unavailable,
         StreamTokenSignerCallErrorV1::InvalidResponse => BrokerError::Protocol,
     }
 }
@@ -292,8 +296,7 @@ impl Drop for StreamTokenBrokerReceiptClaimsV1 {
                     parsed_signature_zero: self
                         .signature
                         .as_ref()
-                        .is_none_or(|signature| signature.payload().iter().all(|byte| *byte == 0)),
-                    had_parsed_signature: self.signature.is_some(),
+                        .map(|signature| signature.payload().iter().all(|byte| *byte == 0)),
                 });
         }
     }
@@ -304,8 +307,7 @@ struct StreamTokenReceiptDropAuditV1 {
     signature_bytes: usize,
     receipt_signatures_zero: bool,
     role_signature_zero: bool,
-    parsed_signature_zero: bool,
-    had_parsed_signature: bool,
+    parsed_signature_zero: Option<bool>,
 }
 
 fn decode_stream_token_observer_request(

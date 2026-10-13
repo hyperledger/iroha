@@ -12,7 +12,7 @@ use iroha_data_model::{
     zk::{BackendTag, OpenVerifyEnvelope},
 };
 
-use super::ZkVerifyGuardrails;
+use super::{VerificationAttemptError, ZkVerifyGuardrails};
 
 /// Exact statement established by one compiled generic verifier.
 ///
@@ -126,7 +126,7 @@ pub enum ProofVerificationError {
 /// # fn example(proof: &iroha_data_model::proof::ProofBox,
 /// # key: &iroha_data_model::proof::VerifyingKeyBox,
 /// # guardrails: ZkVerifyGuardrails)
-/// # -> Result<(), iroha_core_zk::ProofVerificationError> {
+/// # -> Result<(), iroha_core_zk::VerificationAttemptError<iroha_core_zk::ProofVerificationError>> {
 /// // Resolve the active key and authenticate the application's public inputs first.
 /// let verified = verify_for_relation(ProofRelation::KaigiAuthorization, proof, key, guardrails)?;
 /// assert_eq!(verified.relation(), ProofRelation::KaigiAuthorization);
@@ -138,7 +138,7 @@ pub fn verify_for_relation(
     proof: &ProofBox,
     key: &VerifyingKeyBox,
     policy: ZkVerifyGuardrails,
-) -> Result<VerifiedProof, ProofVerificationError> {
+) -> Result<VerifiedProof, VerificationAttemptError<ProofVerificationError>> {
     let backend = proof.backend.as_str();
     let tag = super::production_verify_backend_tag(backend)
         .ok_or(ProofVerificationError::UnsupportedBackend)?;
@@ -155,39 +155,45 @@ pub fn verify_for_relation(
         ),
     };
     if !enabled {
-        return Err(ProofVerificationError::BackendDisabled);
+        return Err((ProofVerificationError::BackendDisabled).into());
     }
     if proof.bytes.len() > maximum {
-        return Err(ProofVerificationError::EnvelopeTooLarge {
+        return Err((ProofVerificationError::EnvelopeTooLarge {
             actual: proof.bytes.len(),
             maximum,
-        });
+        })
+        .into());
     }
-    let envelope: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes)
-        .map_err(|_| ProofVerificationError::MalformedEnvelope)?;
+    let envelope: OpenVerifyEnvelope = iroha_plonk::verification_attempt::codec_attempt(
+        || norito::decode_canonical(&proof.bytes),
+        |_| ProofVerificationError::MalformedEnvelope,
+    )?;
     if envelope.backend != tag {
-        return Err(ProofVerificationError::MalformedEnvelope);
+        return Err((ProofVerificationError::MalformedEnvelope).into());
     }
     if envelope.proof_bytes.len() > proof_maximum {
-        return Err(ProofVerificationError::ProofTooLarge {
+        return Err((ProofVerificationError::ProofTooLarge {
             actual: envelope.proof_bytes.len(),
             maximum: proof_maximum,
-        });
+        })
+        .into());
     }
     let actual = compiled_relation(backend, &envelope.circuit_id)
         .ok_or(ProofVerificationError::UnsupportedRelation)?;
     if actual != required {
-        return Err(ProofVerificationError::RelationMismatch {
+        return Err((ProofVerificationError::RelationMismatch {
             expected: required,
             actual,
-        });
+        })
+        .into());
     }
     if key.backend != proof.backend || envelope.vk_hash != super::hash_vk(key) {
-        return Err(ProofVerificationError::VerifyingKeyMismatch);
+        return Err((ProofVerificationError::VerifyingKeyMismatch).into());
     }
-    let report = super::verify_backend_with_timing_guardrails(backend, proof, Some(key), policy);
+    let report = super::verify_backend_with_timing_guardrails(backend, proof, Some(key), policy)
+        .map_err(VerificationAttemptError::Deferred)?;
     if !report.ok {
-        return Err(ProofVerificationError::InvalidProof);
+        return Err((ProofVerificationError::InvalidProof).into());
     }
     Ok(VerifiedProof {
         relation: actual,
@@ -227,3 +233,14 @@ fn compiled_relation(backend: &str, circuit: &str) -> Option<ProofRelation> {
 
 #[cfg(test)]
 mod tests;
+
+/// Assert a completed rejection in deterministic unit controls; local errors must fail the control.
+#[cfg(test)]
+pub(crate) fn expect_rejected<E>(error: VerificationAttemptError<E>) -> E {
+    match error {
+        VerificationAttemptError::Rejected(rejected) => rejected,
+        VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected unfinished verification: {original}")
+        }
+    }
+}

@@ -292,7 +292,7 @@ Root {
         p2p_queue_cap_low: 32768,
         p2p_post_queue_cap: 2048,
         p2p_outbound_frame_queue_max_high_bytes: 134217728,
-        p2p_outbound_frame_queue_max_low_bytes: 67108864,
+        p2p_outbound_frame_queue_max_low_bytes: 75497472,
         p2p_outbound_frame_queue_max_high_frames: 8192,
         p2p_outbound_frame_queue_max_low_frames: 4096,
         p2p_subscriber_queue_cap: 8192,
@@ -353,7 +353,7 @@ Root {
         max_frame_bytes_consensus: 17825792,
         max_frame_bytes_control: 2097152,
         max_frame_bytes_block_sync: 17825792,
-        max_frame_bytes_tx_gossip: 262144,
+        max_frame_bytes_tx_gossip: 17825792,
         max_frame_bytes_peer_gossip: 65536,
         max_frame_bytes_health: 32768,
         max_frame_bytes_connect: 131072,
@@ -392,6 +392,9 @@ Root {
         ),
         query_fanout_max_working_set_bytes: Bytes(
             48000000,
+        ),
+        sccp_history_cache_max_bytes: Bytes(
+            8000000,
         ),
         require_api_token: false,
         api_tokens: [REDACTED; 0 Torii API token(s)],
@@ -696,6 +699,13 @@ Root {
         pin_storage_class: Hot,
         pin_retention_horizon_secs: 2592000,
         pin_transaction_authority: IngressBroker,
+    },
+    amx_relay: AmxRelay {
+        journal_dir: "./storage/amx/workflows",
+        poll_interval: 2s,
+        max_source_heights_per_pass: 32,
+        max_finality_proof_reads: 64,
+        routes: [],
     },
     kura: Kura {
         init_mode: Strict,
@@ -1389,13 +1399,16 @@ Root {
         max_archive_len: 1073741824,
     },
     fraud_monitoring: FraudMonitoring {
-        enabled: false,
+        policy: FraudAdmissionPolicyV1 {
+            version: 1,
+            enabled: false,
+            required_minimum_band: None,
+            missing_assessment_permitted: false,
+            attesters: [],
+        },
         service_endpoints: [],
         connect_timeout: 500ms,
         request_timeout: 1.5s,
-        missing_assessment_grace: 0ns,
-        required_minimum_band: None,
-        attesters: [],
     },
     zk: Zk {
         trace: DiagnosticTrace {
@@ -1455,8 +1468,6 @@ Root {
             max_ethereum_light_client_updates_per_block: 512,
             max_native_header_bytes_per_transaction: 8388608,
             max_native_header_bytes_per_block: 33554432,
-            max_secp256k1_recoveries_per_transaction: 2048,
-            max_secp256k1_recoveries_per_block: 8192,
             max_ed25519_signature_checks_per_transaction: 65536,
             max_ed25519_signature_checks_per_block: 262144,
             max_bls_vote_attestations_per_transaction: 64,
@@ -1863,32 +1874,7 @@ Root {
         enabled: true,
         assume_valid: false,
         verifier_backend: "pipa-r/pasta",
-        max_proof_size_bytes: 1048576,
-        max_nullifiers_per_tx: 8,
-        max_commitments_per_tx: 8,
-        max_confidential_ops_per_block: 256,
         verify_timeout: 750ms,
-        max_anchor_age_blocks: 10000,
-        max_proof_bytes_block: 1048576,
-        max_verify_calls_per_tx: 128,
-        max_verify_calls_per_block: 128,
-        max_public_inputs: 32,
-        reorg_depth_bound: 10000,
-        policy_transition_delay_blocks: 100,
-        policy_transition_window_blocks: 200,
-        policy_transition_max_per_height: 256,
-        tree_roots_history_len: 10000,
-        tree_frontier_checkpoint_interval: 100,
-        registry_max_vk_entries: 64,
-        registry_max_params_entries: 32,
-        registry_max_delta_per_block: 4,
-        gas: ConfidentialGas {
-            proof_base: 250000,
-            per_public_input: 2000,
-            per_proof_byte: 5,
-            per_nullifier: 300,
-            per_commitment: 500,
-        },
     },
     crypto: Crypto {
         enable_sm_openssl_preview: false,
@@ -1949,19 +1935,17 @@ Root {
         },
     },
     sccp: SccpNode {
-        attestor: SccpAttestor {
+        keeper: SccpKeeper {
             enabled: true,
             key_dir: WithOrigin {
-                value: "./storage/sccp/bridge-keys",
+                value: "./storage/sccp/keeper-key",
                 origin: Custom {
-                    message: "derived from kura.store_dir because sccp.attestor.key_dir was empty",
+                    message: "derived from kura.store_dir because sccp.keeper.key_dir was empty",
                 },
             },
-            auto_register: true,
-            max_entries_per_transaction: 64,
-            resubmit_after_blocks: 3,
-            max_clock_drift: 3600s,
-            shutdown_grace: 30s,
+            keepalive: true,
+            keepalive_stagger: 15s,
+            watch: true,
         },
         light_client_keeper: SccpLightClientKeeper {
             enabled: true,
@@ -1983,10 +1967,6 @@ Root {
                 bsc: [
                     "https://bsc-dataseed.bnbchain.org/",
                     "https://bsc-rpc.publicnode.com/",
-                ],
-                tron: [
-                    "https://api.trongrid.io/",
-                    "https://tron-rpc.publicnode.com/",
                 ],
                 ton_liteservers: [
                     "5.9.10.47:19949:n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=",

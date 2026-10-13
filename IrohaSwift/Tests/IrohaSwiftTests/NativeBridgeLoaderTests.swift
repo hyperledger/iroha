@@ -74,6 +74,16 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertFalse(NoritoBridgeLoader.hasRequiredExports(resolving: { !current.contains($0) }))
     }
 
+    func testChainDiscriminantScopeExportsAreRequiredForAdmission() {
+        XCTAssertEqual(NoritoBridgeLoader.chainDiscriminantScopeRequiredSymbols, [
+            "connect_norito_chain_discriminant_scope_enter",
+            "connect_norito_chain_discriminant_scope_exit"
+        ])
+        for missing in NoritoBridgeLoader.chainDiscriminantScopeRequiredSymbols {
+            XCTAssertFalse(NoritoBridgeLoader.hasRequiredExports(resolving: { $0 != missing }))
+        }
+    }
+
     func testEveryCurrentAccelerationExportIsRequiredForAdmission() {
         XCTAssertEqual(NoritoBridgeLoader.accelerationRequiredSymbols, [
             "connect_norito_acceleration_config_set_v1",

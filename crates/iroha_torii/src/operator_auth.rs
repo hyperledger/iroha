@@ -46,13 +46,13 @@ const CREDENTIALS_FILENAME: &str = "operator_webauthn.json";
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 const CREDENTIAL_LOCK_FILENAME: &str = ".operator_webauthn.lock";
 /// Maximum accepted JSON body size for one operator WebAuthn exchange request.
-pub(crate) const CREDENTIAL_EXCHANGE_BODY_LIMIT: usize = 64 * 1024;
+pub const CREDENTIAL_EXCHANGE_BODY_LIMIT: usize = 64 * 1024;
 const CHALLENGE_BYTES: usize = 32;
 const SESSION_TOKEN_BYTES: usize = 32;
-const SESSION_TOKEN_B64URL_BYTES: usize = (SESSION_TOKEN_BYTES * 4 + 2) / 3;
+const SESSION_TOKEN_B64URL_BYTES: usize = (SESSION_TOKEN_BYTES * 4).div_ceil(3);
 const SESSION_TOKEN_DECODE_BUFFER_BYTES: usize = SESSION_TOKEN_BYTES + 1;
 const MAX_CREDENTIAL_ID_BYTES: usize = 1_024;
-const MAX_CREDENTIAL_ID_B64URL_BYTES: usize = (MAX_CREDENTIAL_ID_BYTES * 4 + 2) / 3;
+const MAX_CREDENTIAL_ID_B64URL_BYTES: usize = (MAX_CREDENTIAL_ID_BYTES * 4).div_ceil(3);
 const P256_UNCOMPRESSED_SEC1_PUBLIC_KEY_LEN: usize = 65;
 const MAX_CREDENTIAL_RECORD_JSON_BYTES: usize = 2_048;
 const CREDENTIAL_FILE_JSON_OVERHEAD_BYTES: usize = 128;
@@ -2050,8 +2050,7 @@ fn credential_file_identity(
     Ok(CredentialFileIdentity {
         device: u64::try_from(stat.st_dev)
             .map_err(|_| format!("credential file device is invalid: {}", path.display()))?,
-        inode: u64::try_from(stat.st_ino)
-            .map_err(|_| format!("credential file inode is invalid: {}", path.display()))?,
+        inode: stat.st_ino,
     })
 }
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
@@ -2312,7 +2311,7 @@ fn open_credential_base_directory(path: &Path, create: bool) -> Result<Option<fs
             && rustix::fs::FileType::from_raw_mode(after.st_mode) == file_type;
         let opened_matches_name = trusted_system_symlink
             || (u64::try_from(before.st_dev).ok() == Some(opened.dev())
-                && u64::try_from(before.st_ino).ok() == Some(opened.ino()));
+                && before.st_ino == opened.ino());
         if !opened.is_dir()
             || !trusted_owner
             || (opened.mode() & 0o022 != 0 && !trusted_sticky_root)
@@ -2474,9 +2473,9 @@ fn open_credential_store_parent(
         || after.st_uid != rustix::process::geteuid().as_raw()
         || after.st_mode & 0o7022 != 0
         || u64::try_from(before.st_dev).ok() != Some(opened.dev())
-        || u64::try_from(before.st_ino).ok() != Some(opened.ino())
+        || before.st_ino != opened.ino()
         || u64::try_from(after.st_dev).ok() != Some(opened.dev())
-        || u64::try_from(after.st_ino).ok() != Some(opened.ino())
+        || after.st_ino != opened.ino()
     {
         return Err(format!(
             "credential directory must be a private, current-user-owned directory which did not change while opening: {}",
@@ -2515,7 +2514,7 @@ fn open_credential_store_parent(
             || after.st_uid != rustix::process::geteuid().as_raw()
             || after.st_mode & 0o7777 != 0o700
             || u64::try_from(after.st_dev).ok() != Some(opened.dev())
-            || u64::try_from(after.st_ino).ok() != Some(opened.ino())
+            || after.st_ino != opened.ino()
         {
             return Err(format!(
                 "credential directory did not become private while tightening: {}",
@@ -2969,7 +2968,7 @@ fn create_credential_temp_file(
                 }
                 return Ok((file, name));
             }
-            Err(rustix::io::Errno::EXIST) => continue,
+            Err(rustix::io::Errno::EXIST) => {}
             Err(error) => {
                 return Err(format!(
                     "failed to create credential temporary file: {error}"

@@ -1,0 +1,9 @@
+{
+  "original_packages": 1149,
+  "diagnostic_packages": 121,
+  "unexpected_dependency_identities": [],
+  "reference_sha256": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db",
+  "derived_sha256": "ccf80881ad5fb170e27db1c9b2b6fddd3fb58fd12a0e322708cfcc6ff9aed274",
+  "comparison_scope": "name/version/source/checksum membership only; not dependency-edge, feature or build parity",
+  "profile_qualified": false
+}

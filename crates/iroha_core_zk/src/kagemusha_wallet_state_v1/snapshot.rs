@@ -98,7 +98,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             KagemushaWalletMarkerStateV1::Head { head, .. } => head.value,
             _ => return Err(Error::NoHead),
         };
-        if capsule.statement.successor.value != head
+        if capsule.body().statement.successor.value != head
             || current.retained.operation_id != operation
             || marker.selected_generation() != Some(current.retained.selected_generation)
             || marker.completion_digest() != Some(current.retained.completion_digest)
@@ -106,7 +106,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         {
             return Err(Error::WitnessLost("snapshot selected head"));
         }
-        let state = &capsule.successor_state;
+        let state = &capsule.body().successor_state;
         let core = &state.core;
         let (verified_fold, known_burned_total, folded_balance, fold_backlog) =
             if let Some(folded_sequence) = manifest.folded {
@@ -134,7 +134,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     .read_fold(&folded_step)?
                     .ok_or(Error::WitnessLost("snapshot indexed fold"))?;
                 let public = &fold.record.lineage.public;
-                let folded_core = &folded_step.frozen.capsule.successor_state.core;
+                let folded_core = &folded_step.frozen.capsule.body().successor_state.core;
                 if public.burned_total < folded_core.burned_total
                     || public.burned_total < core.burned_total
                 {
@@ -146,6 +146,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     folded_step
                         .frozen
                         .capsule
+                        .body()
                         .successor_state
                         .spendable_with(public),
                 )?;

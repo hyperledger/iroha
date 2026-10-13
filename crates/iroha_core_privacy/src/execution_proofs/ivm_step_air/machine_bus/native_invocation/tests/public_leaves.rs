@@ -93,7 +93,7 @@ fn authentic_unit_and_bool_leaves_join_every_original_bank_and_history_phase() {
         let contract = artifact(kind, word, frame, true, nonzero_entry);
         let mut expected = ordinary(&contract, 10_000);
         expected.run().unwrap();
-        assert_eq!(expected.public_call_result_word(0), Ok(word));
+        assert_eq!(expected.public_call_result_word(0).unwrap(), word);
         let (source, budget) = source(contract, "main", 10_000);
         assert_eq!(source.root.leaf_kind(), kind);
         assert_eq!(source.native.entrypoint_index(), usize::from(nonzero_entry));
@@ -251,14 +251,38 @@ fn full_word_aliases_and_missing_initialization_are_native_faults_without_owners
         ),
     ] {
         let contract = artifact(kind, word, 0, initialized, false);
-        assert_eq!(ordinary(&contract, 10_000).run(), Err(expected.clone()));
+        assert!(matches!(
+            (ordinary(&contract, 10_000).run(), &expected),
+            (Err(VMError::DecodeError), VMError::DecodeError)
+                | (Err(VMError::AssertionFailed), VMError::AssertionFailed)
+        ));
         let budget = AllocationBudget::new(128 * 1024 * 1024);
         let mut parent =
             ExecutionMemoryLease::reserve(&budget, NativeInvocation::allocation_plan().unwrap())
                 .unwrap();
-        assert!(
-            matches!(NativeInvocation::run_public_leaf_root(contract, "main", 10_000, &mut parent, &budget), Err(ivm::execution_packets::CaptureError::Execution(actual)) if actual == expected)
-        );
+        assert!(matches!(
+            (
+                NativeInvocation::run_public_leaf_root(
+                    contract,
+                    "main",
+                    10_000,
+                    &mut parent,
+                    &budget
+                ),
+                expected
+            ),
+            (
+                Err(ivm::execution_packets::CaptureError::Execution(
+                    VMError::DecodeError
+                )),
+                VMError::DecodeError
+            ) | (
+                Err(ivm::execution_packets::CaptureError::Execution(
+                    VMError::AssertionFailed
+                )),
+                VMError::AssertionFailed
+            )
+        ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }
@@ -294,13 +318,22 @@ fn every_public_leaf_gas_prefix_preserves_the_exact_ordinary_outcome() {
             );
             match (verdict, captured) {
                 (Ok(()), Ok(native)) => {
-                    assert_eq!(expected.public_call_result_word(0), Ok(word));
+                    assert_eq!(expected.public_call_result_word(0).unwrap(), word);
                     assert_eq!(native.remaining_gas(), expected.remaining_gas());
                     assert_eq!(native.cycles(), expected.get_cycle_count());
                     drop(native);
                 }
                 (Err(expected), Err(ivm::execution_packets::CaptureError::Execution(actual))) => {
-                    assert_eq!(actual, expected, "{kind:?}, word {word}, gas {gas}");
+                    // These initialized public leaves make no syscalls: gas exhaustion
+                    // and the noncanonical Bool word are the only expected faults.
+                    assert!(
+                        matches!(
+                            (&actual, &expected),
+                            (VMError::OutOfGas, VMError::OutOfGas)
+                                | (VMError::DecodeError, VMError::DecodeError)
+                        ),
+                        "{kind:?}, word {word}, gas {gas}: actual {actual:?}, expected {expected:?}"
+                    );
                 }
                 (_, Err(other)) => panic!("unexpected local refusal at gas {gas}: {other:?}"),
                 (Err(error), Ok(_)) => {

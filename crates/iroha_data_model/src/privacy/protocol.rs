@@ -795,7 +795,7 @@ impl PrivacyRootPublicationV1 {
     ///
     /// Returns a Norito encoding error if canonical encoding fails.
     pub fn digest(&self) -> Result<PrivacyRootPublicationDigestV1, norito::Error> {
-        let encoded = norito::to_bytes(self)?;
+        let encoded = norito::encode_canonical(self)?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(PRIVACY_ROOT_PUBLICATION_DIGEST_DOMAIN_V1);
         hasher.update(
@@ -925,7 +925,7 @@ impl PrivacyOrchardPoolBootstrapV1 {
     ///
     /// Returns a Norito encoding error if canonical encoding fails.
     pub fn digest(&self) -> Result<PrivacyOrchardPoolBootstrapDigestV1, norito::Error> {
-        let encoded = norito::to_bytes(self)?;
+        let encoded = norito::encode_canonical(self)?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(PRIVACY_ORCHARD_POOL_BOOTSTRAP_DIGEST_DOMAIN_V1);
         hasher.update(
@@ -1576,7 +1576,7 @@ impl PrivacyProofManagedPoolBootstrapV1 {
     ///
     /// Returns a Norito encoding error if canonical encoding fails.
     pub fn digest(&self) -> Result<PrivacyProofManagedPoolBootstrapDigestV1, norito::Error> {
-        let encoded = norito::to_bytes(self)?;
+        let encoded = norito::encode_canonical(self)?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(PRIVACY_PROOF_MANAGED_POOL_BOOTSTRAP_DIGEST_DOMAIN_V1);
         hasher.update(
@@ -1933,7 +1933,7 @@ impl PrivacyPgcAccountBootstrapV1 {
     ///
     /// Returns a Norito encoding error if canonical encoding fails.
     pub fn digest(&self) -> Result<PrivacyPgcAccountBootstrapDigestV1, norito::Error> {
-        let encoded = norito::to_bytes(self)?;
+        let encoded = norito::encode_canonical(self)?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(PRIVACY_PGC_ACCOUNT_BOOTSTRAP_DIGEST_DOMAIN_V1);
         hasher.update(

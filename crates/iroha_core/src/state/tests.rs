@@ -306,9 +306,9 @@ fn trigger_component_block(state: &State, height: u64) -> ValidBlock {
         time_ms,
         0,
     );
-    let signed = iroha_data_model::block::builder::BlockBuilder::new(header)
+    let signed_payload = iroha_data_model::block::builder::BlockBuilder::new(header)
         .build_with_signature(0, ALICE_KEYPAIR.private_key());
-    ValidBlock::new_unverified_for_tests(signed)
+    ValidBlock::new_unverified_for_tests(signed_payload)
 }
 
 state_test! { sync trigger_fixture_retains_original_genesis_and_refuses_a_pristine_root
@@ -965,7 +965,7 @@ state_test! { sync failed_pristine_stage_skips_start_effects_and_releases_overla
         Ok(_) => panic!("a rejected pristine stage must not construct a block"),
         Err(error) => error,
     };
-    assert_eq!(error, StateBlockStartError::Stage("rejected pristine stage"));
+    assert!(matches!(error, StateBlockStartError::Stage("rejected pristine stage")));
     assert_eq!(state.world.privacy_consensus_policy.view().get(), &original_policy);
     assert_eq!(
         state.world.privacy_activations.view().get(&activation_key),
@@ -1423,13 +1423,13 @@ state_test! { sync trigger_batch_contract_calls_advance_nft_sequence
         transaction::{ExecutableBatchItem, executable::ContractInvocation},
     };
     use iroha_test_samples::ALICE_KEYPAIR;
-    let_row! { (program, manifest) = kotodama_lang::compiler::Compiler::new() .compile_source_with_manifest( r#"
+    let_row! { (program, manifest) = kotodama_lang::compiler::Compiler::new() .compile_source_with_manifest( r"
 seiyaku SequentialNfts { permission CanInvokeContractEntrypoint;
   kotoage fn run() authorize(CanInvokeContractEntrypoint) {
 ledger::nft::create_for_all_users();
   }
 }
-"#, ) .expect("compile sequential NFT contract") };
+", ) .expect("compile sequential NFT contract") };
     let authority = ALICE_ID.clone();
     let code_hash = ivm::contract_code_hash(&program);
     let initial_world = World::with(
@@ -1977,7 +1977,7 @@ state_test! { sync contract_lifecycle_survives_state_snapshot_and_preserves_cano
     let owner = AccountId::new(checked_keypair().public_key().clone());
     let pending_owner = AccountId::new(checked_keypair().public_key().clone());
     let address = iroha_data_model::smart_contract::ContractAddress::derive(
-        &*DEFAULT_TEST_NETWORK_ID,
+        &DEFAULT_TEST_NETWORK_ID,
         &owner,
         41,
         DataSpaceId::UNIVERSAL,
@@ -2049,7 +2049,7 @@ state_test! { sync contract_lifecycle_survives_state_snapshot_and_preserves_cano
 state_test! { sync contract_lifecycle_snapshot_rejects_missing_subject_account
     let owner = AccountId::new(checked_keypair().public_key().clone());
     let address = iroha_data_model::smart_contract::ContractAddress::derive(
-        &*DEFAULT_TEST_NETWORK_ID,
+        &DEFAULT_TEST_NETWORK_ID,
         &owner,
         42,
         DataSpaceId::UNIVERSAL,
@@ -2106,9 +2106,11 @@ fn axt_replay_incarnation_for_test(seed: u8) -> AxtAssetIncarnationV1 {
         .expect("AXT replay-key fixture incarnation must be canonical and non-zero")
 }
 fn axt_budget_key_for_replay_key(key: &AxtHandleReplayKey) -> AxtHandleBudgetKey {
-    let mut context = AxtHandleIssuerContextV1::default();
-    context.asset_dsid = key.asset_dsid;
-    context.asset_definition_incarnation = key.asset_definition_incarnation;
+    let context = AxtHandleIssuerContextV1 {
+        asset_dsid: key.asset_dsid,
+        asset_definition_incarnation: key.asset_definition_incarnation,
+        ..Default::default()
+    };
     let handle = signed_axt_handle_for_block_freeze(
         &crate::state::checked_keypair(),
         context,
@@ -2385,7 +2387,7 @@ state_test! { sync anchored_axt_replay_restore_rejects_out_of_range_source_coord
         nonce: AxtSpendNonceV1::try_new([0xB7; 32]).expect("nonzero nonce"),
     };
     let source = source_transfer_replay_key_for_tests(&key);
-    let limit = iroha_data_model::nexus::MAX_REMOTE_SPEND_INTENT_COMMITMENTS_V1 as u32;
+    let limit = u32::try_from(iroha_data_model::nexus::MAX_REMOTE_SPEND_INTENT_COMMITMENTS_V1).expect("fixture value fits u32");
     for (field, invalid_source) in [
         ("transcript index", AxtSourceTransferReplayKeyV1 { transcript_index: limit, ..source }),
         ("delta index", AxtSourceTransferReplayKeyV1 { delta_index: limit, ..source }),
@@ -3419,14 +3421,16 @@ fn public_lane_staking_invariant_fixture() -> PublicLaneStakingInvariantFixture 
     );
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            SumeragiNposParameters {
-                evidence_horizon_blocks: 2,
-                slashing_delay_blocks: 2,
-                ..SumeragiNposParameters::default()
-            }
-            .into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                SumeragiNposParameters {
+                    evidence_horizon_blocks: 2,
+                    slashing_delay_blocks: 2,
+                    ..SumeragiNposParameters::default()
+                }
+                .into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     world.public_lane_validators.insert(
@@ -4810,7 +4814,7 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
                 ..SumeragiNposParameters::default()
             }
             .into_custom_parameter(),
-        ));
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let request_id = Hash::new("unbond-request");
@@ -5111,6 +5115,7 @@ fn install_existing_nexus_geometry_for_test(
             &activation_heights,
             &lineage,
             None,
+            &mut LaneLifecycleReleases::new(state),
         )
         .unwrap_or_else(|failure| {
             panic!(
@@ -5224,7 +5229,7 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
         .expect("register account");
     let_row! { retail_alias = iroha_data_model::account::rekey::AccountAlias::new( "retaildesk".parse().expect("label"), Some(iroha_data_model::account::rekey::AccountAliasDomain::new( "treasury".parse::<Name>().expect("domain name"), )), retail_dataspace, ) };
     let retail_domain = DomainId::try_new("treasury", "retail").expect("retail domain id");
-    let_row! { initial_scopes = stx .world .account_scope_entry(&account_id) .expect("initial account scope") .expect("materialized account should have an account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { initial_scopes = stx .world .account_scope_entry(&account_id) .expect("materialized account should have an account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         initial_scopes,
         BTreeMap::from([(DataSpaceId::UNIVERSAL, BTreeSet::new())]),
@@ -5238,7 +5243,7 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
     );
     stx.world
         .insert_account_alias_binding(retail_alias.clone(), account_id.clone());
-    let_row! { bound_scopes = stx .world .account_scope_entry(&account_id) .expect("bound account scope") .expect("bound account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { bound_scopes = stx .world .account_scope_entry(&account_id) .expect("bound account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         bound_scopes,
         BTreeMap::from([
@@ -5258,7 +5263,7 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
         "alias binds should update the reverse account-scope index",
     );
     stx.world.remove_account_alias_binding(&retail_alias);
-    let_row! { unbound_scopes = stx .world .account_scope_entry(&account_id) .expect("unbound account scope") .expect("account scope entry should remain after unbind") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { unbound_scopes = stx .world .account_scope_entry(&account_id) .expect("account scope entry should remain after unbind") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         unbound_scopes,
         BTreeMap::from([(DataSpaceId::UNIVERSAL, BTreeSet::new())]),
@@ -5559,9 +5564,9 @@ state_test! { sync find_proof_records_by_status_uses_status_index_updates
         .insert_proof_record(record(&updated_id, ProofStatus::Verified));
     let_row! { verified_ids = FindProofRecordsByStatus { status: ProofStatus::Verified, } .execute(CompoundPredicate::PASS, &stx) .expect("query verified proof records") .map(|record| record.id) .collect::<Vec<_>>() };
     assert_eq!(verified_ids, vec![verified_id.clone(), updated_id.clone()]);
-    let_row! { submitted_ids = FindProofRecordsByStatus { status: ProofStatus::Submitted, } .execute(CompoundPredicate::PASS, &stx) .expect("query submitted proof records") .map(|record| record.id) .collect::<Vec<_>>() };
+    let_row! { submitted_count = FindProofRecordsByStatus { status: ProofStatus::Submitted, } .execute(CompoundPredicate::PASS, &stx) .expect("query submitted proof records") .count() };
     assert!(
-        submitted_ids.is_empty(),
+        submitted_count == 0,
         "replacement should remove stale status-index entries",
     );
     let_row! { generic_by_id = FindProofRecords .execute( CompoundPredicate::<ProofRecord>::build(|predicate| { predicate.equals("id", updated_id.clone()) }), &stx, ) .expect("query proof records by generic id predicate") .map(|record| record.id) .collect::<Vec<_>>() };
@@ -5617,7 +5622,7 @@ state_test! { sync account_scope_directory_uses_primary_label_materialization_fo
     stx.world.accounts.insert(authority_id, authority_value);
     let_row! { (account_key, account_value) = Account::new(account_id.clone()) .with_label(Some(private_primary_label.clone())) .build(&authority) .into_key_value() };
     stx.world.accounts.insert(account_key, account_value);
-    let_row! { scopes = stx .world .account_scope_entry(&account_id) .expect("account scope") .expect("materialized account should have an account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { scopes = stx .world .account_scope_entry(&account_id) .expect("materialized account should have an account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         scopes,
         BTreeMap::from([(
@@ -5660,7 +5665,7 @@ state_test! { sync account_scope_directory_tracks_manifest_driven_uaid_binding_c
     retail_set.upsert(manifest_record(retail_dataspace));
     stx.world.space_directory_manifests.insert(uaid, retail_set);
     stx.world.rebuild_space_directory_bindings(uaid);
-    let_row! { retail_scopes = stx .world .account_scope_entry(&account_id) .expect("retail account scope") .expect("account scope entry after retail manifest") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { retail_scopes = stx .world .account_scope_entry(&account_id) .expect("account scope entry after retail manifest") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         retail_scopes,
         BTreeMap::from([
@@ -5675,7 +5680,7 @@ state_test! { sync account_scope_directory_tracks_manifest_driven_uaid_binding_c
         .space_directory_manifests
         .insert(uaid, treasury_set);
     stx.world.rebuild_space_directory_bindings(uaid);
-    let_row! { treasury_scopes = stx .world .account_scope_entry(&account_id) .expect("treasury account scope") .expect("account scope entry after manifest rotation") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
+    let_row! { treasury_scopes = stx .world .account_scope_entry(&account_id) .expect("account scope entry after manifest rotation") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         treasury_scopes,
         BTreeMap::from([
@@ -5869,14 +5874,14 @@ state_test! { sync trigger_args_preserve_sns_refusal_before_host_publication_and
         let error = norito::with_decode_limits_scope(norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX), || tx.trigger_args_from_data_event(&event).unwrap_err());
         assert!(matches!(error, crate::execution_attempt::ExecutionAttemptError::Deferred(_)), "{error}");
         let _ = tx.attempt_error_to_validation_fail(error);
-        assert!(tx.execution_deferral().is_some());
+        assert!(tx.is_execution_deferred());
         assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
     }
     let mut retry = block.transaction();
     let args = retry.trigger_args_from_data_event(&event).unwrap();
     let payload: norito::json::Value = args.try_into_any().unwrap();
     assert_eq!(payload.as_object().unwrap().get("account_domain"), Some(&norito::json!("centralbank.universal")));
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     retry.world.smart_contract_state.insert(key, vec![0xff]);
     assert!(matches!(retry.trigger_args_from_data_event(&event), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(_))));
 }
@@ -5965,10 +5970,10 @@ state_test! { sync committed_replay_skips_failed_external_after_sealed_commitmen
                 ),
             ]);
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-block.set_execution_outputs(outputs, fragments, Default::default(),
+block.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }
         .expect("test block entrypoint hashes should match payload");
     let_row! { committed = crate::block::ValidBlock::new_unverified_for_tests(block) .commit_unchecked(crate::block::reserve_block_for_tests()) .unpack(|_| {}) };
@@ -6032,9 +6037,11 @@ fn executor_reconciliation_cannot_replace_signed_npos_parameters() {
     let state = blank_test_state();
     {
         let mut parameters = state.world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            installed.clone().into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                installed.clone().into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut attacker_model = ExecutorDataModel::default();
@@ -6043,8 +6050,8 @@ fn executor_reconciliation_cannot_replace_signed_npos_parameters() {
         attacker_value.into_custom_parameter(),
     );
 
-    let signed = empty_signed_block_after(None, 1);
-    let mut block = state.block(signed.header());
+    let signed_payload = empty_signed_block_after(None, 1);
+    let mut block = state.block(signed_payload.header());
     {
         let mut transaction = block.transaction();
         transaction.world.apply_executor_data_model(attacker_model);
@@ -6216,7 +6223,7 @@ state_test! { sync state_test_tlv_allocator_prefers_input_and_spills_to_heap
             .contains(&small_ptr),
         "small fixture TLVs should retain the traditional INPUT allocation"
     );
-    let oversized_payload = norito::to_bytes(&vec![0xA5_u8; ivm::Memory::INPUT_SIZE as usize])
+    let oversized_payload = norito::to_bytes(&vec![0xA5_u8; usize::try_from(ivm::Memory::INPUT_SIZE).expect("fixture value fits usize")])
         .expect("canonical oversized Norito payload");
     let spill_ptr = store_tlv_bytes(&mut vm, PointerType::NoritoBytes, &oversized_payload);
     assert!(
@@ -6457,7 +6464,7 @@ state_test! { sync autoscale_ratio_permille_handles_boundary_rounding
     assert_eq!(autoscale_ratio_permille(0.0005), 1);
     assert_eq!(autoscale_ratio_permille(-0.0), 0);
     assert_eq!(
-        autoscale_ratio_permille(u64::MAX as f64 / 1_000.0),
+        autoscale_ratio_permille(18_446_744_073_709_551_616.0 / 1_000.0),
         u64::MAX
     );
 }
@@ -6990,7 +6997,7 @@ state_test! { sync autoscale_retire_selection_ignores_managed_lanes_outside_elas
     let in_range_lane = autoscale_elastic_lane_config(LaneId::new(4), DataSpaceId::UNIVERSAL, 41);
     assert_eq!(
         autoscale_managed_lane_for_retire(
-            &[out_of_range_lane.clone()],
+            std::slice::from_ref(&out_of_range_lane),
             3,
             8,
             DataSpaceId::UNIVERSAL
@@ -7276,16 +7283,19 @@ fn autoscale_signed_block_with_committed_fragments(
     committed_fragments: u64,
 ) -> SignedBlock {
     let keypair = crate::state::checked_keypair();
-    let (height, prev_block_hash) = prev_block.map_or((nonzero!(1_u64), None), |block| {
-        (
-            block
-                .header()
-                .height()
-                .checked_add(1)
-                .expect("test carrier height must fit"),
-            Some(block.hash()),
-        )
-    });
+    let (height, prev_block_hash) = prev_block.map_or_else(
+        || (nonzero!(1_u64), None),
+        |block| {
+            (
+                block
+                    .header()
+                    .height()
+                    .checked_add(1)
+                    .expect("test carrier height must fit"),
+                Some(block.hash()),
+            )
+        },
+    );
     let mut header = BlockHeader::new(height, prev_block_hash, None, creation_time_ms, 0);
     header.set_confidential_features(Some(
         iroha_data_model::confidential::DEFAULT_CONFIDENTIAL_FEATURE_DIGEST,
@@ -7315,7 +7325,7 @@ fn finish_autoscale_fixture(
             BTreeMap::new(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("empty autoscale fixture retains explicit result metadata");
@@ -7514,9 +7524,9 @@ state_test! { sync consensus_lane_lifecycle_replay_converges_on_fresh_state
     );
     let (events_sender, _) = tokio::sync::broadcast::channel(8);
     let_row! { queue = crate::queue::Queue::from_config( iroha_config::parameters::actual::Queue::default(), events_sender, ) };
-    assert!(queue.reconfigure_nexus_with_state_if_needed(&first_nexus, &first, None,));
+    assert!(queue.reconfigure_nexus_with_state_if_needed(&first_nexus, first, None,));
     assert!(
-        !queue.reconfigure_nexus_with_state_if_needed(&first_nexus, &first, None),
+        !queue.reconfigure_nexus_with_state_if_needed(&first_nexus, first, None),
         "queue topology refresh must be idempotent after committed lifecycle publication"
     );
 }
@@ -7578,16 +7588,16 @@ state_test! { sync normal_validation_requires_can_set_parameters_for_lane_lifecy
         let source: SignedBlock = unverified.into();
         let (mut state_block, guard) = crate::block::ValidBlock::start_component_execution(&source, state).expect("original recorder before execution");
         let_row! { committed = crate::block::ValidBlock::validate_unchecked(source, &mut state_block, guard) .unpack(|_| {}) .commit_unchecked(crate::block::reserve_block_for_tests()) .unpack(|_| {}) };
-        let signed = committed.into_shared();
+        let signed_payload = committed.into_shared();
         if authorized {
             assert!(
-                signed.output_error(0).is_none(),
+                signed_payload.output_error(0).is_none(),
                 "CanSetParameters holder should pass lifecycle validation: {:?}",
-                signed.output_error(0)
+                signed_payload.output_error(0)
             );
             assert!(state_block.pending_autoscale_lifecycle.is_some());
         } else {
-            let_row! { rejection = format!( "{:?}", signed .output_error(0) .expect("authority without CanSetParameters must be rejected") ) };
+            let_row! { rejection = format!( "{:?}", signed_payload .output_error(0) .expect("authority without CanSetParameters must be rejected") ) };
             assert!(
                 rejection.contains("Can't set network parameters without CanSetParameters"),
                 "unexpected permission rejection: {rejection}"
@@ -7616,8 +7626,8 @@ state_test! { sync signed_lane_lifecycle_transaction_rejects_duplicate_transitio
     let source: SignedBlock = unverified.into();
     let (mut state_block, guard) = crate::block::ValidBlock::start_component_execution(&source, state).expect("original recorder before execution");
     let_row! { committed = crate::block::ValidBlock::validate_unchecked(source, &mut state_block, guard) .unpack(|_| {}) .commit_unchecked(crate::block::reserve_block_for_tests()) .unpack(|_| {}) };
-    let signed = committed.into_shared();
-    let_row! { rejection = format!( "{:?}", signed .output_error(0) .expect("duplicate signed lifecycle transition must be rejected") ) };
+    let signed_payload = committed.into_shared();
+    let_row! { rejection = format!( "{:?}", signed_payload .output_error(0) .expect("duplicate signed lifecycle transition must be rejected") ) };
     assert!(rejection.contains("already staged"), "{rejection}");
     assert_eq!(state_block.nexus.lane_catalog, LaneCatalog::default());
     assert!(state_block.pending_autoscale_lifecycle.is_none());
@@ -7648,8 +7658,8 @@ state_test! { sync signed_lane_lifecycle_rejects_stale_catalog_after_prior_commi
     assert_eq!(source.header().prev_block_hash(), Some(chain.committed(2).block().hash()));
     let (mut state_block, guard) = crate::block::ValidBlock::start_component_execution(&source, state).expect("original recorder before execution");
     let_row! { committed = crate::block::ValidBlock::validate_unchecked(source, &mut state_block, guard) .unpack(|_| {}) .commit_unchecked(crate::block::reserve_block_for_tests()) .unpack(|_| {}) };
-    let signed = committed.into_shared();
-    let_row! { rejection = format!( "{:?}", signed .output_error(0) .expect("stale signed lifecycle transition must be rejected") ) };
+    let signed_payload = committed.into_shared();
+    let_row! { rejection = format!( "{:?}", signed_payload .output_error(0) .expect("stale signed lifecycle transition must be rejected") ) };
     assert!(rejection.contains("expected catalog hash"), "{rejection}");
     assert_eq!(state_block.nexus.lane_catalog, before);
     assert!(state_block.pending_autoscale_lifecycle.is_none());
@@ -7879,7 +7889,7 @@ fn seed_snapshot_metadata_with_hashes_for_test(
         hashes.commit_for_tests();
 
         let mut membership = state.transactions.block();
-        membership.insert_block(std::collections::HashSet::new(), nonzero_height);
+        membership.insert_block(std::collections::BTreeSet::new(), nonzero_height);
         membership
             .commit()
             .expect("append structural snapshot membership");
@@ -8058,8 +8068,7 @@ state_test! { sync lane_committee_protocol_limit_accepts_128_and_rejects_larger_
     assert!(!lane_committee_size_within_protocol_limit(usize::MAX));
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.staking.max_validators = nonzero!(130_u32);
-    let mut accepted = DataSpaceMetadata::default();
-    accepted.fault_tolerance = 42;
+    let accepted = DataSpaceMetadata { fault_tolerance: 42, ..Default::default() };
     nexus.dataspace_catalog =
         DataSpaceCatalog::new(vec![accepted]).expect("127-member 3f+1 dataspace");
     assert_eq!(
@@ -8067,8 +8076,7 @@ state_test! { sync lane_committee_protocol_limit_accepts_128_and_rejects_larger_
         Some(127),
         "the largest representable 3f+1 committee below the 128-member cap is accepted"
     );
-    let mut rejected = DataSpaceMetadata::default();
-    rejected.fault_tolerance = 43;
+    let rejected = DataSpaceMetadata { fault_tolerance: 43, ..Default::default() };
     nexus.dataspace_catalog =
         DataSpaceCatalog::new(vec![rejected]).expect("130-member 3f+1 dataspace");
     assert_eq!(
@@ -8333,7 +8341,7 @@ state_test! { sync validate_restored_governance_is_read_only_and_rejects_invalid
         .validate_restored_governance(&candidate)
         .expect("valid restored governance policy");
     assert!(state.world.provider_owners.view().get(&provider_id).is_none());
-    assert!(state.gov.sorafs_provider_owners.get(&provider_id).is_none());
+    assert!(!state.gov.sorafs_provider_owners.contains_key(&provider_id));
 
     candidate.conviction_step_blocks = 0;
     let error = state
@@ -8383,7 +8391,7 @@ state_test! { sync governance_restore_rejects_oversized_plain_ballot_corpus
     ).expect("exact finite negative-corpus source reservation");
     parameters.get_mut().set_parameter(iroha_data_model::parameter::Parameter::Block(
         iroha_data_model::parameter::BlockParameter::FastpqSource(policy),
-    ));
+    )).expect("valid fixture parameters");
     parameters.commit();
     world.governance_referenda.insert("oversized-plain-restore".to_owned(), indexed_plain_referendum());
     world
@@ -10985,7 +10993,7 @@ state_test! { sync certified_runtime_snapshot_replay_preserves_lane_history
         kura: Arc::clone(original.kura()),
         query_handle: LiveQueryStore::start_test(),
         #[cfg(feature = "telemetry")]
-        telemetry: Default::default(),
+        telemetry: crate::telemetry::StateTelemetry::default(),
     }.into_state_from_json(snapshot), Err(deserialize::StateRestoreError::NativeExecutionReplayRequired)));
     let mut restarted = CertifiedTestChain::start(genesis_config()).expect("same original signed genesis");
     assert_eq!(restarted.state().network_id_ref(), state.network_id_ref(),
@@ -11116,7 +11124,7 @@ state_test! { sync emergency_fast_restored_config_preserves_staking_owner_and_cu
                     ..SumeragiNposParameters::default()
                 }
                 .into_custom_parameter(),
-            ));
+            )).expect("valid fixture parameters");
             parameters.commit();
         }
         let mut state = State::new_for_testing(
@@ -11684,8 +11692,7 @@ state_test! { sync set_nexus_rejects_default_lane_claiming_autoscale_ownership
 }
 state_test! { sync set_nexus_rejects_preserved_autoscale_managed_lane_outside_default_dataspace
     let other_dataspace = DataSpaceId::new(9);
-    let mut configured = iroha_config::parameters::actual::Nexus::default();
-    configured.dataspace_catalog = dataspace_catalog_with_extra(other_dataspace);
+    let configured = iroha_config::parameters::actual::Nexus { dataspace_catalog: dataspace_catalog_with_extra(other_dataspace), ..Default::default() };
     let mut state = State::new_with_pre_genesis_nexus_for_testing(
         World::default(),
         configured,
@@ -13290,7 +13297,7 @@ fn insert_active_public_lane_validator_for_test(
     lane_id: LaneId,
     validator: &AccountId,
     keypair: &KeyPair,
-    stake: u64,
+    stake_quantity: u64,
 ) {
     let mut world_block = state.world.block();
     world_block.public_lane_validators.insert(
@@ -13300,8 +13307,8 @@ fn insert_active_public_lane_validator_for_test(
             validator: validator.clone(),
             peer_id: PeerId::new(keypair.public_key().clone()),
             stake_account: validator.clone(),
-            total_stake: Quantity::from(stake),
-            self_stake: Quantity::from(stake),
+            total_stake: Quantity::from(stake_quantity),
+            self_stake: Quantity::from(stake_quantity),
             metadata: Metadata::default(),
             status: PublicLaneValidatorStatus::Active,
             activation_height: 0,
@@ -13315,7 +13322,7 @@ fn insert_active_public_lane_validator_for_test(
             lane_id,
             validator: validator.clone(),
             staker: validator.clone(),
-            bonded: Quantity::from(stake),
+            bonded: Quantity::from(stake_quantity),
             pending_unbonds: BTreeMap::new(),
             metadata: Metadata::default(),
         },
@@ -16260,11 +16267,11 @@ state_test! { sync genesis_allows_missing_shard_cursor_without_da_bundle
     let (state, _kura) = blank_test_state_with_kura();
     let keypair = crate::state::checked_keypair();
     let_row! { new_block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = new_block.into();
-    let mut state_block = state.block(signed.header());
+    let signed_payload: SignedBlock = new_block.into();
+    let mut state_block = state.block(signed_payload.header());
     state_block.touched_lanes.insert(LaneId::new(0));
     state_block
-        .validate_da_shard_cursors(&signed)
+        .validate_da_shard_cursors(&signed_payload)
         .expect("genesis should allow missing cursors without DA bundle");
 }
 state_test! { sync touched_lane_without_da_bundle_allows_missing_cursor
@@ -16272,23 +16279,23 @@ state_test! { sync touched_lane_without_da_bundle_allows_missing_cursor
     let keypair = crate::state::checked_keypair();
     let_row! { genesis_block: SignedBlock = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .sign(keypair.private_key()) .unpack(|_| {}) .into() };
     let_row! { new_block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, Some(&genesis_block)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = new_block.into();
-    let mut state_block = state.block(signed.header());
+    let signed_payload: SignedBlock = new_block.into();
+    let mut state_block = state.block(signed_payload.header());
     state_block.touched_lanes.insert(LaneId::new(0));
     state_block
-        .validate_da_shard_cursors(&signed)
+        .validate_da_shard_cursors(&signed_payload)
         .expect("missing cursor should be allowed when no DA bundle is present");
 }
 state_test! { sync empty_da_bundle_is_canonicalized_before_touched_lane_cursor_validation
     let (state, _kura) = blank_test_state_with_kura();
     let keypair = crate::state::checked_keypair();
     let_row! { new_block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .with_da_commitments(Some(DaCommitmentBundle::new(Vec::new()))) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = new_block.into();
-    let mut state_block = state.block(signed.header());
+    let signed_payload: SignedBlock = new_block.into();
+    let mut state_block = state.block(signed_payload.header());
     state_block.touched_lanes.insert(LaneId::new(0));
-    assert!(signed.da_commitments().is_none());
-    assert!(signed.header().da_commitments_hash().is_none());
-    state_block.validate_da_shard_cursors(&signed)
+    assert!(signed_payload.da_commitments().is_none());
+    assert!(signed_payload.header().da_commitments_hash().is_none());
+    state_block.validate_da_shard_cursors(&signed_payload)
         .expect("canonical absence of commitments does not advance a shard cursor");
 }
 
@@ -16307,10 +16314,10 @@ state_test! { sync missing_shard_cursor_blocks_touched_lane_when_da_bundle_prese
     let keypair = crate::state::checked_keypair();
     let_row! { bundle = DaCommitmentBundle::new(vec![DaCommitmentRecord::new( lane1.id, 1, 1, BlobDigest::new([0xAA; 32]), iroha_data_model::sorafs::pin_registry::ManifestDigest::new([0xBB; 32]), DaProofScheme::MerkleSha256, Hash::prehashed([0xCC; 32]), None, RetentionClass::default(), StorageTicketId::new([0xEE; 32]), checked_da_ack_signature(0x11), )]) };
     let_row! { new_block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .with_da_commitments(Some(bundle)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = new_block.into();
-    let mut state_block = state.block(signed.header());
+    let signed_payload: SignedBlock = new_block.into();
+    let mut state_block = state.block(signed_payload.header());
     state_block.touched_lanes.insert(LaneId::new(0));
-    let_row! { err = state_block .validate_da_shard_cursors(&signed) .expect_err("missing cursor should reject touched lane when DA bundle is present") };
+    let_row! { err = state_block .validate_da_shard_cursors(&signed_payload) .expect_err("missing cursor should reject touched lane when DA bundle is present") };
     assert!(matches!(
         err,
         BlockValidationError::DaShardCursor(DaShardCursorError::MissingCursor {
@@ -16319,7 +16326,7 @@ state_test! { sync missing_shard_cursor_blocks_touched_lane_when_da_bundle_prese
             block_height,
         }) if lane_id == LaneId::new(0)
             && shard_id == lane_config.shard_id(LaneId::new(0))
-            && block_height == signed.header().height().get()
+            && block_height == signed_payload.header().height().get()
     ));
 }
 state_test! { sync validate_da_shard_cursors_rejects_committed_manifest_reuse
@@ -16568,12 +16575,12 @@ fn hydrate_da_indexes_replays_multi_shard_bundle() {
     let bundle = DaCommitmentBundle::new(vec![lane_zero_record.clone(), lane_one_record.clone()]);
     let keypair = crate::state::checked_keypair();
     let_row! { block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .with_da_commitments(Some(bundle)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = block.into();
-    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed.clone()))
+    let signed_payload: SignedBlock = block.into();
+    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed_payload.clone()))
         .expect("store block");
     {
         let mut hashes = state.block_hashes.block();
-        hashes.push(signed.hash());
+        hashes.push(signed_payload.hash());
         hashes.commit_for_tests();
     }
     state
@@ -16618,12 +16625,12 @@ state_test! { sync hydrate_da_indexes_replaces_stale_snapshot_state
     let bundle = DaCommitmentBundle::new(vec![committed_record.clone()]);
     let keypair = crate::state::checked_keypair();
     let_row! { block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .with_da_commitments(Some(bundle)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = block.into();
-    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed.clone()))
+    let signed_payload: SignedBlock = block.into();
+    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed_payload.clone()))
         .expect("store block");
     {
         let mut hashes = state.block_hashes.block();
-        hashes.push(signed.hash());
+        hashes.push(signed_payload.hash());
         hashes.commit_for_tests();
     }
     let_row! { stale_record = DaCommitmentRecord::new( LaneId::new(0), 9, 9, BlobDigest::new([0x10; 32]), iroha_data_model::sorafs::pin_registry::ManifestDigest::new([0x20; 32]), DaProofScheme::MerkleSha256, Hash::prehashed([0x30; 32]), None, RetentionClass::default(), StorageTicketId::new([0x50; 32]), checked_da_ack_signature(0x60), ) };
@@ -16667,12 +16674,12 @@ state_test! { sync da_commitment_lookup_hydrates_from_kura_after_state_restart
     let bundle = DaCommitmentBundle::new(vec![record.clone()]);
     let keypair = crate::state::checked_keypair();
     let_row! { block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .with_da_commitments(Some(bundle)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = block.into();
-    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed.clone()))
+    let signed_payload: SignedBlock = block.into();
+    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed_payload.clone()))
         .expect("store block");
     {
         let mut hashes = state.block_hashes.block();
-        hashes.push(signed.hash());
+        hashes.push(signed_payload.hash());
         hashes.commit_for_tests();
     }
     assert_eq!(
@@ -16691,7 +16698,7 @@ state_test! { sync da_commitment_lookup_hydrates_from_kura_after_state_restart
         .expect("apply Nexus catalog after restart");
     {
         let mut hashes = restarted.block_hashes.block();
-        hashes.push(signed.hash());
+        hashes.push(signed_payload.hash());
         hashes.commit_for_tests();
     }
     assert!(
@@ -16713,7 +16720,7 @@ state_test! { sync da_commitment_lookup_hydrates_from_kura_after_state_restart
         "lane/epoch/sequence lookup should hydrate from Kura after restart"
     );
     let commitments = restarted.da_commitments().expect("completed DA history read");
-    let_row! { stored_bundle = commitments .bundle_at(signed.header().height().get()) .expect("replayed commitment bundle should be retained by block height") };
+    let_row! { stored_bundle = commitments .bundle_at(signed_payload.header().height().get()) .expect("replayed commitment bundle should be retained by block height") };
     assert_eq!(stored_bundle.commitments(), vec![record]);
 }
 state_test! { sync block_and_revert_requires_fresh_da_shard_cursor
@@ -16826,12 +16833,12 @@ state_test! { sync apply_without_execution_persists_da_shard_cursor_journal_in_b
     let bundle = DaCommitmentBundle::new(vec![record.clone()]);
     let keypair = crate::state::checked_keypair();
     let_row! { block = BlockBuilder::new(Vec::new()) .chain(0, None) .with_da_commitments(Some(bundle)) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let mut signed: SignedBlock = block.into();
+    let mut signed_payload: SignedBlock = block.into();
     // This component fixture starts at Apply's result-bearing input boundary.
     // It tests DA materialization, not genesis admission or source execution.
-    let hashes: Vec<_> = signed.network_input_hashes().collect();
+    let hashes: Vec<_> = signed_payload.network_input_hashes().collect();
     let outputs = crate::execution_output_test_support::structural_network_outputs(
-        &signed,
+        &signed_payload,
         &hashes,
         hashes
             .iter()
@@ -16839,19 +16846,19 @@ state_test! { sync apply_without_execution_persists_da_shard_cursor_journal_in_b
             .collect(),
     );
     let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-    signed
+    signed_payload
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("result-bearing DA materialization fixture");
-    let mut state_block = state.block(signed.header());
-    let committed = ValidBlock::new_unverified_for_tests(signed)
+    let mut state_block = state.block(signed_payload.header());
+    let committed = ValidBlock::new_unverified_for_tests(signed_payload)
         .commit_unchecked(crate::block::reserve_block_for_tests())
         .unpack(|_| {});
     let _ = state_block.apply_without_execution(&committed, Vec::new());
@@ -16886,10 +16893,10 @@ state_test! { sync da_bundle_indexes_are_not_committed_when_block_height_mismatc
     let first_hashes: Vec<_> = signed_first.network_input_hashes().collect();
     { let outputs = crate::execution_output_test_support::structural_network_outputs(&signed_first, &first_hashes, first_hashes.iter().map(|_| TransactionResultInner::Ok(DataTriggerSequence::new())).collect());
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-signed_first.set_execution_outputs(outputs, fragments, Default::default(),
+signed_first.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }.expect("canonical predecessor results");
     store_block_for_state_commit(&state.kura, &signed_first);
     seed_committed_height_for_state_test(&state, 1);
@@ -16906,10 +16913,10 @@ Default::default(),
     let results = hashes.iter().map(|_| TransactionResultInner::Ok(DataTriggerSequence::new())).collect();
     { let outputs = crate::execution_output_test_support::structural_network_outputs(&signed_second, &hashes, results);
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-signed_second.set_execution_outputs(outputs, fragments, Default::default(),
+signed_second.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }
         .expect("attach canonical results and required AXT policy to the height-mismatch fixture");
     let mut state_block = state.block(signed_second.header());
@@ -17178,7 +17185,7 @@ state_test! { sync state_commit_persists_query_index_status_journal
     // chain alone cannot authorize another network's physical storage.
     let restarted = State::new_with_chain_and_network_id_for_testing(
         World::default(),
-        Arc::clone(&kura),
+        Arc::clone(kura),
         LiveQueryStore::start_test(),
         state.chain_id_ref().clone(),
         *state.network_id_ref(),
@@ -17376,8 +17383,8 @@ state_test! { sync hydrate_da_indexes_skip_ahead_journal_entries
     // Store a single block to set the latest height below the journal cursor.
     let keypair = crate::state::checked_keypair();
     let_row! { block = BlockBuilder::new(vec![dummy_accepted_transaction()]) .chain(0, None) .sign(keypair.private_key()) .unpack(|_| {}) };
-    let signed: SignedBlock = block.into();
-    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed.clone()))
+    let signed_payload: SignedBlock = block.into();
+    kura.store_block(crate::block::reserve_block_for_tests().initialize(signed_payload.clone()))
         .expect("store block");
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), Arc::clone(&kura), query_handle);
@@ -17390,7 +17397,7 @@ state_test! { sync hydrate_da_indexes_skip_ahead_journal_entries
         .expect("apply Nexus catalog before hydration");
     {
         let mut hashes = state.block_hashes.block();
-        hashes.push(signed.hash());
+        hashes.push(signed_payload.hash());
         hashes.commit_for_tests();
     }
     state
@@ -17435,10 +17442,10 @@ state_test! { sync apply_without_execution_retains_filtered_da_bundle_without_un
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("result-bearing DA cursor-error fixture");
@@ -20089,7 +20096,9 @@ state_test! { sync trigger_genesis_preserves_original_execution_bounds
     let component = blank_state();
     {
         let mut parameters = component.world.parameters.block();
-        parameters.smart_contract.execution_depth = 3;
+        parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(3),
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let original_execution = component.world.parameters.view().get().parameters()
@@ -20576,14 +20585,6 @@ state_test! { sync zk_policy_hash_tracks_every_sccp_resource_limit
         core::num::NonZeroU64::new(33 * 1024 * 1024).expect("33 MiB is nonzero")
     );
     assert_field_bound!(
-        max_secp256k1_recoveries_per_transaction,
-        core::num::NonZeroU32::new(1_004).expect("1,004 is nonzero")
-    );
-    assert_field_bound!(
-        max_secp256k1_recoveries_per_block,
-        core::num::NonZeroU32::new(4_021).expect("4,021 is nonzero")
-    );
-    assert_field_bound!(
         max_ed25519_signature_checks_per_transaction,
         core::num::NonZeroU32::new(65_535).expect("65,535 is nonzero")
     );
@@ -20703,9 +20704,11 @@ fn governance_lock_custody_fixture() -> GovernanceLockCustody {
     }
 }
 fn indexed_plain_referendum() -> GovernanceReferendumRecord {
-    let mut governance = iroha_config::parameters::actual::Governance::default();
-    governance.conviction_step_blocks = 1;
-    governance.min_bond_amount = Quantity::zero();
+    let governance = iroha_config::parameters::actual::Governance {
+        conviction_step_blocks: 1,
+        min_bond_amount: Quantity::zero(),
+        ..Default::default()
+    };
     GovernanceReferendumRecord {
         h_start: 1,
         h_end: 100,
@@ -23149,7 +23152,7 @@ state_test! { sync hosted_service_restore_requires_lease_and_latest_rollover_ope
             .iter_mut()
             .find(|checkpoint| checkpoint.assignment == assignment)
             .expect("newly opened historical reporter checkpoint");
-        let terminal_bytes = if index == 0 { 1 } else { 0 };
+        let terminal_bytes = u64::from(index == 0);
         let terminal_block_height = block_height
             .checked_add(1)
             .expect("fixture terminal block height");
@@ -23313,7 +23316,7 @@ state_test! { sync inrou_sticky_unavailable_placement_survives_pruned_capability
             bundle.service.service_version.clone(),
             ALICE_ID.clone(),
         );
-        placement.eligible_validator_count = if host_availability.is_available() { 1 } else { 0 };
+        placement.eligible_validator_count = u32::from(host_availability.is_available());
         placement.placements[0].host_availability = host_availability;
         placement.last_error = (!host_availability.is_available())
             .then(|| "sticky assigned host is unavailable".to_owned());
@@ -25018,7 +25021,7 @@ fn indexed_settled_vpn_lease(
     let mut relay_id = [0_u8; 32];
     relay_id.copy_from_slice(relay_public_key);
     let_row! { asset_definition = AssetDefinitionId::derive_from_components( DomainId::parse_fully_qualified("universal.universal").expect("XOR domain"), "xor".parse().expect("XOR asset name"), ) };
-    let_row! { custody_account_id = crate::smartcontracts::isi::vpn::vpn_lease_custody_account_id( network_id, &lease_id, &asset_definition, ) .expect("fixture VPN custody account") };
+    let_row! { custody_account_id = crate::smartcontracts::isi::vpn::vpn_lease_custody_account_id( network_id, &lease_id, &asset_definition, ) };
     let_row! { tariff = VpnTariffV1 { lease_fee: Quantity::from(10_u32), active_fee_per_minute: Quantity::from(1_u32), ingress_fee_per_mib: Quantity::from(1_u32), egress_fee_per_mib: Quantity::from(1_u32), } };
     let_row! { policy = VpnQuotePolicyV1 { exit_class: VpnExitClassV1::Standard, relay_endpoint: "/dns/restart.test/udp/9443/quic".to_owned(), relay_id, relay_mldsa65_public_key: [account_tag.wrapping_add(0x20); iroha_data_model::soranet::vpn::VPN_RELAY_MLDSA65_PUBLIC_KEY_BYTES_V1], descriptor_commit: [account_tag.wrapping_add(0x30); 32], tls_server_name: "restart.test".to_owned(), relay_tls_spki_sha256: [account_tag.wrapping_add(0x40); 32], relay_certificate_sha256: [account_tag.wrapping_add(0x50); 32], directory_snapshot_digest: [account_tag.wrapping_add(0x60); 32], relay_trust_valid_until_ms: 1_002_000, lease_secs: 1_000, meter_family: "soranet.vpn.restart".to_owned(), fee_asset_id: asset_definition.to_string(), escrow_account_id: custody_account_id.clone(), route_pushes: vec!["0.0.0.0/0".to_owned()], excluded_routes: Vec::new(), dns_servers: vec!["1.1.1.1".to_owned()], tunnel_addresses: derive_vpn_address_plan_v1(address_slot).client_tunnel_addresses, mtu_bytes: 1_280, flow_label_bits: 24, padding_budget_ms: 15, } };
     let_row! { signed_quote = VpnSignedQuoteV1::try_sign( VpnQuoteBodyV1 { network_id: *network_id, quote_id, lease_id, session_id, address_slot, client_account_id: client.clone(), operator_account_id: operator_account_id.clone(), metering_public_key: operator_key.public_key().clone(), asset_definition: asset_definition.clone(), tariff: tariff.clone(), policy: policy.clone(), valid_after_ms: 1_000, expires_at_ms: 1_001_000, settlement_grace_ms: 60_000, }, operator_key.private_key(), ) .expect("sign fixture VPN quote") };
@@ -25067,8 +25070,8 @@ state_test! { sync vpn_lease_projection_rejects_a_foreign_exact_network
     let_row! { operator_key = KeyPair::try_from_seed(vec![0x92; 32], Algorithm::Ed25519) .expect("deterministic VPN operator key") };
     let local_network = *DEFAULT_TEST_NETWORK_ID;
     let_row! { foreign_network = NetworkId::from_genesis_hash( HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xFE; Hash::LENGTH])), ) };
-    let local = indexed_settled_vpn_lease(&local_network, &*ALICE_ID, 1, 1, &operator_key);
-    let foreign = indexed_settled_vpn_lease(&foreign_network, &*ALICE_ID, 1, 1, &operator_key);
+    let local = indexed_settled_vpn_lease(&local_network, &ALICE_ID, 1, 1, &operator_key);
+    let foreign = indexed_settled_vpn_lease(&foreign_network, &ALICE_ID, 1, 1, &operator_key);
     validate_vpn_lease_network(&local, &local_network).expect("local VPN lease network");
     let_row! { error = validate_vpn_lease_network(&foreign, &local_network) .expect_err("foreign VPN lease must fail exact-network restoration") };
     assert!(error.contains("different exact network"));
@@ -25078,7 +25081,7 @@ state_test! { sync emergency_fast_snapshot_index_finalization_defers_vpn_network
     let_row! { foreign_network = NetworkId::from_genesis_hash( HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xFD; Hash::LENGTH])), ) };
     let foreign = indexed_settled_vpn_lease(
         &foreign_network,
-        &*ALICE_ID,
+        &ALICE_ID,
         2,
         1,
         &operator_key,
@@ -25119,8 +25122,8 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
     state
         .world
         .domains
-        .insert(home.clone(), Domain::new(home.clone()).build(&*ALICE_ID));
-    let mut wrong_domain = Domain::new(wrong.clone()).build(&*ALICE_ID);
+        .insert(home.clone(), Domain::new(home.clone()).build(&ALICE_ID));
+    let mut wrong_domain = Domain::new(wrong.clone()).build(&ALICE_ID);
     let registration = KaigiRelayRegistration {
         relay_id: relay_id.clone(),
         hpke_public_key: vec![0xAA],
@@ -25133,7 +25136,7 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
     state.world.domains.insert(wrong.clone(), wrong_domain);
     let (account_id, account_value) = Account::new(relay_id.clone())
         .with_label(Some(alias.clone()))
-        .build(&*ALICE_ID)
+        .build(&ALICE_ID)
         .into_key_value();
     state.world.accounts.insert(account_id, account_value);
     state
@@ -25169,7 +25172,7 @@ state_test! { sync derived_state_rebuild_rejects_future_kaigi_relay_feedback
             .public_key()
             .clone(),
     );
-    let mut domain = Domain::new(home.clone()).build(&*ALICE_ID);
+    let mut domain = Domain::new(home.clone()).build(&ALICE_ID);
     domain.metadata_mut().insert(
         kaigi_relay_metadata_key(&relay_id).expect("relay metadata key"),
         Json::try_new(KaigiRelayRegistration {
@@ -25396,12 +25399,14 @@ fn state_snapshot_restore_rebuilds_governance_and_bounded_vpn_indexes() {
     let_row! { xor_definition_id = AssetDefinitionId::derive_from_components( xor_domain.clone(), "xor".parse().expect("XOR asset name"), ) };
     // Freeze dedicated custody accounts before seeding the public positions.
     // Neither voter can hold its own escrow or receive its own slash.
-    let mut governance = iroha_config::parameters::actual::Governance::default();
-    governance.voting_asset_id = xor_definition_id.clone();
-    governance.conviction_step_blocks = 1;
-    governance.min_bond_amount = 1_u64.into();
-    governance.bond_escrow_account = iroha_test_samples::CARPENTER_ID.clone();
-    governance.slash_receiver_account = iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone();
+    let governance = iroha_config::parameters::actual::Governance {
+        voting_asset_id: xor_definition_id.clone(),
+        conviction_step_blocks: 1,
+        min_bond_amount: 1_u64.into(),
+        bond_escrow_account: iroha_test_samples::CARPENTER_ID.clone(),
+        slash_receiver_account: iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone(),
+        ..Default::default()
+    };
     for voter in [&alice_id, &bob_id] {
         assert_ne!(voter, &governance.bond_escrow_account);
         assert_ne!(voter, &governance.slash_receiver_account);
@@ -26021,12 +26026,12 @@ state_test! { sync execute_called_trigger_failure_rolls_back_state
             ALICE_ID.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(vec![], None),
         );
-        builder.set_creation_time(block.as_ref().header().creation_time() - Duration::from_millis(1));
-        let signed = builder
+        builder.set_creation_time(block.as_ref().header().creation_time().checked_sub(Duration::from_millis(1)).expect("fixture time has the original one-millisecond predecessor"));
+        let signed_payload = builder
             .with_instructions([ExecuteTrigger::new(trigger_id.clone())])
             .sign(ALICE_KEYPAIR.private_key());
         let mut source = iroha_data_model::block::builder::BlockBuilder::new(block.as_ref().header());
-        source.push_transaction(signed);
+        source.push_transaction(signed_payload);
         let mut source = source.build(iroha_data_model::block::BlockSignatures::default()).canonical_resultless_proposal().expect("valid fixture proposal projection");
         let entrypoint_hash = source.external_entrypoints_cloned().next().unwrap().hash();
         source.set_execution_context(Some(iroha_data_model::block::BlockExecutionContextBundle::new(
@@ -26067,7 +26072,9 @@ state_test! { sync self_calling_trigger_stops_at_synchronous_execution_depth
     let state = authenticate_trigger_fixture(blank_state());
     {
         let mut parameters = state.world.parameters.block();
-        parameters.smart_contract.execution_depth = 3;
+        parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(3),
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let trigger_id: TriggerId = "bounded_self_call".parse().expect("valid trigger id");
@@ -26107,7 +26114,7 @@ state_test! { sync self_calling_trigger_stops_at_synchronous_execution_depth
 // body. They deliberately do not assert full Network admission or publication.
 fn signed_callback_boundary_source(
     state: &State,
-    header: BlockHeader,
+    header: &BlockHeader,
     instructions: Vec<InstructionBox>,
 ) -> iroha_data_model::transaction::SignedTransaction {
     let mut builder = TransactionBuilder::new(
@@ -26132,7 +26139,7 @@ state_test! { sync data_trigger_depth_u8_max_rejects_without_panicking_or_wrappi
         let mut parameters = state.world.parameters.block();
         parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
             iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(u8::MAX),
-        ));
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let trigger_id: TriggerId = "max_depth_data_trigger".parse().expect("valid trigger id");
@@ -26163,11 +26170,15 @@ state_test! { sync data_trigger_depth_u8_max_rejects_without_panicking_or_wrappi
     }
     block.commit_world_overlay_for_testing().expect("commit trigger setup");
     let header = trigger_component_block(&state, 2).as_ref().header();
-    let callback_source = signed_callback_boundary_source(&state, header, vec![
+    let callback_source = signed_callback_boundary_source(
+&state,
+&header,
+vec![
         Register::domain(Domain::new(
             DomainId::try_new("depth_seed", "universal").expect("valid direct callback source domain"),
         )).into(),
-    ]);
+    ],
+);
     let mut block = state.block(header);
     let mut transaction = block.transaction_for_fastpq_testing(
         Hash::from(callback_source.hash_as_entrypoint()),
@@ -26202,11 +26213,15 @@ state_test! { sync data_trigger_fanout_rejects_the_two_hundred_fifty_seventh_fir
     use iroha_data_model::prelude::DataEvent;
     let state = blank_state();
     let header = BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
-    let callback_source = signed_callback_boundary_source(&state, header, vec![
+    let callback_source = signed_callback_boundary_source(
+&state,
+&header,
+vec![
         Register::domain(Domain::new(
             DomainId::try_new("fanout_seed", "universal").expect("valid direct callback source domain"),
         )).into(),
-    ]);
+    ],
+);
     let mut block = state.block(header);
     let mut transaction = block.transaction();
     // Keep this exact signed source alive through the direct callback body.
@@ -26283,11 +26298,15 @@ state_test! { sync data_trigger_firing_cap_is_shared_across_multiple_drains
     use iroha_data_model::prelude::DataEvent;
     let state = blank_state();
     let header = BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
-    let callback_source = signed_callback_boundary_source(&state, header, vec![
+    let callback_source = signed_callback_boundary_source(
+&state,
+&header,
+vec![
         Register::domain(Domain::new(
             DomainId::try_new("multi_drain_0", "universal").expect("valid direct callback source domain"),
         )).into(),
-    ]);
+    ],
+);
     let mut block = state.block(header);
     let mut transaction = block.transaction();
     // Keep this exact signed source alive through the direct callback body.
@@ -26639,7 +26658,7 @@ state_test! { sync native_trigger_instructions_are_not_an_unmetered_execution_pa
     let mut transaction = block.transaction();
     // The low-level callback fixture retains the source invocation before its
     // body, just as the canonical external execution owner does.
-    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash()));
+    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash_as_entrypoint()));
     transaction.gas_limit_per_block = 4;
     transaction.world.add_account_permission(
         &ALICE_ID,
@@ -27244,13 +27263,13 @@ state_test! { sync identityless_raw_trigger_rejects_before_event_argument_decode
     };
     let state = blank_state();
     let trigger_id: TriggerId = "identityless_raw_callback".parse().expect("trigger id");
-    let_row! { program = kotodama_lang::compiler::Compiler::new() .compile_source( r#"
+    let_row! { program = kotodama_lang::compiler::Compiler::new() .compile_source( r"
 seiyaku IdentitylessRawCallback { permission identityless_raw_callback_run;
   kotoage fn main(Json ev) authorize(identityless_raw_callback_run) {
 let _ev = ev;
   }
 }
-"#, ) .expect("compile identity-less raw callback fixture") };
+", ) .expect("compile identity-less raw callback fixture") };
     let_row! { block1 = new_dummy_block_with_payload(|header| { header.set_height(NonZeroU64::new(1).expect("non-zero height")); }) };
     {
         let mut state_block = state.block(block1.as_ref().header());
@@ -28385,7 +28404,7 @@ fn parliament_timed_ovn_resource_index_rebuild_is_deterministic_and_fail_atomic(
         78_u64,
         BTreeSet::from([("sentinel-referendum".to_owned(), ALICE_ID.clone())]),
     )]);
-    let validation_fee_sentinel = BTreeMap::from([((79_u64, [0x55; 32]), ())]);
+    let validation_fee_sentinel = BTreeSet::from([(79_u64, [0x55; 32])]);
     let member_reference_sentinel = BTreeMap::from([(
         ALICE_ID.clone(),
         ParliamentMemberReferenceCountsV1 {
@@ -28395,7 +28414,11 @@ fn parliament_timed_ovn_resource_index_rebuild_is_deterministic_and_fail_atomic(
     )]);
     world.parliament_certified_enactments = certified_sentinel.clone().into_iter().collect();
     world.governance_lock_expiry_index = lock_expiry_sentinel.clone().into_iter().collect();
-    world.validation_fee_proposal_index = validation_fee_sentinel.clone().into_iter().collect();
+    world.validation_fee_proposal_index = validation_fee_sentinel
+        .iter()
+        .copied()
+        .map(|key| (key, ()))
+        .collect();
     world.parliament_member_reference_counts =
         member_reference_sentinel.clone().into_iter().collect();
     assert!(world.rebuild_governance_read_indexes().is_err());
@@ -28444,8 +28467,8 @@ fn parliament_timed_ovn_resource_index_rebuild_is_deterministic_and_fail_atomic(
             .validation_fee_proposal_index
             .view()
             .iter()
-            .map(|(key, value)| (*key, *value))
-            .collect::<BTreeMap<_, _>>(),
+            .map(|(key, ())| *key)
+            .collect::<BTreeSet<_>>(),
         validation_fee_sentinel,
         "a late rebuild failure must retain the previous validation-fee index"
     );
@@ -28547,10 +28570,19 @@ fn parliament_certified_enactment_index_tracks_rebuild_transition_and_removal() 
     );
 }
 
-#[test]
-fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
+/// Fixture attempt whose complete initial generation awaits `pulse_height`, with the
+/// governance sizing that draws it.
+fn parliament_pending_sortition_slot_fixture(
+    network_tag: u8,
+    pulse_height: u64,
+) -> (
+    iroha_data_model::NetworkId,
+    GovernanceAttemptId,
+    ParliamentAttemptStateV1,
+    iroha_config::parameters::actual::Governance,
+) {
     let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD9; 32])),
+        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([network_tag; 32])),
     );
     let roster = (1_u8..=4)
         .map(|marker| {
@@ -28559,9 +28591,21 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
                 .expect("derive deterministic Parliament candidate")
         })
         .collect::<Vec<_>>();
-    let pulse_height = 41;
-    let (governance_attempt_id, _, mut attempt) =
+    let (governance_attempt_id, _, attempt) =
         crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse_height);
+    let governance = iroha_config::parameters::actual::Governance {
+        rules_committee_size: 2,
+        policy_jury_size: 3,
+        ..iroha_config::parameters::actual::Governance::default()
+    };
+    (network_id, governance_attempt_id, attempt, governance)
+}
+
+#[test]
+fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
+    let pulse_height = 41;
+    let (network_id, governance_attempt_id, mut attempt, governance) =
+        parliament_pending_sortition_slot_fixture(0xD9, pulse_height);
     let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
         governance_attempt_id,
         iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
@@ -28585,28 +28629,49 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
         Some(&BTreeSet::from([governance_attempt_id]))
     );
 
-    attempt
-        .fail_body_election_no_roster(
+    // The wait has no expiry: the election cannot be failed far past its slot, and writing
+    // the unchanged attempt again keeps exactly the same awaited slot.
+    assert_eq!(
+        attempt.fail_body_election_no_roster(
             governance_attempt_id,
             election_attempt_id,
-            false,
+            pulse_height + 1_000_000,
+        ),
+        Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
+            crate::governance::parliament::ParliamentReducerEntityV1::BodyElection
+        ))
+    );
+    transaction
+        .put_parliament_attempt(attempt.clone())
+        .expect("rewrite the unchanged pulse wait");
+    assert_eq!(
+        transaction
+            .parliament_required_beacon_pulse_slots
+            .iter()
+            .map(|(slot, attempts)| (*slot, attempts.clone()))
+            .collect::<BTreeMap<_, _>>(),
+        BTreeMap::from([(pulse_slot, BTreeSet::from([governance_attempt_id]))])
+    );
+
+    // Consuming the pulse of the exact slot is the only lifecycle step that ends the wait.
+    attempt
+        .fail_sortition_generation_with_empty_roster_for_tests(
+            election_attempt_id,
+            iroha_data_model::governance::types::BeaconPulseId::new([0xDA; 32]),
+            &network_id,
+            &governance,
             pulse_height + 1,
         )
-        .expect("terminally classify the unavailable sortition slot");
+        .expect("consume the exact slot pulse and close the empty invitation window");
     transaction
         .put_parliament_attempt(attempt)
-        .expect("replace the live request with its terminal transcript");
+        .expect("replace the live request with its drawn transcript");
     assert!(
         transaction
             .parliament_required_beacon_pulse_slots
-            .get(&pulse_slot)
+            .iter()
+            .next()
             .is_none()
-    );
-    assert_eq!(
-        transaction
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&pulse_slot),
-        Some(&BTreeSet::from([governance_attempt_id]))
     );
 
     assert!(
@@ -28616,44 +28681,26 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&pulse_slot)
+            .parliament_required_beacon_pulse_slots
+            .iter()
+            .next()
             .is_none()
     );
 }
 
 #[test]
-fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD4; 32])),
-    );
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
+fn parliament_required_beacon_slot_index_rebuilds_and_tracks_removal() {
     let pulse_height = 41;
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse_height);
-    let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
-        governance_attempt_id,
-        iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
-        0,
-    );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            false,
-            pulse_height + 1,
-        )
-        .expect("terminally classify the unavailable sortition slot");
+    let (network_id, governance_attempt_id, attempt, _) =
+        parliament_pending_sortition_slot_fixture(0xD4, pulse_height);
     let pulse_slot = (
         iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
         pulse_height,
     );
+    // A wait on a slot far below the restored height is ordinary restorable state.
+    attempt
+        .validate_restored_height_v1(pulse_height + 1_000_000)
+        .expect("an old awaited slot restores cleanly");
 
     let mut world = World::new();
     world
@@ -28661,22 +28708,22 @@ fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
         .insert(governance_attempt_id, attempt);
     world
         .rebuild_governance_read_indexes()
-        .expect("rebuild unavailable Parliament pulse slots");
+        .expect("rebuild awaited Parliament pulse slots");
     assert_eq!(
         world
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .view()
             .get(&pulse_slot),
         Some(&BTreeSet::from([governance_attempt_id]))
     );
 
-    world.parliament_unavailable_beacon_pulse_slots = Storage::default();
+    world.parliament_required_beacon_pulse_slots = Storage::default();
     world
         .rebuild_governance_read_indexes()
-        .expect("repeating unavailable-slot rebuild succeeds");
+        .expect("repeating the awaited-slot rebuild succeeds");
     assert_eq!(
         world
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .view()
             .get(&pulse_slot),
         Some(&BTreeSet::from([governance_attempt_id]))
@@ -28691,53 +28738,132 @@ fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .get(&pulse_slot)
             .is_none()
     );
 }
 
 #[test]
-fn parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomically() {
+fn parliament_sortition_slot_never_conflicts_with_a_finalized_pulse() {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD5; 32])),
-    );
+    let (network_id, governance_attempt_id, pending, governance) =
+        parliament_pending_sortition_slot_fixture(0xD5, 41);
     let (_, pulse) =
         crate::beacon::signed_persisted_pulse_fixture_for_world(network_id, 41, &budget);
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse.height);
     let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
         governance_attempt_id,
         iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
         0,
     );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
+    let pulse_slot = (
+        iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
+        pulse.height,
+    );
+    let mut failed = pending.clone();
+    failed
+        .fail_sortition_generation_with_empty_roster_for_tests(
             election_attempt_id,
-            false,
+            iroha_data_model::governance::types::BeaconPulseId::new(pulse.pulse_id),
+            &network_id,
+            &governance,
             pulse.height + 1,
         )
-        .expect("terminally classify the unavailable sortition slot");
+        .expect("consume the exact slot pulse and close the empty invitation window");
+    assert!(pending.unavailable_release_pulse_slots_v1().is_empty());
+    assert!(failed.unavailable_release_pulse_slots_v1().is_empty());
 
-    let mut world = World::new();
-    world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
-    world
-        .rebuild_global_beacon_pulse_slots()
-        .expect("rebuild finalized logical beacon slots");
+    // A finalized pulse sits at the slot. Neither the pending wait nor the failed election
+    // that names it is rejected on write, and the derived indexes rebuild either way.
+    for (attempt, awaited) in [(pending, true), (failed, false)] {
+        let mut world = World::new();
+        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
+        world
+            .rebuild_global_beacon_pulse_slots()
+            .expect("rebuild finalized logical beacon slots");
+        {
+            let mut block = world.block();
+            let mut transaction =
+                block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
+            assert_eq!(transaction.put_parliament_attempt(attempt.clone()), Ok(()));
+            assert_eq!(
+                transaction
+                    .parliament_required_beacon_pulse_slots
+                    .get(&pulse_slot)
+                    .is_some(),
+                awaited
+            );
+        }
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt);
+        world
+            .rebuild_governance_read_indexes()
+            .expect("a finalized pulse never contradicts a sortition slot");
+        assert_eq!(
+            world
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .get(&pulse_slot)
+                .is_some(),
+            awaited
+        );
+    }
+}
+
+#[test]
+fn parliament_attempt_rejects_release_unavailable_ballot_at_a_finalized_pulse_slot_atomically() {
+    use iroha_data_model::governance::types::BeaconSessionId;
+
+    let release_session = BeaconSessionId::new([0x49; 32]);
+    let other_session = BeaconSessionId::new([0x4A; 32]);
+    let (attempt, release_slot) =
+        crate::governance::parliament::tests::release_pulse_unavailable_attempt_fixture_v1(
+            release_session,
+        );
+    let governance_attempt_id = attempt.attempt().id;
+    let (_, release_height) = release_slot;
+    assert_eq!(
+        attempt.unavailable_release_pulse_slots_v1(),
+        BTreeSet::from([release_slot])
+    );
+    let world_with_pulse_slots = |slots: &[(BeaconSessionId, u64)]| {
+        let mut world = World::new();
+        for (index, slot) in slots.iter().enumerate() {
+            let marker = u8::try_from(index + 1).expect("few fixture slots");
+            world.global_beacon_pulse_slots.insert(*slot, [marker; 32]);
+        }
+        world
+    };
+
+    // No finalized pulse anywhere, or pulses only at another height of the release session
+    // and at the release height of another session: the classification is consistent and
+    // the write is accepted.
+    for slots in [
+        Vec::new(),
+        vec![
+            (release_session, release_height - 1),
+            (release_session, release_height + 1),
+            (other_session, release_height),
+        ],
+    ] {
+        let world = world_with_pulse_slots(&slots);
+        let mut block = world.block();
+        let mut transaction = block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
+        assert_eq!(transaction.put_parliament_attempt(attempt.clone()), Ok(()));
+        assert_eq!(
+            transaction.parliament_attempts.get(&governance_attempt_id),
+            Some(&attempt)
+        );
+    }
+
+    // A finalized pulse sits at exactly the release slot: the classification contradicts
+    // committed state, the write is refused and nothing is published.
+    let world = world_with_pulse_slots(&[release_slot]);
     let mut block = world.block();
     let mut transaction = block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
-
     assert_eq!(
-        transaction.put_parliament_attempt(attempt),
+        transaction.put_parliament_attempt(attempt.clone()),
         Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable)
     );
     assert!(
@@ -28748,77 +28874,31 @@ fn parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomical
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .iter()
             .next()
-            .is_none(),
-        "rejection must not publish a partial unavailable-slot index"
+            .is_none()
     );
-}
-
-#[test]
-fn parliament_unavailable_slot_rebuild_rejects_finalized_pulse_fail_atomically() {
-    let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD6; 32])),
-    );
-    let (_, pulse) =
-        crate::beacon::signed_persisted_pulse_fixture_for_world(network_id, 41, &budget);
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse.height);
-    let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
-        governance_attempt_id,
-        iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
-        0,
-    );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            false,
-            pulse.height + 1,
-        )
-        .expect("terminally classify the unavailable sortition slot");
-
-    let sentinel_slot = (
-        iroha_data_model::governance::types::BeaconSessionId::new([0xD7; 32]),
-        99,
-    );
-    let sentinel_attempt = GovernanceAttemptId::new([0xD8; 32]);
-    let sentinel = BTreeMap::from([(sentinel_slot, BTreeSet::from([sentinel_attempt]))]);
-    let mut world = World::new();
-    world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
-    world
-        .rebuild_global_beacon_pulse_slots()
-        .expect("rebuild finalized logical beacon slots");
-    world
-        .parliament_attempts
-        .insert(governance_attempt_id, attempt);
-    world.parliament_unavailable_beacon_pulse_slots = sentinel.clone().into_iter().collect();
-
-    let error = world
-        .rebuild_governance_read_indexes()
-        .expect_err("a finalized pulse cannot also be terminally unavailable");
     assert!(
-        error.contains("classifies finalized logical beacon slot"),
-        "unexpected rebuild rejection: {error}"
-    );
-    assert_eq!(
-        world
-            .parliament_unavailable_beacon_pulse_slots
-            .view()
+        transaction
+            .parliament_member_reference_counts
             .iter()
-            .map(|(slot, attempts)| (*slot, attempts.clone()))
-            .collect::<BTreeMap<_, _>>(),
-        sentinel,
-        "a failed rebuild must retain the previously published derived index"
+            .next()
+            .is_none()
+    );
+    assert!(
+        transaction
+            .parliament_timed_ovn_resource_reservations
+            .iter()
+            .next()
+            .is_none()
+    );
+    assert!(
+        transaction
+            .parliament_tle_key_session_retention_deadlines
+            .iter()
+            .next()
+            .is_none()
     );
 }
 
@@ -28903,7 +28983,7 @@ fn standalone_election_restore_rejects_invalid_current_and_previous_state_atomic
         }
     };
     let oversized_corpus = (0..=MAX_STANDALONE_ELECTION_BALLOTS_V1)
-        .map(|index| ballot_entry(index))
+        .map(&ballot_entry)
         .collect::<Vec<_>>();
     let mut changed_commitment_same_nullifier = ballot_entry(1);
     changed_commitment_same_nullifier.commitment = [8_u8; 32];
@@ -29149,11 +29229,13 @@ fn governance_lock_restore_preserves_fractional_zk_bonds() {
 
 #[test]
 fn restored_plain_governance_tally_capacity_is_checked_against_frozen_context() {
-    let mut governance = iroha_config::parameters::actual::Governance::default();
-    governance.conviction_step_blocks = 1;
-    governance.max_conviction = u64::MAX;
-    governance.bond_escrow_account = iroha_test_samples::CARPENTER_ID.clone();
-    governance.slash_receiver_account = iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone();
+    let governance = iroha_config::parameters::actual::Governance {
+        conviction_step_blocks: 1,
+        max_conviction: u64::MAX,
+        bond_escrow_account: iroha_test_samples::CARPENTER_ID.clone(),
+        slash_receiver_account: iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone(),
+        ..Default::default()
+    };
     let mut record = indexed_governance_lock(ALICE_ID.clone(), u64::MAX);
     record.amount = Quantity::from(u128::MAX);
     record.duration_blocks = u64::MAX - 1;
@@ -29841,13 +29923,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
             valid_until_height_exclusive: 20,
         },
     );
-    world.parliament_unavailable_beacon_pulse_slots.insert(
-        (
-            iroha_data_model::governance::types::BeaconSessionId::new([0xA3; 32]),
-            41,
-        ),
-        BTreeSet::from([GovernanceAttemptId::new([0xA4; 32])]),
-    );
     world.parliament_required_beacon_pulse_slots.insert(
         (
             iroha_data_model::governance::types::BeaconSessionId::new([0xA5; 32]),
@@ -29872,7 +29947,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
     assert!(!encoded.contains("parliament_timed_ovn_casting_candidates"));
     assert!(!encoded.contains("parliament_required_beacon_pulse_slots"));
     assert!(!encoded.contains("parliament_certified_enactments"));
-    assert!(!encoded.contains("parliament_unavailable_beacon_pulse_slots"));
     assert!(!encoded.contains("parliament_tle_key_session_retention_deadlines"));
     assert!(!encoded.contains("tle_key_session_selection_intervals"));
 
@@ -29918,14 +29992,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
     assert!(
         world
             .parliament_certified_enactments
-            .view()
-            .iter()
-            .next()
-            .is_none()
-    );
-    assert!(
-        world
-            .parliament_unavailable_beacon_pulse_slots
             .view()
             .iter()
             .next()
@@ -30526,7 +30592,7 @@ fn frozen_plain_projection_rejects_malformed_corpus_and_restores_slashed_positio
     };
     closed.plain_result = PlainVotingResultV1::Decided(policy.decide([4, 2, 1]).unwrap());
     closed.status = GovernanceReferendumStatus::Closed;
-    world.governance_locks = Default::default();
+    world.governance_locks = mv::storage::Storage::default();
     world
         .governance_referenda
         .insert("slash-restore".into(), closed.clone());
@@ -30671,3 +30737,16 @@ fn frozen_plain_minimum_bond_is_enforced_by_validator_tally_and_restore() {
 
 #[path = "lifecycle_index_release_tests.rs"]
 mod lifecycle_index_release_tests;
+
+#[cfg(unix)]
+#[path = "geometry_completion_tests.rs"]
+mod geometry_completion_tests;
+
+#[path = "publication_effect_lifecycle_tests.rs"]
+mod publication_effect_lifecycle_tests;
+
+#[path = "publication_effect_manifest_tests.rs"]
+mod publication_effect_manifest_tests;
+
+#[path = "publication_effect_kura_tests.rs"]
+mod publication_effect_kura_tests;

@@ -50,8 +50,8 @@ fn validation_fee_policy_proposal_for_rekey_test(
         proposal_operator: proposal_operator.clone(),
         policy: ValidationFeePolicyV1 {
             retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-            effective_from_ms: 1793451600000,
-            notice_published_at_ms: 1790859600000,
+            effective_from_ms: 1_793_451_600_000,
+            notice_published_at_ms: 1_790_859_600_000,
             schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
             network_id,
             policy_version: 1,
@@ -87,6 +87,7 @@ fn exhausted_validation_fee_attempt_for_rekey_test(
         },
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         1,
+        3,
         proposal.effect_preimage_hash_v1(),
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: proposal
@@ -191,6 +192,7 @@ fn account_rekey_rejects_active_parliament_candidate_without_partial_mutation() 
         },
         1,
         1,
+        3,
         [0x42; 32],
         GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
             subject_id: [0x43; 32],

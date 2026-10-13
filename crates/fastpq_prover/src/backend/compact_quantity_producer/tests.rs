@@ -113,7 +113,7 @@ fn with_effect_credit<T>(
     let demand = quantity_ordinary_allocation_bytes(
         &fixture.statement.effects,
         proving(),
-        &effect_support::fixture::limits(policy()),
+        &effect_support::fixture::limits(&policy()),
     )
     .unwrap();
     let budget = AllocationBudget::new(demand);
@@ -137,7 +137,7 @@ fn verify_effect_public(
     expected.statement.public_inputs = public.inputs;
     expected.statement.statement_digest =
         Hash::from_marked_bytes(public.public_statement_digest).unwrap();
-    fixture.verify_expected(bytes, expected, *limits)
+    fixture.verify_expected(bytes, expected, limits)
 }
 
 /// Test dispatch calls each actual producer's preflight and final encoder. No
@@ -176,7 +176,7 @@ impl<'a> TestArtifact<'a> {
                     &SourceExecutionEffectStatement::from_owned(&effect.statement),
                     effect.expected(),
                     proving(),
-                    &effect_support::fixture::limits(*limits),
+                    &effect_support::fixture::limits(limits),
                 )
                 .map(|_| ())
             }
@@ -201,7 +201,7 @@ impl<'a> TestArtifact<'a> {
                 &SourceExecutionEffectStatement::from_owned(&effect.statement),
                 &effect.source,
                 &frame,
-                &effect_support::fixture::limits(*limits),
+                &effect_support::fixture::limits(limits),
             ),
         }
     }
@@ -209,7 +209,7 @@ impl<'a> TestArtifact<'a> {
 
 fn assert_valid_effect_context(effect: &EffectFixture, roots: &[[u8; 32]]) {
     with_effect_credit(effect, |budget, credit| {
-        let limits = effect_support::fixture::limits(policy());
+        let limits = effect_support::fixture::limits(&policy());
         let batch = ExecutionEffectBatch::new(
             &SourceExecutionEffectStatement::from_owned(&effect.statement),
             &effect.source,
@@ -578,7 +578,7 @@ fn supplied_root_mismatch_is_not_replaced_with_locally_derived_roots() {
                 &SourceExecutionEffectStatement::from_owned(&effect.statement),
                 &effect.source,
                 effect.facts(),
-                effect_support::fixture::limits(policy()).public_policy(),
+                effect_support::fixture::limits(&policy()).public_policy(),
                 budget,
                 credit,
             )?;
@@ -738,7 +738,7 @@ fn public_producer_with_execution(execution: crate::DigestExecutionV1) {
         let bytes = if is_axt {
             prove_quantity_axt_artifact(&statement, expected, context, proving, policy())
         } else {
-            effect.prove(proving, policy())
+            effect.prove(proving, &policy())
         }
         .unwrap();
         let prove_elapsed = started.elapsed();
@@ -751,7 +751,7 @@ fn public_producer_with_execution(execution: crate::DigestExecutionV1) {
         let verified = if is_axt {
             verify_quantity_axt_artifact(&bytes, expected, context, policy())
         } else {
-            effect.verify(&bytes, policy())
+            effect.verify(&bytes, &policy())
         }
         .unwrap();
         let verify_elapsed = started.elapsed();
@@ -801,7 +801,7 @@ fn assert_internal_artifact_matches_public(
             internal_limits,
         )
     } else {
-        effect_support::verify(bytes, effect, internal_limits)
+        effect_support::verify(bytes, effect, &internal_limits)
     }
     .unwrap();
     // Preserve artifact-level equality independently of the existing direct
@@ -979,7 +979,7 @@ impl CapturedArtifact<'_> {
         if self.is_axt {
             verify_quantity_axt_artifact(raw, self.expected, self.context, *limits)
         } else {
-            self.effect.verify(raw, *limits)
+            self.effect.verify(raw, limits)
         }
     }
 }
@@ -1233,7 +1233,7 @@ fn assert_captured_raw_bundle(
         .unwrap()
     } else {
         with_effect_credit(captured.effect, |budget, credit| {
-            let limits = effect_support::fixture::limits(policy());
+            let limits = effect_support::fixture::limits(&policy());
             norito::core::with_decode_limits_measured(policy().total_decode, || {
                 effect_bundle::verify(
                     &EffectVerificationInputs {
@@ -1428,12 +1428,12 @@ fn assert_captured_changed_statements_rejected(captured: &CapturedArtifact<'_>) 
                 &SourceExecutionEffectStatement::from_owned(&changed.statement),
                 &changed.source,
                 &captured.frame,
-                &effect_support::fixture::limits(policy()),
+                &effect_support::fixture::limits(&policy()),
             )
             .unwrap();
             // Independently recomputed complete source/effect/statement expectations
             // agree. Only the authentic original child context now differs.
-            assert_deep_context_rejected(&changed.verify(&bytes, policy()).unwrap_err());
+            assert_deep_context_rejected(&changed.verify(&bytes, &policy()).unwrap_err());
         }
     }
 }
@@ -1566,12 +1566,12 @@ fn assert_captured_retag_rejected(captured: &CapturedArtifact<'_>) {
     let error = if opposite {
         verify_quantity_axt_artifact(&retagged, expected, context, policy())
     } else {
-        captured.effect.verify(&retagged, policy())
+        captured.effect.verify(&retagged, &policy())
     }
     .unwrap_err();
     assert_deep_context_rejected(&error);
     if captured.is_axt {
-        assert!(captured.effect.verify(&captured.bytes, policy()).is_err());
+        assert!(captured.effect.verify(&captured.bytes, &policy()).is_err());
     } else {
         assert!(
             verify_quantity_axt_artifact(&captured.bytes, expected, context, policy()).is_err()
@@ -1694,7 +1694,7 @@ fn original_tree_pool_identity_precedes_producer_admission_and_preparation() {
             &SourceExecutionEffectStatement::from_owned(&effect.statement),
             effect.expected(),
             proving(),
-            &effect_support::fixture::limits(policy()),
+            &effect_support::fixture::limits(&policy()),
             &budget,
             &mut foreign,
         ),
@@ -1791,7 +1791,7 @@ fn original_pool_refunds_tree_backing_after_late_root_refusal() {
 fn complete_effect_statement_caps_and_original_headers_use_actual_preflight() {
     let effect = EffectFixture::from_transfer_facts(&fixture().model());
     let view = SourceExecutionEffectStatement::from_owned(&effect.statement);
-    let mut limits = effect_support::fixture::limits(policy());
+    let mut limits = effect_support::fixture::limits(&policy());
     limits.public_statement.max_effects = 2;
     limits.public_statement.max_rows = 4;
     limits.public_statement.max_public_bytes = norito::canonical_frame_len(&view).unwrap();
@@ -1859,7 +1859,7 @@ fn complete_effect_contexts_and_private_paths_preflight_before_physical_columns(
     let effect = EffectFixture::from_transfer_facts(&fixture().model());
     with_effect_credit(&effect, |budget, credit| {
         let view = SourceExecutionEffectStatement::from_owned(&effect.statement);
-        let limits = effect_support::fixture::limits(policy());
+        let limits = effect_support::fixture::limits(&policy());
         let prepared = prepare_source_execution_effect_view(
             &view,
             &effect.source,

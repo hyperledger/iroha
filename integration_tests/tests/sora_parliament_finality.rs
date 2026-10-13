@@ -9,7 +9,7 @@ use iroha_sumeragi::availability::recommended_data_availability_layout;
 
 /// Authenticate one exact block through the bounded contiguous native prefix.
 /// Each HTTP proof remains untrusted until the existing verifier admits its committee and result.
-pub(super) async fn certified_block(
+pub async fn certified_block(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,
@@ -18,7 +18,7 @@ pub(super) async fn certified_block(
 }
 
 /// Inspect each independently authenticated decision without retaining a second prefix.
-pub(super) async fn visit_certified_prefix(
+pub async fn visit_certified_prefix(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,
@@ -65,19 +65,16 @@ pub(super) async fn visit_certified_prefix(
         .iter()
         .map(|validator| PeerId::new(validator.public_key.clone()))
         .collect::<std::collections::BTreeSet<_>>();
-    let mut verifier = SumeragiFinalityVerifier::new(
-        genesis.block(),
-        &network.chain_id().to_string(),
-        validators,
-    )?;
+    let mut verifier =
+        SumeragiFinalityVerifier::new(genesis.block(), network.chain_id().as_ref(), validators)?;
     let client = client.client().clone();
     let deadline = Instant::now() + OPERATION_TIMEOUT;
     read_on_dedicated_thread(move || {
         let client = client.with_request_deadline(deadline);
         let mut tip = None;
         for next in 1..=height {
-            let proof = client.get_sumeragi_finality_proof(NonZeroU64::new(next).unwrap())?;
-            let verified = verifier.verify(&proof)?;
+            let proof = client.get_sumeragi_finality_proof(NonZeroU64::new(next).unwrap(), verifier.root_scope())?;
+            let authenticated = verifier.verify(&proof)?;
             let members = proof
                 .committee
                 .iter()
@@ -87,7 +84,7 @@ pub(super) async fn visit_certified_prefix(
                 return Err(eyre!("certified Parliament committee differs from the independent four-validator roster"));
             }
             if next > 1 {
-                let certificate = verified.block().commit_certificate().ok_or_else(|| {
+                let certificate = authenticated.block().commit_certificate().ok_or_else(|| {
                     eyre!("verified Parliament successor lacks its embedded certificate")
                 })?;
                 let qc: iroha_sumeragi::message::Qc =
@@ -99,8 +96,8 @@ pub(super) async fn visit_certified_prefix(
             if Instant::now() >= deadline {
                 return Err(eyre!("Parliament contiguous finality verification exceeded its deadline"));
             }
-            visit(&proof, &verified)?;
-            tip = Some((proof, verified));
+            visit(&proof, &authenticated)?;
+            tip = Some((proof, authenticated));
         }
         tip.ok_or_else(|| eyre!("Parliament finality prefix is empty"))
     })
@@ -109,7 +106,7 @@ pub(super) async fn visit_certified_prefix(
 
 /// Bind an observed pulse to the native header and parent admitted from signed genesis.
 /// The pulse's claimed anchor and context never select these verification inputs.
-pub(super) async fn certified_pulse_context(
+pub async fn certified_pulse_context(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,
@@ -121,13 +118,13 @@ pub(super) async fn certified_pulse_context(
     use iroha_data_model::consensus::{
         GlobalThresholdBeaconChainAnchorV1, GlobalThresholdBeaconPulseContextV1,
     };
-    let (_, verified) = certified_block(network, client, height).await?;
-    if verified.commitment().beacon.as_ref() != Some(pulse) {
+    let (_, authenticated) = certified_block(network, client, height).await?;
+    if authenticated.commitment().beacon.as_ref() != Some(pulse) {
         return Err(eyre!(
             "observed Parliament pulse differs from its certified execution"
         ));
     }
-    let certificate = verified
+    let certificate = authenticated
         .block()
         .commit_certificate()
         .ok_or_else(|| eyre!("Parliament pulse lacks a native certificate"))?;
@@ -138,7 +135,7 @@ pub(super) async fn certified_pulse_context(
             .checked_sub(1)
             .filter(|height| *height > 0)
             .ok_or_else(|| eyre!("Parliament pulse has no certified parent"))?,
-        block_hash: verified
+        block_hash: authenticated
             .header()
             .prev_block_hash()
             .ok_or_else(|| eyre!("Parliament pulse header has no parent hash"))?,

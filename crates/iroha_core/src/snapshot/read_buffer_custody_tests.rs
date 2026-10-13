@@ -178,7 +178,7 @@ fn snapshot_read_buffer_gc_refusal_preserves_pointer_and_both_retained_generatio
         std::fs::read(store.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap(),
         pointer
     );
-    for directory in [&rollback, &current, &next.generation_dir] {
+    for directory in [&rollback, &current, &next.snapshot_directory] {
         assert!(
             directory.is_dir(),
             "capacity is not invalidity and must preserve every generation"
@@ -189,7 +189,7 @@ fn snapshot_read_buffer_gc_refusal_preserves_pointer_and_both_retained_generatio
     assert_eq!(current_generation_name(&store), next.name);
     assert!(!rollback.exists());
     assert!(current.is_dir());
-    assert!(next.generation_dir.is_dir());
+    assert!(next.snapshot_directory.is_dir());
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -224,7 +224,7 @@ fn snapshot_read_buffer_gc_fallback_cannot_filter_out_a_capacity_refusal() {
         pointer
     );
     assert!(rollback.is_dir());
-    assert!(current.generation_dir.is_dir());
+    assert!(current.snapshot_directory.is_dir());
     drop(occupied);
     let plan = plan_snapshot_generation_gc(
         &current,
@@ -294,7 +294,7 @@ async fn snapshot_read_buffer_writer_notifies_after_unlock_on_success_and_error(
     let observer = Arc::new(SnapshotRefundAfterUnlock {
         budget: budget.clone(),
         waiter_bytes,
-        wakes: Default::default(),
+        wakes: std::sync::atomic::AtomicUsize::default(),
     });
     let waker = Waker::from(Arc::clone(&observer));
     for expect_error in [false, true] {
@@ -333,8 +333,8 @@ async fn snapshot_read_buffer_writer_notifies_after_unlock_on_success_and_error(
             assert!(
                 matches!(result, Err(TryWriteError::PublicationIntegrity(ref reason)) if reason.contains("ambiguous"))
             );
-            assert!(first.generation_dir.is_dir());
-            assert!(second.generation_dir.is_dir());
+            assert!(first.snapshot_directory.is_dir());
+            assert!(second.snapshot_directory.is_dir());
         } else {
             result.unwrap();
         }
@@ -420,7 +420,7 @@ fn snapshot_read_buffer_operation_unwind_notifies_after_unlock() {
     let observer = Arc::new(SnapshotRefundAfterUnlock {
         budget: budget.clone(),
         waiter_bytes,
-        wakes: Default::default(),
+        wakes: std::sync::atomic::AtomicUsize::default(),
     });
     let waker = Waker::from(Arc::clone(&observer));
     let mut released = pin!(release.wait_for_release(&mut registration));
@@ -727,8 +727,8 @@ fn assert_strict_initializer_failure_refunds_before_notification(unwind: bool) {
         waiter_bytes,
         original_kura_owners: Arc::strong_count(&kura) + 1,
         kura: Arc::clone(&kura),
-        decoded_crypto: Default::default(),
-        wakes: Default::default(),
+        decoded_crypto: parking_lot::Mutex::default(),
+        wakes: std::sync::atomic::AtomicUsize::default(),
         saw_payload_refunded: true.into(),
         saw_decoded_state_released: true.into(),
     });
@@ -749,9 +749,10 @@ fn assert_strict_initializer_failure_refunds_before_notification(unwind: bool) {
         *observer.decoded_crypto.lock() = Some(Arc::downgrade(&crypto));
         drop(crypto);
         assert!(Arc::strong_count(&kura) > observer.original_kura_owners);
-        if unwind {
-            panic!("injected Strict initializer unwind after actual payload/State acquisition");
-        }
+        assert!(
+            !unwind,
+            "injected Strict initializer unwind after actual payload/State acquisition"
+        );
         // The refusal happens after the authenticated payload was decoded into
         // the restored State; the snapshot seal itself is never bypassed.
         Err(TryReadError::SnapshotResourceLimit(
@@ -958,4 +959,52 @@ async fn snapshot_read_buffer_concurrent_strict_and_gc_retry_after_actual_reader
             canonical_state_snapshot_bytes_for_tests(&state)
         );
     });
+}
+
+#[test]
+fn snapshot_streaming_boundaries_preserve_digest_original_charge_and_rewind() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join(SNAPSHOT_FILE_NAME);
+    for length in [
+        0_usize, 1, 8191, 8192, 8193, 65_535, 65_536, 65_537, 200_003,
+    ] {
+        let source: Vec<_> = (0_u8..=u8::MAX).cycle().take(length).collect();
+        std::fs::write(&path, &source).unwrap();
+        let total = u64::try_from(length).unwrap();
+        let expected: [u8; 32] = Sha256::digest(&source).into();
+        let binding = bind_snapshot_file_handle(&path, total).unwrap().unwrap();
+        assert_eq!(
+            stream_snapshot_file_digest(&binding.handle, total, total).unwrap(),
+            expected
+        );
+        let budget = AllocationBudget::new(length);
+        let (bytes, digest) = read_bound_snapshot_payload(&binding, &budget).unwrap();
+        assert_eq!(bytes.as_slice(), source);
+        assert_eq!(digest, expected);
+        assert_eq!(budget.reserved_bytes(), length);
+        assert_eq!(binding.handle.as_ref().stream_position().unwrap(), 0);
+        drop(bytes);
+        assert_eq!(budget.reserved_bytes(), 0);
+        if length > 0 {
+            assert_eq!(
+                stream_snapshot_file_digest(&binding.handle, total, total - 1)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::InvalidData,
+            );
+            assert_eq!(binding.handle.as_ref().stream_position().unwrap(), 0);
+            assert_eq!(
+                stream_snapshot_file_digest(&binding.handle, total - 1, total)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::InvalidData,
+            );
+        }
+        assert_eq!(
+            stream_snapshot_file_digest(&binding.handle, total + 1, total + 1)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData,
+        );
+    }
 }

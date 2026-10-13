@@ -249,10 +249,12 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
         ],
     )
     .expect("baseline catalog");
-    let mut nexus = actual::Nexus::default();
-    nexus.configured_lane_catalog = baseline.clone();
-    nexus.lane_catalog = baseline.clone();
-    nexus.lane_config = actual::LaneConfig::from_catalog(&baseline);
+    let nexus = actual::Nexus {
+        configured_lane_catalog: baseline.clone(),
+        lane_catalog: baseline.clone(),
+        lane_config: actual::LaneConfig::from_catalog(&baseline),
+        ..Default::default()
+    };
     config.nexus = Some(nexus);
     let mut chain = CertifiedTestChain::start(config).expect("certified genesis");
     {
@@ -513,7 +515,9 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
     let payload = LaneBatch {
         anchor_height: 4,
         anchor_hash: anchor,
-        transactions: vec![private_tx.clone()],
+        transactions: vec![
+            iroha_data_model::transaction::TransactionEntrypoint::External(private_tx.clone()),
+        ],
     }
     .to_payload();
     let height_config = lane_height_config(&record).expect("native lane configuration");
@@ -577,7 +581,7 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
             };
-            vote.sig = signer.sign(&vote.preimage());
+            vote.sig = signer.sign(&vote.preimage()).unwrap();
             vote
         })
         .collect::<Vec<_>>();
@@ -642,6 +646,7 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &merges,

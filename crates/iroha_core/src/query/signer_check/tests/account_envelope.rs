@@ -9,7 +9,7 @@ use iroha_data_model::{
     NetworkId,
     account::{MultisigMember, MultisigPolicy},
     block::BlockHeader,
-    proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+    proof::{ProofAttachment, ProofBox, VerifyingKeyId},
     transaction::{FeePaymentIntent, TransactionDomain, TransactionPayload},
 };
 use iroha_primitives::json::Json;
@@ -148,14 +148,13 @@ fn account_envelope_preflight_rejects_other_authorization_profiles_and_builder_f
     );
     failures.push(altered);
     let mut altered = original.clone();
-    altered.attachments = Some(
-        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+    altered
+        .set_proof_attachments_v1(&[ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "vk_1"),
         )])
-        .unwrap(),
-    );
+        .unwrap();
     failures.push(altered);
     let mut altered = original.clone();
     altered.domain = TransactionDomain::Genesis;
@@ -219,14 +218,13 @@ fn native_signed_envelope_owner_rejects_sidecars_extras_signatures_and_other_ent
         .unwrap()
         .build_with_signature(Signature::from_bytes(&[0; 64]));
     let mut attached_payload = original.clone();
-    attached_payload.attachments = Some(
-        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+    attached_payload
+        .set_proof_attachments_v1(&[ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "vk_1"),
         )])
-        .unwrap(),
-    );
+        .unwrap();
     let attached = TransactionBuilder::from_payload(attached_payload)
         .unwrap()
         .try_sign(key(4).private_key())
@@ -249,9 +247,8 @@ fn native_signed_envelope_owner_rejects_sidecars_extras_signatures_and_other_ent
             salt: [1; 32],
         }),
     ] {
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&entry),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(final_promotion_native_signed_entry_frame_v1(&entry), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 FinalPromotionAccountObservationErrorV1::Transaction
             ))
         );
@@ -272,16 +269,17 @@ fn native_signed_envelope_owner_uses_the_same_exact_complete_frame_ceiling() {
                 .checked_add_signed(delta)
                 .unwrap()
         );
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&entry),
-            if delta <= 0 {
-                Ok(exact)
-            } else {
+        let actual = final_promotion_native_signed_entry_frame_v1(&entry);
+        if delta <= 0 {
+            assert_eq!(actual.expect("fitting native frame"), exact);
+        } else {
+            assert!(matches!(
+                actual,
                 Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                    FinalPromotionAccountObservationErrorV1::Transaction,
+                    FinalPromotionAccountObservationErrorV1::Transaction
                 ))
-            }
-        );
+            ));
+        }
     }
 }
 
@@ -305,15 +303,13 @@ fn native_signed_envelope_rejects_genuinely_signed_genesis_and_missing_lifetime(
     assert!(missing_ttl.time_to_live().is_none());
     for signed in [genesis, missing_ttl] {
         signed.verify_signature().unwrap();
-        assert_eq!(
-            native_signed_transaction_frame_attempt_v1(&signed),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(native_signed_transaction_frame_attempt_v1(&signed), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 Error::Transaction
             ))
         );
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&TransactionEntrypoint::External(signed)),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(final_promotion_native_signed_entry_frame_v1(&TransactionEntrypoint::External(signed)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 FinalPromotionAccountObservationErrorV1::Transaction
             ))
         );

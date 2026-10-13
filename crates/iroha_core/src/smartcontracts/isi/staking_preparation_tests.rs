@@ -93,15 +93,17 @@ fn global_staking_eligibility_rejects_uncertified_preparation_intervals() {
     let state_on = |network| {
         let world = crate::state::validator_committee::tests::fixture(4).world;
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(Parameter::Custom(
-            SumeragiNposParameters {
-                epoch_length_blocks: NonZeroU64::new(10).unwrap(),
-                evidence_horizon_blocks: 1,
-                slashing_delay_blocks: 1,
-                ..SumeragiNposParameters::default()
-            }
-            .into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(Parameter::Custom(
+                SumeragiNposParameters {
+                    epoch_length_blocks: NonZeroU64::new(10).unwrap(),
+                    evidence_horizon_blocks: 1,
+                    slashing_delay_blocks: 1,
+                    ..SumeragiNposParameters::default()
+                }
+                .into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
         State::new_with_chain_and_network_id_for_testing(
             world,

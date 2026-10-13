@@ -313,10 +313,6 @@ impl NodeSecretsV1 {
             _ => dependencies,
         })
     }
-
-    fn existing_secret(&self, file: NodeSecretFile) -> Result<Option<PathBuf>, NodeSecretsErrorV1> {
-        existing_secret_path(&self.data_dir, file)
-    }
 }
 
 impl IrohaRuntimeProviderRegistryV1 for NodeSecretsV1 {

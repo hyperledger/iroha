@@ -50,7 +50,7 @@ impl LaneBlockSource for OriginalFrames {
         Ok(self
             .0
             .read()
-            .get(height.checked_sub(1).unwrap() as usize)
+            .get(usize::try_from(height.checked_sub(1).unwrap()).expect("fixture value fits usize"))
             .cloned())
     }
     fn wait_for(
@@ -123,7 +123,7 @@ fn vote_pair(reader: &LaneProofRead, height: u64) -> Evidence {
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        vote.sig = signer.sign(&vote.preimage());
+        vote.sig = signer.sign(&vote.preimage()).unwrap();
         vote
     };
     Evidence::VoteEquivocation(vote(71), vote(72))
@@ -210,16 +210,18 @@ fn anchored_chain_with_config(
                 height,
                 view: 0,
                 block_hash: hash,
-                result: Hash32([height as u8; 32]),
+                result: Hash32([u8::try_from(height).expect("fixture value fits u8"); 32]),
                 signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
             };
-            qc.agg_sig = crypto.aggregate(
-                &signers[..3]
-                    .iter()
-                    .map(|signer| signer.sign(&qc.preimage()))
-                    .collect::<Vec<_>>(),
-            );
+            qc.agg_sig = crypto
+                .aggregate(
+                    &signers[..3]
+                        .iter()
+                        .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(
                     &crypto,
@@ -432,7 +434,9 @@ fn proposal_pair(reader: &LaneProofRead) -> Evidence {
             parent_qc: None,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        proposal.sig = signer.sign(&proposal.signing_preimage(&reader.crypto));
+        proposal.sig = signer
+            .sign(&proposal.signing_preimage(&reader.crypto))
+            .unwrap();
         proposal
     };
     Evidence::ProposalEquivocation(Box::new(proposal(31)), Box::new(proposal(32)))
@@ -517,12 +521,15 @@ fn lane_proof_rejects_valid_same_height_certificate_on_an_unmerged_branch() {
         .unwrap_or_else(|_| panic!("other actual signed branch"));
     let mut qc = original.qc;
     qc.block_hash = authored.body.hash(&reader.crypto);
-    qc.agg_sig = reader.crypto.aggregate(
-        &signers[..3]
-            .iter()
-            .map(|signer| signer.sign(&qc.preimage()))
-            .collect::<Vec<_>>(),
-    );
+    qc.agg_sig = reader
+        .crypto
+        .aggregate(
+            &signers[..3]
+                .iter()
+                .map(|signer| signer.sign(&qc.preimage()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     assert_ne!(qc.block_hash.0, expected.block_hash);
     assert!(
         iroha_sumeragi::crypto::Verifier::new(
@@ -751,7 +758,7 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
         None,
         Vec::new(),
         Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
         |proposal| {
             let parent_service_commit_qc = proposal
                 .npos_consensus_effects()
@@ -888,7 +895,7 @@ fn assert_original_lane_observer_record(
     use iroha_data_model::block::consensus::EvidencePenaltyStatus;
     let view = state.view();
     let record = view.world().consensus_evidence().get(&key).unwrap();
-    assert_eq!(record.evidence, *proof);
+    assert_eq!(record.native_evidence(), Some(proof));
     assert_eq!(record.recorded_at_height, carrier);
     assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
     assert_eq!(
@@ -964,7 +971,7 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     original_pool.set_limit_bytes(1 << 30);
     assert_eq!(
         evidence::pending_evidence_admissions(&state, carrier, generation),
-        [proof.clone()]
+        std::slice::from_ref(&proof)
     );
     assert_eq!(original_pool.reserved_bytes(), original_base);
     assert_eq!(budget.reserved_bytes(), retained);
@@ -978,6 +985,34 @@ fn original_validator_account_key() -> KeyPair {
 }
 
 fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidence {
+    fn deliver(kernel: &mut Kernel, from: &PublicKey, vote: Vote) -> Vec<Evidence> {
+        let message = WireMessage::Vote(vote);
+        let class = message.traffic_class();
+        kernel.receive(from.clone(), message, class);
+        let mut handled = 0;
+        while let Some(input) = kernel.next_input(0) {
+            handled += 1;
+            assert!(handled <= 16, "one deterministic input must drain promptly");
+            kernel.handle(0, input);
+        }
+        kernel
+            .poll(0)
+            .into_iter()
+            .filter_map(|operation| match operation {
+                Op::Report(Report::Evidence(evidence)) => Some(*evidence),
+                Op::Report(report) => panic!("unexpected detector report: {report:?}"),
+                Op::Exec(_) | Op::Persist { .. } => {
+                    panic!("the non-voting detector cannot fabricate execution or signing")
+                }
+                Op::Send { msg, .. } => {
+                    assert!(!matches!(msg, WireMessage::Vote(_)));
+                    None
+                }
+                Op::Serve(_) => None,
+            })
+            .collect()
+    }
+
     use crate::sumeragi::driver::{
         DriverConfig, Kernel, KernelStart, Op, Report,
         ingress::{Ingress, IngressLimits},
@@ -1037,34 +1072,6 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
     })
     .expect("production detector starts from authenticated lane genesis");
 
-    fn deliver(kernel: &mut Kernel, from: &PublicKey, vote: Vote) -> Vec<Evidence> {
-        let message = WireMessage::Vote(vote);
-        let class = message.traffic_class();
-        kernel.receive(from.clone(), message, class);
-        let mut handled = 0;
-        while let Some(input) = kernel.next_input(0) {
-            handled += 1;
-            assert!(handled <= 16, "one deterministic input must drain promptly");
-            kernel.handle(0, input);
-        }
-        kernel
-            .poll(0)
-            .into_iter()
-            .filter_map(|operation| match operation {
-                Op::Report(Report::Evidence(evidence)) => Some(*evidence),
-                Op::Report(report) => panic!("unexpected detector report: {report:?}"),
-                Op::Exec(_) | Op::Persist { .. } => {
-                    panic!("the non-voting detector cannot fabricate execution or signing")
-                }
-                Op::Send { msg, .. } => {
-                    assert!(!matches!(msg, WireMessage::Vote(_)));
-                    None
-                }
-                Op::Serve(_) => None,
-            })
-            .collect()
-    }
-
     let key = keys()[2].clone();
     let signer = KeyPairSigner::new(&key).unwrap();
     let from = crate::sumeragi::crypto::core_key(key.public_key()).unwrap();
@@ -1081,7 +1088,7 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
         };
-        vote.sig = signer.sign(&vote.preimage());
+        vote.sig = signer.sign(&vote.preimage()).unwrap();
         vote
     };
     let first = signed_vote(71);
@@ -1091,10 +1098,10 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
     bad_signature.sig.0[0] ^= 1;
     let mut foreign_epoch = second.clone();
     foreign_epoch.epoch.epoch += 1;
-    foreign_epoch.sig = signer.sign(&foreign_epoch.preimage());
+    foreign_epoch.sig = signer.sign(&foreign_epoch.preimage()).unwrap();
     let mut foreign_instance = second.clone();
     foreign_instance.instance.0[0] ^= 1;
-    foreign_instance.sig = signer.sign(&foreign_instance.preimage());
+    foreign_instance.sig = signer.sign(&foreign_instance.preimage()).unwrap();
     for invalid in [bad_signature, foreign_epoch, foreign_instance] {
         assert!(
             deliver(&mut kernel, &from, invalid).is_empty(),
@@ -1207,7 +1214,7 @@ fn fund_original_validator_in_signed_genesis(
             peer_id: peer,
             stake_account: validator,
             initial_stake: amount.clone(),
-            metadata: Default::default(),
+            metadata: iroha_model_base::metadata::Metadata::default(),
             monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                 source_asset,
                 escrow_asset,
@@ -1376,8 +1383,11 @@ fn funded_original_lane_slashing_scenario(complete_replacement: bool) {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             created_at_ms,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
             chain.height() + 1,
             Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
         )

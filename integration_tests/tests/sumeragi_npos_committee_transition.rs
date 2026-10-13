@@ -1,4 +1,4 @@
-//! Disposable NPoS qualification of an overfull candidate pool and certified retention.
+//! Disposable `NPoS` qualification of an overfull candidate pool and certified retention.
 //!
 //! Four genesis voters admit separately running candidates into pools of five, eight or
 //! eleven. The public rank freezes exactly four or seven seats two epochs ahead, bounded
@@ -100,6 +100,8 @@ mod committee_staking;
 mod committee_staking_history;
 #[path = "support/committee_status.rs"]
 mod committee_status;
+#[path = "support/parliament_contract.rs"]
+mod parliament_contract;
 #[path = "support/parliament_submission.rs"]
 mod parliament_submission;
 
@@ -254,6 +256,9 @@ async fn prove_retained_successor_after_restart(
     cutoff: &CertifiedBlock,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
 ) -> Result<()> {
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+        .sumeragi_context
+        .root_scope;
     let boundary = cutoff
         .commitment()
         .schedule
@@ -307,7 +312,13 @@ async fn prove_retained_successor_after_restart(
         let admin = admin.clone();
         let network_id = network.network_id();
         move || {
-            read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, TARGET_FIRST)
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                TARGET_FIRST,
+                root_scope,
+            )
         }
     })
     .await
@@ -508,12 +519,9 @@ fn admit_candidates(
             ]
         })
         .collect::<Vec<InstructionBox>>();
-    committee_status::submit_and_observe_until(
-        admin.clone(),
-        admin.clone(),
-        Instant::now() + WAIT,
-        |bounded| bounded.submit_all(funding, FeePaymentIntent::authority(Vec::new(), None)),
-    )?;
+    committee_status::submit_and_observe_until(admin, admin, Instant::now() + WAIT, |bounded| {
+        bounded.submit_all(funding, FeePaymentIntent::authority(Vec::new(), None))
+    })?;
     for operator in candidates {
         let inclusion_height =
             committee_status::height_until_blocking(admin, Instant::now() + WAIT)? + 1;
@@ -553,8 +561,8 @@ fn admit_candidates(
             )?,
         };
         committee_status::submit_and_observe_until(
-            operator.client.clone(),
-            admin.clone(),
+            &operator.client,
+            admin,
             Instant::now() + WAIT,
             |bounded| bounded.submit(candidate, FeePaymentIntent::authority(Vec::new(), None)),
         )
@@ -706,7 +714,7 @@ async fn advance_exact_rotation_phase(
     );
     let client = peers[0].client();
     read_on_dedicated_thread(move || {
-        committee_status::submit_until(client, deadline, |bounded| {
+        committee_status::submit_until(&client, deadline, |bounded| {
             bounded.submit(
                 Log::new(Level::INFO, format!("rotation DKG exact phase h{height}")),
                 FeePaymentIntent::authority(Vec::new(), None),
@@ -754,7 +762,7 @@ async fn advance_exact_genesis_phase(
     );
     let client = network.validators()[0].client();
     read_on_dedicated_thread(move || {
-        committee_status::submit_until(client, deadline, |bounded| {
+        committee_status::submit_until(&client, deadline, |bounded| {
             bounded.submit(
                 Log::new(Level::INFO, format!("genesis DKG exact phase h{height}")),
                 FeePaymentIntent::authority(Vec::new(), None),
@@ -789,6 +797,7 @@ fn read_genesis_dkg_finality_chain(
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
     end: u64,
     deadline: Instant,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<NativeFinalityJournal> {
     ensure!(
         (2..=4).contains(&end),
@@ -800,6 +809,7 @@ fn read_genesis_dkg_finality_chain(
         signed_genesis_hash,
         end,
         deadline,
+        root_scope,
     )?
     .0)
 }
@@ -809,6 +819,7 @@ fn read_contiguous_finality_chain(
     network_id: NetworkId,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
     end: u64,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(NativeFinalityJournal, Vec<CertifiedBlock>)> {
     read_contiguous_finality_chain_until(
         client,
@@ -816,6 +827,7 @@ fn read_contiguous_finality_chain(
         signed_genesis_hash,
         end,
         Instant::now() + WAIT,
+        root_scope,
     )
 }
 
@@ -827,6 +839,7 @@ fn read_contiguous_finality_chain_until(
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
     end: u64,
     deadline: Instant,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(NativeFinalityJournal, Vec<CertifiedBlock>)> {
     let source = client.client().with_request_deadline(deadline);
     finality_chain_from_proofs(
@@ -835,20 +848,22 @@ fn read_contiguous_finality_chain_until(
         signed_genesis_hash,
         end,
         deadline,
-        interval_finality_fetch(&source, end),
+        interval_finality_fetch(&source, end, root_scope),
+        root_scope,
     )
 }
 
 // Each request retains at most 64 actual full-proof DTOs. Consumed rows move into
 // the existing native journal; they are never copied to a second authority graph.
 // TODO: close the fixture's existing SDK DTO/journal metadata funding obligation.
-fn interval_finality_fetch<'a>(
-    client: &'a iroha::client::Client,
+fn interval_finality_fetch(
+    client: &iroha::client::Client,
     end: u64,
-) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
+) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + '_
 {
     interval_finality_fetch_with(end, move |from, to| {
-        client.get_sumeragi_finality_interval(from, to)
+        client.get_sumeragi_finality_interval(from, to, root_scope)
     })
 }
 fn interval_finality_fetch_with<'a>(
@@ -904,6 +919,7 @@ fn finality_chain_from_proofs(
     mut fetch: impl FnMut(
         NonZeroU64,
     ) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<(NativeFinalityJournal, Vec<CertifiedBlock>)> {
     ensure!(
         (2..=MAX_QUALIFICATION_HEIGHT).contains(&end),
@@ -940,12 +956,13 @@ fn finality_chain_from_proofs(
             source_bytes <= limits.journal_bytes,
             "committee proof exceeds its journal source bound"
         );
-        proof.decode_checked()?;
+        proof.decode_checked(root_scope.into())?;
         journal.blocks.push(NativeFinalityArtifact {
             block_wire: proof.block_wire,
         });
     }
-    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    let blocks =
+        authenticate_finality_journal(&journal, chain_id, network_id, end, deadline, root_scope)?;
     Ok((journal, blocks))
 }
 
@@ -957,12 +974,13 @@ fn authenticate_finality_journal(
     network_id: NetworkId,
     end: u64,
     deadline: Instant,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<Vec<CertifiedBlock>> {
     let limits = finality_limits();
     let cursor = NativeJournalCursor::new(
         chain_id.clone(),
         network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        root_scope,
         limits,
         &iroha_allocation::AllocationBudget::new(limits.allocated_bytes),
     )
@@ -974,6 +992,11 @@ fn authenticate_finality_journal(
         limits,
         cursor.allocation_budget(),
         |reader| {
+            if reader.root_scope() != root_scope {
+                return Err(
+                    "committee history differs from its original signed genesis root scope".into(),
+                );
+            }
             reader
                 .walk(1, end)
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -1000,37 +1023,56 @@ fn append_contiguous_finality_chain_until(
     journal: NativeFinalityJournal,
     end: u64,
     deadline: Instant,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
 ) -> Result<NativeFinalityJournal> {
     let source = client.client().with_request_deadline(deadline);
     append_finality_chain_from_proofs(
-        client.client().chain(),
-        network_id,
-        signed_genesis_hash,
+        &FinalityChainOrigin {
+            chain_id: client.client().chain(),
+            network_id,
+            signed_genesis_hash,
+            root_scope,
+        },
         journal,
         end,
         deadline,
-        interval_finality_fetch(&source, end),
+        interval_finality_fetch(&source, end, root_scope),
     )
 }
 
-fn append_finality_chain_from_proofs(
-    chain_id: &iroha_model_base::chain::ChainId,
+struct FinalityChainOrigin<'a> {
+    chain_id: &'a iroha_model_base::chain::ChainId,
     network_id: NetworkId,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    root_scope: iroha::data_model::block::consensus::SumeragiRootScope,
+}
+
+fn append_finality_chain_from_proofs(
+    origin: &FinalityChainOrigin<'_>,
     journal: NativeFinalityJournal,
     end: u64,
     deadline: Instant,
     fetch: impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>,
 ) -> Result<NativeFinalityJournal> {
+    let FinalityChainOrigin {
+        chain_id,
+        network_id,
+        signed_genesis_hash,
+        root_scope,
+    } = *origin;
+
     let base = u64::try_from(journal.blocks.len())?;
     ensure!(
         base >= 2 && base < end,
         "rotation phase must extend an original H2+ journal"
     );
     extend_finality_chain_from_proofs(
-        chain_id,
-        network_id,
-        signed_genesis_hash,
+        &FinalityChainOrigin {
+            chain_id,
+            network_id,
+            signed_genesis_hash,
+            root_scope,
+        },
         journal,
         end,
         deadline,
@@ -1042,9 +1084,7 @@ fn append_finality_chain_from_proofs(
 // Staking observations may name the same immutable tip. Every observation still runs
 // the complete native verifier; only already acquired physical source rows are retained.
 fn extend_finality_chain_from_proofs(
-    chain_id: &iroha_model_base::chain::ChainId,
-    network_id: NetworkId,
-    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    origin: &FinalityChainOrigin<'_>,
     mut journal: NativeFinalityJournal,
     end: u64,
     deadline: Instant,
@@ -1052,6 +1092,13 @@ fn extend_finality_chain_from_proofs(
         NonZeroU64,
     ) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>,
 ) -> Result<(NativeFinalityJournal, Vec<CertifiedBlock>)> {
+    let FinalityChainOrigin {
+        chain_id,
+        network_id,
+        signed_genesis_hash,
+        root_scope,
+    } = *origin;
+
     ensure!(
         (2..=MAX_QUALIFICATION_HEIGHT).contains(&end),
         "committee proof cut exceeds its explicit disposable bound"
@@ -1103,7 +1150,7 @@ fn extend_finality_chain_from_proofs(
             source_bytes <= limits.journal_bytes,
             "committee proof exceeds its journal source bound"
         );
-        proof.decode_checked()?;
+        proof.decode_checked(root_scope.into())?;
         journal
             .blocks
             .try_reserve(1)
@@ -1116,7 +1163,8 @@ fn extend_finality_chain_from_proofs(
         "rotation finality prefix acquired: base={base} target={end} actual_new_rows={}",
         end - base
     );
-    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    let blocks =
+        authenticate_finality_journal(&journal, chain_id, network_id, end, deadline, root_scope)?;
     eprintln!("rotation finality prefix verified: tip={end}");
     Ok((journal, blocks))
 }
@@ -1145,11 +1193,19 @@ async fn stage_genesis_brokers(
             &[(dkg.public_session.record(), output.signer_index)],
         )?;
         ensure!(
-            provider.signer_index == output.signer_index
-                && provider.validator == output.validator
-                && provider.handle == output.provider_handle
-                && provider.revision == output.provider_revision
-                && provider.policy_digest == expected_digest,
+            (
+                provider.signer_index,
+                &provider.validator,
+                &provider.handle,
+                provider.revision,
+                provider.policy_digest
+            ) == (
+                output.signer_index,
+                &output.validator,
+                &output.provider_handle,
+                output.provider_revision,
+                expected_digest
+            ),
             "genesis provider manifest is not this exact real seat's public inventory"
         );
         let catalog = IrohaRuntimeProviderBindingsV1::with_prepared_beacon_inventory_v1(
@@ -1187,7 +1243,7 @@ struct CurrentCustodyRecord {
 struct PreparedRotation {
     target: Vec<PeerId>,
     prepared: Vec<DisposablePreparedBeaconCustody>,
-    _dkg: DisposableRotationDkgOutput,
+    dkg: DisposableRotationDkgOutput,
 }
 
 fn genesis_current_custody(
@@ -1344,20 +1400,33 @@ fn prove_exact_target_readiness(
     })
 }
 
+struct RotationSignerCustody<'a> {
+    current_custody: &'a BTreeMap<PeerId, CurrentCustodyRecord>,
+    provider_revision: u64,
+    missing_custody: Option<&'a PeerId>,
+}
+
 async fn execute_rotation_preparation(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
     operators: &BTreeMap<PeerId, Operator>,
     preparation: &ValidatorCommitteePreparationV1,
-    current_custody: &BTreeMap<PeerId, CurrentCustodyRecord>,
+    custody: &RotationSignerCustody<'_>,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
-    provider_revision: u64,
-    missing_custody: Option<&PeerId>,
 ) -> Result<PreparedRotation> {
+    let RotationSignerCustody {
+        current_custody,
+        provider_revision,
+        missing_custody,
+    } = *custody;
+
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+        .sumeragi_context
+        .root_scope;
     let network_id = network.network_id();
     let target_epoch = preparation.target_epoch;
     let transition_id = Hash::prehashed(preparation.transition_id().map_err(|error| eyre!(error))?);
-    let status = read_validator_committee(&admin, target_epoch).await?;
+    let status = read_validator_committee(admin, target_epoch).await?;
     let observed = status
         .latest_finality
         .decode_block(finality_limits())
@@ -1382,7 +1451,15 @@ async fn execute_rotation_preparation(
     let target_seats = exact_process_roster(network, &target)?;
     let (finality_journal, certified_chain) = read_on_dedicated_thread({
         let admin = admin.clone();
-        move || read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, observed)
+        move || {
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                observed,
+                root_scope,
+            )
+        }
     })
     .await
     .wrap_err("selection finality worker failed")?;
@@ -1425,7 +1502,7 @@ async fn execute_rotation_preparation(
         transition_id,
     };
     let certificate_height = observed + 4;
-    let dkg = run_disposable_rotation_dkg(
+    let dkg = Box::pin(run_disposable_rotation_dkg(
         &target_seats,
         &authorizing_seats,
         selection_evidence,
@@ -1440,7 +1517,7 @@ async fn execute_rotation_preparation(
                 let observed = read_on_dedicated_thread({
                     let admin = admin.clone();
                     move || -> Result<u64> {
-                        Ok(committee_status::height_until_blocking(&admin, deadline)?)
+                        committee_status::height_until_blocking(&admin, deadline)
                     }
                 })
                 .await
@@ -1457,13 +1534,14 @@ async fn execute_rotation_preparation(
                         journal,
                         height,
                         deadline,
+                        root_scope,
                     )
                 })
                 .await
                 .wrap_err("rotation phase finality worker failed")
             }
         },
-    )
+    ))
     .await?;
     let finalize: Vec<InstructionBox> =
         norito::json::from_slice(&fs::read(&dkg.finalization_instruction_path)?)?;
@@ -1491,10 +1569,10 @@ async fn execute_rotation_preparation(
     );
     read_on_dedicated_thread({
         let admin = admin.clone();
-        let observer = admin.clone();
+        let read_client = admin.clone();
         let deadline = Instant::now() + WAIT;
         move || {
-            committee_status::submit_and_observe_until(admin, observer, deadline, |bounded| {
+            committee_status::submit_and_observe_until(&admin, &read_client, deadline, |bounded| {
                 bounded.submit_all(finalize, FeePaymentIntent::authority(Vec::new(), None))
             })
         }
@@ -1528,10 +1606,10 @@ async fn execute_rotation_preparation(
         .client
         .clone();
     read_on_dedicated_thread({
-        let observer = admin.clone();
+        let read_client = admin.clone();
         let deadline = Instant::now() + WAIT;
         move || {
-            committee_status::submit_and_observe_until(owner, observer, deadline, |bounded| {
+            committee_status::submit_and_observe_until(&owner, &read_client, deadline, |bounded| {
                 bounded.submit(
                     SetParameter::new(Parameter::Custom(prepare.into_custom_parameter())),
                     FeePaymentIntent::authority(Vec::new(), None),
@@ -1563,7 +1641,15 @@ async fn execute_rotation_preparation(
         .get();
     let (custody_journal, _) = read_on_dedicated_thread({
         let admin = admin.clone();
-        move || read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, proof_end)
+        move || {
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                proof_end,
+                root_scope,
+            )
+        }
     })
     .await
     .wrap_err("custody finality worker failed")?;
@@ -1576,14 +1662,6 @@ async fn execute_rotation_preparation(
         defaults::runtime_provider_broker::CREDENTIAL_MAX_MEMORY_BYTES;
     let credential_budget =
         iroha_allocation::AllocationBudget::new(credential_max_memory_bytes.get());
-    let proof_cursor = NativeJournalCursor::new(
-        network.chain_id(),
-        network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        finality_limits(),
-        &credential_budget,
-    )
-    .map_err(|error| eyre!(error))?;
     verify_validator_committee_provisioning_evidence_v1(
         &custody_evidence,
         &network.chain_id(),
@@ -1669,18 +1747,23 @@ async fn execute_rotation_preparation(
             .client
             .clone();
         read_on_dedicated_thread({
-            let observer = admin.clone();
+            let read_client = admin.clone();
             let deadline = Instant::now() + WAIT;
             move || {
-                committee_status::submit_and_observe_until(owner, observer, deadline, |bounded| {
-                    bounded.submit(
-                        SetParameter::new(Parameter::Custom(
-                            ValidatorCommitteeOperationV1::AdmitSeat(admission)
-                                .into_custom_parameter(),
-                        )),
-                        FeePaymentIntent::authority(Vec::new(), None),
-                    )
-                })
+                committee_status::submit_and_observe_until(
+                    &owner,
+                    &read_client,
+                    deadline,
+                    |bounded| {
+                        bounded.submit(
+                            SetParameter::new(Parameter::Custom(
+                                ValidatorCommitteeOperationV1::AdmitSeat(admission)
+                                    .into_custom_parameter(),
+                            )),
+                            FeePaymentIntent::authority(Vec::new(), None),
+                        )
+                    },
+                )
             }
         })
         .await
@@ -1707,23 +1790,42 @@ async fn execute_rotation_preparation(
     Ok(PreparedRotation {
         target,
         prepared,
-        _dkg: dkg,
+        dkg,
     })
+}
+
+struct QualificationInputs<'a> {
+    network: &'a sandbox::SerializedNetwork,
+    admin: &'a Client,
+    genesis_dkg: &'a DisposableGenesisDkgOutput,
+    genesis_catalogs: &'a BTreeMap<PeerId, Vec<u8>>,
+    operators: &'a BTreeMap<PeerId, Operator>,
+    genesis_voters: &'a BTreeSet<PeerId>,
+    pool: &'a BTreeSet<PeerId>,
+    first_preparation: &'a ValidatorCommitteePreparationV1,
+    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
 }
 
 async fn run_custody_or_activation_scenario(
     scenario: QualificationScenario,
-    network: &sandbox::SerializedNetwork,
-    admin: &Client,
-    genesis_dkg: &DisposableGenesisDkgOutput,
-    genesis_catalogs: &BTreeMap<PeerId, Vec<u8>>,
-    operators: &BTreeMap<PeerId, Operator>,
-    genesis_voters: &BTreeSet<PeerId>,
-    pool: &BTreeSet<PeerId>,
-    first_preparation: &ValidatorCommitteePreparationV1,
-    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    inputs: &QualificationInputs<'_>,
     parliament_proposal: Option<iroha::data_model::governance::types::ProposalKind>,
 ) -> Result<()> {
+    let QualificationInputs {
+        network,
+        admin,
+        genesis_dkg,
+        genesis_catalogs,
+        operators,
+        genesis_voters,
+        pool,
+        first_preparation,
+        signed_genesis_hash,
+    } = *inputs;
+
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+        .sumeragi_context
+        .root_scope;
     let missing = match scenario {
         QualificationScenario::ActivateSevenThenReturnFour => None,
         QualificationScenario::MissingTargetCustody => first_preparation
@@ -1759,10 +1861,12 @@ async fn run_custody_or_activation_scenario(
         admin,
         operators,
         first_preparation,
-        &first_current,
+        &RotationSignerCustody {
+            current_custody: &first_current,
+            provider_revision: 2,
+            missing_custody: missing.as_ref(),
+        },
         signed_genesis_hash,
-        2,
-        missing.as_ref(),
     )
     .await?;
     ensure!(
@@ -1770,16 +1874,15 @@ async fn run_custody_or_activation_scenario(
             && first.prepared.len() == first.target.len() - usize::from(missing.is_some()),
         "first target custody preparation did not preserve the exact selected membership"
     );
-    let governance_pulse = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
+    // The request is registered inside E+1 and stays pending: its slot is the boundary
+    // pulse at CUTOFF - 1, which the chain finalizes for its own committee election.
+    let pending_sortition = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
         Some(
-            committee_parliament::exercise(
-                network,
+            committee_parliament::request(
                 admin,
-                genesis_voters,
                 first_preparation,
                 genesis_dkg.public_session.record(),
-                first._dkg.public_session.record(),
-                signed_genesis_hash,
+                first.dkg.public_session.record(),
                 parliament_proposal.ok_or_else(|| {
                     eyre!("complete rotation lacks its admitted Parliament proposal")
                 })?,
@@ -1796,7 +1899,7 @@ async fn run_custody_or_activation_scenario(
     let initial_roster = network
         .validators()
         .iter()
-        .map(|peer| peer.id())
+        .map(iroha_test_network::NetworkPeer::id)
         .collect::<Vec<_>>();
     let survivors = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
         let survivors = first
@@ -1818,8 +1921,8 @@ async fn run_custody_or_activation_scenario(
             let observer = admin.clone();
             read_on_dedicated_thread(move || {
                 committee_status::submit_and_observe_until(
-                    owner.client,
-                    observer,
+                    &owner.client,
+                    &observer,
                     deadline,
                     |bounded| {
                         bounded.submit(
@@ -1839,10 +1942,7 @@ async fn run_custody_or_activation_scenario(
         let before_cutoff = read_on_dedicated_thread({
             let admin = admin.clone();
             move || -> Result<u64> {
-                Ok(committee_status::height_until_blocking(
-                    &admin,
-                    Instant::now() + WAIT,
-                )?)
+                committee_status::height_until_blocking(&admin, Instant::now() + WAIT)
             }
         })
         .await
@@ -1859,17 +1959,30 @@ async fn run_custody_or_activation_scenario(
     let (_, cutoff_chain) = read_on_dedicated_thread({
         let admin = admin.clone();
         let network_id = network.network_id();
-        move || read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, CUTOFF)
+        move || {
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                CUTOFF,
+                root_scope,
+            )
+        }
     })
     .await
     .wrap_err("first cutoff finality worker failed")?;
-    if let Some(pulse) = &governance_pulse {
-        committee_parliament::verify_boundary(
-            &cutoff_chain,
-            pulse,
-            genesis_dkg.public_session.record(),
-        )?;
-    }
+    let governance_pulse = pending_sortition
+        .as_ref()
+        .map(|pending| {
+            committee_parliament::verify_boundary(
+                &cutoff_chain,
+                pending,
+                genesis_dkg.public_session.record(),
+                genesis_voters,
+                &first_preparation.eligibility.xor_asset_definition_id,
+            )
+        })
+        .transpose()?;
     let genesis = cutoff_chain
         .first()
         .ok_or_else(|| eyre!("missing authenticated signed genesis"))?;
@@ -1949,7 +2062,7 @@ async fn run_custody_or_activation_scenario(
                     == genesis_voters.iter().collect::<BTreeSet<_>>(),
             "one genuinely absent target custodian must force certified four-seat retention"
         );
-        let progress = read_validator_committee(&admin, 2).await?;
+        let progress = read_validator_committee(admin, 2).await?;
         let transition = &progress
             .selected
             .as_ref()
@@ -1993,7 +2106,13 @@ async fn run_custody_or_activation_scenario(
         let admin = admin.clone();
         let network_id = network.network_id();
         move || {
-            read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, TARGET_FIRST)
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                TARGET_FIRST,
+                root_scope,
+            )
         }
     })
     .await
@@ -2013,7 +2132,23 @@ async fn run_custody_or_activation_scenario(
             == 1,
         "seven-seat activation did not publish the new validator generation"
     );
-    let status = read_validator_committee(&admin, 3).await?;
+    // Real-peer exercise of the rotation rule: the draw is consumed only now, under the
+    // seven-seat committee and its new key session, against the retained boundary session.
+    if let (Some(pending), Some(pulse)) = (&pending_sortition, &governance_pulse) {
+        committee_parliament::consume_after_rotation(
+            network,
+            admin,
+            &seven_set,
+            pending,
+            pulse,
+            genesis_dkg.public_session.record(),
+            first.dkg.public_session.record(),
+            signed_genesis_hash,
+            &first_preparation.eligibility.xor_asset_definition_id,
+        )
+        .await?;
+    }
+    let status = read_validator_committee(admin, 3).await?;
     let return_preparation = status
         .selected
         .as_ref()
@@ -2057,10 +2192,12 @@ async fn run_custody_or_activation_scenario(
         admin,
         operators,
         &return_preparation,
-        &seven_current,
+        &RotationSignerCustody {
+            current_custody: &seven_current,
+            provider_revision: 3,
+            missing_custody: None,
+        },
         signed_genesis_hash,
-        3,
-        None,
     )
     .await?;
     ensure!(
@@ -2074,7 +2211,13 @@ async fn run_custody_or_activation_scenario(
         let admin = admin.clone();
         let network_id = network.network_id();
         move || {
-            read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, second_cutoff)
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                second_cutoff,
+                root_scope,
+            )
         }
     })
     .await
@@ -2112,7 +2255,15 @@ async fn run_custody_or_activation_scenario(
     let (_, four_chain) = read_on_dedicated_thread({
         let admin = admin.clone();
         let network_id = network.network_id();
-        move || read_contiguous_finality_chain(&admin, network_id, signed_genesis_hash, four_first)
+        move || {
+            read_contiguous_finality_chain(
+                &admin,
+                network_id,
+                signed_genesis_hash,
+                four_first,
+                root_scope,
+            )
+        }
     })
     .await
     .wrap_err("four-seat return finality worker failed")?;
@@ -2180,12 +2331,14 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         xor.to_string() == TAIRA_XOR,
         "staking must use real genesis-pinned XOR"
     );
-    let mut npos = SumeragiNposParameters::default();
-    npos.epoch_length_blocks = NonZeroU64::new(EPOCH).expect("nonzero epoch");
-    npos.max_validators = 7;
-    npos.min_self_bond = 1_000_u64.into();
-    npos.evidence_horizon_blocks = EPOCH * 2;
-    npos.slashing_delay_blocks = 1;
+    let npos = SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(EPOCH).expect("nonzero epoch"),
+        max_validators: 7,
+        min_self_bond: 1_000_u64.into(),
+        evidence_horizon_blocks: EPOCH * 2,
+        slashing_delay_blocks: 1,
+        ..SumeragiNposParameters::default()
+    };
     npos.validate().map_err(|error| eyre!(error))?;
     let builder = NetworkBuilder::new()
         .with_peers(4)
@@ -2218,7 +2371,10 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
     let network = sandbox::build_network_or_skip(builder, scenario.seed()).ok_or_else(|| {
         eyre!("committee qualification requires an actual {pool_size}-process disposable network")
     })?;
-    let result = async {
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+        .sumeragi_context
+        .root_scope;
+    let result = Box::pin(async {
         let genesis_bundle = network.native_genesis_provisioning_bundle()?;
         ensure!(
             genesis_bundle.block_hash == network.genesis().0.hash(),
@@ -2232,7 +2388,7 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         let network_id = network.network_id();
         let block_hash = genesis_bundle.block_hash;
         let network_ref = &network;
-        let genesis_dkg = run_disposable_genesis_dkg(
+        let genesis_dkg = Box::pin(run_disposable_genesis_dkg(
             &network,
             finality_limits(),
             5,
@@ -2243,7 +2399,7 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                     let observed = read_on_dedicated_thread({
                         let admin = admin.clone();
                         move || -> Result<u64> {
-                            Ok(committee_status::height_until_blocking(&admin, deadline)?)
+                            committee_status::height_until_blocking(&admin, deadline)
                         }
                     })
                     .await
@@ -2254,14 +2410,14 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                     );
                     read_on_dedicated_thread(move || {
                         read_genesis_dkg_finality_chain(
-                            &admin, network_id, block_hash, height, deadline,
+                            &admin, network_id, block_hash, height, deadline, root_scope,
                         )
                     })
                     .await
                     .wrap_err("genesis phase finality worker failed")
                 }
             },
-        )
+        ))
         .await?;
         let install: Vec<InstructionBox> =
             norito::json::from_slice(&fs::read(&genesis_dkg.install_instruction_path)?)?;
@@ -2300,13 +2456,13 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         let genesis_voters = network
             .validators()
             .iter()
-            .map(|peer| peer.id())
+            .map(iroha_test_network::NetworkPeer::id)
             .collect::<BTreeSet<_>>();
         let pool = network
             .validators()
             .iter()
             .chain(network.committee_validators())
-            .map(|peer| peer.id())
+            .map(iroha_test_network::NetworkPeer::id)
             .collect::<BTreeSet<_>>();
         ensure!(
             pool.len() == pool_size,
@@ -2349,7 +2505,7 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         let fresh_peers = network
             .committee_validators()
             .iter()
-            .map(|peer| peer.id())
+            .map(iroha_test_network::NetworkPeer::id)
             .collect::<Vec<_>>();
         let candidates = fresh_peers
             .iter()
@@ -2363,16 +2519,10 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
             let admin = admin.clone();
             let xor = xor.clone();
             let escrow = escrow.clone();
-            let candidates = candidates
-                .iter()
-                .map(|operator| Operator::clone(operator))
-                .collect::<Vec<_>>();
+            let candidates = candidates.into_iter().cloned().collect::<Vec<_>>();
             move || -> Result<u64> {
                 admit_candidates(&admin, &candidates, network_id, &xor, &escrow)?;
-                Ok(committee_status::height_until_blocking(
-                    &admin,
-                    Instant::now() + WAIT,
-                )?)
+                committee_status::height_until_blocking(&admin, Instant::now() + WAIT)
             }
         })
         .await
@@ -2397,7 +2547,7 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         let initial_roster = network
             .validators()
             .iter()
-            .map(|peer| peer.id())
+            .map(iroha_test_network::NetworkPeer::id)
             .collect::<Vec<_>>();
         // Selection is certified at the final height of E. Preparation evidence
         // must also certify an E+1 block under the preparing authorization. The
@@ -2441,21 +2591,23 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                 "frozen seat must carry its real BLS possession proof"
             );
         }
-        run_custody_or_activation_scenario(
+        Box::pin(run_custody_or_activation_scenario(
             scenario,
-            &network,
-            &admin,
-            &genesis_dkg,
-            &genesis_catalogs,
-            &operators,
-            &genesis_voters,
-            &pool,
-            &preparation,
-            genesis_bundle.block_hash,
+            &QualificationInputs {
+                network: &network,
+                admin: &admin,
+                genesis_dkg: &genesis_dkg,
+                genesis_catalogs: &genesis_catalogs,
+                operators: &operators,
+                genesis_voters: &genesis_voters,
+                pool: &pool,
+                first_preparation: &preparation,
+                signed_genesis_hash: genesis_bundle.block_hash,
+            },
             parliament_proposal,
-        )
+        ))
         .await
-    }
+    })
     .await;
     network.shutdown_and_release().await;
     result
@@ -2602,6 +2754,7 @@ fn committee_history_public_proofs_require_the_exact_genesis_anchored_prefix() -
                     .cloned()
                     .ok_or_else(|| eyre!("missing requested proof"))
             },
+            chain.root_scope(),
         );
         (result, requested)
     };
@@ -2658,6 +2811,7 @@ fn committee_history_public_proofs_require_the_exact_genesis_anchored_prefix() -
             3,
             Instant::now(),
             |_| panic!("expired reads must not fetch"),
+            chain.root_scope()
         )
         .is_err()
     );
@@ -2692,6 +2846,7 @@ fn committee_rotation_history_queries_only_successors_and_reuses_original_frames
         2,
         Instant::now() + WAIT,
         fetch,
+        chain.root_scope(),
     )?;
     let mut original = journal
         .blocks
@@ -2708,9 +2863,12 @@ fn committee_rotation_history_queries_only_successors_and_reuses_original_frames
     let deadline = Instant::now() + WAIT;
     for end in 3..=5 {
         journal = append_finality_chain_from_proofs(
-            &chain_id,
-            chain.network_id(),
-            chain.genesis().hash(),
+            &FinalityChainOrigin {
+                chain_id: &chain_id,
+                network_id: chain.network_id(),
+                signed_genesis_hash: chain.genesis().hash(),
+                root_scope: chain.root_scope(),
+            },
             journal,
             end,
             deadline,
@@ -2740,6 +2898,7 @@ fn committee_rotation_history_queries_only_successors_and_reuses_original_frames
             end,
             deadline,
             fetch,
+            chain.root_scope(),
         )?;
         assert_eq!(
             norito::encode_canonical(&journal)?,
@@ -2781,6 +2940,7 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
         2,
         Instant::now() + WAIT,
         fetch,
+        chain.root_scope(),
     )?;
     for policy in 0..4 {
         let mut original = base.clone();
@@ -2808,9 +2968,12 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
             }
         };
         let error = append_finality_chain_from_proofs(
-            &chain_id,
-            chain.network_id(),
-            independent,
+            &FinalityChainOrigin {
+                chain_id: &chain_id,
+                network_id: chain.network_id(),
+                signed_genesis_hash: independent,
+                root_scope: chain.root_scope(),
+            },
             original,
             end,
             deadline,
@@ -2820,9 +2983,12 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
         assert!(error.to_string().contains(expected), "{error}");
     }
     let error = append_finality_chain_from_proofs(
-        &chain_id,
-        chain.network_id(),
-        chain.genesis().hash(),
+        &FinalityChainOrigin {
+            chain_id: &chain_id,
+            network_id: chain.network_id(),
+            signed_genesis_hash: chain.genesis().hash(),
+            root_scope: chain.root_scope(),
+        },
         base.clone(),
         3,
         Instant::now() + WAIT,
@@ -2845,16 +3011,19 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
         let mut requested = Vec::new();
         assert!(
             append_finality_chain_from_proofs(
-                &chain_id,
-                chain.network_id(),
-                chain.genesis().hash(),
+                &FinalityChainOrigin {
+                    chain_id: &chain_id,
+                    network_id: chain.network_id(),
+                    signed_genesis_hash: chain.genesis().hash(),
+                    root_scope: chain.root_scope()
+                },
                 original,
                 3,
                 Instant::now() + WAIT,
                 |height| {
                     requested.push(height.get());
                     Ok(successor.clone())
-                },
+                }
             )
             .is_err(),
             "changed original native prefix/proof metadata must not publish"
@@ -2864,16 +3033,19 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
     let mut requested = Vec::new();
     assert!(
         append_finality_chain_from_proofs(
-            &chain_id,
-            chain.network_id(),
-            chain.genesis().hash(),
+            &FinalityChainOrigin {
+                chain_id: &chain_id,
+                network_id: chain.network_id(),
+                signed_genesis_hash: chain.genesis().hash(),
+                root_scope: chain.root_scope()
+            },
             base,
             3,
             Instant::now() + WAIT,
             |height| {
                 requested.push(height.get());
                 Ok(proofs[1].clone())
-            },
+            }
         )
         .is_err(),
         "a returned predecessor cannot replace the exact requested successor"
@@ -2884,6 +3056,10 @@ fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_de
 
 #[test]
 fn native_finality_rejects_wrong_independent_genesis_before_query() {
+    let native = iroha::data_model::testing::native_finality::NativeFinalityFixture::start(
+        "committee-history-refusal",
+    );
+    let root_scope = native.root_scope();
     let config = iroha::config::Config {
         chain: "committee-transition-unit".into(),
         network_id: NetworkId::from_genesis_hash(iroha::crypto::HashOf::from_untyped_unchecked(
@@ -2892,6 +3068,7 @@ fn native_finality_rejects_wrong_independent_genesis_before_query() {
         key_pair: iroha_test_samples::ALICE_KEYPAIR.clone(),
         account: ALICE_ID.clone(),
         account_chain_discriminant: iroha_torii_shared::MINAMOTO_CHAIN_DISCRIMINANT,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: "http://committee-transition.invalid/".parse().unwrap(),
         torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
         basic_auth: None,
@@ -2910,6 +3087,7 @@ fn native_finality_rejects_wrong_independent_genesis_before_query() {
         network_id,
         iroha::crypto::HashOf::from_untyped_unchecked(Hash::new(b"another signed genesis")),
         2,
+        root_scope,
     )
     .expect_err("foreign independent source is rejected before any query");
     assert!(
@@ -2921,6 +3099,10 @@ fn native_finality_rejects_wrong_independent_genesis_before_query() {
 
 #[test]
 fn committee_history_observation_keeps_original_read_deadline_before_query() -> Result<()> {
+    let native = iroha::data_model::testing::native_finality::NativeFinalityFixture::start(
+        "committee-history-refusal",
+    );
+    let root_scope = native.root_scope();
     let config = iroha::config::Config {
         chain: "committee-deadline-unit".into(),
         network_id: NetworkId::from_genesis_hash(iroha::crypto::HashOf::from_untyped_unchecked(
@@ -2929,6 +3111,7 @@ fn committee_history_observation_keeps_original_read_deadline_before_query() -> 
         key_pair: iroha_test_samples::ALICE_KEYPAIR.clone(),
         account: ALICE_ID.clone(),
         account_chain_discriminant: iroha_torii_shared::MINAMOTO_CHAIN_DISCRIMINANT,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: "http://committee-deadline.invalid/".parse()?,
         torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
         basic_auth: None,
@@ -2949,6 +3132,7 @@ fn committee_history_observation_keeps_original_read_deadline_before_query() -> 
         network_id.into_genesis_hash(),
         2,
         deadline,
+        root_scope,
     )
     .expect_err("an exhausted original observation deadline must not be renewed");
     assert!(

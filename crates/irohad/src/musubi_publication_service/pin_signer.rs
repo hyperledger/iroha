@@ -23,6 +23,8 @@ use iroha_core::{
     state::{State, StateReadOnly as _, WorldReadOnly as _, WorldStateSnapshot as _},
 };
 use iroha_crypto::KeyPair;
+#[cfg(test)]
+use iroha_data_model::transaction::SignedTransaction;
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
@@ -34,8 +36,7 @@ use iroha_data_model::{
         ManifestDigest, SORAFS_AUTO_REPLICATION_ORDER_INGEST_DEADLINE_SECS_V1, StorageClass,
     },
     transaction::{
-        DEFAULT_TRANSACTION_TIME_TO_LIVE, FeePaymentIntent, SignedTransaction, TransactionBuilder,
-        TransactionPayload,
+        DEFAULT_TRANSACTION_TIME_TO_LIVE, FeePaymentIntent, TransactionBuilder, TransactionPayload,
     },
 };
 use iroha_musubi_service::MusubiPublicationServiceClockV1;
@@ -48,7 +49,7 @@ use sorafs_manifest::{
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 /// Redacted signer or current-state failure before any Queue admission.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MusubiPublicationPinSigningErrorV1 {
     /// Original local allocation admission is unfinished; retain its exact retry owner.
     Deferred(ExecutionDeferred),
@@ -184,7 +185,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             &governance.sorafs_pin_policy,
             now_ms,
         )?;
-        self.prepare_manifest(source, &archive.commitment, manifest, now_ms, remaining)
+        self.prepare_manifest(source, &archive.commitment, &manifest, now_ms, remaining)
     }
 
     pub(super) fn prepare_retained_pin(
@@ -218,13 +219,15 @@ impl MusubiPublicationPinTransactionSignerV1 {
         let (_, payload) = self.prepare_manifest(
             source,
             &archive.commitment,
-            manifest,
+            &manifest,
             now_ms,
             request.authorization.deadline_unix_ms - now_ms,
         )?;
-        request
-            .authorization
-            .reserve_payload(&Default::default(), &payload.fee_payment, false)?;
+        request.authorization.reserve_payload(
+            &super::native_pin::ReservedFeesV1::default(),
+            &payload.fee_payment,
+            false,
+        )?;
         Ok(payload)
     }
 
@@ -232,13 +235,13 @@ impl MusubiPublicationPinTransactionSignerV1 {
         &self,
         source: &MusubiPublicationFinalizedArchiveRegistrationQueryV1,
         archive: &MusubiArchiveCommitmentV1,
-        manifest: ManifestV1,
+        manifest: &ManifestV1,
         now_ms: u64,
         remaining: u64,
     ) -> Result<(ManifestDigest, TransactionPayload), MusubiPublicationPinSigningErrorV1> {
         use MusubiPublicationPinSigningErrorV1 as Error;
         let governance = self.state.governance_snapshot();
-        super::pin_registration::validate_pin_manifest(&manifest, archive).map_err(|error| {
+        super::pin_registration::validate_pin_manifest(manifest, archive).map_err(|error| {
             match error {
                 super::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(original) => {
                     Error::Deferred(original)
@@ -247,12 +250,15 @@ impl MusubiPublicationPinTransactionSignerV1 {
             }
         })?;
         sorafs_manifest::validate_manifest(
-            &manifest,
+            manifest,
             &manifest_pin_policy_constraints_from_config(&governance.sorafs_pin_policy),
         )
         .map_err(|_| Error::Policy)?;
-        let digest = ManifestDigest::from_manifest(&manifest).map_err(pin_codec_refusal)?;
-        let payload = manifest.encode().map_err(pin_codec_refusal)?;
+        let digest =
+            ManifestDigest::from_manifest(manifest).map_err(|error| pin_codec_refusal(&error))?;
+        let payload = manifest
+            .encode()
+            .map_err(|error| pin_codec_refusal(&error))?;
         let fixed_clock = TimeSource::new_fixed(Duration::from_millis(now_ms));
         let mut draft = TransactionBuilder::new_with_time_source(
             self.network_id,
@@ -291,8 +297,11 @@ impl MusubiPublicationPinTransactionSignerV1 {
             view.world(),
             &view.nexus,
             &view.pipeline,
+            &view.zk.gas,
             draft.payload(),
             observation_time_ms,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .map_err(|_| Error::Finality)?,
             next_height,
             Some(route.route.dataspace_id),
         )
@@ -308,7 +317,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             view.world(),
             &governance.sorafs_pin_fee_asset_id,
             &self.authority,
-            &manifest,
+            manifest,
             &quote,
             observation_time_ms / 1_000,
         )?;
@@ -331,8 +340,9 @@ impl MusubiPublicationPinTransactionSignerV1 {
         use super::native_pin::slot::{SlotKind, decode_frame};
         request.validate()?;
         request.authorization.ensure_live(now_ms)?;
+        let network_matches = request.network == self.network_id;
         eyre::ensure!(
-            request.network == self.network_id
+            network_matches
                 && request.authority == self.authority
                 && !matches!(request.kind, SlotKind::Pin),
             "native control signer binding differs"
@@ -368,8 +378,12 @@ impl MusubiPublicationPinTransactionSignerV1 {
             view.world(),
             &view.nexus,
             &view.pipeline,
+            &view.zk.gas,
             draft.payload(),
             observed,
+            iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view).map_err(
+                |error| eyre::eyre!("native control has invalid committed time: {error:?}"),
+            )?,
             next_height,
             Some(route.route.dataspace_id),
         )
@@ -409,7 +423,7 @@ impl MusubiPublicationPinTransactionSignerV1 {
             .with_fee_payment_intent(quote.recommended_intent)
             .into_payload()?;
         request.authorization.reserve_payload(
-            &Default::default(),
+            &super::native_pin::ReservedFeesV1::default(),
             &payload.fee_payment,
             matches!(request.kind, SlotKind::Check(_)),
         )?;
@@ -434,14 +448,13 @@ impl MusubiPublicationPinTransactionSignerV1 {
             slot.request().network == self.network_id && slot.request().authority == self.authority,
             "native signer original identity differs"
         );
-        let archive = match slot.request().kind {
-            SlotKind::Pin => Some(self.finalized_reader.read_current_archive(
+        let archive = if slot.request().kind == SlotKind::Pin {
+            Some(self.finalized_reader.read_current_archive(
                 source.ok_or_else(|| eyre::eyre!("native pin source original is missing"))?,
-            )?),
-            _ => {
-                eyre::ensure!(source.is_none(), "control slot cannot select an archive");
-                None
-            }
+            )?)
+        } else {
+            eyre::ensure!(source.is_none(), "control slot cannot select an archive");
+            None
         };
         if let Some(archive) = &archive {
             let payload = slot
@@ -598,7 +611,7 @@ fn build_exact_pin_manifest(
     Ok(manifest)
 }
 
-fn pin_codec_refusal(error: norito::Error) -> MusubiPublicationPinSigningErrorV1 {
+fn pin_codec_refusal(error: &norito::Error) -> MusubiPublicationPinSigningErrorV1 {
     match super::pin_registration::codec_refusal(error) {
         super::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(original) => {
             MusubiPublicationPinSigningErrorV1::Deferred(original)
@@ -734,19 +747,19 @@ mod tests {
     #[test]
     fn runtime_key_binding_rejects_wrong_authority_and_unfundable_horizon() {
         let (_, mut policy, key_pair) = fixture();
-        assert_eq!(require_key_and_policy(&policy, &key_pair), Ok(()));
+        assert!(require_key_and_policy(&policy, &key_pair).is_ok());
         let other =
             KeyPair::try_from_seed(vec![0xC9; 32], Algorithm::Ed25519).expect("other fixture key");
-        assert_eq!(
+        assert!(matches!(
             require_key_and_policy(&policy, &other),
-            Err(MusubiPublicationPinSigningErrorV1::AuthorityMismatch),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::AuthorityMismatch)
+        ));
         policy.retention_horizon_secs =
             u64::from(SORAFS_AUTO_REPLICATION_ORDER_INGEST_DEADLINE_SECS_V1);
-        assert_eq!(
+        assert!(matches!(
             require_key_and_policy(&policy, &key_pair),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
     }
 
     #[test]
@@ -781,21 +794,32 @@ mod tests {
         use iroha_core::{
             execution_attempt::ExecutionAttemptError, executor::NexusFeeAdmissionError,
         };
-        for original in [
+        let original: ExecutionAttemptError<NexusFeeAdmissionError> =
             ExecutionAttemptError::Rejected(NexusFeeAdmissionError::ConfigInvalid(
                 "exact fee configuration refusal".to_owned(),
-            )),
-            ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
-            ),
-        ] {
-            let expected = original.clone();
-            let report = eyre::Report::new(original);
-            assert_eq!(
-                report.downcast_ref::<ExecutionAttemptError<NexusFeeAdmissionError>>(),
-                Some(&expected)
-            );
-        }
+            ));
+        let report = eyre::Report::new(original);
+        assert!(matches!(
+            report.downcast_ref::<ExecutionAttemptError<NexusFeeAdmissionError>>(),
+            Some(ExecutionAttemptError::Rejected(NexusFeeAdmissionError::ConfigInvalid(message)))
+                if message == "exact fee configuration refusal"
+        ));
+        let pool = iroha_allocation::AllocationBudget::new(8);
+        let held = pool.try_reserve_bytes(8).unwrap();
+        let original = pool.try_reserve_bytes(1).unwrap_err();
+        let expected = original.clone();
+        let report = eyre::Report::new(ExecutionAttemptError::<NexusFeeAdmissionError>::Deferred(
+            original.into(),
+        ));
+        let ExecutionAttemptError::Deferred(original) = report
+            .downcast::<ExecutionAttemptError<NexusFeeAdmissionError>>()
+            .expect("consume the same typed native fee report")
+        else {
+            panic!("the original local refusal cannot become a fee verdict");
+        };
+        assert_eq!(original.allocation_refusal(), Some(&expected));
+        drop(held);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 
     #[test]
@@ -831,28 +855,28 @@ mod tests {
         let (mut archive, mut policy, _) = fixture();
         let mut governance = SorafsPinPolicyConstraints::default();
         archive.chunker.name.push('x');
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Manifest),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Manifest)
+        ));
         archive.chunker.name.pop();
         governance.require_council_signatures = true;
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
         governance.require_council_signatures = false;
         policy.storage_class = StorageClass::Warm;
         governance.allowed_storage_classes = Some([StorageClass::Hot].into());
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
         governance.allowed_storage_classes = None;
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 0),
-            Err(MusubiPublicationPinSigningErrorV1::Clock),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Clock)
+        ));
     }
 
     #[test]
@@ -909,15 +933,15 @@ mod tests {
             .quote
             .authority_charge_assets
             .remove(&FeeChargeKind::PipelineGas);
-        assert_eq!(
+        assert!(matches!(
             quoted_authority_requirements(
                 &policy.transaction_authority,
                 pin_asset,
                 Quantity::from(7_u32),
                 &quote,
             ),
-            Err(MusubiPublicationPinSigningErrorV1::TransactionFee),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::TransactionFee)
+        ));
     }
 
     #[test]

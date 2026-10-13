@@ -151,7 +151,6 @@ fn borrowed_history_projection_matches_real_typed_proof_dto_and_sealed_identity(
         entrypoint: source,
         entrypoint_hash: source.hash(),
         result: &output.result,
-        block_hash: block.hash(),
     };
     let owned = iroha_data_model::query::CommittedTransaction {
         block_hash: block.hash(),
@@ -179,8 +178,8 @@ fn borrowed_history_projection_matches_real_typed_proof_dto_and_sealed_identity(
             tx_field_value(&owned, field)
         );
     }
-    let a = contract_activity_projection_from_tx(2, &borrowed).unwrap();
-    let b = contract_activity_projection_from_tx(2, &owned).unwrap();
+    let a = contract_activity_projection_from_tx(&borrowed).unwrap();
+    let b = contract_activity_projection_from_tx(&owned).unwrap();
     assert_eq!(a.entrypoint_hash, b.entrypoint_hash);
     assert_eq!(a.contract_address, carrier_identity().2.to_string());
     assert_eq!(a.contract_entrypoint, "submit");
@@ -243,12 +242,12 @@ fn history_range_missing_canonical_prefix_returns_no_projected_rows() {
 #[test]
 fn history_cache_anchor_requires_the_captured_tip_identity() {
     let hash = HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(b"captured cache tip"));
-    assert_eq!(history_cache_anchor(0, &None).unwrap(), None);
-    assert!(history_cache_anchor(0, &Some(hash.to_string())).is_err());
-    assert!(history_cache_anchor(1, &None).is_err());
-    assert!(history_cache_anchor(1, &Some("bad".into())).is_err());
+    assert_eq!(history_cache_anchor(0, None).unwrap(), None);
+    assert!(history_cache_anchor(0, Some(&hash.to_string())).is_err());
+    assert!(history_cache_anchor(1, None).is_err());
+    assert!(history_cache_anchor(1, Some("bad")).is_err());
     assert_eq!(
-        history_cache_anchor(1, &Some(hash.to_string())).unwrap(),
+        history_cache_anchor(1, Some(&hash.to_string())).unwrap(),
         Some(hash)
     );
     let state = CoreState::new_for_testing(
@@ -451,7 +450,7 @@ fn native_emission_projection_binds_full_historical_record_and_coordinates() {
     let output = &block.execution_outputs()[1];
     let hash = output.execution_call_hash(block.hash(), &block).unwrap();
     let mut projection =
-        contract_event_projection(2, block.hash(), 1000, 1, 0, hash, &first, None).unwrap();
+        contract_event_projection((2, block.hash(), 1000), 1, 0, hash, &first, None).unwrap();
     assert_eq!(projection.event_kind, "Accepted");
     assert_eq!(projection.provenance, "emitted");
     assert_eq!(

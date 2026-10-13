@@ -1634,17 +1634,21 @@ impl ReliableProgressTopology {
     }
     /// Publish one accepted topology transition and cancel only memberships
     /// removed by that transition. Unchanged peers retain their exact token.
-    fn reconcile(
+    fn reconcile<T>(
         &mut self,
-        topology: &HashSet<PeerId>,
+        topology: &T,
         self_id: &PeerId,
-    ) -> Vec<Arc<ReliableProgressMembership>> {
+    ) -> Vec<Arc<ReliableProgressMembership>>
+    where
+        for<'a> &'a T: IntoIterator<Item = &'a PeerId>,
+    {
         let mut expected: Vec<_> = topology
-            .iter()
+            .into_iter()
             .filter(|peer_id| *peer_id != self_id)
             .cloned()
             .collect();
         expected.sort();
+        expected.dedup();
         let current: Vec<_> = self
             .members
             .iter()
@@ -5024,6 +5028,17 @@ impl TopicFrameCaps {
             self.other,
         ]
     }
+    /// Complete plaintext maxima eligible for the low-priority path.
+    fn low(self) -> [usize; 6] {
+        [
+            self.block_sync,
+            self.tx_gossip,
+            self.peer_gossip,
+            self.health,
+            self.connect,
+            self.other,
+        ]
+    }
 }
 fn canonical_outbound_priority(
     topic: message::Topic,
@@ -6169,6 +6184,30 @@ fn invalid_transport_geometry(message: impl Into<String>) -> Error {
     io::Error::new(io::ErrorKind::InvalidInput, message.into()).into()
 }
 
+/// Resolve the finite byte burst before starting any transport worker.
+///
+/// `low_allow_bytes` charges the complete canonical Data/relay frame, before AEAD and the
+/// stream prefix. Queue credits separately charge those bytes and are never enlarged here.
+fn resolve_low_byte_burst(
+    rate: Option<core::num::NonZeroU32>,
+    configured: Option<core::num::NonZeroU32>,
+    topic_caps: TopicFrameCaps,
+) -> Result<u32, Error> {
+    let maximum = topic_caps.low().into_iter().max().unwrap_or(0);
+    let maximum = u32::try_from(maximum).map_err(|_| {
+        invalid_transport_geometry("maximum low-topic plaintext frame exceeds u32 byte shaping")
+    })?;
+    if let Some(burst) = configured {
+        if burst.get() < maximum {
+            return Err(invalid_transport_geometry(format!(
+                "network.low_priority_bytes_burst ({burst}) cannot admit one maximum eligible low-topic frame ({maximum} canonical plaintext bytes)"
+            )));
+        }
+        return Ok(burst.get());
+    }
+    Ok(maximum.max(rate.map_or(1, core::num::NonZeroU32::get)))
+}
+
 const QUIC_DATAGRAM_DEPENDENCY_BLOCK_REASON: &str = "network.quic_datagrams_enabled=true is unavailable pending DATAGRAM transport requalification of locked quinn-proto 0.11.18; fixed per-entry accounting bounds zero-length frames but does not qualify the complete transport";
 
 const QUIC_DEPENDENCY_BLOCK_REASON: &str = "network.quic_enabled=true is unavailable pending transport requalification of locked quinn-proto 0.11.18; dependency memory and panic fixes alone do not establish authenticated transport, resource, or interoperability qualification";
@@ -6515,20 +6554,14 @@ fn validate_transport_queue_geometry<E: Enc>(
             "network.p2p_outbound_frame_queue_max_high_bytes ({high_max_bytes}) cannot retain one maximum eligible topic frame ({max_topic_charge} stream bytes)"
         )));
     }
-    let max_low_topic_charge = [
-        topic_caps.block_sync,
-        topic_caps.tx_gossip,
-        topic_caps.peer_gossip,
-        topic_caps.health,
-        topic_caps.connect,
-        topic_caps.other,
-    ]
-    .into_iter()
-    .map(|cap| crate::frame_queue_charge_for::<E>(cap).ok_or(Error::FrameTooLarge))
-    .collect::<Result<Vec<_>, _>>()?
-    .into_iter()
-    .max()
-    .unwrap_or(0);
+    let max_low_topic_charge = topic_caps
+        .low()
+        .into_iter()
+        .map(|cap| crate::frame_queue_charge_for::<E>(cap).ok_or(Error::FrameTooLarge))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(0);
     if low_max_bytes < max_low_topic_charge {
         return Err(invalid_transport_geometry(format!(
             "network.p2p_outbound_frame_queue_max_low_bytes ({low_max_bytes}) cannot retain one maximum eligible low-topic frame ({max_low_topic_charge} stream bytes)"
@@ -6974,6 +7007,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             p2p_post_queue_cap.get(),
             p2p_subscriber_queue_cap.get(),
         )?;
+        let low_bytes_burst = f64::from(resolve_low_byte_burst(
+            low_priority_bytes_per_sec,
+            low_priority_bytes_burst,
+            topic_frame_caps,
+        )?);
         let safety_reserve_bytes = transport_geometry.safety_reserve_bytes;
         let progress_reserve_bytes = transport_geometry.progress_reserve_bytes;
         let max_total_connections = max_total_connections.map_or(
@@ -7006,8 +7044,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         })?;
         #[cfg(feature = "quic")]
         let quic_max_incoming = max_incoming
-            .map(core::num::NonZeroUsize::get)
-            .unwrap_or(max_total_connections)
+            .map_or(max_total_connections, core::num::NonZeroUsize::get)
             .min(max_total_connections);
         #[cfg(feature = "quic")]
         let quic_flow_control = crate::transport::quic::FlowControlConfig {
@@ -7122,7 +7159,13 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         crate::peer::receive_credit::writer_partitions(
             receive_maximum,
             outbound_frame_queue_limits,
-        )?;
+        ).map_err(|error| invalid_transport_geometry(format!(
+            "network.p2p_outbound_frame_queue_max_high_bytes ({}) and network.p2p_outbound_frame_queue_max_low_bytes ({}) with high/low frame slots ({}/{}) cannot fund separate plaintext/encryption copies and envelopes for semantic frame maxima {receive_maximum:?}: {error}",
+            outbound_frame_queue_limits.high_max_bytes,
+            outbound_frame_queue_limits.low_max_bytes,
+            outbound_frame_queue_limits.high_max_frames,
+            outbound_frame_queue_limits.low_max_frames,
+        )))?;
         let outbound_post_byte_budgets = OutboundPostByteBudgets::new_with_source_geometry(
             outbound_frame_queue_limits.high_max_bytes,
             outbound_frame_queue_limits.low_max_bytes,
@@ -7597,9 +7640,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             low_bytes_per_sec: low_priority_bytes_per_sec
                 .map(core::num::NonZeroU32::get)
                 .map(f64::from),
-            low_bytes_burst: low_priority_bytes_burst
-                .map(core::num::NonZeroU32::get)
-                .map(f64::from),
+            low_bytes_burst,
             low_bytes_buckets: HashMap::new(),
             disconnect_on_post_overflow,
             _encryptor: core::marker::PhantomData::<E>,
@@ -9444,6 +9485,51 @@ mod accept_stream_tests {
         );
     }
     #[tokio::test(flavor = "current_thread")]
+    async fn start_rejects_low_byte_burst_below_one_plaintext_frame_before_binding() {
+        let mut cfg = base_cfg();
+        // Occupy the requested address: a bind attempt would return AddrInUse, proving
+        // that the exact InvalidInput below comes from the mandatory startup check.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        cfg.address = iroha_config_base::WithOrigin::inline(listener.local_addr().unwrap().into());
+        cfg.low_priority_bytes_per_sec = core::num::NonZeroU32::new(1);
+        cfg.low_priority_bytes_burst =
+            core::num::NonZeroU32::new(u32::try_from(cfg.max_frame_bytes_block_sync - 1).unwrap());
+        let started = start_test_network(
+            test_node_key_pair(),
+            cfg,
+            iroha_futures::supervisor::ShutdownSignal::new(),
+        )
+        .await;
+        assert!(matches!(
+            started, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput
+                && error.to_string().contains("network.low_priority_bytes_burst")
+                && error.to_string().contains("1048576 canonical plaintext bytes")
+        ));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_rejects_low_writer_budget_below_independent_gossip_and_sync_reservations() {
+        use iroha_config::parameters::defaults::network as defaults;
+        let mut cfg = base_cfg();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        cfg.address = iroha_config_base::WithOrigin::inline(listener.local_addr().unwrap().into());
+        cfg.max_frame_bytes = defaults::MAX_FRAME_BYTES.get();
+        cfg.max_frame_bytes_tx_gossip = defaults::MAX_FRAME_BYTES_TX_GOSSIP.get();
+        cfg.max_frame_bytes_block_sync = defaults::MAX_FRAME_BYTES_BLOCK_SYNC.get();
+        cfg.p2p_outbound_frame_queue_max_low_bytes =
+            core::num::NonZeroUsize::new(64 * 1024 * 1024).unwrap();
+        let started = start_test_network(
+            test_node_key_pair(),
+            cfg,
+            iroha_futures::supervisor::ShutdownSignal::new(),
+        )
+        .await;
+        assert!(matches!(
+            started, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput
+                && error.to_string().contains("network.p2p_outbound_frame_queue_max_low_bytes (67108864)")
+                && error.to_string().contains("separate plaintext/encryption copies")
+        ));
+    }
+    #[tokio::test(flavor = "current_thread")]
     async fn start_rejects_proxy_required_without_proxy() {
         let key_pair = test_node_key_pair();
         let mut cfg = base_cfg();
@@ -11048,7 +11134,7 @@ where
                 };
                 let datagram_ingress = quic_datagrams_enabled.then(|| {
                     crate::peer::QuicDatagramIngress::spawn(
-                        new_conn.clone(),
+                        &new_conn,
                         quic_datagram_max_payload_bytes
                             .min(max_frame_bytes)
                             .min(crate::MAX_ENCRYPTED_FRAME_BYTES),
@@ -11833,8 +11919,8 @@ struct NetworkBase<T: Pload, E: Enc> {
     low_buckets: HashMap<PeerId, TokenBucket>,
     /// Optional bytes/sec limiter for Low-priority messages
     low_bytes_per_sec: Option<f64>,
-    /// Optional bytes burst for Low-priority limiter
-    low_bytes_burst: Option<f64>,
+    /// Resolved finite plaintext byte burst, large enough for one eligible low-topic frame.
+    low_bytes_burst: f64,
     /// Per-peer bytes token buckets
     low_bytes_buckets: HashMap<PeerId, TokenBucket>,
     /// Maximum allowed frame size (bytes)
@@ -16524,7 +16610,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         let Some(rate) = self.low_bytes_per_sec else {
             return true;
         };
-        let burst = self.low_bytes_burst.unwrap_or_else(|| rate.max(1.0));
+        let burst = self.low_bytes_burst;
         self.low_bytes_buckets
             .entry(id.clone())
             .or_insert_with(|| TokenBucket::new(rate, burst))
@@ -16544,7 +16630,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 LOW_THROTTLED_POSTS.fetch_add(1, Ordering::Relaxed);
                 return false;
             }
-            let size_bytes = norito::codec::Encode::encode(&frame).len();
+            let Ok(size_bytes) = crate::peer::checked_data_message_wire_len(&frame) else {
+                iroha_logger::warn!(peer=%target_id, "Low-priority post frame size is not representable");
+                return false;
+            };
             if !this.low_allow_bytes(target_id, size_bytes) {
                 iroha_logger::debug!(peer=%target_id, size=size_bytes, "Low-priority post throttled by bytes token bucket");
                 LOW_THROTTLED_POSTS.fetch_add(1, Ordering::Relaxed);
@@ -16589,7 +16678,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 self.relay_ttl,
                 data.clone(),
             );
-            let size_bytes = norito::codec::Encode::encode(&frame).len();
+            let Ok(size_bytes) = crate::peer::checked_data_message_wire_len(&frame) else {
+                iroha_logger::warn!(peer=%pid, "Low-priority broadcast frame size is not representable");
+                continue;
+            };
             if !self.low_allow(&pid) || !self.low_allow_bytes(&pid, size_bytes) {
                 LOW_THROTTLED_BROADCASTS.fetch_add(1, Ordering::Relaxed);
                 continue;

@@ -1996,8 +1996,7 @@ impl Execute for SubmitSorafsOrderbookOrder {
         let mut status = active_status(state_transaction, now)?;
         if active_order_count(&status)? >= u64::from(ORDERBOOK_MAX_OPEN_ORDERS_V1) {
             return Err(invalid_parameter(format!(
-                "authoritative orderbook reached its {} active-order ceiling",
-                ORDERBOOK_MAX_OPEN_ORDERS_V1
+                "authoritative orderbook reached its {ORDERBOOK_MAX_OPEN_ORDERS_V1} active-order ceiling"
             )));
         }
         let admission_sequence = status.next_admission_sequence;
@@ -4804,7 +4803,7 @@ mod tests {
                 before.custody_balances[index]
             );
         }
-        for index in 0..2 {
+        for (index, expected_marker) in expected_markers.iter().enumerate() {
             assert!(
                 read_trade(state_transaction.world(), fixture.trade_ids[index])
                     .expect("read absent two-fill trade")
@@ -4829,7 +4828,7 @@ mod tests {
                     &child_id,
                 )
                 .expect("read two-fill channel marker"),
-                expected_markers[index]
+                *expected_marker
             );
         }
     }
@@ -5542,9 +5541,9 @@ mod tests {
                 .execute(&authority, &mut stx)
                 .is_err()
         );
-        let stale = cancel(&buyer, order.order_id, 1);
+        let outdated = cancel(&buyer, order.order_id, 1);
         assert!(
-            CancelSorafsOrderbookOrder::new(encode(&stale), policy_digest)
+            CancelSorafsOrderbookOrder::new(encode(&outdated), policy_digest)
                 .execute(&authority, &mut stx)
                 .is_err()
         );
@@ -5604,11 +5603,13 @@ mod tests {
             "each tier may inspect each order once"
         );
         assert!(
-            no_match_work.alternative_ask_visits <= ask_count as usize,
+            no_match_work.alternative_ask_visits
+                <= usize::try_from(ask_count).expect("fixture value fits usize"),
             "the alternative ask is precomputed once"
         );
         assert!(
-            no_match_work.bid_candidate_visits <= self_bid_count as usize,
+            no_match_work.bid_candidate_visits
+                <= usize::try_from(self_bid_count).expect("fixture value fits usize"),
             "each sorted bid is considered once"
         );
         assert!(
@@ -6684,11 +6685,11 @@ mod tests {
                 .execute(&authority, &mut stx)
                 .is_err()
         );
-        let mut stale = base.clone();
-        stale.issued_at_unix = NOW - policy().max_receipt_age_secs - 1;
-        let stale = sign_receipt(stale, &provider);
+        let mut outdated = base.clone();
+        outdated.issued_at_unix = NOW - policy().max_receipt_age_secs - 1;
+        let outdated = sign_receipt(outdated, &provider);
         assert!(
-            RecordSorafsOrderbookSettlementReceipt::new(encode(&stale), policy_digest)
+            RecordSorafsOrderbookSettlementReceipt::new(encode(&outdated), policy_digest)
                 .execute(&authority, &mut stx)
                 .is_err()
         );

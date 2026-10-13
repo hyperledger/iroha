@@ -158,6 +158,11 @@ impl SorafsNativeTransactionSignerBindingV1 {
     }
     /// Return the exact expected provider qualification.
     #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signing provider is unavailable or refuses the
+    /// public qualification probe.
     pub const fn qualification(&self) -> SorafsNativeTransactionSignerQualificationV1 {
         self.qualification
     }
@@ -202,8 +207,17 @@ pub trait SorafsNativeTransactionSignerProviderV1: Send + Sync {
     /// Return the transaction authority controlled by this provider.
     fn authority(&self) -> AccountId;
     /// Probe the exact public key controlled by this provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signing provider is unavailable or refuses the
+    /// public-key probe.
     fn public_key(&self) -> Result<PublicKey, SorafsNativeTransactionSignerProbeErrorV1>;
     /// Probe the active adapter revision and public-policy digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider is unavailable or refuses the qualification probe.
     fn qualification(
         &self,
     ) -> Result<
@@ -224,6 +238,11 @@ pub trait SoraFsProofOutcomeTransactionSigner:
     SorafsNativeTransactionSignerProviderV1 + Send + Sync
 {
     /// Sign the exact fee-quoted transaction payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for provider unavailability or refusal, an input authority
+    /// mismatch, a substituted or invalid signed transaction, or qualification drift.
     fn sign(
         &self,
         payload: TransactionPayload,
@@ -252,6 +271,11 @@ pub trait SoraFsRepairTransactionSigner:
     SorafsNativeTransactionSignerProviderV1 + Send + Sync
 {
     /// Sign the exact fee-quoted transaction payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for provider unavailability or refusal, an input authority
+    /// mismatch, a substituted or invalid signed transaction, or qualification drift.
     fn sign(
         &self,
         payload: TransactionPayload,
@@ -281,6 +305,11 @@ pub trait SoraFsReserveTransactionSigner:
     SorafsNativeTransactionSignerProviderV1 + Send + Sync
 {
     /// Sign the exact fee-quoted transaction payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for provider unavailability or refusal, an input authority
+    /// mismatch, a substituted or invalid signed transaction, or qualification drift.
     fn sign(
         &self,
         payload: TransactionPayload,
@@ -309,6 +338,11 @@ pub trait SoraFsOrderbookTransactionSigner:
     SorafsNativeTransactionSignerProviderV1 + Send + Sync
 {
     /// Sign the exact fee-quoted transaction payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for provider unavailability or refusal, an input authority
+    /// mismatch, a substituted or invalid signed transaction, or qualification drift.
     fn sign(
         &self,
         payload: TransactionPayload,
@@ -625,7 +659,7 @@ pub(crate) mod tests {
     use super::*;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         transaction::{FeePaymentIntent, TransactionBuilder, signed::MultisigSignatures},
     };
     use std::sync::{
@@ -636,13 +670,13 @@ pub(crate) mod tests {
         SorafsNativeTransactionSignerQualificationV1::new(7, [0xA7; 32]);
     enum TestSignOutput {
         Exact,
-        SubstitutePayload(TransactionPayload),
+        SubstitutePayload(Box<TransactionPayload>),
         ForgeSignature(KeyPair),
         AttachProofSidecar,
         AttachEmptyMultisigSidecar,
     }
     /// Deterministic role-bound signer shared by complete Torii runtime fixtures.
-    pub(crate) struct TestProvider {
+    pub struct TestProvider {
         role: SorafsNativeTransactionSignerRoleV1,
         handle: String,
         keypair: KeyPair,
@@ -754,7 +788,7 @@ pub(crate) mod tests {
         }
         fn substitute_payload_once(&self, payload: TransactionPayload) {
             *self.sign_output.lock().expect("sign-output fixture lock") =
-                TestSignOutput::SubstitutePayload(payload);
+                TestSignOutput::SubstitutePayload(Box::new(payload));
         }
         fn forge_signature_once(&self, signer: KeyPair) {
             *self.sign_output.lock().expect("sign-output fixture lock") =
@@ -779,7 +813,7 @@ pub(crate) mod tests {
                     .and_then(|builder| builder.try_sign(self.keypair.private_key()))
                     .map_err(|_| ())?,
                 TestSignOutput::SubstitutePayload(substituted) => {
-                    TransactionBuilder::from_payload(substituted)
+                    TransactionBuilder::from_payload(*substituted)
                         .and_then(|builder| builder.try_sign(self.keypair.private_key()))
                         .map_err(|_| ())?
                 }
@@ -793,16 +827,15 @@ pub(crate) mod tests {
                     builder.build_with_signature(signature)
                 }
                 TestSignOutput::AttachProofSidecar => {
-                    let attachments =
-                        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
-                            "halo2/ipa".into(),
-                            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-                            VerifyingKeyId::new("halo2/ipa", "native-signer-sidecar-vk"),
-                        )])
-                        .expect("one attachment is a valid bounded proof list");
+                    let attachments = vec![ProofAttachment::new_ref(
+                        "halo2/ipa".into(),
+                        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+                        VerifyingKeyId::new("halo2/ipa", "native-signer-sidecar-vk"),
+                    )];
                     TransactionBuilder::from_payload(payload)
                         .map_err(|_| ())?
-                        .with_attachments(attachments)
+                        .with_proof_attachments(attachments)
+                        .expect("valid proof carriers")
                         .try_sign(self.keypair.private_key())
                         .map_err(|_| ())?
                 }

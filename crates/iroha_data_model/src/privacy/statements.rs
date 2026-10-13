@@ -586,7 +586,7 @@ impl BootleLanternIssuerPolicyV1 {
     pub fn computed_issuer_parameter_digest(
         &self,
     ) -> Result<PrivacyParameterDigestV1, norito::Error> {
-        let encoded = norito::to_bytes(&self.issuer_public_matrix)?;
+        let encoded = norito::encode_canonical(&self.issuer_public_matrix)?;
         let mut hasher = Sha256::new();
         hasher.update(BOOTLE_LANTERN_ISSUER_PARAMETER_DIGEST_DOMAIN_V1);
         hasher.update(self.issuer_parameter_id.as_bytes());
@@ -608,7 +608,7 @@ impl BootleLanternIssuerPolicyV1 {
     ) -> Result<PrivacyBootleLanternIssuerPolicyDigestV1, norito::Error> {
         let mut normalized = self.clone();
         normalized.record_digest = PrivacyBootleLanternIssuerPolicyDigestV1::new([0; 32]);
-        let encoded = norito::to_bytes(&normalized)?;
+        let encoded = norito::encode_canonical(&normalized)?;
         let mut hasher = Sha256::new();
         hasher.update(BOOTLE_LANTERN_ISSUER_POLICY_DIGEST_DOMAIN_V1);
         hasher.update(
@@ -1330,7 +1330,7 @@ impl IrohaIvmPrivateNoteStarkStatementV1 {
     pub fn computed_action_digest(&self) -> Result<PrivacyActionDigestV1, norito::Error> {
         let mut normalized = self.clone();
         normalized.action_digest = PrivacyActionDigestV1::new([0; 32]);
-        let encoded = norito::to_bytes(&normalized)?;
+        let encoded = norito::encode_canonical(&normalized)?;
         let mut hasher = Sha256::new();
         hasher.update(IVM_PRIVATE_NOTE_ACTION_DIGEST_DOMAIN_V1);
         hasher.update(
@@ -1591,9 +1591,9 @@ impl PrivacyStatementV1 {
             }
             Self::PqMaspStarkV1(statement) => validate_pq_masp(statement, limits)?,
         }
-        let encoded =
-            norito::to_bytes(self).map_err(|_| PrivacyStatementValidationError::EncodingFailure)?;
-        let bytes = u64::try_from(encoded.len())
+        let encoded_len = norito::canonical_frame_len(self)
+            .map_err(|_| PrivacyStatementValidationError::EncodingFailure)?;
+        let bytes = u64::try_from(encoded_len)
             .map_err(|_| PrivacyStatementValidationError::PayloadLengthOverflow)?;
         if bytes > u64::from(limits.max_statement_and_encrypted_output_bytes_per_transaction) {
             return Err(

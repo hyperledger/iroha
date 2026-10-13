@@ -19,7 +19,7 @@ use iroha_data_model::governance::types::BallotAttemptId;
 /// here avoids a buffering extractor running before the access gate, while the
 /// one-byte limit rejects headerless HTTP/2 bodies without admitting an
 /// unbounded payload.
-pub(crate) async fn require_empty_body_v1(body: Body) -> Result<(), crate::Error> {
+pub async fn require_empty_body_v1(body: Body) -> Result<(), crate::Error> {
     match axum::body::to_bytes(body, 1).await {
         Ok(bytes) if bytes.is_empty() => Ok(()),
         Ok(_) | Err(_) => Err(crate::Error::AppQueryValidation {
@@ -95,7 +95,7 @@ fn map_coordinator_error(error: TleReleaseCoordinatorErrorV1) -> crate::Error {
 /// Returns a stable payload-free Torii error for an invalid identifier, rejected
 /// Core authorization, unavailable signer, blocking-worker failure, or invalid
 /// signer output.
-pub(crate) async fn request_local_partial_release_v1(
+pub async fn request_local_partial_release_v1(
     state: Arc<iroha_core::state::State>,
     coordinator: Arc<TleReleaseCoordinatorV1>,
     ballot_attempt_id: String,

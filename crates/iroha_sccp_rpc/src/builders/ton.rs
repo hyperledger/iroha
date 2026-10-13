@@ -29,7 +29,7 @@ use iroha_sccp::{
     TonBlockIdExtV1, TonBlockSignaturesV1, TonOrdinaryBlockSignaturesV1,
     TonSimplexBlockSignaturesV1, TonValidatorSignatureV1,
     light_client::{
-        profile::{SccpChainProfilesV1, TonChainProfileV1},
+        profile::TonChainProfileV1,
         proof::{SccpLcAdvanceV1, SccpLcBootstrapDataV1, SccpLcSetDataV1, SccpSourceProofV1},
         ton::{
             TonBackLinkV1, TonKeyBlockHopV1, TonLcAdvanceV1, TonLcBootstrapV1,
@@ -48,6 +48,8 @@ use crate::ton::{
     schema::{BlockLink, ShardBlockProof, SignatureSet},
 };
 
+mod wallet_state;
+
 /// `getBlockHeader` mode: state update, extra and shard hashes.
 pub const HEADER_MODE: u32 = 1 | 16 | 32;
 /// Config parameters every epoch needs: election timings, catchain and current validators.
@@ -60,6 +62,16 @@ fn lite(error: &LiteClientError) -> BuildError {
 fn canonical(bytes: &[u8], what: &str) -> Result<Vec<u8>, BuildError> {
     ton_canonical_boc_v1(bytes)
         .ok_or_else(|| BuildError::Inconsistent(format!("the {what} BoC is malformed")))
+}
+
+fn canonical_transaction(bytes: &[u8], expected_hash: [u8; 32]) -> Result<Vec<u8>, BuildError> {
+    let bytes = canonical(bytes, "transaction")?;
+    if iroha_sccp::ton_canonical_boc_single_root_hash_v1(&bytes) != Some(expected_hash) {
+        return Err(BuildError::Inconsistent(
+            "the returned transaction differs from the requested hash".into(),
+        ));
+    }
+    Ok(bytes)
 }
 
 /// The light client's block id of a liteserver block id.
@@ -346,16 +358,15 @@ pub struct TonBuilder {
 }
 
 impl TonBuilder {
-    /// A builder over `lite` under the newest compiled TON profile version.
-    ///
-    /// TODO(B11): build under the version active on the target Taira (Torii capabilities)
-    /// rather than the newest compiled one.
+    /// A builder over `lite` under the profile selected by committed Taira state.
     #[must_use]
-    pub fn new(lite: LiteClient) -> Self {
-        Self {
-            lite,
-            profile: SccpChainProfilesV1::latest().ton,
-        }
+    pub fn new(profile: TonChainProfileV1, lite: LiteClient) -> Self {
+        Self { lite, profile }
+    }
+
+    /// Select the profile resolved from the current committed Taira cut before building.
+    pub fn set_profile(&mut self, profile: TonChainProfileV1) {
+        self.profile = profile;
     }
 
     /// Moves the liteclient to its next liteserver, for a caller whose build failed on the data
@@ -557,6 +568,7 @@ impl TonSource for TonBuilder {
             .lite
             .get_one_transaction(event_block, account, lt)
             .map_err(|error| lite(&error))?;
+        let transaction_bytes = canonical_transaction(&transaction.transaction, hash)?;
         let walk = self
             .lite
             .get_shard_block_proof(event_block)
@@ -566,7 +578,7 @@ impl TonSource for TonBuilder {
             masterchain: block_id(&walk.masterchain_id),
             shard_blocks,
             event_block_proof: canonical(&transaction.proof, "transaction proof")?,
-            transaction: canonical(&transaction.transaction, "transaction")?,
+            transaction: transaction_bytes,
         })
     }
 }
@@ -613,6 +625,14 @@ pub fn shard_links(
 }
 
 impl SourceChainBuilder for TonBuilder {
+    fn source_attempts(&self) -> usize {
+        self.lite.servers().len()
+    }
+
+    fn rotate_endpoints(&self) {
+        TonBuilder::rotate_endpoints(self);
+    }
+
     fn network(&self) -> SccpNetworkV1 {
         SccpNetworkV1::TonMainnet
     }
@@ -693,9 +713,7 @@ impl SourceChainBuilder for TonBuilder {
                 light_client,
                 now_ms,
             ),
-            SourceEventRefV1::Evm { .. } | SourceEventRefV1::Tron { .. } => {
-                Err(BuildError::Inconsistent("not a TON event".into()))
-            }
+            SourceEventRefV1::Evm { .. } => Err(BuildError::Inconsistent("not a TON event".into())),
         }
     }
 }
@@ -720,11 +738,19 @@ mod tests {
         let servers =
             LiteServerSet::parse(&[&format!("127.0.0.1:1:{KEY}"), &format!("127.0.0.1:2:{KEY}")])
                 .expect("loopback liteservers");
-        let builder = TonBuilder::new(LiteClient::new(
-            servers,
-            LiteClientConfig::default(),
-            FailoverPolicy::default(),
-        ));
+        let mut builder = TonBuilder::new(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ton,
+            LiteClient::new(
+                servers,
+                LiteClientConfig::default(),
+                FailoverPolicy::default(),
+            ),
+        );
+        let mut selected = builder.profile;
+        selected.supported_until_ms = 1;
+        builder.set_profile(selected);
+        assert_eq!(builder.profile, selected);
+        assert_eq!(builder.source_attempts(), 2);
         assert_eq!(builder.lite.servers().preferred(), 0);
         builder.rotate_endpoints();
         assert_eq!(builder.lite.servers().preferred(), 1);
@@ -747,6 +773,25 @@ mod tests {
         vec![
             0xb5, 0xee, 0x9c, 0x72, 0x01, 0x01, 0x01, 0x01, 0x00, 0x03, 0x00, 0x00, 0x02, byte,
         ]
+    }
+
+    #[test]
+    fn transaction_custody_rejects_a_different_well_formed_root() {
+        let root = iroha_sccp::v1::ton_cell::CellBuilder::new()
+            .store_uint(7, 8)
+            .unwrap()
+            .build();
+        assert_eq!(
+            canonical_transaction(&boc(7), *root.hash()).unwrap(),
+            boc(7)
+        );
+        assert!(matches!(
+            canonical_transaction(&boc(8), *root.hash()),
+            Err(BuildError::Inconsistent(message))
+                if message == "the returned transaction differs from the requested hash"
+        ));
+        assert!(canonical_transaction(&boc(7), [0; 32]).is_err());
+        assert!(canonical_transaction(&[1, 2, 3], *root.hash()).is_err());
     }
 
     #[test]

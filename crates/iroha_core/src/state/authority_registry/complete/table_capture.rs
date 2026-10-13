@@ -628,19 +628,49 @@ capture_world_table_once!(
 );
 
 capture_world_table_once!(
-    capture_sccp_bridge_keys_once,
-    sccp_bridge_keys,
-    "world.sccp_bridge_keys"
+    capture_sccp_fast_pauses_once,
+    sccp_fast_pauses,
+    "world.sccp_fast_pauses"
 );
 capture_world_table_once!(
-    capture_sccp_bridge_key_owners_once,
-    sccp_bridge_key_owners,
-    "world.sccp_bridge_key_owners"
+    capture_sccp_fast_pause_suspended_until_ms_once,
+    sccp_fast_pause_suspended_until_ms,
+    "world.sccp_fast_pause_suspended_until_ms"
 );
 capture_world_table_once!(
-    capture_sccp_rosters_once,
-    sccp_rosters,
-    "world.sccp_rosters"
+    capture_sccp_fast_pause_rounds_once,
+    sccp_fast_pause_rounds,
+    "world.sccp_fast_pause_rounds"
+);
+capture_world_table_once!(
+    capture_sccp_reconciliations_once,
+    sccp_reconciliations,
+    "world.sccp_reconciliations"
+);
+capture_world_table_once!(
+    capture_sccp_reconciliation_proven_once,
+    sccp_reconciliation_proven,
+    "world.sccp_reconciliation_proven"
+);
+capture_world_table_once!(
+    capture_sccp_pending_refund_amount_once,
+    sccp_pending_refund_amount,
+    "world.sccp_pending_refund_amount"
+);
+capture_world_table_once!(
+    capture_sccp_committee_generations_once,
+    sccp_committee_generations,
+    "world.sccp_committee_generations"
+);
+capture_world_table_once!(
+    capture_sccp_forgery_offences_once,
+    sccp_forgery_offences,
+    "world.sccp_forgery_offences"
+);
+capture_world_table_once!(
+    capture_sccp_anchor_chunks_once,
+    sccp_anchor_chunks,
+    "world.sccp_anchor_chunks"
 );
 capture_world_table_once!(
     capture_sccp_block_leaves_once,
@@ -656,36 +686,6 @@ capture_world_table_once!(
     capture_sccp_history_leaves_once,
     sccp_history_leaves,
     "world.sccp_history_leaves"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_subjects_once,
-    sccp_attestation_subjects,
-    "world.sccp_attestation_subjects"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_status_once,
-    sccp_attestation_status,
-    "world.sccp_attestation_status"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_signatures_once,
-    sccp_attestation_signatures,
-    "world.sccp_attestation_signatures"
-);
-capture_world_table_once!(
-    capture_sccp_attestation_faults_once,
-    sccp_attestation_faults,
-    "world.sccp_attestation_faults"
-);
-capture_world_table_once!(
-    capture_sccp_member_last_signed_once,
-    sccp_member_last_signed,
-    "world.sccp_member_last_signed"
-);
-capture_world_table_once!(
-    capture_sccp_handoff_stalled_once,
-    sccp_handoff_stalled,
-    "world.sccp_handoff_stalled"
 );
 capture_world_table_once!(
     capture_sccp_outbound_messages_once,
@@ -990,26 +990,26 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
-    capture_sccp_bridge_keys_once::MATERIALIZER,
-    capture_sccp_bridge_key_owners_once::MATERIALIZER,
-    capture_sccp_rosters_once::MATERIALIZER,
+    capture_sccp_forgery_offences_once::MATERIALIZER,
+    capture_sccp_committee_generations_once::MATERIALIZER,
+    capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
     capture_sccp_block_commitments_once::MATERIALIZER,
     capture_sccp_history_leaves_once::MATERIALIZER,
-    capture_sccp_attestation_subjects_once::MATERIALIZER,
-    capture_sccp_attestation_status_once::MATERIALIZER,
-    capture_sccp_attestation_signatures_once::MATERIALIZER,
-    capture_sccp_attestation_faults_once::MATERIALIZER,
-    capture_sccp_member_last_signed_once::MATERIALIZER,
-    capture_sccp_handoff_stalled_once::MATERIALIZER,
     capture_sccp_outbound_messages_once::MATERIALIZER,
     capture_sccp_outbound_by_nonce_once::MATERIALIZER,
     capture_sccp_control_messages_once::MATERIALIZER,
+    capture_sccp_fast_pauses_once::MATERIALIZER,
+    capture_sccp_fast_pause_suspended_until_ms_once::MATERIALIZER,
+    capture_sccp_fast_pause_rounds_once::MATERIALIZER,
     capture_sccp_routes_once::MATERIALIZER,
     capture_sccp_destination_words_once::MATERIALIZER,
     capture_sccp_governance_revisions_once::MATERIALIZER,
     capture_sccp_inbound_messages_once::MATERIALIZER,
     capture_sccp_pending_counts_once::MATERIALIZER,
+    capture_sccp_reconciliations_once::MATERIALIZER,
+    capture_sccp_reconciliation_proven_once::MATERIALIZER,
+    capture_sccp_pending_refund_amount_once::MATERIALIZER,
     capture_sccp_light_clients_once::MATERIALIZER,
     capture_sccp_light_client_sets_once::MATERIALIZER,
     capture_sccp_light_client_checkpoints_once::MATERIALIZER,
@@ -1069,8 +1069,8 @@ mod tests {
             tables,
             membership: MembershipWorkLimits {
                 max_row_visits: 64,
-                max_streamed_bytes: 131072,
-                max_ordered_bytes: 131072,
+                max_streamed_bytes: 131_072,
+                max_ordered_bytes: 131_072,
             },
         }
     }
@@ -1138,22 +1138,22 @@ mod tests {
 
     #[test]
     fn exact_table_catalog_rejects_missing_duplicate_and_noncanonical_readers() {
-        assert_eq!(
+        assert!(matches!(
             require_exact_table_materializers(TWO_TABLES, ALIAS_ONLY),
             Err(TableCaptureError::MissingMaterializer("world.accounts"))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(ONE_TABLE, &[ALIAS_MATERIALIZER, ALIAS_MATERIALIZER],),
             Err(TableCaptureError::DuplicateMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(&[], ALIAS_ONLY),
             Err(TableCaptureError::UnexpectedMaterializer(
                 "world.account_aliases"
             ))
-        );
+        ));
         let reversed = [
             TableMaterializer::Single {
                 id: "world.accounts",
@@ -1161,24 +1161,24 @@ mod tests {
             },
             ALIAS_MATERIALIZER,
         ];
-        assert_eq!(
+        assert!(matches!(
             require_exact_table_materializers(TWO_TABLES, &reversed),
             Err(TableCaptureError::DisplacedMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(DUPLICATE_TABLE, ALIAS_ONLY),
             Err(TableCaptureError::DisplacedMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             capture_actual_state_tables_once(&state(), policy(limits()))
                 .err()
                 .expect("three slots cannot retain the complete table catalog"),
             TableCaptureError::MaterializerLimit
-        );
+        ));
     }
 
     #[test]
@@ -1390,26 +1390,26 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
-            "world.sccp_bridge_keys",
-            "world.sccp_bridge_key_owners",
-            "world.sccp_rosters",
+            "world.sccp_forgery_offences",
+            "world.sccp_committee_generations",
+            "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",
             "world.sccp_block_commitments",
             "world.sccp_history_leaves",
-            "world.sccp_attestation_subjects",
-            "world.sccp_attestation_status",
-            "world.sccp_attestation_signatures",
-            "world.sccp_attestation_faults",
-            "world.sccp_member_last_signed",
-            "world.sccp_handoff_stalled",
             "world.sccp_outbound_messages",
             "world.sccp_outbound_by_nonce",
             "world.sccp_control_messages",
+            "world.sccp_fast_pauses",
+            "world.sccp_fast_pause_suspended_until_ms",
+            "world.sccp_fast_pause_rounds",
             "world.sccp_routes",
             "world.sccp_destination_words",
             "world.sccp_governance_revisions",
             "world.sccp_inbound_messages",
             "world.sccp_pending_counts",
+            "world.sccp_reconciliations",
+            "world.sccp_reconciliation_proven",
+            "world.sccp_pending_refund_amount",
             "world.sccp_light_clients",
             "world.sccp_light_client_sets",
             "world.sccp_light_client_checkpoints",
@@ -1468,8 +1468,9 @@ mod tests {
             "actual table readers must be exhaustive: {missing:?}"
         );
         assert_eq!(
-            require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS),
-            Ok(fixture_tables.len())
+            (require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS))
+                .expect("exact complete catalog admitted"),
+            fixture_tables.len()
         );
         assert_eq!(TABLE_MATERIALIZERS.len(), fixture_tables.len() - 1);
         assert_eq!(
@@ -1498,7 +1499,7 @@ mod tests {
             } else {
                 0
             };
-            assert_eq!(node.row_count(), expected_rows, "{}", id);
+            assert_eq!(node.row_count(), expected_rows, "{id}");
         }
         let mut publication = state.state_view_publication();
         let guard = publication.begin();
@@ -1515,6 +1516,259 @@ mod tests {
             );
         }
         drop(guard);
+    }
+
+    #[test]
+    fn sccp_pause_readers_bind_actual_values_and_reject_substitution() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::{RetainedSccpFastPause, RetainedSccpFastPauseRound},
+            test_support::{sample_fast_pause, sample_fast_pause_round},
+        };
+        use iroha_data_model::{bridge::SccpNetworkV1, sccp::fast_pause::SccpPanelRoleV1};
+        let mut state = state();
+        let budget = state.ivm_execution_budget();
+        let network = SccpNetworkV1::EthereumMainnet;
+        macro_rules! check {
+            ($field:ident, $capture:ident, $key:expr, $first:expr, $next:expr) => {{
+                let key = $key;
+                let id = concat!("world.", stringify!($field));
+                state.world.$field.insert(key, $first);
+                let before = $capture(&state, limits()).unwrap().unwrap();
+                state.world.$field.insert(key, $next);
+                let after = $capture(&state, limits()).unwrap().unwrap();
+                assert_eq!(before.table_id(), id);
+                assert_eq!(after.table_id(), id);
+                assert_eq!(before.row_count(), 1);
+                assert_eq!(after.row_count(), 1);
+                assert_ne!(before.root(), after.root());
+                let proof = after.prove_lookup(id, &key).unwrap();
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &after.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                )
+                .unwrap();
+                assert!(matches!(
+                    CanonicalTableLeafSet::verify_paired_lookup(
+                        id,
+                        limits(),
+                        &before.root(),
+                        &after.ordered_root(),
+                        &key,
+                        &proof
+                    ),
+                    Err(LeafError::RootMismatch)
+                ));
+            }};
+        }
+        check!(
+            sccp_fast_pauses,
+            capture_sccp_fast_pauses_once,
+            network,
+            RetainedSccpFastPause::admit(&sample_fast_pause(1), &budget).unwrap(),
+            RetainedSccpFastPause::admit(&sample_fast_pause(2), &budget).unwrap()
+        );
+        check!(
+            sccp_fast_pause_rounds,
+            capture_sccp_fast_pause_rounds_once,
+            (network, SccpPanelRoleV1::Primary),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(1), &budget).unwrap(),
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(2), &budget).unwrap()
+        );
+        check!(
+            sccp_fast_pause_suspended_until_ms,
+            capture_sccp_fast_pause_suspended_until_ms_once,
+            network,
+            1_000_u64,
+            2_000_u64
+        );
+    }
+
+    #[test]
+    fn sccp_reconciliation_readers_bind_actual_values_and_reject_substitution() {
+        use iroha_data_model::{
+            bridge::SccpNetworkV1, sccp::reconciliation::SccpReconciliationStateV1,
+        };
+
+        let state = state();
+        let network = SccpNetworkV1::EthereumMainnet;
+        macro_rules! check {
+            ($field:ident, $capture:ident, $key:expr, $first:expr, $next:expr) => {{
+                let key = $key;
+                let id = concat!("world.", stringify!($field));
+                let publish = |value| {
+                    state
+                        .world
+                        .$field
+                        .try_with_admitted_block(|block| {
+                            block
+                                .try_insert_admitted(key, value)
+                                .map(|_| ())
+                                .map_err(|(_, error)| error)
+                        })
+                        .unwrap();
+                };
+                publish($first);
+                let before = $capture(&state, limits()).unwrap().unwrap();
+                publish($next);
+                let after = $capture(&state, limits()).unwrap().unwrap();
+                assert_eq!(before.table_id(), id);
+                assert_eq!(after.table_id(), id);
+                assert_eq!(before.row_count(), 1);
+                assert_eq!(after.row_count(), 1);
+                assert_ne!(before.root(), after.root());
+                let proof = after.prove_lookup(id, &key).unwrap();
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &after.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                )
+                .expect("the current reconciliation row proves against its own paired roots");
+                assert!(matches!(
+                    CanonicalTableLeafSet::verify_paired_lookup(
+                        id,
+                        limits(),
+                        &before.root(),
+                        &after.ordered_root(),
+                        &key,
+                        &proof,
+                    ),
+                    Err(LeafError::RootMismatch)
+                ));
+            }};
+        }
+        let record = SccpReconciliationStateV1 {
+            opened_at_ms: 1_000,
+            closes_at_ms: 2_000,
+            forged_supply: 10,
+            rho: None,
+            settled_face: 0,
+        };
+        check!(
+            sccp_reconciliations,
+            capture_sccp_reconciliations_once,
+            (network, 1),
+            record,
+            SccpReconciliationStateV1 {
+                forged_supply: 20,
+                ..record
+            }
+        );
+        check!(
+            sccp_reconciliation_proven,
+            capture_sccp_reconciliation_proven_once,
+            (network, 1, [1; 32]),
+            10_u128,
+            20_u128
+        );
+        check!(
+            sccp_pending_refund_amount,
+            capture_sccp_pending_refund_amount_once,
+            (network, 1),
+            30_u128,
+            40_u128
+        );
+    }
+
+    #[test]
+    fn sccp_generation_and_anchor_readers_bind_actual_values_and_reject_substitution() {
+        use crate::smartcontracts::isi::sccp::{
+            generation_record::RetainedSccpGeneration, test_support::sample_generation,
+        };
+        let state = state();
+        let budget = state.ivm_execution_budget();
+        let generation = sample_generation(1);
+        let publish = |generation, anchor| {
+            state
+                .world
+                .sccp_committee_generations
+                .try_with_admitted_block(|block| {
+                    block
+                        .try_insert_admitted(1, generation)
+                        .map(|_| ())
+                        .map_err(|(_, error)| error)
+                })
+                .unwrap();
+            state
+                .world
+                .sccp_anchor_chunks
+                .try_with_admitted_block(|block| {
+                    block
+                        .try_insert_admitted(0, anchor)
+                        .map(|_| ())
+                        .map_err(|(_, error)| error)
+                })
+                .unwrap();
+        };
+        publish(
+            RetainedSccpGeneration::admit(&generation, &budget).unwrap(),
+            [1; 32],
+        );
+        let before_generation = capture_sccp_committee_generations_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let before_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let mut changed = generation;
+        changed.progress_cap_ms -= 1;
+        publish(
+            RetainedSccpGeneration::admit(&changed, &budget).unwrap(),
+            [2; 32],
+        );
+        let after_generation = capture_sccp_committee_generations_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        let after_anchor = capture_sccp_anchor_chunks_once(&state, limits())
+            .unwrap()
+            .unwrap();
+        for (id, key, before, after) in [
+            (
+                "world.sccp_committee_generations",
+                1_u64,
+                &before_generation,
+                &after_generation,
+            ),
+            (
+                "world.sccp_anchor_chunks",
+                0_u64,
+                &before_anchor,
+                &after_anchor,
+            ),
+        ] {
+            assert_eq!(before.table_id(), id);
+            assert_eq!(after.table_id(), id);
+            assert_eq!(before.row_count(), 1);
+            assert_eq!(after.row_count(), 1);
+            assert_ne!(before.root(), after.root());
+            let proof = after.prove_lookup(id, &key).unwrap();
+            CanonicalTableLeafSet::verify_paired_lookup(
+                id,
+                limits(),
+                &after.root(),
+                &after.ordered_root(),
+                &key,
+                &proof,
+            )
+            .expect("the new original row proves against its own paired roots");
+            assert!(matches!(
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &before.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                ),
+                Err(LeafError::RootMismatch)
+            ));
+        }
     }
 
     #[test]
@@ -1579,8 +1833,8 @@ mod tests {
                 (*id).clone(),
                 LedgerRole {
                     id: (*id).clone(),
-                    permissions: Default::default(),
-                    permission_epochs: Default::default(),
+                    permissions: std::collections::BTreeSet::default(),
+                    permission_epochs: std::collections::BTreeMap::default(),
                 },
             );
         }
@@ -1887,7 +2141,7 @@ mod tests {
         artifact.resize(artifact.len() + post_pad, 0);
         let executable_offset = artifact.len();
         let code_bytes = MAX_IMAGE_BYTES - (executable_offset - ivm::HEADER_SIZE);
-        assert!(code_bytes >= 16 && code_bytes % 4 == 0);
+        assert!(code_bytes >= 16 && code_bytes.is_multiple_of(4));
         artifact.extend_from_slice(&crate::ivm_test_support::unit_return());
         let filler =
             ivm::encoding::wide::encode_rr(ivm::instruction::wide::arithmetic::ADD, 3, 1, 2)
@@ -2160,7 +2414,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [0, 1, 1]
         );
-        assert_eq!(
+        assert!(matches!(
             capture_tables_once(
                 &state,
                 FIRST_THREE_TABLES,
@@ -2173,7 +2427,7 @@ mod tests {
             .err()
             .expect("aggregate row bound"),
             TableCaptureError::AggregateRowLimit
-        );
+        ));
 
         let empty = self::state();
         let omitted = capture_tables_once(&empty, ONE_TABLE, ALIAS_ONLY, policy(limits()))
@@ -2242,7 +2496,7 @@ mod tests {
             capture: capture_account_alias_table_once,
         }];
         let state = state();
-        assert_eq!(
+        assert!(matches!(
             capture_tables_once(&state, ACCOUNTS_ONLY, WRONG_READER, policy(limits()))
                 .err()
                 .expect("wrong table node"),
@@ -2250,8 +2504,8 @@ mod tests {
                 expected: "world.accounts",
                 actual: "world.account_aliases",
             }
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             capture_tables_once(
                 &state,
                 ONE_TABLE,
@@ -2264,7 +2518,7 @@ mod tests {
             .err()
             .expect("table count bound"),
             TableCaptureError::MaterializerLimit
-        );
+        ));
     }
 }
 

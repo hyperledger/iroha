@@ -65,7 +65,8 @@ fn malformed_registry(stx: &mut StateTransaction<'_, '_>) -> CustomParameter {
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(original.clone()));
+        .set_parameter(Parameter::Custom(original.clone()))
+        .expect("valid fixture parameters");
     original
 }
 
@@ -102,7 +103,7 @@ fn malformed_protected_registry_rejects_account_grant_before_permission_mutation
                 .account_contains_inherent_permission(recipient, &permission)
         );
         assert!(stx.world.take_external_events().is_empty());
-        assert_eq!(stx.execution_deferral(), None);
+        assert!(!stx.is_execution_deferred());
         assert_registry_unchanged(stx, &original);
     });
 }
@@ -125,7 +126,7 @@ fn malformed_protected_registry_rejects_account_revoke_before_permission_mutatio
                 .account_contains_inherent_permission(recipient, &permission)
         );
         assert!(stx.world.take_external_events().is_empty());
-        assert_eq!(stx.execution_deferral(), None);
+        assert!(!stx.is_execution_deferred());
         assert_registry_unchanged(stx, &original);
     });
 }
@@ -195,7 +196,7 @@ fn recognized_payout_runtime_permission_malformed_payload_rejects_before_grant()
                 !stx.world
                     .account_contains_inherent_permission(recipient, &malformed)
             );
-            assert_eq!(stx.execution_deferral(), None);
+            assert!(!stx.is_execution_deferred());
             assert!(stx.world.take_external_events().is_empty());
         });
     }
@@ -218,7 +219,7 @@ fn recognized_payout_runtime_permission_original_decode_refusal_defers_without_g
                     .contains("local execution attempt did not complete")
             );
             assert_eq!(
-                stx.execution_deferral().unwrap().reason(),
+                stx.borrow_execution_deferral().unwrap().reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
             );
             assert!(
@@ -238,7 +239,7 @@ fn recognized_payout_runtime_permission_original_decode_refusal_defers_without_g
                     .account_contains_inherent_permission(recipient, &permission)
             );
             assert_eq!(permission.payload(), &original_payload);
-            assert_eq!(stx.execution_deferral(), None);
+            assert!(!stx.is_execution_deferred());
         });
     }
 }
@@ -261,7 +262,7 @@ fn unrelated_permission_name_remains_unrestricted_without_original_payload_decod
             stx.world
                 .account_contains_inherent_permission(recipient, &permission)
         );
-        assert_eq!(stx.execution_deferral(), None);
+        assert!(!stx.is_execution_deferred());
         assert_registry_unchanged(stx, &original);
     });
 }
@@ -291,7 +292,7 @@ fn absent_registry_and_valid_unprotected_runtime_permissions_keep_original_grant
                 !stx.world
                     .account_contains_inherent_permission(recipient, &permission)
             );
-            assert_eq!(stx.execution_deferral(), None);
+            assert!(!stx.is_execution_deferred());
         });
     }
 }

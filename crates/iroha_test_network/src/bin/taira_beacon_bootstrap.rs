@@ -407,7 +407,7 @@ fn native_config(path: &Path, binding: &Binding) -> Result<iroha_config::paramet
     let before = file.metadata()?;
     let native: iroha_config::parameters::actual::Root = ConfigReader::new()
         .without_env()
-        .read_toml_with_extends(path.to_owned())
+        .read_toml_with_extends(path)
         .map_err(|_| eyre!("cannot read selected native config"))?
         .read_and_complete::<iroha_config::parameters::user::Root>()
         .map_err(|_| eyre!("cannot decode selected native config"))?
@@ -826,15 +826,14 @@ async fn submit_once(
     )?;
     // There is exactly one dispatch. On an uncertain result only the maintained
     // read-only finality wait is used; recovery never posts this wire again.
-    if let Err(error) = account.submit_transaction(&transaction).await {
-        if error
+    if let Err(error) = account.submit_transaction(&transaction).await
+        && error
             .downcast_ref::<TransactionDispatchOutcomeUnknownError>()
             .is_none()
-        {
-            return Err(eyre!(
-                "transaction dispatch refused; exact signed wire is retained for read-only recovery"
-            ));
-        }
+    {
+        return Err(eyre!(
+            "transaction dispatch refused; exact signed wire is retained for read-only recovery"
+        ));
     }
     recover_applied(
         client,

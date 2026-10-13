@@ -150,13 +150,13 @@ impl Fixture {
             self.record.clone(),
         )
         .unwrap();
-        let verifier = FinalityVerifier::from_checkpoint(
+        let finality = FinalityVerifier::from_checkpoint(
             self.parent.checkpoint(),
             self.parent.network_id(),
             self.parent.chain_id(),
         )
         .unwrap();
-        (receipt, verifier)
+        (receipt, finality)
     }
 
     pub(super) fn bootstrap(&self, path: &Path) -> AuthenticatedBootstrap {
@@ -250,14 +250,14 @@ fn parent_receipt_is_required_and_retained_across_private_progress_and_restart()
     assert_eq!(prepared.dataspace_id, fixture.identity.dataspace_id());
     assert_eq!(store.confirmed(), Some(initial)); // local certificate is not parent inclusion
     fixture.record.anchor.apply(&anchor).unwrap();
-    let (receipt, verifier) = fixture.parent_receipt();
+    let (receipt, finality) = fixture.parent_receipt();
     let confirmed = store
-        .confirm_with_verifier(receipt.clone(), &verifier)
+        .confirm_with_verifier(receipt.clone(), &finality)
         .unwrap();
     assert_eq!(confirmed.child.height, 2);
     assert_eq!(store.anchor_instruction(&anchor).unwrap(), None);
     assert_eq!(
-        store.confirm_with_verifier(receipt, &verifier).unwrap(),
+        store.confirm_with_verifier(receipt, &finality).unwrap(),
         confirmed
     );
     drop(store);
@@ -272,20 +272,20 @@ fn foreign_forged_and_regressed_receipts_never_advance_attachment() {
     let dir = tempfile::tempdir().unwrap();
     let mut store =
         AttachmentStore::open(&dir.path().join("attachment"), fixture.identity.clone()).unwrap();
-    let (receipt, verifier) = fixture.parent_receipt();
+    let (receipt, finality) = fixture.parent_receipt();
     let mut corrupt = receipt.clone();
     corrupt.record.owner = AccountId::new(
         KeyPair::from_seed(vec![48; 32], Algorithm::Ed25519)
             .public_key()
             .clone(),
     );
-    assert!(store.confirm_with_verifier(corrupt, &verifier).is_err());
+    assert!(store.confirm_with_verifier(corrupt, &finality).is_err());
     let mut corrupt = receipt.clone();
     corrupt.parent_result[0] ^= 1;
-    assert!(store.confirm_with_verifier(corrupt, &verifier).is_err());
+    assert!(store.confirm_with_verifier(corrupt, &finality).is_err());
     assert!(store.confirmed().is_none());
     store
-        .confirm_with_verifier(receipt.clone(), &verifier)
+        .confirm_with_verifier(receipt.clone(), &finality)
         .unwrap();
     let mut equivocation = Fixture::new();
     let (fork, fork_verifier) = equivocation.parent_receipt_with_delay(1);
@@ -300,7 +300,7 @@ fn foreign_forged_and_regressed_receipts_never_advance_attachment() {
         .confirm_with_verifier(advanced, &advanced_verifier)
         .unwrap();
     let before = store.confirmed();
-    assert!(store.confirm_with_verifier(receipt, &verifier).is_err());
+    assert!(store.confirm_with_verifier(receipt, &finality).is_err());
     assert_eq!(store.confirmed(), before);
     // Even a genuinely parent-signed write cannot silently switch the selected lease generation.
     fixture.record.ownership_generation += 1;
@@ -326,18 +326,18 @@ fn custody_refuses_concurrent_missing_corrupt_and_uncertain_state() {
     let path = dir.path().join("attachment");
     let mut store = AttachmentStore::open(&path, fixture.identity.clone()).unwrap();
     assert!(AttachmentStore::open(&path, fixture.identity.clone()).is_err());
-    let (receipt, verifier) = fixture.parent_receipt();
+    let (receipt, finality) = fixture.parent_receipt();
     // A pinned private store rejects substituted publication targets; failure poisons this owner.
     std::fs::remove_file(path.join("attachment.nrt")).unwrap();
     std::fs::create_dir(path.join("attachment.nrt")).unwrap();
     assert!(
         store
-            .confirm_with_verifier(receipt.clone(), &verifier)
+            .confirm_with_verifier(receipt.clone(), &finality)
             .is_err()
     );
     assert!(store.confirmed().is_none());
     assert!(store.registration_instruction().is_err());
-    assert!(store.confirm_with_verifier(receipt, &verifier).is_err());
+    assert!(store.confirm_with_verifier(receipt, &finality).is_err());
     drop(store);
     assert!(AttachmentStore::open(&path, fixture.identity.clone()).is_err());
 

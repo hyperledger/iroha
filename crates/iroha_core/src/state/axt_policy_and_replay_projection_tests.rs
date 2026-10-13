@@ -209,17 +209,17 @@ state_test! { sync ordinary_block_seals_axt_replay_pruning_before_atomic_commit
         7,
         lane,
     );
-    let_row! { stale = axt_replay_record_for_key(&key, 1, 2) };
+    let_row! { outdated = axt_replay_record_for_key(&key, 1, 2) };
     use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig, Signers};
     let mut world = World::new();
-    world.axt_replay_ledger.insert(key, stale.clone());
+    world.axt_replay_ledger.insert(key, outdated.clone());
     let mut config = TestChainConfig::new(world, 0);
     config.nexus = Some(nexus);
     let mut chain = CertifiedTestChain::start(config).unwrap();
     let state = Arc::clone(chain.state());
     let proposal = chain.proposal(None, Vec::new());
     assert!(proposal.axt_envelopes().is_none());
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain.begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default()).unwrap();
     assert!(pending.inspect_prepared(|_| ()).is_err(), "unprepared source is not a publication snapshot");
     pending.prepare(Signers::Quorum).unwrap();
     assert!(pending.inspect_prepared(|_| ()).is_err(), "a certificate alone has not finalized State metadata");
@@ -231,7 +231,7 @@ state_test! { sync ordinary_block_seals_axt_replay_pruning_before_atomic_commit
         let state = inspect_state;
         assert_eq!(
             state.world.axt_replay_ledger.view().get(&key).cloned(),
-            Some(stale),
+            Some(outdated),
             "preparing the sealed overlay must not mutate committed replay state"
         );
         assert!(staged.world.axt_replay_ledger.get(&key).is_none(),
@@ -331,7 +331,7 @@ state_test! { sync staged_checkpoint_projects_deferred_da_quota_without_applying
     let transaction = chain.sign(&owner_keypair, [Log::new(iroha_logger::Level::INFO, "ordinary DA source".into()).into()], 1);
     let mut proposal = chain.proposal(None, vec![transaction]);
     proposal.set_da_pin_intents(Some(DaPinIntentBundle::new(vec![intent])));
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain.begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default()).unwrap();
     pending.prepare(Signers::Quorum).unwrap();
     assert!(pending.inspect_prepared(|_| ()).is_err(), "a certificate alone has not finalized quota metadata");
     pending.prepare_publication_for_inspection(Signers::Quorum)
@@ -449,7 +449,7 @@ state_test! { consensus_stack axt_post_validation_envelope_replacement_cannot_pu
     let mut signed: SignedBlock = BlockBuilder::new(vec![AcceptedTransaction::new_unchecked(
         Cow::Owned(transaction),
     )])
-    .chain(0, Some(&parent))
+    .chain(0, Some(parent))
     .sign(SAMPLE_GENESIS_ACCOUNT_KEYPAIR.private_key())
     .unpack(|_| {})
     .into();
@@ -476,10 +476,10 @@ state_test! { consensus_stack axt_post_validation_envelope_replacement_cannot_pu
         .set_execution_outputs(
             outputs,
             signed.committed_fragment_count().unwrap_or(0),
-            Default::default(),
+            std::collections::BTreeMap::default(),
             vec![envelope],
             snapshot,
-            Default::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("structurally attach a post-validation envelope");

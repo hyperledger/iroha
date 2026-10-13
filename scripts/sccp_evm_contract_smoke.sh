@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# SCCP v1 EVM/TRON contract smoke (`specs/sccp.md` §5.2, §5.5, §11).
+# SCCP v1 EVM contract smoke (`specs/sccp.md` §5.2, §5.4, §5.5, §11).
 #
-# Builds `contracts/evm/sccp/SccpTairaXor.sol` with the pinned native Solidity
-# 0.8.31 compilers (solc for ETH/BSC, tronprotocol tv_0.8.31 for TRON) through
-# `scripts/contract_artifact_corridor.py`, proves that a mutated manifest, a
-# stale source and a mutated compiler are refused, installs and audits the
-# locked EDR runtime in a private copy, and runs the EDR suite and the Rust
-# fixture and calldata conformance suite under chain ids 1, 56 and 0x2b6653dc.
-# TRON-compiler bytecode itself is qualified on java-tron (TRE) separately;
-# nothing here is TVM evidence.
+# Builds `contracts/evm/sccp/SccpTairaXor.sol` and its one library,
+# `contracts/evm/sccp/lib/BLS12_381.sol`, with the pinned native solc 0.8.31
+# through `scripts/contract_artifact_corridor.py`, and proves that a mutated
+# manifest, a stale contract or library source and a mutated compiler are
+# refused. It then installs and audits the locked EDR runtime in a private
+# copy, runs the provider test, and runs the four EDR suites (BLS library,
+# fixture replay, behaviour, gas) against the locked build. Every suite runs
+# under both the Prague and the Osaka rules and, where a row binds a network,
+# under chain ids 1 and 56. The gas suite compares every §5.4 row with
+# `contracts/evm/sccp/test/gas_baseline_v1.json`.
 #
-# Prerequisites: Python 3.9+, Node.js >= 22 with npm, HTTPS for the first
-# compiler download (cached by SHA-256 under target/sccp-contract-tooling).
-# Runs natively on macOS arm64/x86-64 and Linux x86-64/arm64; no Rosetta or
-# Docker. Developer overrides: SCCP_CORRIDOR_{PYTHON,NODE,NPM}_BIN select the
-# tool binaries. All generated files live in a disposable private directory.
+# Prerequisites: Python 3.9+, Node.js >= 22 with npm, and HTTPS for the first
+# compiler download (cached by SHA-256 under target/sccp-contract-tooling) and
+# for `npm ci` and `npm audit`. Runs natively on macOS arm64/x86-64 and Linux
+# x86-64/arm64; no Rosetta or Docker. Developer overrides:
+# SCCP_CORRIDOR_{PYTHON,NODE,NPM}_BIN select the tool binaries. All generated
+# files live in a disposable private directory.
 set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -37,13 +40,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-shopt -s nullglob
-sources=(contracts/evm/sccp/*.sol)
-shopt -u nullglob
-if [[ "${sources[*]}" != "contracts/evm/sccp/SccpTairaXor.sol" ]]; then
-  echo "contracts/evm/sccp must contain exactly SccpTairaXor.sol, found: ${sources[*]}" >&2
-  exit 1
-fi
+CONTRACT_SOURCE="contracts/evm/sccp/SccpTairaXor.sol"
+LIBRARY_SOURCE="contracts/evm/sccp/lib/BLS12_381.sol"
+
+# The deployed code has exactly two sources. Test-only harness contracts live
+# under contracts/evm/sccp/test/harness and never enter the locked build.
+require_exact_sources() {
+  local directory="$1" expected="$2" found
+  shopt -s nullglob
+  found=("$directory"/*.sol)
+  shopt -u nullglob
+  if [[ "${found[*]-}" != "$expected" ]]; then
+    echo "$directory must contain exactly $(basename "$expected"), found: ${found[*]-}" >&2
+    exit 1
+  fi
+}
+require_exact_sources contracts/evm/sccp "$CONTRACT_SOURCE"
+require_exact_sources contracts/evm/sccp/lib "$LIBRARY_SOURCE"
 
 ARTIFACT_DIR="$WORK_DIR/artifacts"
 MANIFEST="$ARTIFACT_DIR/sccp-contract-artifacts-v1.json"
@@ -63,7 +76,14 @@ import contract_artifact_corridor as corridor
 
 manifest = corridor.load_manifest(Path(sys.argv[1]))
 mutated = copy.deepcopy(manifest)
-record = mutated["targets"]["tron"]["contracts"][0]["runtime_bytecode"]
+contracts = [
+    entry
+    for entry in mutated["targets"]["evm"]["contracts"]
+    if entry["fully_qualified_name"] == corridor.SCCP_CONTRACT
+]
+if len(contracts) != 1:
+    raise SystemExit("the manifest must contain exactly one SccpTairaXor contract")
+record = contracts[0]["runtime_bytecode"]
 record["hex"] = record["hex"][:-2] + ("00" if not record["hex"].endswith("00") else "01")
 corridor.write_canonical_file(Path(sys.argv[2]), mutated)
 PY
@@ -72,16 +92,27 @@ if "$PYTHON_BIN" scripts/contract_artifact_corridor.py verify --manifest "$MUTAT
   exit 1
 fi
 
-STALE_REPO="$WORK_DIR/stale-checkout"
-mkdir -p "$STALE_REPO/contracts/evm/sccp"
-cp contracts/evm/sccp/SccpTairaXor.sol "$STALE_REPO/contracts/evm/sccp/SccpTairaXor.sol"
-printf '\n// adversarial stale source\n' >>"$STALE_REPO/contracts/evm/sccp/SccpTairaXor.sol"
-if "$PYTHON_BIN" scripts/contract_artifact_corridor.py verify \
-  --manifest "$MANIFEST" --repo-root "$STALE_REPO" >/dev/null 2>&1
-then
-  echo "a stale SCCP contract source was accepted by the artifact verifier" >&2
-  exit 1
-fi
+# The same manifest verifies against an unchanged copy of the two sources, so
+# each refusal below is caused by the one appended line.
+make_checkout() {
+  mkdir -p "$1/contracts/evm/sccp/lib"
+  cp "$CONTRACT_SOURCE" "$1/$CONTRACT_SOURCE"
+  cp "$LIBRARY_SOURCE" "$1/$LIBRARY_SOURCE"
+}
+CLEAN_REPO="$WORK_DIR/clean-checkout"
+make_checkout "$CLEAN_REPO"
+"$PYTHON_BIN" scripts/contract_artifact_corridor.py verify --manifest "$MANIFEST" --repo-root "$CLEAN_REPO" >/dev/null
+for stale_source in "$CONTRACT_SOURCE" "$LIBRARY_SOURCE"; do
+  STALE_REPO="$WORK_DIR/stale-checkout-$(basename "$stale_source" .sol)"
+  make_checkout "$STALE_REPO"
+  printf '\n// adversarial stale source\n' >>"$STALE_REPO/$stale_source"
+  if "$PYTHON_BIN" scripts/contract_artifact_corridor.py verify \
+    --manifest "$MANIFEST" --repo-root "$STALE_REPO" >/dev/null 2>&1
+  then
+    echo "a stale $stale_source was accepted by the artifact verifier" >&2
+    exit 1
+  fi
+done
 
 MUTATED_SOLC="$WORK_DIR/mutated-solc"
 "$PYTHON_BIN" scripts/contract_artifact_corridor.py materialize --target evm --output "$WORK_DIR/solc-evm" >/dev/null
@@ -120,42 +151,56 @@ cp scripts/contract_tooling/evm-runtime/package.json \
   "$NPM_BIN" audit --omit=dev --audit-level=low
 )
 
+echo "Running the EDR provider test (EIP-2537 precompiles under Prague and Osaka)."
 NODE_PATH="$RUNTIME_DIR/node_modules" "$NODE_BIN" --test scripts/tests/contract_edr_provider_test.cjs
 
-echo "Running the SccpTairaXor EDR suite (chain ids 1, 56 and 0x2b6653dc) on the locked native EDR runtime."
+# Every suite iterates the same two hardforks itself; a suite that dropped one
+# would otherwise still pass.
+SUITES=(
+  contracts/evm/sccp/test/sccp_bls.test.js
+  contracts/evm/sccp/test/sccp_v1_fixtures.test.js
+  contracts/evm/sccp/test/sccp_taira_xor.test.js
+  contracts/evm/sccp/test/sccp_gas.test.js
+)
+for suite in scripts/tests/contract_edr_provider_test.cjs "${SUITES[@]}"; do
+  if ! grep -Eq '^const HARDFORKS = (Object\.freeze\()?\["prague", "osaka"\]\)?;$' "$suite"; then
+    echo "$suite does not run under exactly the Prague and Osaka rules" >&2
+    exit 1
+  fi
+done
+
+# The suites load the manifest built above and re-verify it against the
+# committed artifact lock; no variable may point them at another lock.
+unset SCCP_CONTRACT_ARTIFACT_LOCK SCCP_GAS_BASELINE SCCP_ERROR_COVERAGE_REPORT
 GAS_REPORT="$WORK_DIR/gas.json"
-SCCP_EVM_RUNTIME_DIR="$RUNTIME_DIR" \
-SCCP_CONTRACT_ARTIFACT_MANIFEST="$MANIFEST" \
-SCCP_CORRIDOR_PYTHON_BIN="$PYTHON_BIN" \
-SCCP_GAS_REPORT="$GAS_REPORT" \
-  "$NODE_BIN" --test contracts/evm/sccp/test/sccp_taira_xor.test.js
+for suite in "${SUITES[@]}"; do
+  echo "Running $suite on the locked native EDR runtime (Prague and Osaka; chain ids 1 and 56)."
+  rm -f "$GAS_REPORT"
+  SCCP_EVM_RUNTIME_DIR="$RUNTIME_DIR" \
+  SCCP_CONTRACT_ARTIFACT_MANIFEST="$MANIFEST" \
+  SCCP_CORRIDOR_PYTHON_BIN="$PYTHON_BIN" \
+  SCCP_GAS_REPORT="$GAS_REPORT" \
+    "$NODE_BIN" --test "$suite"
+done
 
-echo "Running the Rust fixture and calldata conformance EDR suite (chain ids 1, 56 and 0x2b6653dc)."
-SCCP_EVM_RUNTIME_DIR="$RUNTIME_DIR" \
-SCCP_CONTRACT_ARTIFACT_MANIFEST="$MANIFEST" \
-SCCP_CORRIDOR_PYTHON_BIN="$PYTHON_BIN" \
-  "$NODE_BIN" --test contracts/evm/sccp/test/sccp_v1_fixtures.test.js
-
-"$PYTHON_BIN" - "$GAS_REPORT" <<'PY'
+# The gas suite ran last and gates every row against the committed baseline
+# (0.9..1.1 x). Its report must cover the baseline's rows for both hardforks
+# and both profiles, so a row that silently stopped being measured fails here.
+"$PYTHON_BIN" - "$GAS_REPORT" contracts/evm/sccp/test/gas_baseline_v1.json <<'PY'
 import json
 import sys
 
 report = json.load(open(sys.argv[1], encoding="utf-8"))
-required = (
-    "finalizeFromTaira n=4 t=3 (new balance, same bitmap word)",
-    "finalizeFromTaira n=31 t=21 (new balance, same bitmap word)",
-    "applyControl n=4 t=3",
-    "applyControl n=31 t=21",
-    "rotateRosters 1 rotation n=4 t=3 (steady state)",
-    "rotateRosters 1 rotation n=31 t=21 (steady state)",
-    "voidExpired n=4 t=3",
-    "voidFrozen 256 nonces (one bitmap word)",
-    "transferToTaira (34-byte Taira recipient)",
-)
-missing = [label for label in required if set(report.get(label, {})) != {"ethereum", "bsc", "tron"}]
-if missing:
-    raise SystemExit(f"measured gas is missing for: {missing}")
+baseline = json.load(open(sys.argv[2], encoding="utf-8"))["rows"]
+if set(report) != {"prague", "osaka"} or set(baseline) != {"prague", "osaka"}:
+    raise SystemExit(f"gas must be measured under prague and osaka, found: {sorted(report)}")
+for hardfork, rows in baseline.items():
+    if set(report[hardfork]) != set(rows):
+        raise SystemExit(f"{hardfork}: measured rows differ from the baseline: {sorted(set(report[hardfork]) ^ set(rows))}")
+    incomplete = [label for label, profiles in report[hardfork].items() if set(profiles) != {"ethereum", "bsc"}]
+    if incomplete:
+        raise SystemExit(f"{hardfork}: measured gas is missing a profile for: {incomplete}")
 PY
 
-echo "SCCP v1 EVM contract smoke passed: authenticated native builds, fail-closed verification and the EDR suite."
-echo "TRON bytecode from tv_0.8.31 still requires the separate java-tron (TRE) qualification."
+echo "SCCP v1 EVM contract smoke passed: authenticated native build, fail-closed verification,"
+echo "and the BLS, fixture, behaviour and gas suites under Prague and Osaka."

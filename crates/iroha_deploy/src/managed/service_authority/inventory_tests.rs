@@ -178,14 +178,14 @@ fn new_earlier_namespace_and_replaced_parent_lock_refuse_before_child_open() {
     #[cfg(windows)]
     {
         // The retained native lock denies deletion/replacement before its identity can change.
-        let original = iroha_fs::FileIdentity::of(&parent._lock).unwrap();
+        let original = iroha_fs::FileIdentity::of(&parent.lock).unwrap();
         assert!(
             parent
                 .directory
                 .write_atomic("operation.lock", b"", PublishMode::Replace)
                 .is_err()
         );
-        assert_eq!(iroha_fs::FileIdentity::of(&parent._lock).unwrap(), original);
+        assert_eq!(iroha_fs::FileIdentity::of(&parent.lock).unwrap(), original);
         assert_eq!(
             iroha_fs::FileIdentity::of(&parent.directory.open_read("operation.lock").unwrap())
                 .unwrap(),
@@ -317,7 +317,7 @@ fn first_reserve_name_probe_retains_parent_lock_and_native_ancestors_before_retr
     let _guard = crate::managed::native_test_guard();
     let (_temporary, parent) = fixture();
     let inventory = ServiceChildInventory::begin(&parent).unwrap();
-    let lock_identity = iroha_fs::FileIdentity::of(&parent._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&parent.lock).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -382,13 +382,13 @@ fn first_reserve_name_probe_retains_parent_lock_and_native_ancestors_before_retr
                 .is_err()
         );
         assert_eq!(
-            iroha_fs::FileIdentity::of(&parent._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&parent.lock).unwrap(),
             lock_identity
         );
         assert!(inventory.initial_reserve_policy_absent().unwrap());
     }
     assert_eq!(
-        iroha_fs::FileIdentity::of(&parent._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&parent.lock).unwrap(),
         lock_identity
     );
     assert!(
@@ -417,7 +417,7 @@ impl OriginalChildProjection {
             peers: authority.peers.iter().map(|(id, _)| id.clone()).collect(),
             plan: authority.provider_plan().unwrap(),
             directory: authority.directory.identity().unwrap(),
-            lock: iroha_fs::FileIdentity::of(&authority._lock).unwrap(),
+            lock: iroha_fs::FileIdentity::of(&authority.lock).unwrap(),
         }
     }
     fn require_same(&self, actual: &ServiceAuthority) {
@@ -440,10 +440,7 @@ impl OriginalChildProjection {
             self.peers.iter().collect::<Vec<_>>()
         );
         assert_eq!(actual.directory.identity().unwrap(), self.directory);
-        assert_eq!(
-            iroha_fs::FileIdentity::of(&actual._lock).unwrap(),
-            self.lock
-        );
+        assert_eq!(iroha_fs::FileIdentity::of(&actual.lock).unwrap(), self.lock);
         let actual = actual.provider_plan().unwrap();
         assert_eq!(
             actual.original_profile_commitment(),
@@ -538,7 +535,7 @@ fn present_census_rechecks_complete_profile_and_native_parent_then_restores_orig
         ServiceAuthority::open_provider(&parent.prepared, provider, ProviderPurpose::Custody)
             .unwrap();
     let child_identity = child.directory.identity().unwrap();
-    let lock_identity = iroha_fs::FileIdentity::of(&child._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&child.lock).unwrap();
     drop(child);
     let generation =
         PrivateDirectory::open_exact(parent.prepared.context.client_config.parent().unwrap())
@@ -582,7 +579,7 @@ fn present_census_rechecks_complete_profile_and_native_parent_then_restores_orig
             .unwrap();
         assert_eq!(child.directory.identity().unwrap(), child_identity);
         assert_eq!(
-            iroha_fs::FileIdentity::of(&child._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&child.lock).unwrap(),
             lock_identity
         );
         child.validate_profile().unwrap();
@@ -623,7 +620,7 @@ fn present_census_rechecks_complete_profile_and_native_parent_then_restores_orig
         .unwrap();
     assert_eq!(child.directory.identity().unwrap(), child_identity);
     assert_eq!(
-        iroha_fs::FileIdentity::of(&child._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&child.lock).unwrap(),
         lock_identity
     );
     drop(child);
@@ -810,7 +807,7 @@ fn census_import_scope_reuses_only_immutable_imports_and_ends_cold() {
         if is_custody {
             let identity = (
                 child.directory.identity().unwrap(),
-                iroha_fs::FileIdentity::of(&child._lock).unwrap(),
+                iroha_fs::FileIdentity::of(&child.lock).unwrap(),
             );
             if let Some(expected) = custody_identity {
                 assert_eq!(identity, expected);

@@ -1,0 +1,132 @@
+{
+  "hardware_baseline_qualified": false,
+  "ios_mac_same_mode_digest_retry_pairs": 272,
+  "ios_mode_digest_retry_pairs": 136,
+  "profile_qualified": false,
+  "runs": [
+    {
+      "active_processor_count": 6,
+      "all_task_info_succeeded": true,
+      "baseline_qualified": false,
+      "battery_states": [
+        2
+      ],
+      "duration_seconds": 78.0,
+      "finished_utc": "2026-10-13T02:41:14Z",
+      "kernel_release": "25.6.0",
+      "low_power_mode": false,
+      "max_physical_footprint_bytes": 22250344,
+      "max_resident_bytes": 101138432,
+      "mode": "accel",
+      "model_identifier": "iPhone18,2",
+      "observation_count": 316,
+      "observation_interval_seconds": 0.25,
+      "os_version": "26.7",
+      "physical_memory_bytes": 12262113280,
+      "production_gated": true,
+      "result_code": 0,
+      "row": "candidate31",
+      "run_label": "b6-accel-31",
+      "samples": 124,
+      "started_utc": "2026-10-13T02:39:56Z",
+      "thermal_states": [
+        0
+      ],
+      "worker_stack_reservation_bytes": 8388608
+    },
+    {
+      "active_processor_count": 6,
+      "all_task_info_succeeded": true,
+      "baseline_qualified": false,
+      "battery_states": [
+        2
+      ],
+      "duration_seconds": 17.0,
+      "finished_utc": "2026-10-13T02:42:56Z",
+      "kernel_release": "25.6.0",
+      "low_power_mode": false,
+      "max_physical_footprint_bytes": 29377432,
+      "max_resident_bytes": 104644608,
+      "mode": "accel",
+      "model_identifier": "iPhone18,2",
+      "observation_count": 70,
+      "observation_interval_seconds": 0.25,
+      "os_version": "26.7",
+      "physical_memory_bytes": 12262113280,
+      "production_gated": true,
+      "result_code": 0,
+      "row": "comparator3",
+      "run_label": "b6-accel-comparator3",
+      "samples": 12,
+      "started_utc": "2026-10-13T02:42:39Z",
+      "thermal_states": [
+        0
+      ],
+      "worker_stack_reservation_bytes": 8388608
+    },
+    {
+      "active_processor_count": 6,
+      "all_task_info_succeeded": true,
+      "baseline_qualified": false,
+      "battery_states": [
+        2
+      ],
+      "duration_seconds": 174.0,
+      "finished_utc": "2026-10-13T02:47:32Z",
+      "kernel_release": "25.6.0",
+      "low_power_mode": false,
+      "max_physical_footprint_bytes": 22037400,
+      "max_resident_bytes": 101154816,
+      "mode": "portable",
+      "model_identifier": "iPhone18,2",
+      "observation_count": 698,
+      "observation_interval_seconds": 0.25,
+      "os_version": "26.7",
+      "physical_memory_bytes": 12262113280,
+      "production_gated": true,
+      "result_code": 0,
+      "row": "candidate31",
+      "run_label": "b6-portable-31",
+      "samples": 124,
+      "started_utc": "2026-10-13T02:44:38Z",
+      "thermal_states": [
+        0,
+        1
+      ],
+      "worker_stack_reservation_bytes": 8388608
+    },
+    {
+      "active_processor_count": 6,
+      "all_task_info_succeeded": true,
+      "baseline_qualified": false,
+      "battery_states": [
+        2
+      ],
+      "duration_seconds": 115.0,
+      "finished_utc": "2026-10-13T02:49:49Z",
+      "kernel_release": "25.6.0",
+      "low_power_mode": false,
+      "max_physical_footprint_bytes": 27771800,
+      "max_resident_bytes": 104775680,
+      "mode": "portable",
+      "model_identifier": "iPhone18,2",
+      "observation_count": 462,
+      "observation_interval_seconds": 0.25,
+      "os_version": "26.7",
+      "physical_memory_bytes": 12262113280,
+      "production_gated": true,
+      "result_code": 0,
+      "row": "comparator3",
+      "run_label": "b6-portable-comparator3",
+      "samples": 12,
+      "started_utc": "2026-10-13T02:47:54Z",
+      "thermal_states": [
+        1,
+        2
+      ],
+      "worker_stack_reservation_bytes": 8388608
+    }
+  ],
+  "schema": "parliament-b6-ios-results-v1",
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb"
+}

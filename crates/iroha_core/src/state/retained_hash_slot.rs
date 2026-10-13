@@ -36,6 +36,13 @@ pub(crate) struct RetainedHashSlot<'a, I> {
     writer_release: Option<DeferredRelease>,
 }
 
+#[cfg_attr(
+    not(any(test, feature = "iroha-core-tests", feature = "bench")),
+    expect(
+        dead_code,
+        reason = "TODO: connect aggregate hash acquisition; keep exact predecessor validation, retry recovery and release ordering"
+    )
+)]
 impl<'a, I> RetainedHashSlot<'a, I> {
     pub(crate) fn new(original: DetachedBlockHashes, target: &'a BlockHashes) -> Self {
         Self {

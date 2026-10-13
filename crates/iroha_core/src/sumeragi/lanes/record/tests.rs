@@ -50,9 +50,9 @@ pub(in crate::sumeragi) fn fixture(
     };
     let signatures: Vec<_> = signers[..3]
         .iter()
-        .map(|signer| signer.sign(&qc.preimage()))
+        .map(|signer| signer.sign(&qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = crypto.aggregate(&signatures);
+    qc.agg_sig = crypto.aggregate(&signatures).unwrap();
     (body, qc, source, budget, crypto)
 }
 

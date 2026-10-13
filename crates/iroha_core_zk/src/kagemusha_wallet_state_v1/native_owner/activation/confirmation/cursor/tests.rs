@@ -52,6 +52,28 @@ fn reopen(wallet: Wallet) -> Wallet {
 }
 
 #[test]
+fn activation_cursor_read_refusal_preserves_selected_original_for_retry() {
+    let (_, _, cursor, native) = setup();
+    let genesis = native.verifier();
+    let original = cursor.checkpoint.clone();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || cursor.restore(&genesis));
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(cursor.checkpoint, original);
+    let (_, restored) = cursor.restore(&genesis).unwrap();
+    assert_eq!(restored.encode_canonical().unwrap(), original);
+    let corrupt = Cursor {
+        checkpoint: vec![0],
+        ..cursor
+    };
+    assert!(matches!(
+        corrupt.restore(&genesis),
+        Err(Error::WitnessLost(_))
+    ));
+}
+
+#[test]
 fn fresh_verifier_cursor_restores_genuine_native_checkpoint_and_exact_binding() {
     let (mut wallet, plan, cursor, native) = setup();
     let bytes = archive::encode(&cursor).unwrap();

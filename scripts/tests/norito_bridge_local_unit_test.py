@@ -52,6 +52,10 @@ def originals():
                  'source_before': source, 'source_after': source,
                  'toolchain_before': tools, 'toolchain_after': tools,
                  'finished_unix': 11, 'export_count': 1}
+    for record in (emitter, capture, component):
+        record.update(source_scope=unit.SOURCE_SCOPE, source_identity_changes=[], source_changes=[],
+                      consumed_source=source, consumed_identities_before={'Cargo.toml': [1, 2, 3, 4, 5]},
+                      consumed_identities_after={'Cargo.toml': [1, 2, 3, 4, 5]})
     pins = {'emitter': {'path': '/owned/emitter.json', 'sha256': 'd' * 64}}
     return pins, {'emitter': emitter, 'static_capture': capture, 'component': component}
 
@@ -447,40 +451,76 @@ def test_local_consumed_custody_refuses_runtime_compiler_manifest_or_identity_dr
         custody.consumed_source_projection(metadata, root, originals, current, receipts)
 
 
-def test_static_broad_doc_endpoint_retains_actual_current_dictionary_and_old_emitter(originals):
+def test_all_phases_retain_unused_broad_drift_without_relabelling_consumed_inputs(originals):
     pins, values = originals
     data = copy.deepcopy(values)
-    source = dict(data['emitter']['source_after'])
-    name = next(iter(source)); source[name] = 'e' * 64
-    capture = data['static_capture']
-    capture.update(source_before=source, source_after=source, upstream_sealed_source_delta=[name],
-                   documentary_scope_review='/owned/review.json', documentary_scope_review_sha256='f' * 64,
-                   original_broad_collector_refusal='/owned/original-refusal.json')
-    # Parser acceptance alone grants no admission: complete actual .d, manifest,
-    # config/runtime projection, original refusal/review and file bytes follow.
-    unit.check_record_semantics(data['emitter'], capture, data['component'],
+    name = 'crates/iroha_core/src/unused.rs'
+    for index, record in enumerate(data.values()):
+        record['source_before'] = dict(record['source_before'], **{name: str(index) * 64})
+        record['source_after'] = dict(record['source_after'], **{name: str(index + 1) * 64})
+        record.update(source_changes=[name], source_identity_changes=[name])
+    # Parser acceptance grants no admission: actual dep-info and the full
+    # compiler/native/runtime/manifest projection must still be independently checked.
+    unit.check_record_semantics(data['emitter'], data['static_capture'], data['component'],
                                Path(pins['emitter']['path']), pins['emitter']['sha256'],
                                'aarch64-apple-darwin')
-    assert data['emitter']['source_after'] != capture['source_after']
+    assert data['emitter']['source_after'] != data['static_capture']['source_after']
 
 
-@pytest.mark.parametrize('change', ('missing-delta', 'false-delta', 'after', 'membership', 'missing-review'))
-def test_static_endpoint_never_relabels_upstream_source_or_silently_prunes_it(originals, change):
+@pytest.mark.parametrize('change', ('missing-scope', 'false-delta', 'consumed-byte', 'membership',
+                                  'identity', 'hidden-identity', 'missing-projection'))
+def test_consumed_contract_refuses_relabelled_broad_or_selected_observations(originals, change):
     pins, values = originals; data = copy.deepcopy(values)
-    source = dict(data['emitter']['source_after']); name = next(iter(source)); source[name] = 'e' * 64
     capture = data['static_capture']
-    capture.update(source_before=source, source_after=source, upstream_sealed_source_delta=[name],
-                   documentary_scope_review='/owned/review.json', documentary_scope_review_sha256='f' * 64,
-                   original_broad_collector_refusal='/owned/original-refusal.json')
-    if change == 'missing-delta': del capture['upstream_sealed_source_delta']
-    elif change == 'false-delta': capture['upstream_sealed_source_delta'] = ['unrelated.md']
-    elif change == 'after': capture['source_after'] = dict(source, **{'extra': 'a' * 64})
+    if change == 'missing-scope': del capture['source_scope']
+    elif change == 'false-delta': capture['source_changes'] = ['unrelated.md']
+    elif change == 'consumed-byte': capture['source_after'] = {'Cargo.toml': 'e' * 64}
     elif change == 'membership': capture['source_before'] = capture['source_after'] = {}
-    elif change == 'missing-review': del capture['documentary_scope_review_sha256']
+    elif change == 'identity': capture['consumed_identities_after'] = {'Cargo.toml': [1, 9, 3, 4, 5]}
+    elif change == 'hidden-identity': capture.update(source_changes=['Cargo.toml'], source_identity_changes=['Cargo.toml'])
+    elif change == 'missing-projection': del capture['consumed_source']
     with pytest.raises(unit.Refused):
         unit.check_record_semantics(data['emitter'], capture, data['component'],
                                    Path(pins['emitter']['path']), pins['emitter']['sha256'],
                                    'aarch64-apple-darwin')
+
+
+@pytest.mark.parametrize('phase', ('emitter', 'capture', 'component'))
+@pytest.mark.parametrize('change', ('drop-compiled', 'drop-manifest', 'drop-runtime', 'invent-unused'))
+def test_admission_rederives_each_record_projection_instead_of_trusting_claimed_scope(tmp_path, phase, change):
+    root, metadata, originals, receipts = projection_fixture(tmp_path)
+    selected = custody.consumed_source_projection(metadata, root, originals, originals, receipts)
+    records = {name: {'source_before': originals, 'source_after': originals,
+                     'consumed_source': dict(selected), 'dep_info': receipts}
+               for name in ('emitter', 'capture', 'component')}
+    unit.verify_record_source_projections(metadata, root, *records.values())
+    forged = records[phase]['consumed_source']
+    if change == 'drop-compiled': del forged['source.rs']
+    elif change == 'drop-manifest': del forged['Cargo.toml']
+    elif change == 'drop-runtime': del forged['fixtures/runtime.json']
+    else: forged['README.md'] = originals['README.md']
+    with pytest.raises(unit.Refused, match='projection differs'):
+        unit.verify_record_source_projections(metadata, root, *records.values())
+
+
+def test_current_admission_rejects_same_bytes_with_replaced_consumed_identity(tmp_path, monkeypatch):
+    root, metadata, originals, receipts = projection_fixture(tmp_path)
+    source = root / 'source.rs'; source.write_bytes(b'// current original\n')
+    originals['source.rs'] = unit.digest(source)
+    receipts[0]['dep_info'][0]['matched_originals'][0]['sha256'] = originals['source.rs']
+    selected = custody.consumed_source_projection(metadata, root, originals, originals, receipts)
+    # The mocked broad recapture isolates the real selected-file identity check.
+    # Other selected entries have inert identities and are excluded in this test.
+    value = unit.regular(source)
+    identity = [value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns]
+    record = {'source_before': originals, 'metadata_sha256': 'a' * 64, 'dep_info': receipts,
+              'consumed_source': selected, 'consumed_identities_before': {'source.rs': identity}}
+    monkeypatch.setattr(unit, 'recapture_native', lambda *args: dict(originals))
+    monkeypatch.setattr(unit, 'load', lambda *args: metadata)
+    unit.verify_native_inputs(root, root, record)
+    replacement = root / 'replacement'; replacement.write_bytes(source.read_bytes()); replacement.replace(source)
+    with pytest.raises(unit.Refused, match='current consumed source identity changed'):
+        unit.verify_native_inputs(root, root, record)
 
 
 @pytest.mark.parametrize('target,accepted', (('../dist/NoritoBridge.xcframework', True), ('../old-native-artifact', False)))

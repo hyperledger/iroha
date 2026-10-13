@@ -86,73 +86,7 @@ fn corrupt_root_transition(statement: &mut PrivacyStatementV1, corruption: RootC
     }
 }
 fn protocol_limits(protocol: PrivacyProtocolIdV1) -> PrivacyProtocolActivationLimitsV1 {
-    match protocol {
-        PrivacyProtocolIdV1::ZkAcePqAuthorizationV1 => {
-            PrivacyProtocolActivationLimitsV1::ZkAcePqAuthorizationV1
-        }
-        PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1 => {
-            PrivacyProtocolActivationLimitsV1::AnonymousPgcKOutOfNV1(
-                AnonymousPgcActivationLimitsV1 {
-                    max_anonymity_set_size: ANONYMOUS_PGC_MAX_ANONYMITY_SET_SIZE_V1,
-                    max_recipient_count: ANONYMOUS_PGC_MAX_RECIPIENTS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::VeRangeTransparentRangeV1 => {
-            PrivacyProtocolActivationLimitsV1::VeRangeTransparentRangeV1(
-                VeRangeActivationLimitsV1 {
-                    max_aggregation_count: VERANGE_TAIRA_MAX_AGGREGATION_COUNT_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::IrohaZkAmsV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaZkAmsV1(ZkAmsActivationLimitsV1 {
-                max_batch_size: ZK_AMS_MAX_BATCH_SIZE_V1,
-                max_ring_size: ZK_AMS_MAX_RING_SIZE_V1,
-            })
-        }
-        PrivacyProtocolIdV1::VegaExistingCredentialZkV1 => {
-            PrivacyProtocolActivationLimitsV1::VegaExistingCredentialZkV1
-        }
-        PrivacyProtocolIdV1::IrohaZkX509StarkP256V1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaZkX509StarkP256V1
-        }
-        PrivacyProtocolIdV1::IrohaJindoPolynomialCommitmentV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaJindoPolynomialCommitmentV1(
-                JindoActivationLimitsV1 {
-                    max_polynomial_count: IROHA_JINDO_MAX_POLYNOMIALS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::IrohaBootleLanternAnoncredV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaBootleLanternAnoncredV1
-        }
-        PrivacyProtocolIdV1::OrchardHalo2ActionsV1 => {
-            PrivacyProtocolActivationLimitsV1::OrchardHalo2ActionsV1(OrchardActivationLimitsV1 {
-                max_action_count: ORCHARD_MAX_ACTIONS_V1,
-            })
-        }
-        PrivacyProtocolIdV1::MoneroFcmpPlusPlusV1 => {
-            PrivacyProtocolActivationLimitsV1::MoneroFcmpPlusPlusV1(FcmpActivationLimitsV1 {
-                max_input_count: FCMP_MAX_INPUTS_V1,
-                max_output_count: FCMP_MAX_OUTPUTS_V1,
-            })
-        }
-        PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaIvmPrivateNoteStarkV1(
-                IvmPrivateNoteActivationLimitsV1 {
-                    max_input_count: IVM_PRIVATE_NOTE_MAX_INPUTS_V1,
-                    max_output_count: IVM_PRIVATE_NOTE_MAX_OUTPUTS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::PqMaspStarkV1 => {
-            PrivacyProtocolActivationLimitsV1::PqMaspStarkV1(PqMaspActivationLimitsV1 {
-                max_input_count: PQ_MASP_MAX_INPUTS_V1,
-                max_output_count: PQ_MASP_MAX_OUTPUTS_V1,
-            })
-        }
-    }
+    super::exact12_fixture::sample_protocol_limits(protocol)
 }
 fn assert_stable_schema_wire<T>(value: &T, schema_name: &str, expected_schema_hash: [u8; 16])
 where
@@ -276,23 +210,7 @@ fn first_release_privacy_schema_names_and_old_headers_are_frozen() {
     );
 }
 fn activation(envelope: &PrivacyProofEnvelopeV1) -> PrivacyProtocolActivationRecordV1 {
-    PrivacyProtocolActivationRecordV1 {
-        protocol_id: envelope.protocol_id,
-        proof_system_id: envelope.proof_system_id,
-        engine_id: envelope.engine_id,
-        parameter_id: envelope.parameter_id,
-        parameter_digest: envelope.parameter_digest,
-        verifier_digest: envelope.verifier_digest,
-        statement_schema_digest: envelope.statement_schema_digest,
-        engine_manifest_digest: envelope.engine_manifest_digest,
-        lifecycle: PrivacyProtocolLifecycleV1::Active(PrivacyActiveLifecycleV1 {
-            proposed_at_height: 1,
-            activated_at_height: 2,
-            state_since_height: 2,
-        }),
-        protocol_limits: protocol_limits(envelope.protocol_id),
-        pending_protocol_limits_tightening: None,
-    }
+    super::exact12_fixture::sample_activation(envelope)
 }
 fn compiled_profile_snapshot(
     activation: &PrivacyProtocolActivationRecordV1,
@@ -1816,6 +1734,98 @@ fn all_statements_and_envelopes_roundtrip_and_validate() {
     }
 }
 #[test]
+fn canonical_privacy_byte_limits_ignore_ambient_layout_flags() {
+    for statement in sample_statements() {
+        let statement_bytes = u32::try_from(
+            norito::encode_canonical(&statement)
+                .expect("canonical statement")
+                .len(),
+        )
+        .expect("fixture size fits u32");
+        let envelope = envelope(statement);
+        let envelope_bytes = u32::try_from(
+            norito::encode_canonical(&envelope)
+                .expect("canonical envelope")
+                .len(),
+        )
+        .expect("fixture size fits u32");
+        let limits = PrivacyConsensusLimitsV1 {
+            max_proof_bytes_per_action: u32::try_from(envelope.proof.bytes().as_bytes().len())
+                .expect("fixture proof size fits u32"),
+            max_action_bytes: envelope_bytes,
+            max_privacy_bytes_per_transaction: envelope_bytes,
+            max_statement_and_encrypted_output_bytes_per_transaction: statement_bytes,
+            ..PrivacyConsensusLimitsV1::taira_default()
+        };
+        let alternate_flags =
+            norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+        for flags in [norito::core::default_encode_flags(), alternate_flags] {
+            let _layout = norito::core::DecodeFlagsGuard::enter(flags);
+            // Prove that the ambient serializer really selects a different byte length.
+            if flags == alternate_flags {
+                assert_ne!(
+                    norito::to_bytes(&envelope)
+                        .expect("alternate envelope")
+                        .len(),
+                    usize::try_from(envelope_bytes).expect("fixture size fits usize")
+                );
+            }
+            envelope
+                .statement
+                .validate(&limits)
+                .expect("exact canonical statement limit");
+            envelope
+                .validate_with_limits(&limits)
+                .expect("exact canonical envelope limit");
+            let statement_too_small = PrivacyConsensusLimitsV1 {
+                max_statement_and_encrypted_output_bytes_per_transaction: statement_bytes - 1,
+                ..limits
+            };
+            assert_eq!(
+                envelope.statement.validate(&statement_too_small),
+                Err(
+                    PrivacyStatementValidationError::StatementAndEncryptedOutputsTooLarge {
+                        bytes: u64::from(statement_bytes),
+                        max: statement_bytes - 1,
+                    }
+                )
+            );
+            let action_too_small = PrivacyConsensusLimitsV1 {
+                max_action_bytes: envelope_bytes - 1,
+                ..limits
+            };
+            assert_eq!(
+                envelope.validate_with_limits(&action_too_small),
+                Err(PrivacyProofEnvelopeValidationError::ActionTooLarge {
+                    bytes: u64::from(envelope_bytes),
+                    max: envelope_bytes - 1,
+                })
+            );
+        }
+    }
+}
+fn assert_privacy_digest_layout_invariant<T: core::fmt::Debug + PartialEq>(digest: impl Fn() -> T) {
+    let expected = digest();
+    let alternate_flags =
+        norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+    let _layout = norito::core::DecodeFlagsGuard::enter(alternate_flags);
+    assert_eq!(digest(), expected);
+}
+#[test]
+fn bootle_lantern_digests_ignore_ambient_layout_flags() {
+    let policy = bootle_lantern_policy();
+    assert_privacy_digest_layout_invariant(|| {
+        policy
+            .computed_issuer_parameter_digest()
+            .expect("canonical issuer matrix digest")
+    });
+    assert_privacy_digest_layout_invariant(|| {
+        policy
+            .computed_record_digest()
+            .expect("canonical issuer policy digest")
+    });
+}
+#[test]
 fn normalization_accessors_cover_every_statement_and_nested_proof_variant() {
     for mut statement in sample_statements() {
         let replacement = PrivacyTransactionIntentDigestV1::new(raw(231));
@@ -2301,9 +2311,9 @@ fn taira_consensus_limits_reject_zero_overflow_and_inconsistent_profiles() {
         TAIRA_PRIVACY_MAX_ACTIONS_PER_TRANSACTION_V1
     );
     assert_eq!(defaults.max_proof_bytes_per_action, 9 * 1024 * 1024);
-    assert_eq!(defaults.max_action_bytes, 9 * 1024 * 1024);
-    assert_eq!(defaults.max_privacy_bytes_per_transaction, 9 * 1024 * 1024);
-    assert_eq!(defaults.max_privacy_bytes_per_block, 18 * 1024 * 1024);
+    assert_eq!(defaults.max_action_bytes, 9_699_840);
+    assert_eq!(defaults.max_privacy_bytes_per_transaction, 9_699_840);
+    assert_eq!(defaults.max_privacy_bytes_per_block, 16_711_680);
     assert_eq!(
         defaults.max_commitments_per_action,
         TAIRA_PRIVACY_MAX_COMMITMENTS_PER_ACTION_V1

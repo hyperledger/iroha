@@ -19,13 +19,13 @@ from pathlib import Path
 CATALOG = Path("crates/iroha_telemetry/src/metrics/catalog_v2.tsv")
 SOURCE = Path("crates/iroha_telemetry/src/metrics.rs")
 HEADER = "# iroha-telemetry-metric-catalog-v2"
-CATALOG_BYTES = 89_244
-CATALOG_SHA256 = "9ee1cf67b0a4cd2bb2047382235dcb928dd8fdbabb6b78b572070991264c0b30"
-CATALOG_BLAKE3 = "cb8a2c06089ea22def6b728133db214199cf4adf07640b0bbbb2ff63d9d2e264"
-ROWS = 656
-REGISTERED = 623
-LEDGER_BYTES = 194_810
-LEDGER_SHA256 = "a5bb9851e1bd6d13e38269049d91c6bec1ab930b6308dfd9e694daaa1875c535"
+CATALOG_BYTES = 89_669
+CATALOG_SHA256 = "0e823021885189f91c0a014dd1e2ff1435c5daac78604e23631b2f8c2bdfa364"
+CATALOG_BLAKE3 = "5ecc66f1e8ab0318d6a7c046a3db1affddb7fb09445f2832b97b43c0a7f13ba0"
+ROWS = 659
+REGISTERED = 626
+LEDGER_BYTES = 195_681
+LEDGER_SHA256 = "24853e931a4145de025698da9394db19d01136f12f28d8b7a5c385714aa829d9"
 DSL_MACROS_TOKENS_SHA256 = "b3ad59602eaeb1d685353d0403594fed447953e7d308b9f04a73142cbe628873"
 FACTORY_TOKENS_SHA256 = "41a07ee3fc3e40d3c0d18b7dd9200f5a11d75f1e3fe1bf074fe36b380be8c19f"
 SUFFIX_TOKENS_SHA256 = "f4f80f55c7d9abcfec0cfe322525122e1d21e580bb6277b78f8b105a562998a0"
@@ -40,8 +40,8 @@ METHOD_COUNTS = {
     "histogram_with_buckets": 19,
     "int_counter": 34,
     "int_counter_vec": 176,
-    "int_gauge": 12,
-    "int_gauge_vec": 22,
+    "int_gauge": 13,
+    "int_gauge_vec": 24,
 }
 
 RETIRED_CONSENSUS_VRF_METRICS = (
@@ -609,9 +609,9 @@ def check_contents(catalog_raw: bytes, source: str) -> list[str]:
     if "catalog_v1.tsv" in source:
         findings.append("obsolete catalog_v1 consumer remains")
     expected_literals = (
-        "const METRIC_CATALOG_V2_ROWS: usize = 656;",
-        "const METRIC_CATALOG_V2_REGISTERED: usize = 623;",
-        "const METRIC_CATALOG_V2_BYTES: usize = 89_244;",
+        "const METRIC_CATALOG_V2_ROWS: usize = 659;",
+        "const METRIC_CATALOG_V2_REGISTERED: usize = 626;",
+        "const METRIC_CATALOG_V2_BYTES: usize = 89_669;",
         CATALOG_BLAKE3,
     )
     for literal in expected_literals:

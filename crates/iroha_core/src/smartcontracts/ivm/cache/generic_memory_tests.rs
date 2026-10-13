@@ -202,7 +202,10 @@ fn generic_warm_reset_keeps_credit_after_pool_shrink() {
 
     let runtime = cache.checkout_generic_runtime(&summary, GAS, HEAP).unwrap();
     assert_eq!(runtime.memory.load_region(0, 1).unwrap().as_ptr(), image);
-    assert_eq!(runtime.memory.load_u64(ivm::Memory::HEAP_START), Ok(0));
+    assert_eq!(
+        (runtime.memory.load_u64(ivm::Memory::HEAP_START)).expect("completed fixture operation"),
+        0
+    );
     assert_eq!(runtime.remaining_gas(), GAS);
     assert_eq!(budget.reserved_bytes(), charged);
     drop(runtime);

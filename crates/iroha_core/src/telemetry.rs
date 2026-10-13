@@ -76,8 +76,7 @@ pub use iroha_telemetry::metrics::musubi::{
     MusubiPublicationPhaseMetricV1,
 };
 pub use iroha_telemetry::metrics::{
-    GOVERNANCE_MANIFEST_RECENT_CAP, LaneSettlementBuffer, LaneSettlementSnapshot,
-    LaneSwaplineSnapshot, Metrics, SorafsGatewayRequestMetricLabels,
+    GOVERNANCE_MANIFEST_RECENT_CAP, Metrics, SorafsGatewayRequestMetricLabels,
     SorafsGatewayResponseMetricLabels, SorafsReserveFinalizedProjection,
 };
 use iroha_telemetry::privacy::{
@@ -94,8 +93,6 @@ use norito::streaming::{
     TelemetryDecodeStats, TelemetryEncodeStats, TelemetryEnergyStats, TelemetryEvent,
     TelemetryNetworkStats, TelemetrySecurityStats,
 };
-use settlement_router::XorQuantity;
-use settlement_router::policy::BufferStatus;
 #[cfg(feature = "telemetry")]
 use std::collections::btree_map::Entry as BTreeEntry;
 #[cfg(feature = "telemetry")]
@@ -258,19 +255,13 @@ fn u64_to_f64(value: u64) -> f64 {
         value as f64
     }
 }
-#[cfg_attr(not(feature = "telemetry"), allow(dead_code))]
-fn xor_quantity_to_f64(value: &XorQuantity) -> f64 {
-    value.as_quantity().as_numeric().to_f64_lossy()
-}
 #[cfg(feature = "telemetry")]
 fn quantity_to_nano_saturating(value: &Quantity) -> u128 {
     fn scaled_mantissa(value: &Numeric) -> u128 {
         let Some(mantissa) = value.try_mantissa_u128() else {
             return u128::MAX;
         };
-        mantissa
-            .checked_mul(10_u128.pow(XOR_QUANTITY_SCALE.saturating_sub(value.scale())))
-            .unwrap_or(u128::MAX)
+        mantissa.saturating_mul(10_u128.pow(XOR_QUANTITY_SCALE.saturating_sub(value.scale())))
     }
     if value.scale() <= XOR_QUANTITY_SCALE {
         return scaled_mantissa(value.as_numeric());
@@ -1187,86 +1178,6 @@ impl StateTelemetry {
             labels.dataspace_id.as_str(),
             reason_label,
         );
-    }
-    /// Record per-lane settlement telemetry snapshot (State view).
-    #[cfg_attr(not(feature = "telemetry"), allow(dead_code))]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn record_lane_settlement_snapshot_metrics(
-        &self,
-        lane_id: LaneId,
-        dataspace_id: DataSpaceId,
-        xor_due_micro: u128,
-        variance_micro: u128,
-        haircut_bps: u16,
-        swapline: Option<(&str, u128)>,
-        buffer: Option<&crate::block::SettlementBufferSnapshot>,
-    ) {
-        if !self.is_enabled() {
-            return;
-        }
-        let lane_label = lane_id.as_u32().to_string();
-        let dataspace_label = dataspace_id.as_u64().to_string();
-        let buffer_metrics = buffer.map(|snapshot| LaneSettlementBuffer {
-            remaining: xor_quantity_to_f64(snapshot.remaining()),
-            capacity: xor_quantity_to_f64(snapshot.capacity()),
-            status: match snapshot.status() {
-                BufferStatus::Normal => 0.0,
-                BufferStatus::Alert => 1.0,
-                BufferStatus::Throttle => 2.0,
-                BufferStatus::XorOnly => 3.0,
-                BufferStatus::Halt => 4.0,
-            },
-        });
-        let swapline_metrics = swapline.map(|(profile, utilisation_micro)| LaneSwaplineSnapshot {
-            profile,
-            utilisation_micro,
-        });
-        self.metrics
-            .record_lane_settlement_snapshot(LaneSettlementSnapshot {
-                lane_id: lane_label.as_str(),
-                dataspace_id: dataspace_label.as_str(),
-                xor_due_micro,
-                variance_micro,
-                haircut_bps,
-                swapline: swapline_metrics,
-                buffer: buffer_metrics,
-            });
-        self.with_lane_snapshot(lane_id, |entry| {
-            entry.settlement_backlog_xor_micro = xor_due_micro;
-        });
-    }
-    /// Increment settlement conversion counters for the provided lane/dataspace.
-    #[cfg(feature = "telemetry")]
-    pub(crate) fn inc_settlement_conversion_total(
-        &self,
-        lane_label: &str,
-        dataspace_label: &str,
-        source_token: &str,
-        count: u64,
-    ) {
-        if !self.is_enabled() || count == 0 {
-            return;
-        }
-        self.metrics.inc_settlement_conversion_total(
-            lane_label,
-            dataspace_label,
-            source_token,
-            count,
-        );
-    }
-    /// Increment the cumulative haircut total for the provided lane/dataspace.
-    #[cfg(feature = "telemetry")]
-    pub(crate) fn inc_settlement_haircut_total(
-        &self,
-        lane_label: &str,
-        dataspace_label: &str,
-        haircut_micro: u128,
-    ) {
-        if !self.is_enabled() || haircut_micro == 0 {
-            return;
-        }
-        self.metrics
-            .inc_settlement_haircut_total(lane_label, dataspace_label, haircut_micro);
     }
     /// Update validator lifecycle counters for a public lane.
     #[cfg(feature = "telemetry")]
@@ -2868,8 +2779,6 @@ impl StateTelemetry {
     fn settlement_atomicity_label(atomicity: SettlementAtomicity) -> &'static str {
         match atomicity {
             SettlementAtomicity::AllOrNothing => "all_or_nothing",
-            SettlementAtomicity::CommitFirstLeg => "commit_first_leg",
-            SettlementAtomicity::CommitSecondLeg => "commit_second_leg",
         }
     }
     fn dvp_final_state_label(delivery_committed: bool, payment_committed: bool) -> &'static str {
@@ -4449,6 +4358,11 @@ enum Message {
         reply: Option<oneshot::Sender<Result<(), StatusSnapshotError>>>,
     },
     #[cfg(test)]
+    TestInspectStatusRefusal {
+        inspect: Box<dyn FnOnce(Option<&crate::execution_attempt::ExecutionDeferred>) + Send>,
+        reply: oneshot::Sender<()>,
+    },
+    #[cfg(test)]
     TestBarrier {
         entered: oneshot::Sender<()>,
         resume: oneshot::Receiver<()>,
@@ -5348,7 +5262,7 @@ impl Telemetry {
     }
     /// Return the latest metrics snapshot and schedule a best-effort lazy refresh.
     #[cfg(feature = "telemetry")]
-    pub async fn metrics(&self) -> &Metrics {
+    pub fn metrics(&self) -> &Metrics {
         self.request_metrics_sync();
         refresh_ivm_cache_metrics(&self.metrics);
         &self.metrics
@@ -5370,6 +5284,11 @@ impl Telemetry {
     }
     /// Refresh lazy metrics, reporting failure when callers cannot publish stale state.
     #[cfg(feature = "telemetry")]
+    ///
+    /// # Errors
+    /// Returns an error if the bounded actor mailbox rejects synchronization, the
+    /// actor closes, the synchronization deadline expires, or the actor reports
+    /// a failure while refreshing metrics.
     pub async fn metrics_fresh_checked(&self) -> Result<&Metrics, String> {
         if let Err(err) = self.synchronize_metrics().await {
             self.sync_requested.store(false, Ordering::Release);
@@ -5383,6 +5302,11 @@ impl Telemetry {
     /// The bounded actor owns physical catch-up after a waiter expires; no late
     /// response is accepted and no request keeps State or transaction guards.
     #[cfg(feature = "telemetry")]
+    ///
+    /// # Errors
+    /// Returns a status error for disabled telemetry, mailbox/actor/deadline failure,
+    /// busy or changed State custody, unavailable or inconsistent history, original
+    /// resource refusal, or invalid classified counters.
     pub async fn status_snapshot(
         &self,
         build: &iroha_torii_shared::status::BuildStatus,
@@ -5498,7 +5422,7 @@ struct Actor {
     last_sync_block: usize,
     last_sync_hash: Option<HashOf<BlockHeader>>,
     /// Original local history refusal retained independently of an HTTP waiter's lifetime.
-    status_read_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
+    status_read_refusal: Option<(NonZeroUsize, crate::execution_attempt::ExecutionDeferred)>,
     #[cfg(test)]
     status_chunk_barrier: Option<(oneshot::Sender<usize>, oneshot::Receiver<()>)>,
     last_online_peers: BTreeSet<PeerId>,
@@ -5516,6 +5440,15 @@ impl Actor {
     async fn run(mut self) {
         while let Some(message) = self.handle.recv().await {
             match message {
+                #[cfg(test)]
+                Message::TestInspectStatusRefusal { inspect, reply } => {
+                    inspect(
+                        self.status_read_refusal
+                            .as_ref()
+                            .map(|(_, original)| original),
+                    );
+                    let _ = reply.send(());
+                }
                 #[cfg(test)]
                 Message::TestBarrier { entered, resume } => {
                     let _ = entered.send(());
@@ -6356,12 +6289,11 @@ mod tests {
             Algorithm::BlsNormal
         );
     }
-    #[tokio::test]
-    async fn metrics_returns_when_actor_not_running() {
-        let telemetry = Telemetry::new(Arc::new(Metrics::default()), true);
-        tokio::time::timeout(Duration::from_millis(100), telemetry.metrics())
-            .await
-            .expect("metrics() should not hang when the actor channel is closed");
+    #[test]
+    fn metrics_returns_when_actor_not_running() {
+        let metrics = Arc::new(Metrics::default());
+        let telemetry = Telemetry::new(Arc::clone(&metrics), true);
+        assert!(std::ptr::eq(telemetry.metrics(), metrics.as_ref()));
     }
     #[test]
     fn direct_torii_lane_admission_metric_records_without_actor() {
@@ -6807,31 +6739,6 @@ mod tests {
         let histogram = metrics.isi_times.with_label_values(&["register_domain"]);
         assert_eq!(histogram.get_sample_count(), 0);
     }
-    #[test]
-    fn settlement_conversion_metrics_update_when_enabled() {
-        let metrics = Arc::new(Metrics::default());
-        let telemetry = StateTelemetry::new(metrics.clone(), true);
-        telemetry.inc_settlement_conversion_total(
-            "lane-1",
-            "ds-9",
-            "61CtjvNd9T3THAR65GsMVHr82Bjc",
-            3,
-        );
-        telemetry.inc_settlement_haircut_total("lane-1", "ds-9", 2_000_000);
-        let conversions = metrics
-            .settlement_conversion_total
-            .with_label_values(&["lane-1", "ds-9", "61CtjvNd9T3THAR65GsMVHr82Bjc"])
-            .get();
-        assert_eq!(conversions, 3);
-        let haircut = metrics
-            .settlement_haircut_total
-            .with_label_values(&["lane-1", "ds-9"])
-            .get();
-        assert!(
-            (haircut - (2_000_000_f64 / 1_000_000.0)).abs() < f64::EPSILON,
-            "haircut counter records XOR units"
-        );
-    }
     #[cfg(feature = "telemetry")]
     #[allow(clippy::too_many_lines)]
     #[test]
@@ -7044,34 +6951,6 @@ mod tests {
         assert_eq!(beta.target_cap, 2);
         assert_eq!(beta.batch_txs, 0);
         assert_eq!(beta.frame_bytes, 0);
-    }
-    #[test]
-    fn settlement_conversion_metrics_skip_when_disabled() {
-        let metrics = Arc::new(Metrics::default());
-        let telemetry = StateTelemetry::new(metrics.clone(), false);
-        telemetry.inc_settlement_conversion_total(
-            "lane-2",
-            "ds-4",
-            "61CtjvNd9T3THAR65GsMVHr82Bjc",
-            5,
-        );
-        telemetry.inc_settlement_haircut_total("lane-2", "ds-4", 5_000_000);
-        let conversions = metrics
-            .settlement_conversion_total
-            .with_label_values(&["lane-2", "ds-4", "61CtjvNd9T3THAR65GsMVHr82Bjc"])
-            .get();
-        assert_eq!(
-            conversions, 0,
-            "disabled telemetry does not increment conversion counters"
-        );
-        let haircut = metrics
-            .settlement_haircut_total
-            .with_label_values(&["lane-2", "ds-4"])
-            .get();
-        assert!(
-            (haircut - 0.0).abs() < f64::EPSILON,
-            "disabled telemetry does not increment haircut counters"
-        );
     }
     #[test]
     fn axt_policy_reject_counter_increments_by_reason() {
@@ -8432,7 +8311,7 @@ mod tests {
         let metrics = Metrics::default();
         let exported_mode = || {
             metrics
-                .status_snapshot(&Default::default())
+                .status_snapshot(&iroha_torii_shared::status::BuildStatus::default())
                 .sumeragi
                 .expect("public consensus telemetry")
                 .mode_tag
@@ -9312,7 +9191,12 @@ mod tests {
                     None,
                     transactions
                         .into_iter()
-                        .map(iroha_data_model::transaction::SignedTransaction::from)
+                        .map(|transaction| match transaction.into_entrypoint() {
+                            iroha_data_model::transaction::TransactionEntrypoint::External(
+                                signed,
+                            ) => signed,
+                            _ => panic!("telemetry fixture authors an external transaction"),
+                        })
                         .collect(),
                 )
         }
@@ -9362,7 +9246,7 @@ mod tests {
     #[tokio::test]
     async fn initial_metrics() {
         let sut = SystemUnderTest::new();
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         assert_eq!(metrics.block_height.get(), 0);
         assert_eq!(metrics.last_commit_time_ms.get(), 0);
         assert_eq!(metrics.last_block_committed_at_ms.get(), 0);
@@ -9375,8 +9259,11 @@ mod tests {
         let system = SystemUnderTest::new();
         let metrics = Arc::clone(&system.telemetry.metrics);
         let events = tokio::sync::broadcast::channel(1).0;
-        let queue = Arc::new(Queue::from_config(Default::default(), events));
-        let (_peers_tx, peers_rx) = watch::channel(Default::default());
+        let queue = Arc::new(Queue::from_config(
+            iroha_config::parameters::actual::Queue::default(),
+            events,
+        ));
+        let (_peers_tx, peers_rx) = watch::channel(std::collections::HashSet::default());
         let (peer_key, _) = checked_keypair_with_algorithm(Algorithm::BlsNormal).into_parts();
         let result = start(
             metrics,
@@ -9443,7 +9330,7 @@ mod tests {
         tel.inc_torii_pre_auth_reject("rate");
         tel.inc_torii_active_conn("http");
         // Force a sync; actor should no-op when disabled
-        let m = tel.metrics().await;
+        let m = tel.metrics();
         assert_eq!(
             m.torii_pre_auth_reject_total
                 .with_label_values(&["rate"])
@@ -9507,14 +9394,14 @@ mod tests {
         );
         // Force telemetry sync
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         // Verify the counters are >= baseline + 1
         assert!(metrics.ivm_cache_misses.get() >= stats1.misses);
         assert!(metrics.ivm_cache_hits.get() >= stats1.hits);
         // Evictions may or may not have changed, but the gauge should be >= baseline
         assert!(metrics.ivm_cache_evictions.get() >= stats0.evictions);
         assert!(
-            metrics.ivm_cache_decoded_streams.get() >= stats0.decoded_streams + 1,
+            metrics.ivm_cache_decoded_streams.get() > stats0.decoded_streams,
             "expected at least one new decoded stream"
         );
         assert!(
@@ -9669,10 +9556,14 @@ mod tests {
         .into_iter()
         .collect();
         peers_tx.send(peers).unwrap();
-        let metrics = telemetry.metrics().await;
+        let metrics = telemetry.metrics();
         assert_eq!(metrics.connected_peers.get(), 0);
     }
     #[tokio::test]
+    #[expect(
+        clippy::await_holding_lock,
+        reason = "This current-thread fixture retains the original unpublished proposal borrowing the chain while async telemetry observes pre-publication State; dropping the owner would abandon the custody under test"
+    )]
     async fn metrics_sync_excludes_unpublished_kura_blocks_and_catches_up_once() {
         for already_applied in [false, true] {
             for report_before_publication in [false, true] {
@@ -9707,10 +9598,13 @@ mod tests {
                         );
                     }
                 }
-                let mut chain = sut.native_chain.lock().expect("native chain mutex");
+                // Keep the genuine chain owner across the async observations without
+                // carrying its fixture-slot mutex into the runtime.
+                let mut chain = {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    original.take().expect("native fixture")
+                };
                 let mut pending = chain
-                    .as_mut()
-                    .unwrap()
                     .begin_proposal(candidate, iroha_sumeragi::types::ControlWitness::default())
                     .expect("original unpublished execution");
                 assert!(pending.inspect_prepared(|_| ()).is_err());
@@ -9754,7 +9648,7 @@ mod tests {
                 {
                     let (status, height) = sut
                         .telemetry
-                        .status_snapshot(&Default::default())
+                        .status_snapshot(&iroha_torii_shared::status::BuildStatus::default())
                         .await
                         .expect("unpublished Kura body cannot extend the owned target")
                         .into_parts();
@@ -9767,7 +9661,14 @@ mod tests {
                     .publish(crate::sumeragi::test_chain::Signers::Quorum)
                     .expect("publish original execution with its native certificate");
                 drop(pending);
-                drop(chain);
+                {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    assert!(
+                        original.is_none(),
+                        "the original fixture chain has one owner"
+                    );
+                    *original = Some(chain);
+                }
                 sut.force_sync().await;
                 assert_eq!(metrics.block_height.get(), old_height + 1);
                 assert_eq!(metrics.block_height_non_empty.get(), old_non_empty + 1);
@@ -9930,7 +9831,7 @@ mod tests {
     async fn p2p_queue_drop_labels_reflect_counters() {
         let sut = SystemUnderTest::new();
         // Baseline
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let drops = &metrics.p2p_queue_dropped_total;
         let baseline_high_post = drops.with_label_values(&["High", "Post"]).get();
         let baseline_low_post = drops.with_label_values(&["Low", "Post"]).get();
@@ -9943,7 +9844,7 @@ mod tests {
         iroha_p2p::network::inc_queue_drop_for_test(false, true, 7); // Low/Broadcast +7
         // Force telemetry to sync metrics from p2p counters
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let drops = &metrics.p2p_queue_dropped_total;
         assert!(drops.with_label_values(&["High", "Post"]).get() >= baseline_high_post + 3);
         assert!(drops.with_label_values(&["Low", "Post"]).get() >= baseline_low_post + 2);
@@ -9960,7 +9861,7 @@ mod tests {
         iroha_p2p::network::set_network_queue_depth_for_test(true, 12);
         iroha_p2p::network::set_network_queue_depth_for_test(false, 7);
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let depth = &metrics.p2p_queue_depth;
         assert_eq!(depth.with_label_values(&["Safety"]).get(), 3);
         assert_eq!(depth.with_label_values(&["Progress"]).get(), 5);
@@ -9971,11 +9872,11 @@ mod tests {
     async fn p2p_subscriber_unrouted_metric_tracks_counter() {
         use iroha_p2p::network::message::Topic;
         let sut = SystemUnderTest::new();
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let baseline = metrics.p2p_subscriber_unrouted_total.get();
         iroha_p2p::network::inc_subscriber_unrouted_for_test(Topic::Consensus, 4);
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         assert!(
             metrics.p2p_subscriber_unrouted_total.get() >= baseline + 4,
             "subscriber unrouted metric should track the network counter"
@@ -9985,11 +9886,11 @@ mod tests {
     async fn p2p_subscriber_queue_full_metric_tracks_counter() {
         use iroha_p2p::network::message::Topic;
         let sut = SystemUnderTest::new();
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let baseline = metrics.p2p_subscriber_queue_full_total.get();
         iroha_p2p::network::inc_subscriber_queue_full_for_test(Topic::Control, 2);
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         assert!(
             metrics.p2p_subscriber_queue_full_total.get() >= baseline + 2,
             "subscriber queue-full metric should track the network counter"
@@ -9999,7 +9900,7 @@ mod tests {
     async fn p2p_subscriber_queue_full_by_topic_tracks_counters() {
         use iroha_p2p::network::{inc_subscriber_queue_full_for_test as bump, message::Topic};
         let sut = SystemUnderTest::new();
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_subscriber_queue_full_by_topic_total;
         let mut baseline = BTreeMap::new();
         for topic in [
@@ -10029,7 +9930,7 @@ mod tests {
             bump(topic, 1);
         }
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_subscriber_queue_full_by_topic_total;
         for topic in [
             "ConsensusSafety",
@@ -10054,7 +9955,7 @@ mod tests {
     async fn p2p_subscriber_unrouted_by_topic_tracks_counters() {
         use iroha_p2p::network::{inc_subscriber_unrouted_for_test as bump, message::Topic};
         let sut = SystemUnderTest::new();
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_subscriber_unrouted_by_topic_total;
         let mut baseline = BTreeMap::new();
         for topic in [
@@ -10084,7 +9985,7 @@ mod tests {
             bump(topic, 1);
         }
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_subscriber_unrouted_by_topic_total;
         for topic in [
             "ConsensusSafety",
@@ -10110,7 +10011,7 @@ mod tests {
         use iroha_p2p::network::{inc_post_overflow_for_test as bump, message::Topic};
         let sut = SystemUnderTest::new();
         // Baseline read
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_post_overflow_by_topic;
         let mut baseline = BTreeMap::new();
         for prio in ["High", "Low"] {
@@ -10145,7 +10046,7 @@ mod tests {
         }
         // Force sync and assert increments >= 1 for each label pair
         sut.force_sync().await;
-        let metrics = sut.telemetry.metrics().await;
+        let metrics = sut.telemetry.metrics();
         let by = &metrics.p2p_post_overflow_by_topic;
         for prio in ["High", "Low"] {
             for topic in [
@@ -10466,10 +10367,13 @@ mod tests {
         crate::status::settlement_status_reset_for_tests();
         let metrics = Arc::new(Metrics::default());
         let telemetry = StateTelemetry::new(Arc::clone(&metrics), true);
-        let dvp_id: SettlementId = "trade-1".parse().expect("settlement id");
+        let dvp_id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "trade-1".parse().expect("settlement reference"),
+        );
         let dvp_plan = SettlementPlan::new(
             SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitFirstLeg,
+            SettlementAtomicity::AllOrNothing,
         );
         telemetry.record_dvp_finality(
             &dvp_id,
@@ -10486,10 +10390,13 @@ mod tests {
                 .get(),
             1
         );
-        let pvp_id: SettlementId = "fx-1".parse().expect("settlement id");
+        let pvp_id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "fx-1".parse().expect("settlement reference"),
+        );
         let pvp_plan = SettlementPlan::new(
             SettlementExecutionOrder::DeliveryThenPayment,
-            SettlementAtomicity::CommitFirstLeg,
+            SettlementAtomicity::AllOrNothing,
         );
         telemetry.record_pvp_finality(
             &pvp_id,
@@ -10510,7 +10417,7 @@ mod tests {
         assert_eq!(
             metrics
                 .settlement_fx_window_ms
-                .with_label_values(&["pvp", "delivery_then_payment", "commit_first_leg"])
+                .with_label_values(&["pvp", "delivery_then_payment", "all_or_nothing"])
                 .get_sample_count(),
             1
         );
@@ -10532,52 +10439,6 @@ mod tests {
             pvp_event.failure_reason.as_deref(),
             Some("insufficient_funds")
         );
-    }
-    #[test]
-    #[cfg(feature = "telemetry")]
-    fn lane_settlement_backlog_updates_metrics() {
-        let metrics = Arc::new(Metrics::default());
-        let telemetry = StateTelemetry::new(metrics.clone(), true);
-        let lane_catalog = LaneCatalog::new(
-            nonzero!(1_u32),
-            vec![LaneConfig {
-                id: LaneId::new(0),
-                dataspace_id: DataSpaceId::new(5),
-                alias: "exec".to_string(),
-                visibility: LaneVisibility::Public,
-                storage: LaneStorageProfile::FullReplica,
-                ..LaneConfig::default()
-            }],
-        )
-        .expect("lane catalog");
-        telemetry.set_nexus_catalogs(&lane_catalog, &DataSpaceCatalog::default());
-        telemetry.record_lane_settlement_snapshot_metrics(
-            LaneId::new(0),
-            DataSpaceId::new(5),
-            1_500_000,
-            0,
-            0,
-            None,
-            None,
-        );
-        let lane_label = LaneId::new(0).as_u32().to_string();
-        let dataspace_label = DataSpaceId::new(5).as_u64().to_string();
-        let backlog = metrics
-            .nexus_lane_settlement_backlog_xor
-            .with_label_values(&[lane_label.as_str(), dataspace_label.as_str()])
-            .get();
-        assert!(
-            (backlog - 1_500_000.0).abs() < f64::EPSILON,
-            "expected backlog gauge to track XOR micro value"
-        );
-        let guard = metrics
-            .nexus_scheduler_lane_teu_status
-            .read()
-            .expect("lane TEU cache");
-        let snapshot = guard
-            .get(&LaneId::new(0).as_u32())
-            .expect("lane snapshot missing");
-        assert_eq!(snapshot.settlement_backlog_xor_micro, 1_500_000);
     }
     #[test]
     #[cfg(feature = "telemetry")]

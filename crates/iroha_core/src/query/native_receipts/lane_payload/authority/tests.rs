@@ -63,6 +63,7 @@ fn source(
     LanePayload {
         bytes,
         range: 0..encoded.len(),
+        delta_range: encoded.len()..encoded.len(),
         network,
         height: record.created_at,
         carrier: HashOf::from_untyped_unchecked(Hash::new(b"original creation carrier")),
@@ -216,6 +217,7 @@ fn custody_source(
     LanePayload {
         bytes,
         range: 0..encoded.len(),
+        delta_range: encoded.len()..encoded.len(),
         network,
         height,
         carrier: HashOf::from_untyped_unchecked(Hash::new(height.to_le_bytes())),
@@ -283,7 +285,10 @@ fn original_custody_binding_survives_retirement_and_rejects_later_tenure_or_poli
                 signer.binding.tenure = Hash::new(b"later registration and escrow");
                 row.signers = vec![signer].try_into().unwrap();
             }
-            8 => row.signers = Default::default(),
+            8 => {
+                row.signers =
+                    iroha_data_model::sumeragi_lanes::SumeragiLaneCustodySigners::default()
+            }
             _ => unreachable!(),
         }
         let source = custody_source(network, &record, Some(row), 40, &budget);

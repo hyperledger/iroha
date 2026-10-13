@@ -15,6 +15,18 @@ struct BlacklistSourceEntryV1 {
     certificates_bytes: u32,
 }
 
+// Decode the selected full original independently of certificate admission. This returns
+// DATA only; authenticate still requires the original certificate role, signature and state.
+fn decode_selected_list(
+    full: &[u8],
+    scheme_id: &[u8; 32],
+) -> Result<KagemushaWalletBlacklistV1, Error> {
+    read_model_original(
+        || KagemushaWalletBlacklistV1::decode_canonical(full, scheme_id),
+        Error::WitnessLost("blacklist selected original"),
+    )
+}
+
 fn authenticate(
     scheme: &KagemushaWalletSchemeV1,
     state: &KagemushaWalletStateV1,
@@ -30,8 +42,7 @@ fn authenticate(
     let set: KagemushaWalletCertificateSetV1 = archive::decode(certificates)?;
     set.verify(scheme)
         .map_err(|_| Error::WitnessLost("blacklist certificates authority"))?;
-    let list = KagemushaWalletBlacklistV1::decode_canonical(full, &scheme.scheme_id())
-        .map_err(|_| Error::WitnessLost("blacklist selected original"))?;
+    let list = decode_selected_list(full, &scheme.scheme_id())?;
     let certificate = set
         .certificate(
             &list.body.signer_certificate,
@@ -149,19 +160,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             update_kind: KagemushaWalletPolicyUpdateKindV1::Blacklist,
             update,
             ..
-        } = capsule.statement.effect
+        } = capsule.body().statement.effect
         else {
             return Ok(());
         };
-        if capsule.kind != KagemushaWalletOperationKindV1::RefreshPolicy
-            || capsule.scheme_id != self.scheme_id
-            || capsule.wallet_id != self.wallet_id
-            || update != capsule.successor_state.rest.blacklist
+        if capsule.body().kind != KagemushaWalletOperationKindV1::RefreshPolicy
+            || capsule.body().scheme_id != self.scheme_id
+            || capsule.body().wallet_id != self.wallet_id
+            || update != capsule.body().successor_state.rest.blacklist
         {
             return Err(Error::WitnessLost("blacklist source released join"));
         }
         let original = |role| -> Result<&[u8], Error> {
             let mut inputs = capsule
+                .body()
                 .retained_inputs
                 .iter()
                 .filter(|input| input.role == role);
@@ -186,7 +198,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &mut self.archive,
             manifest.blacklists,
             &scheme,
-            &capsule.successor_state,
+            &capsule.body().successor_state,
             &reference,
             original(KagemushaWalletRetainedInputRoleV1::CertificateSet)?,
         )?;
@@ -234,7 +246,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             KagemushaWalletMarkerStateV1::Head { head, .. } => head,
             _ => return Err(Error::NoHead),
         };
-        if current.frozen.capsule.statement.successor != head
+        if current.frozen.capsule.body().statement.successor != head
             || current.retained.operation_id != operation
             || marker.selected_generation() != Some(current.retained.selected_generation)
             || marker.completion_digest() != Some(current.retained.completion_digest)
@@ -250,7 +262,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &mut self.archive,
             manifest.blacklists,
             &scheme,
-            &current.frozen.capsule.successor_state,
+            &current.frozen.capsule.body().successor_state,
         )?;
         if self.status()? != status {
             return Err(Error::WitnessLost("blacklist source marker changed"));

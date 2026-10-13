@@ -241,7 +241,7 @@ fn retained_byte_total_counts_original_spare_capacity_and_survives_payload_movem
             // SAFETY: the unit payload owns no allocations; the zero-capacity
             // ledger is still the actual original-pool ledger owner.
             let owner = unsafe { RetainedPayload::try_new((), ledger, &budget) }
-                .unwrap_or_else(|(_, _, error)| panic!("empty original ledger: {error}"));
+                .unwrap_or_else(|((), _, error)| panic!("empty original ledger: {error}"));
             assert_eq!(without_allocations(|| owner.allocation_bytes()), Some(0));
             drop(owner);
         } else {

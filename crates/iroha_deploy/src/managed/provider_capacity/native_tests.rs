@@ -5,6 +5,7 @@
 //! startup, provider admission, retrieval or service activation. No protocol clock is rewritten.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::{
         test_support::{
@@ -535,11 +536,8 @@ fn generated_capacity_uses_real_economics_and_exact_replacement_carrier_during_o
         checkpoint,
         credit_signed,
     } = fixture;
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "declare").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -870,12 +868,8 @@ fn genuinely_expired_unprepared_capacity_never_renews_authorization_or_performs_
     assert!(unavailable.requests.lock().unwrap().is_empty());
     let options = options(&fixture.policy);
     let retained = original(&fixture);
-    let directory = fixture
-        .coordinator
-        .authority
-        .directory
-        .ensure_child("declare")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&fixture.coordinator.authority.directory, "declare").unwrap();
     let retained = super::tests::retain_explicit_request(
         &fixture.coordinator,
         &directory,
@@ -892,8 +886,16 @@ fn genuinely_expired_unprepared_capacity_never_renews_authorization_or_performs_
         "committed.nrt",
         "transaction/preparation.json",
     ];
-    let request_only_bytes =
-        retained_names.map(|name| std::fs::read(retained.directory().path().join(name)).unwrap());
+    let retained_bytes = |name: &str| {
+        if name == "transaction/preparation.json" {
+            std::fs::read(retained.directory().path().join(name)).unwrap()
+        } else {
+            metadata::test_read_attempt_component(retained.attempt(), name)
+                .unwrap()
+                .expect("retained request-only metadata frame")
+        }
+    };
+    let request_only_bytes = retained_names.map(&retained_bytes);
     let wait_until = Instant::now() + Duration::from_secs(2);
     while now_ms().unwrap() < retained.terms.signing_deadline_unix_ms {
         assert!(
@@ -912,8 +914,7 @@ fn genuinely_expired_unprepared_capacity_never_renews_authorization_or_performs_
         .unwrap();
         assert_eq!(result.transaction_status, OperationStatus::Expired);
         assert_eq!(
-            retained_names
-                .map(|name| { std::fs::read(retained.directory().path().join(name)).unwrap() }),
+            retained_names.map(&retained_bytes),
             request_only_bytes,
             "expired recovery preserves the exact committed request-only epoch"
         );

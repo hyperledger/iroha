@@ -78,8 +78,18 @@ fn run() -> Outcome {
     let cli = Cli::parse();
     cli.ui.install();
     let mut writer = BufWriter::new(stdout());
-    cli.command.run(&mut writer)
+    let outcome = cli.command.run(&mut writer);
+    finish_output(&mut writer, outcome)
 }
+
+// Flush every ordinary command result, retaining its original error if output also fails.
+fn finish_output(writer: &mut impl Write, outcome: Outcome) -> Outcome {
+    let flushed = writer.flush().wrap_err("flush command output");
+    outcome.and(flushed)
+}
+
+#[cfg(test)]
+mod output_tests;
 /// Trait to encapsulate common attributes of the commands and sub-commands.
 trait RunArgs<T: Write> {
     /// Run the given command.
@@ -144,7 +154,7 @@ enum Command {
 enum AdvancedCommand {
     /// Prepare signed remote-network bootstrap and native installation authorities offline
     #[command(subcommand)]
-    NetworkBootstrap(network_bootstrap::Command),
+    NetworkBootstrap(Box<network_bootstrap::Command>),
     /// Generate per-client CLI configs from a base client.toml
     #[command(name = "client-configs")]
     ClientConfigs(client_configs::Args),

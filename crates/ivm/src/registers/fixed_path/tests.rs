@@ -44,14 +44,14 @@ fn fixed_register_paths_reject_outside_indices_without_changing_original_state()
     let tags = registers.snapshot_tags();
     let root = registers.merkle_root();
     for index in [REGISTER_COUNT, usize::MAX] {
-        assert_eq!(
+        assert!(matches!(
             registers.merkle_path(index),
             Err(VMError::RegisterOutOfBounds)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             registers.merkle_root_and_path(index),
             Err(VMError::RegisterOutOfBounds)
-        );
+        ));
     }
     assert_eq!(registers.snapshot(), values);
     assert_eq!(registers.snapshot_tags(), tags);

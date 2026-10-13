@@ -2,34 +2,39 @@
 //!
 //! Every honest peer serves identical bytes derived only from committed state; wallets and
 //! destinations never trust them and verify every bundle themselves. Responses are Norito or
-//! JSON by `Accept`. Proof routes answer `409 sccp_attestation_pending` until the chosen
-//! subject is attested and `410 sccp_pruned` once its signatures were pruned by retention; the
-//! checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
+//! JSON by `Accept`. Proofs select a committed certificate with `?at=record|latest|<H>`.
+//! The checkpoint cover answers `410` when the head covers the height but no checkpoint at or above
 //! it is retained. Immutable responses (proof bundles, history paths of an explicit size and
 //! final message states) carry a strong `ETag` over the selected representation and answer a
 //! matching `If-None-Match` with `304`.
 //!
-//! Each handler is a thin extractor over a `*_response` function of a state view, so the
-//! seeded-state tests exercise exactly what the routes serve.
-//!
-//! TODO(ws35): attestation and bridge-key views (being redesigned), the remaining §6 governance
-//! targets (`/proposals?status&after` filters, diffs, readiness), and the Kura fallback for
-//! pruned signatures.
+//! Metadata, committee and proof routes acquire one committed view and retain the original
+//! request allocation, deadline and cancellation ownership through response publication.
+
+pub mod native;
+pub use native::{
+    handler_capabilities, handler_committee, handler_control_proof, handler_controls,
+    handler_current_committee, handler_evidence, handler_evidence_anchor, handler_evidence_page,
+    handler_fast_pause, handler_finality, handler_forgery_hold, handler_governance,
+    handler_governance_proposal, handler_governance_proposals, handler_governance_readiness,
+    handler_light_client, handler_light_client_checkpoints, handler_light_client_sets,
+    handler_light_clients, handler_message, handler_message_proof, handler_messages_recent,
+    handler_outbound, handler_registry, handler_rotations,
+};
 
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse as _, Response},
 };
+#[cfg(test)]
+use iroha_core::smartcontracts::isi::sccp::{
+    read::{MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, SccpReadError},
+    store,
+};
 use iroha_core::{
-    smartcontracts::isi::sccp::{
-        read::{
-            self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES,
-            SccpAttestationChoiceV1, SccpDirectionV1, SccpReadError,
-        },
-        store,
-    },
-    state::{StateReadOnly, WorldReadOnly},
+    smartcontracts::isi::sccp::read::{self, SccpDirectionV1},
+    state::StateReadOnly,
 };
 use iroha_data_model::bridge::SccpNetworkV1;
 use norito::json::{Map, Value};
@@ -39,28 +44,9 @@ use norito::json::{Map, Value};
 // turn `?from_nonce=1` into a JSON number that an `Option<String>` field refuses.
 use crate::{JsonBody, NoritoStringQuery, SharedAppState, utils::extractors::ExtractAccept};
 
-/// `?attestation=own|latest|<height>` of the proof routes (default `own`).
-#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct AttestationQuery {
-    /// Which subject attests the leaf.
-    #[norito(default)]
-    pub attestation: Option<String>,
-}
-
-/// `?after_generation=G&limit=N` of the rotation-chain route (decimal strings).
-#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct RotationQuery {
-    /// Generation to rotate from (default 1).
-    #[norito(default)]
-    pub after_generation: Option<String>,
-    /// Page size, at most 16.
-    #[norito(default)]
-    pub limit: Option<String>,
-}
-
 /// `?direction=outbound|inbound&network=&before=&limit=` of the recent-messages route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct RecentQuery {
+pub struct RecentQuery {
     /// `outbound` (default) or `inbound`.
     #[norito(default)]
     pub direction: Option<String>,
@@ -77,7 +63,7 @@ pub(crate) struct RecentQuery {
 
 /// `?from_nonce=&limit=` of the outbound-by-nonce route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct OutboundQuery {
+pub struct OutboundQuery {
     /// First nonce (default 0).
     #[norito(default)]
     pub from_nonce: Option<String>,
@@ -88,7 +74,7 @@ pub(crate) struct OutboundQuery {
 
 /// `?after_nonce=&limit=` of the controls route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct ControlsQuery {
+pub struct ControlsQuery {
     /// Controls above this nonce (default 0: every control).
     #[norito(default)]
     pub after_nonce: Option<String>,
@@ -99,7 +85,7 @@ pub(crate) struct ControlsQuery {
 
 /// `?covering=N` of the checkpoint route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct CoveringQuery {
+pub struct CoveringQuery {
     /// Source height to anchor (required).
     #[norito(default)]
     pub covering: Option<String>,
@@ -107,12 +93,17 @@ pub(crate) struct CoveringQuery {
 
 /// `?size=S` of the history route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-pub(crate) struct HistoryQuery {
+#[norito(deny_unknown_fields)]
+pub struct HistoryQuery {
     /// History size (default: the current size).
     #[norito(default)]
     pub size: Option<String>,
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_number<T: core::str::FromStr>(text: Option<&str>, default: T) -> Result<T, Response> {
     text.map_or(Ok(default), |text| {
         text.parse().map_err(|_| {
@@ -132,16 +123,12 @@ fn error(status: StatusCode, code: &str, message: impl Into<String>) -> Response
     (status, JsonBody(Value::Object(body))).into_response()
 }
 
+#[cfg(test)]
 fn read_error(read: &SccpReadError) -> Response {
     match read {
         SccpReadError::NotFound(_) => {
             error(StatusCode::NOT_FOUND, "sccp_not_found", read.to_string())
         }
-        SccpReadError::Pending(_) => error(
-            StatusCode::CONFLICT,
-            "sccp_attestation_pending",
-            read.to_string(),
-        ),
         SccpReadError::Pruned(_) => error(StatusCode::GONE, "sccp_pruned", read.to_string()),
         SccpReadError::Invalid(_) => error(
             StatusCode::BAD_REQUEST,
@@ -151,10 +138,15 @@ fn read_error(read: &SccpReadError) -> Response {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn format(accept: Option<&ExtractAccept>) -> Result<crate::utils::ResponseFormat, Response> {
     crate::utils::negotiate_response_format(accept.map(|value| &value.0))
 }
 
+#[cfg(test)]
 fn respond<T>(accept: Option<&ExtractAccept>, value: T) -> Response
 where
     T: norito::json::JsonSerialize + norito::core::NoritoSerialize + 'static,
@@ -165,6 +157,7 @@ where
     }
 }
 
+#[cfg(test)]
 fn respond_result<T>(accept: Option<&ExtractAccept>, result: Result<T, SccpReadError>) -> Response
 where
     T: norito::json::JsonSerialize + norito::core::NoritoSerialize + 'static,
@@ -189,6 +182,7 @@ fn validator_headers(response: &mut Response, etag: &str) {
 
 /// Respond with an immutable record: a strong `ETag` over the negotiated representation, and
 /// `304 Not Modified` for a matching `If-None-Match`.
+#[cfg(test)]
 fn respond_immutable<T>(accept: Option<&ExtractAccept>, headers: &HeaderMap, value: T) -> Response
 where
     T: norito::json::JsonSerialize + norito::core::NoritoSerialize + 'static,
@@ -228,6 +222,10 @@ where
     response
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_word(text: &str) -> Result<[u8; 32], Response> {
     let bytes = hex::decode(text.strip_prefix("0x").unwrap_or(text))
         .ok()
@@ -241,6 +239,10 @@ fn parse_word(text: &str) -> Result<[u8; 32], Response> {
     })
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_network(text: &str) -> Result<SccpNetworkV1, Response> {
     SccpNetworkV1::from_profile_key(text)
         .filter(|network| network.is_external())
@@ -253,21 +255,10 @@ fn parse_network(text: &str) -> Result<SccpNetworkV1, Response> {
         })
 }
 
-fn parse_choice(query: &AttestationQuery) -> Result<SccpAttestationChoiceV1, Response> {
-    query
-        .attestation
-        .as_deref()
-        .map_or(Ok(SccpAttestationChoiceV1::Own), |text| {
-            SccpAttestationChoiceV1::parse(text).ok_or_else(|| {
-                error(
-                    StatusCode::BAD_REQUEST,
-                    "sccp_invalid_query",
-                    "attestation must be `own`, `latest` or a height",
-                )
-            })
-        })
-}
-
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_direction(text: Option<&str>) -> Result<SccpDirectionV1, Response> {
     text.map_or(Ok(SccpDirectionV1::Outbound), |text| {
         SccpDirectionV1::parse(text).ok_or_else(|| {
@@ -284,21 +275,55 @@ fn parse_direction(text: Option<&str>) -> Result<SccpDirectionV1, Response> {
 // Responses over a state view
 // ---------------------------------------------------------------------------------------------
 
-/// `GET /v1/sccp/capabilities` over `view`, listing this release's SCCP path templates.
-pub(crate) fn capabilities_response(
+#[cfg(test)]
+fn metadata_fixture_response<T>(
+    accept: Option<&ExtractAccept>,
+    headers: &HeaderMap,
+    immutable: impl FnOnce(&T) -> bool,
+    produce: impl FnOnce(
+        &iroha_allocation::AllocationBudget,
+        read::native::SccpNativeReadControl<'_>,
+    )
+        -> Result<read::native::SccpNativeDataV1<T>, read::native::SccpNativeReadError>,
+) -> Response
+where
+    T: norito::json::JsonSerialize + norito::core::NoritoSerialize,
+{
+    let owner = crate::history_producer::HistoryProducerOwner::for_test();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let control = read::native::SccpNativeReadControl {
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+        stop: &stop,
+    };
+    match produce(owner.cold_frames(), control) {
+        Ok(value) => respond_funded(
+            &owner,
+            accept,
+            headers,
+            value.data(),
+            immutable(value.data()),
+        ),
+        Err(error) => native::source_error(error),
+    }
+}
+
+/// Current or explicit generation over one immutable view, with original graph custody.
+#[cfg(test)]
+pub fn committee_response(
     view: &(impl StateReadOnly + ?Sized),
+    generation: Option<u64>,
     accept: Option<&ExtractAccept>,
 ) -> Response {
-    let mut capabilities = read::capabilities(view);
-    capabilities.path_templates = iroha_torii_shared::route_catalog::sccp::ROUTES
-        .iter()
-        .map(|route| route.path().to_owned())
-        .collect();
-    respond(accept, capabilities)
+    let result = generation.map_or_else(
+        || read::current_committee(view.world()),
+        |generation| read::committee(view.world(), generation),
+    );
+    respond_result(accept, result)
 }
 
 /// `GET /v1/sccp/messages/{message_id}` over `view`; final states carry an `ETag`.
-pub(crate) fn message_response(
+#[cfg(test)]
+pub fn message_response(
     view: &(impl StateReadOnly + ?Sized),
     message_id: &str,
     accept: Option<&ExtractAccept>,
@@ -308,16 +333,19 @@ pub(crate) fn message_response(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let status = read::message_status(view.world(), &message_id);
-    if status.is_final() {
-        respond_immutable(accept, headers, status)
-    } else {
-        respond(accept, status)
-    }
+    metadata_fixture_response(
+        accept,
+        headers,
+        read::native::message_metadata::Message::is_final,
+        |budget, control| {
+            read::native::message_metadata::message(view, message_id, budget, control)
+        },
+    )
 }
 
 /// `GET /v1/sccp/messages/recent` over `view`.
-pub(crate) fn recent_response(
+#[cfg(test)]
+pub fn recent_response(
     view: &(impl StateReadOnly + ?Sized),
     query: &RecentQuery,
     accept: Option<&ExtractAccept>,
@@ -334,20 +362,30 @@ pub(crate) fn recent_response(
         Ok(limit) => limit,
         Err(response) => return response,
     };
-    respond_result(
+    let before = match query
+        .before
+        .as_deref()
+        .map(|cursor| read::native::message_metadata::recent_cursor(direction, cursor))
+        .transpose()
+    {
+        Ok(before) => before,
+        Err(error) => return native::source_error(error),
+    };
+    metadata_fixture_response(
         accept,
-        read::recent_messages(
-            view.world(),
-            direction,
-            network,
-            query.before.as_deref(),
-            limit,
-        ),
+        &HeaderMap::new(),
+        |_| false,
+        |budget, control| {
+            read::native::message_metadata::recent(
+                view, direction, network, before, limit, budget, control,
+            )
+        },
     )
 }
 
 /// `GET /v1/sccp/outbound/{network}/{revision}` over `view`.
-pub(crate) fn outbound_response(
+#[cfg(test)]
+pub fn outbound_response(
     view: &(impl StateReadOnly + ?Sized),
     network: &str,
     revision: u32,
@@ -362,14 +400,21 @@ pub(crate) fn outbound_response(
         (Ok(network), Ok(from_nonce), Ok(limit)) => (network, from_nonce, limit),
         (Err(response), _, _) | (_, Err(response), _) | (_, _, Err(response)) => return response,
     };
-    respond_result(
+    metadata_fixture_response(
         accept,
-        read::outbound_page(view.world(), network, revision, from_nonce, limit),
+        &HeaderMap::new(),
+        |_| false,
+        |budget, control| {
+            read::native::message_metadata::outbound_page(
+                view, network, revision, from_nonce, limit, budget, control,
+            )
+        },
     )
 }
 
 /// `GET /v1/sccp/controls/{network}/{revision}` over `view`.
-pub(crate) fn controls_response(
+#[cfg(test)]
+pub fn controls_response(
     view: &(impl StateReadOnly + ?Sized),
     network: &str,
     revision: u32,
@@ -384,56 +429,130 @@ pub(crate) fn controls_response(
         (Ok(network), Ok(after_nonce), Ok(limit)) => (network, after_nonce, limit),
         (Err(response), _, _) | (_, Err(response), _) | (_, _, Err(response)) => return response,
     };
-    respond_result(
+    metadata_fixture_response(
         accept,
-        read::controls_page(view.world(), network, revision, after_nonce, limit),
+        &HeaderMap::new(),
+        |_| false,
+        |budget, control| {
+            read::native::message_metadata::controls_page(
+                view,
+                network,
+                revision,
+                after_nonce,
+                limit,
+                budget,
+                control,
+            )
+        },
     )
 }
 
-/// `GET /v1/sccp/messages/{message_id}/proof` over `view` (`ETag`ged).
-pub(crate) fn message_proof_response(
-    view: &(impl StateReadOnly + ?Sized),
-    message_id: &str,
-    query: &AttestationQuery,
-    accept: Option<&ExtractAccept>,
-    headers: &HeaderMap,
-) -> Response {
-    let (message_id, choice) = match (parse_word(message_id), parse_choice(query)) {
-        (Ok(id), Ok(choice)) => (id, choice),
-        (Err(response), _) | (_, Err(response)) => return response,
-    };
-    match read::message_proof(view, &message_id, choice) {
-        Ok(bundle) => respond_immutable(accept, headers, bundle),
-        Err(failure) => read_error(&failure),
+fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
+    use read::SccpHistoryReadError as Failure;
+    match failure {
+        Failure::MissingCommitment => error(
+            StatusCode::NOT_FOUND,
+            "sccp_not_found",
+            "no SCCP commitment at the requested height",
+        ),
+        Failure::SizeOutOfRange | Failure::IndexOutOfRange => error(
+            StatusCode::BAD_REQUEST,
+            "sccp_invalid_query",
+            failure.to_string(),
+        ),
+        Failure::Admission(_) | Failure::Backing(_) => {
+            crate::native_projection_response::capacity().into_response()
+        }
+        Failure::Inconsistent | Failure::ForeignPool => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sccp_history_inconsistent",
+            "stored history cannot be served from its original owner",
+        ),
     }
 }
 
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof` over `view`
-/// (`ETag`ged).
-pub(crate) fn control_proof_response(
-    view: &(impl StateReadOnly + ?Sized),
-    (network, revision, control_nonce): (&str, u32, u64),
-    query: &AttestationQuery,
+/// Encode directly from a borrowed funded graph; every returned byte retains the actual
+/// admitted query owner, including a slice extracted after the HTTP body has been dropped.
+fn respond_funded<T>(
+    owner: &crate::history_producer::HistoryProducerOwner,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
-) -> Response {
-    let (network, choice) = match (parse_network(network), parse_choice(query)) {
-        (Ok(network), Ok(choice)) => (network, choice),
-        (Err(response), _) | (_, Err(response)) => return response,
+    value: &T,
+    immutable: bool,
+) -> Response
+where
+    T: norito::json::JsonSerialize + norito::core::NoritoSerialize,
+{
+    use crate::utils::ResponseFormat;
+    let selected = match format(accept) {
+        Ok(value) => value,
+        Err(response) => return owner.response(response),
     };
-    match read::control_proof(view, network, revision, control_nonce, choice) {
-        Ok(bundle) => respond_immutable(accept, headers, bundle),
-        Err(failure) => read_error(&failure),
+    let (content_type, bytes) = match selected {
+        ResponseFormat::Norito => {
+            let encoded = match owner
+                .scope(|| norito::core::to_bytes_bounded(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                crate::utils::NORITO_MIME_TYPE,
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+        ResponseFormat::Json => {
+            let encoded = match owner
+                .scope(|| norito::json::to_json_bounded_boxed(value, owner.response_bytes()))
+            {
+                Ok(bytes) => bytes,
+                Err(_) => return crate::native_projection_response::capacity().into_response(),
+            };
+            (
+                "application/json",
+                crate::response_memory_custody::owned(encoded, owner),
+            )
+        }
+    };
+    let bytes = match bytes {
+        Ok(bytes) => bytes,
+        Err(_) => return crate::native_projection_response::capacity().into_response(),
+    };
+    let etag = immutable.then(|| format!("\"{}\"", blake3::hash(&bytes).to_hex()));
+    let mut response = if etag
+        .as_ref()
+        .is_some_and(|etag| crate::utils::if_none_match_matches(headers, etag))
+    {
+        drop(bytes);
+        owner.response(StatusCode::NOT_MODIFIED.into_response())
+    } else {
+        let mut response = match crate::response_memory_custody::json(bytes, owner) {
+            Ok(response) => response,
+            Err(_) => return crate::native_projection_response::capacity().into_response(),
+        };
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        response
+    };
+    if let Some(etag) = etag {
+        validator_headers(&mut response, &etag);
     }
+    response
 }
 
-/// `GET /v1/sccp/history/{height}?size=S` over `view`; an explicit size is `ETag`ged.
-pub(crate) fn history_response(
+/// `GET /v1/sccp/history/{height}?size=S` under its original query and application owners.
+pub fn history_response(
     view: &(impl StateReadOnly + ?Sized),
     height: u64,
     query: &HistoryQuery,
     accept: Option<&ExtractAccept>,
     headers: &HeaderMap,
+    (cache, cache_budget): (
+        &mut read::SccpHistoryNodeCache,
+        &iroha_allocation::AllocationBudget,
+    ),
+    owner: &crate::history_producer::HistoryProducerOwner,
 ) -> Response {
     let size = match query
         .size
@@ -442,29 +561,47 @@ pub(crate) fn history_response(
         .transpose()
     {
         Ok(size) => size,
-        Err(response) => return response,
+        Err(response) => return owner.response(response),
     };
-    match read::history_path_view(view.world(), height, size) {
-        Ok(path) if size.is_some() => respond_immutable(accept, headers, path),
-        Ok(path) => respond(accept, path),
-        Err(failure) => read_error(&failure),
+    let result = owner.scope(|| {
+        read::history_path_view(
+            view.world(),
+            height,
+            size,
+            cache,
+            cache_budget,
+            owner.cold_frames(),
+        )
+    });
+    match result {
+        Ok(path) => respond_funded(owner, accept, headers, path.view(), size.is_some()),
+        Err(failure) => owner.response(history_read_error(failure)),
     }
 }
 
 /// `GET /v1/sccp/light-clients/{network}` over `view`.
-pub(crate) fn light_client_response(
+#[cfg(test)]
+pub fn light_client_response(
     view: &(impl StateReadOnly + ?Sized),
     network: &str,
     accept: Option<&ExtractAccept>,
 ) -> Response {
     match parse_network(network) {
-        Ok(network) => respond_result(accept, read::light_client_detail(view, network)),
+        Ok(network) => metadata_fixture_response(
+            accept,
+            &HeaderMap::new(),
+            |_| false,
+            |budget, control| {
+                read::native::light_client_metadata::detail(view, network, budget, control)
+            },
+        ),
         Err(response) => response,
     }
 }
 
 /// `GET /v1/sccp/light-clients/{network}/checkpoints?covering=N` over `view`.
-pub(crate) fn checkpoints_response(
+#[cfg(test)]
+pub fn checkpoints_response(
     view: &(impl StateReadOnly + ?Sized),
     network: &str,
     query: &CoveringQuery,
@@ -478,276 +615,70 @@ pub(crate) fn checkpoints_response(
         );
     };
     match (parse_network(network), parse_number(Some(covering), 0_u64)) {
-        (Ok(network), Ok(covering)) => respond_result(
+        (Ok(network), Ok(covering)) => metadata_fixture_response(
             accept,
-            read::checkpoint_cover(view.world(), network, covering),
+            &HeaderMap::new(),
+            |_| false,
+            |budget, control| {
+                read::native::light_client_metadata::checkpoints(
+                    view, network, covering, budget, control,
+                )
+            },
         ),
         (Err(response), _) | (_, Err(response)) => response,
     }
 }
 
 /// `GET /v1/sccp/governance/proposals/{proposal_id}` over `view`.
-pub(crate) fn governance_proposal_response(
+#[cfg(test)]
+pub fn governance_proposal_response(
     view: &(impl StateReadOnly + ?Sized),
     proposal_id: &str,
     accept: Option<&ExtractAccept>,
 ) -> Response {
-    match parse_word(proposal_id) {
-        Ok(content_id) => {
-            respond_result(accept, read::governance_proposal(view.world(), content_id))
-        }
-        Err(response) => response,
-    }
-}
-
-fn roster_response(
-    world: &(impl WorldReadOnly + ?Sized),
-    network_id: &[u8; 32],
-    generation: u64,
-    accept: Option<&ExtractAccept>,
-) -> Response {
-    match read::roster_view(world, network_id, generation) {
-        Some(roster) => respond(accept, roster),
-        None => read_error(&SccpReadError::NotFound(format!("generation {generation}"))),
-    }
+    let content_id = match parse_word(proposal_id) {
+        Ok(content_id) => content_id,
+        Err(response) => return response,
+    };
+    metadata_fixture_response(
+        accept,
+        &HeaderMap::new(),
+        |_| false,
+        |budget, control| {
+            read::native::governance_metadata::proposal(view, content_id, budget, control)
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------------------------
 
-/// `GET /v1/sccp/capabilities`.
-pub(crate) async fn handler_capabilities(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    capabilities_response(&app.state.view(), accept.as_ref())
-}
-
-/// `GET /v1/sccp/registry`: every route with its escrow, stranded balance and revisions.
-pub(crate) async fn handler_registry(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let routes: Vec<_> = {
-        let view = app.state.view();
-        store::routes::iter(view.world())
-            .map(|(_, route)| route.clone())
-            .collect()
-    };
-    respond(accept.as_ref(), routes)
-}
-
-/// `GET /v1/sccp/messages/{message_id}`: the outbound, inbound or unknown status union.
-pub(crate) async fn handler_message(
-    State(app): State<SharedAppState>,
-    Path(message_id): Path<String>,
-    headers: HeaderMap,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    message_response(&app.state.view(), &message_id, accept.as_ref(), &headers)
-}
-
-/// `GET /v1/sccp/messages/recent?direction=&network=&before=&limit=`.
-pub(crate) async fn handler_messages_recent(
-    State(app): State<SharedAppState>,
-    NoritoStringQuery(query): NoritoStringQuery<RecentQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    recent_response(&app.state.view(), &query, accept.as_ref())
-}
-
-/// `GET /v1/sccp/outbound/{network}/{revision}?from_nonce=&limit=`.
-pub(crate) async fn handler_outbound(
-    State(app): State<SharedAppState>,
-    Path((network, revision)): Path<(String, u32)>,
-    NoritoStringQuery(query): NoritoStringQuery<OutboundQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    outbound_response(
-        &app.state.view(),
-        &network,
-        revision,
-        &query,
-        accept.as_ref(),
-    )
-}
-
-/// `GET /v1/sccp/controls/{network}/{revision}?after_nonce=&limit=`.
-pub(crate) async fn handler_controls(
-    State(app): State<SharedAppState>,
-    Path((network, revision)): Path<(String, u32)>,
-    NoritoStringQuery(query): NoritoStringQuery<ControlsQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    controls_response(
-        &app.state.view(),
-        &network,
-        revision,
-        &query,
-        accept.as_ref(),
-    )
-}
-
-/// `GET /v1/sccp/messages/{message_id}/proof?attestation=`.
-pub(crate) async fn handler_message_proof(
-    State(app): State<SharedAppState>,
-    Path(message_id): Path<String>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
-    headers: HeaderMap,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    message_proof_response(
-        &app.state.view(),
-        &message_id,
-        &query,
-        accept.as_ref(),
-        &headers,
-    )
-}
-
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?attestation=`.
-pub(crate) async fn handler_control_proof(
-    State(app): State<SharedAppState>,
-    Path((network, revision, control_nonce)): Path<(String, u32, u64)>,
-    NoritoStringQuery(query): NoritoStringQuery<AttestationQuery>,
-    headers: HeaderMap,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    control_proof_response(
-        &app.state.view(),
-        (&network, revision, control_nonce),
-        &query,
-        accept.as_ref(),
-        &headers,
-    )
-}
-
 /// `GET /v1/sccp/history/{height}?size=`.
-pub(crate) async fn handler_history(
+pub async fn handler_history(
     State(app): State<SharedAppState>,
     Path(height): Path<u64>,
     NoritoStringQuery(query): NoritoStringQuery<HistoryQuery>,
     headers: HeaderMap,
     accept: Option<ExtractAccept>,
 ) -> Response {
-    history_response(&app.state.view(), height, &query, accept.as_ref(), &headers)
-}
-
-/// `GET /v1/sccp/light-clients`: every installed light client with its head and freeze state.
-pub(crate) async fn handler_light_clients(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let light_clients = read::light_clients(app.state.view().world());
-    respond(accept.as_ref(), light_clients)
-}
-
-/// `GET /v1/sccp/light-clients/{network}`: one light client with its freshness and stored data.
-pub(crate) async fn handler_light_client(
-    State(app): State<SharedAppState>,
-    Path(network): Path<String>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    light_client_response(&app.state.view(), &network, accept.as_ref())
-}
-
-/// `GET /v1/sccp/light-clients/{network}/sets`: the stored consensus sets of one light client.
-pub(crate) async fn handler_light_client_sets(
-    State(app): State<SharedAppState>,
-    Path(network): Path<String>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    match parse_network(&network) {
-        Ok(network) => respond(
-            accept.as_ref(),
-            read::light_client_sets(app.state.view().world(), network),
-        ),
-        Err(response) => response,
-    }
-}
-
-/// `GET /v1/sccp/light-clients/{network}/checkpoints?covering=N`.
-pub(crate) async fn handler_light_client_checkpoints(
-    State(app): State<SharedAppState>,
-    Path(network): Path<String>,
-    NoritoStringQuery(query): NoritoStringQuery<CoveringQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    checkpoints_response(&app.state.view(), &network, &query, accept.as_ref())
-}
-
-/// `GET /v1/sccp/governance`: the nonzero per-subject governance revisions.
-pub(crate) async fn handler_governance(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let revisions = read::governance_revisions(app.state.view().world());
-    respond(accept.as_ref(), revisions)
-}
-
-/// `GET /v1/sccp/governance/proposals`: every open SCCP proposal, oldest first, with its
-/// admissibility and newest Parliament attempt.
-pub(crate) async fn handler_governance_proposals(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let proposals = read::governance_proposals(app.state.view().world());
-    respond(accept.as_ref(), proposals)
-}
-
-/// `GET /v1/sccp/governance/proposals/{proposal_id}`: one SCCP proposal in any phase.
-pub(crate) async fn handler_governance_proposal(
-    State(app): State<SharedAppState>,
-    Path(proposal_id): Path<String>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    governance_proposal_response(&app.state.view(), &proposal_id, accept.as_ref())
-}
-
-/// `GET /v1/sccp/rosters/current`.
-pub(crate) async fn handler_roster_current(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let view = app.state.view();
-    let generation = *store::roster_current::get(view.world());
-    match read::roster_view(view.world(), view.network_id().as_bytes(), generation) {
-        Some(roster) => respond(accept.as_ref(), roster),
-        None => read_error(&SccpReadError::NotFound("no roster generation yet".into())),
-    }
-}
-
-/// `GET /v1/sccp/rosters/{generation}`.
-pub(crate) async fn handler_roster(
-    State(app): State<SharedAppState>,
-    Path(generation): Path<u64>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let view = app.state.view();
-    roster_response(
-        view.world(),
-        view.network_id().as_bytes(),
-        generation,
-        accept.as_ref(),
-    )
-}
-
-/// `GET /v1/sccp/rosters/rotations?after_generation=&limit=`.
-pub(crate) async fn handler_rotations(
-    State(app): State<SharedAppState>,
-    NoritoStringQuery(query): NoritoStringQuery<RotationQuery>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    let (after_generation, limit) = match (
-        parse_number(query.after_generation.as_deref(), 1_u64),
-        parse_number(query.limit.as_deref(), read::MAX_ROTATION_STEPS),
-    ) {
-        (Ok(after_generation), Ok(limit)) => (after_generation, limit),
-        (Err(response), _) | (_, Err(response)) => return response,
+    let owner = match crate::history_producer::HistoryProducerOwner::current() {
+        Ok(owner) => owner,
+        Err(error) => return error.into_response(),
     };
-    let chain = read::rotation_chain(&app.state.view(), after_generation, limit);
-    respond(accept.as_ref(), chain)
+    let mut cache = app
+        .sccp_history
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    history_response(
+        &app.state.view(),
+        height,
+        &query,
+        accept.as_ref(),
+        &headers,
+        (&mut cache, &app.sccp_history_budget),
+        &owner,
+    )
 }
 
 #[cfg(test)]

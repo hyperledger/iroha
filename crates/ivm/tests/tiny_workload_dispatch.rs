@@ -122,5 +122,22 @@ fn tiny_crypto_workloads_preserve_results_without_gpu_dispatch() {
     );
 
     assert_eq!(kernels.map(ivm::metal_completed_dispatches), metal_before);
-    assert!(cuda_completions::unchanged(&cuda_before));
+    assert!(cuda_completions_unchanged(&cuda_before));
+}
+
+/// Verify no kernel gained credit, including policy owners initialized after capture.
+fn cuda_completions_unchanged(before: &[Option<ivm::CudaCompletionSnapshot>]) -> bool {
+    let after = cuda_completions::capture();
+    before.len() == after.len()
+        && before
+            .iter()
+            .zip(after)
+            .all(|(previous, current)| match (previous, current) {
+                (Some(previous), Some(current)) => previous == &current,
+                (None, Some(current)) => ivm::CudaKernel::ALL
+                    .into_iter()
+                    .all(|kernel| current.completed(kernel) == 0),
+                (None, None) => true,
+                (Some(_), None) => false,
+            })
 }

@@ -1029,9 +1029,8 @@ fn process_trust_records(
             }
             _ => Signature::try_from_bytes(&signature).ok(),
         };
-        let invalid_signature = signature.map_or(true, |sig| {
-            sig.verify(from_peer.id().public_key(), &payload).is_err()
-        });
+        let invalid_signature =
+            signature.is_none_or(|sig| sig.verify(from_peer.id().public_key(), &payload).is_err());
         if invalid_signature {
             iroha_logger::warn!(peer=%from_peer, "Rejected trust gossip with invalid signature");
             let score = trust_book.penalize(
@@ -1606,29 +1605,29 @@ mod tests {
             trusted: true,
             score: 2,
         }];
-        let signed = gossiper.sign_trust_entries(&infos);
-        assert_eq!(signed.len(), 1);
-        assert_eq!(signed[0].info.peer_id, infos[0].peer_id);
-        Signature::try_from_bytes(&signed[0].signature)
+        let signed_payload = gossiper.sign_trust_entries(&infos);
+        assert_eq!(signed_payload.len(), 1);
+        assert_eq!(signed_payload[0].info.peer_id, infos[0].peer_id);
+        Signature::try_from_bytes(&signed_payload[0].signature)
             .expect("checked peer-trust signature fixture")
             .verify(
                 signer.public_key(),
-                &PeersGossiper::trust_payload(&gossiper.network_id, &signed[0].info),
+                &PeersGossiper::trust_payload(&gossiper.network_id, &signed_payload[0].info),
             )
             .expect("trust record signature must verify");
         let foreign_network_id = test_network_id(0x52);
-        Signature::try_from_bytes(&signed[0].signature)
+        Signature::try_from_bytes(&signed_payload[0].signature)
             .expect("checked peer-trust signature fixture")
             .verify(
                 signer.public_key(),
-                &PeersGossiper::trust_payload(&foreign_network_id, &signed[0].info),
+                &PeersGossiper::trust_payload(&foreign_network_id, &signed_payload[0].info),
             )
             .expect_err("a trust signature must not verify for another genesis lineage");
         assert!(gossiper.trust.entries.is_empty());
         assert!(!gossiper.handle_trust_gossip(
             PeerTrustGossip {
                 network_id: foreign_network_id,
-                trust: signed,
+                trust: signed_payload,
             },
             &signer_peer,
         ));

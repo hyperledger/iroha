@@ -5596,22 +5596,25 @@ def _sumeragi_native_evidence_record(
 ) -> Dict[str, Any]:
     return {
         "kind": "NativeSumeragiEvidence",
-        "class": evidence_class,
-        "height": 31,
-        "epoch": 2,
-        "context_id": "11" * 32,
-        "instance": "22" * 32,
-        "authority_generation": "33" * 32,
-        "offenders": [{"signer": 3, "peer_id": "ea0130" + "22" * 48}],
-        "safety_violation": False,
-        "native_frame_hash": "44" * 32,
-        "recorded_height": 40,
-        "recorded_view": 2,
-        "recorded_ms": 1_700_000_000_000,
-        "consensus_admitted_height": 41,
-        "penalty_status": penalty_status
-        if penalty_status is not None
-        else {"status": "pending", "details": None},
+        "value": {
+            "scope": {"kind": "root", "value": None},
+            "class": evidence_class,
+            "height": 31,
+            "epoch": 2,
+            "context_id": "11" * 32,
+            "instance": "22" * 32,
+            "authority_generation": "33" * 32,
+            "offenders": [{"signer": 3, "peer_id": "ea0130" + "22" * 48}],
+            "safety_violation": False,
+            "native_frame_hash": "44" * 32,
+            "recorded_height": 40,
+            "recorded_view": 2,
+            "recorded_ms": 1_700_000_000_000,
+            "consensus_admitted_height": 41,
+            "penalty_status": penalty_status
+            if penalty_status is not None
+            else {"status": "pending", "details": None},
+        },
     }
 
 
@@ -5623,7 +5626,7 @@ def test_sumeragi_native_evidence_accepts_exact_classes(evidence_class: str) -> 
     )
 
     assert isinstance(parsed, client_module.SumeragiEvidenceRecord)
-    assert parsed.class_ == evidence_class
+    assert parsed.value.class_ == evidence_class
 
 
 @pytest.mark.parametrize(
@@ -5642,8 +5645,8 @@ def test_sumeragi_evidence_accepts_committed_penalty_statuses(
         context="evidence",
     )
 
-    assert isinstance(parsed.penalty_status, status_type)
-    assert parsed.penalty_status.details.height == 44
+    assert isinstance(parsed.value.penalty_status, status_type)
+    assert parsed.value.penalty_status.details.height == 44
 
 
 def test_sumeragi_evidence_rejects_unknown_record_kind() -> None:
@@ -5698,7 +5701,7 @@ def test_sumeragi_evidence_page_accepts_empty_page_beyond_total() -> None:
 
 def test_sumeragi_evidence_rejects_retired_fields() -> None:
     record = _sumeragi_native_evidence_record()
-    record["penalty_applied"] = False
+    record["value"]["penalty_applied"] = False
 
     with pytest.raises(RuntimeError, match=r"unexpected penalty_applied"):
         ToriiClient._parse_sumeragi_evidence_record(record, context="evidence")
@@ -5722,20 +5725,20 @@ def test_sumeragi_native_evidence_rejects_noncanonical_fields(
 ) -> None:
     record = _sumeragi_native_evidence_record()
     if field == "offender_signer":
-        record["offenders"][0]["signer"] = value
+        record["value"]["offenders"][0]["signer"] = value
     else:
-        record[field] = value
+        record["value"][field] = value
 
     with pytest.raises(RuntimeError, match=match):
         ToriiClient._parse_sumeragi_evidence_record(record, context="evidence")
 
 
-@pytest.mark.parametrize(("field", "match"), [(field, f"missing {field}") for field in _sumeragi_native_evidence_record() if field != "kind"])
+@pytest.mark.parametrize(("field", "match"), [(field, f"missing {field}") for field in _sumeragi_native_evidence_record()["value"]])
 def test_sumeragi_native_evidence_rejects_missing_fields(
     field: str, match: str
 ) -> None:
     record = _sumeragi_native_evidence_record()
-    del record[field]
+    del record["value"][field]
 
     with pytest.raises(RuntimeError, match=match):
         ToriiClient._parse_sumeragi_evidence_record(record, context="evidence")
@@ -6308,17 +6311,17 @@ def test_unsigned_canonical_layout_rejects_every_retired_admission_slot(
 @pytest.mark.parametrize("mutation", ["order", "peer_duplicate", "peer_literal", "extra", "oversize"])
 def test_sumeragi_native_evidence_rejects_invalid_offender_attribution(mutation: str) -> None:
     record = _sumeragi_native_evidence_record()
-    first = record["offenders"][0]
+    first = record["value"]["offenders"][0]
     if mutation == "order":
-        record["offenders"].append({"signer": 3, "peer_id": "ea0130" + "33" * 48})
+        record["value"]["offenders"].append({"signer": 3, "peer_id": "ea0130" + "33" * 48})
     elif mutation == "peer_duplicate":
-        record["offenders"].append({"signer": 4, "peer_id": first["peer_id"]})
+        record["value"]["offenders"].append({"signer": 4, "peer_id": first["peer_id"]})
     elif mutation == "peer_literal":
         first["peer_id"] = "alice@test"
     elif mutation == "extra":
         first["authority"] = "unexpected"
     else:
-        record["offenders"] *= 1025
+        record["value"]["offenders"] *= 1025
     with pytest.raises(RuntimeError):
         ToriiClient._parse_sumeragi_evidence_record(record, context="evidence")
 
@@ -6341,3 +6344,277 @@ def test_sumeragi_evidence_rejects_retired_cancelled_status(details: Any) -> Non
     )
     with pytest.raises(RuntimeError, match="status must be pending or applied"):
         ToriiClient._parse_sumeragi_evidence_record(record, context="evidence")
+
+
+
+# Synthetic model DATA only: no signature or historical-state acceptance is claimed.
+def _sccp_forgery_evidence_record() -> Dict[str, Any]:
+    return {
+        "kind": "SccpForgeryEvidence",
+        "value": {
+            "record": {
+                "evidence": {
+                    "qc": "A1" * 116,
+                    "header": "b2" * 221,
+                    "aggregate_signature": "C3" * 96,
+                    "anchor": {"core_hash": "00" * 32, "result": "00" * 32, "path": ["07" * 32] * 12},
+                },
+                "rule": {"rule": "E4", "detail": None},
+                "generation": 7,
+                "start_height": 23,
+                "offenders": [{"signer": 0, "lane_id": 1, "validator": CANONICAL_OWNER, "activation_height": 19}],
+            },
+            "attribution": {
+                "scope": {"kind": "sccp_generation", "value": {"generation": 7}},
+                "instance": "01" * 32, "height": 23, "epoch": 99,
+                "context_id": "02" * 32, "authority_generation": "03" * 32,
+                "offenders": [{"signer": 0, "peer_id": "ea0130" + "22" * 48, "lane_stake": None}],
+                "safety_violation": False,
+            },
+            "recorded_height": 42, "recorded_view": 5, "recorded_ms": 1234,
+            "consensus_admitted_height": 42,
+            "penalty_status": {"status": "pending", "details": None},
+        },
+    }
+
+
+def _lane_evidence_scope() -> Dict[str, Any]:
+    return {"kind": "lane", "value": {
+        "lane": 3, "incarnation": "00" * 32, "created_at": 8, "admission_parent_height": 7,
+        "admission_parent_hash": _canonical_hash(0xA1),
+        "admission_parent_core_hash": "Aa" * 32, "admission_parent_result": "00" * 32,
+    }}
+
+
+def _read_sccp_evidence(item: Dict[str, Any], kind: Optional[str] = None) -> Any:
+    session = RecordingSession()
+    session.queue(StubResponse(payload={"total": 1, "items": [item]}))
+    client = ToriiClient("http://node.test", session=session, operator_signing_context=_operator_context())
+    page = client.list_sumeragi_evidence(kind=kind)
+    assert session.calls[0]["params"] == {}
+    assert session.calls[0]["url"].endswith("/v1/sumeragi/evidence" + (f"?kind={kind}" if kind is not None else ""))
+    assert session.calls[0]["headers"]["Accept"] == "application/json"
+    return page.items[0]
+
+
+@pytest.mark.parametrize("rule", ["E1", "E2", "E3", "E4"])
+@pytest.mark.parametrize("anchored", [False, True])
+def test_sccp_evidence_preserves_exact_model_data(rule: str, anchored: bool) -> None:
+    source = _sccp_forgery_evidence_record()
+    source["value"]["record"]["rule"]["rule"] = rule
+    if not anchored:
+        source["value"]["record"]["evidence"]["anchor"] = None
+    parsed = _read_sccp_evidence(source)
+    assert parsed.kind == "SccpForgeryEvidence"
+    assert isinstance(parsed.value, torii_module.SccpForgeryEvidenceRecord)
+    assert parsed.value.record.rule.rule == rule
+    assert parsed.value.record.rule.detail is None
+    assert parsed.value.record.generation == 7
+    assert parsed.value.record.start_height == 23
+    assert parsed.value.record.evidence.qc == source["value"]["record"]["evidence"]["qc"]
+    assert parsed.value.record.evidence.header == source["value"]["record"]["evidence"]["header"]
+    assert parsed.value.record.evidence.aggregate_signature == source["value"]["record"]["evidence"]["aggregate_signature"]
+    if anchored:
+        assert parsed.value.record.evidence.anchor.core_hash == "00" * 32
+        assert parsed.value.record.evidence.anchor.result == "00" * 32
+        assert parsed.value.record.evidence.anchor.path == ("07" * 32,) * 12
+    else:
+        assert parsed.value.record.evidence.anchor is None
+    assert parsed.value.record.offenders == (torii_module.SccpForgeryOffender(0, 1, CANONICAL_OWNER, 19),)
+    assert parsed.value.attribution.scope.kind == "sccp_generation"
+    assert parsed.value.attribution.scope.value.generation == 7
+    assert parsed.value.attribution.instance == "01" * 32
+    assert parsed.value.attribution.height == 23
+    assert parsed.value.attribution.epoch == 99
+    assert parsed.value.attribution.context_id == "02" * 32
+    assert parsed.value.attribution.authority_generation == "03" * 32
+    assert parsed.value.attribution.offenders == (torii_module.SccpEvidenceOffender(0, "ea0130" + "22" * 48, None),)
+    assert parsed.value.attribution.safety_violation is False
+    assert parsed.value.recorded_height == 42
+    assert parsed.value.recorded_view == 5
+    assert parsed.value.recorded_ms == 1234
+    assert parsed.value.consensus_admitted_height == 42
+    assert parsed.value.penalty_status == torii_module.SumeragiEvidencePendingPenaltyStatus("pending", None)
+
+
+def test_sumeragi_evidence_preserves_lane_scope_fields() -> None:
+    source = _sumeragi_native_evidence_record()
+    source["value"]["scope"] = _lane_evidence_scope()
+    parsed = _read_sccp_evidence(source)
+    assert parsed.kind == "NativeSumeragiEvidence"
+    assert isinstance(parsed.value, torii_module.SumeragiNativeEvidenceRecord)
+    assert parsed.value.scope.kind == "lane"
+    assert parsed.value.scope.value == torii_module.SumeragiLaneEvidenceScope(**source["value"]["scope"]["value"])
+
+
+@pytest.mark.parametrize("factory", [_sumeragi_native_evidence_record, _sccp_forgery_evidence_record])
+@pytest.mark.parametrize("kind", [None, "NativeSumeragiEvidence", "SccpForgeryEvidence"])
+def test_sumeragi_evidence_kind_filter_binds_returned_record(factory: Callable[[], Dict[str, Any]], kind: Optional[str]) -> None:
+    source = factory()
+    if kind is None or kind == source["kind"]:
+        assert _read_sccp_evidence(source, kind).kind == source["kind"]
+    else:
+        with pytest.raises(RuntimeError, match="kind differs from the requested filter"):
+            _read_sccp_evidence(source, kind)
+
+
+@pytest.mark.parametrize("factory", [_sumeragi_native_evidence_record, _sccp_forgery_evidence_record])
+def test_sumeragi_evidence_rejects_flat_retired_layout_and_unknown_kind(factory: Callable[[], Dict[str, Any]]) -> None:
+    source = factory()
+    with pytest.raises(RuntimeError, match="exact server fields"):
+        _read_sccp_evidence({"kind": source["kind"], **source["value"]})
+    for kind in ["UnknownEvidence", "sccp_forgery", "SccpForgeryEvidence ", None]:
+        source["kind"] = kind
+        with pytest.raises(RuntimeError):
+            _read_sccp_evidence(source)
+    source = factory()
+    for value in [None, [], 1, "payload"]:
+        source["value"] = value
+        with pytest.raises(RuntimeError):
+            _read_sccp_evidence(source)
+
+
+def test_sccp_evidence_requires_every_closed_nested_field() -> None:
+    sources = [
+        (_sccp_forgery_evidence_record(), [(), ("value",), ("value", "record"), ("value", "record", "evidence"),
+            ("value", "record", "evidence", "anchor"), ("value", "record", "rule"), ("value", "record", "offenders", 0),
+            ("value", "attribution"), ("value", "attribution", "scope"), ("value", "attribution", "scope", "value"),
+            ("value", "attribution", "offenders", 0), ("value", "penalty_status")]),
+    ]
+    native = _sumeragi_native_evidence_record()
+    native["value"]["scope"] = _lane_evidence_scope()
+    sources.append((native, [("value", "scope"), ("value", "scope", "value")]))
+    for source, paths in sources:
+        for path in paths:
+            target = source
+            for key in path:
+                target = target[key]
+            for field in [None, *target]:
+                record = copy.deepcopy(source)
+                nested = record
+                for key in path:
+                    nested = nested[key]
+                if field is None:
+                    nested["unknown"] = None
+                else:
+                    del nested[field]
+                with pytest.raises(RuntimeError, match="exact server fields"):
+                    _read_sccp_evidence(record)
+
+
+@pytest.mark.parametrize(("path", "value"), [
+    (("record", "evidence", "qc"), "A1" * 115),
+    (("record", "evidence", "header"), [0] * 221),
+    (("record", "evidence", "aggregate_signature"), "GG" * 96),
+    (("record", "evidence", "anchor", "core_hash"), "0x" + "00" * 32),
+    (("record", "evidence", "anchor", "result"), "00" * 31),
+    (("record", "evidence", "anchor", "path"), ["00" * 32] * 11),
+    (("record", "evidence", "anchor", "path"), ["00" * 32] * 13),
+    (("record", "evidence", "anchor", "path", 0), []),
+    (("record", "rule", "rule"), "E5"), (("record", "rule", "detail"), {}),
+    (("record", "generation"), 0), (("record", "start_height"), 0),
+    (("record", "generation"), "7"), (("record", "generation"), True),
+    (("record", "generation"), 1 << 64),
+    (("record", "offenders"), []), (("record", "offenders", 0, "signer"), 31),
+    (("record", "offenders", 0, "lane_id"), 1 << 32), (("record", "offenders", 0, "validator"), "invalid"),
+    (("record", "offenders", 0, "activation_height"), 0), (("record", "offenders", 0, "activation_height"), 24),
+    (("attribution", "scope"), {"kind": "root", "value": None}),
+    (("attribution", "scope", "value", "generation"), 8), (("attribution", "height"), 24),
+    (("attribution", "offenders"), []), (("attribution", "offenders", 0, "signer"), 1),
+    (("attribution", "offenders", 0, "peer_id"), "invalid"), (("attribution", "offenders", 0, "lane_stake"), {}),
+    (("attribution", "instance"), []), (("attribution", "context_id"), "AA" * 31),
+    (("attribution", "authority_generation"), "zz" * 32), (("attribution", "epoch"), -1),
+    (("attribution", "safety_violation"), 1), (("recorded_ms",), None),
+    (("penalty_status", "status"), "cancelled"), (("penalty_status", "details"), {}),
+])
+def test_sccp_evidence_rejects_malformed_data_and_attribution(path: tuple, value: Any) -> None:
+    source = _sccp_forgery_evidence_record()
+    nested = source["value"]
+    for key in path[:-1]:
+        nested = nested[key]
+    nested[path[-1]] = value
+    with pytest.raises(RuntimeError):
+        _read_sccp_evidence(source)
+
+
+def test_sccp_evidence_rejects_duplicate_unordered_and_oversized_liability() -> None:
+    for count in [2, 32]:
+        source = _sccp_forgery_evidence_record()
+        offender = source["value"]["record"]["offenders"][0]
+        source["value"]["record"]["offenders"] = [dict(offender, signer=signer) for signer in range(count)]
+        with pytest.raises(RuntimeError, match="registration must be unique|between 1 and 31"):
+            _read_sccp_evidence(source)
+    source = _sccp_forgery_evidence_record()
+    source["value"]["record"]["offenders"].append(dict(source["value"]["record"]["offenders"][0], lane_id=2))
+    with pytest.raises(RuntimeError, match="signer must increase strictly"):
+        _read_sccp_evidence(source)
+
+
+@pytest.mark.parametrize("scope", [
+    {"kind": "root", "value": {}}, {"kind": "sccp_generation", "value": {"generation": 7}},
+    {"kind": "unknown", "value": None},
+])
+def test_sumeragi_evidence_rejects_wrong_native_scope(scope: Dict[str, Any]) -> None:
+    source = _sumeragi_native_evidence_record()
+    source["value"]["scope"] = scope
+    with pytest.raises(RuntimeError):
+        _read_sccp_evidence(source)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("lane", 1 << 32), ("incarnation", []), ("created_at", -1), ("admission_parent_height", True),
+    ("admission_parent_hash", "hash:" + "00" * 32 + "#0000"),
+    ("admission_parent_core_hash", "zz" * 32), ("admission_parent_result", "00" * 31),
+])
+def test_sumeragi_evidence_rejects_malformed_lane_scope(field: str, value: Any) -> None:
+    source = _sumeragi_native_evidence_record()
+    source["value"]["scope"] = _lane_evidence_scope()
+    source["value"]["scope"]["value"][field] = value
+    with pytest.raises(RuntimeError):
+        _read_sccp_evidence(source)
+
+
+def test_sccp_evidence_preserves_u64_fields_and_original_certificate_bytes() -> None:
+    source = _sccp_forgery_evidence_record()
+    maximum = (1 << 64) - 1
+    value = source["value"]
+    value["record"]["generation"] = maximum
+    value["record"]["start_height"] = maximum
+    value["record"]["offenders"][0]["activation_height"] = maximum
+    value["attribution"]["scope"]["value"]["generation"] = maximum
+    for field in ["height", "epoch"]:
+        value["attribution"][field] = maximum
+    for field in ["recorded_height", "recorded_view", "recorded_ms", "consensus_admitted_height"]:
+        value[field] = maximum
+    value["penalty_status"] = {"status": "applied", "details": {"height": maximum}}
+    parsed = _read_sccp_evidence(source).value
+    assert parsed.record.generation == maximum
+    assert parsed.record.start_height == maximum
+    assert parsed.record.offenders[0].activation_height == maximum
+    assert parsed.attribution.scope.value.generation == maximum
+    for field in ["height", "epoch"]:
+        assert getattr(parsed.attribution, field) == maximum
+    for field in ["recorded_height", "recorded_view", "recorded_ms", "consensus_admitted_height"]:
+        assert getattr(parsed, field) == maximum
+    assert parsed.penalty_status.details.height == maximum
+    assert parsed.record.evidence.qc == value["record"]["evidence"]["qc"]
+    assert parsed.record.evidence.header == value["record"]["evidence"]["header"]
+    assert parsed.record.evidence.aggregate_signature == value["record"]["evidence"]["aggregate_signature"]
+
+
+@pytest.mark.parametrize(("path", "value", "cause"), [
+    (("kind",), None, TypeError),
+    (("value", "record", "offenders", 0, "validator"), "invalid", ValueError),
+    (("value", "attribution", "offenders", 0, "peer_id"), None, TypeError),
+])
+def test_sccp_evidence_response_errors_preserve_original_codec_cause(
+    path: tuple, value: Any, cause: type[Exception],
+) -> None:
+    source = _sccp_forgery_evidence_record()
+    target = source
+    for segment in path[:-1]:
+        target = target[segment]
+    target[path[-1]] = value
+    with pytest.raises(RuntimeError, match="sumeragi evidence listing.items") as raised:
+        _read_sccp_evidence(source)
+    assert isinstance(raised.value.__cause__, cause)

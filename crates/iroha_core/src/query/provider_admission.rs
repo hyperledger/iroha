@@ -183,8 +183,7 @@ fn active_record(
     if head.genesis_origin.is_some() {
         let material = authenticate_genesis_record(view, Some(provider), &head)?
             .ok_or(ProviderAdmissionErrorV1)?;
-        if envelope.policy_id != policy.policy_id
-            || envelope.policy_revision != policy.revision
+        if (envelope.policy_id, envelope.policy_revision) != (policy.policy_id, policy.revision)
             || envelope.policy_digest
                 != policy
                     .canonical_digest()
@@ -216,6 +215,11 @@ fn active_record(
 /// Read one provider against the exact current State head and its certified Kura frame.
 /// Absence/revocation returns `None`; stale, corrupt or unavailable authority fails closed.
 /// Local time must satisfy issuance; expiry uses the later of local and finalized block time.
+///
+/// # Errors
+/// Returns a provider-admission error if current State/Kura finality cannot be
+/// authenticated, retained policy/history is malformed or stale, network or
+/// policy bindings differ, or issuance/expiry/signature checks fail.
 pub fn read_finalized_provider_admission_v1(
     view: &impl StateReadOnly,
     provider: ProviderId,
@@ -298,6 +302,11 @@ fn authenticate_current_head(view: &impl StateReadOnly) -> Result<(), Error> {
     Ok(())
 }
 /// Count permanent provider identities, including revocation tombstones, at a finalized cut.
+///
+/// # Errors
+/// Returns a provider-admission error if current finality or its retained head
+/// cannot be authenticated, the count cannot be decoded, or it exceeds the
+/// protocol provider bound.
 pub fn retained_provider_count_v1(view: &impl StateReadOnly) -> Result<u64, Error> {
     authenticate_current(view)?;
     let count: u64 = view
@@ -314,6 +323,10 @@ pub fn retained_provider_count_v1(view: &impl StateReadOnly) -> Result<u64, Erro
     Ok(count)
 }
 /// Preserve advert replay floors for admitted and permanently revoked native identities.
+///
+/// # Errors
+/// Returns a provider-admission error if current finality cannot be authenticated
+/// or the retained provider history head cannot be decoded and validated.
 pub fn retains_provider_identity_v1(
     view: &impl StateReadOnly,
     provider: ProviderId,
@@ -322,6 +335,11 @@ pub fn retains_provider_identity_v1(
     Ok(read_head(view.world(), Some(provider))?.is_some())
 }
 /// Read the current finalized council for dependent governance-signature validation.
+///
+/// # Errors
+/// Returns a provider-admission error if current finality or policy cannot be
+/// authenticated, the policy belongs to another network or is paused, or its
+/// council cannot be constructed.
 pub fn read_finalized_admission_council_v1(
     view: &impl StateReadOnly,
 ) -> Result<Option<ProviderAdmissionCouncilPolicy>, Error> {

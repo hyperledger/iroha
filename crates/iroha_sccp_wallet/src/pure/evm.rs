@@ -1,14 +1,13 @@
 //! EVM destination transactions (spec §5.2.2, §7.1 step 7, §7.2 step 2, §7.3, §7.4, §8).
 //!
 //! - Calldata of every state-changing `SccpTairaXor` entry point, built with
-//!   `iroha_sccp::v1::evm_abi` from verified inputs only: `finalizeFromTaira` and its historical
-//!   form, `rotateRosters` in batches of at most 16, `applyControl` and its historical form,
-//!   `voidExpired` and its historical form, `voidFrozen` and the canonical `transferToTaira`.
+//!   `iroha_sccp::v1::evm_abi` from verified inputs only: inline or stored-checkpoint finalize,
+//!   control and expired-void calls, native committee checkpoints in batches of at most sixteen,
+//!   `voidFrozen` and the canonical `transferToTaira`.
 //! - EIP-1559 (type 2) transactions for Ethereum (chain id 1) and BSC (chain id 56): canonical
 //!   RLP with an empty access list, and secp256k1 signing over
 //!   `keccak256(0x02 ‖ rlp([chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to,
-//!   value, data, accessList]))` with RFC 6979 nonces, low-S and `yParity ∈ {0, 1}`. TRON uses
-//!   its own `TriggerSmartContract` transactions (`super::tron`).
+//!   value, data, accessList]))` with RFC 6979 nonces, low-S and `yParity ∈ {0, 1}`.
 //! - `--emit` export of the unsigned transaction for an external signer: the raw
 //!   `0x02 ‖ rlp(…)` bytes, the signing hash, and QR-friendly uppercase-hex parts in the QR
 //!   alphanumeric character set. A signature returned by the signer is attached with
@@ -27,9 +26,9 @@ use iroha_sccp::v1::{
     },
     evm_abi::{
         TransferToTairaCallV1, apply_control_calldata as abi_apply_control,
-        apply_control_historical_calldata, finalize_from_taira_calldata,
-        finalize_from_taira_historical_calldata, rotate_rosters_calldata as abi_rotate_rosters,
-        void_expired_calldata as abi_void_expired, void_expired_historical_calldata,
+        apply_control_from_checkpoint_calldata, finalize_from_checkpoint_calldata,
+        finalize_from_taira_calldata, submit_checkpoints_calldata as abi_submit_checkpoints,
+        void_expired_calldata as abi_void_expired, void_expired_from_checkpoint_calldata,
         void_frozen_calldata as abi_void_frozen,
     },
     hashes::keccak256,
@@ -38,7 +37,7 @@ use iroha_sccp::v1::{
 use zeroize::Zeroizing;
 
 use super::{
-    bundle::{BundlePurposeV1, VerifiedMessageBundleV1},
+    bundle::{BundlePurposeV1, VerifiedCertificateSourceV1, VerifiedMessageBundleV1},
     control::VerifiedControlBundleV1,
     rotation::RotationPlanV1,
 };
@@ -137,56 +136,63 @@ impl From<KeyFileError> for EvmError {
 // Calldata
 // ---------------------------------------------------------------------------------------------
 
-/// `finalizeFromTaira` (direct) or `finalizeFromTairaHistorical` for a bundle verified with
-/// [`BundlePurposeV1::Finalize`].
+/// Encode a current finalize call from its immutable verified source and proof.
 ///
 /// # Errors
-///
-/// Returns [`EvmError::WrongPurpose`] for a bundle verified for voiding.
+/// Returns `WrongPurpose` for a bundle verified for voiding.
 pub fn finalize_calldata(bundle: &VerifiedMessageBundleV1) -> Result<Vec<u8>, EvmError> {
     if bundle.purpose != BundlePurposeV1::Finalize {
         return Err(EvmError::WrongPurpose);
     }
-    let attested = bundle.attested.attested();
-    Ok(bundle.history.as_ref().map_or_else(
-        || finalize_from_taira_calldata(attested, &bundle.proof),
-        |history| finalize_from_taira_historical_calldata(attested, history, &bundle.proof),
-    ))
+    Ok(match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => {
+            finalize_from_taira_calldata(cert, &bundle.proof)
+        }
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            finalize_from_checkpoint_calldata(reference, &bundle.proof)
+        }
+    })
 }
-
-/// `voidExpired` or `voidExpiredHistorical` for a bundle verified with
-/// [`BundlePurposeV1::VoidExpired`]; the `nonce` argument is the payload nonce.
+/// Encode the verified nonce's current expired-void call.
 ///
 /// # Errors
-///
-/// Returns [`EvmError::WrongPurpose`] for a bundle verified for finalization.
+/// Returns `WrongPurpose` for a bundle verified for minting.
 pub fn void_expired_calldata(bundle: &VerifiedMessageBundleV1) -> Result<Vec<u8>, EvmError> {
     if bundle.purpose != BundlePurposeV1::VoidExpired {
         return Err(EvmError::WrongPurpose);
     }
-    let attested = bundle.attested.attested();
-    Ok(bundle.history.as_ref().map_or_else(
-        || abi_void_expired(bundle.nonce(), attested, &bundle.proof),
-        |history| {
-            void_expired_historical_calldata(bundle.nonce(), attested, history, &bundle.proof)
-        },
-    ))
+    Ok(match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => {
+            abi_void_expired(bundle.nonce(), cert, &bundle.proof)
+        }
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            void_expired_from_checkpoint_calldata(bundle.nonce(), reference, &bundle.proof)
+        }
+    })
 }
-
-/// `applyControl` or `applyControlHistorical` for a verified control bundle.
+/// Encode the verified two-track control with its selected current certificate source.
 #[must_use]
 pub fn apply_control_calldata(bundle: &VerifiedControlBundleV1) -> Vec<u8> {
-    let attested = bundle.attested.attested();
-    bundle.history.as_ref().map_or_else(
-        || abi_apply_control(attested, &bundle.control),
-        |history| apply_control_historical_calldata(attested, history, &bundle.control),
-    )
+    match &bundle.certificate.source {
+        VerifiedCertificateSourceV1::Inline(cert) => abi_apply_control(cert, &bundle.control),
+        VerifiedCertificateSourceV1::Checkpoint(reference) => {
+            apply_control_from_checkpoint_calldata(reference, &bundle.control)
+        }
+    }
 }
-
-/// One `rotateRosters` calldata per batch of at most 16 verified rotations, in order.
+/// Encode one `submitCheckpoints` call per verified batch of at most sixteen, in order.
 #[must_use]
-pub fn rotate_rosters_calldata(plan: &RotationPlanV1) -> Vec<Vec<u8>> {
-    plan.batches().map(abi_rotate_rosters).collect()
+pub fn submit_checkpoints_calldata(plan: &RotationPlanV1) -> Vec<Vec<u8>> {
+    plan.batches()
+        .map(|batch| {
+            abi_submit_checkpoints(
+                &batch
+                    .iter()
+                    .map(|step| step.certificate().clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
 }
 
 /// `voidFrozen(firstNonce, count)` with the contract's range bounds.
@@ -390,7 +396,7 @@ fn minimal(word: &[u8; 32]) -> &[u8] {
 ///
 /// # Errors
 ///
-/// Returns [`EvmError::UnsupportedNetwork`] for Taira, TRON and TON.
+/// Returns [`EvmError::UnsupportedNetwork`] for Taira and TON.
 pub fn eip1559_chain_id(network: SccpNetworkV1) -> Result<u64, EvmError> {
     match network {
         SccpNetworkV1::EthereumMainnet => Ok(ETHEREUM_CHAIN_ID),
@@ -1167,11 +1173,7 @@ mod tests {
             ),
             Err(EvmError::ZeroGasLimit)
         );
-        for network in [
-            SccpNetworkV1::SoraTaira,
-            SccpNetworkV1::TronMainnet,
-            SccpNetworkV1::TonMainnet,
-        ] {
+        for network in [SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet] {
             assert_eq!(
                 eip1559_chain_id(network),
                 Err(EvmError::UnsupportedNetwork(network))
@@ -1334,9 +1336,9 @@ mod tests {
     fn evm_errors_display() {
         assert!(EvmError::WrongPurpose.to_string().contains("different"));
         assert!(
-            EvmError::UnsupportedNetwork(SccpNetworkV1::TronMainnet)
+            EvmError::UnsupportedNetwork(SccpNetworkV1::TonMainnet)
                 .to_string()
-                .contains("tron-mainnet")
+                .contains("ton-mainnet")
         );
         assert!(
             EvmError::WrongSender {

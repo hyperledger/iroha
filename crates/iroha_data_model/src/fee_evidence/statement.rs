@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(
             roots[1],
             f.second
-                .decode_checked()
+                .decode_checked(crate::sumeragi_finality::CertifiedResultScope::TairaGlobal)
                 .unwrap()
                 .execution()
                 .ordinary_writes_root

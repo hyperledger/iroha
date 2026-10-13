@@ -32,20 +32,6 @@ impl Geometry {
             backing_bytes,
         })
     }
-    pub(super) fn for_bytes(bytes: usize) -> Self {
-        let record_bytes = Layout::new::<Record>().size();
-        let slots = bytes / record_bytes;
-        // Reserve equal sparse/recent regions up to the proven recent policy. Additional
-        // explicit node-cache credit extends only sparse coverage, never query admission.
-        let recent_capacity = (slots / 2).min(RECENT_CAPACITY);
-        let sparse_capacity = slots - recent_capacity;
-        let backing_bytes = slots * record_bytes;
-        Self {
-            sparse_capacity,
-            recent_capacity,
-            backing_bytes,
-        }
-    }
 }
 
 pub(super) struct Storage {
@@ -219,9 +205,11 @@ impl Candidates {
         self.values[index] = Some(value);
         self.length = new_len;
     }
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.length
     }
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.length == 0
     }
@@ -254,7 +242,8 @@ mod tests {
     use iroha_sumeragi::types::Hash32;
 
     fn checkpoint(seed: u64) -> HistoryCheckpoint {
-        let bytes = [seed as u8; 32];
+        // The thousand-height eviction fixture deliberately cycles byte identities.
+        let bytes = [seed.to_le_bytes()[0]; 32];
         HistoryCheckpoint {
             iroha_hash: HashOf::from_untyped_unchecked(Hash::prehashed(bytes)),
             core_hash: Hash32(bytes),
@@ -265,7 +254,7 @@ mod tests {
     #[test]
     fn whole_cache_native_geometry_and_refusal_preserve_the_original_pool() {
         let bytes = 12 * Layout::new::<Record>().size() + Layout::new::<Record>().size() - 1;
-        let geometry = Geometry::for_bytes(bytes);
+        let geometry = Geometry::for_count(bytes / Layout::new::<Record>().size()).unwrap();
         assert_eq!(geometry.sparse_capacity, 6);
         assert_eq!(geometry.recent_capacity, 6);
         assert_eq!(geometry.backing_bytes, 12 * Layout::new::<Record>().size());
@@ -321,7 +310,7 @@ mod tests {
 
     #[test]
     fn candidate_merge_is_native_fixed_backing_sorted_unique_and_bounded() {
-        let geometry = Geometry::for_bytes(16 * Layout::new::<Record>().size());
+        let geometry = Geometry::for_count(16).unwrap();
         let pool = AllocationBudget::new(geometry.backing_bytes);
         let mut cache = Storage::new(geometry, &pool).unwrap();
         for height in (1..=8).rev() {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Lock-release observations for retrying local publication without a timer.
+//! Physical release and original capacity observations for callback or thread retry.
 
 use crate::shared::{ErasedShared, Shared};
 
@@ -12,6 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll, Waker},
+    thread::Thread,
 };
 
 #[derive(Default)]
@@ -19,6 +20,10 @@ struct State {
     sequence: u64,
     poisoned: bool,
     waiters: Waiters,
+    // Only allocation pools have an immediate credit-return sequence. Physical
+    // sources use their actual lock-release sequence for both kinds of waiter.
+    capacity_sequence: Option<u64>,
+    threads: Waiters,
 }
 
 /// Nonowning links: every published node is retained by its unique registration.
@@ -39,7 +44,22 @@ struct WaiterLinks {
     next: Option<std::ptr::NonNull<WaiterNode>>,
     linked: bool,
     sequence: u64,
-    waker: Option<Waker>,
+    waker: Option<WakeTarget>,
+}
+
+/// Thread unparking cannot execute caller code under an enclosing writer.
+/// Task callbacks retain their ordinary physical-release deferral contract.
+enum WakeTarget {
+    Task(Waker),
+    Thread(Thread),
+}
+impl WakeTarget {
+    fn wake(self) {
+        match self {
+            Self::Task(waker) => waker.wake(),
+            Self::Thread(thread) => thread.unpark(),
+        }
+    }
 }
 
 struct WaiterNode {
@@ -54,7 +74,12 @@ unsafe impl Sync for WaiterNode {}
 
 impl Waiters {
     /// The original charged node remains live and unlinked during this call.
-    unsafe fn push(&mut self, node: std::ptr::NonNull<WaiterNode>, sequence: u64, waker: Waker) {
+    unsafe fn push(
+        &mut self,
+        node: std::ptr::NonNull<WaiterNode>,
+        sequence: u64,
+        waker: WakeTarget,
+    ) {
         // SAFETY: caller holds this source's mutex and retains the unique shell.
         let links = unsafe { &mut *node.as_ref().links.get() };
         debug_assert!(!links.linked);
@@ -75,7 +100,7 @@ impl Waiters {
     }
 
     /// The original node belongs to this source or was already popped by it.
-    unsafe fn unlink(&mut self, node: std::ptr::NonNull<WaiterNode>) -> Option<Waker> {
+    unsafe fn unlink(&mut self, node: std::ptr::NonNull<WaiterNode>) -> Option<WakeTarget> {
         // SAFETY: caller retains this node and holds its original source mutex.
         let links = unsafe { &mut *node.as_ref().links.get() };
         if !links.linked {
@@ -101,7 +126,7 @@ impl Waiters {
         links.waker.take()
     }
 
-    fn pop_before(&mut self, cutoff: u64) -> Option<Waker> {
+    fn pop_before(&mut self, cutoff: u64) -> Option<WakeTarget> {
         let first = self.first?;
         // SAFETY: the source mutex retains all live intrusive links. A release
         // takes only the Waker out; no node reference survives the unlock.
@@ -112,13 +137,14 @@ impl Waiters {
     }
 }
 
-/// Notification source belonging to one physical lock, not a State generation.
+/// Notification source belonging to one physical lock or allocation pool.
 ///
 /// Observe before attempting acquisition and wrap every acquired guard with
 /// [`Self::guard`]. A refused acquisition can then return its observation even
 /// if the blocking owner released before the caller registered an async waiter.
-/// Readers that exclude writers must also be wrapped. Signals grant no mutation
-/// authority: every retry must acquire the lock and authenticate its predecessor.
+/// Readers that exclude writers must also be wrapped. Allocation pools additionally
+/// record actual returned credits for callback-free native thread parking. Signals
+/// grant no mutation authority: every retry must acquire its original resource.
 #[derive(Clone)]
 pub struct ReleaseNotification {
     state: ErasedShared<Mutex<State>>,
@@ -143,6 +169,52 @@ impl Default for ReleaseNotification {
 }
 
 impl ReleaseNotification {
+    /// Construct the allocation pool's original source, including its immediate
+    /// credit sequence. Only actual refunds or limit growth may advance it.
+    pub(crate) fn for_capacity() -> Self {
+        let state = ErasedShared::new(
+            Mutex::new(State {
+                capacity_sequence: Some(0),
+                ..State::default()
+            }),
+            (),
+        );
+        drop(state.lock().unwrap_or_else(PoisonError::into_inner));
+        Self { state }
+    }
+
+    /// Record an actual return of usable credits without executing callbacks.
+    /// Registered threads may run independently; arbitrary task wakers remain
+    /// deferred until `released` runs after this thread's physical guards retire.
+    pub(crate) fn capacity_returned(&self) {
+        let cutoff = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let sequence = state
+                .capacity_sequence
+                .as_mut()
+                .expect("original capacity source");
+            *sequence = sequence.saturating_add(1);
+            *sequence
+        };
+        self.unpark_before(cutoff);
+    }
+
+    fn unpark_before(&self, cutoff: u64) {
+        loop {
+            let retired = {
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                state.threads.pop_before(cutoff)
+            };
+            let Some(WakeTarget::Thread(thread)) = retired else {
+                debug_assert!(retired.is_none(), "callback-free thread list");
+                break;
+            };
+            // The original Thread handle was captured before pool exhaustion.
+            // No callback, waiter allocation or TLS thread initialization occurs.
+            thread.unpark();
+        }
+    }
+
     /// Exact original notification-state allocation, including its counter and charge.
     /// Native mutex internals and pending waiter storage are separate owners.
     pub fn allocation_layout<Charge>() -> std::alloc::Layout {
@@ -175,14 +247,14 @@ impl ReleaseNotification {
 
     /// Observe releases before probing this notification's physical lock.
     pub fn observe(&self) -> ReleaseWait {
-        let sequence = self
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .sequence;
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let sequence = state.sequence;
+        let thread_sequence = state.capacity_sequence.unwrap_or(sequence);
+        drop(state);
         ReleaseWait {
             state: self.state.clone(),
             sequence,
+            thread_sequence,
         }
     }
 
@@ -299,12 +371,15 @@ impl ReleaseNotification {
                 self.drain();
             }
         }
-        let cutoff = {
+        let (cutoff, physical_threads) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.sequence = state.sequence.saturating_add(1);
             state.poisoned |= poisoned;
-            state.sequence
+            (state.sequence, state.capacity_sequence.is_none())
         };
+        if physical_threads {
+            self.unpark_before(cutoff);
+        }
         let mut cohort = WakeCohort {
             source: self,
             cutoff,
@@ -313,15 +388,19 @@ impl ReleaseNotification {
     }
 }
 
-/// Opaque observation of one lock's release, safe to retain across async dispatch.
+/// Opaque observation of one original resource, safe to retain across dispatch.
 ///
-/// This is neither a publication token nor a guarantee the lock is now free.
-/// Clones observe the same cut and may wait independently. Observation itself
-/// allocates nothing; a polled pending future retains one registration and waker.
+/// Callback registrations observe physical release after enclosing writer scopes.
+/// Native thread registrations observe actual allocation credit returns for pools,
+/// or the same physical release for locks. Both cuts belong to this exact source.
+/// This grants neither publication authority nor possession of the resource.
+/// Clones retain the same cuts and may wait independently; observation allocates
+/// nothing. Each waiter retains its original prepaid registration and wake target.
 #[derive(Clone)]
 pub struct ReleaseWait {
     state: ErasedShared<Mutex<State>>,
     sequence: u64,
+    thread_sequence: u64,
 }
 
 impl std::fmt::Debug for ReleaseWait {
@@ -332,7 +411,9 @@ impl std::fmt::Debug for ReleaseWait {
 
 impl PartialEq for ReleaseWait {
     fn eq(&self, other: &Self) -> bool {
-        ErasedShared::ptr_eq(&self.state, &other.state) && self.sequence == other.sequence
+        ErasedShared::ptr_eq(&self.state, &other.state)
+            && self.sequence == other.sequence
+            && self.thread_sequence == other.thread_sequence
     }
 }
 impl Eq for ReleaseWait {}
@@ -346,6 +427,7 @@ impl Eq for ReleaseWait {}
 pub struct ReleaseRegistration {
     node: crate::ChargedShared<WaiterNode>,
     observation: Option<ReleaseWait>,
+    thread: Option<Thread>,
 }
 
 impl std::fmt::Debug for ReleaseRegistration {
@@ -380,6 +462,7 @@ impl ReleaseRegistration {
         Ok(Self {
             node,
             observation: None,
+            thread: None,
         })
     }
 
@@ -390,6 +473,19 @@ impl ReleaseRegistration {
 
     fn pointer(&self) -> std::ptr::NonNull<WaiterNode> {
         std::ptr::NonNull::from(&*self.node)
+    }
+
+    /// Bind this existing prepaid node to callback-free parking of an original
+    /// thread captured during startup, before the pool can become exhausted.
+    ///
+    /// Changing the target cancels its old observation. Subsequent `poll_wait`
+    /// calls do not clone, retain or invoke their Context's Waker. Actual pool
+    /// credits can wake this thread while generic callbacks still await writer
+    /// retirement. Physical lock waits still require the real lock's release.
+    /// No thread handle is constructed and no waiter storage is allocated here.
+    pub fn bind_thread(&mut self, thread: Thread) {
+        self.cancel();
+        self.thread = Some(thread);
     }
 
     /// Detach the current wait while retaining its physical node for reuse.
@@ -404,7 +500,13 @@ impl ReleaseRegistration {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
             // SAFETY: self owns the stable node; observation is its exact source.
-            unsafe { state.waiters.unlink(self.pointer()) }
+            unsafe {
+                if self.thread.is_some() {
+                    state.threads.unlink(self.pointer())
+                } else {
+                    state.waiters.unlink(self.pointer())
+                }
+            }
         };
         drop(retired);
         drop(observation);
@@ -414,6 +516,8 @@ impl ReleaseRegistration {
     ///
     /// Changing source or sequence cancels the old wait first. A completed
     /// release permits a new attempt; it grants neither lock nor capacity.
+    /// When `bind_thread` selected native parking, the captured thread receives
+    /// the wake and `cx` is not retained or invoked.
     pub fn poll_wait(&mut self, observation: &ReleaseWait, cx: &mut Context<'_>) -> Poll<()> {
         if self.observation.as_ref() != Some(observation) {
             self.cancel();
@@ -423,6 +527,9 @@ impl ReleaseRegistration {
     }
 
     fn poll_current(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        if self.thread.is_some() {
+            return self.poll_thread();
+        }
         // Clone callbacks may reenter a source; no internal mutex is held.
         let replacement = cx.waker().clone();
         let original = self.observation.as_ref().expect("original release source");
@@ -442,26 +549,57 @@ impl ReleaseRegistration {
         // the exclusive registration borrow excludes concurrent rearming.
         let links = unsafe { &mut *self.node.links.get() };
         let retired = if links.linked {
-            if links
-                .waker
-                .as_ref()
-                .is_none_or(|old| !old.will_wake(cx.waker()))
-            {
-                links.waker.replace(replacement)
+            if links.waker.as_ref().is_none_or(
+                |old| !matches!(old, WakeTarget::Task(old) if old.will_wake(cx.waker())),
+            ) {
+                links.waker.replace(WakeTarget::Task(replacement))
             } else {
-                Some(replacement)
+                Some(WakeTarget::Task(replacement))
             }
         } else {
             // SAFETY: this original node is live, unlinked, and retained by self.
             unsafe {
-                state
-                    .waiters
-                    .push(self.pointer(), original.sequence, replacement)
+                state.waiters.push(
+                    self.pointer(),
+                    original.sequence,
+                    WakeTarget::Task(replacement),
+                )
             };
             None
         };
         drop(state);
         drop(retired);
+        Poll::Pending
+    }
+
+    fn poll_thread(&mut self) -> Poll<()> {
+        let original = self.observation.as_ref().expect("original release source");
+        let mut state = original
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let sequence = state.capacity_sequence.unwrap_or(state.sequence);
+        if sequence != original.thread_sequence || sequence == u64::MAX {
+            // SAFETY: the same charged node and exact source remain owned here.
+            let retired = unsafe { state.threads.unlink(self.pointer()) };
+            drop(state);
+            drop(retired);
+            return Poll::Ready(());
+        }
+        // SAFETY: this source mutex excludes release and cancellation; this
+        // exclusive registration borrow excludes target replacement.
+        let links = unsafe { &*self.node.links.get() };
+        if !links.linked {
+            let thread = self.thread.as_ref().expect("bound original thread").clone();
+            // SAFETY: the original stable node remains live and unlinked.
+            unsafe {
+                state.threads.push(
+                    self.pointer(),
+                    original.thread_sequence,
+                    WakeTarget::Thread(thread),
+                );
+            }
+        }
         Poll::Pending
     }
 }
@@ -1000,3 +1138,7 @@ mod tests;
 #[cfg(test)]
 #[path = "release_registration_tests.rs"]
 mod registration_tests;
+
+#[cfg(test)]
+#[path = "release_thread_tests.rs"]
+mod thread_tests;

@@ -10,9 +10,7 @@ impl ValidSingularQuery for FindSettlementReceiptById {
             .world()
             .settlement_receipts()
             .get(&self.id)
-            .ok_or_else(|| {
-                Error::Conversion(format!("settlement receipt `{}` was not found", self.id))
-            })?;
+            .ok_or_else(|| Error::Find(FindError::SettlementReceipt(self.id.clone())))?;
         // Use the singular output owner so a 255-movement receipt or large
         // metadata cannot be cloned before its source/frame/allocation budget.
         own_singular_query_value(receipt)
@@ -86,7 +84,10 @@ mod tests {
             let state = state();
             let mut block = state.block(BlockHeader::new(nonzero!(8_u64), None, None, 1235, 0));
             let mut tx = block.transaction();
-            let id: SettlementId = "query_business".parse().expect("id");
+            let id = SettlementId::new(
+                ALICE_ID.clone(),
+                "query_business".parse().expect("reference"),
+            );
             let expected = receipt(count);
             let before = norito::encode_canonical(&expected).expect("receipt frame");
             tx.world
@@ -127,10 +128,15 @@ mod tests {
         let state = state();
         let mut block = state.block(BlockHeader::new(nonzero!(8_u64), None, None, 1235, 0));
         let tx = block.transaction();
-        let id: SettlementId = "absent_business".parse().expect("id");
+        let id = SettlementId::new(
+            ALICE_ID.clone(),
+            "absent_business".parse().expect("reference"),
+        );
         let query = FindSettlementReceiptById::new(id.clone());
         let error = ValidSingularQuery::execute(&query, &tx).expect_err("absent receipt");
-        assert!(matches!(error, Error::Conversion(_)));
+        assert!(
+            matches!(error, Error::Find(FindError::SettlementReceipt(missing)) if missing == id)
+        );
         assert!(tx.world.settlement_receipts.get(&id).is_none());
         assert!(tx.world.internal_event_buf.is_empty());
         assert_eq!(tx.pending_transfer_transcript_count_for_testing(), 0);
@@ -141,7 +147,10 @@ mod tests {
         let state = state();
         let mut block = state.block(BlockHeader::new(nonzero!(8_u64), None, None, 1235, 0));
         let mut tx = block.transaction();
-        let id: SettlementId = "bounded_business".parse().expect("id");
+        let id = SettlementId::new(
+            ALICE_ID.clone(),
+            "bounded_business".parse().expect("reference"),
+        );
         let expected = receipt(255);
         tx.world
             .settlement_receipts

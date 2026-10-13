@@ -10,8 +10,13 @@ pub fn field_bytes(text: &str) -> [u8; 32] {
     std::array::from_fn(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).unwrap())
 }
 
+/// Fixed 64-round bank of canonical little-endian field elements.
+pub type RoundConstants<const W: usize> = [[[u8; 32]; W]; 64];
+/// Square canonical little-endian field matrix for the same permutation width.
+pub type MdsMatrix<const W: usize> = [[[u8; 32]; W]; W];
+
 /// Decode exactly 64 round rows followed by a square MDS matrix.
-pub fn parameters<const W: usize>(text: &str) -> ([[[u8; 32]; W]; 64], [[[u8; 32]; W]; W]) {
+pub fn parameters<const W: usize>(text: &str) -> (RoundConstants<W>, MdsMatrix<W>) {
     assert!(text.ends_with('\n'), "reference has a final newline");
     assert!(
         !text.contains('\r'),

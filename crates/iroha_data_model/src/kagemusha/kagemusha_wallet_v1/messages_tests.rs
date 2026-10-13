@@ -493,7 +493,7 @@ impl MessageFixture {
         let receipt = KagemushaWalletReceiptV1 {
             version: KAGEMUSHA_WALLET_VERSION_V1,
             operation_id: body.operation_id,
-            capsule_digest: CAPSULE,
+            capsule_commitment: CAPSULE,
             payment_digest,
             signature: kagemusha_wallet_freeze_signature_v1(
                 &receipt_signer.payment_key,

@@ -38,8 +38,8 @@ fn limits() -> MembershipCaptureLimits {
         },
         max_row_visits: 64,
         max_total_rows: 32,
-        max_total_streamed_bytes: 131072,
-        max_total_ordered_bytes: 131072,
+        max_total_streamed_bytes: 131_072,
+        max_total_ordered_bytes: 131_072,
     }
 }
 fn seeded() -> TransactionsStorage {
@@ -232,8 +232,8 @@ fn inner_refunds_notify_only_after_original_writer_unlock_on_success_error_and_u
             storage: storage.clone(),
             wakes: AtomicUsize::new(0),
         });
-        let waker = Waker::from(wakes.clone());
-        let mut context = Context::from_waker(&waker);
+        let task_waker = Waker::from(wakes.clone());
+        let mut context = Context::from_waker(&task_waker);
         let mut waiting = None;
         let policy = if mode == 1 {
             MembershipCaptureLimits {
@@ -253,9 +253,7 @@ fn inner_refunds_notify_only_after_original_writer_unlock_on_success_error_and_u
                     };
                     assert!(registration.poll_wait(&release, &mut context).is_pending());
                     waiting = Some(release);
-                    if mode == 2 {
-                        panic!("unwind after funded row")
-                    }
+                    assert!(mode != 2, "unwind after funded row")
                 }
                 assert_eq!(wakes.wakes.load(Ordering::SeqCst), 0);
             })
@@ -309,8 +307,8 @@ fn occupied_original_pool_returns_original_release_and_retry_keeps_old_borrowers
         storage: storage.clone(),
         wakes: AtomicUsize::new(0),
     });
-    let waker = Waker::from(wakes.clone());
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(wakes.clone());
+    let mut context = Context::from_waker(&task_waker);
     let mut waiting = release.wait_for_release(&mut registration);
     assert!(Pin::new(&mut waiting).poll(&mut context).is_pending());
     let unrelated = AllocationBudget::new(1);
@@ -847,7 +845,7 @@ fn original_publisher_refund_batch_keeps_success_error_and_unwind_wakes_after_wr
             wakes: AtomicUsize::new(0),
             busy: AtomicUsize::new(0),
         });
-        let waker = Waker::from(probe.clone());
+        let task_waker = Waker::from(probe.clone());
         let occupied = pool
             .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
             .unwrap();
@@ -857,7 +855,7 @@ fn original_publisher_refund_batch_keeps_success_error_and_unwind_wakes_after_wr
         };
         assert!(
             registration
-                .poll_wait(&release, &mut Context::from_waker(&waker))
+                .poll_wait(&release, &mut Context::from_waker(&task_waker))
                 .is_pending()
         );
         let mut refunds = pool.deferred_refund_batch();
@@ -885,9 +883,7 @@ fn original_publisher_refund_batch_keeps_success_error_and_unwind_wakes_after_wr
                     let captured = captured.unwrap().unwrap();
                     assert!(captured.matches_original_writer(&block.transactions));
                     assert!(pool.reserved_bytes() > baseline);
-                    if mode == 2 {
-                        panic!("unwind after actual original pair capture")
-                    }
+                    assert!(mode != 2, "unwind after actual original pair capture");
                     drop(captured);
                 }
             });

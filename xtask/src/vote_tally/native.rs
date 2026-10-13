@@ -237,7 +237,7 @@ fn generate() -> Result<GeneratedBundle, Box<dyn Error>> {
         BACKEND,
         &ProofBox::new(BACKEND.into(), proof_bytes.clone()),
         Some(&vk),
-    ) {
+    )? {
         return Err("development fixture unexpectedly admitted by production verifier".into());
     }
     let summary = BundleSummary {

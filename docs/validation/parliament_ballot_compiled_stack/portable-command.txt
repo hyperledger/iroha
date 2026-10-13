@@ -1,0 +1,53 @@
+{
+  "output": "docs/validation/parliament_ballot_compiled_stack/portable.json",
+  "roots": [
+    {
+      "root": "resource_contract::budget::Reservation::verify::h99f9974bbb6d4184",
+      "resolved_region_stack_bytes": 15648,
+      "complete_stack_bound_bytes": null,
+      "frontier_kind_counts": {
+        "exceptional_terminal": 40,
+        "function_fallthrough": 81,
+        "indirect_branch": 4,
+        "indirect_call": 38,
+        "native_edge": 149
+      }
+    },
+    {
+      "root": "resource_contract::workspace::worker::h5a4e432b92764ca9",
+      "resolved_region_stack_bytes": 15984,
+      "complete_stack_bound_bytes": null,
+      "frontier_kind_counts": {
+        "exceptional_terminal": 42,
+        "function_fallthrough": 83,
+        "indirect_branch": 4,
+        "indirect_call": 39,
+        "native_edge": 169
+      }
+    },
+    {
+      "root": "iroha_zkp_vole::proof::verify::h510c1526093899e5",
+      "resolved_region_stack_bytes": 10672,
+      "complete_stack_bound_bytes": null,
+      "frontier_kind_counts": {
+        "exceptional_terminal": 36,
+        "function_fallthrough": 70,
+        "indirect_branch": 4,
+        "indirect_call": 38,
+        "native_edge": 100
+      }
+    },
+    {
+      "root": "iroha_zkp_vole::proof::verify::h8b6d4a2bd2c59ef0",
+      "resolved_region_stack_bytes": 10672,
+      "complete_stack_bound_bytes": null,
+      "frontier_kind_counts": {
+        "exceptional_terminal": 36,
+        "function_fallthrough": 72,
+        "indirect_branch": 4,
+        "indirect_call": 38,
+        "native_edge": 101
+      }
+    }
+  ]
+}

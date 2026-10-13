@@ -4,13 +4,13 @@ use super::*;
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 
 /// Fixed comparison receipt captured before the actual Queue selection begins.
-/// Copying it grants no custody; lease capture must recheck its original fence generation.
+/// Copying it grants no custody; lease capture rechecks each row against its original high-water.
 #[derive(Clone, Copy)]
 pub(crate) struct PendingPayloadSelection {
     queue_address: usize,
     state_address: usize,
     publication_generation: u64,
-    generation: u64,
+    admission_high_water: u64,
 }
 
 /// Fixed original-queue identity and its finite physically funded selected-input table.
@@ -19,19 +19,37 @@ pub(crate) struct PendingPayloadLease {
     queue_address: usize,
     state_address: usize,
     publication_generation: u64,
-    generation: u64,
     expires_at: Duration,
-    hashes: ChargedBuffer<EntrypointHash>,
+    admissions: ChargedBuffer<PendingPayloadAdmission>,
+}
+
+/// Comparison-only identity of one selected original Queue admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PendingPayloadAdmission {
+    hash: EntrypointHash,
+    incarnation: u64,
 }
 
 impl PendingPayloadLease {
+    /// Keep the exact prefix left by canonical payload sizing without refunding its backing.
+    /// The original earliest expiry stays conservative if a removed suffix expired sooner.
+    pub(crate) fn retain_prefix(&mut self, count: usize) {
+        self.admissions.truncate(count);
+    }
+
     /// Verify the original operation pool without allocating replacement metadata.
     pub(crate) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.hashes.belongs_to(budget)
+        self.admissions.belongs_to(budget)
     }
 }
 
 impl Queue {
+    /// Probe the exact paid selected-admission row layout in native refusal controls.
+    #[cfg(test)]
+    pub(crate) fn pending_payload_lease_layout_for_test(count: usize) -> std::alloc::Layout {
+        std::alloc::Layout::array::<PendingPayloadAdmission>(count).unwrap()
+    }
+
     /// Probe the actual Queue mutation fence from an original-pool test waker.
     #[cfg(test)]
     pub(crate) fn assert_payload_mutation_fence_released_for_test(&self) {
@@ -60,34 +78,40 @@ impl Queue {
             queue_address: std::ptr::from_ref(self).addr(),
             state_address: std::ptr::from_ref(state).addr(),
             publication_generation,
-            generation: self.pending_ownership_generation.load(Ordering::Acquire),
+            admission_high_water: self.pending_ownership_generation.load(Ordering::Acquire),
         })
     }
 
-    /// Called under the original mutation fence after a successful ownership transition.
-    /// Overflow permanently refuses reuse and admission instead of wrapping an old lease live.
-    pub(super) fn advance_pending_ownership_generation(&self, hash: EntrypointHash) {
-        if self
-            .pending_ownership_generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |prior| {
+    /// Advance the non-reusable high-water under the original mutation fence.
+    /// Overflow permanently refuses reuse and admission instead of reviving an old lease.
+    pub(super) fn advance_pending_ownership_generation(&self, hash: EntrypointHash) -> Option<u64> {
+        match self.pending_ownership_generation.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |prior| {
                 if cfg!(all(test, sumeragi_core_mutation = "HC145")) {
                     Some(prior.wrapping_add(1))
                 } else {
                     prior.checked_add(1)
                 }
-            })
-            .is_err()
-        {
-            self.mark_accepted_work_validation_fault(
-                hash,
-                "pending_payload_ownership_generation",
-                &"original Queue ownership generation exhausted",
-                None,
-            );
+            },
+        ) {
+            // Every writer holds the original Queue fence; this is the exact value
+            // just assigned, including in the deliberate overflow mutation control.
+            Ok(_) => Some(self.pending_ownership_generation.load(Ordering::Acquire)),
+            Err(_) => {
+                self.mark_accepted_work_validation_fault(
+                    hash,
+                    "pending_payload_ownership_generation",
+                    &"original Queue admission identity exhausted",
+                    None,
+                );
+                None
+            }
         }
     }
 
-    /// Capture exact admitted signed inputs under one original Queue ownership generation.
+    /// Capture exact rows admitted no later than the original pre-selection high-water.
     /// No queue or accepted-input graph is retained or cloned by this lease.
     ///
     /// # Errors
@@ -105,10 +129,10 @@ impl Queue {
         }
         budget.with_deferred_refund_notifications(|_| {
             #[cfg(not(all(test, sumeragi_core_mutation = "HC144")))]
-            let mut hashes = ChargedBuffer::new(selected.len(), budget)?;
+            let mut admissions = ChargedBuffer::new(selected.len(), budget)?;
             #[cfg(all(test, sumeragi_core_mutation = "HC144"))]
-            let mut hashes = match ChargedBuffer::new(selected.len(), budget) {
-                Ok(hashes) => hashes,
+            let mut admissions = match ChargedBuffer::new(selected.len(), budget) {
+                Ok(admissions) => admissions,
                 Err(ChargedBufferError::Admission(_)) => return Ok(None),
                 Err(error) => return Err(error),
             };
@@ -116,9 +140,6 @@ impl Queue {
             if self.admission_faulted()
                 || selection.queue_address != std::ptr::from_ref(self).addr()
                 || selection.state_address != std::ptr::from_ref(state).addr()
-                || (!cfg!(all(test, sumeragi_core_mutation = "HC141"))
-                    && selection.generation
-                        != self.pending_ownership_generation.load(Ordering::Acquire))
                 || !crate::state::is_stable_state_view_generation(
                     selection.publication_generation,
                     state.state_view_generation(),
@@ -133,7 +154,9 @@ impl Queue {
                 let Some(tracked) = self.txs.get(&hash) else {
                     return Ok(None);
                 };
-                if tracked.as_accepted().entrypoint() != original.entrypoint()
+                if (!cfg!(all(test, sumeragi_core_mutation = "HC141"))
+                    && tracked.incarnation() > selection.admission_high_water)
+                    || tracked.as_accepted().entrypoint() != original.entrypoint()
                     || tracked.is_in_blockchain(view)
                     || self.is_expired_at(tracked.as_accepted(), now)
                 {
@@ -163,11 +186,13 @@ impl Queue {
                     return Ok(None);
                 };
                 expires_at = Some(expires_at.map_or(deadline, |prior| prior.min(deadline)));
-                hashes
-                    .try_push(hash)
+                admissions
+                    .try_push(PendingPayloadAdmission {
+                        hash,
+                        incarnation: tracked.incarnation(),
+                    })
                     .expect("prepaid exact selected-input count");
             }
-            let generation = self.pending_ownership_generation.load(Ordering::Acquire);
             if !crate::state::is_stable_state_view_generation(
                 selection.publication_generation,
                 state.state_view_generation(),
@@ -179,16 +204,15 @@ impl Queue {
                 queue_address: std::ptr::from_ref(self).addr(),
                 state_address: std::ptr::from_ref(state).addr(),
                 publication_generation: selection.publication_generation,
-                generation,
                 expires_at: expires_at
                     .expect("a nonempty original input table has its actual expiry"),
-                hashes,
+                admissions,
             }))
         })
     }
 
     /// Recheck live original input custody, expiry and applied-state absence as one read.
-    /// Any insertion/removal conservatively retires this lease, including same-hash readmission.
+    /// Unrelated queue changes preserve it; selected removal or same-hash readmission retires it.
     #[cfg(test)]
     pub(crate) fn pending_payload_lease_is_current(
         &self,
@@ -219,7 +243,6 @@ impl Queue {
             && lease.queue_address != std::ptr::from_ref(self).addr())
             || lease.state_address != std::ptr::from_ref(state).addr()
             || self.admission_faulted()
-            || lease.generation != self.pending_ownership_generation.load(Ordering::Acquire)
         {
             return Ok(None);
         }
@@ -235,7 +258,7 @@ impl Queue {
             return Ok(None);
         };
         let before = state.state_view_generation();
-        if before % 2 != 0 {
+        if !before.is_multiple_of(2) {
             return Err(publication_release);
         }
         if before != lease.publication_generation
@@ -243,15 +266,16 @@ impl Queue {
         {
             return Ok(None);
         }
-        let live = lease.hashes.as_slice().iter().all(|hash| {
-            self.txs.get(hash).is_some_and(|tracked| {
-                !tracked.is_in_blockchain(view)
+        let live = lease.admissions.as_slice().iter().all(|admission| {
+            self.txs.get(&admission.hash).is_some_and(|tracked| {
+                tracked.incarnation() == admission.incarnation
+                    && !tracked.is_in_blockchain(view)
                     && (cfg!(all(test, sumeragi_core_mutation = "HC143"))
                         || !self.is_expired_at(tracked.as_accepted(), now))
             })
         });
         let after = state.state_view_generation();
-        if after % 2 != 0 {
+        if !after.is_multiple_of(2) {
             return Err(publication_release);
         }
         Ok(
@@ -271,9 +295,13 @@ impl Queue {
         if lease.queue_address != std::ptr::from_ref(self).addr()
             || lease.state_address != std::ptr::from_ref(state).addr()
             || self.admission_faulted()
-            || lease.generation != self.pending_ownership_generation.load(Ordering::Acquire)
-            || (publication_generation % 2 == 0
+            || (publication_generation.is_multiple_of(2)
                 && publication_generation != lease.publication_generation)
+            || !lease.admissions.as_slice().iter().all(|admission| {
+                self.txs
+                    .get(&admission.hash)
+                    .is_some_and(|tracked| tracked.incarnation() == admission.incarnation)
+            })
         {
             return None;
         }
@@ -323,6 +351,208 @@ mod tests {
     }
 
     #[test]
+    fn pending_payload_selection_keeps_original_rows_across_unrelated_admissions() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let key = config.genesis_key.clone();
+        let chain = CertifiedTestChain::start(config).unwrap();
+        let (_, time) = TimeSource::new_mock(Duration::from_millis(2_100));
+        let queue = Queue::test(Config::default(), &time);
+        let accept = |created| {
+            AcceptedTransaction::accept_with_time_source(
+                signed_work(&chain, &key, created),
+                &chain.network_id(),
+                Duration::from_secs(1),
+                chain.state().view().world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap()
+        };
+        let original = accept(2_000);
+        queue.push(original.clone(), chain.state().view()).unwrap();
+        let selection = queue
+            .begin_pending_payload_selection(chain.state(), chain.state().state_view_generation())
+            .unwrap();
+        for created in 2_001..=2_016 {
+            let unrelated = accept(created);
+            let hash = unrelated.hash_as_entrypoint();
+            queue.push(unrelated, chain.state().view()).unwrap();
+            assert_eq!(queue.remove_committed_hashes([hash], None), 1);
+        }
+        let budget = chain.state().ivm_execution_budget();
+        let view = chain.state().view();
+        let retained = queue
+            .capture_pending_payload_lease(
+                chain.state(),
+                selection,
+                &view,
+                std::slice::from_ref(&original),
+                &budget,
+            )
+            .unwrap();
+        assert!(
+            retained.is_some(),
+            "unrelated Queue admissions must not retire the original selected admission"
+        );
+        assert_eq!(queue.queued_len(), 1);
+        assert!(queue.contains_entrypoint_hash(original.hash_as_entrypoint()));
+    }
+
+    #[test]
+    fn pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let key = config.genesis_key.clone();
+        let chain = CertifiedTestChain::start(config).unwrap();
+        let (_, time) = TimeSource::new_mock(Duration::from_millis(2_100));
+        let queue = Queue::test(Config::default(), &time);
+        let accept = |created| {
+            AcceptedTransaction::accept_with_time_source(
+                signed_work(&chain, &key, created),
+                &chain.network_id(),
+                Duration::from_secs(1),
+                chain.state().view().world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap()
+        };
+        let original = accept(2_000);
+        let hash = original.hash_as_entrypoint();
+        queue.push(original.clone(), chain.state().view()).unwrap();
+        let budget = chain.state().ivm_execution_budget();
+        let view = chain.state().view();
+        let retained = capture_current(
+            &queue,
+            chain.state(),
+            &view,
+            std::slice::from_ref(&original),
+            &budget,
+        )
+        .unwrap()
+        .unwrap();
+        let backing = retained.admissions.as_slice().as_ptr();
+        let funded = budget.reserved_bytes();
+        let original_wait = queue.pending_payload_lease_expiry_wait(chain.state(), &retained);
+        for created in 2_001..=2_016 {
+            let unrelated = accept(created);
+            let unrelated_hash = unrelated.hash_as_entrypoint();
+            queue.push(unrelated, chain.state().view()).unwrap();
+            assert!(
+                queue.pending_payload_lease_is_current(chain.state(), &view, &retained),
+                "unrelated Queue admissions must not revoke the retained original admission"
+            );
+            assert_eq!(
+                queue.pending_payload_lease_expiry_wait(chain.state(), &retained),
+                original_wait
+            );
+            assert_eq!(queue.remove_committed_hashes([unrelated_hash], None), 1);
+            assert!(queue.pending_payload_lease_is_current(chain.state(), &view, &retained));
+            assert_eq!(retained.admissions.as_slice().as_ptr(), backing);
+            assert_eq!(budget.reserved_bytes(), funded);
+        }
+        assert_eq!(queue.remove_committed_hashes([hash], None), 1);
+        queue.push(original, chain.state().view()).unwrap();
+        assert!(
+            !queue.pending_payload_lease_is_current(chain.state(), &view, &retained),
+            "same-hash readmission must retain a different original admission identity"
+        );
+        assert!(
+            queue
+                .pending_payload_lease_expiry_wait(chain.state(), &retained)
+                .is_none(),
+            "a retired admission must not arm a replacement owner's expiry wait"
+        );
+    }
+
+    #[test]
+    fn pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let key = config.genesis_key.clone();
+        let chain = CertifiedTestChain::start(config).unwrap();
+        let (clock, time) = TimeSource::new_mock(Duration::from_millis(2_002));
+        let mut config = Config::default();
+        config.transaction_time_to_live = Duration::from_secs(1);
+        let queue = Queue::test(config, &time);
+        let selected = [2_001, 2_000].map(|created| {
+            let accepted = AcceptedTransaction::accept_with_time_source(
+                signed_work(&chain, &key, created),
+                &chain.network_id(),
+                Duration::from_secs(1),
+                chain.state().view().world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap();
+            queue.push(accepted.clone(), chain.state().view()).unwrap();
+            accepted
+        });
+        let budget = chain.state().ivm_execution_budget();
+        let before = budget.reserved_bytes();
+        let view = chain.state().view();
+        let mut lease = capture_current(&queue, chain.state(), &view, &selected, &budget)
+            .unwrap()
+            .unwrap();
+        let funded = budget.reserved_bytes();
+        let original = lease.admissions.as_slice().as_ptr();
+        let expires_at = lease.expires_at;
+        lease.retain_prefix(1);
+        assert_eq!(lease.admissions.as_slice().len(), 1);
+        assert_eq!(
+            lease.admissions.as_slice()[0].hash,
+            selected[0].hash_as_entrypoint()
+        );
+        assert_eq!(lease.admissions.as_slice().as_ptr(), original);
+        assert_eq!(lease.admissions.capacity(), 2);
+        assert_eq!(budget.reserved_bytes(), funded);
+        assert_eq!(lease.expires_at, expires_at);
+        assert!(queue.pending_payload_lease_is_current(chain.state(), &view, &lease));
+        // Removing the older suffix cannot extend the original lease's lifetime.
+        clock.set(Duration::from_millis(3_001));
+        assert!(!queue.is_expired_at(&selected[0], time.now()));
+        assert!(!queue.pending_payload_lease_is_current(chain.state(), &view, &lease));
+        drop(lease);
+        assert_eq!(budget.reserved_bytes(), before);
+    }
+
+    #[test]
+    fn pending_payload_admission_exhaustion_refuses_before_input_publication() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let key = config.genesis_key.clone();
+        let chain = CertifiedTestChain::start(config).unwrap();
+        let (_, time) = TimeSource::new_mock(Duration::from_millis(2_001));
+        let queue = Queue::test(Config::default(), &time);
+        let accept = |created| {
+            AcceptedTransaction::accept_with_time_source(
+                signed_work(&chain, &key, created),
+                &chain.network_id(),
+                Duration::from_secs(1),
+                chain.state().view().world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap()
+        };
+        queue.push(accept(2_000), chain.state().view()).unwrap();
+        let candidate = accept(2_001);
+        let candidate_hash = candidate.hash_as_entrypoint();
+        let budget = chain.state().ivm_execution_budget();
+        let before = budget.reserved_bytes();
+        let residence = queue.retained_bytes();
+        queue
+            .pending_ownership_generation
+            .store(u64::MAX, Ordering::Release);
+        assert!(
+            queue.push(candidate, chain.state().view()).is_err(),
+            "exhausted Queue admission identity must refuse before publishing the new input"
+        );
+        assert!(queue.admission_faulted());
+        assert!(!queue.contains_entrypoint_hash(candidate_hash));
+        assert_eq!(queue.queued_len(), 1);
+        assert_eq!(queue.retained_bytes(), residence);
+        assert_eq!(budget.reserved_bytes(), before);
+    }
+
+    #[test]
     fn pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue()
      {
         let configuration = TestChainConfig::new(World::new(), 1_000);
@@ -345,11 +575,7 @@ mod tests {
         let hash = accepted.hash_as_entrypoint();
         let budget = chain.state().ivm_execution_budget();
         let before_admission = budget.reserved_bytes();
-        let shell_bytes = iroha_allocation::shared::Shared::<
-            CheckedTransaction<'static>,
-            resident_owner::QueueResidentCharge,
-        >::layout()
-        .size();
+        let shell_bytes = QueuedTransaction::allocation_layout().size();
         let ledger_bytes =
             iroha_allocation::ChargedShared::<QueueResidentLedger>::allocation_layout().size();
         queue.push(accepted.clone(), chain.state().view()).unwrap();
@@ -413,7 +639,7 @@ mod tests {
         )
         .unwrap();
         queue.push(additional, chain.state().view()).unwrap();
-        assert!(!queue.pending_payload_lease_is_current(chain.state(), &view, &replacement));
+        assert!(queue.pending_payload_lease_is_current(chain.state(), &view, &replacement));
         drop(replacement);
         drop(original);
         assert_eq!(
@@ -479,7 +705,8 @@ mod tests {
             "readmission preserves this cloned input's exact ingress validation timestamp"
         );
         assert!(
-            queue.pending_ownership_generation.load(Ordering::Acquire) > selection.generation,
+            queue.pending_ownership_generation.load(Ordering::Acquire)
+                > selection.admission_high_water,
             "clear and readmission create a fresh original custody boundary even with the same hash and timestamp"
         );
         let budget = chain.state().ivm_execution_budget();
@@ -566,11 +793,7 @@ mod tests {
         let hash = accepted.hash_as_entrypoint();
         let budget = chain.state().ivm_execution_budget();
         let before_admission = budget.reserved_bytes();
-        let shell_bytes = iroha_allocation::shared::Shared::<
-            CheckedTransaction<'static>,
-            resident_owner::QueueResidentCharge,
-        >::layout()
-        .size();
+        let shell_bytes = QueuedTransaction::allocation_layout().size();
         let ledger_bytes =
             iroha_allocation::ChargedShared::<QueueResidentLedger>::allocation_layout().size();
         queue.push(accepted.clone(), chain.state().view()).unwrap();
@@ -592,7 +815,7 @@ mod tests {
             panic!("the exact original input table must refuse its occupied pool");
         };
         let same_probe = budget
-            .try_reserve(std::alloc::Layout::array::<EntrypointHash>(1).unwrap())
+            .try_reserve(Queue::pending_payload_lease_layout_for_test(1))
             .unwrap_err();
         assert_eq!(
             original_refusal, same_probe,

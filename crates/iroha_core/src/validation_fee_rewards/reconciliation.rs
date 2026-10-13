@@ -498,10 +498,15 @@ pub(super) fn validate(
         let revision: ValidationFeeRewardBeneficiaryRevision =
             read_from_world(world, &revision_key)?
                 .ok_or_else(|| fail("reward claim beneficiary revision is missing"))?;
-        if revision.beneficiary_id != claim.beneficiary_id
-            || revision.revision != claim.beneficiary_revision
-            || revision.account_id != claim.account_id
-            || revision.authorized_at_height > claim.claimed_at_height
+        if (
+            &revision.beneficiary_id,
+            revision.revision,
+            &revision.account_id,
+        ) != (
+            &claim.beneficiary_id,
+            claim.beneficiary_revision,
+            &claim.account_id,
+        ) || revision.authorized_at_height > claim.claimed_at_height
             || beneficiary::root_in_world(world, binding, &claim.account_id)?
                 != claim.beneficiary_id
         {

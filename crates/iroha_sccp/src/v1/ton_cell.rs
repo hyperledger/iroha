@@ -1,13 +1,13 @@
 //! SCCP v1 TON cells (spec §5.3.1, §5.3.2).
 //!
 //! A minimal ordinary-cell builder with TON representation hashes and depths, the standard
-//! `SnakeBytes` format, the chunked `MemberChunk` and `HashChunk` lists, the canonical initial
+//! `SnakeBytes` format, the chunked `KeyChunk` and `HashChunk` lists, the canonical initial
 //! data of the SCCP Jetton master (minter) and the workchain-0 `StateInit` addresses of the
 //! minter, its wallets and its consumption buckets.
 //!
 //! A cell's representation hash depends on its children only through their hashes and depths,
 //! so contract code is referenced by `(hash, depth)` alone ([`CellRef::opaque`]) and Taira can
-//! recompute a deployment address from the registered code references (§4.14.3).
+//! recompute a deployment address from the locked code references (§4.14.3).
 //!
 //! [`Cell::to_boc`] serializes a complete cell tree as a single-root bag of cells (message
 //! bodies, `StateInit`s and external messages) and [`cell_from_boc`] reads one back (contract
@@ -17,16 +17,17 @@
 //! unit test compares them), so tooling can fund a minter deployment before the minter's own
 //! `minter_floor()` get method exists.
 //!
-//! TODO(ws3A): deduplicate the cell hashing with the `BoC` cell hashing of `crate::ton_native`.
+//! Native `BoC` verification and construction share the allocation-free representation writer.
 
 use std::sync::Arc;
 
-use iroha_data_model::sccp::deployment::SccpTonCodeRefV1;
-use sha2::{Digest as _, Sha256};
+use iroha_data_model::sccp::deployment::{SccpCommitteePinV1, SccpTonCodeRefV1};
 
 use super::{
-    constants::{TON_HASH_CHUNK_HASHES, TON_MEMBER_CHUNK_ADDRESSES, TON_SNAKE_CHUNK_BYTES},
-    roster::RosterV1,
+    committee::{committee_root, is_canonical_order, is_valid_committee_size},
+    constants::{
+        MAX_TAIRA_ACCOUNT_BYTES, TON_HASH_CHUNK_HASHES, TON_KEY_CHUNK_KEYS, TON_SNAKE_CHUNK_BYTES,
+    },
 };
 
 /// Maximum data bits of one cell.
@@ -35,6 +36,42 @@ pub const MAX_CELL_BITS: usize = 1023;
 pub const MAX_CELL_REFS: usize = 4;
 /// Exclusive bound of a TON `Coins` value (`VarUInteger 16`: at most 15 value bytes).
 pub const COINS_BOUND: u128 = 1 << 120;
+/// `sccp_burn_to_taira` custom-payload opcode (§5.3.2).
+pub const TON_BURN_TO_TAIRA_OP: u32 = 0x5343_4254;
+
+/// Code-cell hashes and depths of the locked first-release TON minter, wallet and bucket.
+///
+/// The order is `[minter, wallet, bucket]`. These fixed references are shared by native
+/// registration and deployment tooling; a parity test binds all six coordinates to
+/// `fixtures/sccp/ton_stateinit_v1.json`, whose build gate checks the actual contract code.
+pub const fn locked_code_refs() -> [SccpTonCodeRefV1; 3] {
+    [
+        SccpTonCodeRefV1 {
+            hash: [
+                0x88, 0xd0, 0xc0, 0xb1, 0x33, 0xb7, 0xe6, 0xbd, 0xac, 0x95, 0xe3, 0xc2, 0x23, 0x2a,
+                0xe7, 0x9d, 0xd3, 0xd9, 0x95, 0x9f, 0x8d, 0xf6, 0x33, 0x76, 0x00, 0x5e, 0xe4, 0x9b,
+                0xbe, 0x5e, 0xb2, 0x72,
+            ],
+            depth: 14,
+        },
+        SccpTonCodeRefV1 {
+            hash: [
+                0x49, 0x7b, 0x86, 0xd4, 0x37, 0x82, 0xbe, 0xc7, 0xc0, 0x4c, 0xef, 0x6d, 0xe1, 0xa5,
+                0xe3, 0x12, 0xf9, 0x6b, 0x58, 0xef, 0x8b, 0x69, 0xd6, 0x54, 0x35, 0xf1, 0x2f, 0xc2,
+                0x49, 0xe4, 0x50, 0xfd,
+            ],
+            depth: 9,
+        },
+        SccpTonCodeRefV1 {
+            hash: [
+                0x70, 0x54, 0x55, 0x73, 0x68, 0x0b, 0xac, 0xd0, 0x69, 0x63, 0xff, 0x18, 0x33, 0x3a,
+                0x2f, 0xa5, 0xac, 0xe6, 0x88, 0x32, 0x0d, 0x26, 0x93, 0xfa, 0xce, 0xad, 0xa2, 0x30,
+                0xf9, 0x8d, 0xf6, 0x2d,
+            ],
+            depth: 8,
+        },
+    ]
+}
 
 unit_error! {
     /// TON cell construction and parsing errors.
@@ -55,8 +92,10 @@ unit_error! {
         SnakeTooLong => "snake content exceeds the length bound",
         /// A child cell is known only by its hash and depth.
         OpaqueChild => "cell child is known only by hash and depth",
-        /// The roster fields violate §3.7.
-        BadRoster => "minter roster violates the roster rules",
+        /// The native committee size, order or pinned root violates §3.7.
+        BadCommittee => "minter committee differs from the canonical pinned committee",
+        /// The deployment configuration or native generation pin is malformed.
+        BadConfig => "minter configuration or native generation pin is malformed",
     }
 }
 
@@ -166,25 +205,29 @@ impl Cell {
     ///
     /// # Errors
     ///
-    /// Returns [`TonCellError::OpaqueChild`] when a child is known only by hash and depth.
+    /// Returns [`TonCellError::OpaqueChild`] when a child is known only by hash and depth,
+    /// or [`TonCellError::BadSnake`] above TON's native maximum cell depth.
     pub fn to_boc(&self) -> Result<Vec<u8>, TonCellError> {
-        fn visit<'a>(
-            cell: &'a Cell,
-            seen: &mut std::collections::BTreeSet<[u8; 32]>,
-            post: &mut Vec<&'a Cell>,
-        ) -> Result<(), TonCellError> {
-            if !seen.insert(cell.hash) {
-                return Ok(());
-            }
-            // Children in reverse, then the reversed post-order: the canonical proof order.
-            for child in cell.refs.iter().rev() {
-                visit(child.cell().ok_or(TonCellError::OpaqueChild)?, seen, post)?;
-            }
-            post.push(cell);
-            Ok(())
+        if self.depth > crate::ton_native::TON_MAX_CELL_DEPTH {
+            return Err(TonCellError::BadSnake);
         }
         let mut post = Vec::new();
-        visit(self, &mut std::collections::BTreeSet::new(), &mut post)?;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut work = vec![(self, false)];
+        while let Some((cell, finish)) = work.pop() {
+            if finish {
+                post.push(cell);
+                continue;
+            }
+            if !seen.insert(cell.hash) {
+                continue;
+            }
+            work.push((cell, true));
+            // Stack LIFO visits children in reverse before emitting their parent.
+            for child in &cell.refs {
+                work.push((child.cell().ok_or(TonCellError::OpaqueChild)?, false));
+            }
+        }
         post.reverse();
         let index: std::collections::BTreeMap<[u8; 32], usize> = post
             .iter()
@@ -228,18 +271,33 @@ impl Cell {
 /// Returns [`TonCellError::BadSnake`] for a malformed bag, an exotic cell or a cell that does
 /// not fit the builder.
 pub fn cell_from_boc(bytes: &[u8]) -> Result<Cell, TonCellError> {
-    fn build(
-        boc: &crate::ton_native::TonBoc,
-        index: usize,
-        memo: &mut std::collections::BTreeMap<usize, Cell>,
-    ) -> Result<Cell, TonCellError> {
-        if let Some(cell) = memo.get(&index) {
-            return Ok(cell.clone());
-        }
-        let raw = boc.cells.get(index).ok_or(TonCellError::BadSnake)?;
-        if raw.exotic {
+    let boc = crate::ton_native::parse_ton_boc(bytes).ok_or(TonCellError::BadSnake)?;
+    let [root] = boc.roots.as_slice() else {
+        return Err(TonCellError::BadSnake);
+    };
+    // Native parsing enforces topological references (child index > parent index).
+    // Validate the entire ordinary graph's depth before constructing any Arc tree.
+    let mut depths = vec![0_u16; boc.cells.len()];
+    for (index, raw) in boc.cells.iter().enumerate().rev() {
+        if raw.exotic || raw.descriptor >> 5 != 0 {
             return Err(TonCellError::BadSnake);
         }
+        let depth = raw.refs.iter().try_fold(0_u16, |maximum, child| {
+            let depth = depths
+                .get(*child)
+                .copied()
+                .ok_or(TonCellError::BadSnake)?
+                .checked_add(1)
+                .ok_or(TonCellError::BadSnake)?;
+            Ok::<_, TonCellError>(maximum.max(depth))
+        })?;
+        if depth > crate::ton_native::TON_MAX_CELL_DEPTH {
+            return Err(TonCellError::BadSnake);
+        }
+        depths[index] = depth;
+    }
+    let mut built: Vec<Option<Cell>> = (0..boc.cells.len()).map(|_| None).collect();
+    for (index, raw) in boc.cells.iter().enumerate().rev() {
         let bits = crate::ton_native::ton_cell_serialized_bit_len(raw.data_descriptor, &raw.data)
             .ok_or(TonCellError::BadSnake)?;
         let mut builder = CellBuilder::new();
@@ -247,36 +305,56 @@ pub fn cell_from_boc(bytes: &[u8]) -> Result<Cell, TonCellError> {
             builder.store_bit(raw.data[bit / 8] & (0x80 >> (bit % 8)) != 0)?;
         }
         for child in &raw.refs {
-            builder.store_ref(build(boc, *child, memo)?)?;
+            builder.store_ref(
+                built
+                    .get(*child)
+                    .and_then(Option::as_ref)
+                    .ok_or(TonCellError::BadSnake)?
+                    .clone(),
+            )?;
         }
-        let cell = builder.build();
-        memo.insert(index, cell.clone());
-        Ok(cell)
+        built[index] = Some(builder.build());
     }
-    let boc = crate::ton_native::parse_ton_boc(bytes).ok_or(TonCellError::BadSnake)?;
-    let [root] = boc.roots.as_slice() else {
-        return Err(TonCellError::BadSnake);
-    };
-    build(&boc, *root, &mut std::collections::BTreeMap::new())
+    built
+        .get_mut(*root)
+        .and_then(Option::take)
+        .ok_or(TonCellError::BadSnake)
+}
+
+fn with_representation<T>(
+    data: &[u8],
+    bit_len: usize,
+    refs: &[CellRef],
+    visit: impl FnOnce([u8; 2], &[u8], &[(u16, [u8; 32])]) -> T,
+) -> T {
+    let full_bytes = bit_len / 8;
+    let data_bytes = bit_len.div_ceil(8);
+    let mut augmented = [0_u8; MAX_CELL_BITS.div_ceil(8)];
+    augmented[..data_bytes].copy_from_slice(&data[..data_bytes]);
+    if !bit_len.is_multiple_of(8) {
+        augmented[data_bytes - 1] |= 0x80 >> (bit_len % 8);
+    }
+    let mut children = [(0_u16, [0_u8; 32]); MAX_CELL_REFS];
+    for (child, reference) in children.iter_mut().zip(refs) {
+        *child = (reference.depth, reference.hash);
+    }
+    visit(
+        [
+            u8::try_from(refs.len()).expect("at most 4 references"),
+            u8::try_from(full_bytes + data_bytes).expect("at most 255 descriptor bits"),
+        ],
+        &augmented[..data_bytes],
+        &children[..refs.len()],
+    )
 }
 
 fn representation(data: &[u8], bit_len: usize, refs: &[CellRef]) -> Vec<u8> {
-    let full_bytes = bit_len / 8;
-    let data_bytes = bit_len.div_ceil(8);
-    let mut out = Vec::with_capacity(2 + data_bytes + refs.len() * 34);
-    out.push(u8::try_from(refs.len()).expect("at most 4 references"));
-    out.push(u8::try_from(full_bytes + data_bytes).expect("at most 256 data bytes"));
-    out.extend_from_slice(&data[..data_bytes]);
-    if !bit_len.is_multiple_of(8) {
-        let last = out.len() - 1;
-        out[last] |= 0x80 >> (bit_len % 8);
-    }
-    for child in refs {
-        out.extend_from_slice(&child.depth.to_be_bytes());
-    }
-    for child in refs {
-        out.extend_from_slice(&child.hash);
-    }
+    let mut out = Vec::with_capacity(2 + bit_len.div_ceil(8) + refs.len() * 34);
+    with_representation(data, bit_len, refs, |descriptors, augmented, children| {
+        crate::ton_cell_hash::write_representation(descriptors, augmented, children, |bytes| {
+            out.extend_from_slice(bytes)
+        });
+    });
     out
 }
 
@@ -418,8 +496,12 @@ impl CellBuilder {
     /// Finish the cell and compute its representation hash and depth.
     #[must_use]
     pub fn build(&self) -> Cell {
-        let representation = representation(&self.data, self.bit_len, &self.refs);
-        let hash: [u8; 32] = Sha256::digest(&representation).into();
+        let hash = with_representation(
+            &self.data,
+            self.bit_len,
+            &self.refs,
+            crate::ton_cell_hash::representation_hash,
+        );
         let depth = self
             .refs
             .iter()
@@ -501,6 +583,28 @@ pub fn parse_snake_bytes(cell: &Cell, max_bytes: usize) -> Result<Vec<u8>, TonCe
     }
 }
 
+/// Build the ordinary `sccp_burn_to_taira` wrapper and its complete recipient snake.
+///
+/// The wallet and minter admit exactly 1..=1024 recipient bytes, in ordinary canonical
+/// 127-byte chunks, before debiting or forwarding (§5.3.4). A [`Cell`] cannot contain an
+/// exotic cell; importing a bag through [`cell_from_boc`] enforces the same rule.
+///
+/// # Errors
+/// Returns [`TonCellError::BadSnake`] for an empty recipient and
+/// [`TonCellError::SnakeTooLong`] for a recipient above the Taira account bound.
+pub fn burn_to_taira_payload(recipient: &[u8]) -> Result<Cell, TonCellError> {
+    if recipient.is_empty() {
+        return Err(TonCellError::BadSnake);
+    }
+    if recipient.len() > MAX_TAIRA_ACCOUNT_BYTES {
+        return Err(TonCellError::SnakeTooLong);
+    }
+    Ok(CellBuilder::new()
+        .store_uint(u128::from(TON_BURN_TO_TAIRA_OP), 32)?
+        .store_ref(snake_bytes(recipient)?)?
+        .build())
+}
+
 fn chunk_list<T>(
     items: &[T],
     per_chunk: usize,
@@ -521,15 +625,14 @@ fn chunk_list<T>(
     Ok(next.expect("non-empty input has a chunk"))
 }
 
-/// `MemberChunk`: maximal 6-address chunks of `uint160` members with a `Maybe ^MemberChunk`
-/// continuation.
+/// `KeyChunk`: maximal two-key chunks of compressed 48-byte BLS keys, followed by a
+/// `Maybe ^KeyChunk` continuation. Committee geometry and authority belong to the caller.
 ///
 /// # Errors
-///
-/// Returns [`TonCellError::Empty`] for no members.
-pub fn member_chunks(members: &[[u8; 20]]) -> Result<Cell, TonCellError> {
-    chunk_list(members, TON_MEMBER_CHUNK_ADDRESSES, |builder, member| {
-        builder.store_bytes(member).map(|_| ())
+/// Returns [`TonCellError::Empty`] for no keys.
+pub fn key_chunks(keys: &[[u8; 48]]) -> Result<Cell, TonCellError> {
+    chunk_list(keys, TON_KEY_CHUNK_KEYS, |builder, key| {
+        builder.store_bytes(key).map(|_| ())
     })
 }
 
@@ -558,42 +661,51 @@ pub fn hash_chunks(hashes: &[[u8; 32]]) -> Result<Option<Cell>, TonCellError> {
 pub struct TonMinterInitV1 {
     /// Live Taira `NetworkId` bytes.
     pub taira_network_id: [u8; 32],
+    /// Native Sumeragi instance id bound into every Commit preimage.
+    pub consensus_instance: [u8; 32],
     /// Route revision.
     pub route_revision: u32,
     /// Supply cap in token units (`Coins`, below `2^120`).
     pub max_supply: u128,
-    /// The pinned Taira roster generation.
-    pub roster: RosterV1,
+    /// The initial native generation; its root must match `keys`.
+    pub pin: SccpCommitteePinV1,
+    /// Original compressed BLS committee keys in canonical order.
+    pub keys: Vec<[u8; 48]>,
     /// Jetton wallet code.
     pub wallet_code: SccpTonCodeRefV1,
     /// Consumption bucket code.
     pub bucket_code: SccpTonCodeRefV1,
 }
 
-/// The three cells under the minter data root, exposed for golden comparisons.
+/// Canonical minter cells, exposed for independent contract golden comparisons.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TonMinterDataV1 {
     /// `minter_data` root cell.
     pub root: Cell,
     /// `minter_config` cell.
     pub config: Cell,
-    /// `roster_state` cell.
-    pub roster: Cell,
-    /// First `MemberChunk` cell.
-    pub members: Cell,
-    /// The pinned roster digest.
-    pub roster_digest: [u8; 32],
+    /// `initial_pin` cell committed by the immutable configuration.
+    pub initial_pin: Cell,
+    /// `committee_state` cell with `high = start_height - 1`.
+    pub committee: Cell,
+    /// Empty `Checkpoints` cell.
+    pub checkpoints: Cell,
+    /// Empty `RecoveryBook` with the first operation id equal to one.
+    pub recovery: Cell,
+    /// First `KeyChunk` cell.
+    pub keys: Cell,
 }
 
-/// Build the canonical initial minter data (§5.3.1): uninitialized, zero counters and supply,
-/// not paused, no deployed buckets, no previous roster, no recorded retries; the config holds
-/// the network id,
-/// revision, cap, pinned generation and digest and both code references; the roster holds the
-/// digest, generation, validity window, `n`, `t` and the members in maximal 6-address chunks.
+/// Build the canonical native-finality minter data (§5.3.1): zero counters, supplies,
+/// pauses, checkpoints and recovery operations; one pinned BLS committee and the immutable network,
+/// consensus instance, revision, cap and code references.
+///
+/// This deterministic builder checks the fixed layout and key commitment. It does not
+/// authenticate the pin or check its deadline against a destination clock.
 ///
 /// # Errors
-///
-/// Returns [`TonCellError::BadRoster`] or [`TonCellError::CoinsTooLarge`].
+/// Returns [`TonCellError::BadConfig`], [`TonCellError::BadCommittee`] or
+/// [`TonCellError::CoinsTooLarge`] for malformed inputs.
 pub fn minter_initial_data(init: &TonMinterInitV1) -> Result<TonMinterDataV1, TonCellError> {
     minter_initial_data_with_code(init, init.wallet_code.into(), init.bucket_code.into())
 }
@@ -626,55 +738,80 @@ fn minter_initial_data_with_code(
     wallet_code: CellRef,
     bucket_code: CellRef,
 ) -> Result<TonMinterDataV1, TonCellError> {
-    let roster_digest = init
-        .roster
-        .digest(&init.taira_network_id)
-        .map_err(|_| TonCellError::BadRoster)?;
-    let n = u8::try_from(init.roster.n()).map_err(|_| TonCellError::BadRoster)?;
-    let t = u8::try_from(init.roster.threshold()).map_err(|_| TonCellError::BadRoster)?;
-
+    if init.taira_network_id == [0; 32]
+        || init.consensus_instance == [0; 32]
+        || init.route_revision == 0
+        || init.max_supply == 0
+        || !init.pin.is_well_formed()
+    {
+        return Err(TonCellError::BadConfig);
+    }
+    if !is_valid_committee_size(init.keys.len())
+        || !is_canonical_order(&init.keys)
+        || committee_root(&init.keys) != Some(init.pin.committee_root)
+    {
+        return Err(TonCellError::BadCommittee);
+    }
+    let n = u8::try_from(init.keys.len()).map_err(|_| TonCellError::BadCommittee)?;
+    let mut initial_pin = CellBuilder::new();
+    initial_pin
+        .store_uint(u128::from(init.pin.generation), 64)?
+        .store_bytes(&init.pin.committee_root)?
+        .store_uint(u128::from(init.pin.start_height), 64)?
+        .store_uint(u128::from(init.pin.until_ms), 64)?;
+    let initial_pin = initial_pin.build();
     let mut config = CellBuilder::new();
     config
         .store_bytes(&init.taira_network_id)?
+        .store_bytes(&init.consensus_instance)?
         .store_uint(u128::from(init.route_revision), 32)?
         .store_coins(init.max_supply)?
-        .store_uint(u128::from(init.roster.generation), 64)?
-        .store_bytes(&roster_digest)?
+        .store_ref(initial_pin.clone())?
         .store_ref(wallet_code)?
         .store_ref(bucket_code)?;
     let config = config.build();
 
-    let members = member_chunks(&init.roster.members)?;
-    let mut roster = CellBuilder::new();
-    roster
-        .store_bytes(&roster_digest)?
-        .store_uint(u128::from(init.roster.generation), 64)?
-        .store_uint(u128::from(init.roster.valid_from_ms), 64)?
-        .store_uint(u128::from(init.roster.valid_until_ms), 64)?
+    let keys = key_chunks(&init.keys)?;
+    let mut committee = CellBuilder::new();
+    committee
+        .store_bytes(&init.pin.committee_root)?
+        .store_uint(u128::from(init.pin.until_ms), 64)?
+        .store_uint(u128::from(init.pin.start_height), 64)?
+        .store_uint(u128::from(init.pin.start_height - 1), 64)?
+        .store_uint(u128::from(init.pin.generation), 64)?
         .store_uint(u128::from(n), 8)?
-        .store_uint(u128::from(t), 8)?
-        .store_ref(members.clone())?;
-    let roster = roster.build();
-
+        .store_ref(keys.clone())?;
+    let committee = committee.build();
+    let checkpoints = CellBuilder::new().store_uint(0, 2)?.build();
+    let recovery = CellBuilder::new()
+        .store_uint(1, 64)? // next operation id
+        .store_uint(0, 10)? // retained operation count
+        .store_uint(0, 64)? // activated buckets
+        .store_bit(false)? // operations: empty HashmapE 64
+        .build();
     let mut root = CellBuilder::new();
     root.store_bit(false)? // initialized
+        .store_bit(false)? // equivocated
         .store_coins(0)? // total_supply
         .store_coins(0)? // pending_supply
         .store_uint(0, 64)? // outbound_nonce
         .store_uint(0, 64)? // op_count
         .store_uint(0, 64)? // control_nonce
-        .store_bit(false)? // minting_paused
+        .store_bit(false)? // parliament_paused
+        .store_uint(0, 64)? // fast_pause_until_ms
         .store_uint(0, 64)? // deployed_buckets
         .store_ref(config.clone())?
-        .store_ref(roster.clone())?
-        .store_maybe_ref(None::<Cell>)? // prev_roster
-        .store_bit(false)?; // retries: empty HashmapE 64
+        .store_ref(committee.clone())?
+        .store_ref(checkpoints.clone())?
+        .store_ref(recovery.clone())?;
     Ok(TonMinterDataV1 {
         root: root.build(),
         config,
-        roster,
-        members,
-        roster_digest,
+        initial_pin,
+        committee,
+        checkpoints,
+        recovery,
+        keys,
     })
 }
 
@@ -724,7 +861,8 @@ pub fn wallet_account_id(
     let mut data = CellBuilder::new();
     data.store_coins(0)?
         .store_address_std(owner_workchain, owner)?
-        .store_address_std(0, minter_account)?;
+        .store_address_std(0, minter_account)?
+        .store_ref(empty_recovery_receipts()?)?;
     Ok(*state_init(wallet_code, data.build())?.hash())
 }
 
@@ -744,19 +882,33 @@ pub fn bucket_account_id(
     data.store_address_std(0, minter_account)?
         .store_uint(u128::from(index), 64)?
         .store_bit(false)? // activated
-        .store_bytes(&[0; 64])?;
+        .store_bytes(&[0; 64])?
+        .store_ref(empty_recovery_receipts()?)?;
     Ok(*state_init(bucket_code, data.build())?.hash())
+}
+
+/// Empty `RecoveryReceipts`: `count:uint10` and an empty `HashmapE 72`.
+fn empty_recovery_receipts() -> Result<Cell, TonCellError> {
+    Ok(CellBuilder::new()
+        .store_uint(0, 10)?
+        .store_bit(false)?
+        .build())
 }
 
 // ---------------------------------------------------------------------------------------------
 // Storage rent (§5.3.5)
 // ---------------------------------------------------------------------------------------------
 
-/// Upper bound of the minter's account state in bits (code and maximal data), the size
-/// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
-pub const TON_MINTER_STATE_BITS: u64 = 102_000;
-/// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
-pub const TON_MINTER_STATE_CELLS: u64 = 205;
+/// Account-state bit allowance used for `MINTER_FLOOR` (`SCCP_MINTER_STATE_BITS`).
+///
+/// The bound includes compiled code, 31 committee members, all checkpoints,
+/// maximal supplies and counters, and all 512 admitted recovery operations with
+/// distinct immutable tails. The native maximum-state fixture checks the complete
+/// DAG and at most 5% headroom; capacity is reserved before any dispatch.
+pub const TON_MINTER_STATE_BITS: u64 = 790_000;
+/// Account-state cell allowance for the bounded maximum in [`TON_MINTER_STATE_BITS`]
+/// (`SCCP_MINTER_STATE_CELLS`).
+pub const TON_MINTER_STATE_CELLS: u64 = 2_380;
 /// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
 pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
 /// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
@@ -794,6 +946,48 @@ pub fn ton_minter_floor_at_mainnet_prices() -> u128 {
 }
 
 #[cfg(test)]
+mod physical_import_tests {
+    use super::*;
+
+    /// A topologically ordered chain, built directly so the test needs no recursive encoder.
+    fn chain_wire(depth: u16) -> Vec<u8> {
+        let count = depth + 1;
+        let bytes = usize::from(depth) * 4 + 2;
+        let mut wire = vec![0xb5, 0xee, 0x9c, 0x72, 2, 2];
+        wire.extend_from_slice(&count.to_be_bytes());
+        wire.extend_from_slice(&1_u16.to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        wire.extend_from_slice(&u16::try_from(bytes).unwrap().to_be_bytes());
+        wire.extend_from_slice(&0_u16.to_be_bytes());
+        for index in 0..depth {
+            wire.extend_from_slice(&[1, 0]);
+            wire.extend_from_slice(&(index + 1).to_be_bytes());
+        }
+        wire.extend_from_slice(&[0, 0]);
+        wire
+    }
+
+    #[test]
+    fn ordinary_cell_import_is_iterative_and_enforces_native_depth() {
+        let max = crate::ton_native::TON_MAX_CELL_DEPTH;
+        let cell = cell_from_boc(&chain_wire(max)).unwrap();
+        assert_eq!(cell.depth(), max);
+        assert!(matches!(
+            cell_from_boc(&chain_wire(max + 1)),
+            Err(TonCellError::BadSnake)
+        ));
+        // Ordinary level zero import cannot silently rewrite a nonzero declared level.
+        let mut wrong_level = chain_wire(0);
+        let descriptor = wrong_level.len() - 2;
+        wrong_level[descriptor] |= 0x20;
+        assert!(matches!(
+            cell_from_boc(&wrong_level),
+            Err(TonCellError::BadSnake)
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -801,8 +995,9 @@ mod tests {
         crate::v1::hashes::to_hex(bytes)
     }
 
-    fn from_hex(text: &str) -> [u8; 32] {
-        let mut out = [0_u8; 32];
+    fn from_hex<const N: usize>(text: &str) -> [u8; N] {
+        assert_eq!(text.len(), 2 * N, "exact fixture byte length");
+        let mut out = [0_u8; N];
         for (index, slot) in out.iter_mut().enumerate() {
             *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
         }
@@ -959,92 +1154,188 @@ mod tests {
     }
 
     #[test]
+    fn burn_payload_bounds_and_exact_wrapper() {
+        for len in [1, 127, 128, MAX_TAIRA_ACCOUNT_BYTES] {
+            let recipient = vec![0x42; len];
+            let wrapper = burn_to_taira_payload(&recipient).unwrap();
+            assert_eq!(wrapper.bit_len(), 32);
+            assert_eq!(wrapper.data(), TON_BURN_TO_TAIRA_OP.to_be_bytes());
+            assert_eq!(wrapper.refs().len(), 1);
+            assert_eq!(
+                parse_snake_bytes(wrapper.refs()[0].cell().unwrap(), MAX_TAIRA_ACCOUNT_BYTES),
+                Ok(recipient)
+            );
+            assert_eq!(cell_from_boc(&wrapper.to_boc().unwrap()), Ok(wrapper));
+        }
+        assert_eq!(burn_to_taira_payload(&[]), Err(TonCellError::BadSnake));
+        assert_eq!(
+            burn_to_taira_payload(&[0x42; MAX_TAIRA_ACCOUNT_BYTES + 1]),
+            Err(TonCellError::SnakeTooLong)
+        );
+    }
+
+    #[test]
+    fn burn_cell_import_refuses_exotic_wrapper_and_recipient() {
+        // A library-reference cell is a valid exotic TON cell, but never an admitted
+        // wrapper or recipient. Importing must not resolve it to an ordinary cell.
+        let mut library = vec![0x08, 66, 2];
+        library.extend_from_slice(&[0x42; 32]);
+        let mut root = vec![0xb5, 0xee, 0x9c, 0x72, 1, 1, 1, 1, 0, 35, 0];
+        root.extend_from_slice(&library);
+        assert_eq!(cell_from_boc(&root), Err(TonCellError::BadSnake));
+
+        let mut child = vec![0xb5, 0xee, 0x9c, 0x72, 1, 1, 2, 1, 0, 42, 0, 1, 8];
+        child.extend_from_slice(&TON_BURN_TO_TAIRA_OP.to_be_bytes());
+        child.push(1);
+        child.extend_from_slice(&library);
+        assert_eq!(cell_from_boc(&child), Err(TonCellError::BadSnake));
+    }
+
+    #[test]
     fn chunk_lists() {
-        let members: Vec<[u8; 20]> = (1..=13).map(|byte| [byte; 20]).collect();
-        let head = member_chunks(&members).unwrap();
-        assert_eq!(head.bit_len(), 6 * 160 + 1);
+        let keys: Vec<[u8; 48]> = (1..=5).map(|byte| [byte; 48]).collect();
+        let head = key_chunks(&keys).unwrap();
+        assert_eq!(head.bit_len(), 2 * 384 + 1);
         assert_eq!(head.depth(), 2);
         let last = head.refs()[0].cell().unwrap().refs()[0].cell().unwrap();
-        assert_eq!(last.bit_len(), 160 + 1);
+        assert_eq!(last.bit_len(), 384 + 1);
         assert!(last.refs().is_empty());
-        assert_eq!(member_chunks(&[]).unwrap_err(), TonCellError::Empty);
+        assert_eq!(key_chunks(&[]).unwrap_err(), TonCellError::Empty);
         assert_eq!(hash_chunks(&[]).unwrap(), None);
         let path = hash_chunks(&[[1; 32]; 4]).unwrap().unwrap();
         assert_eq!(path.bit_len(), 3 * 256 + 1);
         assert_eq!(path.refs()[0].cell().unwrap().bit_len(), 256 + 1);
     }
 
+    fn fixture() -> norito::json::Value {
+        norito::json::from_str(include_str!(
+            "../../../../fixtures/sccp/ton_stateinit_v1.json"
+        ))
+        .expect("current native TON fixture")
+    }
+
+    #[test]
+    fn locked_code_references_match_the_contract_artifact_lock() {
+        let fixture = fixture();
+        assert_eq!(
+            locked_code_refs(),
+            [
+                fixture_code(&fixture, "minter"),
+                fixture_code(&fixture, "wallet"),
+                fixture_code(&fixture, "bucket"),
+            ],
+            "native registration and tooling must use the actual locked TON code references"
+        );
+    }
+
+    fn fixture_init(
+        fixture: &norito::json::Value,
+        vector: &norito::json::Value,
+    ) -> TonMinterInitV1 {
+        let keys = vector["keys"]
+            .as_array()
+            .expect("compressed BLS keys")
+            .iter()
+            .map(|key| from_hex::<48>(key.as_str().expect("key")))
+            .collect();
+        let pin = &vector["pin"];
+        TonMinterInitV1 {
+            taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
+            consensus_instance: from_hex(&fixture_text(vector, "consensus_instance")),
+            route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
+            max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
+            pin: SccpCommitteePinV1 {
+                generation: fixture_u64(pin, "generation"),
+                committee_root: from_hex(&fixture_text(pin, "committee_root")),
+                start_height: fixture_u64(pin, "start_height"),
+                until_ms: fixture_u64(pin, "until_ms"),
+            },
+            keys,
+            wallet_code: fixture_code(fixture, "wallet"),
+            bucket_code: fixture_code(fixture, "bucket"),
+        }
+    }
+
     fn fixture_n4() -> (TonMinterInitV1, SccpTonCodeRefV1) {
-        let init = TonMinterInitV1 {
-            taira_network_id: [0x11; 32],
-            route_revision: 1,
-            max_supply: 1_000_000_000_000_000_000,
-            roster: RosterV1 {
-                generation: 7,
-                valid_from_ms: 1_800_000_000_000,
-                valid_until_ms: 1_801_209_600_000,
-                members: (1..=4).map(|byte| [byte; 20]).collect(),
-            },
-            wallet_code: SccpTonCodeRefV1 {
-                hash: from_hex("ee3cf858ffdc0e230e9b97914a75c0d7d4ecd317881ecec0873d2abd875aaa90"),
-                depth: 4,
-            },
-            bucket_code: SccpTonCodeRefV1 {
-                hash: from_hex("636f93d7b6d9fbf1c4756453654eea4d8fa9a474b461e642d501299737cd0450"),
-                depth: 6,
-            },
-        };
-        let minter_code = SccpTonCodeRefV1 {
-            hash: from_hex("4557a9b6df6a72104fcb8ef3337106f4d6a43ba7f0a825990641552e0d6554e4"),
-            depth: 15,
-        };
-        (init, minter_code)
+        let fixture = fixture();
+        let vector = &fixture["vectors"][0];
+        assert_eq!(fixture_text(vector, "label"), "n4");
+        (
+            fixture_init(&fixture, vector),
+            fixture_code(&fixture, "minter"),
+        )
     }
 
     #[test]
     fn minter_data_and_addresses_match_the_contract_fixture() {
-        // fixtures/sccp/ton_stateinit_v1.json, label "n4" (emitted by the Tolk contracts).
-        let (init, minter_code) = fixture_n4();
+        let fixture = fixture();
+        let vector = &fixture["vectors"][0];
+        let init = fixture_init(&fixture, vector);
+        let minter_code = fixture_code(&fixture, "minter");
+        let initial = &vector["initial_data"];
+        let children = &vector["children"];
         let data = minter_initial_data(&init).unwrap();
-        assert_eq!(data.config.bit_len(), 676);
+        assert_eq!(data.config.bit_len(), 612);
         assert_eq!(
             hex(data.config.hash()),
-            "97abb649f4e1e5e72c64a5fd6d5d300cb4278e149c761aa0bad02515ae45882c"
+            fixture_text(&initial["config"], "hash")
         );
-        assert_eq!(data.config.depth(), 7);
-        assert_eq!(data.members.bit_len(), 641);
         assert_eq!(
-            hex(data.members.hash()),
-            "efdb0f63b51fe0addd82eb234ccb1c4fda247dd2bbe0f845258aa353a56d2a28"
+            u64::from(data.config.depth()),
+            fixture_u64(&initial["config"], "depth")
         );
-        assert_eq!(data.roster.bit_len(), 464);
+        assert_eq!(data.initial_pin.bit_len(), 448);
         assert_eq!(
-            hex(data.roster.hash()),
-            "f0e8dc1f221010d8407e023420ce004d6259cc632652f397993a418e83b05ab1"
+            hex(data.initial_pin.hash()),
+            fixture_text(&initial["initial_pin"], "hash")
         );
-        // 267 bits of counters and flags, the `prev_roster` Maybe bit and the empty `retries`
-        assert_eq!(data.root.bit_len(), 268);
-        assert_eq!(data.root.depth(), 8);
+        assert_eq!(data.initial_pin.depth(), 0);
+        assert_eq!(data.keys.bit_len(), 769);
+        assert_eq!(
+            hex(data.keys.hash()),
+            fixture_text(&initial["keys"][0], "hash")
+        );
+        assert_eq!(data.keys.depth(), 1);
+        assert_eq!(data.committee.bit_len(), 520);
+        assert_eq!(
+            hex(data.committee.hash()),
+            fixture_text(&initial["committee"], "hash")
+        );
+        assert_eq!(data.committee.depth(), 2);
+        assert_eq!(data.checkpoints.bit_len(), 2);
+        assert_eq!(
+            hex(data.checkpoints.hash()),
+            fixture_text(&initial["checkpoints"], "hash")
+        );
+        assert_eq!(data.checkpoints.depth(), 0);
+        assert_eq!(data.recovery.bit_len(), 139);
+        assert_eq!(data.recovery.refs().len(), 0);
+        assert_eq!(&data.recovery.data()[..8], &1_u64.to_be_bytes());
+        assert!(data.recovery.data()[8..].iter().all(|byte| *byte == 0));
+        assert_eq!(data.root.bit_len(), 331);
+        assert_eq!(data.root.refs().len(), 4);
+        assert_eq!(data.root.refs()[3].cell(), Some(&data.recovery));
         assert_eq!(
             hex(data.root.hash()),
-            "6a26fb09952d20b8623ffc1625be3a0de55f575bbfb3e0068a7dbdf75820389d"
+            fixture_text(&initial["root"], "hash")
+        );
+        assert_eq!(
+            u64::from(data.root.depth()),
+            fixture_u64(&initial["root"], "depth")
         );
         let minter = minter_account_id(&init, minter_code).unwrap();
-        assert_eq!(
-            hex(&minter),
-            "2df158214cff298e678f9b15f50dd20aa4f30bbed5e570cfdf0524c6209a10a7"
-        );
+        assert_eq!(hex(&minter), fixture_text(&vector["address"], "account_id"));
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "99be6871b79cb5cd7fdde27c8b11bc6b4314a179f5db7146894259b751a0da7a"
+            fixture_text(children, "bucket_0_account_id")
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "921d14d62f1496963af0a3c3e5a7ca9344b5342badaad02d5dc877db7d1dbb32"
+            fixture_text(children, "bucket_1_account_id")
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "a961afd4c4a4491cbcf46cbd80976bb4b62dd4e103c156f0cd0cdc01dc0c9aae"
+            fixture_text(children, "wallet_account_id")
         );
     }
 
@@ -1054,6 +1345,61 @@ mod tests {
             .and_then(norito::json::Value::as_str)
             .unwrap_or_else(|| panic!("fixture field `{key}`"))
             .to_owned()
+    }
+
+    #[test]
+    fn initial_state_addresses_commit_mandatory_recovery_references() {
+        let (init, minter_code) = fixture_n4();
+        let data = minter_initial_data(&init).unwrap();
+        let mut missing_recovery = CellBuilder::new();
+        for bit in 0..data.root.bit_len() {
+            missing_recovery
+                .store_bit(data.root.data()[bit / 8] & (0x80 >> (bit % 8)) != 0)
+                .unwrap();
+        }
+        for child in &data.root.refs()[..3] {
+            missing_recovery.store_ref(child.clone()).unwrap();
+        }
+        assert_ne!(
+            state_init(minter_code, missing_recovery.build())
+                .unwrap()
+                .hash(),
+            &minter_account_id(&init, minter_code).unwrap(),
+            "missing recovery reference must change the canonical minter identity"
+        );
+        let receipts = empty_recovery_receipts().unwrap();
+        assert_eq!(receipts.bit_len(), 11);
+        assert_eq!(receipts.data(), &[0, 0]);
+        assert!(receipts.refs().is_empty());
+        let minter = [9; 32];
+        let mut wallet = CellBuilder::new();
+        wallet
+            .store_coins(0)
+            .unwrap()
+            .store_address_std(0, &[8; 32])
+            .unwrap()
+            .store_address_std(0, &minter)
+            .unwrap();
+        assert_ne!(
+            state_init(init.wallet_code, wallet.build()).unwrap().hash(),
+            &wallet_account_id(0, &[8; 32], &minter, init.wallet_code).unwrap(),
+            "missing recovery receipts must change the canonical wallet identity"
+        );
+        let mut bucket = CellBuilder::new();
+        bucket
+            .store_address_std(0, &minter)
+            .unwrap()
+            .store_uint(5, 64)
+            .unwrap()
+            .store_bit(false)
+            .unwrap()
+            .store_bytes(&[0; 64])
+            .unwrap();
+        assert_ne!(
+            state_init(init.bucket_code, bucket.build()).unwrap().hash(),
+            &bucket_account_id(&minter, 5, init.bucket_code).unwrap(),
+            "missing recovery receipts must change the canonical bucket identity"
+        );
     }
 
     fn fixture_u64(value: &norito::json::Value, key: &str) -> u64 {
@@ -1075,50 +1421,72 @@ mod tests {
     fn every_stateinit_fixture_vector_reproduces_from_code_references() {
         // Taira's `RegisterRoute` recomputes the minter address from these inputs alone; the
         // fixture is emitted by the Tolk contracts and recomputed in Python.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fixtures/sccp/ton_stateinit_v1.json");
-        let text = std::fs::read_to_string(path).expect("fixture");
-        let fixture: norito::json::Value = norito::json::from_str(&text).expect("fixture parses");
+        let fixture = fixture();
         let minter_code = fixture_code(&fixture, "minter");
         let wallet_code = fixture_code(&fixture, "wallet");
         let bucket_code = fixture_code(&fixture, "bucket");
         let vectors = fixture["vectors"].as_array().expect("vectors");
         assert_eq!(vectors.len(), 2);
         for vector in vectors {
-            let members: Vec<[u8; 20]> = vector["members"]
-                .as_array()
-                .expect("members")
-                .iter()
-                .map(|member| {
-                    let mut out = [0_u8; 20];
-                    let text = member.as_str().expect("member");
-                    for (index, slot) in out.iter_mut().enumerate() {
-                        *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
-                    }
-                    out
-                })
-                .collect();
-            let init = TonMinterInitV1 {
-                taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
-                route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
-                max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
-                roster: RosterV1 {
-                    generation: fixture_u64(vector, "generation"),
-                    valid_from_ms: fixture_u64(vector, "valid_from_ms"),
-                    valid_until_ms: fixture_u64(vector, "valid_until_ms"),
-                    members,
-                },
-                wallet_code,
-                bucket_code,
-            };
+            let init = fixture_init(&fixture, vector);
             let label = fixture_text(vector, "label");
             let data = minter_initial_data(&init).unwrap();
             assert_eq!(
-                hex(&data.roster_digest),
-                fixture_text(vector, "roster_digest"),
+                hex(&committee_root(&init.keys).unwrap()),
+                fixture_text(&vector["pin"], "committee_root"),
                 "{label}"
             );
             let initial = &vector["initial_data"];
+            for (name, cell) in [
+                ("config", &data.config),
+                ("initial_pin", &data.initial_pin),
+                ("committee", &data.committee),
+                ("checkpoints", &data.checkpoints),
+                ("recovery", &data.recovery),
+                ("root", &data.root),
+            ] {
+                let expected = &initial[name];
+                assert_eq!(
+                    hex(cell.hash()),
+                    fixture_text(expected, "hash"),
+                    "{label}/{name}"
+                );
+                assert_eq!(
+                    u64::from(cell.depth()),
+                    fixture_u64(expected, "depth"),
+                    "{label}/{name}"
+                );
+                assert_eq!(
+                    cell.bit_len() as u64,
+                    fixture_u64(expected, "bit_len"),
+                    "{label}/{name}"
+                );
+            }
+            let key_cells = initial["keys"].as_array().unwrap();
+            let mut cell = &data.keys;
+            for (index, expected) in key_cells.iter().enumerate() {
+                assert_eq!(
+                    hex(cell.hash()),
+                    fixture_text(expected, "hash"),
+                    "{label}/keys[{index}]"
+                );
+                assert_eq!(
+                    u64::from(cell.depth()),
+                    fixture_u64(expected, "depth"),
+                    "{label}/keys[{index}]"
+                );
+                assert_eq!(
+                    cell.bit_len() as u64,
+                    fixture_u64(expected, "bit_len"),
+                    "{label}/keys[{index}]"
+                );
+                if index + 1 == key_cells.len() {
+                    assert!(cell.refs().is_empty());
+                } else {
+                    assert_eq!(cell.refs().len(), 1);
+                    cell = cell.refs()[0].cell().unwrap();
+                }
+            }
             assert_eq!(
                 hex(data.root.hash()),
                 fixture_text(initial, "hash"),
@@ -1166,12 +1534,13 @@ mod tests {
         assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
         assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
         assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
-        // MINTER_FLOOR at mainnet prices: 204 500 units per 2^16 s over 100 years
+        // The full 512-operation recovery book: 790000 bits + 2380 cells,
+        // or 1 980 000 price units per 2^16 seconds over 100 years.
         assert_eq!(
             ton_minter_floor_at_mainnet_prices(),
-            (204_500_u128 * 3_153_600_000).div_ceil(65_536)
+            (1_980_000_u128 * 3_153_600_000).div_ceil(65_536)
         );
-        assert_eq!(ton_minter_floor_at_mainnet_prices(), 9_840_563_965);
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 95_277_832_032);
     }
 
     /// The value of `const <name> = <integer>` in a Tolk source.
@@ -1206,18 +1575,72 @@ mod tests {
 
     #[test]
     fn minter_data_rejects_bad_inputs() {
-        let (mut init, _) = fixture_n4();
-        init.roster.members.swap(0, 1);
-        assert_eq!(
-            minter_initial_data(&init).unwrap_err(),
-            TonCellError::BadRoster
-        );
-        let (mut init, _) = fixture_n4();
+        let (valid, _) = fixture_n4();
+        let bad_committees: [fn(&mut TonMinterInitV1); 4] = [
+            |init: &mut TonMinterInitV1| {
+                init.keys.swap(0, 1);
+            },
+            |init: &mut TonMinterInitV1| {
+                init.keys[1] = init.keys[0];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.keys.pop();
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.committee_root[0] ^= 1;
+            },
+        ];
+        for change in bad_committees {
+            let mut init = valid.clone();
+            change(&mut init);
+            assert_eq!(
+                minter_initial_data(&init).unwrap_err(),
+                TonCellError::BadCommittee
+            );
+        }
+        let bad_configs: [fn(&mut TonMinterInitV1); 8] = [
+            |init: &mut TonMinterInitV1| {
+                init.taira_network_id = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.consensus_instance = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.route_revision = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.max_supply = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.generation = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.committee_root = [0; 32];
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.start_height = 0;
+            },
+            |init: &mut TonMinterInitV1| {
+                init.pin.until_ms = 0;
+            },
+        ];
+        for change in bad_configs {
+            let mut init = valid.clone();
+            change(&mut init);
+            assert_eq!(
+                minter_initial_data(&init).unwrap_err(),
+                TonCellError::BadConfig
+            );
+        }
+        let mut init = valid.clone();
         init.max_supply = COINS_BOUND;
         assert_eq!(
             minter_initial_data(&init).unwrap_err(),
             TonCellError::CoinsTooLarge
         );
+        let mut init = valid;
+        init.pin.start_height = 1;
+        assert!(minter_initial_data(&init).is_ok());
     }
 
     #[test]
@@ -1292,5 +1715,95 @@ mod tests {
         let state = state_init(code, cell).unwrap();
         assert_eq!(state.bit_len(), 5);
         assert_eq!(state.depth(), 10);
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+
+    // Retain every actual Arc backing independently and retire parents before children.
+    // This fixture tests serialization, not general recursive Arc destruction of arbitrary
+    // public-builder graphs, which is a separate owner boundary.
+    struct Chain {
+        root: Option<Cell>,
+        children: Vec<CellRef>,
+    }
+    impl Chain {
+        fn new(depth: u16) -> Self {
+            let mut chain = Self {
+                root: Some(CellBuilder::new().build()),
+                children: Vec::new(),
+            };
+            for _ in 0..depth {
+                let child = CellRef::from(chain.root.take().unwrap());
+                let mut builder = CellBuilder::new();
+                builder.store_ref(child.clone()).unwrap();
+                chain.children.push(child);
+                chain.root = Some(builder.build());
+            }
+            chain
+        }
+        fn root(&self) -> &Cell {
+            self.root.as_ref().unwrap()
+        }
+    }
+    impl Drop for Chain {
+        fn drop(&mut self) {
+            drop(self.root.take());
+            while let Some(child) = self.children.pop() {
+                drop(child);
+            }
+        }
+    }
+    #[test]
+    fn cell_serializer_refuses_depth_beyond_native_limit() {
+        let chain = Chain::new(crate::ton_native::TON_MAX_CELL_DEPTH + 1);
+        assert!(matches!(chain.root().to_boc(), Err(TonCellError::BadSnake)));
+    }
+    #[test]
+    fn cell_serializer_handles_native_max_depth_on_a_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                let chain = Chain::new(crate::ton_native::TON_MAX_CELL_DEPTH);
+                let wire = chain.root().to_boc().unwrap();
+                let parsed = crate::ton_native::parse_ton_boc(&wire).unwrap();
+                assert_eq!(
+                    parsed.cells.len(),
+                    usize::from(crate::ton_native::TON_MAX_CELL_DEPTH) + 1
+                );
+                let hashes = crate::ton_native::ton_boc_cell_hashes(&parsed).unwrap();
+                assert_eq!(hashes[0].hashes[0], *chain.root().hash());
+                assert_eq!(hashes[0].depths[0], chain.root().depth());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn cell_serializer_preserves_exact_shared_dag_bytes_and_opaque_refusal() {
+        let cell = |byte, refs: Vec<CellRef>| {
+            let mut builder = CellBuilder::new();
+            builder.store_bytes(&[byte]).unwrap();
+            for child in refs {
+                builder.store_ref(child).unwrap();
+            }
+            builder.build()
+        };
+        let shared = CellRef::from(cell(0xc0, vec![]));
+        let a = cell(0xa0, vec![shared.clone()]);
+        let b = cell(0xb0, vec![shared]);
+        let root = cell(0x10, vec![a.into(), b.into()]);
+        let expected = vec![
+            0xb5, 0xee, 0x9c, 0x72, 1, 1, 4, 1, 0, 16, 0, 2, 2, 0x10, 1, 2, 1, 2, 0xa0, 3, 1, 2,
+            0xb0, 3, 0, 2, 0xc0,
+        ];
+        assert_eq!(root.to_boc().unwrap(), expected);
+        let imported = cell_from_boc(&expected).unwrap();
+        assert_eq!(imported.hash(), root.hash());
+        assert_eq!(imported.to_boc().unwrap(), expected);
+        let opaque = cell(0x10, vec![CellRef::opaque([1; 32], 0)]);
+        assert!(matches!(opaque.to_boc(), Err(TonCellError::OpaqueChild)));
     }
 }

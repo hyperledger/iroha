@@ -364,6 +364,7 @@ fn require_parent(
     Ok(dataspace_id)
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum BoundedOperationExpectation<'a> {
     Alias(&'a AliasSetupPlanRequestV1, &'a BoundedTransactionOptions),
     Registration(&'a PrivateRootRegistrationRequest),

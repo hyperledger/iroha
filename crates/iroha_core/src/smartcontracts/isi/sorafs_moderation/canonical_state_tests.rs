@@ -13,7 +13,7 @@ fn fixture() -> PersistedState {
                 registration_deadline_unix_ms: 10_000 + index,
                 case_id: format!("canonical-moderation-case-{index}"),
                 round_id: format!("canonical-moderation-round-{index}"),
-                intake_digest: [0x31 + index as u8; 32],
+                intake_digest: [0x31 + u8::try_from(index).expect("fixture value fits u8"); 32],
             })
             .collect(),
     }

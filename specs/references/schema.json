@@ -713,6 +713,137 @@
       }
     ]
   },
+  "ActionAuthorityBindingV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "TransactionAuthority"
+      },
+      {
+        "discriminant": 1,
+        "tag": "ContractSubject",
+        "type": "AccountId"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Account",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "ActionIntentV1": {
+    "Struct": [
+      {
+        "name": "action_index",
+        "type": "u32"
+      },
+      {
+        "name": "operation",
+        "type": "ActionOperationV1"
+      },
+      {
+        "name": "role",
+        "type": "ActionRoleV1"
+      },
+      {
+        "name": "authority",
+        "type": "ActionAuthorityBindingV1"
+      },
+      {
+        "name": "invocation",
+        "type": "ActionInvocationBindingV1"
+      },
+      {
+        "name": "public_inputs_digest",
+        "type": "ActionPublicInputsDigestV1"
+      },
+      {
+        "name": "statement_digest",
+        "type": "ActionStatementDigestV1"
+      },
+      {
+        "name": "attachments",
+        "type": "Vec<AttachmentReferenceV1>"
+      }
+    ]
+  },
+  "ActionInvocationBindingV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Transaction"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Direct",
+        "type": "ActionInvocationBindingV1::Direct"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Contract",
+        "type": "ActionInvocationBindingV1::Contract"
+      }
+    ]
+  },
+  "ActionInvocationBindingV1::Contract": {
+    "Struct": [
+      {
+        "name": "root_index",
+        "type": "u32"
+      },
+      {
+        "name": "call_path",
+        "type": "Vec<u32>"
+      }
+    ]
+  },
+  "ActionInvocationBindingV1::Direct": {
+    "Struct": [
+      {
+        "name": "instruction_index",
+        "type": "u32"
+      }
+    ]
+  },
+  "ActionOperationV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "NativeInstruction",
+        "type": "String"
+      },
+      {
+        "discriminant": 1,
+        "tag": "TransactionProof"
+      },
+      {
+        "discriminant": 2,
+        "tag": "IvmProvedExecution"
+      }
+    ]
+  },
+  "ActionPublicInputsDigestV1": "Array<u8, 32>",
+  "ActionRoleV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ProofEffect"
+      },
+      {
+        "discriminant": 1,
+        "tag": "ProofVerification"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Administrative"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Effect"
+      }
+    ]
+  },
+  "ActionStatementDigestV1": "Array<u8, 32>",
   "AdmissionHistoryRecordV1": {
     "Struct": [
       {
@@ -859,11 +990,55 @@
       }
     ]
   },
+  "AmxDebitApprovalProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "relay_permissions",
+        "type": "SortedVec<Permission>"
+      }
+    ]
+  },
+  "AmxDebitApprovalV1": {
+    "Struct": [
+      {
+        "name": "global_network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "participant_network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "participant_instance",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "dataspace",
+        "type": "DataSpaceId"
+      },
+      {
+        "name": "transaction_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "debited_asset",
+        "type": "AssetId"
+      }
+    ]
+  },
   "AmxForeignInstanceV1": {
     "Struct": [
       {
         "name": "instance",
         "type": "Array<u8, 32>"
+      },
+      {
+        "name": "result_scope",
+        "type": "CertifiedResultScope"
       },
       {
         "name": "current",
@@ -924,12 +1099,6 @@
       "type": "u8"
     }
   },
-  "Array<u8, 20>": {
-    "Array": {
-      "len": 20,
-      "type": "u8"
-    }
-  },
   "Array<u8, 32>": {
     "Array": {
       "len": 32,
@@ -957,12 +1126,6 @@
   "Array<u8, 4>": {
     "Array": {
       "len": 4,
-      "type": "u8"
-    }
-  },
-  "Array<u8, 544>": {
-    "Array": {
-      "len": 544,
       "type": "u8"
     }
   },
@@ -1259,6 +1422,18 @@
         "discriminant": 2,
         "tag": "alias",
         "type": "ResolvedAssetDefinitionAliasV1"
+      }
+    ]
+  },
+  "AssetDefinitionDirectHomeV1": {
+    "Struct": [
+      {
+        "name": "incarnation",
+        "type": "Hash"
+      },
+      {
+        "name": "dataspace_id",
+        "type": "DataSpaceId"
       }
     ]
   },
@@ -1847,6 +2022,63 @@
       {
         "name": "intent_hash",
         "type": "Hash"
+      }
+    ]
+  },
+  "AttachmentContentHashV1": "Array<u8, 32>",
+  "AttachmentKindV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Proof"
+      },
+      {
+        "discriminant": 1,
+        "tag": "KeyMaterial"
+      }
+    ]
+  },
+  "AttachmentReferenceV1": {
+    "Struct": [
+      {
+        "name": "index",
+        "type": "u32"
+      },
+      {
+        "name": "kind",
+        "type": "AttachmentKindV1"
+      },
+      {
+        "name": "role",
+        "type": "AttachmentRoleV1"
+      },
+      {
+        "name": "length",
+        "type": "u64"
+      },
+      {
+        "name": "content_hash",
+        "type": "AttachmentContentHashV1"
+      }
+    ]
+  },
+  "AttachmentRoleV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ActionProof"
+      },
+      {
+        "discriminant": 1,
+        "tag": "VerifyingKey"
+      },
+      {
+        "discriminant": 2,
+        "tag": "LanePrivacyProof"
+      },
+      {
+        "discriminant": 3,
+        "tag": "ExecutionProof"
       }
     ]
   },
@@ -3503,6 +3735,18 @@
       }
     ]
   },
+  "CertifiedResultScope": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "TairaGlobal"
+      },
+      {
+        "discriminant": 1,
+        "tag": "NonGlobal"
+      }
+    ]
+  },
   "ChainId": "String",
   "ChainParamsRecord": {
     "Struct": [
@@ -4107,6 +4351,65 @@
       }
     ]
   },
+  "ContractEmissionV1": {
+    "Struct": [
+      {
+        "name": "contract",
+        "type": "ContractAddress"
+      },
+      {
+        "name": "code_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "entrypoint",
+        "type": "u32"
+      },
+      {
+        "name": "event",
+        "type": "u32"
+      },
+      {
+        "name": "caller",
+        "type": "AccountId"
+      },
+      {
+        "name": "definition",
+        "type": "ContractEventDescriptorV1"
+      },
+      {
+        "name": "payload",
+        "type": "EntrypointReturnRecordV1"
+      }
+    ]
+  },
+  "ContractEmissionsV1": {
+    "Vec": "ContractEmissionV1"
+  },
+  "ContractEnumTypeDescriptorV1": {
+    "Struct": [
+      {
+        "name": "identity",
+        "type": "String"
+      },
+      {
+        "name": "variants",
+        "type": "Vec<ContractEnumVariantDescriptorV1>"
+      }
+    ]
+  },
+  "ContractEnumVariantDescriptorV1": {
+    "Struct": [
+      {
+        "name": "name",
+        "type": "String"
+      },
+      {
+        "name": "code",
+        "type": "u32"
+      }
+    ]
+  },
   "ContractErrorMessage": {
     "Struct": [
       {
@@ -4144,6 +4447,18 @@
       {
         "name": "code",
         "type": "u32"
+      }
+    ]
+  },
+  "ContractEventDescriptorV1": {
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "payload_type",
+        "type": "EntrypointValueTypeV1"
       }
     ]
   },
@@ -4238,6 +4553,10 @@
         "type": "Option<Hash>"
       },
       {
+        "name": "retained_code_hash",
+        "type": "Option<Hash>"
+      },
+      {
         "name": "revision",
         "type": "u64"
       },
@@ -4287,6 +4606,14 @@
         "type": "Option<AccessSetHints>"
       },
       {
+        "name": "permissions",
+        "type": "Vec<ContractPermissionDescriptorV1>"
+      },
+      {
+        "name": "events",
+        "type": "Vec<ContractEventDescriptorV1>"
+      },
+      {
         "name": "entrypoints",
         "type": "Option<Vec<EntrypointDescriptor>>"
       },
@@ -4297,6 +4624,10 @@
       {
         "name": "error_types",
         "type": "Option<Vec<ContractErrorTypeDescriptor>>"
+      },
+      {
+        "name": "enum_types",
+        "type": "Vec<ContractEnumTypeDescriptorV1>"
       },
       {
         "name": "error_messages",
@@ -4413,6 +4744,39 @@
       {
         "discriminant": 1,
         "tag": "Lifecycle"
+      }
+    ]
+  },
+  "ContractPermissionDescriptorV1": {
+    "Struct": [
+      {
+        "name": "name",
+        "type": "Name"
+      },
+      {
+        "name": "scope",
+        "type": "ContractPermissionScopeV1"
+      }
+    ]
+  },
+  "ContractPermissionScopeV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Instance"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Chain",
+        "type": "ContractPermissionScopeV1::Chain"
+      }
+    ]
+  },
+  "ContractPermissionScopeV1::Chain": {
+    "Struct": [
+      {
+        "name": "permission_name",
+        "type": "Name"
       }
     ]
   },
@@ -5921,6 +6285,23 @@
       }
     ]
   },
+  "EntrypointAuthorizationV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Anyone"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Permission",
+        "type": "Name"
+      },
+      {
+        "discriminant": 2,
+        "tag": "RuntimeLifecycle"
+      }
+    ]
+  },
   "EntrypointDescriptor": {
     "Struct": [
       {
@@ -5948,8 +6329,8 @@
         "type": "Option<EntrypointValueTypeV1>"
       },
       {
-        "name": "permission",
-        "type": "Option<String>"
+        "name": "authorization",
+        "type": "EntrypointAuthorizationV1"
       },
       {
         "name": "read_keys",
@@ -5993,6 +6374,18 @@
       }
     ]
   },
+  "EntrypointReturnRecordV1": {
+    "Struct": [
+      {
+        "name": "schema_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "atoms",
+        "type": "Vec<EntrypointValueAtomV1>"
+      }
+    ]
+  },
   "EntrypointStructTypeNodeV1": {
     "Struct": [
       {
@@ -6002,6 +6395,44 @@
       {
         "name": "fields",
         "type": "Vec<String>"
+      }
+    ]
+  },
+  "EntrypointValueAtomV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Tag",
+        "type": "bool"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Bool",
+        "type": "bool"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Pointer",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 3,
+        "tag": "List",
+        "type": "u8"
+      },
+      {
+        "discriminant": 4,
+        "tag": "Unit"
+      },
+      {
+        "discriminant": 5,
+        "tag": "ErrorCode",
+        "type": "u32"
+      },
+      {
+        "discriminant": 6,
+        "tag": "EnumCode",
+        "type": "u32"
       }
     ]
   },
@@ -6107,7 +6538,12 @@
       {
         "discriminant": 8,
         "tag": "StateCursor",
-        "type": "EntrypointValueKindV1"
+        "type": "EntrypointValueTypeV1"
+      },
+      {
+        "discriminant": 9,
+        "tag": "Enum",
+        "type": "ContractEnumTypeDescriptorV1"
       }
     ]
   },
@@ -8353,6 +8789,14 @@
       }
     ]
   },
+  "FindAssetDefinitionDirectHome": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
   "FindAssetEscrowById": {
     "Struct": [
       {
@@ -8735,6 +9179,11 @@
         "discriminant": 58,
         "tag": "ExecutionProofVerification",
         "type": "Hash"
+      },
+      {
+        "discriminant": 59,
+        "tag": "SettlementReceipt",
+        "type": "SettlementId"
       }
     ]
   },
@@ -9539,6 +9988,62 @@
       {
         "name": "gas_budget",
         "type": "Option<u64>"
+      }
+    ]
+  },
+  "FraudAdmissionAttesterV1": {
+    "Struct": [
+      {
+        "name": "engine_id",
+        "type": "String"
+      },
+      {
+        "name": "public_key",
+        "type": "PublicKey"
+      }
+    ]
+  },
+  "FraudAdmissionPolicyV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "enabled",
+        "type": "bool"
+      },
+      {
+        "name": "required_minimum_band",
+        "type": "Option<FraudRiskBandV1>"
+      },
+      {
+        "name": "missing_assessment_permitted",
+        "type": "bool"
+      },
+      {
+        "name": "attesters",
+        "type": "Vec<FraudAdmissionAttesterV1>"
+      }
+    ]
+  },
+  "FraudRiskBandV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "low"
+      },
+      {
+        "discriminant": 1,
+        "tag": "medium"
+      },
+      {
+        "discriminant": 2,
+        "tag": "high"
+      },
+      {
+        "discriminant": 3,
+        "tag": "critical"
       }
     ]
   },
@@ -11467,11 +11972,195 @@
     ]
   },
   "IvmBytecode": "Vec<u8>",
-  "IvmExecutionFail": {
+  "IvmFaultKindV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "OutOfGas"
+      },
+      {
+        "discriminant": 1,
+        "tag": "MemoryLimitExceeded"
+      },
+      {
+        "discriminant": 2,
+        "tag": "MemoryAccessViolation"
+      },
+      {
+        "discriminant": 3,
+        "tag": "MisalignedAccess"
+      },
+      {
+        "discriminant": 4,
+        "tag": "MemoryOutOfBounds"
+      },
+      {
+        "discriminant": 5,
+        "tag": "DecodeError"
+      },
+      {
+        "discriminant": 6,
+        "tag": "InvalidOpcode"
+      },
+      {
+        "discriminant": 7,
+        "tag": "UnknownSyscall"
+      },
+      {
+        "discriminant": 8,
+        "tag": "UnsupportedSyscall"
+      },
+      {
+        "discriminant": 9,
+        "tag": "GasCostOverflow"
+      },
+      {
+        "discriminant": 10,
+        "tag": "Numeric",
+        "type": "NumericFaultV1"
+      },
+      {
+        "discriminant": 11,
+        "tag": "PointerAbi",
+        "type": "PointerAbiFaultV1"
+      },
+      {
+        "discriminant": 12,
+        "tag": "AssertionFailed"
+      },
+      {
+        "discriminant": 13,
+        "tag": "ExceededMaxCycles"
+      },
+      {
+        "discriminant": 14,
+        "tag": "InvalidMetadata"
+      },
+      {
+        "discriminant": 15,
+        "tag": "InvalidVectorLength"
+      },
+      {
+        "discriminant": 16,
+        "tag": "MissingHalt"
+      },
+      {
+        "discriminant": 17,
+        "tag": "VectorExtensionDisabled"
+      },
+      {
+        "discriminant": 18,
+        "tag": "ZkExtensionDisabled"
+      },
+      {
+        "discriminant": 19,
+        "tag": "NullifierAlreadyUsed"
+      },
+      {
+        "discriminant": 20,
+        "tag": "PermissionDenied"
+      },
+      {
+        "discriminant": 21,
+        "tag": "PrivacyViolation"
+      },
+      {
+        "discriminant": 22,
+        "tag": "RegisterOutOfBounds"
+      },
+      {
+        "discriminant": 23,
+        "tag": "NoritoInvalid"
+      },
+      {
+        "discriminant": 24,
+        "tag": "AbiTypeNotAllowed"
+      },
+      {
+        "discriminant": 25,
+        "tag": "HostOutputItemsExceeded"
+      },
+      {
+        "discriminant": 26,
+        "tag": "HostOutputBytesExceeded"
+      },
+      {
+        "discriminant": 27,
+        "tag": "AmxBudgetExceeded"
+      },
+      {
+        "discriminant": 28,
+        "tag": "ReentrantCall"
+      },
+      {
+        "discriminant": 29,
+        "tag": "CallDepthExceeded"
+      }
+    ]
+  },
+  "IvmFaultPositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Initialization"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Execute",
+        "type": "IvmFaultPositionV1::Execute"
+      },
+      {
+        "discriminant": 2,
+        "tag": "ReturnValidation"
+      }
+    ]
+  },
+  "IvmFaultPositionV1::Execute": {
     "Struct": [
       {
-        "name": "reason",
-        "type": "String"
+        "name": "pc_offset",
+        "type": "u64"
+      }
+    ]
+  },
+  "IvmFaultSiteV1": {
+    "Struct": [
+      {
+        "name": "code_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "selector",
+        "type": "IvmInvocationSelectorV1"
+      },
+      {
+        "name": "position",
+        "type": "IvmFaultPositionV1"
+      }
+    ]
+  },
+  "IvmFaultV1": {
+    "Struct": [
+      {
+        "name": "kind",
+        "type": "IvmFaultKindV1"
+      },
+      {
+        "name": "site",
+        "type": "IvmFaultSiteV1"
+      }
+    ]
+  },
+  "IvmInvocationSelectorV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Generic"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Entrypoint",
+        "type": "u32"
       }
     ]
   },
@@ -12006,41 +12695,7 @@
       }
     ]
   },
-  "LaneCommitmentId": "u16",
   "LaneId": "u32",
-  "LanePrivacyMerkleWitness": {
-    "Struct": [
-      {
-        "name": "leaf",
-        "type": "Array<u8, 32>"
-      },
-      {
-        "name": "proof",
-        "type": "MerkleProof<Array<u8, 32>>"
-      }
-    ]
-  },
-  "LanePrivacyProof": {
-    "Struct": [
-      {
-        "name": "commitment_id",
-        "type": "LaneCommitmentId"
-      },
-      {
-        "name": "witness",
-        "type": "LanePrivacyWitness"
-      }
-    ]
-  },
-  "LanePrivacyWitness": {
-    "Enum": [
-      {
-        "discriminant": 0,
-        "tag": "merkle",
-        "type": "LanePrivacyMerkleWitness"
-      }
-    ]
-  },
   "ManifestAbiHashMismatchInfo": {
     "Struct": [
       {
@@ -13606,6 +14261,10 @@
       {
         "name": "spec",
         "type": "MultisigSpec"
+      },
+      {
+        "name": "uaid",
+        "type": "Option<UniversalAccountId>"
       }
     ]
   },
@@ -16730,6 +17389,62 @@
       }
     ]
   },
+  "NumericFaultV1": {
+    "Enum": [
+      {
+        "discriminant": 1,
+        "tag": "MantissaOverflow"
+      },
+      {
+        "discriminant": 2,
+        "tag": "ScaleOverflow"
+      },
+      {
+        "discriminant": 3,
+        "tag": "DivisionByZero"
+      },
+      {
+        "discriminant": 4,
+        "tag": "RepeatingDecimal"
+      },
+      {
+        "discriminant": 5,
+        "tag": "ExactDivisionScaleOverflow"
+      },
+      {
+        "discriminant": 6,
+        "tag": "InvalidScale"
+      },
+      {
+        "discriminant": 7,
+        "tag": "InexactConversion"
+      },
+      {
+        "discriminant": 8,
+        "tag": "NegativeQuantity"
+      },
+      {
+        "discriminant": 9,
+        "tag": "QuantityUnderflow"
+      },
+      {
+        "discriminant": 10,
+        "tag": "InvalidRoundingMode"
+      },
+      {
+        "discriminant": 11,
+        "tag": "InvalidFailureMode"
+      },
+      {
+        "discriminant": 12,
+        "tag": "ReservedRegisterNonZero"
+      },
+      {
+        "discriminant": 13,
+        "tag": "NegativeSquareRoot"
+      }
+    ]
+  },
   "NumericSpec": {
     "Struct": [
       {
@@ -16793,9 +17508,6 @@
   },
   "Option<Array<u8, 16>>": {
     "Option": "Array<u8, 16>"
-  },
-  "Option<Array<u8, 20>>": {
-    "Option": "Array<u8, 20>"
   },
   "Option<Array<u8, 32>>": {
     "Option": "Array<u8, 32>"
@@ -16896,6 +17608,9 @@
   "Option<ForwardCursor>": {
     "Option": "ForwardCursor"
   },
+  "Option<FraudRiskBandV1>": {
+    "Option": "FraudRiskBandV1"
+  },
   "Option<GameCommitmentSetV1>": {
     "Option": "GameCommitmentSetV1"
   },
@@ -16961,9 +17676,6 @@
   },
   "Option<LaneId>": {
     "Option": "LaneId"
-  },
-  "Option<LanePrivacyProof>": {
-    "Option": "LanePrivacyProof"
   },
   "Option<ManifestAliasBinding>": {
     "Option": "ManifestAliasBinding"
@@ -17091,9 +17803,6 @@
   "Option<PinStatusKindV1>": {
     "Option": "PinStatusKindV1"
   },
-  "Option<ProofAttachmentList>": {
-    "Option": "ProofAttachmentList"
-  },
   "Option<ProofBlob>": {
     "Option": "ProofBlob"
   },
@@ -17168,6 +17877,9 @@
   },
   "Option<SccpRouteActivationV1>": {
     "Option": "SccpRouteActivationV1"
+  },
+  "Option<SignedAttachmentsV1>": {
+    "Option": "SignedAttachmentsV1"
   },
   "Option<SignedGameCheckpointV1>": {
     "Option": "SignedGameCheckpointV1"
@@ -19368,6 +20080,54 @@
       }
     ]
   },
+  "PointerAbiFaultV1": {
+    "Enum": [
+      {
+        "discriminant": 1,
+        "tag": "InvalidAddress"
+      },
+      {
+        "discriminant": 2,
+        "tag": "UnknownType"
+      },
+      {
+        "discriminant": 3,
+        "tag": "TypeNotAllowed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "WrongType"
+      },
+      {
+        "discriminant": 5,
+        "tag": "InvalidEnvelopeVersion"
+      },
+      {
+        "discriminant": 6,
+        "tag": "OversizedLength"
+      },
+      {
+        "discriminant": 7,
+        "tag": "TruncatedEnvelope"
+      },
+      {
+        "discriminant": 8,
+        "tag": "PayloadHashMismatch"
+      },
+      {
+        "discriminant": 9,
+        "tag": "MalformedFrame"
+      },
+      {
+        "discriminant": 10,
+        "tag": "SchemaMismatch"
+      },
+      {
+        "discriminant": 11,
+        "tag": "NonCanonical"
+      }
+    ]
+  },
   "PopCommitmentRootRecordV1": {
     "Struct": [
       {
@@ -20998,35 +21758,6 @@
       }
     ]
   },
-  "ProofAttachment": {
-    "Struct": [
-      {
-        "name": "backend",
-        "type": "String"
-      },
-      {
-        "name": "proof",
-        "type": "ProofBox"
-      },
-      {
-        "name": "vk_ref",
-        "type": "VerifyingKeyId"
-      },
-      {
-        "name": "vk_commitment",
-        "type": "Option<Array<u8, 32>>"
-      },
-      {
-        "name": "envelope_hash",
-        "type": "Option<Array<u8, 32>>"
-      },
-      {
-        "name": "lane_privacy",
-        "type": "Option<LanePrivacyProof>"
-      }
-    ]
-  },
-  "ProofAttachmentList": "Vec<ProofAttachment>",
   "ProofBlob": {
     "Struct": [
       {
@@ -24301,66 +25032,6 @@
       }
     ]
   },
-  "SccpAttestationFaultV1": {
-    "Struct": [
-      {
-        "name": "peer",
-        "type": "PeerId"
-      },
-      {
-        "name": "address",
-        "type": "Array<u8, 20>"
-      },
-      {
-        "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "statement_hash",
-        "type": "Array<u8, 32>"
-      },
-      {
-        "name": "reported_at_height",
-        "type": "u64"
-      }
-    ]
-  },
-  "SccpAttestationSignedV1": {
-    "Struct": [
-      {
-        "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "signer_index",
-        "type": "u8"
-      },
-      {
-        "name": "address",
-        "type": "Array<u8, 20>"
-      }
-    ]
-  },
-  "SccpBlockAttestedV1": {
-    "Struct": [
-      {
-        "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "signer_bitmap",
-        "type": "u32"
-      }
-    ]
-  },
   "SccpBlockCommittedV1": {
     "Struct": [
       {
@@ -24401,22 +25072,42 @@
       }
     ]
   },
-  "SccpBridgeKeySetV1": {
+  "SccpCommitteeGenerationCreatedV1": {
     "Struct": [
       {
-        "name": "peer",
-        "type": "PeerId"
+        "name": "generation",
+        "type": "u64"
       },
       {
-        "name": "address",
-        "type": "Option<Array<u8, 20>>"
+        "name": "cause",
+        "type": "SccpGenerationCauseV1"
       },
       {
-        "name": "account",
-        "type": "Option<AccountId>"
+        "name": "committee_root",
+        "type": "Array<u8, 32>"
       },
       {
-        "name": "activation_epoch",
+        "name": "start_height",
+        "type": "u64"
+      },
+      {
+        "name": "deadline_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpCommitteeResyncV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "committee_root",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "start_height",
         "type": "u64"
       }
     ]
@@ -24436,8 +25127,20 @@
         "type": "u64"
       },
       {
-        "name": "paused",
+        "name": "track",
+        "type": "u8"
+      },
+      {
+        "name": "parliament_paused",
         "type": "bool"
+      },
+      {
+        "name": "fast_pause_until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "certificate_id",
+        "type": "Array<u8, 32>"
       },
       {
         "name": "height",
@@ -24463,123 +25166,138 @@
       },
       {
         "discriminant": 2,
-        "tag": "subject_created",
-        "type": "SccpSubjectCreatedV1"
-      },
-      {
-        "discriminant": 3,
-        "tag": "attestation_signed",
-        "type": "SccpAttestationSignedV1"
-      },
-      {
-        "discriminant": 4,
-        "tag": "block_attested",
-        "type": "SccpBlockAttestedV1"
-      },
-      {
-        "discriminant": 5,
-        "tag": "roster_generation_created",
-        "type": "SccpRosterGenerationCreatedV1"
-      },
-      {
-        "discriminant": 6,
-        "tag": "roster_derivation_failed",
-        "type": "SccpRosterDerivationFailedV1"
-      },
-      {
-        "discriminant": 7,
-        "tag": "handoff_stalled",
-        "type": "SccpHandoffStalledV1"
-      },
-      {
-        "discriminant": 8,
-        "tag": "bridge_key_set",
-        "type": "SccpBridgeKeySetV1"
-      },
-      {
-        "discriminant": 9,
-        "tag": "attestation_fault",
-        "type": "SccpAttestationFaultV1"
-      },
-      {
-        "discriminant": 10,
         "tag": "inbound_proven",
         "type": "SccpInboundProvenV1"
       },
       {
-        "discriminant": 11,
+        "discriminant": 3,
         "tag": "recipient_registered",
         "type": "SccpRecipientRegisteredV1"
       },
       {
-        "discriminant": 12,
+        "discriminant": 4,
         "tag": "inbound_released",
         "type": "SccpInboundReleasedV1"
       },
       {
-        "discriminant": 13,
+        "discriminant": 5,
         "tag": "inbound_bounced",
         "type": "SccpInboundBouncedV1"
       },
       {
-        "discriminant": 14,
+        "discriminant": 6,
         "tag": "inbound_liability_shortfall",
         "type": "SccpInboundLiabilityShortfallV1"
       },
       {
-        "discriminant": 15,
+        "discriminant": 7,
         "tag": "outbound_voided",
         "type": "SccpOutboundVoidedV1"
       },
       {
-        "discriminant": 16,
+        "discriminant": 8,
         "tag": "outbound_refunded",
         "type": "SccpOutboundRefundedV1"
       },
       {
-        "discriminant": 17,
+        "discriminant": 9,
         "tag": "outbound_stranded",
         "type": "SccpOutboundStrandedV1"
       },
       {
-        "discriminant": 18,
+        "discriminant": 10,
         "tag": "stranded_released",
         "type": "SccpStrandedReleasedV1"
       },
       {
-        "discriminant": 19,
+        "discriminant": 11,
         "tag": "light_client_advanced",
         "type": "SccpLightClientAdvancedV1"
       },
       {
-        "discriminant": 20,
+        "discriminant": 12,
         "tag": "light_client_frozen",
         "type": "SccpLightClientFrozenV1"
       },
       {
-        "discriminant": 21,
+        "discriminant": 13,
         "tag": "light_client_initialized",
         "type": "SccpLightClientInitializedV1"
       },
       {
-        "discriminant": 22,
+        "discriminant": 14,
         "tag": "trusted_checkpoint_installed",
         "type": "SccpTrustedCheckpointInstalledV1"
       },
       {
-        "discriminant": 23,
+        "discriminant": 15,
         "tag": "revision_activation_changed",
         "type": "SccpRevisionActivationChangedV1"
       },
       {
-        "discriminant": 24,
+        "discriminant": 16,
         "tag": "control_recorded",
         "type": "SccpControlRecordedV1"
       },
       {
-        "discriminant": 25,
+        "discriminant": 17,
         "tag": "governance_enacted",
         "type": "SccpGovernanceEnactedV1"
+      },
+      {
+        "discriminant": 18,
+        "tag": "committee_generation_created",
+        "type": "SccpCommitteeGenerationCreatedV1"
+      },
+      {
+        "discriminant": 19,
+        "tag": "generation_member_unslashable",
+        "type": "SccpGenerationMemberUnslashableV1"
+      },
+      {
+        "discriminant": 20,
+        "tag": "committee_resync",
+        "type": "SccpCommitteeResyncV1"
+      },
+      {
+        "discriminant": 21,
+        "tag": "generation_destination_cleared",
+        "type": "SccpGenerationDestinationClearedV1"
+      },
+      {
+        "discriminant": 22,
+        "tag": "finality_degraded",
+        "type": "SccpFinalityDegradedV1"
+      },
+      {
+        "discriminant": 23,
+        "tag": "fast_pause_lapsed",
+        "type": "SccpFastPauseLapsedV1"
+      },
+      {
+        "discriminant": 24,
+        "tag": "forgery_evidence_recorded",
+        "type": "SccpForgeryEvidenceRecordedV1"
+      },
+      {
+        "discriminant": 25,
+        "tag": "forgery_offender_unslashable",
+        "type": "SccpForgeryOffenderUnslashableV1"
+      },
+      {
+        "discriminant": 26,
+        "tag": "revision_forgery_held",
+        "type": "SccpRevisionForgeryHeldV1"
+      },
+      {
+        "discriminant": 27,
+        "tag": "revision_forgery_released",
+        "type": "SccpRevisionForgeryReleasedV1"
+      },
+      {
+        "discriminant": 28,
+        "tag": "revision_quarantined",
+        "type": "SccpRevisionQuarantinedV1"
       }
     ]
   },
@@ -24608,103 +25326,291 @@
         },
         {
           "mask": 4,
-          "name": "SubjectCreated"
-        },
-        {
-          "mask": 8,
-          "name": "AttestationSigned"
-        },
-        {
-          "mask": 16,
-          "name": "BlockAttested"
-        },
-        {
-          "mask": 32,
-          "name": "RosterGenerationCreated"
-        },
-        {
-          "mask": 64,
-          "name": "RosterDerivationFailed"
-        },
-        {
-          "mask": 128,
-          "name": "HandoffStalled"
-        },
-        {
-          "mask": 256,
-          "name": "BridgeKeySet"
-        },
-        {
-          "mask": 512,
-          "name": "AttestationFault"
-        },
-        {
-          "mask": 1024,
           "name": "InboundProven"
         },
         {
-          "mask": 2048,
+          "mask": 8,
           "name": "RecipientRegistered"
         },
         {
-          "mask": 4096,
+          "mask": 16,
           "name": "InboundReleased"
         },
         {
-          "mask": 8192,
+          "mask": 32,
           "name": "InboundBounced"
         },
         {
-          "mask": 16384,
+          "mask": 64,
           "name": "InboundLiabilityShortfall"
         },
         {
-          "mask": 32768,
+          "mask": 128,
           "name": "OutboundVoided"
         },
         {
-          "mask": 65536,
+          "mask": 256,
           "name": "OutboundRefunded"
         },
         {
-          "mask": 131072,
+          "mask": 512,
           "name": "OutboundStranded"
         },
         {
-          "mask": 262144,
+          "mask": 1024,
           "name": "StrandedReleased"
         },
         {
-          "mask": 524288,
+          "mask": 2048,
           "name": "LightClientAdvanced"
         },
         {
-          "mask": 1048576,
+          "mask": 4096,
           "name": "LightClientFrozen"
         },
         {
-          "mask": 2097152,
+          "mask": 8192,
           "name": "LightClientInitialized"
         },
         {
-          "mask": 4194304,
+          "mask": 16384,
           "name": "TrustedCheckpointInstalled"
         },
         {
-          "mask": 8388608,
+          "mask": 32768,
           "name": "RevisionActivationChanged"
         },
         {
-          "mask": 16777216,
+          "mask": 65536,
           "name": "ControlRecorded"
         },
         {
-          "mask": 33554432,
+          "mask": 131072,
           "name": "GovernanceEnacted"
+        },
+        {
+          "mask": 262144,
+          "name": "CommitteeGenerationCreated"
+        },
+        {
+          "mask": 524288,
+          "name": "GenerationMemberUnslashable"
+        },
+        {
+          "mask": 1048576,
+          "name": "CommitteeResync"
+        },
+        {
+          "mask": 2097152,
+          "name": "GenerationDestinationCleared"
+        },
+        {
+          "mask": 4194304,
+          "name": "FinalityDegraded"
+        },
+        {
+          "mask": 8388608,
+          "name": "FastPauseLapsed"
+        },
+        {
+          "mask": 16777216,
+          "name": "ForgeryEvidenceRecorded"
+        },
+        {
+          "mask": 33554432,
+          "name": "ForgeryOffenderUnslashable"
+        },
+        {
+          "mask": 67108864,
+          "name": "RevisionForgeryHeld"
+        },
+        {
+          "mask": 134217728,
+          "name": "RevisionForgeryReleased"
+        },
+        {
+          "mask": 268435456,
+          "name": "RevisionQuarantined"
         }
       ],
       "repr": "u32"
     }
+  },
+  "SccpFastPauseLapsedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "certificate_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "until_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpFinalityDegradedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "missing_inputs"
+      },
+      {
+        "discriminant": 1,
+        "tag": "invalid_inputs"
+      },
+      {
+        "discriminant": 2,
+        "tag": "missing_generation"
+      },
+      {
+        "discriminant": 3,
+        "tag": "invalid_generation"
+      },
+      {
+        "discriminant": 4,
+        "tag": "missing_parent"
+      },
+      {
+        "discriminant": 5,
+        "tag": "counter_exhausted"
+      }
+    ]
+  },
+  "SccpFinalityDegradedV1": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFinalityDegradedReasonV1"
+      }
+    ]
+  },
+  "SccpForgeryEvidenceRecordedV1": {
+    "Struct": [
+      {
+        "name": "evidence_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "rule",
+        "type": "SccpForgeryRuleV1"
+      },
+      {
+        "name": "offenders",
+        "type": "Vec<SccpForgeryOffenderV1>"
+      }
+    ]
+  },
+  "SccpForgeryOffenderUnslashableV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "signer",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpForgeryOffenderV1": {
+    "Struct": [
+      {
+        "name": "signer",
+        "type": "u32"
+      },
+      {
+        "name": "lane_id",
+        "type": "LaneId"
+      },
+      {
+        "name": "validator",
+        "type": "AccountId"
+      },
+      {
+        "name": "activation_height",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpForgeryRuleV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "E1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "E2"
+      },
+      {
+        "discriminant": 2,
+        "tag": "E3"
+      },
+      {
+        "discriminant": 3,
+        "tag": "E4"
+      }
+    ]
+  },
+  "SccpGenerationCauseV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "genesis"
+      },
+      {
+        "discriminant": 1,
+        "tag": "key_change"
+      },
+      {
+        "discriminant": 2,
+        "tag": "heartbeat"
+      },
+      {
+        "discriminant": 3,
+        "tag": "resync"
+      }
+    ]
+  },
+  "SccpGenerationDestinationClearedV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "lc",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpGenerationMemberUnslashableV1": {
+    "Struct": [
+      {
+        "name": "generation",
+        "type": "u64"
+      },
+      {
+        "name": "index",
+        "type": "u8"
+      }
+    ]
   },
   "SccpGovernanceEnactedV1": {
     "Struct": [
@@ -24738,23 +25644,6 @@
       {
         "discriminant": 3,
         "tag": "parameters"
-      },
-      {
-        "discriminant": 4,
-        "tag": "bridge_key_fault",
-        "type": "PeerId"
-      }
-    ]
-  },
-  "SccpHandoffStalledV1": {
-    "Struct": [
-      {
-        "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
       }
     ]
   },
@@ -25019,10 +25908,6 @@
         "tag": "bsc_mainnet"
       },
       {
-        "discriminant": 67,
-        "tag": "tron_mainnet"
-      },
-      {
         "discriminant": 68,
         "tag": "ton_mainnet"
       }
@@ -25144,54 +26029,58 @@
       }
     ]
   },
-  "SccpRosterDerivationFailedV1": {
+  "SccpRevisionForgeryHeldV1": {
     "Struct": [
       {
-        "name": "height",
-        "type": "u64"
+        "name": "network",
+        "type": "SccpNetworkV1"
       },
       {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "reason",
-        "type": "SccpRosterDerivationFailureV1"
-      },
-      {
-        "name": "roster_size",
+        "name": "revision",
         "type": "u32"
-      }
-    ]
-  },
-  "SccpRosterDerivationFailureV1": {
-    "Enum": [
-      {
-        "discriminant": 0,
-        "tag": "missing_next_epoch_snapshot"
       },
       {
-        "discriminant": 1,
-        "tag": "roster_size_out_of_range"
-      }
-    ]
-  },
-  "SccpRosterGenerationCreatedV1": {
-    "Struct": [
-      {
-        "name": "generation",
+        "name": "forgery_floor",
         "type": "u64"
       },
       {
-        "name": "digest",
+        "name": "generation",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpRevisionForgeryReleasedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "forgery_floor",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpRevisionQuarantinedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "certificate_id",
         "type": "Array<u8, 32>"
       },
       {
-        "name": "activation_height",
-        "type": "u64"
-      },
-      {
-        "name": "valid_until_ms",
+        "name": "since_height",
         "type": "u64"
       }
     ]
@@ -25257,26 +26146,6 @@
       {
         "name": "proposal_id",
         "type": "Array<u8, 32>"
-      }
-    ]
-  },
-  "SccpSubjectCreatedV1": {
-    "Struct": [
-      {
-        "name": "height",
-        "type": "u64"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "message_count",
-        "type": "u32"
-      },
-      {
-        "name": "rotation",
-        "type": "bool"
       }
     ]
   },
@@ -25505,7 +26374,11 @@
   "SettlementId": {
     "Struct": [
       {
-        "name": "name",
+        "name": "owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "reference",
         "type": "Name"
       }
     ]
@@ -25538,6 +26411,38 @@
       }
     ]
   },
+  "SettlementReplayDispositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "AlreadySettled"
+      },
+      {
+        "discriminant": 1,
+        "tag": "ConflictingIntent"
+      }
+    ]
+  },
+  "SettlementReplayV1": {
+    "Struct": [
+      {
+        "name": "settlement_id",
+        "type": "SettlementId"
+      },
+      {
+        "name": "disposition",
+        "type": "SettlementReplayDispositionV1"
+      },
+      {
+        "name": "committed_block_height",
+        "type": "u64"
+      },
+      {
+        "name": "committed_block_hash",
+        "type": "HashOf<BlockHeader>"
+      }
+    ]
+  },
   "Signature": {
     "Struct": [
       {
@@ -25553,6 +26458,42 @@
   "SignatureOf<SealedTransactionCommitmentPayload>": "Signature",
   "SignatureOf<SumeragiFinalityAttestationBody>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
+  "SignedAttachmentOccurrenceV1": {
+    "Struct": [
+      {
+        "name": "index",
+        "type": "u32"
+      },
+      {
+        "name": "kind",
+        "type": "AttachmentKindV1"
+      },
+      {
+        "name": "length",
+        "type": "u64"
+      },
+      {
+        "name": "content_hash",
+        "type": "AttachmentContentHashV1"
+      },
+      {
+        "name": "bytes",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "SignedAttachmentsV1": {
+    "Struct": [
+      {
+        "name": "actions",
+        "type": "Vec<ActionIntentV1>"
+      },
+      {
+        "name": "occurrences",
+        "type": "Vec<SignedAttachmentOccurrenceV1>"
+      }
+    ]
+  },
   "SignedBlock": {
     "Struct": [
       {
@@ -26303,6 +27244,11 @@
         "discriminant": 100,
         "tag": "FindNftSaleOfferById",
         "type": "FindNftSaleOfferById"
+      },
+      {
+        "discriminant": 101,
+        "tag": "FindAssetDefinitionDirectHome",
+        "type": "FindAssetDefinitionDirectHome"
       }
     ]
   },
@@ -26797,6 +27743,11 @@
         "discriminant": 97,
         "tag": "NftSaleRecord",
         "type": "NftSaleRecordV1"
+      },
+      {
+        "discriminant": 98,
+        "tag": "AssetDefinitionDirectHome",
+        "type": "AssetDefinitionDirectHomeV1"
       }
     ]
   },
@@ -30279,31 +31230,36 @@
       },
       {
         "discriminant": 1,
-        "tag": "PayloadRetryIntervalMs",
+        "tag": "DueWorkMaxLagMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 2,
-        "tag": "ExecBudgetMs",
+        "tag": "PayloadRetryIntervalMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 3,
-        "tag": "ApplyBudgetMs",
+        "tag": "ExecBudgetMs",
         "type": "NonZero<u64>"
       },
       {
         "discriminant": 4,
+        "tag": "ApplyBudgetMs",
+        "type": "NonZero<u64>"
+      },
+      {
+        "discriminant": 5,
         "tag": "MaxBlockBytes",
         "type": "NonZero<u32>"
       },
       {
-        "discriminant": 5,
+        "discriminant": 6,
         "tag": "EpochLengthBlocks",
         "type": "NonZero<u64>"
       },
       {
-        "discriminant": 6,
+        "discriminant": 7,
         "tag": "DemotionWindow",
         "type": "NonZero<u64>"
       }
@@ -30318,6 +31274,10 @@
       {
         "name": "max_clock_drift_ms",
         "type": "u64"
+      },
+      {
+        "name": "due_work_max_lag_ms",
+        "type": "NonZero<u64>"
       },
       {
         "name": "key_activation_lead_blocks",
@@ -31330,7 +32290,7 @@
       },
       {
         "name": "attachments",
-        "type": "Option<ProofAttachmentList>"
+        "type": "Option<SignedAttachmentsV1>"
       }
     ]
   },
@@ -31358,11 +32318,6 @@
       },
       {
         "discriminant": 4,
-        "tag": "IvmExecution",
-        "type": "IvmExecutionFail"
-      },
-      {
-        "discriminant": 5,
         "tag": "TriggerExecution",
         "type": "TriggerExecutionFail"
       }
@@ -31372,7 +32327,8 @@
     "Tuple": [
       "Result<Vec<DataTriggerStep>, TransactionRejectionReason>",
       "Vec<AssetBatchTransferOutcome>",
-      "Option<NexusFeeReceipt>"
+      "Option<NexusFeeReceipt>",
+      "ContractEmissionsV1"
     ]
   },
   "TransactionSignature": "SignatureOf<TransactionPayload>",
@@ -32017,20 +32973,30 @@
       },
       {
         "discriminant": 4,
+        "tag": "IvmFault",
+        "type": "IvmFaultV1"
+      },
+      {
+        "discriminant": 5,
         "tag": "QueryFailed",
         "type": "QueryExecutionFail"
       },
       {
-        "discriminant": 5,
+        "discriminant": 6,
         "tag": "AxtReject",
         "type": "AxtRejectContext"
       },
       {
-        "discriminant": 6,
+        "discriminant": 7,
+        "tag": "SettlementReplay",
+        "type": "SettlementReplayV1"
+      },
+      {
+        "discriminant": 8,
         "tag": "TooComplex"
       },
       {
-        "discriminant": 7,
+        "discriminant": 9,
         "tag": "InternalError"
       }
     ]
@@ -32275,6 +33241,9 @@
   "Vec<Action>": {
     "Vec": "Action"
   },
+  "Vec<ActionIntentV1>": {
+    "Vec": "ActionIntentV1"
+  },
   "Vec<Algorithm>": {
     "Vec": "Algorithm"
   },
@@ -32301,6 +33270,9 @@
   },
   "Vec<AssetId>": {
     "Vec": "AssetId"
+  },
+  "Vec<AttachmentReferenceV1>": {
+    "Vec": "AttachmentReferenceV1"
   },
   "Vec<AxtAnchoredSpendV1>": {
     "Vec": "AxtAnchoredSpendV1"
@@ -32344,6 +33316,12 @@
   "Vec<ConditionalEscrowConditionState>": {
     "Vec": "ConditionalEscrowConditionState"
   },
+  "Vec<ContractEnumTypeDescriptorV1>": {
+    "Vec": "ContractEnumTypeDescriptorV1"
+  },
+  "Vec<ContractEnumVariantDescriptorV1>": {
+    "Vec": "ContractEnumVariantDescriptorV1"
+  },
   "Vec<ContractErrorMessage>": {
     "Vec": "ContractErrorMessage"
   },
@@ -32352,6 +33330,12 @@
   },
   "Vec<ContractErrorVariantDescriptor>": {
     "Vec": "ContractErrorVariantDescriptor"
+  },
+  "Vec<ContractEventDescriptorV1>": {
+    "Vec": "ContractEventDescriptorV1"
+  },
+  "Vec<ContractPermissionDescriptorV1>": {
+    "Vec": "ContractPermissionDescriptorV1"
   },
   "Vec<DaCommitmentRecord>": {
     "Vec": "DaCommitmentRecord"
@@ -32406,6 +33390,9 @@
   },
   "Vec<EntrypointParamDescriptor>": {
     "Vec": "EntrypointParamDescriptor"
+  },
+  "Vec<EntrypointValueAtomV1>": {
+    "Vec": "EntrypointValueAtomV1"
   },
   "Vec<EntrypointValueTypeNodeV1>": {
     "Vec": "EntrypointValueTypeNodeV1"
@@ -32469,6 +33456,9 @@
   },
   "Vec<FinalityValidator>": {
     "Vec": "FinalityValidator"
+  },
+  "Vec<FraudAdmissionAttesterV1>": {
+    "Vec": "FraudAdmissionAttesterV1"
   },
   "Vec<GameForcedBatchV1>": {
     "Vec": "GameForcedBatchV1"
@@ -32749,9 +33739,6 @@
   "Vec<PrivateDataspaceRecord>": {
     "Vec": "PrivateDataspaceRecord"
   },
-  "Vec<ProofAttachment>": {
-    "Vec": "ProofAttachment"
-  },
   "Vec<ProofId>": {
     "Vec": "ProofId"
   },
@@ -32824,8 +33811,14 @@
   "Vec<RwaParentRef>": {
     "Vec": "RwaParentRef"
   },
+  "Vec<SccpForgeryOffenderV1>": {
+    "Vec": "SccpForgeryOffenderV1"
+  },
   "Vec<SccpGovernanceSubjectV1>": {
     "Vec": "SccpGovernanceSubjectV1"
+  },
+  "Vec<SignedAttachmentOccurrenceV1>": {
+    "Vec": "SignedAttachmentOccurrenceV1"
   },
   "Vec<SignedBlock>": {
     "Vec": "SignedBlock"

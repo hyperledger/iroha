@@ -99,6 +99,10 @@ mod poseidon;
 mod poseidon_manifest;
 mod proof;
 mod semantics;
+// Development-only State commitment candidates of ZK delivery plan task G.2.
+// TODO(G.3): delete with the selection of the State commitment construction.
+#[cfg(any(test, feature = "dev-tools"))]
+pub mod state_commitment_prototypes;
 mod trace;
 pub use axt_binding::{
     AXT_FASTPQ_BATCH_SEAL_METADATA_KEY, AXT_FASTPQ_BINDING_METADATA_KEY,

@@ -8,7 +8,7 @@
 //! view projections) and is persisted by the SCCP snapshot envelope.
 //!
 //! **Stored invariants.** Some maps carry a structural invariant between key and value (for
-//! example a roster is stored under its own generation). Each map's `valid_entry` is the single
+//! example a route is stored under its own network). Each map's `valid_entry` is the single
 //! definition of that rule: `insert` refuses an entry that breaks it, and snapshot restore
 //! rejects one, so every committed state restores. The counter maps [`pending_counts`] and
 //! [`governance_revisions`] hold no zero entries: absent means zero, and [`set_pending_counts`]
@@ -20,27 +20,95 @@ use core::ops::RangeBounds;
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{
-            SccpAttestationStatusV1, SccpAttestationSubjectV1, SccpBlockCommitmentV1,
-            SccpHistoryStateV1,
-        },
+        commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
-        keys_index::SccpPruneCursorV1,
         light_client::{
-            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
-            SccpLcProfileActivationV1, SccpLightClientV1,
+            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcProfileActivationV1,
+            SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::{SCCP_MESSAGES_MAX_PER_BLOCK_V1, SccpParametersV1},
         registry::SccpRouteV1,
-        roster::SccpBridgeRosterV1,
     },
 };
-use iroha_model_base::peer::PeerId;
 use mv::storage::StorageReadOnly;
+
+/// Keep the original local refusal armed until the enclosing block aborts.
+fn storage_refusal(
+    state: &mut StateTransaction<'_, '_>,
+    error: mv::storage::AdmittedStorageError,
+) -> Error {
+    state.arm_local_storage_refusal(crate::state::StateStorageAdmissionError::World(error));
+    Error::InvariantViolation("SCCP original map allocation did not complete".into())
+}
+macro_rules! insert_map {
+    ($state:ident, sccp_light_client_sets, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_light_client_sets
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, sccp_committee_generations, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_committee_generations
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_anchor_chunks
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, $field:ident, $key:ident, $value:ident) => {
+        Ok::<_, Error>($state.world.$field.insert($key, $value))
+    };
+}
+macro_rules! remove_map {
+    ($state:ident, sccp_light_client_sets, $key:ident) => {
+        match $state
+            .world
+            .sccp_light_client_sets
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, sccp_committee_generations, $key:ident) => {
+        match $state
+            .world
+            .sccp_committee_generations
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident) => {
+        match $state.world.sccp_anchor_chunks.try_remove_admitted($key) {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, $field:ident, $key:ident) => {
+        $state.world.$field.remove($key)
+    };
+}
 
 /// Generate the typed helpers of one SCCP storage map, optionally with a stored invariant
 /// `valid(key_pattern, value_pattern) => rule` over borrowed keys and values.
@@ -53,6 +121,7 @@ macro_rules! storage_map {
     (
         $(#[$meta:meta])* $module:ident => $field:ident: $key:ty => $value:ty,
         valid($key_pattern:pat, $value_pattern:pat) => $rule:expr
+        $(, index($index:ident, $indexed_value:ident) => $indexed:expr)?
     ) => {
         $(#[$meta])*
         pub mod $module {
@@ -102,7 +171,16 @@ macro_rules! storage_map {
                         .into(),
                     ));
                 }
-                Ok(state_transaction.world.$field.insert(key, value))
+                $(let $indexed_value = &value; let indexed = $indexed;)?
+                let previous = insert_map!(state_transaction, $field, key, value)?;
+                $(
+                    if indexed {
+                        state_transaction.world.$index.insert(key, ());
+                    } else {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
+                Ok(previous)
             }
 
             /// Remove `key` in the executing transaction, returning the previous value.
@@ -110,21 +188,27 @@ macro_rules! storage_map {
                 state_transaction: &mut StateTransaction<'_, '_>,
                 key: $key,
             ) -> Option<$value> {
-                state_transaction.world.$field.remove(key)
+                let previous = remove_map!(state_transaction, $field, key);
+                $(
+                    if previous.is_some() {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
+                previous
             }
 
             /// Iterate every entry in ascending key order.
-            pub fn iter<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            pub fn iter(
+                world: &(impl WorldReadOnly + ?Sized),
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().iter()
             }
 
             /// Iterate the entries whose keys fall in `bounds`, in ascending key order.
-            pub fn range<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
+            pub fn range(
+                world: &(impl WorldReadOnly + ?Sized),
                 bounds: impl RangeBounds<$key>,
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().range::<$key>(bounds)
             }
 
@@ -173,27 +257,31 @@ cell_value! {
     reset_nonce => sccp_reset_nonce: Option<[u8; 32]>
 }
 storage_map! {
-    /// Bridge-key state per peer (§4.2.1).
-    bridge_keys => sccp_bridge_keys: PeerId => SccpBridgeKeyStateV1
-}
-storage_map! {
-    /// Permanent bridge-key address to owning peer index; addresses are never reused (§4.2.1).
-    /// The zero address is never an owner.
-    bridge_key_owners => sccp_bridge_key_owners: [u8; 20] => PeerId,
-    valid(address, _peer) => *address != [0; 20]
-}
-storage_map! {
-    /// Bridge roster generations by generation number (§4.3.1), each under its own generation.
-    rosters => sccp_rosters: u64 => SccpBridgeRosterV1,
-    valid(generation, roster) => *generation == roster.generation
+    /// Immutable committee trust and liability records (§4.2).
+    committee_generations => sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration,
+    valid(generation, record) => *generation == record.generation && record.is_well_formed(),
+    index(sccp_destination_pending_generations, record) => record.end.is_some() && record.dest_cleared_lc.is_none()
 }
 cell_value! {
-    /// Current bridge roster generation (§4.3.1).
-    roster_current => sccp_roster_current: u64
+    /// Current committee generation; zero before initialization.
+    committee_current => sccp_committee_current: u64
 }
 cell_value! {
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    heartbeat_marker => sccp_heartbeat_marker: Option<u64>
+    /// Bounded liability clock of the executing block (§4.8 S0).
+    liability_clock => sccp_liability_clock: u64
+}
+cell_value! {
+    /// Consecutive heights missing authenticated SCCP inputs (§4.6).
+    degraded_run => sccp_degraded_run: u32
+}
+cell_value! {
+    /// Consensus anchors in the not-yet-complete chunk (§4.2 A1).
+    anchor_open => sccp_anchor_open: crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors
+}
+storage_map! {
+    /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
+    anchor_chunks => sccp_anchor_chunks: u64 => [u8; 32],
+    valid(chunk, _root) => chunk.checked_add(1).and_then(|count| count.checked_mul(4096)).is_some()
 }
 storage_map! {
     /// Leaf references by `(height, commitment_index)` (§4.5); see [`super::leaves`]. Indices
@@ -216,35 +304,6 @@ storage_map! {
     history_leaves => sccp_history_leaves: u64 => (u64, [u8; 32])
 }
 storage_map! {
-    /// Attestation subjects by height (§4.6), each under its own height.
-    attestation_subjects => sccp_attestation_subjects: u64 => SccpAttestationSubjectV1,
-    valid(height, subject) => *height == subject.height
-}
-storage_map! {
-    /// Attestation signer bitmaps by subject height (§4.6).
-    attestation_status => sccp_attestation_status: u64 => SccpAttestationStatusV1
-}
-storage_map! {
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    attestation_signatures => sccp_attestation_signatures: (u64, u8) => [u8; 65]
-}
-storage_map! {
-    /// Equivocation faults by `(address, height)` (§4.11).
-    attestation_faults => sccp_attestation_faults: ([u8; 20], u64) => SccpAttestationFaultRecordV1
-}
-storage_map! {
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    member_last_signed => sccp_member_last_signed: [u8; 20] => u64
-}
-storage_map! {
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    handoff_stalled => sccp_handoff_stalled: u64 => u64
-}
-cell_value! {
-    /// Resumable position of the bounded pruning step (§4.10).
-    prune_cursor => sccp_prune_cursor: SccpPruneCursorV1
-}
-storage_map! {
     /// Outbound message records by message id (§4.4).
     outbound_messages => sccp_outbound_messages: [u8; 32] => SccpOutboundMessageRecordV1
 }
@@ -256,7 +315,26 @@ storage_map! {
     /// Destination control records by `(network, revision, control_nonce)` (§4.14.6), whose
     /// leaf indices stay below the 512-leaf block limit.
     control_messages => sccp_control_messages: (SccpNetworkV1, u32, u64) => SccpControlRecordV1,
-    valid(_key, record) => record.commitment_index < SCCP_MESSAGES_MAX_PER_BLOCK_V1
+    valid(key, record) => key.0.is_external() && key.1 != 0 && key.2 != 0 && record.has_valid_shape()
+}
+storage_map! {
+    /// Current emergency parts and their original certificate cause (§4.14.7).
+    fast_pauses => sccp_fast_pauses: SccpNetworkV1 => crate::smartcontracts::isi::sccp::pause_record::RetainedSccpFastPause,
+    valid(network, record) => network.is_external() && record.has_valid_shape()
+}
+storage_map! {
+    /// Nonzero Parliament suspension deadlines (§4.14.7); zero removes the entry.
+    fast_pause_suspended_until_ms => sccp_fast_pause_suspended_until_ms: SccpNetworkV1 => u64,
+    valid(network, until) => network.is_external() && *until != 0
+}
+storage_map! {
+    /// Independent current-head primary/backup rounds, retaining original endorsement graphs.
+    fast_pause_rounds => sccp_fast_pause_rounds: (SccpNetworkV1, iroha_data_model::sccp::fast_pause::SccpPanelRoleV1) => crate::smartcontracts::isi::sccp::pause_record::RetainedSccpFastPauseRound,
+    valid(key, _record) => key.0.is_external()
+}
+cell_value! {
+    /// Chain-wide original draw and accepted members; empty before the first valid boundary.
+    pause_panel => sccp_pause_panel: Option<crate::smartcontracts::isi::sccp::pause_record::RetainedSccpPausePanel>
 }
 storage_map! {
     /// Route registry by external network (§4.14.1), each route under its own network.
@@ -290,7 +368,8 @@ storage_map! {
 }
 storage_map! {
     /// Authenticated source consensus sets by `(network, set_id)` (§4.13.1).
-    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => SccpLcConsensusSetV1
+    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => crate::smartcontracts::isi::sccp::light_client_set::RetainedSccpLcSet,
+    valid(key, record) => key.1 == record.set_id
 }
 storage_map! {
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
@@ -372,48 +451,208 @@ pub fn set_pending_counts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, peer, sample_bridge_key_state, sample_route,
-    };
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_route};
+
+    #[test]
+    fn generation_and_anchor_stores_preserve_validation_and_transaction_rollback() {
+        use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+        use iroha_data_model::sccp::generation::SccpAnchorV1;
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let budget = state.ivm_execution_budget();
+        let original = super::super::generation_record::RetainedSccpGeneration::admit(
+            &sample_generation(1),
+            &budget,
+        )
+        .unwrap();
+        assert!(committee_generations::valid_entry(&1, &original));
+        assert!(!committee_generations::valid_entry(&2, &original));
+        {
+            let mut stx = block.transaction();
+            assert!(committee_generations::insert(&mut stx, 2, original.clone()).is_err());
+            assert!(committee_generations::is_empty(&*stx.world));
+            assert_eq!(
+                committee_generations::insert(&mut stx, 1, original.clone()).unwrap(),
+                None
+            );
+            assert_eq!(committee_generations::get(&*stx.world, &1), Some(&original));
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            let mut ended = original.clone();
+            ended.end = Some(iroha_data_model::sccp::generation::SccpGenerationEndV1 {
+                end_height: 5,
+                end_timestamp_ms: 5_000,
+                next_committee_root: original.committee_root,
+                successor_validity_ms: original.validity_ms,
+            });
+            assert!(committee_generations::insert(&mut stx, 2, ended.clone()).is_err());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert_eq!(
+                stx.world.sccp_destination_pending_generations.get(&1),
+                Some(&())
+            );
+            let mut cleared = ended.clone();
+            cleared.dest_cleared_lc = Some(5_000);
+            committee_generations::insert(&mut stx, 1, cleared).unwrap();
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended.clone()).unwrap();
+            assert!(committee_generations::remove(&mut stx, 1).is_some());
+            assert!(stx.world.sccp_destination_pending_generations.is_empty());
+            committee_generations::insert(&mut stx, 1, ended).unwrap();
+            assert_eq!(committee_current::set(&mut stx, 1), 0);
+            assert_eq!(liability_clock::set(&mut stx, 1_000), 0);
+            assert_eq!(degraded_run::set(&mut stx, 2), 0);
+            assert_eq!(*committee_current::get(&*stx.world), 1);
+            assert_eq!(*liability_clock::get(&*stx.world), 1_000);
+            assert_eq!(*degraded_run::get(&*stx.world), 2);
+            let anchor = SccpAnchorV1 {
+                core_hash: [1; 32],
+                result: [2; 32],
+            };
+            let anchors =
+                super::super::anchor_record::RetainedSccpAnchors::admit(&[anchor], &budget)
+                    .unwrap();
+            assert!(anchor_open::set(&mut stx, anchors).as_slice().is_empty());
+            assert_eq!(anchor_open::get(&*stx.world).as_slice(), &[anchor]);
+            assert!(anchor_chunks::insert(&mut stx, u64::MAX, [3; 32]).is_err());
+            assert_eq!(anchor_chunks::insert(&mut stx, 0, [3; 32]).unwrap(), None);
+            assert_eq!(anchor_chunks::get(&*stx.world, &0), Some(&[3; 32]));
+            // Dropping the complete transaction retains neither metadata nor new trust state.
+        }
+        assert!(committee_generations::is_empty(&block.world));
+        assert!(block.world.sccp_destination_pending_generations.is_empty());
+        assert!(anchor_chunks::is_empty(&block.world));
+        assert!(anchor_open::get(&block.world).as_slice().is_empty());
+        assert_eq!(*committee_current::get(&block.world), 0);
+        assert_eq!(*liability_clock::get(&block.world), 0);
+        assert_eq!(*degraded_run::get(&block.world), 0);
+    }
+
+    #[test]
+    fn pause_stores_reject_local_network_and_preserve_funded_transaction_rollback() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::{
+                RetainedSccpFastPause, RetainedSccpFastPauseRound, RetainedSccpPausePanel,
+            },
+            test_support::{sample_fast_pause, sample_fast_pause_round, sample_pause_panel},
+        };
+        use iroha_data_model::sccp::fast_pause::SccpPanelRoleV1;
+        let state = blank_state();
+        let budget = state.ivm_execution_budget();
+        let mut block = state.block(header(5));
+        let before = budget.reserved_bytes();
+        let pause = RetainedSccpFastPause::admit(&sample_fast_pause(1), &budget).unwrap();
+        let round =
+            RetainedSccpFastPauseRound::admit(&sample_fast_pause_round(1), &budget).unwrap();
+        let panel = RetainedSccpPausePanel::admit(&sample_pause_panel(1), &budget).unwrap();
+        let retained = budget.reserved_bytes();
+        let network = SccpNetworkV1::EthereumMainnet;
+        {
+            let mut stx = block.transaction();
+            assert!(
+                fast_pauses::insert(&mut stx, SccpNetworkV1::SoraTaira, pause.clone()).is_err()
+            );
+            assert!(
+                fast_pause_rounds::insert(
+                    &mut stx,
+                    (SccpNetworkV1::SoraTaira, SccpPanelRoleV1::Primary),
+                    round.clone()
+                )
+                .is_err()
+            );
+            assert!(fast_pause_suspended_until_ms::insert(&mut stx, network, 0).is_err());
+            assert!(
+                fast_pause_suspended_until_ms::insert(&mut stx, SccpNetworkV1::SoraTaira, 1)
+                    .is_err()
+            );
+            assert_eq!(
+                fast_pauses::insert(&mut stx, network, pause.clone()).unwrap(),
+                None
+            );
+            assert_eq!(
+                fast_pause_rounds::insert(
+                    &mut stx,
+                    (network, SccpPanelRoleV1::Primary),
+                    round.clone()
+                )
+                .unwrap(),
+                None
+            );
+            assert_eq!(
+                fast_pause_suspended_until_ms::insert(&mut stx, network, 5_000).unwrap(),
+                None
+            );
+            assert_eq!(pause_panel::set(&mut stx, Some(panel.clone())), None);
+            assert_eq!(fast_pauses::get(&*stx.world, &network), Some(&pause));
+            assert_eq!(
+                fast_pause_rounds::get(&*stx.world, &(network, SccpPanelRoleV1::Primary)),
+                Some(&round)
+            );
+            assert_eq!(pause_panel::get(&*stx.world), &Some(panel.clone()));
+        }
+        assert!(fast_pauses::is_empty(&block.world));
+        assert!(fast_pause_rounds::is_empty(&block.world));
+        assert!(fast_pause_suspended_until_ms::is_empty(&block.world));
+        assert!(pause_panel::get(&block.world).is_none());
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained,
+            "rollback preserves the original readers' graphs"
+        );
+        drop((pause, round, panel));
+        assert_eq!(budget.reserved_bytes(), before);
+    }
 
     #[test]
     fn storage_helpers_write_read_iterate_and_roll_back() {
         let state = blank_state();
         let mut block = state.block(header(3));
+        let record = |paused| SccpControlRecordV1 {
+            track: 1,
+            parliament_paused: paused,
+            fast_pause_until_ms: 0,
+            height: 3,
+            commitment_index: 0,
+            leaf: [1; 32],
+            certificate_id: [2; 32],
+            effect_hash: [5; 32],
+        };
         {
             let mut stx = block.transaction();
-            assert!(bridge_keys::is_empty(&*stx.world));
-            let first = peer(1);
-            let second = peer(2);
+            assert!(control_messages::is_empty(&*stx.world));
+            let first = (SccpNetworkV1::EthereumMainnet, 1, 1);
+            let second = (SccpNetworkV1::BscMainnet, 1, 1);
             assert_eq!(
-                bridge_keys::insert(&mut stx, first.clone(), sample_bridge_key_state(1)),
+                control_messages::insert(&mut stx, second, record(false)),
                 Ok(None)
             );
             assert_eq!(
-                bridge_keys::insert(&mut stx, second.clone(), sample_bridge_key_state(2)),
+                control_messages::insert(&mut stx, first, record(true)),
                 Ok(None)
             );
-            assert_eq!(bridge_keys::len(&*stx.world), 2);
-            assert!(bridge_keys::contains(&*stx.world, &first));
+            assert_eq!(control_messages::len(&*stx.world), 2);
+            assert!(control_messages::contains(&*stx.world, &first));
             assert_eq!(
-                bridge_keys::get(&*stx.world, &second),
-                Some(&sample_bridge_key_state(2))
+                control_messages::get(&*stx.world, &second),
+                Some(&record(false))
             );
-            let keys: Vec<_> = bridge_keys::iter(&*stx.world)
-                .map(|(key, _)| key.clone())
+            let keys: Vec<_> = control_messages::iter(&*stx.world)
+                .map(|(key, _)| *key)
                 .collect();
-            let mut sorted = keys.clone();
-            sorted.sort();
-            assert_eq!(keys, sorted, "iteration is in ascending key order");
             assert_eq!(
-                bridge_keys::remove(&mut stx, first.clone()),
-                Some(sample_bridge_key_state(1))
+                keys,
+                vec![first, second],
+                "iteration is in ascending key order"
             );
-            assert!(!bridge_keys::contains(&*stx.world, &first));
+            assert_eq!(
+                control_messages::remove(&mut stx, first),
+                Some(record(true))
+            );
+            assert!(!control_messages::contains(&*stx.world, &first));
             // Dropping the transaction rolls every write back.
         }
         let stx = block.transaction();
-        assert!(bridge_keys::is_empty(&*stx.world));
+        assert!(control_messages::is_empty(&*stx.world));
     }
 
     #[test]
@@ -440,26 +679,25 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        assert_eq!(*roster_current::get(&*stx.world), 0);
-        assert_eq!(roster_current::set(&mut stx, 7), 0);
-        assert_eq!(roster_current::set(&mut stx, 8), 7);
-        assert_eq!(*roster_current::get(&*stx.world), 8);
+        assert_eq!(*reset_nonce::get(&*stx.world), None);
+        assert_eq!(reset_nonce::set(&mut stx, Some([7; 32])), None);
+        assert_eq!(reset_nonce::set(&mut stx, Some([8; 32])), Some([7; 32]));
+        assert_eq!(*reset_nonce::get(&*stx.world), Some([8; 32]));
         assert_eq!(*parameters::get(&*stx.world), None);
         assert_eq!(
             parameters::set(&mut stx, Some(SccpParametersV1::taira_default())),
             None
         );
         assert!(parameters::get(&*stx.world).is_some());
-        assert_eq!(heartbeat_marker::set(&mut stx, Some(3)), None);
         assert_eq!(
-            prune_cursor::set(
+            history::set(
                 &mut stx,
-                SccpPruneCursorV1 {
-                    signatures_height: 2,
-                    rotation_height: 1,
+                SccpHistoryStateV1 {
+                    size: 1,
+                    peaks: vec![[3; 32]],
                 }
             ),
-            SccpPruneCursorV1::default()
+            SccpHistoryStateV1::default()
         );
     }
 
@@ -470,7 +708,7 @@ mod tests {
         let mut stx = block.transaction();
         let subject = SccpGovernanceSubjectV1::Route(SccpNetworkV1::EthereumMainnet);
         assert_eq!(governance_revision(&*stx.world, &subject), 0);
-        governance_revisions::insert(&mut stx, subject.clone(), 4).expect("a nonzero revision");
+        governance_revisions::insert(&mut stx, subject, 4).expect("a nonzero revision");
         assert_eq!(governance_revision(&*stx.world, &subject), 4);
         routes::insert(
             &mut stx,
@@ -483,8 +721,6 @@ mod tests {
 
     #[test]
     fn inserts_refuse_entries_that_break_a_stored_invariant() {
-        use crate::smartcontracts::isi::sccp::test_support::{peer, sample_roster};
-        use iroha_data_model::sccp::attestation::SccpBlockCommitmentV1;
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
@@ -492,8 +728,6 @@ mod tests {
             let error = result.expect_err("the entry breaks its map's invariant");
             assert!(error.to_string().contains("stored invariant"), "{error}");
         };
-        refused(bridge_key_owners::insert(&mut stx, [0; 20], peer(1)).map(drop));
-        refused(rosters::insert(&mut stx, 2, sample_roster(1, 5)).map(drop));
         refused(
             block_leaves::insert(
                 &mut stx,
@@ -551,15 +785,17 @@ mod tests {
             ),
             Ok(None)
         );
-        assert!(bridge_key_owners::is_empty(&*stx.world));
-        assert!(rosters::is_empty(&*stx.world));
         assert!(block_leaves::is_empty(&*stx.world));
         assert!(block_commitments::is_empty(&*stx.world));
         assert!(routes::is_empty(&*stx.world));
         assert!(governance_revisions::is_empty(&*stx.world));
         assert!(pending_counts::is_empty(&*stx.world));
-        assert!(rosters::valid_entry(&1, &sample_roster(1, 5)));
-        assert_eq!(rosters::insert(&mut stx, 1, sample_roster(1, 5)), Ok(None));
+        let route = sample_route(SccpNetworkV1::EthereumMainnet);
+        assert!(routes::valid_entry(&SccpNetworkV1::EthereumMainnet, &route));
+        assert_eq!(
+            routes::insert(&mut stx, SccpNetworkV1::EthereumMainnet, route),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -567,7 +803,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        let key = (SccpNetworkV1::TronMainnet, 2);
+        let key = (SccpNetworkV1::BscMainnet, 2);
         assert_eq!(pending_count(&*stx.world, &key), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (2, 0)), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (1, 1)), (2, 0));
@@ -578,9 +814,54 @@ mod tests {
             "a count back at zero leaves no entry"
         );
         let subject = SccpGovernanceSubjectV1::Parameters;
-        assert_eq!(set_governance_revision(&mut stx, subject.clone(), 3), 0);
+        assert_eq!(set_governance_revision(&mut stx, subject, 3), 0);
         assert_eq!(governance_revision(&*stx.world, &subject), 3);
-        assert_eq!(set_governance_revision(&mut stx, subject.clone(), 0), 3);
+        assert_eq!(set_governance_revision(&mut stx, subject, 0), 3);
         assert!(governance_revisions::is_empty(&*stx.world));
     }
+}
+
+/// Permanent offences are read separately from Native evidence; no native-horizon pruning.
+pub mod forgery_offences {
+    use super::*;
+    use crate::state::sccp_forgery_custody::OffenceKey;
+
+    /// Borrow the original evidence id, retaining absence as absence.
+    #[must_use]
+    pub fn get<'a>(
+        world: &'a (impl WorldReadOnly + ?Sized),
+        key: &OffenceKey,
+    ) -> Option<&'a [u8; 32]> {
+        world.sccp_forgery_offences().get(key)
+    }
+
+    /// Install one new offence under its original map pool and advance the maximum.
+    /// The executing-parent handler owns paired record/event publication in the same
+    /// child transaction; this primitive alone grants no instruction authority.
+    pub(crate) fn insert_new(
+        stx: &mut StateTransaction<'_, '_>,
+        key: OffenceKey,
+        evidence_id: [u8; 32],
+    ) -> Result<bool, (OffenceKey, mv::storage::AdmittedStorageError)> {
+        if !key.belongs_to(stx.world.sccp_forgery_offences.allocation_budget()) {
+            return Err((key, mv::storage::AdmittedStorageError::ScopeIdentity));
+        }
+        if stx.world.sccp_forgery_offences.get(&key).is_some() {
+            return Ok(false);
+        }
+        let generation = key.generation();
+        stx.world
+            .sccp_forgery_offences
+            .try_insert_admitted(key, evidence_id)
+            .map_err(|((key, _), error)| (key, error))?;
+        let maximum = stx.world.sccp_forgery_max_generation.get_mut();
+        *maximum = Some(maximum.map_or(generation, |previous| previous.max(generation)));
+        Ok(true)
+    }
+}
+
+/// Highest recorded SCCP generation; this does not derive a hold release by itself.
+#[must_use]
+pub fn forgery_max_generation(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64> {
+    *world.sccp_forgery_max_generation()
 }

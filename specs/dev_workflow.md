@@ -111,6 +111,60 @@ new patches follow the same default gates.
   After changing a listed file run `make refresh-fhe-ownership`; it recomputes
   the derived facts and leaves new files and functions for you to classify.
   The pull-request workflow runs the same check.
+- `make guards` and the pull-request workflow also run
+  `scripts/check_zk_operation_inventory.py`. It checks the
+  [operation and admission-route inventory](zk_operation_inventory.json)
+  against the source: every instruction of the ZK, privacy and FHE families
+  with its wire id, handler and authority checks, the twelve-protocol list and
+  its dispatch, the thirteen Exact12 roles with the typed dispatch registry
+  and the single Exact12 path (one envelope assembler, one instruction, one
+  dispatch call, one caller of each native verifier outside its engine, one
+  effect consumer), the closed relation, class, job-kind and executable lists, the
+  family syscalls and Kotodama builtins, the Torii routes of the listed path
+  families, the SDK and native-bridge files and declarations that reference
+  them, every call of a verifier or restore-validator entry point with its
+  admission route class, the path from each handler to its verifier with the
+  tests that reach it, and the sites where a key, source hash or catalog entry
+  selects a proof. After adding an instruction, route, verifier call, selector
+  site or SDK declaration in those families, list it in the inventory;
+  `--propose` prints a skeleton and `--refresh` recomputes the scanned parts
+  and keeps every classification.
+- `make guards` and the pull-request workflow also run
+  `scripts/check_zk_economic_invariants.py`. It checks the
+  [protocol economic invariant matrix](zk_economic_invariants.json) against
+  the source: every operation of the operation inventory is classified as
+  moving value or not, every value-bearing operation has an effect row, and
+  each row's handler, enforcement sites and cited tests exist. A handler
+  recorded as moving no value fails the check when it starts to name a
+  ledger-value identifier. After adding a value-bearing instruction, a ledger
+  effect class, a reserve-owning protocol, a root role or a lifecycle state,
+  add its row or entry; `--refresh` rewrites recorded lines, the
+  suspension-word counts and the summary, and keeps every classification.
+  `--show` prints one line per effect and `--defects` one per open defect.
+- `make guards` and the pull-request workflow also run
+  `scripts/check_zk_primitive_workloads.py`. It checks the
+  [primitive and workload specification](zk_primitive_workloads.json) against
+  the source: the digest primitives each proof, privacy, FHE, IVM and
+  primitive-owner file names (by algorithm name or by a listed wrapper symbol),
+  the reviewed digest roles with their symbols, domain literals and compile
+  status, the ledger of production functions that call a digest in the catalog,
+  Kaigi, spentness, MKHE and privacy-model owners, the carriers of each pinned
+  commitment value in any byte form and the files that name a commitment type,
+  the candidate native commitment frame and its vectors, the BN254 Poseidon
+  tables against an independent regeneration, the post-quantum packages, call
+  sites and known-answer responses, the exploratory workload and
+  transcript-requirement lists, and the frozen semantic profiles of task H.2:
+  each identity is recomputed from its parameters by
+  `scripts/zk_semantic_profile_reference.py`, every digest role and H.1 defect
+  needs a disposition, the transcript known answers in
+  `fixtures/fastpq/q77-transcript-profile.json` are recomputed, and a recorded
+  measurement that names another identity than the current one fails as
+  inapplicable. A file or function that starts to use a digest
+  fails the guard: run `--refresh --write` to record it, then classify a new
+  use under its consumer and assign a new producer its role.
+  `--write-candidate-vectors`, `scripts/zk_bn254_poseidon_reference.py
+  --write-vectors` and `scripts/zk_pq_kat_reference.py --write-inputs`
+  regenerate the fixtures the Rust vector tests read.
 - **Proc-macro UI policy:** every proc-macro crate must ship a `trybuild`
   harness (`tests/ui.rs` with pass/fail globs) behind the `trybuild-tests`
   feature. Place happy-path samples under `tests/ui/pass`, rejection cases under

@@ -11,6 +11,12 @@ mod strict_verifying_key_preparation_tests {
         assert_eq!(first, second);
         for key in [&first, &second] {
             native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, KAIGI_USAGE_CIRCUIT_ID_V1, key)
+                .map_err(|error| match error {
+                    crate::VerificationAttemptError::Rejected(error) => error,
+                    crate::VerificationAttemptError::Deferred(original) => {
+                        panic!("unexpected local verification refusal: {original}")
+                    }
+                })
                 .expect("exact compiled key");
         }
         let empty = VerifyingKeyBox::new(ZK_BACKEND_NATIVE_PIPA_R.to_owned(), Vec::new());
@@ -20,6 +26,11 @@ mod strict_verifying_key_preparation_tests {
                 KAIGI_USAGE_CIRCUIT_ID_V1,
                 &empty,
             )
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) =>
+                    panic!("unexpected local verification refusal: {original}"),
+            })
             .is_err(),
             "a cached key must never replace absent supplied key bytes"
         );
@@ -48,8 +59,17 @@ mod strict_verifying_key_preparation_tests {
         record.activation_height = Some(10);
         record.withdraw_height = Some(10);
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("an empty activation window must not enter persistent state");
-        assert!(error.contains("greater"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("greater"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -58,8 +78,17 @@ mod strict_verifying_key_preparation_tests {
         let mut record = portable_off_ledger_record();
         record.metadata_uri_cid = Some("ipfs://cid?query".to_owned());
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("nonportable metadata must not poison registry rehydration");
-        assert!(error.contains("metadata URI"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("metadata URI"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -79,8 +108,17 @@ mod strict_verifying_key_preparation_tests {
         record.vk_len = u32::try_from(NATIVE_PIPA_R_VERIFYING_KEY_V1_MAX_BYTES + 1)
             .expect("test length fits u32");
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("an off-ledger key declaration must obey the backend container bound");
-        assert!(error.contains("declared"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("declared"),
+            "unexpected error: {error}"
+        );
     }
     #[test]
     fn record_preparation_rejects_noncanonical_native_schema_hash() {
@@ -88,8 +126,17 @@ mod strict_verifying_key_preparation_tests {
         let mut record = portable_off_ledger_record();
         record.public_inputs_schema_hash = iroha_crypto::Hash::new(b"noncanonical-schema").into();
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("a production native key must bind the circuit's canonical schema");
-        assert!(error.contains("schema hash"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("schema hash"),
+            "unexpected error: {error}"
+        );
     }
     #[test]
     fn binding_only_ivm_verifier_records_are_not_admitted() {
@@ -100,8 +147,17 @@ mod strict_verifying_key_preparation_tests {
         halo2_record.circuit_id = "halo2/pasta/ipa/ivm-execution-v1".to_owned();
         halo2_record.public_inputs_schema_hash = [0x22; 32];
         let halo2_error = validate_and_prepare_verifying_key_record_v1(&halo2_id, &halo2_record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("binding-only Halo2 IVM key must not enter state");
-        assert!(halo2_error.contains("not admitted"), "{halo2_error}");
+        assert!(
+            halo2_error.to_string().contains("not admitted"),
+            "{halo2_error}"
+        );
 
         let stark_id = VerifyingKeyId::new(ZK_BACKEND_STARK_FRI_V1, "ivm-binding");
         let mut stark_record = VerifyingKeyRecord::new(
@@ -114,8 +170,17 @@ mod strict_verifying_key_preparation_tests {
         );
         stark_record.gas_schedule_id = Some("stark_default".to_owned());
         let stark_error = validate_and_prepare_verifying_key_record_v1(&stark_id, &stark_record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("binding-only STARK IVM key must not enter state");
-        assert!(stark_error.contains("not admitted"), "{stark_error}");
+        assert!(
+            stark_error.to_string().contains("not admitted"),
+            "{stark_error}"
+        );
     }
     #[test]
     fn record_preparation_rejects_oversized_stark_off_ledger_declaration() {
@@ -131,8 +196,17 @@ mod strict_verifying_key_preparation_tests {
         record.vk_len =
             u32::try_from(STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES + 1).expect("test length fits u32");
         let error = validate_and_prepare_verifying_key_record_v1(&id, &record)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("an off-ledger STARK key declaration must obey the backend bound");
-        assert!(error.contains("declared"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("declared"),
+            "unexpected error: {error}"
+        );
     }
     #[test]
     fn native_preparation_rejects_oversized_container_before_backend_decode() {
@@ -146,8 +220,19 @@ mod strict_verifying_key_preparation_tests {
             iroha_data_model::zk::BackendTag::NativePipaRPasta,
             &vk,
         )
+        .map_err(|error| match error {
+            crate::VerificationAttemptError::Rejected(error) => error,
+            crate::VerificationAttemptError::Deferred(original) => {
+                panic!("unexpected local verification refusal: {original}")
+            }
+        })
         .expect_err("oversized native key must fail before backend decoding");
-        assert!(error.contains("invalid native PIPA-R key container"), "unexpected error: {error}");
+        assert!(
+            error
+                .to_string()
+                .contains("invalid native PIPA-R key container"),
+            "unexpected error: {error}"
+        );
     }
     #[test]
     fn native_preparation_rejects_retired_tlv_container() {
@@ -161,6 +246,11 @@ mod strict_verifying_key_preparation_tests {
                 iroha_data_model::zk::BackendTag::NativePipaRPasta,
                 &vk,
             )
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) =>
+                    panic!("unexpected local verification refusal: {original}"),
+            })
             .is_err(),
             "a tiny key container must not honor an attacker-declared TLV allocation"
         );
@@ -195,6 +285,11 @@ mod strict_verifying_key_preparation_tests {
                 iroha_data_model::zk::BackendTag::Stark,
                 &vk,
             )
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) =>
+                    panic!("unexpected local verification refusal: {original}"),
+            })
             .is_err(),
             "bounded preparation must reject an oversized declared string before allocation"
         );

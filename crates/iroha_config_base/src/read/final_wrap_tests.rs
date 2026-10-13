@@ -15,7 +15,7 @@ struct LargeValue {
 impl LargeValue {
     fn new() -> Self {
         Self {
-            bytes: [0x5a; 64 * 1024],
+            bytes: std::array::from_fn(|_| 0x5a),
         }
     }
 }

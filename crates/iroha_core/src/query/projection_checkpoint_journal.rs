@@ -222,11 +222,17 @@ impl QueryProjectionCheckpointJournal {
         from: &Path,
         to: &Path,
     ) -> Result<(), QueryProjectionCheckpointJournalError> {
-        let rename = (|| {
+        let rename = {
             #[cfg(test)]
-            Self::fail_promotion_step_for_tests(PromotionFailure::InitialRename)?;
-            fs::rename(from, to)
-        })();
+            {
+                Self::fail_promotion_step_for_tests(PromotionFailure::InitialRename)
+                    .and_then(|()| fs::rename(from, to))
+            }
+            #[cfg(not(test))]
+            {
+                fs::rename(from, to)
+            }
+        };
         if let Err(source) = rename {
             if !to.exists() {
                 return Err(QueryProjectionCheckpointJournalError::Write {
@@ -236,20 +242,32 @@ impl QueryProjectionCheckpointJournal {
             }
             // Platforms that cannot replace an existing destination must complete
             // both fallback operations before this recovery can report success.
-            (|| {
+            {
                 #[cfg(test)]
-                Self::fail_promotion_step_for_tests(PromotionFailure::RemoveExisting)?;
-                fs::remove_file(to)
-            })()
+                {
+                    Self::fail_promotion_step_for_tests(PromotionFailure::RemoveExisting)
+                        .and_then(|()| fs::remove_file(to))
+                }
+                #[cfg(not(test))]
+                {
+                    fs::remove_file(to)
+                }
+            }
             .map_err(|source| QueryProjectionCheckpointJournalError::Write {
                 path: to.to_path_buf(),
                 source,
             })?;
-            (|| {
+            {
                 #[cfg(test)]
-                Self::fail_promotion_step_for_tests(PromotionFailure::RetryRename)?;
-                fs::rename(from, to)
-            })()
+                {
+                    Self::fail_promotion_step_for_tests(PromotionFailure::RetryRename)
+                        .and_then(|()| fs::rename(from, to))
+                }
+                #[cfg(not(test))]
+                {
+                    fs::rename(from, to)
+                }
+            }
             .map_err(|source| QueryProjectionCheckpointJournalError::Write {
                 path: to.to_path_buf(),
                 source,
@@ -257,20 +275,32 @@ impl QueryProjectionCheckpointJournal {
         }
         {
             let parent = journal_parent(to);
-            let dir = (|| {
+            let dir = {
                 #[cfg(test)]
-                Self::fail_promotion_step_for_tests(PromotionFailure::OpenParent)?;
-                open_journal_parent(to)
-            })()
+                {
+                    Self::fail_promotion_step_for_tests(PromotionFailure::OpenParent)
+                        .and_then(|()| open_journal_parent(to))
+                }
+                #[cfg(not(test))]
+                {
+                    open_journal_parent(to)
+                }
+            }
             .map_err(|source| QueryProjectionCheckpointJournalError::Write {
                 path: parent.to_path_buf(),
                 source,
             })?;
-            (|| {
+            {
                 #[cfg(test)]
-                Self::fail_promotion_step_for_tests(PromotionFailure::SyncParent)?;
-                dir.sync_all()
-            })()
+                {
+                    Self::fail_promotion_step_for_tests(PromotionFailure::SyncParent)
+                        .and_then(|()| dir.sync_all())
+                }
+                #[cfg(not(test))]
+                {
+                    dir.sync_all()
+                }
+            }
             .map_err(|source| QueryProjectionCheckpointJournalError::Write {
                 path: parent.to_path_buf(),
                 source,
@@ -450,8 +480,7 @@ fn validate_checkpoint_resource_bounds(
         let bytes = shard.asset_definition_id.as_ref().map_or(0, String::len);
         if bytes > QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES {
             return Err(format!(
-                "asset-definition discriminator is {bytes} bytes (maximum {})",
-                QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES
+                "asset-definition discriminator is {bytes} bytes (maximum {QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES})"
             ));
         }
         total_asset_definition_id_bytes = total_asset_definition_id_bytes
@@ -461,8 +490,7 @@ fn validate_checkpoint_resource_bounds(
             > QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES
         {
             return Err(format!(
-                "asset-definition discriminators require {total_asset_definition_id_bytes} bytes (maximum {})",
-                QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES
+                "asset-definition discriminators require {total_asset_definition_id_bytes} bytes (maximum {QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES})"
             ));
         }
     }

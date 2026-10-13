@@ -145,7 +145,7 @@ fn run(flavor: Flavor) -> Result<(), String> {
             object.insert("length".into(), Value::from(chunk.length));
             object.insert(
                 "digest_blake3".into(),
-                Value::from(hex::encode(&chunk.blake3)),
+                Value::from(hex::encode(chunk.blake3)),
             );
             Value::Object(object)
         })
@@ -653,7 +653,7 @@ fn persisted_chunks_to_value(directory: &Path, output: DirectoryChunkSinkOutput)
                     object.insert("length".into(), Value::from(record.length));
                     object.insert(
                         "digest_blake3".into(),
-                        Value::from(hex::encode(&record.digest)),
+                        Value::from(hex::encode(record.digest)),
                     );
                     Value::Object(object)
                 })

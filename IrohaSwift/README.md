@@ -473,6 +473,16 @@ reuses `IrohaSwift/.build`. Fresh artifacts and logs remain under
 The command leaves `dist/` untouched and never accepts a stale ABI. Direct
 `swift test` still requires a matching artifact to be prepared and selected first.
 
+The local native guard retains broad source snapshots and their changes as
+diagnostics. Admission independently verifies every emitted compiler dependency,
+including proc macros and build scripts, plus native recipes, runtime assets,
+manifests and configuration. Those inputs must retain both their bytes and file
+identities through the build, archive retention, ABI probe and Swift execution;
+an unused whole Rust file may change only when it is outside that complete
+projection. A refused capture remains refused. Retry with the command above to
+create fresh evidence in the warm build lane. This local scope does not establish
+release or physical-device qualification.
+
 The Apple pull-request lane preserves that build envelope while avoiding a
 hosted-runner timeout: five isolated macOS jobs each build one attested target
 library, and the sole Swift assembler accepts them only when their independent

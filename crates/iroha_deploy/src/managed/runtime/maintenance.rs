@@ -335,8 +335,8 @@ impl Observation {
     }
     pub(super) fn renewal(
         &self,
-        cancelled: Arc<AtomicBool>,
-        progress: Arc<Progress>,
+        cancelled: &Arc<AtomicBool>,
+        progress: &Arc<Progress>,
     ) -> Result<Option<renewal::Turn>> {
         if !self.current()? {
             return Err(invalid("aggregate renewal observation expired"));
@@ -347,8 +347,8 @@ impl Observation {
         for value in &self.providers {
             if let Some(turn) = value.selection.continuation.begin(
                 value.selection.terminal,
-                Arc::clone(&cancelled),
-                Arc::clone(&progress),
+                Arc::clone(cancelled),
+                Arc::clone(progress),
                 continuations.clone(),
                 catalogs,
             )? {

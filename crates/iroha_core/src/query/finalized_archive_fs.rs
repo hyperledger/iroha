@@ -117,8 +117,8 @@ pub(super) fn unix_stat_matches_metadata(
 ) -> bool {
     use std::os::unix::fs::MetadataExt as _;
     rustix::fs::FileType::from_raw_mode(entry.st_mode) == rustix::fs::FileType::RegularFile
-        && entry.st_dev as u64 == metadata.dev()
-        && entry.st_ino as u64 == metadata.ino()
+        && crate::kura::unix_device_identity(entry.st_dev) == metadata.dev()
+        && entry.st_ino == metadata.ino()
         && entry.st_nlink as u64 == expected_links
         && metadata.nlink() == expected_links
         && u64::try_from(entry.st_size).ok() == Some(metadata.len())

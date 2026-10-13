@@ -40,8 +40,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 64,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn other_domain() -> DomainId {
@@ -67,7 +67,7 @@ fn definition(domain: Option<DomainId>) -> AssetDefinition {
     .build(&ALICE_ID)
 }
 fn initial() -> World {
-    let mut world = *fixture::fixture(true);
+    let mut world = fixture::fixture(true);
     world.asset_definitions.insert(
         fixture::definition("spare"),
         AssetDefinition::numeric(
@@ -477,7 +477,7 @@ macro_rules! defect {
 fn all_five_balance_index_defects_reject_either_original_image_before_allocation() {
     for previous in [false, true] {
         for case in 0..15 {
-            let state = state(*fixture::fixture(true));
+            let state = state(fixture::fixture(true));
             if previous {
                 defect!(state.world, tip, case, false);
             }
@@ -564,7 +564,7 @@ macro_rules! source_defect {
 fn matching_image_definition_domain_and_restricted_source_errors_remain_exact() {
     for previous in [false, true] {
         for case in 0..3 {
-            let state = state(*fixture::fixture(true));
+            let state = state(fixture::fixture(true));
             if previous {
                 source_defect!(state.world, tip, case, false);
             }
@@ -624,7 +624,7 @@ fn each_of_eight_foreign_released_partial_and_mixed_balance_sources_refuses() {
                 6 => replace!(asset_definition_holders),
                 7 => replace!(asset_definition_nonzero_holders),
                 _ => unreachable!(),
-            };
+            }
             freeze(&mut block);
             assert!(capture(&block, limits(), 0).unwrap().is_none());
         }
@@ -646,7 +646,7 @@ fn each_of_eight_foreign_released_partial_and_mixed_balance_sources_refuses() {
                 .asset_definition_nonzero_holders
                 .release_writers(),
             _ => unreachable!(),
-        };
+        }
         assert!(capture(&block, limits(), 0).unwrap().is_none());
     }
     let state = state(initial());
@@ -773,7 +773,7 @@ fn later_equal_or_changed_publications_cannot_refresh_any_asset_original() {
                     BTreeSet::from([ALICE_ID.clone()])
                 ),
                 _ => unreachable!(),
-            };
+            }
             let retained = Original::retain(&block).unwrap();
             assert_eq!(retained.rows.publication_identity(), identity);
             equal(

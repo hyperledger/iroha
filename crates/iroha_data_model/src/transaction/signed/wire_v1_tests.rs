@@ -259,3 +259,81 @@ fn ordinary_output_obeys_zero_and_cumulative_inherited_allowance() {
         Err(Error::LengthMismatch)
     ));
 }
+
+fn assert_canonical_rewrite_original_refusal<T>(original: &T, wire: &[u8])
+where
+    T: iroha_version::Version
+        + iroha_version::codec::DecodeVersioned
+        + for<'de> norito::DeserializePayload<'de>
+        + for<'de> norito::core::DecodeFromSlice<'de>
+        + core::fmt::Debug
+        + PartialEq,
+{
+    use norito::core::{DecodeAttemptErrorKind, DecodeResourceError};
+    let limits = |n| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, n, 64);
+    let (decoded, bare_usage) =
+        norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+            iroha_version::codec::decode_exact_versioned::<T>(wire)
+        });
+    assert_eq!(&decoded.unwrap(), original);
+    let (checked, full_usage) =
+        norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+            T::decode_all_versioned(wire)
+        });
+    assert_eq!(&checked.unwrap(), original);
+    let decode_bytes = bare_usage.total_allocated_bytes();
+    assert!(full_usage.total_allocated_bytes() > decode_bytes);
+    // This exact budget admits the complete original decoder, but cannot also
+    // fund the sole canonical writer's complete output extent.
+    norito::with_decode_limits_scope(limits(decode_bytes), || {
+        assert_eq!(
+            &iroha_version::codec::decode_exact_versioned::<T>(wire).unwrap(),
+            original
+        );
+    });
+    let refusal = norito::with_decode_limits_scope(limits(decode_bytes), || {
+        T::decode_all_versioned(wire).unwrap_err()
+    });
+    assert!(refusal.is_local_resource_refusal());
+    let iroha_version::error::Error::NoritoResourceLimit(ref attempt) = refusal else {
+        panic!("checked writer lost its original admission failure: {refusal:?}");
+    };
+    assert_eq!(attempt.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    let fields = attempt.error().decode_resource_error();
+    assert_eq!(
+        fields,
+        Some(DecodeResourceError::TotalAllocationExceeded {
+            attempted: u64::try_from(decode_bytes.checked_add(wire.len()).unwrap()).unwrap(),
+            limit: u64::try_from(decode_bytes).unwrap(),
+        })
+    );
+    norito::with_decode_limits_scope(limits(decode_bytes), || {
+        assert!(refusal.is_local_resource_refusal());
+        assert_eq!(attempt.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        assert_eq!(attempt.error().decode_resource_error(), fields);
+    });
+    assert_eq!(&T::decode_all_versioned(wire).unwrap(), original);
+    let mut malformed = wire.to_vec();
+    malformed.push(0);
+    assert!(
+        !T::decode_all_versioned(&malformed)
+            .unwrap_err()
+            .is_local_resource_refusal()
+    );
+}
+
+#[test]
+fn signed_canonical_rewrite_preserves_original_writer_refusal_after_decode() {
+    let signed = support::signed("advance");
+    let wire = signed.encode_wire_v1().unwrap();
+    assert_canonical_rewrite_original_refusal(&signed, &wire);
+    assert_eq!(signed.encode_wire_v1().unwrap(), wire);
+}
+
+#[test]
+fn entrypoint_canonical_rewrite_preserves_original_writer_refusal_after_decode() {
+    let entrypoint = TransactionEntrypoint::External(support::signed("advance"));
+    let wire = entrypoint.encode_wire_v1().unwrap();
+    assert_canonical_rewrite_original_refusal(&entrypoint, &wire);
+    assert_eq!(entrypoint.encode_wire_v1().unwrap(), wire);
+}

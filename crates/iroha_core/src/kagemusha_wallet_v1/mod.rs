@@ -237,10 +237,22 @@ pub trait Transaction {
     /// Height of the executing block, later independently checked for finality.
     fn block_height(&self) -> u64;
     /// Read registered scheme and current asset scope.
+    ///
+    /// # Errors
+    /// Returns an error if the registration is absent, unavailable or malformed,
+    /// or its registered asset no longer matches the current ledger definition.
     fn registration(&self, scheme: &Digest, asset: &Digest) -> Result<Registration>;
     /// Read the permanent wallet lifecycle and next load ordinal.
+    ///
+    /// # Errors
+    /// Returns an error if the retained wallet row cannot be read or validated.
+    /// Only a genuinely absent row may return `Ok(None)`.
     fn wallet(&self, scheme: &Digest, wallet: &Digest) -> Result<Option<WalletRecord>>;
     /// Read a retained load by its client retry identity.
+    ///
+    /// # Errors
+    /// Returns an error if the retained issuance row cannot be read or validated.
+    /// Unavailable or malformed data must not be treated as an absent retry identity.
     fn issuance(
         &self,
         scheme: &Digest,
@@ -248,19 +260,36 @@ pub trait Transaction {
         request: &Digest,
     ) -> Result<Option<Issuance>>;
     /// Read the original exact-once payout.
+    ///
+    /// # Errors
+    /// Returns an error if the immutable payout row cannot be read or validated.
+    /// Only a genuinely absent exact-once key may return `Ok(None)`.
     fn payout(
         &self,
         scheme: &Digest,
         key: KagemushaWalletPayoutKeyV1,
     ) -> Result<Option<KagemushaWalletPayoutRecordV1>>;
     /// Read an immutable signer certificate by its object digest.
+    ///
+    /// # Errors
+    /// Returns an error if the historical signer certificate is missing,
+    /// unavailable or invalid for its retained ledger row.
     fn certificate(
         &self,
         scheme: &Digest,
         digest: &Digest,
     ) -> Result<KagemushaWalletSignerCertificateV1>;
     /// Resolve all historical inputs named by this Payment from ledger records.
+    ///
+    /// # Errors
+    /// Returns an error if the Payment's historical request, payer credential or
+    /// associated certificate record is missing, unavailable or malformed.
     fn fee_inputs(&self, claim: &KagemushaWalletFeeClaimV1) -> Result<FeeInputs>;
     /// Commit the entire verified batch, or leave the transaction unchanged.
+    ///
+    /// # Errors
+    /// Returns an error for invalid source/asset bindings, replay-key conflicts,
+    /// encoding or arithmetic failure, or rejected funding/transfer authorization.
+    /// Every transfer and index must remain in the same atomic rollback scope.
     fn apply(&mut self, batch: Batch) -> Result<()>;
 }

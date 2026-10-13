@@ -591,10 +591,10 @@ mod tests {
         fs::remove_file(&overlay_path).expect("remove overlay leaf");
         symlink(&victim_path, &overlay_path).expect("replace leaf with symlink");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("second"), b"two".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(fs::read(&victim_path).unwrap(), b"do not replace");
         assert!(overlay.get_ref(&path("second")).is_none());
         fs::remove_dir_all(directory).expect("remove temporary directory");
@@ -682,14 +682,14 @@ mod tests {
         let mut clone = overlay.clone();
         symlink(&external, &pending).expect("insert pending ancestor symlink");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("seed"), b"one".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             clone.set(&path("seed"), b"one".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(!external.join("nested").exists());
         fs::remove_dir_all(root).expect("remove temporary directory");
     }
@@ -746,10 +746,10 @@ mod tests {
         fs::set_permissions(&pending, fs::Permissions::from_mode(0o777))
             .expect("make pending ancestor attacker-writable");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("seed"), b"one".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(!pending.join("nested").exists());
         fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))
             .expect("restore private permissions for cleanup");
@@ -773,10 +773,10 @@ mod tests {
             .expect("make retained creation parent non-sticky and writable");
         fs::rename(&victim, &pending).expect("substitute victim directory into pending name");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("seed"), b"one".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             fs::read(pending.join("state.json")).unwrap(),
             b"do not replace"
@@ -860,19 +860,25 @@ mod tests {
             .expect("overlay has persistence target")
             .fail_next_publication_sync();
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("second"), b"two".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(overlay.get_ref(&path("second")), Some(b"two".as_slice()));
-        assert_eq!(overlay.flush(), Err(VMError::NoritoInvalid));
-        assert_eq!(poisoned_clone.flush(), Err(VMError::NoritoInvalid));
-        assert_eq!(
+        assert!(matches!(overlay.flush(), Err(VMError::NoritoInvalid)));
+        assert!(matches!(
+            poisoned_clone.flush(),
+            Err(VMError::NoritoInvalid)
+        ));
+        assert!(matches!(
             overlay.set(&path("third"), b"three".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(overlay.get_ref(&path("third")).is_none());
-        assert_eq!(overlay.restore(&seed_snapshot), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            overlay.restore(&seed_snapshot),
+            Err(VMError::NoritoInvalid)
+        ));
         assert_eq!(overlay.get_ref(&path("second")), Some(b"two".as_slice()));
 
         let reloaded = DurableStateOverlay::with_persist_path(overlay_path)
@@ -897,10 +903,10 @@ mod tests {
         fs::remove_file(&overlay_path).expect("remove overlay leaf");
         fs::hard_link(&victim_path, &overlay_path).expect("replace leaf with hard link");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("second"), b"two".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(fs::read(&victim_path).unwrap(), b"do not replace");
         assert!(overlay.get_ref(&path("second")).is_none());
         fs::remove_dir_all(directory).expect("remove temporary directory");
@@ -918,10 +924,10 @@ mod tests {
         fs::remove_file(&overlay_path).expect("remove overlay leaf");
         fs::create_dir(&overlay_path).expect("replace leaf with directory");
 
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&path("second"), b"two".to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(overlay_path.is_dir());
         assert!(overlay.get_ref(&path("second")).is_none());
         fs::remove_dir_all(directory).expect("remove temporary directory");
@@ -943,10 +949,10 @@ mod tests {
         );
         let oversized = vec![0xcdu8; crate::syscalls::STATE_MAX_VALUE_BYTES + 1];
         let oversized_path = path("oversized");
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&oversized_path, oversized),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(overlay.get_ref(&oversized_path).is_none());
     }
     #[test]
@@ -963,7 +969,10 @@ mod tests {
                 vec![0u8; crate::syscalls::STATE_MAX_VALUE_BYTES + 1],
             ),
         ]));
-        assert_eq!(overlay.restore(&snapshot), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            overlay.restore(&snapshot),
+            Err(VMError::NoritoInvalid)
+        ));
         assert_eq!(overlay.get_ref(&existing), Some(b"kept".as_slice()));
         assert!(overlay.get_ref(&path("valid")).is_none());
     }
@@ -986,21 +995,21 @@ mod tests {
     #[test]
     fn persisted_overlay_rejects_canonically_duplicate_state_paths() {
         let duplicate = r#"{"root/e\u0301":"AQ==","root/é":"Ag=="}"#;
-        assert_eq!(
+        assert!(matches!(
             DurableStateOverlay::decode_persisted(duplicate.as_bytes().to_vec()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn aggregate_limits_accept_boundaries_and_reject_first_overflow() {
-        assert_eq!(
+        assert!(matches!(
             DurableStateOverlay::ensure_resource_limits(
                 STATE_OVERLAY_MAX_ENTRIES_V1,
                 STATE_OVERLAY_MAX_PATH_BYTES_V1,
                 STATE_OVERLAY_MAX_VALUE_BYTES_V1,
             ),
             Ok(())
-        );
+        ));
         for overflow in [
             (
                 STATE_OVERLAY_MAX_ENTRIES_V1 + 1,
@@ -1018,10 +1027,10 @@ mod tests {
                 STATE_OVERLAY_MAX_VALUE_BYTES_V1 + 1,
             ),
         ] {
-            assert_eq!(
+            assert!(matches!(
                 DurableStateOverlay::ensure_resource_limits(overflow.0, overflow.1, overflow.2),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
         }
     }
     #[test]
@@ -1041,10 +1050,10 @@ mod tests {
                 .expect("aggregate boundary must fit");
         }
         let overflow = path("bounded/overflow");
-        assert_eq!(
+        assert!(matches!(
             overlay.set(&overflow, vec![0x5a]),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(overlay.get_ref(&overflow).is_none());
         assert_eq!(overlay.value_bytes, STATE_OVERLAY_MAX_VALUE_BYTES_V1);
     }
@@ -1058,10 +1067,10 @@ mod tests {
             encoded.push_str(&format!("\"key/{index}\":\"\""));
         }
         encoded.push('}');
-        assert_eq!(
+        assert!(matches!(
             DurableStateOverlay::decode_persisted(encoded.into_bytes()),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn persisted_reader_rejects_sparse_file_above_limit() {

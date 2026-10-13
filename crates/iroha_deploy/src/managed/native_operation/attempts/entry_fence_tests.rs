@@ -19,10 +19,13 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
     let attempt = fixture.reserve();
     fixture.commit(&attempt);
     let history = fixture.history().unwrap();
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let request = std::fs::read(attempt.wallet_path().join("preparation.json")).unwrap();
     let inventory = attempt.directory.entries(7).unwrap();
     let operation_names = fixture.operation.entries(6).unwrap();
@@ -62,14 +65,13 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
 
     let mut changed = attempt.authorization.clone();
     changed.terms.requested_deadline_unix_ms += 1;
-    attempt
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     assert!(matches!(
         attempt.verify_authorization(),
         Err(Error::Invalid(message))
@@ -77,33 +79,44 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
     ));
     assert!(fixture.history().is_err());
     refused_before_inspection();
-    attempt
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     retry();
 
-    attempt
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            b"invalid canonical authorization",
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(b"invalid canonical authorization"),
+    )
+    .unwrap();
     assert!(matches!(
         attempt.verify_authorization(),
         Err(Error::Invalid(_))
     ));
     assert!(fixture.history().is_err());
     refused_before_inspection();
-    attempt
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     retry();
 
-    std::fs::remove_file(attempt.directory.path().join("authorization.nrt")).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        None,
+    )
+    .unwrap();
     assert!(matches!(
         attempt.verify_authorization(),
         Err(Error::Invalid(message))
@@ -111,37 +124,46 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
     ));
     assert!(fixture.history().is_err());
     refused_before_inspection();
-    attempt
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::CreateNew)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     retry();
 
-    attempt
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            &vec![0; MAX_RECORD_BYTES + 1],
-            PublishMode::Replace,
-        )
-        .unwrap();
-    require_io(
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&vec![0; MAX_RECORD_BYTES + 1]),
+    )
+    .unwrap();
+    for result in [
         attempt.verify_authorization(),
-        std::io::ErrorKind::InvalidInput,
-    );
-    require_io(fixture.history(), std::io::ErrorKind::InvalidInput);
+        fixture.history().map(|_| ()),
+    ] {
+        assert!(
+            matches!(result, Err(Error::Invalid(message)) if message == "dispatch custody record exceeds its bound")
+        );
+    }
     refused_before_inspection();
-    attempt
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
     retry();
 
     // An earlier canonical absence must be freshly read, even with a genuine retained wallet.
-    attempt
-        .directory
-        .write_atomic(
-            "retired.nrt",
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "retired.nrt",
+        Some(
             &encode(
                 &Retirement {
                     authorization: attempt.digest().unwrap(),
@@ -151,12 +173,18 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
                 MAX_RECORD_BYTES,
             )
             .unwrap(),
-            PublishMode::CreateNew,
-        )
-        .unwrap();
+        ),
+    )
+    .unwrap();
     assert!(matches!(history.require_current(), Err(Error::Invalid(_))));
     refused_before_inspection();
-    std::fs::remove_file(attempt.directory.path().join("retired.nrt")).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "retired.nrt",
+        None,
+    )
+    .unwrap();
     retry();
 
     attempt
@@ -171,10 +199,13 @@ fn adjacent_entries_recheck_original_records_and_absence_before_genuine_wallet_i
     assert_eq!(attempt.directory.entries(7).unwrap(), inventory);
     assert_eq!(fixture.operation.entries(6).unwrap(), operation_names);
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     assert_eq!(
@@ -199,12 +230,15 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
         .unwrap();
     let dispatch = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
-    let authorization = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let operation_names = fixture.operation.entries(6).unwrap();
     let attempt_names = root.entries(MAX_ATTEMPTS).unwrap();
     let row_names = attempt.directory.entries(7).unwrap();
@@ -251,7 +285,7 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
         retry();
         assert_eq!(directory.identity().unwrap(), identity);
     }
-    let file_path = attempt.directory.path().join("authorization.nrt");
+    let file_path = fixture.operation.path().join(metadata::FILE);
     let permissions = std::fs::metadata(&file_path).unwrap().permissions();
     std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o644)).unwrap();
     require_io(
@@ -269,7 +303,7 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
     for (directory, label, level) in directories {
         let path = directory.path();
         let identity = directory.identity().unwrap();
-        let saved = fixture._temporary.path().join(format!("displaced-{label}"));
+        let saved = fixture.temporary.path().join(format!("displaced-{label}"));
         std::fs::rename(path, &saved).unwrap();
         // Missing native directory custody must not become optional record absence.
         require_io(attempt.verify_authorization(), std::io::ErrorKind::NotFound);
@@ -283,25 +317,17 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
                 .write_atomic("original.nrt", &original, PublishMode::CreateNew)
                 .unwrap();
             replacement
-                .write_atomic("dispatch.nrt", &dispatch, PublishMode::CreateNew)
+                .write_atomic(metadata::FILE, &dispatch, PublishMode::CreateNew)
                 .unwrap();
             replacement
                 .create_child("attempts")
                 .unwrap()
                 .create_child("0001")
-                .unwrap()
-                .write_atomic("authorization.nrt", &authorization, PublishMode::CreateNew)
                 .unwrap();
         } else if level == 1 {
-            replacement
-                .create_child("0001")
-                .unwrap()
-                .write_atomic("authorization.nrt", &authorization, PublishMode::CreateNew)
-                .unwrap();
+            replacement.create_child("0001").unwrap();
         } else {
-            replacement
-                .write_atomic("authorization.nrt", &authorization, PublishMode::CreateNew)
-                .unwrap();
+            assert!(replacement.entries(0).unwrap().is_empty());
         }
         assert_ne!(replacement.identity().unwrap(), identity);
         require_io(attempt.verify_authorization(), std::io::ErrorKind::Other);
@@ -341,10 +367,13 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
     assert_eq!(root.entries(MAX_ATTEMPTS).unwrap(), attempt_names);
     assert_eq!(attempt.directory.entries(7).unwrap(), row_names);
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         authorization
     );
     assert_eq!(
@@ -357,7 +386,7 @@ fn adjacent_entries_recheck_every_native_directory_edge_and_original_restoration
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         dispatch
     );

@@ -105,7 +105,7 @@ fn test_function(name: &str, fixture: Option<&str>) -> Item {
         location: kotodama_lang::ast::SourceLocation { line: 1, column: 1 },
     })
 }
-fn compiled_suite_with_fixtures(fixtures: Vec<FixtureDecl>) -> CompiledSuite {
+fn compiled_suite_with_fixtures(fixtures: &[FixtureDecl]) -> CompiledSuite {
     let target_source = "seiyaku FixtureDemo { fn helper() {} #[test] fn smoke() {} }";
     let target_program = parser::parse(target_source).expect("parse fixture test target");
     let suite = DiscoveredSuite {
@@ -123,7 +123,7 @@ fn compiled_suite_with_fixtures(fixtures: Vec<FixtureDecl>) -> CompiledSuite {
             line: 1,
             column: 1,
         }],
-        fixtures: build_fixture_map(&fixtures).expect("build fixture map"),
+        fixtures: build_fixture_map(fixtures).expect("build fixture map"),
         fixture_sites: HashMap::new(),
         fixture_consts: HashMap::new(),
     };
@@ -131,7 +131,7 @@ fn compiled_suite_with_fixtures(fixtures: Vec<FixtureDecl>) -> CompiledSuite {
 }
 #[test]
 fn pure_unit_test_suite_executes_without_runtime_artifact() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     assert!(compiled.runtime.is_none());
     assert!(compiled.runtime_entrypoints.is_empty());
     let results = execute_suite(&compiled, TraceMode::Off, 1)
@@ -155,7 +155,7 @@ fn coverage_lists_every_declared_function_including_those_without_code() {
     let temp = TestTempDir::new();
     let path = temp.write(
         "classify.ko",
-        r#"seiyaku Classify {
+        r"seiyaku Classify {
     fn classify(int x) -> int {
         if x < 0 {
             return 0;
@@ -173,7 +173,7 @@ fn coverage_lists_every_declared_function_including_those_without_code() {
         test::assert_eq(actual: classify(x: -1), expected: 0);
     }
 }
-"#,
+",
     );
     let suite = discover_suite(&path).expect("discover");
     let compiled = compile_suite(&suite, false).expect("compile");
@@ -233,7 +233,7 @@ fn helper_preserves_u64_max_json_int_through_option_match() {
 }
 #[test]
 fn compiler_owned_test_callables_preserve_artifact_verification() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let suite_program = compiled.suite.program.prepared().artifact();
     assert_eq!(
         compiled.suite.program.prepared().code_hash(),
@@ -1085,6 +1085,15 @@ fn exact_rejection_mismatches_fail_and_restore_nested_state() {
         ContractErrorTypeDescriptor, ContractErrorVariantDescriptor,
     };
     use kotodama_lang::testing::{RejectionExpectation, RejectionTrap};
+    #[derive(Clone, Copy, Debug)]
+    enum Arguments {
+        Empty,
+        Int(i64),
+        WrongCount,
+        Misaligned,
+        InvalidValue,
+        NullTable,
+    }
     let temp = TestTempDir::new();
     let scoped_asset = AssetDefinitionId::derive_from_components(
         DomainId::try_new("rejections", "universal").unwrap(),
@@ -1092,7 +1101,7 @@ fn exact_rejection_mismatches_fail_and_restore_nested_state() {
     );
     temp.write(
         "rejection.ko",
-        &r#"seiyaku Rejections { permission CanCustomProbe; permission CanEnactGovernance; permission Update; permission Mint; permission manage_roles;
+        r"seiyaku Rejections { permission CanCustomProbe; permission CanEnactGovernance; permission Update; permission Mint; permission manage_roles;
         error enum RejectionError { First = 1, Second = 2, }
         state int counter;
         hajimari() { counter = 7; }
@@ -1120,7 +1129,7 @@ fn exact_rejection_mismatches_fail_and_restore_nested_state() {
             counter = 99;
             require(false, RejectionError::First);
         }
-    }"#,
+    }",
     );
     let path = temp.write(
         "rejection.test.ko",
@@ -1155,15 +1164,6 @@ fn exact_rejection_mismatches_fail_and_restore_nested_state() {
             .expect("test operand");
         vm.set_register(register, pointer);
     };
-    #[derive(Clone, Copy, Debug)]
-    enum Arguments {
-        Empty,
-        Int(i64),
-        WrongCount,
-        Misaligned,
-        InvalidValue,
-        NullTable,
-    }
     let call = |host: &mut KotoTestHost,
                 vm: &mut IVM,
                 entrypoint: &str,
@@ -1719,7 +1719,7 @@ fn finalize_suite_rejects_program_without_tests() {
                 statements: Vec::new(),
                 tail: None,
             },
-            modifiers: Default::default(),
+            modifiers: kotodama_lang::ast::FunctionModifiers::default(),
             location: kotodama_lang::ast::SourceLocation { line: 1, column: 1 },
         })],
         test_target: None,
@@ -2002,7 +2002,7 @@ fn apply_fixture_action_populates_state_and_public_inputs() {
 }
 #[test]
 fn build_host_for_fixture_rejects_unknown_fixture() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let err = build_host_for_fixture(&compiled, Some("missing"))
         .err()
         .expect("unknown fixture should fail");
@@ -2015,7 +2015,7 @@ fn build_host_for_fixture_rejects_unknown_fixture() {
 }
 #[test]
 fn build_host_for_fixture_uses_canonical_default_caller() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let host = build_host_for_fixture(&compiled, None).expect("build default host");
     assert_eq!(
         host.caller_subject(),
@@ -2040,7 +2040,7 @@ fn build_host_for_fixture_applies_bound_caller() {
             },
         ],
     };
-    let compiled = compiled_suite_with_fixtures(vec![fixture]);
+    let compiled = compiled_suite_with_fixtures(&[fixture]);
     let host = build_host_for_fixture(&compiled, Some("seeded")).expect("build host");
     assert_eq!(
         host.caller_subject(),
@@ -2452,10 +2452,18 @@ fn transfer_control_effects_require_exact_subject_asset_domain_and_dataspace_sco
             &mut vm,
         )
     };
-    assert_eq!(
-        call_availability(&mut host),
-        Err(ivm::VMError::PermissionDenied),
-        "an app grant and a wrong-account subject grant must not authorize the effect",
+    assert!(
+        matches!(
+            (
+                &(call_availability(&mut host)),
+                &(ivm::VMError::PermissionDenied)
+            ),
+            (
+                Err(ivm::VMError::PermissionDenied),
+                ivm::VMError::PermissionDenied
+            )
+        ),
+        "an app grant and a wrong-account subject grant must not authorize the effect"
     );
     assert_eq!(
         host.inner.wsv.asset_transfer_availability(&target, &asset),
@@ -2943,8 +2951,8 @@ fn coverage_helper_functions_handle_internal_and_boundary_cases() {
     // Only executions inside `[pc_start, pc_end)` count toward the function's profile.
     let executions = BTreeMap::from([(9_u64, 4_u64), (10, 3), (19, 2), (20, 7)]);
     assert_eq!(executed_instructions(&function, &executions), 5);
-    assert_eq!(percentage(0, 0), 100.0);
-    assert_eq!(percentage(1, 4), 25.0);
+    assert_eq!(percentage(0, 0).to_bits(), 100.0_f64.to_bits());
+    assert_eq!(percentage(1, 4).to_bits(), 25.0_f64.to_bits());
 }
 #[test]
 fn collect_tests_rejects_duplicate_test_names() {
@@ -3178,17 +3186,29 @@ fn invocation_alias_decoding_preserves_read_deferral_before_test_failure() {
         budget.set_limit_bytes(occupied);
         let refusal = vm.memory.load_u8(ivm::Memory::INPUT_START).unwrap_err();
         assert!(matches!(refusal, ivm::VMError::AllocationDeferred(_)));
-        assert_eq!(host.invoke_entrypoint(&mut vm, false), Err(refusal));
+        assert!(match (host.invoke_entrypoint(&mut vm, false), refusal) {
+            (
+                Err(ivm::VMError::AllocationDeferred(actual)),
+                ivm::VMError::AllocationDeferred(expected),
+            ) => actual == expected,
+            _ => false,
+        });
         assert_eq!(host.last_test_error(), None);
         assert_eq!(vm.register(register), ivm::Memory::INPUT_START);
         assert_eq!(budget.reserved_bytes(), occupied);
         // Restore credit and retain the deterministic unknown-actor failure.
         if target_actor {
             budget.set_limit_bytes(occupied + 8 * std::mem::size_of::<ivm::AccessRange>());
-            assert_eq!(
-                host.invoke_entrypoint(&mut vm, false),
-                Err(ivm::VMError::AssertionFailed)
-            );
+            assert!(matches!(
+                (
+                    &(host.invoke_entrypoint(&mut vm, false)),
+                    &(ivm::VMError::AssertionFailed)
+                ),
+                (
+                    Err(ivm::VMError::AssertionFailed),
+                    ivm::VMError::AssertionFailed
+                )
+            ));
             assert!(host.last_test_error().unwrap().contains("unknown actor"));
         }
         drop(vm);
@@ -3548,7 +3568,7 @@ fn unknown_actors_suggest_the_closest_declared_alias() {
     assert_eq!(closest_name("bb", &["alice", "bob"]), Some("bob"));
     assert_eq!(closest_name("carol", &["alice", "bob"]), None);
     assert_eq!(closest_name("x", &[]), None);
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let mut host = build_host_for_fixture(&compiled, None).expect("default host");
     assert!(
         host.unknown_actor_message("alice")
@@ -3568,7 +3588,7 @@ fn unknown_actors_suggest_the_closest_declared_alias() {
 }
 #[test]
 fn compared_values_render_in_kotodama_value_syntax() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let host = build_host_for_fixture(&compiled, None).expect("default host");
     let nodes = [
         StateValueNodeV1::Option,
@@ -3750,7 +3770,7 @@ fn named_actors_are_deterministic_and_fixture_errors_are_located() {
     assert_eq!(first, derived_actor_seed("alice", 753));
     assert_ne!(first, derived_actor_seed("bob", 753));
     assert_ne!(first, derived_actor_seed("alice", 369));
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let mut host = build_host_for_fixture(&compiled, None).expect("default host");
     let mut inputs = BTreeMap::new();
     apply_fixture_action(
@@ -3835,7 +3855,7 @@ fn named_actors_are_deterministic_and_fixture_errors_are_located() {
 }
 #[test]
 fn misspelt_fixtures_and_actions_suggest_the_declared_name_at_their_site() {
-    let compiled = compiled_suite_with_fixtures(Vec::new());
+    let compiled = compiled_suite_with_fixtures(&[]);
     let mut host = build_host_for_fixture(&compiled, None).expect("default host");
     let error = apply_fixture_action(
         &FixtureAction {
@@ -4107,7 +4127,7 @@ fn result_error_returns_value_without_committing_invocation_state() {
     let temp = TestTempDir::new();
     temp.write(
         "result_rollback.ko",
-        r#"
+        r"
 seiyaku ResultRollback { permission Update;
     state StateMap<int, int> Values;
     kotoage fn write(bool succeed) authorize(Update) -> Result<int, int> {
@@ -4117,7 +4137,7 @@ seiyaku ResultRollback { permission Update;
     }
     view fn value() authorize(anyone) -> int { Values.get(1).unwrap_or(0) }
 }
-"#,
+",
     );
     let path = temp.write("result_rollback.test.ko", &format!(r#"
 module ResultRollbackTests {{
@@ -4150,7 +4170,7 @@ fn option_and_result_error_bridges_evaluate_once_lazily_and_roll_back_aborts() {
     let temp = TestTempDir::new();
     temp.write(
         "bridges.ko",
-        r#"seiyaku Bridges {
+        r"seiyaku Bridges {
     error enum Old { Bad = 1 }
     error enum Failure { Missing = 7, RepeatedReceiver = 8, RepeatedError = 9 }
     struct Probe { int receivers, int errors, int value }
@@ -4207,7 +4227,7 @@ fn option_and_result_error_bridges_evaluate_once_lazily_and_roll_back_aborts() {
     view fn counts() authorize(anyone) -> (int, int) {
         (Calls.get(1).unwrap_or(0), Calls.get(2).unwrap_or(0))
     }
-}"#,
+}",
     );
     let path = temp.write(
         "bridges.test.ko",
@@ -4243,7 +4263,7 @@ fn option_and_result_error_bridges_evaluate_once_lazily_and_roll_back_aborts() {
 #[test]
 fn private_functions_resembling_builtins_keep_their_own_runtime_identity() {
     let temp = TestTempDir::new();
-    temp.write("names.ko", r#"seiyaku Names {
+    temp.write("names.ko", r"seiyaku Names {
         error enum Failure { Missing = 1 }
         fn min(int value) -> int { value + 100 }
         fn authority() -> int { 7 }
@@ -4254,7 +4274,7 @@ fn private_functions_resembling_builtins_keep_their_own_runtime_identity() {
             let Option<int> value = Option::some(4);
             (min(3), authority(), mint_asset(4), is_some(5), expect(6), math::min(8, 2), value.is_some(), value.expect(Failure::Missing), context::authority() == context::authority())
         }
-    }"#);
+    }");
     let path=temp.write("names.test.ko",r#"module NamesTests {
         koto_test { target: "./names.ko" }
         fixture actors { actor("app"); }
@@ -4494,7 +4514,7 @@ seiyaku Lists {
 #[test]
 fn imported_contract_methods_preserve_nominal_tables_order_and_nested_event_rollback() {
     let temp = TestTempDir::new();
-    let child_source = r#"
+    let child_source = r"
 seiyaku Pool {
     enum Status { Active = 7 }
     error enum Failure { Missing = 1 }
@@ -4507,7 +4527,7 @@ seiyaku Pool {
     }
     view fn echo(Payload payload) authorize(anyone) -> Payload { payload }
 }
-"#;
+";
     let child = CompilerSession::default()
         .build(kotodama_lang::session::CompileRequest {
             source: child_source,

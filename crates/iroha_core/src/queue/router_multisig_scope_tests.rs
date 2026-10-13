@@ -130,7 +130,12 @@ fn asset_definition_alias_domain_permission_defers_to_sns_state() {
         ))],
     );
 
-    assert_eq!(router.try_route_without_state(&tx), Ok(None));
+    assert_eq!(
+        (router.try_route_without_state(&tx))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
+    );
     let mut state = blank_state();
     install_router_nexus(&mut state, &router);
     assert_eq!(

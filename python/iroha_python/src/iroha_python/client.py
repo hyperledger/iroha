@@ -101,6 +101,26 @@ from iroha_torii_client.client import (
     ToriiOperatorSigningContext as _BaseToriiOperatorSigningContext,
 )
 from iroha_torii_client.client_status_models import (
+    SUMERAGI_EVIDENCE_KINDS,
+    SccpEvidenceAttribution,
+    SccpEvidenceOffender,
+    SccpForgeryAnchor,
+    SccpForgeryEvidenceRecord,
+    SccpForgeryOffender,
+    SccpForgeryRecord,
+    SccpForgeryRule,
+    SccpForgerySubmission,
+    SccpGenerationEvidenceScope,
+    SumeragiEvidenceAppliedPenaltyStatus,
+    SumeragiEvidenceListPage,
+    SumeragiEvidenceOffender,
+    SumeragiEvidencePenaltyDetails,
+    SumeragiEvidencePenaltyStatus,
+    SumeragiEvidencePendingPenaltyStatus,
+    SumeragiEvidenceRecord,
+    SumeragiEvidenceScope,
+    SumeragiLaneEvidenceScope,
+    SumeragiNativeEvidenceRecord,
     TransportConfig,
     TransportNoritoRpcConfig,
     parse_sumeragi_json_object,
@@ -11620,6 +11640,18 @@ __all__ = [
     "SumeragiEvidenceAppliedPenaltyStatus",
     "SumeragiEvidencePenaltyStatus",
     "SumeragiEvidenceRecord",
+    "SumeragiNativeEvidenceRecord",
+    "SumeragiEvidenceScope",
+    "SumeragiLaneEvidenceScope",
+    "SccpGenerationEvidenceScope",
+    "SccpForgeryAnchor",
+    "SccpForgerySubmission",
+    "SccpForgeryRule",
+    "SccpForgeryOffender",
+    "SccpForgeryRecord",
+    "SccpEvidenceOffender",
+    "SccpEvidenceAttribution",
+    "SccpForgeryEvidenceRecord",
     "SumeragiEvidenceListPage",
     "SumeragiStatus",
     "SumeragiFootprint",
@@ -19604,9 +19636,9 @@ class ToriiClient(
             params["offset"] = offset
             page_offset = offset
         if kind is not None:
-            if kind != "NativeSumeragiEvidence":
+            if not isinstance(kind, str) or kind not in SUMERAGI_EVIDENCE_KINDS:
                 raise ValueError(
-                    "sumeragi evidence kind must be NativeSumeragiEvidence"
+                    "sumeragi evidence kind must be NativeSumeragiEvidence or SccpForgeryEvidence"
                 )
             params["kind"] = kind
         payload = self._get_sumeragi_operator_json_object(
@@ -19616,11 +19648,17 @@ class ToriiClient(
             maximum_body_bytes=_SUMERAGI_EVIDENCE_LIST_JSON_MAX_BYTES,
             parser=parse_sumeragi_json_object,
         )
-        return SumeragiEvidenceListPage.from_payload(
-            payload,
-            limit=page_limit,
-            offset=page_offset,
-        )
+        try:
+            return _BaseToriiClient._parse_sumeragi_evidence_page(
+                payload,
+                context="sumeragi evidence payload",
+                limit=page_limit,
+                offset=page_offset,
+                kind=kind,
+            )
+        except RuntimeError as error:
+            # The canonical parser owns the layout; retain this client's response-error boundary.
+            raise ValueError(str(error)) from error
 
     def get_sumeragi_params(self) -> Optional[Any]:
         """Fetch operator-authenticated on-chain Sumeragi parameters."""

@@ -33,7 +33,7 @@ pub enum GraphError {
     Admission(#[from] AllocationRefusal),
     /// The inherited codec scope refused canonical validation before a candidate existed.
     #[error("native AMX codec validation refused: {0}")]
-    Codec(norito::core::DecodeResourceError),
+    Codec(#[source] norito::core::DecodeLocalRefusal),
     /// The allocator refused an exact already admitted allocation.
     #[error("native AMX allocator refused {bytes} prepaid bytes")]
     Allocator {
@@ -46,21 +46,16 @@ pub enum GraphError {
 }
 impl From<iroha_data_model::sumeragi_amx::AmxError> for GraphError {
     fn from(error: iroha_data_model::sumeragi_amx::AmxError) -> Self {
-        match error {
-            iroha_data_model::sumeragi_amx::AmxError::Resource(resource) => Self::Codec(resource),
-            invalid => Self::Invalid(invalid.to_string()),
+        match crate::sumeragi::amx::classified_decode_refusal(&error) {
+            Some(resource) => Self::Codec(resource),
+            None => Self::Invalid(error.to_string()),
         }
     }
 }
-fn codec_clone_error(error: norito::core::Error) -> GraphError {
-    match error {
-        norito::core::Error::AllocationFailed { bytes } => GraphError::Allocator {
-            bytes: usize::try_from(bytes).unwrap_or(usize::MAX),
-        },
-        invalid => invalid.decode_resource_error().map_or_else(
-            || GraphError::Invalid(invalid.to_string()),
-            GraphError::Codec,
-        ),
+fn codec_clone_error(error: norito::core::DecodeAttemptError) -> GraphError {
+    match error.into_local_refusal() {
+        Ok(original) => GraphError::Codec(original),
+        Err(invalid) => GraphError::Invalid(invalid.to_string()),
     }
 }
 fn quantity_clone_error(error: iroha_primitives::bigint::BigIntAdmissionCloneError) -> GraphError {
@@ -74,6 +69,44 @@ fn quantity_clone_error(error: iroha_primitives::bigint::BigIntAdmissionCloneErr
             AllocationRefusal::DemandOverflow.into()
         }
         invalid => GraphError::Invalid(invalid.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod codec_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn clone_refusal_projection_preserves_original_scope_and_intrinsic_rejection() {
+        let limit = || norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 8, 64);
+        let original = norito::with_decode_limits_scope(limit(), || {
+            norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(9))
+        })
+        .unwrap_err();
+        let expected = original.local_refusal().unwrap();
+        let mapped = codec_clone_error(original);
+        norito::with_decode_limits_scope(limit(), || {
+            assert_eq!(mapped, GraphError::Codec(expected.clone()));
+        });
+        let intrinsic = norito::with_decode_limits_scope(limit(), || {
+            norito::core::classify_decode_attempt(|| {
+                norito::with_decode_limits_scope(limit(), || {
+                    norito::core::reserve_decode_allocation(9)
+                })
+            })
+        })
+        .unwrap_err();
+        assert!(matches!(
+            codec_clone_error(intrinsic),
+            GraphError::Invalid(_)
+        ));
+        let allocator = norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+        })
+        .unwrap_err();
+        let owner = allocator.local_refusal().unwrap();
+        assert_eq!(owner.allocation_bytes(), Some(57));
+        assert_eq!(codec_clone_error(allocator), GraphError::Codec(owner));
     }
 }
 impl From<ChargedBufferError> for GraphError {
@@ -119,6 +152,8 @@ impl RetainedGlobalSource {
             return Ok(Self {
                 value: AmxForeignInstanceV1 {
                     instance,
+                    result_scope:
+                        iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
                     current: context.clone(),
                     previous: None,
                 },
@@ -132,6 +167,8 @@ impl RetainedGlobalSource {
             let current = construction.context(context, budget)?;
             let value = AmxForeignInstanceV1 {
                 instance,
+                result_scope:
+                    iroha_data_model::sumeragi_finality::CertifiedResultScope::TairaGlobal,
                 current,
                 previous: None,
             };
@@ -247,6 +284,7 @@ impl RetainedNativeAmx {
         if let Some(previous) = &global.previous {
             demand.context(previous)?;
         }
+        demand.array::<ValidatorEpochContextV1>(0)?;
         demand.array::<AmxPreparedEntryV1>(0)?;
         demand.array::<AmxHeldDecisionV1>(0)?;
         demand.array::<AmxTransferEscrowV1>(0)?;
@@ -263,9 +301,12 @@ impl RetainedNativeAmx {
             .transpose()?;
         let global = AmxForeignInstanceV1 {
             instance: global.instance,
+            result_scope: global.result_scope,
             current,
             previous,
         };
+        let decision_contexts = construction.buffer::<ValidatorEpochContextV1>(0)?;
+        let decision_contexts = construction.vector(decision_contexts)?;
         let prepared = construction.buffer::<AmxPreparedEntryV1>(0)?;
         let prepared = construction.vector(prepared)?;
         let held = construction.buffer::<AmxHeldDecisionV1>(0)?;
@@ -279,6 +320,7 @@ impl RetainedNativeAmx {
                 dataspace: source.dataspace,
                 global,
                 global_height: 0,
+                decision_contexts,
                 prepared,
                 held,
             },
@@ -568,7 +610,8 @@ impl Construction {
             })
             .map_err(|error| GraphError::Invalid(error.to_string()))?;
         result?;
-        source.try_clone_for_admission().map_err(codec_clone_error)
+        norito::core::classify_decode_attempt(|| source.try_clone_for_admission())
+            .map_err(codec_clone_error)
     }
     fn quantity(&mut self, source: &Quantity) -> Result<Quantity, GraphError> {
         let layout = source
@@ -747,10 +790,36 @@ impl Candidate {
         } else {
             source.participant.global.previous.as_ref()
         };
+        // A handoff may evict the only authenticated verifier of a withheld decision.
+        // Copy its complete original credentials into the same prepaid graph while
+        // an unsettled Yes obligation still needs that epoch, never from relay input.
+        let evicted_context = source
+            .participant
+            .global
+            .previous
+            .as_ref()
+            .filter(|context| {
+                next_context.is_some() && source.participant.needs_decision_context(context)
+            });
+        let decision_context_count = source
+            .participant
+            .decision_contexts
+            .len()
+            .checked_add(usize::from(evicted_context.is_some()))
+            .ok_or(AllocationRefusal::DemandOverflow)?;
         demand.account(&source.custody)?;
         demand.context(current_source)?;
         if let Some(previous) = previous_source {
             demand.context(previous)?;
+        }
+        demand.array::<ValidatorEpochContextV1>(decision_context_count)?;
+        for context in source
+            .participant
+            .decision_contexts
+            .iter()
+            .chain(evicted_context)
+        {
+            demand.context(context)?;
         }
         demand.array::<AmxPreparedEntryV1>(prepared_count)?;
         demand.array::<AmxHeldDecisionV1>(held_count)?;
@@ -770,6 +839,16 @@ impl Candidate {
         let previous = previous_source
             .map(|previous| construction.context(previous, budget))
             .transpose()?;
+        let mut decision_contexts = construction.buffer(decision_context_count)?;
+        for context in source
+            .participant
+            .decision_contexts
+            .iter()
+            .chain(evicted_context)
+        {
+            decision_contexts.push_reserved(construction.context(context, budget)?);
+        }
+        let decision_contexts = construction.vector(decision_contexts)?;
         let mut prepared = construction.buffer(prepared_count)?;
         for entry in &source.participant.prepared {
             prepared.push_reserved(*entry);
@@ -784,10 +863,12 @@ impl Candidate {
             dataspace: source.participant.dataspace,
             global: AmxForeignInstanceV1 {
                 instance: source.participant.global.instance,
+                result_scope: source.participant.global.result_scope,
                 current,
                 previous,
             },
             global_height: source.participant.global_height,
+            decision_contexts,
             prepared,
             held,
         };

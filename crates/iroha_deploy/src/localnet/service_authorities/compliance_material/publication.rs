@@ -9,7 +9,7 @@ use sorafs_manifest::gateway_compliance::{
 };
 
 /// Generated catalogs live for at most one day, within the original material interval.
-pub(crate) const GENERATED_CATALOG_VALIDITY_SECONDS: u64 = 86_400;
+pub const GENERATED_CATALOG_VALIDITY_SECONDS: u64 = 86_400;
 
 // These operations expose no unvalidated output: the live ServiceAuthority performs complete
 // original-profile and operation-lock validation before and after each successful call.

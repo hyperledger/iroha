@@ -279,7 +279,7 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
   - `jdg_signature_schemes` (default: `["simple_threshold"]`): Allowed JDG attestation signature schemes. Supported values: `simple_threshold`, `bls_normal_aggregate`.
   - `gov.max_active_referenda` (default `64`): Non-zero first-release ceiling on referenda that have not reached `Closed`. Creating or reopening a referendum at the ceiling is rejected. The value is bound into the execution-policy digest and intentionally has no environment-variable override.
   - `gov.max_lock_owners_per_referendum` (default `1000`): Non-zero first-release ceiling on distinct accounts retained in one referendum's governance-lock container. Adding a new owner at the ceiling is rejected; updating an existing owner's lock does not consume another slot. The value is bound into the execution-policy digest and intentionally has no environment-variable override.
-  - `gov.parliament_sortition_pulse_delay_blocks`: Consensus-hashed, nonzero exact delay from a committed Parliament sortition request to its required finalized threshold-beacon pulse (default `4`). The delay is frozen into each attempt; Core uses checked height addition and rejects nearer, farther, or overflowing pulse schedules. This field intentionally has no environment-variable override.
+  - `gov.parliament_sortition_pulse_delay_blocks`: Consensus-hashed, nonzero minimum lead from a committed Parliament sortition request to its pulse slot (default `4`). The slot is the first consensus-native pulse height `h`, with `(h + 1) % epoch_length_blocks == 0` for the NPoS epoch length, at or above `request_height + delay` and above every earlier generation slot of the same attempt. The delay and the epoch length are frozen into each attempt at creation; Core uses checked arithmetic and rejects any other or overflowing pulse schedule, and rejects attempt creation on a chain without an NPoS cadence. The request creates no consensus pulse demand and waits for exactly that pulse: up to `delay + epoch_length_blocks - 1` blocks when no earlier generation slot of the attempt lies at or above `request_height + delay`, otherwise until the next boundary after that slot (one further epoch), and without bound in wall time on an idle chain. An attempt waiting this way records no transition, so the `SoraParliamentActiveAttemptStalled` alert (`dashboards/alerts/sora_parliament_rules.yml`, no transition for 45 minutes) can fire on a healthy attempt. This field intentionally has no environment-variable override.
   - `gov.parliament_public_finding_phase_blocks`: Consensus-hashed, nonzero public-finding endorsement window frozen when a body enters Reflection (default `3600`). Endorsements are accepted through the derived deadline; after it, the permissionless no-result trigger rejects the attempt. This field intentionally has no environment-variable override and is independent of the invitation and private-ballot windows.
   - `[gov.parliament_timed_ovn]`: Consensus-hashed private-ballot policy expressed only in deterministic block-height spans. `registration_phase_blocks` (default `3600`), `survivor_freeze_phase_blocks` (default `1000`), `commitment_phase_blocks` (default `3600`), `release_delay_blocks` (default `600`), and the post-release aggregate `opening_phase_blocks` grace window (default `600`) must each be non-zero, and the full retry schedule must fit in `u64`. Liveness is admission-checked against the configured corpus bound: registration must provide at least `max_corpus_entries + 1` blocks, survivor freeze at least `max_corpus_entries`, and timed commitment at least `ceil(max_corpus_entries / 32)` blocks because one transition admits at most 32 records. The corpus bound must also cover every configured binding private-jury seat count. Policy and Confirmation Jury targets, frozen survivors, accepted ballots, and `max_corpus_entries` must meet the canonical V1 exact-tally anonymity floor of `3`. `max_ballot_retries` defaults to `3` and is capped at `16` to bound state/time amplification; `max_corpus_entries` defaults to `1000` and is capped at the timed-OVN decoder limit of `1000`. These fields intentionally have no environment-variable overrides. The active, rotating `TleKeySessionId` is authenticated consensus state rather than a static node configuration selector.
   - `[gov.parliament_tle_key_lifecycle]`: Consensus-hashed adaptive-corruption bounds with no environment-variable overrides. `session_lifetime_blocks` (default `37600`) is the non-zero inclusive selection span beginning at the session's mandatory `H + 1` activation, and `max_fresh_ballots_per_session` (default `1`) is the non-zero ceiling on first-time committed ballot registrations. Rotation committed at `H` retains the predecessor through `H`; committed ballots retain historical sessions through their own inclusive opening deadlines.
@@ -304,10 +304,8 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
 - `[telemetry]`: Optional destination and retry policies for metrics/events. The collector URL must use `ws` or `wss`; `min_retry_period_ms` is clamped to >=100ms and `max_retry_delay_exponent` must be <=16. Telegram credentials are an all-or-none pair, `telegram_include_metrics` uses a bounded core-actor refresh followed by an in-process registry read, and configured-but-inactive sinks are startup errors rather than ignored compatibility settings. The retired Telegram metrics URL/period keys are rejected.
 - `[dev_telemetry]`: Developer-only structured JSON sink. Its parent directory and file must be owned by the process user, the directory must not be group/other-writable, and the file is held as an exclusive mode-0600 single-link regular file on Unix.
 - `[pipeline]`: Execution pipeline: parallel overlay construction/apply, worker count, overlay bounds, signature batch limits, and Kotodama admission guardrails. These settings cannot enable `Executable::IvmProved`. Production admission rejects proof-backed IVM execution, including trigger registration, until the complete native STARK execution relation and State-owned finalized anchor are implemented and qualified. The retired binding-only verifier-key record and deterministic replay do not authorize private execution.
-  - `ivm_max_cycles_upper_bound` is the mandatory positive ceiling for the `max_cycles` header value accepted from Kotodama bytecode. The default is `1000000`; `0` is rejected during configuration loading. This consensus-relevant value is read only from the configuration file and has no environment-variable alias.
-  - `ivm_max_decoded_instructions` limits the number of decoded VM instructions per contract. `0` disables the check.
-  - `ivm_max_decoded_bytes` limits the decoded byte length after instruction expansion. `0` disables the check.
-  - `query_max_fetch_size` caps iterable query `fetch_size` for IVM query syscalls (0 clamps to 1). Torii endpoints continue to use `torii.app_api.max_fetch_size`.
+  - The execution limits of the pipeline are not node configuration. Overlay bounds (`overlay_max_instructions`, `overlay_max_bytes`, `overlay_chunk_instructions`), the IVM admission bounds (`ivm_max_cycles_upper_bound`, `ivm_max_decoded_instructions`, `ivm_max_decoded_bytes`), the quarantine lane (`quarantine_max_txs_per_block`, `quarantine_tx_max_cycles`), the IVM query limits (`query_max_fetch_size`, `query_stored_min_gas_units`), the AMX budget model (`amx_*`) and `dynamic_prepass` are fields of the committed chain parameter `pipeline_validity_policy_v1` (`iroha_data_model::pipeline_validity_policy`). An authorized `SetParameter` installs or changes it, in genesis or later, and a change governs the blocks after the one that commits it; a chain that never installs it uses the protocol defaults (cycle ceiling `1000000`, `0` meaning unlimited or disabled as before). A configuration file that names one of these keys fails to load with an unknown-parameter error, and none has an environment-variable alias.
+  - `[pipeline.gas]` (fee collection account, accepted assets and conversion rates) is still node configuration bound by the signed genesis context; its committed source is open work.
 - `[norito]`: Serialization tuning for Norito (compression sizes/levels and adaptive layout toggles). Deterministic by design. `max_archive_len` defaults to 512 MiB and is clamped to at least `network.max_frame_bytes` so every admitted network frame remains decodable.
 - `[streaming]`: Control-plane key material for Norito streaming (HPKE + control signatures).
   - `identity_public_key` plus exactly one of `identity_private_key` or `identity_private_key_file` (optional): an Ed25519 identity that overrides the node’s main key pair for streaming signatures. Production profiles use the bounded owner-held file form. `identity_public_key` may be omitted when a private source is set; it is then derived from the private key. Omitting all three fields reuses the node identity.
@@ -361,38 +359,35 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
   4. **Telemetry & admission smoke tests.** Before turning on traffic, run `cargo test -p iroha_crypto --features sm` and the SM integration matrix scripts, then verify `/status` exposes `crypto.sm_helpers_available = true` and that Torii rejects SM2 signatures when `sm2` is absent from `allowed_signing`.
   5. **Rollback plan.** Document how to revert to Ed25519-only mode (remove `sm2` from `allowed_signing`, restore `default_hash = "blake2b-256"`) and confirm hosts drop in-flight SM transactions deterministically.
 
-- `[fraud_monitoring]`: Admission guardrails for PSP-provided fraud assessments.
-  - `enabled` (default: false): master toggle; without a `required_minimum_band` the host logs a warning and skips enforcement.
+- `[fraud_monitoring]`: Node-local transport for PSP-provided fraud assessments.
   - `service_endpoints` (default: `[]`): ordered list of verifier URLs (deduplicated); reserved for the upcoming remote fraud service.
-  - `connect_timeout_ms` / `request_timeout_ms` (defaults: 500 / 1500): HTTP timeouts for the verifier; zero collapses to the default.
-  - `missing_assessment_grace_secs` (default: 0): deterministic fallback window; non-zero values allow temporary pass-through while emitting a warning.
-  - `required_minimum_band` (default: `null`): required severity band (`low`, `medium`, `high`, or `critical`). Transactions missing the band or below the threshold are rejected when `enabled` is true.
-- `[sccp]`: Node-local SCCP components (`specs/sccp.md` §4.9, §4.13.4). Both tables are
+  - `connect_timeout_ms` / `request_timeout_ms` (defaults: 500 / 1500): HTTP timeouts; zero selects the default. These file-only settings cannot alter transaction admission.
+  - Admission comes from the validated `fraud_admission_policy_v1` custom parameter in signed genesis or an authorized `SetParameter`: `version = 1`, `enabled`, typed `required_minimum_band`, `missing_assessment_permitted`, and strictly sorted unique `attesters`. The fixed absent-parameter policy is disabled. `missing_assessment_permitted` is a boolean permission, never an elapsed-time window. A block uses its predecessor's policy throughout; updates take effect in the following block.
+  - Each engine identifier is nonempty, has no ASCII uppercase letters or whitespace, and at most 128 UTF-8 bytes. The policy permits at most 256 registered engines. Invalid versions, malformed values, duplicate or unsorted engines are rejected before parameter publication. Node configuration rejects admission fields.
+- `[sccp]`: Node-local SCCP components (`specs/sccp.md` §4.13.4). Both tables are
   file-only (no environment aliases, unknown keys are rejected) and every default works without
-  editing, so a validator with an empty file runs the attestor and the light-client keeper.
+  editing, so a validator with an empty file runs the keeper and its light-client duty.
   Parsing checks syntax only; owner-only checks of the key directory and secret-header files
-  happen at runtime in the attestor, the keeper and `iroha_sccp_rpc`.
-  - `[sccp.attestor]`: the in-node bridge-key attestor.
-    - `enabled` (default: `true`): run the attestor. An unusable key directory makes it inert
-      (`sccp_attestor_unconfigured`) without aborting the node.
-    - `key_dir` (default: empty ⇒ `<kura.store_dir>/sccp/bridge-keys`, derived like the default
+  happen at runtime in the keeper and `iroha_sccp_rpc`.
+  - `[sccp.keeper]`: the in-node keeper, its own supervised task. It signs with a node-local
+    Ed25519 keeper key that is neither registered nor funded, because every transaction it
+    submits is fee-exempt on success.
+    - `enabled` (default: `true`): run the keeper. An unusable key directory makes it inert
+      (`sccp_keeper_unconfigured`) without aborting the node.
+    - `key_dir` (default: empty ⇒ `<kura.store_dir>/sccp/keeper-key`, derived like the default
       snapshot directory; a relative path resolves against the configuration file): directory
-      created `0700` holding one owner-only `0600` `<address-hex>.key` file per bridge key.
-    - `auto_register` (default: `true`): submit `SetSccpBridgeKeyV1` for the newest local key
-      while the node is a registered, non-barred validator.
-    - `max_entries_per_transaction` (default: `64`, `1..=1024`): entries per
-      `SubmitSccpAttestationsV1` transaction; the node also caps it at runtime by the on-chain
-      `max_attestation_entries_per_instruction`.
-    - `resubmit_after_blocks` (default: `3`, at least `1`): resubmit entries still unrecorded
-      after this many blocks.
-    - `max_clock_drift_ms` (default: `3600000`): refuse to sign a rotation subject dated further
-      than this into the local future.
-    - `shutdown_grace_ms` (default: `30000`): on graceful shutdown, wait at most this long for
-      the node's pending subjects (handoffs first) to be recorded.
-  - `[sccp.light_client_keeper]`: the in-node inbound light-client keeper; enabled by default
-    (`enabled = true`) and effective only while the node holds an active or pending bridge key.
+      created `0700` holding the keeper key as the owner-only `0600` file `keeper.key`, which
+      the keeper generates on first start. Symlinks and other modes are refused.
+    - `keepalive` (default: `true`): submit due keepalives. The duty is not implemented yet
+      (`specs/sccp.md` §12).
+    - `keepalive_stagger_ms` (default: `15000`, non-zero): keepalive stagger per canonical
+      committee index.
+    - `watch` (default: `true`): watch the registered destinations with the endpoints of the
+      light-client keeper. The duty is not implemented yet (`specs/sccp.md` §12).
+  - `[sccp.light_client_keeper]`: the keeper's light-client advance duty; enabled by default
+    (`enabled = true`) and effective only while `[sccp.keeper]` is enabled.
     - `advance_after_ms` (default: `0` ⇒ `ws_bound_ms / 4` of each light client): staleness
-      after which the keeper submits a proof-carrying advance from the bridge key's account.
+      after which the keeper submits a proof-carrying advance from the keeper key's account.
     - `poll_interval_ms` / `request_timeout_ms` (defaults: `60000` / `10000`, both non-zero):
       per-network light-client state check cadence (plus up to 25 % jitter, doubling after each
       consecutive failed poll up to 64 × the interval) and per-attempt RPC timeout before
@@ -401,8 +396,8 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
       covering every RPC request of one advance build.
     - `max_advance_bytes` (default: `262144`, non-zero): largest advance the keeper submits; it
       drops a larger built advance with a warning. The on-chain per-instruction bounds still apply.
-    - `[sccp.light_client_keeper.endpoints]`: `ethereum_execution`, `ethereum_beacon`, `bsc`
-      and `tron` (URL lists; `https`, or `http` for loopback hosts only, no embedded
+    - `[sccp.light_client_keeper.endpoints]`: `ethereum_execution`, `ethereum_beacon` and
+      `bsc` (URL lists; `https`, or `http` for loopback hosts only, no embedded
       credentials) and `ton_liteservers` (`<ipv4>:<port>:<base64 ed25519 public key>`). Each
       list holds at most 64 unique entries; empty (the default) selects the compiled free public
       list in `iroha_config::parameters::defaults::sccp::endpoints`, and a configured list
@@ -410,18 +405,22 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
     - `[[sccp.light_client_keeper.secret_headers]]` (optional, repeatable, at most 64):
       `endpoint`, `header` (an HTTP token that the RPC client does not set itself) and
       `value_file`, an owner-only file holding the value. Inline values are refused.
-- `[zk]`: Zero-knowledge and SCCP verification settings. Worker counts, queue sizes, and timing
-  knobs are operator-local; acceptance limits are consensus-critical and are committed into the
-  block ZK/SCCP policy digest, so every validator must use the same file-backed values.
-  - `[zk.sccp]`: mandatory non-zero per-proof, per-transaction, and per-block native verifier
-    work limits for SCCP inbound source proofs: proof bytes, proof count, native headers, Ethereum
-    light-client updates, native header bytes, secp256k1 recoveries, Ed25519 signature checks and
-    Ed25519 validator-key checks (`specs/sccp.md` §4.1). Transaction limits may not exceed block
-    limits, and the per-proof byte limit may not exceed the transaction byte limit. These fields
-    deliberately have no environment aliases.
-  - `halo2.verifier_worker_threads` / `halo2.verifier_queue_cap` (defaults: `0` / `0`): size the ZK lane verifier worker pool and ingress queue. Zero keeps auto-derivation (`available_parallelism`, queue headroom scaled by workers).
-  - `halo2.verifier_enqueue_wait_ms` (default: `25`): bounded enqueue wait used before classifying a saturated admission as timeout.
-  - `halo2.verifier_retry_ring_cap` / `halo2.verifier_retry_max_attempts` / `halo2.verifier_retry_tick_ms` (defaults: `2048` / `3` / `5`): in-memory replay policy for important ZK lane tasks (`tx_hash` present). Saturated important tasks enter the retry ring and are replayed opportunistically; exhausted entries increment `iroha_zk_lane_retry_exhausted_total`.
+- `[zk]`: local resources of zero-knowledge verification and proving only: verifier worker
+  counts, queue sizes and timing knobs, and the FASTPQ prover settings. Acceptance limits,
+  windows, native verifier selection, relation-selecting keys and the verification gas schedule are
+  consensus-critical chain policy: the committed `zk_validity_policy_v1` parameter (set in the
+  genesis manifest or by an authorized `SetParameter`, effective from the next block; the
+  protocol default applies when a chain commits none). A configuration file or environment
+  variable that names one of them fails to load with an unknown-parameter error.
+  - The policy's `sccp` section holds the mandatory non-zero per-proof, per-transaction, and
+    per-block native verifier work limits for SCCP inbound source proofs: proof bytes, proof
+    count, native headers, Ethereum light-client updates, native header bytes, Ed25519 signature checks and BLS vote attestations (`specs/sccp.md` §4.1).
+    Transaction limits may not exceed block limits, and the per-proof byte limit may not exceed
+    the transaction byte limit; the policy validation rejects a payload that violates this.
+  - `trace.worker_threads` / `trace.queue_cap` (defaults: `0` / `0`): diagnostic worker pool and ingress queue; zero derives bounded values from available parallelism.
+  - `trace.enqueue_wait_ms` (default: `25`): bounded diagnostic enqueue wait.
+  - `trace.retry_ring_cap` / `trace.retry_max_attempts` / `trace.retry_tick_ms` (defaults: `2048` / `3` / `5`): local diagnostic retry resources.
+  - `ipa_commitment`: diagnostic polynomial-opening bounds; these do not grant ledger authority.
   - Telemetry: `iroha_zk_lane_{pending_depth,retry_ring_depth,enqueue_wait_total,enqueue_timeout_total,retry_enqueued_total,retry_replayed_total,retry_exhausted_total,drop_total{reason}}` expose saturation/replay health.
   - `fastpq.execution_mode` (default: `"cpu"`): select the FASTPQ prover backend (`cpu` or `gpu`). CPU pins the deterministic scalar path; GPU requires the compiled accelerator support and a successful runtime preflight or leaves the proof lane disabled. Production builds ship the Stage 6 backend by default via `fastpq_prover::Prover::canonical`. Telemetry increments `fastpq_execution_mode_total{requested,resolved,backend,device_class,chip_family,gpu_kind}` so fleet dashboards can verify that nodes resolve to the expected accelerator set per hardware profile.【crates/iroha_config/src/parameters/defaults.rs:3711】【crates/iroha_config/src/parameters/actual.rs:1882】
   - `fastpq.device_class` (default: unset ⇒ exported as `device_class="unknown"`): optional label describing the hardware profile (e.g., `apple-m4`, `xeon-rtx-sm80`, `neoverse-mi300`). Configure it via TOML or `FASTPQ_DEVICE_CLASS`; blank strings are ignored.【crates/iroha_config/src/parameters/user.rs:1224】

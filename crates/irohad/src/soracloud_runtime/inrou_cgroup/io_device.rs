@@ -1,7 +1,7 @@
 //! Resolve filesystem devices to whole block devices accepted by cgroup-v2 io.max.
 //!
 //! Linux rejects partitions in `blkg_conf_open_bdev` with ENODEV. A backing file's
-//! st_dev identifies its filesystem partition, so the kernel-owned sysfs mapping
+//! `st_dev` identifies its filesystem partition, so the kernel-owned sysfs mapping
 //! must identify the whole device before finite I/O limits can be installed.
 
 use std::{collections::BTreeSet, fs, io::Read as _, path::Path};

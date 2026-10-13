@@ -25,10 +25,7 @@ use sorafs_manifest::GOVERNANCE_DAG_PUBLISHER_PEER_ID_MAX_BYTES_V1;
 use std::{
     cell::RefCell,
     fmt,
-    sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 #[expect(

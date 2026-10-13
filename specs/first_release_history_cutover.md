@@ -29,10 +29,29 @@ the inventory). A stored block is the version byte `1`, the Norito header with
 the fixed V1 flags and the canonical payload. Storage, block distribution and
 genesis loading decode only that framed form (`decode_framed_signed_block`),
 which refuses other versions, headerless payloads, other header layouts and
-non-canonical encodings. `SignedBlock` still has a headerless `DecodeVersioned`
-and a helper that frames a headerless payload; tests, one bench and one
-integration test use them, and the guard refuses any production reference
-(`test_only_references`, open finding T1-A15).
+non-canonical encodings. `SignedBlock` has no dedicated headerless decoder or
+framing helper: `SignedBlock::canonical_wire` is the only framer, and the guard
+refuses the retired helper and the retired `DecodeVersioned` implementation
+anywhere in the source (`retired_identifiers`, `retired_impls`). A test that
+needs another frame assembles it locally and asserts its rejection.
+
+`SignedBlock` exposes only its canonical standalone frame. It implements neither
+`Version` nor the generic versioned codec traits, so an inferred-type
+`decode_exact_versioned` call cannot compile for a block. `WIRE_VERSION` pins the
+single framed version without opening that generic codec. The inventory checks
+this constant and rejects reintroduced trait implementations and the removed
+header-stripping carrier/helper. Tests build headerless malformed inputs locally
+and verify their rejection; nested Norito fields retain their declared payload
+serialization inside their enclosing frame.
+
+Norito's generic `[u8; N]` leaf decoder accepts only the emitted array of N
+length-prefixed elements. It rejects an N-byte truncation both directly and
+inside an `Option`, under ordinary and compact length flags; the inventory
+names the Norito regression test. Explicit raw fixed-width field helpers keep
+their separate declared layout. The block regression
+`framed_block_rejects_packed_confidential_digest_hash_arrays` also rejects packed
+replacements for the two hashes of a confidential digest through the ordinary
+and prepared frame decoders.
 
 Retired on-disk artifacts are refused by name and never opened. The inventory
 (`retired_store_artifacts`) lists every refusal with its function, its call
@@ -59,10 +78,38 @@ execution, to the certified result or to the World root. It does not exercise
 every instruction, proof or contract; a change to one of those is classified by
 the table below.
 
+`fixtures/sumeragi/native-finality` holds two checkpoint frames of the certified
+result. `tracked_native_checkpoint_fixtures_are_the_current_exporter_output`
+compares them with the exporter's output of the current tree and with the sizes
+and digests `capture.json` lists for them. The `generator` block of
+`capture.json` records the capture itself: its source digests are those of the
+day of the capture and are not compared with the current sources.
+
 `iroha3d --check-storage` decodes every retained block of a stopped node with
 the candidate build, and `iroha3d --check-config --json` prints the values peers
 and the signed genesis bind. They are read-only diagnostics an operator may run
 before installing a binary. They are not a deployment prerequisite.
+
+## Native result and State cutover
+
+The 2026-10-12 native SCCP generation/anchor State layout and the sole
+`CertifiedResultV1` fixed `X || body` result replace the preceding first-release
+layout directly. Native consensus signatures use SHA-256 of the exact allowlisted
+preimage and the dedicated `DST_SIG` suite. These changes declare `fresh_genesis`
+for both `state_layout` and `execution_root`. The four-validator exporter creates
+new canonical frames and pins their actual World root and execution tip; the
+native-finality exporter pins the matching result envelope. Previous history is
+not claimed to replay, and no old-layout or alternate-suite verifier remains.
+This local artifact cutover authorizes no live reset and does not establish
+SCCP destination-launch readiness.
+
+The same local first-release history uses the coherent signed-genesis resource
+policy of a 16 MiB block cap and a 10 MiB transaction cap. Replacing the earlier
+4 MiB block cap declares `fresh_genesis` for `genesis` and
+`execution_semantics`: the transaction cap plus its block reserve must fit the
+block policy. The pinned replay reads these exact values from the restored
+State and still verifies the native certified result, World root and execution
+tip. No old-cap exception or alternate decoder is retained.
 
 ## Deliberately incompatible change
 
@@ -83,7 +130,7 @@ of anything a stored history contains. In the same change it must:
 | `execution_root` | Certified execution result or complete World root | `fresh_genesis` | `specs/sumeragi.md` Appendix E |
 | `genesis` | Signed genesis manifest or its consensus metadata | `fresh_genesis` | Deployment genesis files |
 | `execution_semantics` | Gas, executor or verifier semantics of anything a stored block contains | `fresh_genesis` | Gas goldens and schedule hash |
-| `abi` | ABI V1: syscall list or semantics, pointer types, `abi_hash` | `contract_redeployment`, and a fresh genesis when the history holds contracts or runtime-ABI records | Kotodama goldens, contract artifacts, `crates/ivm/docs/syscalls.md` |
+| `abi` | ABI V1: syscall list or semantics, pointer types, `abi_hash` | `contract_redeployment`, and a fresh genesis when the history holds contracts or runtime-ABI records | The hash golden and every artifact that carries the hash: Kotodama goldens and manifests, compiler captures, contract artifacts, SDK fixtures; `crates/ivm/docs/syscalls.md` |
 | `proof` | Proof relation, statement, transcript or parameters | `fresh_genesis_when_stored`: a fresh genesis when a stored block carries such a proof or State derived from it, otherwise direct replacement | Parameter and key artifacts, SDK builders |
 
 The guard fails when this table and the inventory list different surfaces or
@@ -111,6 +158,113 @@ compiled into the node (`validate_manifest_hashes`); a mismatch stays a
 rejection. Recompile `.ko` to `.to` and deploy the new manifest. Stored
 deployments made under another `abi_hash` no longer replay, so a history that
 contains any also needs a fresh genesis. Batch ABI changes per cutover.
+
+The ABI V1 hash is recorded in the inventory (`declared_abi_cutover`). The guard
+fails until the shared golden in
+`crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs`, every
+regeneration target of the `abi` surface that states how it `carries` the hash,
+and the inventory agree, so a regenerated hash is always a declared cutover with
+its listed carriers. How a carrier is read depends on its form:
+
+- A compiled program is read at its header. The artifact map
+  `scripts/ivm_artifacts.tsv` lists the program files; a compiler capture
+  (`fixtures/kotodama/*/native_v1.tsv`) is read row by row, both programs of
+  every row; a fixture that embeds a program as base64 is decoded.
+- A text carrier holds the hash, in each form its entry states, exactly as often
+  as the entry says (once unless it states `occurrences`). One stale statement
+  beside a regenerated one changes the count and fails.
+
+Two limits remain. The guard counts the declared hash; it does not know every
+field of a text carrier that could state a hash, so a new field with another
+value is not seen. And the carrier list is maintained by hand: the guard reads
+the listed files and does not search the tree for others. A change that
+regenerates the hash searches for the previous one (`git grep -il <hash>`, and
+the program headers through the artifact map) and lists every file that states
+it, hand-maintained records such as
+`crates/iroha/tests/fixtures/contract_code_readback/provenance.json` included.
+
+The guard also fails when the pinned history holds the declared hash while the
+declaration says no fresh genesis is needed. It compares bytes: it computes no
+ABI hash and admits no contract, which `abi_hash_versions` and the admission
+tests do.
+
+Declared cutover, 2026-10-05: surface `abi`, cutover `contract_redeployment`.
+Commit `a5d2617d6a` replaced the body of `CallSchemaV1`, the argument and result
+schema of every contract callable, with the compact CS1 body, and rewrote the
+`call_table_layout` clause of the hashed descriptor to describe it. That clause
+is the only difference between the descriptors before and after the commit; the
+syscall list, signatures and pointer types are unchanged and the ABI version
+stays 1. The hash is now
+`c7281066ec6f2fb47a2b0051c1d2ac95562f6ca7a576011cf173e07e845fdec1`. A contract
+compiled before the change is refused twice, by the callable decoder and by the
+manifest `abi_hash` comparison: recompile and redeploy it. No alias for the
+former hash and no second decoder exists. The pinned history holds no contract
+and no runtime-ABI record, so this cutover takes no fresh genesis. No live
+network was changed.
+
+Declared cutover, 2026-10-05 (ZK delivery plan task F.4): surfaces `genesis` and
+`execution_semantics`, cutover `fresh_genesis`. Every limit, window, verifier
+switch, relation-selecting key and verification gas charge that the ZK
+consensus-policy hash binds is now read from committed State, the
+`zk_validity_policy_v1` parameter, or from the protocol default; the node
+configuration schema has no key for them, and genesis generators sign the
+protocol-default confidential policy hash. Three things follow. A history
+written by validators whose node configuration set other values of those keys
+does not replay in this binary, which evaluates the protocol default: such a
+network takes a fresh genesis that carries `zk_validity_policy_v1` (the tracked
+Taira template now does, with its two non-default confidential limits). The
+built-in `sora-nexus-v1` profile lost its `[static.zk.halo2]` key, so its pinned
+consensus digest changed (`crates/iroha_config/src/profile/tests.rs`,
+`digests_are_pinned`). And a node configuration that still names a removed key
+fails to load. No decoder, alias or ignored key was kept. The pinned history
+holds no such parameter and was written under the protocol default, so it
+replays unchanged
+(`pinned_history_of_an_earlier_build_replays_to_its_pinned_state`) and this
+cutover does not regenerate it. No live network was changed. The inventory has
+no key for this declaration yet; the guard checks only the `abi` one.
+
+Declared cutover, 2026-10-06 (ZK delivery plan task F.4, pipeline limits):
+surfaces `genesis` and `execution_semantics`, cutover `fresh_genesis`. The
+sixteen execution limits of the pipeline (overlay bounds, IVM cycle and
+decoded-program bounds, the quarantine lane, IVM query limits, the AMX budget
+model and `dynamic_prepass`) are now read from committed State, the
+`pipeline_validity_policy_v1` parameter, or from the protocol default, with the
+same rules as the ZK policy above. The `[pipeline]` node schema has no key and
+no environment alias for them, so a configuration that names one fails to
+load; `[pipeline.gas]` is unchanged. A history written by validators whose
+configuration set another value of one of those keys does not replay: its
+signed genesis binds an execution-policy hash this binary no longer derives
+from node configuration. Such a network takes a fresh genesis that carries
+`pipeline_validity_policy_v1`. No tracked deployment configuration set any of
+the keys. The default `ZK ballot` and `tally` verifying keys of `[gov]` are
+removed from the node schema as well; no validation path read them once an
+election commits its own keys, and their two (always empty) digest terms are
+unchanged. The pinned history was written under the protocol defaults and
+replays unchanged; this cutover does not regenerate it. No live network was
+changed.
+
+Declared cutover, 2026-10-06 (ZK delivery plan task I.1): surface `wire`,
+cutover `fresh_genesis`. The ninth field of the signed transaction payload,
+`attachments`, changed its type in place from the optional proof-attachment
+list to the optional ordered intent descriptor with signed inline attachment
+occurrences (`SignedAttachmentsV1`, layout in `norito.md`, "Signed attachments
+and ordered intent"). The payload still has nine fields and a transaction
+without attachments still encodes the field as the single `None` byte, so
+every attachment-free transaction, the signed genesis and every block that
+holds only such transactions keep their bytes, hashes and signatures. A
+transaction that carries the former list no longer decodes: there is no second
+decoder, version dispatch or alias, and the payload has a single decoder that
+also checks the descriptor against the rest of the payload. A history that
+holds an attachment-bearing transaction therefore does not replay in this
+binary and takes a fresh genesis; a history without one replays unchanged.
+The pinned history holds no attachment and replays unchanged
+(`pinned_history_of_an_earlier_build_replays_to_its_pinned_state`); this
+cutover does not regenerate it, and the other artifacts of the `wire` surface
+were checked through their tests and are byte-identical. New shared vectors
+for the layout are `fixtures/zk/signed_attachments_v1/vectors.json`. An SDK
+that still encodes the former list produces transactions every node refuses at
+decode. No live network was changed. The inventory has no key for this
+declaration yet; the guard checks only the `abi` one.
 
 Classify by effect on the stored history, not by intent. When unsure, run the
 pinned-history test and the read-only probes against a store written by the
@@ -163,19 +317,31 @@ The guard reads source text and the pinned fixture. It fails when:
 - the pinned history differs from its manifest or from the recorded digest;
 - a history loader defines or imports a compatibility-named item that is neither
   a listed rejection helper nor a classified definition;
-- a retired decoder or shim identifier reappears;
+- a retired decoder or shim identifier reappears, or a retired trait
+  implementation is written again (tests included);
 - production source references a helper kept only for tests;
 - a retired-artifact refusal changes its names, loses its call from the open
   path, or exists without being listed;
 - a surface lacks a concrete artifact with a generator or checking test;
-- a probe or custody anchor of the obsolete-history evidence is gone.
+- the ABI V1 golden differs from the hash the inventory declares, a listed
+  carrier does not carry that hash in every stated form (a text carrier the
+  stated number of times, a capture or fixture in every program it holds), or
+  the pinned history holds it while the declaration says no fresh genesis is
+  needed;
+- a probe or custody anchor of the obsolete-history evidence is gone;
+- the section "Snapshots and checkpoints" changes or loses a statement the
+  inventory lists, or the source no longer marks checkpoint restore as
+  unimplemented, while the inventory is unchanged. This preserves the rule for
+  future work. It is not evidence that a checkpoint exists.
 
 The loader check is name-based. It does not see a fallback written inside an
 existing function, a version `match` outside the `Version` trait or a neutral
 name; review and the listed tests cover those. The guard does not run tests:
 `--test-commands` prints the `cargo test` commands for exactly the listed tests,
 and `blocked_test_targets` names targets that do not build today, so their tests
-are not counted as evidence. Whether a retired artifact is refused at run time
+are not counted as evidence. The real-peer tests start `iroha3d`: their lines
+are preceded by the daemon build and carry `TEST_NETWORK_BIN_IROHAD`, so each
+line runs as printed from the repository root. Whether a retired artifact is refused at run time
 is established by `every_inventoried_retired_store_artifact_stops_strict_startup`,
 which plants each listed artifact in a real store.
 

@@ -1,9 +1,7 @@
 //! Real relay instruction and governance refusal boundaries with unchanged-source retry.
 
 use super::*;
-use crate::{
-    execution_attempt::ExecutionDeferred, kura::Kura, query::store::LiveQueryStore, state::State,
-};
+use crate::{kura::Kura, query::store::LiveQueryStore, state::State};
 use core::num::NonZeroU64;
 use iroha_data_model::Registrable;
 use iroha_data_model::prelude::{
@@ -11,6 +9,27 @@ use iroha_data_model::prelude::{
 };
 use iroha_test_samples::ALICE_ID;
 use ivm::ExecutionDeferral;
+
+/// The real retired JSON scope must retain its opaque cause, not only its reason.
+/// Exact same-attempt/pool comparisons live in the dedicated custody regressions.
+fn assert_captured_scope(owner: &crate::execution_attempt::ExecutionDeferred) {
+    assert_eq!(owner.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+    assert!(
+        owner.allocation_refusal().is_none(),
+        "decoder custody must not invent a pool release observation"
+    );
+    let original = owner
+        .decode_refusal()
+        .expect("actual JSON scope refusal must retain its captured cause");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert!(matches!(
+        original.clone().into_error(),
+        norito::Error::ScopedDecodeResource(_)
+    ));
+}
 
 fn limits(maximum: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, maximum, usize::MAX)
@@ -216,7 +235,7 @@ fn retirement_refusal(checkpoint: RelayCheckpoint) {
                 .to_string()
                 .contains("failed to resolve Kaigi account-id rekey lineage")
         );
-        assert_eq!(corrupt.execution_deferral(), None);
+        assert!(!corrupt.is_execution_deferred());
         assert!(corrupt.world.take_external_events().is_empty());
         // Completed corrupt-source rejection never publishes this fixture edit.
         drop(corrupt);
@@ -283,12 +302,13 @@ fn retirement_refusal(checkpoint: RelayCheckpoint) {
             }
         };
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "{cause}: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
         assert_eq!(transaction.last_tx_gas_used, 0);
         assert!(transaction.world.take_external_events().is_empty());
         assert_eq!(transaction.world.internal_event_buf.len(), internal_len);
@@ -367,7 +387,7 @@ fn retirement_refusal(checkpoint: RelayCheckpoint) {
         context
             .with(|| relay_attempt(checkpoint, &relay, &registration, &mut transaction))
             .expect("same original relay rows retry successfully");
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         transaction.apply();
     }
     assert_eq!(
@@ -476,12 +496,13 @@ fn allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_j
             })
             .expect_err("original governance allowlist must refuse zero inner quota");
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "Kaigi allowlist refusal must retain its original sticky execution deferral: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
         assert!(transaction.world.take_external_events().is_empty());
         transaction.apply();
     }
@@ -519,7 +540,7 @@ fn allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_j
                     .execute(&host, &mut transaction)
             })
             .unwrap();
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         transaction.apply();
     }
     assert_eq!(
@@ -542,7 +563,7 @@ fn allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_j
             .execute(&host, &mut transaction)
             .unwrap_err();
         assert!(matches!(error, Error::InvalidParameter(_)));
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         transaction.apply();
     }
     assert_eq!(
@@ -597,12 +618,13 @@ fn checked_record_writer_refusal_keeps_original_create_unpublished_and_retries()
             })
             .unwrap_err();
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "Kaigi checked JSON writer refusal must retain its original sticky execution deferral: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
         assert!(transaction.world.take_external_events().is_empty());
         transaction.apply();
     }
@@ -637,7 +659,7 @@ fn checked_record_writer_refusal_keeps_original_create_unpublished_and_retries()
         context
             .with(|| create().execute(&host, &mut transaction))
             .unwrap();
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         transaction.apply();
     }
     assert_eq!(
@@ -745,7 +767,7 @@ fn live_manifest_dependency_refusal_preserves_original_route_and_retry() {
             })
             .unwrap_err();
         super::tests::assert_smart_contract_error(error, "active Kaigi");
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
     }
     let demand = usize::try_from(measurement.consumed_allocated_bytes()).unwrap();
     assert!(demand > prefix);
@@ -776,12 +798,13 @@ fn live_manifest_dependency_refusal_preserves_original_route_and_retry() {
             })
             .expect_err("the original active-call dependency must refuse its inner decode quota");
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "Kaigi live manifest dependency refusal must retain its original sticky execution deferral: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
         assert_eq!(transaction.last_tx_gas_used, 0);
         assert!(transaction.world.take_external_events().is_empty());
         assert_eq!(transaction.world.internal_event_buf.len(), internal_len);
@@ -844,7 +867,9 @@ fn live_manifest_dependency_refusal_preserves_original_route_and_retry() {
             .unwrap_err();
         super::tests::assert_smart_contract_error(error, "active Kaigi");
         assert_eq!(
-            transaction.execution_deferral(),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
             None,
             "same original source retry reaches the completed live-route guard"
         );

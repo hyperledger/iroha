@@ -42,8 +42,8 @@ fn sources(world: &World) -> [String; 3] {
     ]
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     for id in [&*ALICE_ID, &*BOB_ID] {
         world.accounts.insert(id.clone(), account(id));
     }

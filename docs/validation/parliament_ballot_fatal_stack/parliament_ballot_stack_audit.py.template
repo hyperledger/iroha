@@ -1,0 +1,444 @@
+#!/usr/bin/env python3
+"""Conservative ARM64 stack diagnostics for retained Parliament worker executables.
+
+Prerequisites: Python 3.11+, Apple's llvm-objdump (via xcrun), and an existing
+Mach-O ARM64 executable. This never builds, runs, or modifies the executable.
+No environment variables are required. Output/raw directories must be supplied.
+
+This is an ABI-conditional direct-control-flow analysis, NOT a complete stack
+certificate. It includes both outcomes of every conditional branch. Unknown SP
+writes, inconsistent stack merges (including unproved stack-probe loops), missing
+instructions/targets, indirect calls, native stubs, traps, and positive-weight
+recursive components prevent a complete bound. A resolved-region result stops
+descending at opaque function/edge boundaries; it does not bound their targets.
+After opaque calls it may resume the caller using ABI preservation of SP/FP.
+Apple's 128-byte red zone is conservatively added at every local leaf maximum,
+not at each call edge. Unwind/exception edges are not ordinary instruction edges.
+"""
+
+import argparse
+from collections import Counter, deque
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+RED_ZONE_BYTES = 128
+# Explicit reviewed instruction families from LLVM's ARM64 disassembler. These
+# do not redirect control. SP destinations and SP writebacks are checked below
+# even for this allowlist. Unknown opcodes fail closed; this is not an ISA decoder.
+STRAIGHT = set("""
+add addp adds addv adr adrp aese aesimc aesmc and ands asr bfi bfxil bic bics bif
+bsl cas casa casab casal casalb casb casl ccmn ccmp cinc clz cmeq cmgt cmhi cmn
+cmp cneg cnt csel cset csetm csinc csinv dmb dup eor eor3 ext extr fmov isb ld1
+ld1r ld2 ld4 ldadd ldaddab ldaddal ldaddl ldapr ldaprb ldapur ldapurb ldp ldr
+ldrb ldrh ldrsb ldrsh ldrsw ldur ldurb ldurh lsl lsr madd mov movi movk msub
+mul mvn neg nop orr rbit rev ror sbc sbcs sbfx shl shrn smaddl st1 stlr stlrb
+stlur stlurb stp str strb strh stur sturb sturh sub subs swpab swpal swpb swplb sxtb
+sxtw tst ubfiz ubfx udiv umaddl umaxp uminv umulh umull uqsub ushl ushll ushll2
+ushr uzp1 xar xtn zip1
+""".split())
+CONDITIONAL = {"cbz", "cbnz", "tbz", "tbnz"} | {
+    "b." + suffix for suffix in "eq ne cs hs cc lo mi pl vs vc hi ls ge lt gt le al nv".split()
+}
+READ_ONLY_FIRST = {"cmp", "cmn", "tst", "ccmp", "ccmn"}
+DEFAULT_ROOTS = ["resource_contract::workspace::worker::", "resource_contract::budget::Reservation::verify::", "iroha_zkp_vole::proof::verify::"]
+
+
+def digest(path):
+    """Hash the actual bytes of one source, tool, or executable."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def parse_disassembly(text):
+    """Read only __TEXT,__text, preserving every instruction and symbol address."""
+    marker = "Disassembly of section __TEXT,__text:"
+    if marker not in text:
+        raise ValueError("missing Mach-O __TEXT,__text disassembly")
+    body = text.split(marker, 1)[1].split("\nDisassembly of section ", 1)[0]
+    instructions, names = {}, {}
+    for line in body.splitlines():
+        label = re.fullmatch(r"([0-9a-fA-F]+) <(.+)>:", line.strip())
+        if label:
+            names[int(label[1], 16)] = label[2]
+        match = re.fullmatch(r"\s*([0-9a-fA-F]+):[ \t]+(\S+)[ \t]*(.*)", line)
+        if match:
+            address = int(match[1], 16)
+            if address in instructions:
+                raise ValueError(f"duplicate instruction {address:#x}")
+            instructions[address] = (match[2], match[3].split(";", 1)[0].strip())
+    if not instructions:
+        raise ValueError("no decoded text instructions")
+    return instructions, names
+
+
+def parse_starts(text):
+    """Use LC_FUNCTION_STARTS, not incidental disassembly/local labels."""
+    starts = {}
+    for line in text.splitlines():
+        match = re.fullmatch(r"([0-9a-fA-F]{16})\s+(.+)", line)
+        if match:
+            address = int(match[1], 16)
+            if address in starts:
+                raise ValueError("duplicate function start")
+            starts[address] = match[2]
+    if not starts:
+        raise ValueError("no LC_FUNCTION_STARTS entries")
+    return starts
+
+
+def parse_stubs(text):
+    """Map only native __TEXT,__stubs entries to imported symbol names."""
+    active, stubs = False, {}
+    for line in text.splitlines():
+        if line.startswith("Indirect symbols for "):
+            active = "(__TEXT,__stubs)" in line
+        match = re.fullmatch(r"(0x[0-9a-fA-F]+)\s+\d+\s+(\S+)", line)
+        if active and match:
+            stubs[int(match[1], 16)] = match[2]
+    return stubs
+
+
+def immediate(text):
+    """Decode only an immediate integer, with an optional ARM64 LSL 12 suffix."""
+    match = re.fullmatch(r"#(-?(?:0x[0-9a-f]+|\d+))(?:,\s*lsl #(?:0xc|12))?", text)
+    if not match:
+        raise ValueError("nonconstant immediate")
+    result = int(match[1], 0)
+    return result << 12 if "," in text else result
+
+
+def stack_effect(op, operands, sp, fp):
+    """Interpret all supported explicit SP writes; return exact SP and known FP.
+
+    Offsets are relative to the incoming SP (negative means allocated). A merge
+    with differing SP is rejected by the CFG. No loop-trip-count guess is used.
+    An arbitrary restored FP is unknown; it matters only if later assigned to SP.
+    """
+    old_sp, old_fp = sp, fp
+    # STLUR (FEAT_LRCPC2) stores a W/X register at base + signed imm9;
+    # unlike indexed STR, it has no base writeback or register destination.
+    # Arm DDI 0602, STLUR (unscaled): accept only its ordinary LLVM spelling.
+    if op == "stlur":
+        match = re.fullmatch(r"(?:[wx](?:[12]?\d|30)|[wx]zr), \[(?:x(?:[12]?\d|30)|sp)(?:, (#-?(?:0x[0-9a-f]+|\d+)))?\]", operands)
+        if match is None or not -256 <= immediate(match[1] or "#0") <= 255:
+            raise ValueError("unsupported STLUR operands")
+    fields = operands.split(", ")
+    first = fields[0] if fields else ""
+    # AArch64 post/pre-indexed base writes happen independently of destination.
+    writeback = re.search(r"\[sp(?:,\s*(#[^\]]+))?\](!|,\s*#-?(?:0x[0-9a-f]+|\d+))", operands)
+    if writeback:
+        if not op.startswith(("st", "ld")):
+            raise ValueError("unexpected SP writeback opcode")
+        delta = immediate(writeback[1] or "#0") if writeback[2] == "!" else immediate(writeback[2][2:])
+        sp += delta
+    elif re.search(r"\[sp[^\]]*\](?:!|,)", operands):
+        raise ValueError("unparsed SP writeback")
+    writes_first = not op.startswith("st") and op not in READ_ONLY_FIRST
+    if first in {"sp", "wsp"} and writes_first:
+        if first != "sp":
+            raise ValueError("32-bit SP write")
+        match = re.fullmatch(r"sp, (sp|x29), (.+)", operands)
+        if op in {"add", "sub"} and match:
+            base = sp if match[1] == "sp" else fp
+            if base is None:
+                raise ValueError("SP assigned from unknown FP")
+            delta = immediate(match[2])
+            sp = base + (delta if op == "add" else -delta)
+        elif op == "mov" and operands == "sp, x29" and fp is not None:
+            sp = fp
+        else:
+            raise ValueError("unsupported SP write")
+    # Obvious direct SP/known-FP memory accesses cannot silently exceed the
+    # assumed frame/red zone. Register aliases remain an explicit audit limit.
+    for memory in re.finditer(r"\[(sp|x29)(?:,\s*([^\]]+))?\]", operands):
+        base = old_sp if memory[1] == "sp" else old_fp
+        if base is not None:
+            offset = immediate(memory[2]) if memory[2] else 0
+            if base + offset < min(old_sp, sp) - RED_ZONE_BYTES:
+                raise ValueError("direct stack access below frame/red zone")
+    # Track FP conservatively even for secondary destinations and addressing
+    # writeback. A stale "known FP" must never justify an invented SP restore.
+    fp_registers = {"x29", "w29"}
+    if re.search(r"\[x29[^\]]*\](?:!|,)", operands):
+        fp = None
+    if op == "ldp" and fp_registers.intersection(fields[:2]):
+        fp = None
+    elif op.startswith(("ldadd", "swp")) and len(fields) > 1 and fields[1] in fp_registers:
+        fp = None
+    elif first in {"x29", "w29"} and writes_first:
+        match = re.fullmatch(r"x29, sp, (.+)", operands)
+        if op == "add" and match:
+            fp = sp + immediate(match[1])
+        elif op == "mov" and operands == "x29, sp":
+            fp = sp
+        else:
+            fp = None
+    return sp, fp
+
+
+def analyze_function(start, end, instructions, starts, stubs, name):
+    """Explore ordinary CFG paths and direct-call depths for one function."""
+    result = {"address": hex(start), "name": name, "end": hex(end), "maximum_sp_decrement_bytes": 0,
+              "local_frame_plus_red_zone_bytes": RED_ZONE_BYTES, "visited_instructions": 0,
+              "calls": [], "gaps": [], "frame_errors": []}
+    states, queue, seen_calls, seen_gaps = {}, deque([(start, 0, None)]), set(), set()
+
+    def gap(address, kind, detail, depth=0, frame=False):
+        key = address, kind, detail
+        if key not in seen_gaps:
+            seen_gaps.add(key)
+            item = {"address": hex(address), "kind": kind, "detail": detail, "caller_depth_bytes": depth}
+            result["frame_errors" if frame else "gaps"].append(item)
+
+    def transfer(address, target, depth, kind, fp):
+        if start <= target < end:
+            queue.append((target, -depth, fp))
+        elif kind == "fallthrough":
+            # LLVM may put another function immediately after a no-return call.
+            # Do not invent a return edge into it, or infer noreturn from a name.
+            # Explicit cross-function branches remain analyzed tail edges.
+            gap(address, "function_fallthrough", hex(target), depth)
+        elif target in starts:
+            key = address, target, depth, kind
+            if key not in seen_calls:
+                seen_calls.add(key)
+                result["calls"].append({"address": hex(address), "target": hex(target), "kind": kind, "caller_depth_bytes": depth})
+        elif target in stubs:
+            gap(address, "native_edge", stubs[target], depth)
+        else:
+            gap(address, "missing_target", hex(target), depth, True)
+
+    while queue:
+        address, sp, fp = queue.popleft()
+        if address in states:
+            old_sp, old_fp = states[address]
+            if old_sp != sp:
+                gap(address, "inconsistent_sp_merge", f"{old_sp} versus {sp}; loop/branch bound unproved", max(-sp, -old_sp), True)
+                continue
+            if old_fp == fp or old_fp is None:
+                continue
+            fp = None  # Merged FP becomes unknown; reprocess with weaker state.
+        states[address] = sp, fp
+        if address not in instructions:
+            gap(address, "missing_instruction", hex(address), -sp, True)
+            continue
+        op, operands = instructions[address]
+        is_conditional = op in CONDITIONAL
+        is_control = op in {"b", "bl", "br", "blr", "ret", "brk", "udf", "hlt"} or is_conditional
+        if not is_control and op.split(".", 1)[0] not in STRAIGHT:
+            gap(address, "unsupported_instruction", f"{op} {operands}", -sp, True)
+            continue
+        try:
+            new_sp, new_fp = (sp, fp) if is_control else stack_effect(op, operands, sp, fp)
+        except ValueError as error:
+            gap(address, "unsupported_stack_effect", f"{op} {operands}: {error}", -sp, True)
+            continue
+        if new_sp > 0 or new_sp % 16:
+            gap(address, "invalid_sp_state", str(new_sp), -sp, True)
+            continue
+        result["maximum_sp_decrement_bytes"] = max(result["maximum_sp_decrement_bytes"], -sp, -new_sp)
+        depth = -new_sp
+        if op == "ret":
+            if new_sp != 0:
+                gap(address, "unbalanced_return", str(new_sp), depth, True)
+            if operands not in {"", "x30"}:
+                gap(address, "nonstandard_return", operands, depth)
+            continue
+        if op in {"brk", "udf", "hlt"}:
+            gap(address, "exceptional_terminal", f"{op} {operands}", depth)
+            continue
+        if op in {"br", "blr"}:
+            gap(address, "indirect_branch" if op == "br" else "indirect_call", operands, depth)
+            if op == "br":
+                continue
+        elif op in {"b", "bl"} or is_conditional:
+            match = re.search(r"(?:^|,\s*)(0x[0-9a-f]+)(?:\s|$)", operands)
+            if not match:
+                gap(address, "unparsed_control_target", f"{op} {operands}", depth, True)
+                continue
+            target = int(match[1], 16)
+            if op == "bl":
+                if target in starts:
+                    key = address, target, depth, "call"
+                    if key not in seen_calls:
+                        seen_calls.add(key)
+                        result["calls"].append({"address": hex(address), "target": hex(target), "kind": "call", "caller_depth_bytes": depth})
+                elif target in stubs:
+                    gap(address, "native_edge", stubs[target], depth)
+                else:
+                    gap(address, "missing_call_target", hex(target), depth, True)
+            else:
+                transfer(address, target, depth, "conditional_tail" if is_conditional else "tail", new_fp)
+            if op == "b":
+                continue
+        # Assume ordinary ABI calls return with SP/FP preserved. Their unseen
+        # stack use is an explicit frontier, never assigned a zero complete cost.
+        transfer(address, address + 4, depth, "fallthrough", new_fp)
+    result["visited_instructions"] = len(states.keys() & instructions.keys())
+    result["local_frame_plus_red_zone_bytes"] = result["maximum_sp_decrement_bytes"] + RED_ZONE_BYTES
+    return result
+
+
+def components(graph):
+    """Tarjan SCC partition; recursion here is analysis-time Python only."""
+    sys.setrecursionlimit(max(10000, len(graph) * 4))
+    index, low, stack, active, output = {}, {}, [], set(), []
+
+    def visit(node):
+        index[node] = low[node] = len(index)
+        stack.append(node)
+        active.add(node)
+        for child in graph[node]:
+            if child not in index:
+                visit(child)
+                low[node] = min(low[node], low[child])
+            elif child in active:
+                low[node] = min(low[node], index[child])
+        if low[node] == index[node]:
+            group = []
+            while True:
+                child = stack.pop()
+                active.remove(child)
+                group.append(child)
+                if child == node:
+                    break
+            output.append(group)
+
+    for node in graph:
+        if node not in index:
+            visit(node)
+    return output
+
+
+def call_region(functions, root):
+    """Bound resolved direct-call regions; reject positive-weight recursion.
+
+    The result is not a bound past any frontier. Zero-depth tail SCCs can be
+    collapsed because they do not accumulate stack. Positive SCCs are opaque
+    at function entry, rather than assigning a guessed recursion depth.
+    """
+    graph = {key: [int(call["target"], 16) for call in value["calls"]] for key, value in functions.items()}
+    groups = components(graph)
+    owner = {node: i for i, group in enumerate(groups) for node in group}
+    recursive = {i for i, group in enumerate(groups) if any(
+        owner[int(call["target"], 16)] == i and call["caller_depth_bytes"] > 0
+        for node in group for call in functions[node]["calls"])}
+    reachable, pending = set(), [root]
+    while pending:
+        node = pending.pop()
+        if node not in reachable:
+            reachable.add(node)
+            pending.extend(graph[node])
+    frontier = []
+    for node in sorted(reachable):
+        for item in functions[node]["gaps"] + functions[node]["frame_errors"]:
+            frontier.append({"function": functions[node]["name"], **item})
+    recursive_groups = [[{"address": hex(n), "name": functions[n]["name"]} for n in groups[i]]
+                        for i in sorted(recursive) if any(n in reachable for n in groups[i])]
+    cache = {}
+
+    def bound(group_id):
+        if group_id in cache:
+            return cache[group_id]
+        group = groups[group_id]
+        if group_id in recursive or any(functions[n]["frame_errors"] for n in group):
+            return 0, ["opaque function/component entry"]
+        best = max((functions[n]["local_frame_plus_red_zone_bytes"], [functions[n]["name"]]) for n in group)
+        for node in group:
+            for call in functions[node]["calls"]:
+                target = int(call["target"], 16)
+                if owner[target] != group_id:
+                    child_bound, child_path = bound(owner[target])
+                    candidate = call["caller_depth_bytes"] + child_bound
+                    if candidate > best[0]:
+                        best = candidate, [functions[node]["name"] + " @ " + call["address"]] + child_path
+        cache[group_id] = best
+        return best
+
+    size, path = bound(owner[root])
+    complete = not frontier and not recursive_groups
+    return {"root": functions[root]["name"], "address": hex(root), "direct_reachable_functions": len(reachable),
+            "resolved_region_stack_bytes": size, "resolved_region_maximum_path": path,
+            "complete_ordinary_call_graph": complete, "complete_stack_bound_bytes": size if complete else None,
+            "frontier_kind_counts": dict(sorted(Counter(item["kind"] for item in frontier).items())),
+            "frontiers": frontier, "positive_weight_recursive_components": recursive_groups,
+            "abi_assumptions": ["ordinary ARM64 calls preserve caller SP/FP on return", "128-byte Apple red zone",
+                                "no hidden exception/signal/unwind edge", "compiler memory accesses obey the ABI stack frame/red zone"]}
+
+
+def audit(disassembly, starts_text, stubs_text, root_patterns=None):
+    """Analyze one retained image, never silently discarding incomplete roots."""
+    if not re.search(r"file format mach-o arm64\s*$", disassembly, re.MULTILINE):
+        raise ValueError("expected a Mach-O ARM64 image")
+    instructions, names = parse_disassembly(disassembly)
+    starts, stubs = parse_starts(starts_text), parse_stubs(stubs_text)
+    addresses = sorted(starts)
+    if min(instructions) != addresses[0]:
+        raise ValueError("function starts do not cover text prefix")
+    end = max(instructions) + 4
+    functions = {}
+    for i, address in enumerate(addresses):
+        stop = addresses[i + 1] if i + 1 < len(addresses) else end
+        functions[address] = analyze_function(address, stop, instructions, starts, stubs, names.get(address, starts[address]))
+    patterns = root_patterns or DEFAULT_ROOTS
+    selected = {pattern: [a for a, fn in functions.items() if pattern in fn["name"]] for pattern in patterns}
+    missing = [pattern for pattern, matches in selected.items() if not matches]
+    if missing:
+        raise ValueError(f"missing requested roots: {missing}")
+    roots = [call_region(functions, address) for address in sorted({a for matches in selected.values() for a in matches})]
+    return {"format": "parliament-arm64-stack-audit-v1", "profile_qualified": False,
+            "complete_workspace_certificate": False, "scope": "ABI-conditional compiled direct CFG regions; no native/runtime/indirect continuation bound",
+            "red_zone_bytes": RED_ZONE_BYTES, "text_instructions": len(instructions), "function_count": len(functions),
+            "function_entry_cfg_instructions_visited": sum(fn["visited_instructions"] for fn in functions.values()),
+            "whole_image_frame_error_count": sum(len(fn["frame_errors"]) for fn in functions.values()),
+            "roots": roots, "functions": list(functions.values())}
+
+
+def capture(binary, raw_dir):
+    """Archive exact LLVM output with command and executable/tool identities."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    tool = subprocess.check_output(["xcrun", "--find", "llvm-objdump"], text=True).strip()
+    commands = {
+        "disassembly": [tool, "--disassemble", "--demangle", "--no-show-raw-insn", str(binary)],
+        "starts": [tool, "--macho", "--function-starts=both", str(binary)],
+        "stubs": [tool, "--macho", "--indirect-symbols", str(binary)],
+        "unwind": [tool, "--macho", "--unwind-info", str(binary)],
+    }
+    before, tool_before, script_before = digest(binary), digest(tool), digest(__file__)
+    outputs, receipts = {}, []
+    for label, command in commands.items():
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        path = raw_dir / f"{label}.txt"
+        path.write_text(completed.stdout)
+        outputs[label] = completed.stdout
+        receipts.append({"command": command, "output": str(path), "sha256": digest(path), "stderr": completed.stderr})
+    if digest(binary) != before or digest(tool) != tool_before or digest(__file__) != script_before:
+        raise ValueError("binary, tool, or analyzer changed during disassembly")
+    return outputs, {"binary": str(binary), "binary_sha256": before, "objdump": tool,
+                     "objdump_sha256": tool_before, "objdump_version": subprocess.check_output([tool, "--version"], text=True),
+                     "commands": receipts, "script_sha256": script_before,
+                     "binary_tool_and_analyzer_unchanged_during_capture": True}
+
+
+def main():
+    """Write an auditable diagnostic, leaving qualification false on every path."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("binary", type=Path, help="retained Mach-O ARM64 release binary")
+    parser.add_argument("--raw-dir", required=True, type=Path, help="directory for exact disassembly/tool outputs")
+    parser.add_argument("--output", required=True, type=Path, help="machine-readable diagnostic JSON")
+    parser.add_argument("--root", action="append", help="demangled root-name substring; repeatable")
+    args = parser.parse_args()
+    outputs, identity = capture(args.binary.resolve(), args.raw_dir)
+    result = audit(outputs["disassembly"], outputs["starts"], outputs["stubs"], args.root)
+    result["identity"] = identity
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    print(json.dumps({"output": str(args.output), "roots": [{k: root[k] for k in
+          ["root", "resolved_region_stack_bytes", "complete_stack_bound_bytes", "frontier_kind_counts"]} for root in result["roots"]]}, indent=2))
+
+
+if __name__ == "__main__":
+    main()

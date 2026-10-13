@@ -455,8 +455,8 @@ fn casting_context_authorization_replays_all_prefix_phases_and_rejects_tampering
             &mismatched_key_state.query_view(),
             ballot_attempt_id,
         ),
-        Err(TimedOvnCastingAuthorizationErrorV1::TimedOvn(_))
-            | Err(TimedOvnCastingAuthorizationErrorV1::KeySession(_))
+        Err(TimedOvnCastingAuthorizationErrorV1::TimedOvn(_)
+            | TimedOvnCastingAuthorizationErrorV1::KeySession(_))
     ));
 
     let lifecycle = lifecycle
@@ -883,6 +883,62 @@ pub(crate) fn tle_key_session_unbounded_retention_attempt_fixture_v1(
     )
 }
 
+/// Build a validated attempt whose first timed-OVN ballot ended `ReleasePulseUnavailable`
+/// through the reducer: its corpus froze and the release deadline passed without a pulse at
+/// `(release_beacon_session_id, release_height)`. Returns the attempt and that release slot.
+pub(crate) fn release_pulse_unavailable_attempt_fixture_v1(
+    release_beacon_session_id: BeaconSessionId,
+) -> (ParliamentAttemptStateV1, (BeaconSessionId, u64)) {
+    let BodyFixture {
+        mut state, body_id, ..
+    } = sealed_policy_body(3);
+    advance_to_vote(&mut state, body_id);
+    let attempt_id = state.attempt.id;
+    let ballot_id = BallotAttemptId::derive_v1(body_id, 0);
+    let tle_key_session_id = tle_key_session(72);
+    let release_height = 40;
+    let tle_session_id = TleSessionId::derive_v1(
+        ballot_id,
+        tle_key_session_id,
+        release_beacon_session_id,
+        release_height,
+    );
+    state
+        .register_ballot_attempt(
+            attempt_id,
+            body_id,
+            ballot_id,
+            0,
+            tle_session_id,
+            tle_key_session_id,
+            release_beacon_session_id,
+            27,
+            timed_ovn_policy(),
+            release_height,
+        )
+        .expect("register private ballot");
+    state
+        .close_ballot_registration(attempt_id, ballot_id, root(71), 3, 31)
+        .expect("freeze registration");
+    state
+        .freeze_ballot_survivors(attempt_id, ballot_id, root(74), root(75), 3, root(76), 34)
+        .expect("freeze survivors");
+    state
+        .freeze_timed_ovn_corpus(attempt_id, ballot_id, root(77), root(75), 3, root(78), 36)
+        .expect("freeze timed corpus");
+    state
+        .fail_ballot_no_result(attempt_id, ballot_id, false, release_height + 1)
+        .expect("release expiry is derived after its boundary");
+    assert_eq!(
+        state
+            .ballot(&ballot_id)
+            .expect("failed ballot")
+            .failure_kind,
+        Some(ParliamentBallotFailureKindV1::ReleasePulseUnavailable)
+    );
+    (state, (release_beacon_session_id, release_height))
+}
+
 fn tle_key_session_retention_attempt_fixture_with_retry_schedule_v1(
     key_session_id: TleKeySessionId,
     retry_registered_at_height: u64,
@@ -1070,9 +1126,7 @@ fn proposal_wide_redraw_budget_composes_sortition_and_timed_ovn_retries() {
             initial_candidates,
         )
         .expect("the proposal's baseline draw remains free");
-    state
-        .fail_body_election_no_roster(governance_attempt_id, initial_election_id, false, 21)
-        .expect("record an objectively missing initial pulse");
+    fail_generation_with_empty_roster(&mut state, initial_election_id, pulse_id(0xE8), 21);
 
     let (retry_request, retry_candidates) = sortition_request(
         governance_attempt_id,
@@ -1082,7 +1136,7 @@ fn proposal_wide_redraw_budget_composes_sortition_and_timed_ovn_retries() {
         3,
         3,
         21,
-        31,
+        32,
         beacon_session(183),
         None,
     );
@@ -1102,12 +1156,12 @@ fn proposal_wide_redraw_budget_composes_sortition_and_timed_ovn_retries() {
         governance_attempt_id,
         vec![retry_request_id],
         beacon_session(183),
-        31,
+        32,
         pulse_id(184),
     )
     .expect("consume the retry pulse");
     state
-        .begin_invitation_acceptance(governance_attempt_id, retry_election_id, 31, 1)
+        .begin_invitation_acceptance(governance_attempt_id, retry_election_id, 32, 1)
         .expect("open retry invitations");
     let selected = state
         .election(&retry_election_id)
@@ -1118,11 +1172,11 @@ fn proposal_wide_redraw_budget_composes_sortition_and_timed_ovn_retries() {
         .collect::<Vec<_>>();
     for member in selected {
         state
-            .record_invitation_response(governance_attempt_id, retry_election_id, &member, true, 31)
+            .record_invitation_response(governance_attempt_id, retry_election_id, &member, true, 32)
             .expect("accept retry assignment");
     }
     let body_id = state
-        .seal_body_roster(governance_attempt_id, retry_election_id, 32)
+        .seal_body_roster(governance_attempt_id, retry_election_id, 33)
         .expect("seal the retained retry roster");
     for phase in [
         DeliberationPhaseV1::Orientation,
@@ -1370,12 +1424,12 @@ fn ballot_failure_reason_is_derived_from_the_frozen_phase() {
         Some(ParliamentBallotFailureKindV1::ReleasePulseUnavailable)
     );
     assert_eq!(
-        release_expired.unavailable_beacon_pulse_slots_v1(),
+        release_expired.unavailable_release_pulse_slots_v1(),
         BTreeSet::from([(release_beacon_session_id, release_height)])
     );
     assert!(
         release_expired
-            .classifies_beacon_pulse_unavailable_at(release_beacon_session_id, release_height)
+            .classifies_release_pulse_unavailable_at(release_beacon_session_id, release_height)
     );
 
     let mut finalized_pulse_before_deadline = state.clone();

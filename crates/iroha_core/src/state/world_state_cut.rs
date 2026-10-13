@@ -9,12 +9,13 @@ use super::*;
 use crate::execution_attempt::ExecutionDeferred;
 use crate::state::{NativeExecutionTip, StateBlock};
 use iroha_allocation::{
-    AllocationBudget, AllocationRefusal, ChargedBuffer, ChargedBufferError, ChargedShared,
+    AllocationBudget, AllocationRefusal, AllocatorRefusal, ChargedBuffer, ChargedBufferError,
+    ChargedShared,
 };
 use std::alloc::Layout;
 
 #[derive(Debug)]
-/// Native cut refusal preserves semantic failure or the original finite pool.
+/// Native cut refusal preserves semantic failure or its original local resource cause.
 pub(crate) enum CutError {
     /// The original native journal no longer proves its exact root/count.
     Invalid(String),
@@ -35,9 +36,11 @@ impl From<ChargedBufferError> for CutError {
     fn from(value: ChargedBufferError) -> Self {
         match value {
             ChargedBufferError::Admission(refusal) => refusal.into(),
-            ChargedBufferError::Allocator { .. } => {
-                Self::Deferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
-            }
+            original @ ChargedBufferError::Allocator { .. } => Self::Deferred(
+                AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into(),
+            ),
         }
     }
 }
@@ -93,8 +96,12 @@ impl PendingCutCapsule {
         let Self { capsule, budget } = self;
         ChargedShared::from_reservation(capsule, &mut reservation).map_err(|(capsule, error)| {
             let error = match error {
-                iroha_allocation::PrepaidSharedError::Allocator { .. } => {
-                    CutError::Deferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
+                original @ iroha_allocation::PrepaidSharedError::Allocator { .. } => {
+                    CutError::Deferred(
+                        AllocatorRefusal::try_from(original)
+                            .expect("matched allocator failure")
+                            .into(),
+                    )
                 }
                 iroha_allocation::PrepaidSharedError::Reservation(error) => CutError::Invalid(
                     format!("World cut original control layout differs: {error}"),
@@ -595,6 +602,11 @@ pub(crate) mod completion_observer {
     /// Exact native shell size without exposing the private capsule type.
     pub(crate) fn control_bytes() -> usize {
         ChargedShared::<CutCapsule>::allocation_layout().size()
+    }
+
+    /// Exact physical layout for the existing test allocator's one-failure observer.
+    pub(crate) fn control_layout() -> Layout {
+        ChargedShared::<CutCapsule>::allocation_layout()
     }
 
     /// Borrow the observation on the actual synchronous Worker fixture thread.

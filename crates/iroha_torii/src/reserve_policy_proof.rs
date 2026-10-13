@@ -32,6 +32,10 @@ fn unavailable() -> Error {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn manager(
     app: &SharedAppState,
     headers: &HeaderMap,
@@ -39,7 +43,7 @@ fn manager(
     uri: &axum::http::Uri,
 ) -> Result<AccountId, AxResponse> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -57,9 +61,11 @@ fn manager(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        &[],
+        crate::app_auth::CanonicalRequestParts {
+            method,
+            uri,
+            body: &[],
+        },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -68,7 +74,7 @@ fn manager(
     }
 }
 
-pub(crate) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<String>,
     headers: HeaderMap,

@@ -645,6 +645,11 @@ pub struct ErrorDetails {
     #[norito(default)]
     #[norito(skip_serializing_if = "Option::is_none")]
     pub query_asset_not_found: Option<AssetId>,
+    /// Exact payer-owned selector for `query_settlement_receipt_not_found` HTTP 404.
+    /// This is a query absence observation, never authenticated payment or non-execution evidence.
+    #[norito(default)]
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub query_settlement_receipt_not_found: Option<iroha_data_model::isi::SettlementId>,
 }
 impl ErrorDetails {
     /// Return whether this details payload carries any structured fields.
@@ -674,6 +679,7 @@ impl ErrorDetails {
             && self.account_aliases_by_account_not_found.is_none()
             && self.sns_registration_not_found.is_none()
             && self.query_asset_not_found.is_none()
+            && self.query_settlement_receipt_not_found.is_none()
     }
 }
 /// Stable public network profile metadata used by clients and Torii helpers.
@@ -1693,7 +1699,7 @@ mod tests {
         );
         for incomplete in [
             format!(r#"{{"key":{key_json}}}"#),
-            format!(r#"{{"enrollment":null}}"#),
+            r#"{"enrollment":null}"#.to_owned(),
             format!(r#"{{"key":{key_json},"enrollment":null,"extra":true}}"#),
             format!(r#"{{"key":{key_json},"enrollment":null,"enrollment":null}}"#),
         ] {
@@ -2259,6 +2265,42 @@ mod tests {
                 norito::canonical_decode_limits(trailing.len()),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn error_envelope_roundtrip_preserves_exact_settlement_receipt_absence() {
+        let account = AccountId::new(checked_test_keypair(0x38).public_key().clone());
+        let id =
+            iroha_data_model::isi::SettlementId::new(account, "missing-payment".parse().unwrap());
+        let envelope = ErrorEnvelope::new(
+            "query_settlement_receipt_not_found",
+            "The requested receipt is absent.",
+        )
+        .with_details(ErrorDetails {
+            query_settlement_receipt_not_found: Some(id.clone()),
+            ..Default::default()
+        });
+        let native = norito::encode_canonical(&envelope).unwrap();
+        let json = norito::json::to_vec(&envelope).unwrap();
+        for decoded in [
+            norito::decode_canonical::<ErrorEnvelope>(&native).unwrap(),
+            norito::json::from_slice::<ErrorEnvelope>(&json).unwrap(),
+        ] {
+            assert_eq!(decoded.code(), "query_settlement_receipt_not_found");
+            let details = decoded.details.unwrap();
+            assert!(!details.is_empty());
+            assert_eq!(details.query_settlement_receipt_not_found, Some(id.clone()));
+            assert!(details.query_asset_not_found.is_none());
+        }
+        let invalid = norito::json!({
+            "code": "query_settlement_receipt_not_found",
+            "message": "absent",
+            "details": { "query_settlement_receipt_not_found": "unqualified-payment" }
+        });
+        assert!(
+            norito::json::from_slice::<ErrorEnvelope>(&norito::json::to_vec(&invalid).unwrap())
+                .is_err()
         );
     }
     #[test]

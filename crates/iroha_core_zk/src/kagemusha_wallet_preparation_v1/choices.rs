@@ -43,6 +43,11 @@ fn sample_nonce(
     for _ in 0..128 {
         let mut nonce = [0; 32];
         fill(&mut nonce)?;
+        // Discard only the unused top bit, never reduce modulo p. Each 255-bit
+        // candidate has exactly two uniform raw preimages. Canonical rejection
+        // remains uniform over Fp excluding zero and the previous nonce; even
+        // with both exclusions, each fill succeeds with probability above 1/2.
+        nonce[31] &= 0x7f;
         if nonce != [0; 32] && nonce != *previous && bool::from(Fp::from_repr(nonce).is_some()) {
             return Ok(nonce);
         }
@@ -56,6 +61,7 @@ fn needs_time(request: &NativeIntentV1, source: &PreparationSourceV1<'_>) -> boo
             .released()
             .frozen
             .capsule
+            .body()
             .successor_state
             .send_requires_time_anchor()
 }
@@ -66,12 +72,7 @@ fn bindings(
 ) -> Result<([u8; 32], [u8; 32])> {
     let bytes =
         norito::to_bytes(request).map_err(|_| state::Error::Invalid("native request encoding"))?;
-    let source = source
-        .released()
-        .frozen
-        .capsule
-        .capsule_digest()
-        .map_err(|_| state::Error::Invalid("native source digest"))?;
+    let source = source.released().frozen.capsule.custody_digest();
     Ok((source, digest("native-preparation-choices-request", &bytes)))
 }
 
@@ -96,6 +97,7 @@ impl NativeChoicesV1 {
                 .released()
                 .frozen
                 .capsule
+                .body()
                 .successor_state
                 .core
                 .state_nonce,
@@ -127,16 +129,29 @@ impl NativeChoicesV1 {
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
     ) -> Result<Self> {
+        let value = Self::decode_original(bytes)?;
+        value.require(manifest, request, source)?;
+        Ok(value)
+    }
+
+    fn decode_original(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() || bytes.len() > MAX_BYTES {
             return Err(state::Error::WitnessLost("native choices bound"));
         }
-        let value: Self = norito::decode_canonical_with_limits(
-            bytes,
-            norito::canonical_decode_limits(bytes.len()),
-        )
-        .map_err(|_| state::Error::WitnessLost("native choices canonical frame"))?;
-        value.require(manifest, request, source)?;
-        Ok(value)
+        // A refused local read does not establish that durable choices were lost.
+        // Keep the original attempt classification before leaving its decode scope.
+        norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical_with_limits(
+                bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .map_err(|error| {
+            state::decode_attempt_error(
+                error,
+                state::Error::WitnessLost("native choices canonical frame"),
+            )
+        })
     }
 
     fn require(
@@ -154,6 +169,7 @@ impl NativeChoicesV1 {
                 .released()
                 .frozen
                 .capsule
+                .body()
                 .successor_state
                 .core
                 .state_nonce,
@@ -237,6 +253,133 @@ mod tests {
         assert_eq!(attempts, 128);
     }
     #[test]
+    fn nonce_sampling_masks_only_the_unused_bit_and_preserves_exact_boundaries() {
+        let previous = Fp::from(7).to_repr();
+        let expected = (-Fp::from(1)).to_repr();
+        let mut modulus = expected;
+        modulus[0] += 1;
+        let mut above = modulus;
+        above[0] += 1;
+        for high_bit in [0, 0x80] {
+            let mut candidates = [[0; 32], previous, modulus, above, [255; 32], expected]
+                .map(|mut value| {
+                    value[31] |= high_bit;
+                    value
+                })
+                .into_iter();
+            let mut calls = 0;
+            assert_eq!(
+                sample_nonce(&previous, |bytes| {
+                    calls += 1;
+                    *bytes = candidates.next().unwrap();
+                    Ok(())
+                })
+                .unwrap(),
+                expected
+            );
+            assert_eq!(calls, 6);
+            assert!(candidates.next().is_none());
+        }
+        // Bootstrap's zero predecessor excludes only zero, not another scalar.
+        let mut fills = 0;
+        assert_eq!(
+            sample_nonce(&[0; 32], |bytes| {
+                fills += 1;
+                *bytes = Fp::from(1).to_repr();
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .unwrap(),
+            Fp::from(1).to_repr()
+        );
+        assert_eq!(fills, 1);
+    }
+    #[test]
+    fn nonce_sampling_never_retries_entropy_errors_or_draws_beyond_the_limit() {
+        let previous = Fp::from(7).to_repr();
+        let mut fills = 0;
+        assert!(matches!(
+            sample_nonce(&previous, |_| {
+                fills += 1;
+                Err(entropy_unavailable())
+            }),
+            Err(state::Error::Provider(_))
+        ));
+        assert_eq!(fills, 1);
+        let mut fills = 0;
+        assert!(
+            sample_nonce(&previous, |bytes| {
+                fills += 1;
+                assert!(fills <= 128);
+                *bytes = previous;
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(fills, 128);
+        let mut fills = 0;
+        assert_eq!(
+            sample_nonce(&previous, |bytes| {
+                fills += 1;
+                assert!(fills <= 128);
+                *bytes = if fills == 128 {
+                    Fp::from(1).to_repr()
+                } else {
+                    previous
+                };
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .unwrap(),
+            Fp::from(1).to_repr()
+        );
+        assert_eq!(fills, 128);
+    }
+    #[test]
+    fn retained_choices_decode_refusal_preserves_originals_for_exact_retry() {
+        let value = NativeChoicesV1 {
+            version: 1,
+            manifest: [1; 32],
+            source: [2; 32],
+            request: [3; 32],
+            nonce: Fp::from(9).to_repr(),
+            observation: Some(Observation {
+                boot: [4; 32],
+                milliseconds: 123,
+            }),
+        };
+        let bytes = value.encode().unwrap();
+        let unchanged = bytes.clone();
+        // A zero enclosing field budget refuses before any source-binding decision.
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let error =
+            norito::with_decode_limits_scope(limits, || NativeChoicesV1::decode_original(&bytes))
+                .unwrap_err();
+        let state::Error::DecodeResource(original) = error else {
+            panic!("temporary choices read refusal became a custody verdict: {error:?}");
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(bytes, unchanged);
+        let restored = NativeChoicesV1::decode_original(&bytes).unwrap();
+        assert_eq!(restored.encode().unwrap(), unchanged);
+        assert_eq!(restored.nonce(), value.nonce());
+        assert_eq!(restored.time(), value.time());
+        restored
+            .require_binding([1; 32], [2; 32], [3; 32], Fp::from(7).to_repr(), true)
+            .unwrap();
+        for malformed in [Vec::new(), vec![0], vec![0; MAX_BYTES + 1]] {
+            assert!(matches!(
+                NativeChoicesV1::decode_original(&malformed),
+                Err(state::Error::WitnessLost(_))
+            ));
+        }
+    }
+
+    #[test]
     fn retained_choices_bind_every_source_and_optional_clock_without_resampling() {
         let mut value = NativeChoicesV1 {
             version: 1,
@@ -258,7 +401,7 @@ mod tests {
         require(&value, true).unwrap();
         assert!(require(&value, false).is_err());
         let bytes = value.encode().unwrap();
-        let restored: NativeChoicesV1 = norito::decode_canonical(&bytes).unwrap();
+        let restored = NativeChoicesV1::decode_original(&bytes).unwrap();
         assert_eq!(restored.nonce(), value.nonce());
         assert_eq!(restored.time(), value.time());
         require(&restored, true).unwrap();

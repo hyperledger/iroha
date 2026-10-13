@@ -300,7 +300,7 @@ struct TestRunArgs {
     /// Report format written to stdout.
     #[arg(long, value_enum, default_value_t)]
     format: TestRunFormat,
-    /// Also write a JUnit XML report to this file.
+    /// Also write a `JUnit` XML report to this file.
     #[arg(long, value_name = "FILE.xml")]
     junit: Option<PathBuf>,
     /// Print a per-kotoage gas table (calls, min, mean, max) after the results.
@@ -504,10 +504,8 @@ fn located_build_error(
         // identities logical rather than pointing at the wrong file.
         let unique_sources = source_paths
             .iter()
-            .filter_map(|(key, paths)| {
-                (paths.len() == 1)
-                    .then(|| (key.clone(), paths.first().expect("one source").clone()))
-            })
+            .filter(|(_, paths)| paths.len() == 1)
+            .map(|(key, paths)| (key.clone(), paths.first().expect("one source").clone()))
             .collect();
         for diagnostic in &mut diagnostics.diagnostics {
             remap_locked_project_diagnostic_sources(diagnostic, &unique_sources);
@@ -595,7 +593,7 @@ fn run(cli: Cli) -> Result<(), KotoError> {
         KotoCommand::Test(args) => run_tests(args),
         KotoCommand::Fmt(args) => format_sources(args),
         KotoCommand::Doc(args) => document(args),
-        KotoCommand::Explain(args) => explain::run(&args.topic, args.list, args.format),
+        KotoCommand::Explain(args) => explain::run(args.topic.as_deref(), args.list, args.format),
         KotoCommand::Lsp(args) => language_server(args),
     }
 }
@@ -984,9 +982,8 @@ fn check_project_paths_with_root(
                     let lint = leveled_lint(lint_config, warning.warning)?;
                     let path = source_paths
                         .get(&warning.source_name)
-                        .map(String::as_str)
-                        .unwrap_or(warning.source_name.as_str());
-                    Some(lint_diagnostic(lint, Path::new(path)))
+                        .map_or(warning.source_name.as_str(), String::as_str);
+                    Some(lint_diagnostic(&lint, Path::new(path)))
                 }));
             }
             Err(error) => match error.into_diagnostics() {
@@ -1157,17 +1154,18 @@ fn build(args: BuildArgs) -> Result<(), KotoError> {
     };
     let mut requests = Vec::with_capacity(projects.len());
     for (stem, source_name, graph) in projects {
-        let mut layout = if let Some(output) = explicit_output.as_ref() {
-            PublishLayout::for_artifact(output.clone(), None, None)
-        } else {
-            PublishLayout::standard(&target_dir, &profile, &stem, false)
-        }
-        .map_err(|error| build_error(diagnostic_format, error))?;
+        let mut layout = explicit_output
+            .as_ref()
+            .map_or_else(
+                || PublishLayout::standard(&target_dir, &profile, &stem, false),
+                |output| PublishLayout::for_artifact(output.clone(), None, None),
+            )
+            .map_err(|error| build_error(diagnostic_format, error))?;
         if let Some(manifest) = explicit_manifest_output
             .as_ref()
             .filter(|path| path.as_path() != Path::new("-"))
         {
-            layout.manifest = manifest.clone();
+            layout.manifest.clone_from(manifest);
         }
         if manifest_stdout {
             layout = layout.with_sidecar_manifest();
@@ -1337,6 +1335,8 @@ fn format_source_text(source: &str, source_name: Option<&str>) -> Result<String,
         .map_err(|diagnostics| DiagnosticFormat::Human.render(&diagnostics))
 }
 fn document(args: DocArgs) -> Result<(), KotoError> {
+    use std::fmt::Write as _;
+
     let DocArgs {
         builtins,
         format,
@@ -1414,10 +1414,15 @@ fn document(args: DocArgs) -> Result<(), KotoError> {
                 &DocumentationContext::new(&source_signatures, Some(&root_source)),
             );
             if !private_input_entrypoints.is_empty() {
-                rendered.push_str(&format!(
-                    "\n> Prover/test host required: {} reach raw private-input transport. Production consensus hosts do not provide private witnesses. Generate proofs off-chain and deploy a public-proof verifier.\n",
-                    private_input_entrypoints.iter().map(|name| format!("`{}`", markdown_inline(name))).collect::<Vec<_>>().join(", ")
-                ));
+                let _ = writeln!(
+                    rendered,
+                    "\n> Prover/test host required: {} reach raw private-input transport. Production consensus hosts do not provide private witnesses. Generate proofs off-chain and deploy a public-proof verifier.",
+                    private_input_entrypoints
+                        .iter()
+                        .map(|name| format!("`{}`", markdown_inline(name)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
             rendered
         }
@@ -1628,15 +1633,17 @@ fn argument_encoding_notes(
     use iroha_data_model::smart_contract::entrypoint::{
         EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1 as Node,
     };
-    let nodes = || schema.fields.iter().flat_map(|field| &field.ty.nodes);
+    let value_types = || schema.fields.iter().flat_map(|field| &field.ty.nodes);
     let mut notes = String::new();
-    if nodes().any(|node| matches!(node, Node::Leaf(Kind::Int | Kind::Decimal | Kind::Quantity))) {
+    if value_types()
+        .any(|node| matches!(node, Node::Leaf(Kind::Int | Kind::Decimal | Kind::Quantity)))
+    {
         notes.push_str(" `int`, `decimal` and `quantity` values are canonical decimal strings.");
     }
-    if nodes().any(|node| matches!(node, Node::Option)) {
+    if value_types().any(|node| matches!(node, Node::Option)) {
         notes.push_str(" Options are `{\"some\": value}` or `{\"none\": true}`.");
     }
-    if nodes().any(|node| matches!(node, Node::Enum(_))) {
+    if value_types().any(|node| matches!(node, Node::Enum(_))) {
         notes.push_str(
             " Ordinary enum values use the exact declared variant name as a JSON string.",
         );
@@ -1824,7 +1831,7 @@ fn render_entrypoint_documentation(
     entrypoint: &iroha_data_model::smart_contract::manifest::EntrypointDescriptor,
     context: &DocumentationContext<'_>,
 ) {
-    use iroha_data_model::smart_contract::manifest::EntryPointKind;
+    use iroha_data_model::smart_contract::manifest::{EntryPointKind, EntrypointAuthorizationV1};
     use std::fmt::Write as _;
     let written = context.spellings.get(&entrypoint.name).map(String::as_str);
     let _ = writeln!(
@@ -1856,7 +1863,6 @@ fn render_entrypoint_documentation(
         ),
     };
     let _ = writeln!(output, "{declaration}");
-    use iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1;
     match &entrypoint.authorization {
         EntrypointAuthorizationV1::Permission(permission) => {
             let _ = writeln!(
@@ -2029,11 +2035,11 @@ fn check_path(
     Ok(DiagnosticBundle::new(
         warnings
             .into_iter()
-            .map(|warning| lint_diagnostic(warning, path))
+            .map(|warning| lint_diagnostic(&warning, path))
             .collect(),
     ))
 }
-fn lint_diagnostic(warning: kotodama_lang::lint::LintWarning, path: &Path) -> Diagnostic {
+fn lint_diagnostic(warning: &kotodama_lang::lint::LintWarning, path: &Path) -> Diagnostic {
     warning.to_diagnostic(
         &path.display().to_string(),
         None,
@@ -2278,7 +2284,7 @@ mod tests {
     }
     #[test]
     fn contract_documentation_is_stable_markdown_from_the_manifest() {
-        let source = r#"
+        let source = r"
                     seiyaku Vault { permission CanDeposit;
                         error enum VaultError { Empty = 7 }
                         state int balance;
@@ -2290,7 +2296,7 @@ mod tests {
                         }
                         view fn read() authorize(anyone) -> int { return balance; }
                     }
-                "#;
+                ";
         let output = CompilerSession::default()
             .build(CompileRequest {
                 source,

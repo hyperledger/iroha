@@ -4,11 +4,13 @@
 //! The proof engine establishes its circuit relation; active registry state,
 //! ledger context, permissions and replay protection remain the caller's job.
 
+use crate::{VerificationAttemptError, VerificationRefusal};
 use ff::PrimeField;
 use iroha_data_model::{
     proof::{ProofBox, VerifyingKeyBox},
     zk::{BackendTag, NativePipaRProofV1, OpenVerifyEnvelope},
 };
+use iroha_plonk::verification_attempt::{codec_attempt, native_verification_error};
 use kaigi_zk::{
     Scalar,
     authorization_v1::{
@@ -18,12 +20,77 @@ use kaigi_zk::{
     native::{NativeProofV1, NativeRelationV1 as KaigiRelation},
     usage_v1::{KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1, KaigiUsageContextV1},
 };
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+
+/// Completed native framing, schema or cryptographic rejection.
+#[derive(Debug, thiserror::Error)]
+pub enum NativeVerificationError {
+    /// The supplied bytes do not satisfy the fixed native framing contract.
+    #[error("{0}")]
+    Invalid(&'static str),
+    /// The envelope selects inconsistent backend/relation/schema metadata.
+    #[error("{0}")]
+    Metadata(String),
+    /// Canonical decoding completed with a malformed or intrinsically invalid frame.
+    #[error(transparent)]
+    Codec(norito::Error),
+    /// Native verification completed and rejected the proof or public inputs.
+    #[error(transparent)]
+    Proof(iroha_plonk::verifier::VerifyError),
+}
+
+/// An unsuccessful native proof producer retaining its original typed cause.
+/// This is not a verdict on a submitted proof and has no wire codec.
+#[derive(Debug, thiserror::Error)]
+pub enum NativeProofProductionError {
+    /// Native key/prover initialization, input validation or arithmetic did not succeed.
+    #[error(transparent)]
+    Producer(#[from] kaigi_zk::native::NativeProverError),
+    /// Canonical key/proof packaging or the native verification boundary did not complete.
+    #[error(transparent)]
+    Packaging(#[from] VerificationAttemptError<NativeVerificationError>),
+}
+
+fn invalid(message: &'static str) -> VerificationAttemptError<NativeVerificationError> {
+    NativeVerificationError::Invalid(message).into()
+}
+
+fn kaigi_initialization(
+    original: iroha_plonk::verification_attempt::NativeVerifierInitError,
+) -> VerificationAttemptError<NativeVerificationError> {
+    VerificationAttemptError::Deferred(VerificationRefusal::initialization(original))
+}
+
+fn confidential_initialization(
+    original: iroha_plonk::verification_attempt::NativeVerifierInitError,
+) -> VerificationAttemptError<NativeVerificationError> {
+    VerificationAttemptError::Deferred(VerificationRefusal::initialization(original))
+}
+
+// Only successfully encoded material enters this cache. The separate lock avoids concurrent
+// construction of identical key graphs and is released on every ordinary failed attempt.
+fn initialize_compiled_key<'a>(
+    cache: &'a OnceLock<Vec<u8>>,
+    initializing: &Mutex<()>,
+    make: impl FnOnce() -> Result<Vec<u8>, VerificationAttemptError<NativeVerificationError>>,
+) -> Result<&'a [u8], VerificationAttemptError<NativeVerificationError>> {
+    crate::native_key_carrier::cached_success(
+        cache,
+        initializing,
+        make,
+        kaigi_initialization(
+            iroha_plonk::verification_attempt::NativeVerifierInitError::CachePoisoned,
+        ),
+    )
+    .map(Vec::as_slice)
+}
 
 /// Exact registry label for the built-in native PIPA-R verifier family.
 pub const BACKEND: &str = "pipa-r/pasta";
 /// Whole-container key bound applied before any expensive material construction.
 pub const MAX_KEY_BYTES: usize = 64 * 1024;
+/// Whole native proof carrier bound checked before canonical Norito decoding.
+pub const MAX_PROOF_BYTES: usize = 128 * 1024;
 
 /// Canonical registry identity of a built-in native verifier.
 ///
@@ -39,29 +106,22 @@ pub struct CompiledVerifyingKeyV1 {
     pub key: Vec<u8>,
 }
 
-fn kaigi_compiled_key(kind: KaigiRelation) -> Result<&'static [u8], String> {
-    static AUTHORIZATION: OnceLock<Result<Vec<u8>, String>> = OnceLock::new();
-    static USAGE: OnceLock<Result<Vec<u8>, String>> = OnceLock::new();
-    let cache = match kind {
-        KaigiRelation::Authorization => &AUTHORIZATION,
-        KaigiRelation::Usage => &USAGE,
+fn kaigi_compiled_key(
+    kind: KaigiRelation,
+) -> Result<&'static [u8], VerificationAttemptError<NativeVerificationError>> {
+    static AUTHORIZATION: OnceLock<Vec<u8>> = OnceLock::new();
+    static AUTHORIZATION_INITIALIZING: Mutex<()> = Mutex::new(());
+    static USAGE: OnceLock<Vec<u8>> = OnceLock::new();
+    static USAGE_INITIALIZING: Mutex<()> = Mutex::new(());
+    let (cache, initializing) = match kind {
+        KaigiRelation::Authorization => (&AUTHORIZATION, &AUTHORIZATION_INITIALIZING),
+        KaigiRelation::Usage => (&USAGE, &USAGE_INITIALIZING),
     };
-    cache
-        .get_or_init(|| {
-            let verifier = kind.verifier()?;
-            let bytes = norito::encode_canonical(&CompiledVerifyingKeyV1 {
-                descriptor: verifier.descriptor_bytes().to_vec(),
-                key: verifier.key_bytes().to_vec(),
-            })
-            .map_err(|error| error.to_string())?;
-            if bytes.len() > MAX_KEY_BYTES {
-                return Err("compiled native key exceeds registry bound".into());
-            }
-            Ok(bytes)
-        })
-        .as_ref()
-        .map(Vec::as_slice)
-        .map_err(Clone::clone)
+    initialize_compiled_key(cache, initializing, || {
+        let verifier = kind.verifier().map_err(kaigi_initialization)?;
+        crate::native_key_carrier::encode(verifier.descriptor_bytes(), verifier.key_bytes())
+            .map_err(kaigi_initialization)
+    })
 }
 
 /// Closed set of compiled native first-release relations.
@@ -138,18 +198,29 @@ impl NativeRelationV1 {
     ///
     /// # Errors
     /// Deterministic verifier-key construction failed.
-    pub fn proof_length(self) -> Result<usize, String> {
+    pub fn proof_length(self) -> Result<usize, VerificationAttemptError<NativeVerificationError>> {
         if let Some(kind) = self.kaigi() {
-            Ok(kind.verifier()?.proof_length())
+            Ok(kind
+                .verifier()
+                .map_err(kaigi_initialization)?
+                .proof_length())
         } else {
             crate::confidential_v2::native::proof_length(
                 self.confidential().expect("closed relation"),
             )
+            .map_err(confidential_initialization)
         }
     }
-    fn verify(self, public: &[[u8; 32]], proof: &[u8]) -> Result<(), String> {
+    fn verify(
+        self,
+        public: &[[u8; 32]],
+        proof: &[u8],
+    ) -> Result<(), VerificationAttemptError<NativeVerificationError>> {
         if let Some(kind) = self.kaigi() {
-            kind.verifier()?.verify(public, proof)
+            kind.verifier()
+                .map_err(kaigi_initialization)?
+                .verify(public, proof)
+                .map_err(|error| native_verification_error(error, NativeVerificationError::Proof))
         } else {
             crate::confidential_v2::native::verify(
                 self.confidential().expect("closed relation"),
@@ -159,11 +230,14 @@ impl NativeRelationV1 {
         }
     }
 }
-fn compiled_key(kind: NativeRelationV1) -> Result<&'static [u8], String> {
+fn compiled_key(
+    kind: NativeRelationV1,
+) -> Result<&'static [u8], VerificationAttemptError<NativeVerificationError>> {
     if let Some(kind) = kind.kaigi() {
         kaigi_compiled_key(kind)
     } else {
         crate::confidential_v2::native::key_bytes(kind.confidential().expect("closed relation"))
+            .map_err(confidential_initialization)
     }
 }
 /// Resolve only an exact generic or relation-specific native backend label.
@@ -208,14 +282,16 @@ pub fn validate_key(
     backend: &str,
     circuit: &str,
     key: &VerifyingKeyBox,
-) -> Result<NativeRelationV1, String> {
+) -> Result<NativeRelationV1, VerificationAttemptError<NativeVerificationError>> {
     if key.backend != backend || key.bytes.len() > MAX_KEY_BYTES {
-        return Err("invalid native PIPA-R key container".into());
+        return Err(invalid("invalid native PIPA-R key container"));
     }
     let kind = relation(backend, circuit)
-        .ok_or_else(|| "unadmitted native PIPA-R key relation".to_owned())?;
+        .ok_or_else(|| invalid("unadmitted native PIPA-R key relation"))?;
     if key.bytes != compiled_key(kind)? {
-        return Err("native PIPA-R key differs from the compiled relation".into());
+        return Err(invalid(
+            "native PIPA-R key differs from the compiled relation",
+        ));
     }
     Ok(kind)
 }
@@ -223,20 +299,29 @@ pub fn validate_key(
 ///
 /// # Errors
 /// Deterministic verifier-only key construction failed.
-pub fn kaigi_verifying_key(kind: KaigiRelation) -> Result<VerifyingKeyBox, String> {
+pub fn kaigi_verifying_key(
+    kind: KaigiRelation,
+) -> Result<VerifyingKeyBox, VerificationAttemptError<NativeVerificationError>> {
     Ok(VerifyingKeyBox::new(
         BACKEND.to_owned(),
         kaigi_compiled_key(kind)?.to_vec(),
     ))
 }
-fn envelope(kind: KaigiRelation, proved: NativeProofV1) -> Result<OpenVerifyEnvelope, String> {
+fn envelope(
+    kind: KaigiRelation,
+    proved: NativeProofV1,
+) -> Result<OpenVerifyEnvelope, VerificationAttemptError<NativeVerificationError>> {
     let (public_inputs, proof) = proved.into_parts();
     let key = kaigi_verifying_key(kind)?;
-    let proof_bytes = norito::encode_canonical(&NativePipaRProofV1 {
-        public_inputs,
-        proof,
-    })
-    .map_err(|error| error.to_string())?;
+    let proof_bytes = codec_attempt(
+        || {
+            norito::encode_canonical(&NativePipaRProofV1 {
+                public_inputs,
+                proof,
+            })
+        },
+        NativeVerificationError::Codec,
+    )?;
     Ok(OpenVerifyEnvelope {
         backend: BackendTag::NativePipaRPasta,
         circuit_id: kind.circuit_id().to_owned(),
@@ -253,9 +338,12 @@ fn envelope(kind: KaigiRelation, proved: NativeProofV1) -> Result<OpenVerifyEnve
 pub fn prove_kaigi_authorization(
     context: KaigiAuthorizationContextV1,
     witness: KaigiAuthorizationWitnessV1,
-) -> Result<OpenVerifyEnvelope, String> {
+) -> Result<OpenVerifyEnvelope, NativeProofProductionError> {
     let kind = KaigiRelation::Authorization;
-    envelope(kind, kind.prover()?.prove_authorization(context, witness)?)
+    Ok(envelope(
+        kind,
+        kind.prover()?.prove_authorization(context, witness)?,
+    )?)
 }
 /// Prove host-bound Kaigi usage and return its self-verified Norito envelope.
 ///
@@ -264,9 +352,12 @@ pub fn prove_kaigi_authorization(
 pub fn prove_kaigi_usage(
     context: KaigiUsageContextV1,
     witness: KaigiAuthorizationWitnessV1,
-) -> Result<OpenVerifyEnvelope, String> {
+) -> Result<OpenVerifyEnvelope, NativeProofProductionError> {
     let kind = KaigiRelation::Usage;
-    envelope(kind, kind.prover()?.prove_usage(context, witness)?)
+    Ok(envelope(
+        kind,
+        kind.prover()?.prove_usage(context, witness)?,
+    )?)
 }
 /// Decode the one exact public column for authenticated ledger-context comparison.
 /// This performs structural validation only; it does not establish proof validity.
@@ -276,54 +367,70 @@ pub fn prove_kaigi_usage(
 pub fn public_instances(
     backend: &str,
     envelope: &OpenVerifyEnvelope,
-) -> Result<Vec<Vec<Scalar>>, String> {
-    let kind = validate_metadata(backend, envelope)?;
+) -> Result<Vec<Vec<Scalar>>, VerificationAttemptError<NativeVerificationError>> {
+    let kind = validate_metadata(backend, envelope).map_err(NativeVerificationError::Metadata)?;
     let native = decode_native(kind, &envelope.proof_bytes)?;
     let public = native
         .public_inputs
         .into_iter()
         .map(|bytes| {
             Option::<Scalar>::from(Scalar::from_repr(bytes))
-                .ok_or_else(|| "noncanonical native public scalar".to_owned())
+                .ok_or_else(|| invalid("noncanonical native public scalar"))
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(vec![public])
 }
-fn decode_native(kind: NativeRelationV1, bytes: &[u8]) -> Result<NativePipaRProofV1, String> {
-    // All current fixed circuits are much smaller; this cap bounds a malicious
-    // Norito container before allocation. Exact transcript/arity checks follow.
-    if bytes.len() > 128 * 1024 {
-        return Err("native proof container exceeds fixed bound".into());
+fn decode_native(
+    kind: NativeRelationV1,
+    bytes: &[u8],
+) -> Result<NativePipaRProofV1, VerificationAttemptError<NativeVerificationError>> {
+    if bytes.len() > MAX_PROOF_BYTES {
+        return Err(invalid("native proof container exceeds fixed bound"));
     }
-    let native: NativePipaRProofV1 =
-        norito::decode_canonical(bytes).map_err(|error| error.to_string())?;
+    let native: NativePipaRProofV1 = codec_attempt(
+        || norito::decode_canonical(bytes),
+        NativeVerificationError::Codec,
+    )?;
     if native.public_inputs.len() != kind.instance_rows()
         || native.proof.len() != kind.proof_length()?
     {
-        return Err("wrong native proof shape".into());
+        return Err(invalid("wrong native proof shape"));
     }
     Ok(native)
 }
-pub(super) fn verify(backend: &str, proof: &ProofBox, key: Option<&VerifyingKeyBox>) -> bool {
-    let verified = || -> Result<(), String> {
-        if proof.backend != backend || proof.bytes.len() > super::MAX_PROOF_LEN {
-            return Err("invalid native proof container".into());
-        }
-        let key = key.ok_or_else(|| "native proof requires a trusted key".to_owned())?;
-        let outer: OpenVerifyEnvelope =
-            norito::decode_canonical(&proof.bytes).map_err(|error| error.to_string())?;
-        outer
-            .validate_for_admission()
-            .map_err(|error| error.to_string())?;
-        let kind = validate_metadata(backend, &outer)?;
-        if outer.vk_hash != super::hash_vk(key) {
-            return Err("native verifier key hash mismatch".into());
-        }
-        validate_key(backend, &outer.circuit_id, key)?;
-        let native = decode_native(kind, &outer.proof_bytes)?;
-        kind.verify(&native.public_inputs, &native.proof)
-    };
-    verified().is_ok()
+pub(super) fn verify(
+    backend: &str,
+    proof: &ProofBox,
+    key: Option<&VerifyingKeyBox>,
+) -> Result<(), VerificationAttemptError<NativeVerificationError>> {
+    if proof.backend != backend || proof.bytes.len() > super::MAX_PROOF_LEN {
+        return Err(invalid("invalid native proof container"));
+    }
+    let key = key.ok_or_else(|| invalid("native proof requires a trusted key"))?;
+    let outer: OpenVerifyEnvelope = codec_attempt(
+        || norito::decode_canonical(&proof.bytes),
+        NativeVerificationError::Codec,
+    )?;
+    verify_envelope(backend, &outer, key)
+}
+
+/// Verify an already canonical outer carrier without decoding it for a second time.
+/// This borrows only the caller's original decoded carrier, not a cached proof verdict.
+pub(super) fn verify_envelope(
+    backend: &str,
+    outer: &OpenVerifyEnvelope,
+    key: &VerifyingKeyBox,
+) -> Result<(), VerificationAttemptError<NativeVerificationError>> {
+    outer
+        .validate_for_admission()
+        .map_err(|_| invalid("invalid native envelope shape"))?;
+    let kind = validate_metadata(backend, outer).map_err(NativeVerificationError::Metadata)?;
+    if outer.vk_hash != super::hash_vk(key) {
+        return Err(invalid("native verifier key hash mismatch"));
+    }
+    validate_key(backend, &outer.circuit_id, key)?;
+    let native = decode_native(kind, &outer.proof_bytes)?;
+    kind.verify(&native.public_inputs, &native.proof)
 }
 
 #[cfg(test)]

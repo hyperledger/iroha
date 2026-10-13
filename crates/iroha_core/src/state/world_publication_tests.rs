@@ -63,7 +63,7 @@ fn all_images(world: &World) -> Vec<(&'static str, String)> {
     with_world_overlay_fields!(images, world)
 }
 
-fn prepare<'a, A>(journal: DetachedWorld<A>, target: &'a World) -> PreparedWorld<'a, A, ()> {
+fn prepare<A>(journal: DetachedWorld<A>, target: &World) -> PreparedWorld<'_, A, ()> {
     journal
         .try_prepare_publication(target, |_, _| Ok::<_, ()>(()))
         .unwrap_or_else(|(_, error, _)| panic!("World preparation refused: {error:?}"))
@@ -72,6 +72,84 @@ fn prepare<'a, A>(journal: DetachedWorld<A>, target: &'a World) -> PreparedWorld
 // Release waiters fund their node from a test-local pool.
 fn waiter_pool() -> iroha_allocation::AllocationBudget {
     iroha_allocation::AllocationBudget::new(64 * 1024)
+}
+
+#[test]
+fn original_refund_control_preserves_funded_retry_until_all_cleanup_retires() {
+    let world = fixture();
+    let original = capture(world.block());
+    let custody = physical_custody(&original);
+    let images = all_images(&world);
+    let control = original.refund_control.clone();
+    let budget = control.allocation_budget().clone();
+    let before = budget.reserved_bytes();
+    budget.set_limit_bytes(0);
+    let active = control.try_activate().unwrap();
+    let (original, error, cleanup) = original
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .expect("original control cannot reactivate during unfinished cleanup");
+    assert!(matches!(error, WorldPublicationError::RefundScope(_)));
+    assert_eq!(physical_custody(&original), custody);
+    assert_eq!(all_images(&world), images);
+    assert_eq!(budget.reserved_bytes(), before);
+    drop(cleanup);
+    drop(active);
+    let prepared = prepare(original, &world);
+    let (original, cleanup) = prepared.abort();
+    assert_eq!(physical_custody(&original), custody);
+    assert_eq!(all_images(&world), images);
+    assert_eq!(
+        budget.reserved_bytes(),
+        before,
+        "publication reuses the original prepaid control at zero remaining capacity"
+    );
+    assert!(control.try_activate().is_err());
+    let (original, error, blocked_cleanup) = original
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .expect("aborted original shells remain occupied until cleanup retires");
+    assert!(matches!(error, WorldPublicationError::ShellsNotRetired(_)));
+    assert_eq!(physical_custody(&original), custody);
+    drop(blocked_cleanup);
+    drop(cleanup);
+    assert_eq!(budget.reserved_bytes(), before);
+    let (original, cleanup) = prepare(original, &world).abort();
+    assert_eq!(physical_custody(&original), custody);
+    assert_eq!(budget.reserved_bytes(), before);
+    drop(cleanup);
+    drop(original);
+}
+
+#[test]
+fn detached_world_activates_original_prepaid_control_on_publication_thread() {
+    let world = fixture();
+    let direct = fixture();
+    // Even an unchanged ordinary block advances the undo cut. Compare detached
+    // publication with that exact direct commit, including every field's undo.
+    direct.block().commit();
+    let expected = all_images(&direct);
+    let source = world.clone();
+    let original = std::thread::spawn(move || capture(source.block()))
+        .join()
+        .unwrap();
+    let budget = original.refund_control.allocation_budget().clone();
+    let before = budget.reserved_bytes();
+    let images = all_images(&world);
+    budget.set_limit_bytes(0);
+    let prepared = prepare(original, &world);
+    assert_eq!(budget.reserved_bytes(), before);
+    // Snapshotting current and undo takes each storage writer. Release the
+    // prepared writers before inspecting them, then reuse the exact journal.
+    let (original, cleanup) = prepared.abort();
+    assert_eq!(all_images(&world), images);
+    assert_eq!(budget.reserved_bytes(), before);
+    drop(cleanup);
+    let prepared = prepare(original, &world);
+    assert_eq!(budget.reserved_bytes(), before);
+    let (_, _, retirement, _, _) = prepared.publish();
+    assert_eq!(all_images(&world), expected);
+    drop(retirement);
 }
 
 fn physical_custody<A>(journal: &DetachedWorld<A>) -> (usize, usize, Vec<usize>) {
@@ -93,7 +171,12 @@ fn prepare_field<'target>(
     Box<dyn PreparedWorldField + 'target>,
     (Box<dyn PreparedWorldField + 'target>, FieldRefusal),
 > {
-    let mut slot = original.publication_slot(target);
+    let scope = target
+        .sccp_committee_generations
+        .allocation_budget()
+        .try_owned_refund_scope()
+        .unwrap();
+    let mut slot = original.publication_slot(target, &scope);
     match slot.try_prepare() {
         Ok(()) => Ok(slot),
         Err(error) => Err((slot, error)),
@@ -306,9 +389,9 @@ fn every_busy_world_field_releases_all_earlier_writers_and_retains_complete_retr
     macro_rules! holders {
         (; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {
             [
-                $((stringify!($prefix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$prefix.block()) }),)*
-                $((stringify!($privacy), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$privacy.block()) }),)*
-                $((stringify!($suffix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(world.$suffix.block()) }),)*
+                $((stringify!($prefix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(fixture_field_block(&world.$prefix, world.sccp_committee_generations.allocation_budget())) }),)*
+                $((stringify!($privacy), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(fixture_field_block(&world.$privacy, world.sccp_committee_generations.allocation_budget())) }),)*
+                $((stringify!($suffix), |world: &World| -> Box<dyn WriterHold + '_> { Box::new(fixture_field_block(&world.$suffix, world.sccp_committee_generations.allocation_budget())) }),)*
             ]
         };
     }
@@ -524,6 +607,7 @@ impl RetainedWorldField for UnwindField {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn PreparedWorldField + 'target> {
         let Self {
             original,
@@ -531,7 +615,7 @@ impl RetainedWorldField for UnwindField {
             dropped,
         } = *self;
         Box::new(UnwindPreparedField {
-            original: original.publication_slot(target),
+            original: original.publication_slot(target, scope),
             boundary,
             dropped,
         })
@@ -841,6 +925,7 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
         fn publication_slot<'target>(
             self: Box<Self>,
             target: &'target World,
+            scope: &iroha_allocation::OwnedAllocationScope,
         ) -> Box<dyn PreparedWorldField + 'target> {
             let Self {
                 original,
@@ -850,7 +935,7 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
                 callback,
             } = *self;
             Box::new(PreparedObservePrefix {
-                original: original.publication_slot(target),
+                original: original.publication_slot(target, scope),
                 journal: Some(journal),
                 future,
                 registration,
@@ -973,4 +1058,81 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
     assert_eq!(all_images(&world), before);
     assert!(journal.matches_current(&world));
     drop(prepare(journal, &world).abort());
+}
+
+#[test]
+fn generation_publication_reuses_original_refund_control_under_exhausted_pool() {
+    use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    let world = fixture();
+    let mut original = world.block();
+    let record = sample_generation(1);
+    original
+        .sccp_committee_generations
+        .insert(1, record.clone());
+    let journal = capture(original);
+    let budget = world.sccp_committee_generations.allocation_budget();
+    let original_limit = budget.limit_bytes();
+    let reserved = budget.reserved_bytes();
+    // The original refund control already exists; publication must not acquire another.
+    budget.set_limit_bytes(reserved);
+    let prepared = prepare(journal, &world);
+    let published = prepared.publish();
+    drop(published);
+    assert!(budget.reserved_bytes() <= reserved);
+    budget.set_limit_bytes(original_limit);
+    assert_eq!(
+        world
+            .sccp_committee_generations
+            .view()
+            .get(&1)
+            .map(|v| &**v),
+        Some(&record)
+    );
+    assert_all_writers_released(&world);
+}
+
+#[test]
+fn generation_world_busy_retry_keeps_original_current_undo_and_reader() {
+    use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    let world = fixture();
+    let mut original = world.block();
+    original
+        .sccp_committee_generations
+        .insert(1, sample_generation(1));
+    original.commit();
+    let reader = world.sccp_committee_generations.view();
+    let old = reader.get(&1).unwrap().clone();
+    let competing = capture(world.block());
+    let mut next = world.block();
+    next.sccp_committee_generations.remove(1);
+    next.sccp_committee_generations
+        .insert(2, sample_generation(2));
+    let journal = capture(next);
+    let identity = physical_custody(&journal);
+    let held = prepare(competing, &world);
+    let (journal, error, cleanup) = journal
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        WorldPublicationError::Field(FieldRefusal {
+            cause: PublicationPreparationError::Busy(_),
+            ..
+        })
+    ));
+    drop(cleanup);
+    assert_eq!(physical_custody(&journal), identity);
+    drop(held);
+    drop(prepare(journal, &world).publish());
+    assert_eq!(reader.get(&1), Some(&old));
+    let snapshot = world.sccp_committee_generations.snapshot();
+    assert!(snapshot.current().get(&1).is_none());
+    assert_eq!(snapshot.current().get(&2).unwrap().generation, 2);
+    assert_eq!(snapshot.revert_map().get(&1).unwrap().as_ref(), Some(&old));
+    assert!(snapshot.revert_map().get(&2).unwrap().is_none());
+    drop(snapshot);
+    assert_all_writers_released(&world);
 }

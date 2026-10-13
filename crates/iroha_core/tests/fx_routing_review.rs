@@ -333,7 +333,10 @@ fn settlement_instruction(corridor: &FxCorridorPolicy, settlement_id: &str) -> I
             expected_policy_revision: corridor.revision,
             source_asset_definition_id: corridor.source_asset_definition_id.clone(),
             destination_asset_definition_id: corridor.destination_asset_definition_id.clone(),
-            settlement_id: settlement_id.parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                ALICE_ID.clone(),
+                settlement_id.parse().expect("settlement reference"),
+            ),
             recipient: BOB_ID.clone(),
             source_amount: Quantity::from(10_u32),
             expected_destination_amount: Quantity::from(760_u32),
@@ -476,9 +479,11 @@ fn fx_state_view_rejects_active_sns_dataspace_without_canonical_lane() {
         view.world(),
         LEDGER_TIME_MS,
     );
-    let expected = RoutingResolveError::NoLaneForDataspace {
-        dataspace_id: dynamic_dataspace,
-    };
-    assert_eq!(queue_plan, Err(expected.clone()));
-    assert_eq!(block_plan, Err(expected));
+    for plan in [queue_plan, block_plan] {
+        assert!(matches!(
+            plan,
+            Err(RoutingResolveError::NoLaneForDataspace { dataspace_id })
+                if dataspace_id == dynamic_dataspace
+        ));
+    }
 }

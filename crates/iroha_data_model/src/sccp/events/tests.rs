@@ -10,12 +10,6 @@ use iroha_crypto::{Algorithm, KeyPair};
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 
-fn peer(seed: u8) -> PeerId {
-    let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-        .expect("deterministic Ed25519 seed");
-    PeerId::new(key_pair.public_key().clone())
-}
-
 fn account(seed: u8) -> AccountId {
     let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
         .expect("deterministic Ed25519 seed");
@@ -29,6 +23,38 @@ fn point() -> SccpLcPointV1 {
         source_time_ms: 1_758_000_000_000,
     }
 }
+
+fn pause_certificate_id() -> super::super::fast_pause::SccpFastPauseCertificateId {
+    use super::super::fast_pause::{
+        SccpFastPauseCertificateId, SccpFastPauseCertificateV1, SccpPanelRoleV1,
+    };
+    let network_id = crate::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+        crate::block::BlockHeader,
+    >::from_untyped_unchecked(
+        iroha_crypto::Hash::new([7; 32])
+    ));
+    SccpFastPauseCertificateId::derive_v1(&SccpFastPauseCertificateV1 {
+        network_id,
+        network: ETH,
+        panel_id: [1; 32],
+        panel_role: SccpPanelRoleV1::Primary,
+        panel_seq: 1,
+        head: 0,
+        endorsement_root: [2; 32],
+        endorsement_count: 4,
+        quorum: 4,
+        incident_root: [3; 32],
+        effect_preimage_hash: SccpFastPauseCertificateV1::effect_hash(network_id, ETH, 0),
+        certified_at_height: 11,
+        certified_at_ms: 2_000,
+    })
+}
+
+/// Codec index of every first-release variant, in declaration order.
+const CODEC_INDICES: [u32; 42] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+];
 
 /// One event of every variant, in declaration order, with its JSON tag.
 #[allow(clippy::too_many_lines)]
@@ -54,76 +80,6 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 history_size: 4,
             }),
             "block_committed",
-        ),
-        (
-            SccpEvent::SubjectCreated(SccpSubjectCreatedV1 {
-                height: 10,
-                generation: 2,
-                message_count: 3,
-                rotation: true,
-            }),
-            "subject_created",
-        ),
-        (
-            SccpEvent::AttestationSigned(SccpAttestationSignedV1 {
-                height: 10,
-                generation: 2,
-                signer_index: 30,
-                address: [3; 20],
-            }),
-            "attestation_signed",
-        ),
-        (
-            SccpEvent::BlockAttested(SccpBlockAttestedV1 {
-                height: 10,
-                generation: 2,
-                signer_bitmap: 0b1011,
-            }),
-            "block_attested",
-        ),
-        (
-            SccpEvent::RosterGenerationCreated(SccpRosterGenerationCreatedV1 {
-                generation: 3,
-                digest: [4; 32],
-                activation_height: 11,
-                valid_until_ms: 1_759_209_600_000,
-            }),
-            "roster_generation_created",
-        ),
-        (
-            SccpEvent::RosterDerivationFailed(SccpRosterDerivationFailedV1 {
-                height: 3_600,
-                generation: 2,
-                reason: SccpRosterDerivationFailureV1::RosterSizeOutOfRange,
-                roster_size: 32,
-            }),
-            "roster_derivation_failed",
-        ),
-        (
-            SccpEvent::HandoffStalled(SccpHandoffStalledV1 {
-                height: 3_600,
-                generation: 2,
-            }),
-            "handoff_stalled",
-        ),
-        (
-            SccpEvent::BridgeKeySet(SccpBridgeKeySetV1 {
-                peer: peer(1),
-                address: Some([5; 20]),
-                account: Some(account(5)),
-                activation_epoch: 4,
-            }),
-            "bridge_key_set",
-        ),
-        (
-            SccpEvent::AttestationFault(SccpAttestationFaultV1 {
-                peer: peer(2),
-                address: [6; 20],
-                height: 9,
-                statement_hash: [7; 32],
-                reported_at_height: 12,
-            }),
-            "attestation_fault",
         ),
         (
             SccpEvent::InboundProven(SccpInboundProvenV1 {
@@ -274,7 +230,10 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 network: ETH,
                 revision: 1,
                 control_nonce: 1,
-                paused: true,
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                certificate_id: [4; 32],
                 height: 30,
                 commitment_index: 0,
             }),
@@ -286,10 +245,223 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 subjects: vec![
                     SccpGovernanceSubjectV1::Route(ETH),
                     SccpGovernanceSubjectV1::RouteControl(ETH),
-                    SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
+                    SccpGovernanceSubjectV1::Parameters,
                 ],
             }),
             "governance_enacted",
+        ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 1,
+                cause: SccpGenerationCauseV1::Genesis,
+                committee_root: [23; 32],
+                start_height: 1,
+                deadline_ms: 1_758_604_800_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 1,
+                index: 3,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 2,
+                committee_root: [24; 32],
+                start_height: 10,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 1,
+                lc: 1_759_000_000_000,
+            }),
+            "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 11,
+                reason: SccpFinalityDegradedReasonV1::MissingInputs,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [29; 32],
+                until_ms: 1_758_604_800_000,
+            }),
+            "fast_pause_lapsed",
+        ),
+        (
+            SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
+                evidence_id: [8; 32],
+                generation: 7,
+                height: 123,
+                rule: SccpForgeryRuleV1::E4,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 2,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: account(7),
+                    activation_height: 11,
+                }],
+            }),
+            "forgery_evidence_recorded",
+        ),
+        (
+            SccpEvent::ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1 {
+                generation: 7,
+                signer: 1,
+            }),
+            "forgery_offender_unslashable",
+        ),
+        (
+            SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 7,
+                generation: 8,
+            }),
+            "revision_forgery_held",
+        ),
+        (
+            SccpEvent::RevisionForgeryReleased(SccpRevisionForgeryReleasedV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 9,
+            }),
+            "revision_forgery_released",
+        ),
+        (
+            SccpEvent::RevisionQuarantined(SccpRevisionQuarantinedV1 {
+                network: TON,
+                revision: 3,
+                certificate_id: [9; 32],
+                since_height: 45,
+            }),
+            "revision_quarantined",
+        ),
+        (
+            SccpEvent::ReconciliationOpened(SccpReconciliationOpenedV1 {
+                network: TON,
+                revision: 3,
+                opened_at_ms: 1,
+                closes_at_ms: 5,
+            }),
+            "reconciliation_opened",
+        ),
+        (
+            SccpEvent::ForgedMintProven(SccpForgedMintProvenV1 {
+                network: TON,
+                revision: 3,
+                message_id: [8; 32],
+                amount: u128::MAX,
+            }),
+            "forged_mint_proven",
+        ),
+        (
+            SccpEvent::ReconciliationSettled(SccpReconciliationSettledV1 {
+                network: TON,
+                revision: 3,
+                backing: 100,
+                forged_supply: 20,
+            }),
+            "reconciliation_settled",
+        ),
+        (
+            SccpEvent::ReconciledClaimSettled(SccpReconciledClaimSettledV1 {
+                network: TON,
+                revision: 3,
+                message_id: [8; 32],
+                amount: u128::MAX,
+                payout: 100,
+            }),
+            "reconciled_claim_settled",
+        ),
+        (
+            SccpEvent::InboundStranded(SccpInboundStrandedV1 {
+                message_id: [3; 32],
+                network: TON,
+                revision: 3,
+                amount: 10,
+                reason: SccpBounceReasonV1::UndecodableRecipient,
+            }),
+            "inbound_stranded",
+        ),
+        (
+            SccpEvent::PausePanelSeated(SccpPausePanelSeatedV1 {
+                panel_seq: 1,
+                pulse_id: [1; 32],
+                primary_id: [2; 32],
+                backup_id: [3; 32],
+                seated_height: 4,
+                seated_at_ms: 5,
+                accept_until_ms: 6,
+                term_ends_at_ms: 7,
+                drawn_count: 18,
+            }),
+            "pause_panel_seated",
+        ),
+        (
+            SccpEvent::PausePanelUnavailable(SccpPausePanelUnavailableV1 {
+                pulse_id: [1; 32],
+                reason: SccpPausePanelUnavailableReasonV1::InsufficientCandidates,
+            }),
+            "pause_panel_unavailable",
+        ),
+        (
+            SccpEvent::PausePanelSeatAccepted(SccpPausePanelSeatAcceptedV1 {
+                panel_seq: 1,
+                member: account(1),
+            }),
+            "pause_panel_seat_accepted",
+        ),
+        (
+            SccpEvent::FastPauseEndorsed(SccpFastPauseEndorsedV1 {
+                network: ETH,
+                panel_id: [2; 32],
+                endorser: account(1),
+                incident_digest: [3; 32],
+                count: 4,
+            }),
+            "fast_pause_endorsed",
+        ),
+        (
+            SccpEvent::FastPauseNoResult(SccpFastPauseNoResultV1 {
+                network: ETH,
+                panel_id: [2; 32],
+                reason: SccpFastPauseNoResultReasonV1::HeadChanged,
+            }),
+            "fast_pause_no_result",
+        ),
+        (
+            SccpEvent::FastPauseEnacted(SccpFastPauseEnactedV1 {
+                network: ETH,
+                certificate_id: pause_certificate_id(),
+                until_ms: 9_000,
+                renewal: true,
+            }),
+            "fast_pause_enacted",
+        ),
+        (
+            SccpEvent::FastPauseRetained(SccpFastPauseRetainedV1 {
+                network: ETH,
+                part: SccpFastPausePartV1::Taira,
+                reason: SccpFastPauseRetainedReasonV1::BallotOpenedBeforeOrAtEnactment,
+            }),
+            "fast_pause_retained",
+        ),
+        (
+            SccpEvent::FastPauseCleared(SccpFastPauseClearedV1 {
+                network: ETH,
+                part: SccpFastPausePartV1::Destination { revision: 1 },
+                reason: SccpFastPauseClearedReasonV1::Lifted,
+            }),
+            "fast_pause_cleared",
         ),
     ]
 }
@@ -297,7 +469,11 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
 #[test]
 fn every_event_roundtrips_with_a_snake_case_tag() {
     let events = every_event();
-    assert_eq!(events.len(), 26, "§4.17 lists 26 events");
+    assert_eq!(
+        events.len(),
+        CODEC_INDICES.len(),
+        "one event of every variant"
+    );
     for (event, tag) in &events {
         roundtrip(event);
         let value = norito::json::to_value(event).expect("value");
@@ -311,10 +487,61 @@ fn every_event_roundtrips_with_a_snake_case_tag() {
 }
 
 #[test]
-fn codec_indices_follow_declaration_order() {
-    for (index, (event, _)) in every_event().into_iter().enumerate() {
-        let tag = u32::try_from(index).expect("small").encode();
-        assert!(event.encode().starts_with(&tag), "{event:?}");
+fn codec_indices_are_explicit_and_contiguous() {
+    let events = every_event();
+    assert_eq!(events.len(), CODEC_INDICES.len());
+    for ((event, _), index) in events.into_iter().zip(CODEC_INDICES) {
+        assert!(event.encode().starts_with(&index.encode()), "{event:?}");
+    }
+    assert!(CODEC_INDICES.is_sorted());
+    assert_eq!(
+        CODEC_INDICES,
+        core::array::from_fn(|index| u32::try_from(index).expect("event fixture index fits u32"))
+    );
+}
+
+#[test]
+fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
+    use norito::codec::DecodeAll as _;
+
+    // The freed indices and the first index above the last variant decode to nothing, whatever
+    // payload follows.
+    for index in [42_u32, u32::MAX] {
+        for filler in [0, 1, 32, 256] {
+            let mut encoded = index.encode();
+            encoded.extend_from_slice(&vec![0x11; filler]);
+            assert!(
+                SccpEvent::decode_all(&mut encoded.as_slice()).is_err(),
+                "event index {index} with {filler} payload bytes"
+            );
+        }
+    }
+    let (kept, _) = every_event().swap_remove(1);
+    let kept_json = norito::json::to_json(&kept).expect("json");
+    assert!(
+        kept_json.contains(r#""event":"block_committed""#),
+        "{kept_json}"
+    );
+    for tag in [
+        "subject_created",
+        "attestation_signed",
+        "block_attested",
+        "roster_generation_created",
+        "roster_derivation_failed",
+        "handoff_stalled",
+        "bridge_key_set",
+        "attestation_fault",
+    ] {
+        let retired = kept_json.replace("block_committed", tag);
+        assert!(
+            norito::json::from_json::<SccpEvent>(&retired).is_err(),
+            "{retired}"
+        );
+        let empty = format!(r#"{{"event":"{tag}","payload":{{}}}}"#);
+        assert!(
+            norito::json::from_json::<SccpEvent>(&empty).is_err(),
+            "{empty}"
+        );
     }
 }
 
@@ -346,13 +573,6 @@ fn event_set_matches_exactly_its_variant() {
 
 #[test]
 fn optional_payload_fields_are_explicit_and_cover_none() {
-    let revocation = SccpEvent::BridgeKeySet(SccpBridgeKeySetV1 {
-        peer: peer(9),
-        address: None,
-        account: None,
-        activation_epoch: 8,
-    });
-    roundtrip(&revocation);
     let removal = SccpEvent::RevisionActivationChanged(SccpRevisionActivationChangedV1 {
         network: TON,
         revision: 3,
@@ -381,12 +601,6 @@ fn optional_payload_fields_are_explicit_and_cover_none() {
 #[test]
 fn enum_payloads_roundtrip_in_every_variant() {
     for reason in [
-        SccpRosterDerivationFailureV1::MissingNextEpochSnapshot,
-        SccpRosterDerivationFailureV1::RosterSizeOutOfRange,
-    ] {
-        roundtrip(&reason);
-    }
-    for reason in [
         SccpBounceReasonV1::UndecodableRecipient,
         SccpBounceReasonV1::EscrowRecipient,
         SccpBounceReasonV1::InadmissibleController,
@@ -403,12 +617,235 @@ fn enum_payloads_roundtrip_in_every_variant() {
 }
 
 #[test]
+fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
+    use norito::codec::DecodeAll as _;
+
+    let reasons = [
+        (
+            SccpFinalityDegradedReasonV1::MissingInputs,
+            "missing_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidInputs,
+            "invalid_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingGeneration,
+            "missing_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidGeneration,
+            "invalid_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingParent,
+            "missing_parent",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::CounterExhausted,
+            "counter_exhausted",
+        ),
+    ];
+    for (index, (reason, tag)) in reasons.into_iter().enumerate() {
+        roundtrip(&reason);
+        assert!(
+            reason.encode().starts_with(
+                &u32::try_from(index)
+                    .expect("closed reason discriminant")
+                    .encode()
+            )
+        );
+        let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+        roundtrip(&event);
+        let value = norito::json::to_value(&reason).expect("reason JSON");
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some(tag)
+        );
+        assert_rejects_unknown_field(&reason, &[]);
+        assert_rejects_unknown_field(&event, &["payload", "reason"]);
+    }
+    for index in [6_u32, u32::MAX] {
+        assert!(SccpFinalityDegradedReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+    }
+    for tag in ["allocation_failed", "storage_unavailable", "unknown"] {
+        let json = format!(r#"{{"reason":"{tag}","detail":null}}"#);
+        assert!(norito::json::from_json::<SccpFinalityDegradedReasonV1>(&json).is_err());
+    }
+}
+
+#[test]
+fn generation_event_set_selects_each_native_variant() {
+    let sets = [
+        (SccpEventSet::FinalityDegraded, "finality_degraded"),
+        (
+            SccpEventSet::CommitteeGenerationCreated,
+            "committee_generation_created",
+        ),
+        (SccpEventSet::CommitteeResync, "committee_resync"),
+        (
+            SccpEventSet::GenerationMemberUnslashable,
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEventSet::GenerationDestinationCleared,
+            "generation_destination_cleared",
+        ),
+    ];
+    let events = every_event();
+    for (set, tag) in sets {
+        let matches: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| set.matches(event))
+            .map(|(_, tag)| *tag)
+            .collect();
+        assert_eq!(matches, vec![tag]);
+    }
+}
+
+#[test]
+fn native_generation_event_payload_fields_are_required() {
+    for (event, tag) in every_event().into_iter().skip(18) {
+        let value = norito::json::to_value(&event).expect("event JSON");
+        let fields: Vec<_> = value
+            .get("payload")
+            .and_then(norito::json::Value::as_object)
+            .expect("event payload")
+            .keys()
+            .cloned()
+            .collect();
+        for field in fields {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("event")
+                .get_mut("payload")
+                .and_then(norito::json::Value::as_object_mut)
+                .expect("event payload")
+                .remove(&field);
+            let json = norito::json::to_json(&missing).expect("missing-field JSON");
+            assert!(
+                norito::json::from_json::<SccpEvent>(&json).is_err(),
+                "{tag} accepted missing {field}"
+            );
+        }
+    }
+}
+
+#[test]
 fn amounts_are_decimal_strings() {
-    let (event, _) = every_event().swap_remove(10);
+    let (event, _) = every_event()
+        .into_iter()
+        .find(|(event, _)| matches!(event, SccpEvent::InboundProven(_)))
+        .expect("inbound proven sample");
     let json = norito::json::to_json(&event).expect("json");
     assert!(
         json.contains(&format!("\"amount\":\"{}\"", u128::MAX)),
         "{json}"
     );
     assert!(json.contains("\"fee_due\":\"10000000\""), "{json}");
+}
+
+#[test]
+fn every_native_degradation_reason_is_copyable_closed_and_roundtrips() {
+    use norito::codec::DecodeAll as _;
+    fn copy_value<T: Copy>(value: T) -> (T, T) {
+        (value, value)
+    }
+    for (index, reason) in [
+        SccpFinalityDegradedReasonV1::MissingInputs,
+        SccpFinalityDegradedReasonV1::InvalidInputs,
+        SccpFinalityDegradedReasonV1::MissingGeneration,
+        SccpFinalityDegradedReasonV1::InvalidGeneration,
+        SccpFinalityDegradedReasonV1::MissingParent,
+        SccpFinalityDegradedReasonV1::CounterExhausted,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (original, copied) = copy_value(reason);
+        assert_eq!(original, copied);
+        roundtrip(&reason);
+        assert!(
+            reason
+                .encode()
+                .starts_with(&u32::try_from(index).unwrap().encode())
+        );
+        let event = SccpFinalityDegradedV1 { height: 3, reason };
+        roundtrip(&SccpEvent::FinalityDegraded(event));
+        assert_eq!(copy_value(event), (event, event));
+    }
+    assert!(SccpFinalityDegradedReasonV1::decode_all(&mut 6_u32.encode().as_slice()).is_err());
+    let retired = r#"{"height":3,"reason":"missing_inputs"}"#;
+    assert!(norito::json::from_json::<SccpFinalityDegradedV1>(retired).is_err());
+}
+
+#[test]
+fn fast_pause_lapsed_payload_keeps_original_identity_in_closed_schema() {
+    let event = SccpFastPauseLapsedV1 {
+        network: ETH,
+        certificate_id: [31; 32],
+        until_ms: u64::MAX,
+    };
+    roundtrip(&event);
+    let schema = SccpEvent::schema();
+    let Some(iroha_schema::Metadata::Struct(fields)) = schema.get::<SccpFastPauseLapsedV1>() else {
+        panic!("the event must include its named lapse payload schema");
+    };
+    assert_eq!(
+        fields
+            .declarations
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["network", "certificate_id", "until_ms"]
+    );
+    for missing in ["network", "certificate_id", "until_ms"] {
+        let mut value = norito::json::to_value(&event).unwrap();
+        value.as_object_mut().unwrap().remove(missing);
+        assert!(
+            norito::json::from_json::<SccpFastPauseLapsedV1>(
+                &norito::json::to_json(&value).unwrap()
+            )
+            .is_err()
+        );
+    }
+    assert_rejects_unknown_field(&event, &[]);
+}
+
+#[test]
+fn fast_pause_recheck_reasons_and_parts_are_closed_and_roundtrip() {
+    use norito::codec::DecodeAll as _;
+    for reason in [
+        SccpFastPauseNoResultReasonV1::Expired,
+        SccpFastPauseNoResultReasonV1::PanelChanged,
+        SccpFastPauseNoResultReasonV1::InsufficientEligibleEndorsements,
+        SccpFastPauseNoResultReasonV1::HeadChanged,
+        SccpFastPauseNoResultReasonV1::Suspended,
+        SccpFastPauseNoResultReasonV1::RenewalWindowClosed,
+        SccpFastPauseNoResultReasonV1::NoLiveRevision,
+        SccpFastPauseNoResultReasonV1::ControlCapacity,
+        SccpFastPauseNoResultReasonV1::CounterExhausted,
+    ] {
+        roundtrip(&reason);
+        assert_rejects_unknown_field(&reason, &[]);
+    }
+    for reason in [
+        SccpPausePanelUnavailableReasonV1::InsufficientCandidates,
+        SccpPausePanelUnavailableReasonV1::SnapshotTooLarge,
+    ] {
+        roundtrip(&reason);
+    }
+    for part in [
+        SccpFastPausePartV1::Taira,
+        SccpFastPausePartV1::Destination { revision: u32::MAX },
+    ] {
+        roundtrip(&part);
+    }
+    assert!(SccpFastPauseNoResultReasonV1::decode_all(&mut 9_u32.encode().as_slice()).is_err());
+    assert!(SccpPausePanelUnavailableReasonV1::decode_all(&mut 2_u32.encode().as_slice()).is_err());
+    assert!(SccpFastPausePartV1::decode_all(&mut 2_u32.encode().as_slice()).is_err());
 }

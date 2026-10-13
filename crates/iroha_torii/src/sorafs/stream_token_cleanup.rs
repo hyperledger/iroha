@@ -19,7 +19,7 @@ use std::{
 use tokio::{sync::mpsc, task::JoinHandle};
 
 /// Prepare only the exactly configured capture/cleanup pair, before the HTTP service starts.
-pub(crate) fn prepare(
+pub fn prepare(
     capture: Option<&Arc<StreamTokenAdmissionCaptureV1>>,
     capacity: Option<u32>,
     shutdown: ShutdownSignal,
@@ -40,7 +40,7 @@ pub(crate) fn prepare(
 }
 
 /// Register exactly one cleanup worker in the existing Torii startup/rollback lifecycle.
-pub(crate) fn register_worker(
+pub fn register_worker(
     app: &crate::AppState,
     workers: &mut Vec<crate::ToriiCriticalWorker>,
 ) -> Result<(), &'static str> {
@@ -79,7 +79,7 @@ impl CleanupState {
 }
 
 /// Local resource owner; neither this queue nor a ticket authenticates a provider record.
-pub(crate) struct StreamTokenCleanupV1 {
+pub struct StreamTokenCleanupV1 {
     sender: mpsc::Sender<LeaseCleanupWork>,
     receiver: Mutex<Option<mpsc::Receiver<LeaseCleanupWork>>>,
     state: Arc<CleanupState>,
@@ -183,13 +183,17 @@ impl Drop for StreamTokenCleanupV1 {
 }
 
 /// Reserved capacity, held before admission and consumed only by an already validated lease.
-pub(crate) struct StreamTokenCleanupTicketV1 {
+pub struct StreamTokenCleanupTicketV1 {
     permit: mpsc::OwnedPermit<LeaseCleanupWork>,
     settlement: Arc<LeaseSettlement>,
 }
 impl StreamTokenCleanupTicketV1 {
     /// Arm immediately after capture returns an authenticated Accepted record, before other work.
     /// This private ownership transfer does not replace capture's exact record validation.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "The authenticated record moves into cancellation-safe lease cleanup ownership."
+    )]
     pub(crate) fn arm(
         self,
         capture: Arc<StreamTokenAdmissionCaptureV1>,
@@ -211,7 +215,7 @@ impl StreamTokenCleanupTicketV1 {
 }
 
 /// Cancellation-safe ownership of exactly one accepted public lease record.
-pub(crate) struct ExternalStreamTokenLeaseV1 {
+pub struct ExternalStreamTokenLeaseV1 {
     permit: Option<mpsc::OwnedPermit<LeaseCleanupWork>>,
     work: Option<LeaseCleanupWork>,
 }
@@ -254,7 +258,7 @@ impl LeaseCleanupWork {
             .map(|_| PhysicalRelease::new(Arc::clone(&self.settlement.state)))
     }
     fn release(self) {
-        match self.capture.release_lease(self.record) {
+        match self.capture.release_lease(&self.record) {
             Ok(_) => self.settlement.acknowledged(),
             Err(error) => {
                 iroha_logger::error!(
@@ -402,6 +406,6 @@ async fn run(mut owner: CleanupReceiver) -> ToriiCriticalWorkerExit {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support;
+pub mod test_support;
 #[cfg(test)]
 mod tests;

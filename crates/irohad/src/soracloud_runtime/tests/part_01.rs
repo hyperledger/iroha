@@ -3,7 +3,7 @@ fn canonical_inrou_test_peer_id() -> &'static str {
     PEER_ID.get_or_init(|| ALICE_ID.expect_single_signatory().to_string())
 }
 
-fn assert_eyre_error_contains(error: eyre::Report, expected: &str) {
+fn assert_eyre_error_contains(error: &eyre::Report, expected: &str) {
     let message = format!("{error:#}");
     assert!(
         message.contains(expected),
@@ -12,7 +12,7 @@ fn assert_eyre_error_contains(error: eyre::Report, expected: &str) {
 }
 
 #[cfg(target_os = "linux")]
-fn assert_eyre_error_contains_any(error: eyre::Report, expected: &[&str]) {
+fn assert_eyre_error_contains_any(error: &eyre::Report, expected: &[&str]) {
     let message = format!("{error:#}");
     assert!(
         expected.iter().any(|fragment| message.contains(fragment)),
@@ -235,7 +235,7 @@ fn config_export_paths_are_canonical_and_preserved_exactly() {
         "runtime/café.json",
         "runtime/./app.json",
     ] {
-        let _ = sanitized_relative_export_path(invalid)
+        sanitized_relative_export_path(invalid)
             .expect_err("runtime must reject a path admission would reject");
     }
 }
@@ -577,22 +577,22 @@ fn soracloud_ivm_host_rejects_the_state_backed_axt_surface() -> Result<()> {
     ] {
         assert!(!host.allows_syscall(ivm::SyscallPolicy::AbiV1, syscall));
         let mut vm = IVM::new(u64::MAX);
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(syscall, &vm),
-            Err(VMError::UnknownSyscall(syscall))
-        );
-        assert_eq!(
+            Err(VMError::UnknownSyscall(actual)) if actual == syscall
+        ));
+        assert!(matches!(
             host.syscall(syscall, &mut vm),
-            Err(VMError::UnknownSyscall(syscall))
-        );
+            Err(VMError::UnknownSyscall(actual)) if actual == syscall
+        ));
         let mut code = Vec::new();
         code.extend_from_slice(&ivm::encoding::wide::encode_syscallx(syscall).to_le_bytes());
         code.extend_from_slice(&ivm::encoding::wide::encode_halt().to_le_bytes());
         vm.load_code(&code)?;
-        assert_eq!(
+        assert!(matches!(
             vm.run_with_host(&mut host),
-            Err(VMError::UnknownSyscall(syscall))
-        );
+            Err(VMError::UnknownSyscall(actual)) if actual == syscall
+        ));
     }
     Ok(())
 }
@@ -624,7 +624,7 @@ fn soracloud_request_decoder_accepts_owned_heap_and_rejects_unowned_heap() -> Re
     let mut vm = IVM::new(u64::MAX);
     let pointer = store_owned_heap_tlv(&mut vm, &tlv);
     vm.set_register(10, pointer);
-    let (decoded, request_bytes) = host.read_request_payload(
+    let (decoded, request_bytes) = SoracloudIvmHost::read_request_payload(
         &vm,
         SoracloudHostOperationV1::ReadConfig,
         SYSCALL_SORACLOUD_READ_CONFIG,
@@ -638,7 +638,7 @@ fn soracloud_request_decoder_accepts_owned_heap_and_rejects_unowned_heap() -> Re
     forged.store_bytes(Memory::HEAP_START, &tlv)?;
     forged.set_register(10, Memory::HEAP_START);
     assert!(
-        host.read_request_payload(
+        SoracloudIvmHost::read_request_payload(
             &forged,
             SoracloudHostOperationV1::ReadConfig,
             SYSCALL_SORACLOUD_READ_CONFIG,
@@ -660,7 +660,8 @@ fn soracloud_public_input_spills_to_heap_from_heap_backed_name() -> Result<()> {
         sample_mailbox_message(&bundle, "query", b"public-input".to_vec()),
     );
     let input_name: Name = "_request_body".parse()?;
-    let response_payload = vec![0xA5; Memory::INPUT_SIZE as usize + 1];
+    let response_payload =
+        vec![0xA5; usize::try_from(Memory::INPUT_SIZE).expect("fixture input size fits usize") + 1];
     let response_tlv = make_pointer_tlv(PointerType::Blob, &response_payload);
     let mut host = SoracloudIvmHost::new(
         runtime_request,
@@ -692,7 +693,8 @@ fn soracloud_public_input_spills_to_heap_from_heap_backed_name() -> Result<()> {
 }
 #[test]
 fn soracloud_vm_output_decoder_enforces_heap_ownership() -> Result<()> {
-    let response_payload = vec![0x5A; Memory::INPUT_SIZE as usize + 1];
+    let response_payload =
+        vec![0x5A; usize::try_from(Memory::INPUT_SIZE).expect("fixture input size fits usize") + 1];
     let response_tlv = make_pointer_tlv(PointerType::Blob, &response_payload);
     let (mut vm, output_kind) = soracloud_echo_vm(&response_tlv, EntrypointValueKindV1::Blob)?;
     let response_pointer = vm.public_call_result_word(0)?;
@@ -989,13 +991,12 @@ fn portable_vm_cloud_init_seed_contains_only_nocloud_documents() -> Result<()> {
             .values()
             .all(|value| !value.contains("portable-seed-secret-sentinel"))
     );
-    let (_plan_root, replica_plan, mut cache_key) =
+    let (_plan_root, _replica_plan, mut cache_key) =
         materialize_inrou_replica_plan_for_tests(&bundle)?;
     cache_key.effective_env = effective_env;
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let materialization_dir = secure_test_inrou_disk_directory(&temp_dir)?;
     let user_data = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         8080,
         &bundle.container.resources,
@@ -1041,12 +1042,11 @@ fn portable_vm_qemu_args_attach_seed_and_bundle_read_only_without_url() -> Resul
     append_portable_vm_drive_with_serial(
         &mut command,
         profile,
-        "bundle",
+        ("bundle", Some(INROU_PORTABLE_BUNDLE_DEVICE_SERIAL)),
         Path::new("bundle,verified.raw"),
         "raw",
         true,
         false,
-        Some(INROU_PORTABLE_BUNDLE_DEVICE_SERIAL),
     )?;
     let args = command
         .get_args()
@@ -1361,10 +1361,10 @@ fn load_agent_manifest_fixture() -> Result<AgentApartmentManifestV1> {
     let raw = fs::read_to_string(path)?;
     Ok(norito::json::from_str(&raw)?)
 }
-fn test_state() -> Result<Arc<State>> {
+fn test_state() -> Arc<State> {
     let kura = Kura::blank_kura_for_testing();
     let query = LiveQueryStore::start_test();
-    Ok(Arc::new(State::new_for_testing(World::new(), kura, query)))
+    Arc::new(State::new_for_testing(World::new(), kura, query))
 }
 struct RuntimeFixture {
     manager: SoracloudRuntimeManager,
@@ -1538,9 +1538,8 @@ fn sample_deployment_state(bundle: &SoraDeploymentBundleV1) -> SoraServiceDeploy
     }
 }
 fn sample_lease_egress_checkpoint(
-    reporting_epoch: u64,
+    (reporting_epoch, lease_started_height): (u64, u64),
     service_version: String,
-    lease_started_height: u64,
     replica_slot: u16,
     placement_incarnation: Hash,
     validator_account_id: AccountId,
@@ -1632,7 +1631,7 @@ fn sample_app_infra_audit_event(
 
 #[test]
 fn audit_sequence_allows_zero_only_for_an_empty_world() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let view = state.view();
     assert_eq!(current_soracloud_audit_sequence(view.world())?, 0);
     Ok(())
@@ -1641,7 +1640,7 @@ fn audit_sequence_allows_zero_only_for_an_empty_world() -> Result<()> {
 #[test]
 fn audit_sequence_rejects_deployment_without_audit_history() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     world
         .soracloud_service_deployments_mut_for_testing()
@@ -1665,7 +1664,7 @@ fn non_service_event_advances_audit_clock_without_a_service_event() -> Result<()
     let bundle = sample_inrou_test_bundle()?;
     let deployment = sample_deployment_state(&bundle);
     let exact_head = deployment_lifecycle_sequence_lower_bound(&deployment);
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     world
         .soracloud_service_deployments_mut_for_testing()
@@ -1688,8 +1687,8 @@ fn non_service_event_advances_audit_clock_without_a_service_event() -> Result<()
 }
 
 #[test]
-fn audit_sequence_rejects_miskeyed_non_service_event() -> Result<()> {
-    let mut state = test_state()?;
+fn audit_sequence_rejects_miskeyed_non_service_event() {
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     world
         .soracloud_app_infra_audit_events_mut_for_testing()
@@ -1703,7 +1702,6 @@ fn audit_sequence_rejects_miskeyed_non_service_event() -> Result<()> {
             && error.to_string().contains("embedded sequence `11`"),
         "unexpected miskeyed app-audit error: {error}"
     );
-    Ok(())
 }
 
 #[test]
@@ -1711,7 +1709,7 @@ fn audit_sequence_rejects_head_behind_deployment_lifecycle() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
     let deployment = sample_deployment_state(&bundle);
     assert_eq!(deployment_lifecycle_sequence_lower_bound(&deployment), 11);
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     world
         .soracloud_service_deployments_mut_for_testing()
@@ -1737,7 +1735,7 @@ fn audit_sequence_accepts_exact_canonical_lifecycle_head() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
     let deployment = sample_deployment_state(&bundle);
     let exact_head = deployment_lifecycle_sequence_lower_bound(&deployment);
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     world
         .soracloud_service_deployments_mut_for_testing()
@@ -1919,9 +1917,8 @@ fn authoritative_lease_egress_requires_exact_revision_and_reporting_epoch() -> R
     let lease_started_height = lease.lease_started_height;
     lease.egress_reporter_checkpoints = vec![
         sample_lease_egress_checkpoint(
-            reporting_epoch,
+            (reporting_epoch, lease_started_height),
             bundle.service.service_version.clone(),
-            lease_started_height,
             1,
             Hash::new(b"former-placement"),
             BOB_ID.clone(),
@@ -1929,9 +1926,8 @@ fn authoritative_lease_egress_requires_exact_revision_and_reporting_epoch() -> R
             true,
         ),
         sample_lease_egress_checkpoint(
-            reporting_epoch,
+            (reporting_epoch, lease_started_height),
             bundle.service.service_version.clone(),
-            lease_started_height,
             1,
             Hash::new(b"placement-1"),
             ALICE_ID.clone(),
@@ -1958,7 +1954,7 @@ fn authoritative_lease_egress_requires_exact_revision_and_reporting_epoch() -> R
     lease
         .refresh_accounted_egress_bytes()
         .expect("exact egress aggregate");
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     insert_service_deployment_fixture(world, &bundle, deployment);
     insert_inrou_service_placement_record_fixture(
@@ -1975,35 +1971,30 @@ fn authoritative_lease_egress_requires_exact_revision_and_reporting_epoch() -> R
             selected_guest_isa: SoraInrouGuestIsaV1::X8664,
         }],
     );
-    let fixture = RuntimeFixture::new(&state)?;
     let view = state.view();
 
     assert_eq!(
-        fixture
-            .manager
-            .authoritative_service_reporting_epoch_egress_bytes(
-                &view,
-                bundle.service.service_name.as_ref(),
-                &bundle.service.service_version,
-                1,
-                reporting_epoch,
-            )?,
+        SoracloudRuntimeManager::authoritative_service_reporting_epoch_egress_bytes(
+            &view,
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+            1,
+            reporting_epoch,
+        )?,
         48
     );
     for (service_version, candidate_epoch) in [
         ("missing-revision", reporting_epoch),
         (bundle.service.service_version.as_str(), reporting_epoch + 1),
     ] {
-        let error = fixture
-            .manager
-            .authoritative_service_reporting_epoch_egress_bytes(
-                &view,
-                bundle.service.service_name.as_ref(),
-                service_version,
-                1,
-                candidate_epoch,
-            )
-            .expect_err("non-exact authoritative lease egress must fail closed");
+        let error = SoracloudRuntimeManager::authoritative_service_reporting_epoch_egress_bytes(
+            &view,
+            bundle.service.service_name.as_ref(),
+            service_version,
+            1,
+            candidate_epoch,
+        )
+        .expect_err("non-exact authoritative lease egress must fail closed");
         assert!(
             error.to_string().contains("no authoritative lease egress"),
             "unexpected error: {error}"
@@ -2033,25 +2024,22 @@ fn authoritative_lease_egress_rejects_active_inrou_rollout() -> Result<()> {
         created_sequence: 7,
         updated_sequence: 7,
     });
-    let mut state = test_state()?;
+    let mut state = test_state();
     insert_service_deployment_fixture(
         &mut Arc::get_mut(&mut state).expect("unique test state").world,
         &bundle,
         deployment,
     );
-    let fixture = RuntimeFixture::new(&state)?;
     let view = state.view();
 
-    let error = fixture
-        .manager
-        .authoritative_service_reporting_epoch_egress_bytes(
-            &view,
-            bundle.service.service_name.as_ref(),
-            &bundle.service.service_version,
-            lease_started_height,
-            reporting_epoch,
-        )
-        .expect_err("first-release Inrou egress must reject an active rollout");
+    let error = SoracloudRuntimeManager::authoritative_service_reporting_epoch_egress_bytes(
+        &view,
+        bundle.service.service_name.as_ref(),
+        &bundle.service.service_version,
+        lease_started_height,
+        reporting_epoch,
+    )
+    .expect_err("first-release Inrou egress must reject an active rollout");
     assert!(
         error
             .to_string()
@@ -2070,9 +2058,8 @@ fn authoritative_lease_egress_rejects_cross_placement_u64_overflow() -> Result<(
     let lease_started_height = lease.lease_started_height;
     lease.egress_reporter_checkpoints = vec![
         sample_lease_egress_checkpoint(
-            reporting_epoch,
+            (reporting_epoch, lease_started_height),
             bundle.service.service_version.clone(),
-            lease_started_height,
             1,
             Hash::new(b"former-placement"),
             BOB_ID.clone(),
@@ -2080,9 +2067,8 @@ fn authoritative_lease_egress_rejects_cross_placement_u64_overflow() -> Result<(
             true,
         ),
         sample_lease_egress_checkpoint(
-            reporting_epoch,
+            (reporting_epoch, lease_started_height),
             bundle.service.service_version.clone(),
-            lease_started_height,
             1,
             Hash::new(b"placement-1"),
             ALICE_ID.clone(),
@@ -2109,7 +2095,7 @@ fn authoritative_lease_egress_rejects_cross_placement_u64_overflow() -> Result<(
     lease
         .refresh_accounted_egress_bytes()
         .expect("u128 lease aggregate must represent the cross-placement sum");
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     insert_service_deployment_fixture(world, &bundle, deployment);
     insert_inrou_service_placement_record_fixture(
@@ -2126,19 +2112,16 @@ fn authoritative_lease_egress_rejects_cross_placement_u64_overflow() -> Result<(
             selected_guest_isa: SoraInrouGuestIsaV1::X8664,
         }],
     );
-    let fixture = RuntimeFixture::new(&state)?;
     let view = state.view();
 
-    let error = fixture
-        .manager
-        .authoritative_service_reporting_epoch_egress_bytes(
-            &view,
-            bundle.service.service_name.as_ref(),
-            &bundle.service.service_version,
-            1,
-            reporting_epoch,
-        )
-        .expect_err("the local u64 revision counter must fail closed on overflow");
+    let error = SoracloudRuntimeManager::authoritative_service_reporting_epoch_egress_bytes(
+        &view,
+        bundle.service.service_name.as_ref(),
+        &bundle.service.service_version,
+        1,
+        reporting_epoch,
+    )
+    .expect_err("the local u64 revision counter must fail closed on overflow");
     assert!(
         error
             .to_string()
@@ -2158,9 +2141,8 @@ fn reporter_target_epoch_advances_only_for_a_missing_identity_at_the_exact_cap()
     lease.egress_reporter_checkpoints = (0..SORA_SERVICE_LEASE_MAX_EGRESS_REPORTER_CHECKPOINTS_V1)
         .map(|index| {
             sample_lease_egress_checkpoint(
-                reporting_epoch,
+                (reporting_epoch, lease_started_height),
                 format!("retired-{index:04}"),
-                lease_started_height,
                 1,
                 Hash::new(Encode::encode(&("retired-placement", index))),
                 BOB_ID.clone(),
@@ -2177,7 +2159,7 @@ fn reporter_target_epoch_advances_only_for_a_missing_identity_at_the_exact_cap()
     lease
         .refresh_accounted_egress_bytes()
         .expect("exact capped reporter aggregate");
-    let mut state = test_state()?;
+    let mut state = test_state();
     let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
     insert_service_deployment_fixture(world, &bundle, deployment);
     let fixture = RuntimeFixture::configured(&state, |config| {
@@ -2218,8 +2200,7 @@ fn reporter_target_epoch_advances_only_for_a_missing_identity_at_the_exact_cap()
             .authoritative_service_lease_reporter_checkpoint(
                 &view,
                 bundle.service.service_name.as_ref(),
-                2,
-                reporting_epoch,
+                (2, reporting_epoch),
                 &bundle.service.service_version,
                 1,
                 Hash::new(b"placement-1"),
@@ -2318,7 +2299,7 @@ fn inrou_placement_reconcile_rejects_active_rollout() -> Result<()> {
         updated_sequence: 9,
     });
 
-    let mut state = test_state()?;
+    let mut state = test_state();
     {
         let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
         insert_service_revision_fixture(world, &baseline);
@@ -2327,16 +2308,10 @@ fn inrou_placement_reconcile_rejects_active_rollout() -> Result<()> {
         insert_inrou_service_placement_record_fixture(world, &baseline, Vec::new());
         insert_inrou_service_placement_record_fixture(world, &candidate, Vec::new());
     }
-    let temp_dir = canonical_runtime_fixture_tempdir()?;
-    let manager = SoracloudRuntimeManager::new(
-        test_runtime_manager_config(temp_dir.path().to_path_buf()),
-        Arc::clone(&state),
-    );
     let view = state.view();
     let bundle_registry = collect_service_revision_registry(&view);
 
-    let error = manager
-        .inrou_placement_reconcile_needed(&view, &bundle_registry)
+    let error = SoracloudRuntimeManager::inrou_placement_reconcile_needed(&view, &bundle_registry)
         .expect_err("first-release Inrou placement reconciliation must reject active rollout");
     assert!(
         error
@@ -2352,7 +2327,7 @@ fn inrou_placement_reconcile_tracks_host_availability_drift_without_retrying_sta
 -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
     let deployment = sample_deployment_state(&bundle);
-    let mut state = test_state()?;
+    let mut state = test_state();
     {
         let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
         insert_service_revision_fixture(world, &bundle);
@@ -2360,27 +2335,21 @@ fn inrou_placement_reconcile_tracks_host_availability_drift_without_retrying_sta
     }
     let local_peer_id = canonical_inrou_test_peer_id();
     insert_inrou_service_placement_fixture(&mut state, &bundle, local_peer_id, [1]);
-    let temp_dir = canonical_runtime_fixture_tempdir()?;
-    let manager = SoracloudRuntimeManager::new(
-        test_runtime_manager_config(temp_dir.path().to_path_buf()),
-        Arc::clone(&state),
-    );
     {
         let view = state.view();
         let bundle_registry = collect_service_revision_registry(&view);
         assert!(
-            manager.inrou_placement_reconcile_needed(&view, &bundle_registry)?,
+            SoracloudRuntimeManager::inrou_placement_reconcile_needed(&view, &bundle_registry)?,
             "an available placement with no exact active host advert must reconcile"
         );
     }
-    drop(manager);
 
     let placement_key = (
         bundle.service.service_name.to_string(),
         bundle.service.service_version.clone(),
     );
     let placements = Arc::get_mut(&mut state)
-        .expect("runtime manager released its state reference")
+        .expect("unique test state")
         .world
         .soracloud_inrou_service_placements_mut_for_testing();
     let mut placement_record = {
@@ -2396,14 +2365,10 @@ fn inrou_placement_reconcile_tracks_host_availability_drift_without_retrying_sta
         .expect("Inrou placement")
         .host_availability = SoraInrouReplicaHostAvailabilityV1::Unavailable;
     placements.insert(placement_key, placement_record);
-    let manager = SoracloudRuntimeManager::new(
-        test_runtime_manager_config(temp_dir.path().to_path_buf()),
-        Arc::clone(&state),
-    );
     let view = state.view();
     let bundle_registry = collect_service_revision_registry(&view);
     assert!(
-        !manager.inrou_placement_reconcile_needed(&view, &bundle_registry)?,
+        !SoracloudRuntimeManager::inrou_placement_reconcile_needed(&view, &bundle_registry)?,
         "a retained unavailable placement must not submit endless reconciliation retries while its exact host remains absent"
     );
     Ok(())
@@ -2848,8 +2813,8 @@ fn insert_active_public_lane_validator_fixture(state: &State, local_peer_id: &st
         .expect("commit Inrou public-lane validator fixture");
 }
 #[test]
-fn inrou_fixture_validator_is_active_in_the_unchanged_snapshot() -> Result<()> {
-    let state = test_state()?;
+fn inrou_fixture_validator_is_active_in_the_unchanged_snapshot() {
+    let state = test_state();
     let before = committed_height(&state.view());
     let local_peer = canonical_inrou_test_peer_id();
     insert_active_public_lane_validator_fixture(state.as_ref(), local_peer);
@@ -2873,7 +2838,6 @@ fn inrou_fixture_validator_is_active_in_the_unchanged_snapshot() -> Result<()> {
             |lane_id| view.is_lane_active_for_authority(lane_id),
         )
     );
-    Ok(())
 }
 fn insert_inrou_service_placement_record_fixture(
     world: &mut World,
@@ -2969,7 +2933,7 @@ fn materialize_inrou_replica_plan_for_tests(
     HostedHttpWorkerCacheKey,
 )> {
     bundle.validate_for_admission()?;
-    let mut state = test_state()?;
+    let mut state = test_state();
     let deployment_state = sample_deployment_state(bundle);
     let process_generation = deployment_state.process_generation;
     let local_peer_id = canonical_inrou_test_peer_id();
@@ -2977,7 +2941,7 @@ fn materialize_inrou_replica_plan_for_tests(
         current_host_inrou_guest_isa().expect("tests require a supported Inrou host ISA");
     {
         let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
-        insert_service_revision_fixture(world, &bundle);
+        insert_service_revision_fixture(world, bundle);
         insert_service_deployment_fixture(world, bundle, deployment_state);
     }
     insert_local_inrou_service_placement_fixture(
@@ -3001,8 +2965,7 @@ fn materialize_inrou_replica_plan_for_tests(
         let snapshot = build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &manager.config.state_dir,
-            manager.artifacts_root(),
+            (&manager.config.state_dir, &manager.artifacts_root()),
             &manager.config.cache_budgets,
             manager.config.local_validator_account_id.as_ref(),
             manager.config.local_peer_id.as_deref(),
@@ -3064,4 +3027,15 @@ fn materialize_inrou_replica_plan_for_tests(
         ),
     };
     Ok((temp_dir, replica_plan, cache_key))
+}
+
+#[cfg(unix)]
+#[test]
+fn inrou_device_identity_matches_native_file_metadata() {
+    let file = tempfile::tempfile().expect("temporary file");
+    let stat = rustix::fs::fstat(&file).expect("native file metadata");
+    let metadata = file.metadata().expect("standard file metadata");
+    assert_eq!(inrou_device_identity(stat.st_dev), metadata.dev());
+    #[cfg(target_vendor = "apple")]
+    assert_eq!(inrou_device_identity(-1), u64::MAX);
 }

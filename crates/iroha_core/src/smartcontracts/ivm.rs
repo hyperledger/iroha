@@ -717,7 +717,7 @@ mod tests {
     fn declared_contract_abort_maps_to_manifest_authenticated_rejection() {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"
+                r"
                 seiyaku LiquidityPolicy { permission Test;
                     error enum LiquidityError {
                         BelowMinimum = 18,
@@ -727,7 +727,7 @@ mod tests {
                         require(false, LiquidityError::BelowMinimum);
                     }
                 }
-                "#,
+                ",
             )
             .expect("compile contract rejection fixture");
         let mut vm = ivm::IVM::new(u64::MAX);
@@ -752,17 +752,23 @@ mod tests {
             .iter()
             .find(|descriptor| descriptor.variant(18).is_some())
             .expect("declared error");
-        assert_eq!(
-            error,
-            ivm::VMError::ContractAbort {
-                contract: "LiquidityPolicy".into(),
-                name: "BelowMinimum".to_owned(),
-                error_type: descriptor.identity.clone(),
-                schema_hash: descriptor.schema_hash(),
-                code: 18,
-                message: None,
-            }
-        );
+        let ivm::VMError::ContractAbort {
+            contract,
+            name,
+            error_type,
+            schema_hash,
+            code,
+            message,
+        } = &error
+        else {
+            panic!("declared require must retain its exact contract rejection: {error:?}");
+        };
+        assert_eq!(contract.as_ref(), "LiquidityPolicy");
+        assert_eq!(name, "BelowMinimum");
+        assert_eq!(error_type, &descriptor.identity);
+        assert_eq!(*schema_hash, descriptor.schema_hash());
+        assert_eq!(*code, 18);
+        assert_eq!(*message, None);
         assert_eq!(
             crate::execution_attempt::expect_completed_rejection(
                 map_vm_error_with_context_to_validation(&vm, error),

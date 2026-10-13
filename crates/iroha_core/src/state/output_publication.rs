@@ -17,6 +17,10 @@ pub(in crate::state) struct FinalizedPublicationSurface {
     block_hashes: BlockHashSurface,
     runtime: SnapshotNexusRuntime,
     native_execution_tip: Option<NativeExecutionTip>,
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     native_execution_tip_preimage: Option<Option<NativeExecutionTip>>,
     runtime_preimage: Option<SnapshotNexusRuntime>,
     state_journals: [mv::BlockPublicationIdentity; 4],
@@ -512,7 +516,7 @@ mod tests {
         let with_hash = FinalizedPublicationSurface::capture(&block).unwrap();
         block
             .transactions
-            .insert_block(HashSet::new(), NonZeroUsize::MIN);
+            .insert_block(BTreeSet::new(), NonZeroUsize::MIN);
         assert!(with_hash.verify(&block).is_err());
     }
 

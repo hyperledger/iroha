@@ -63,5 +63,5 @@ fn tlv_expected_type_rejects_high_register_bits_without_truncation() {
         .concat(),
     );
     vm.load_program(&prog).expect("load program");
-    assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
 }

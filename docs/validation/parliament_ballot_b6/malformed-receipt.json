@@ -1,0 +1,42 @@
+{
+  "started_at_utc": "2026-10-13T03:49:23.515795+00:00",
+  "source_manifest": "malformed-source.sha256",
+  "source_manifest_sha256": "7cc9ad79e452fe3cfd58cc0fdc570a7d5b76614f7352d9c13ba9b17be670a409",
+  "source_files": 225,
+  "binaries": {
+    "accel": {
+      "path": "/tmp/parliament-b6-malformed-accel",
+      "sha256": "c8eff1a37baa2798eac7c35dfd8c9b91b86350659fa0b0ec5ad231591fb6c668"
+    },
+    "portable": {
+      "path": "/tmp/parliament-b6-malformed-portable",
+      "sha256": "676adb33435f7ff4425e8ee8bf71bbedbd5c25359c557771171ac436f68a082e"
+    }
+  },
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n",
+  "git_head": "5f89bf021f94d80a42b1daa991f6e8ca32d9e067",
+  "normal_revision_metadata": true,
+  "profile_qualified": false,
+  "completed_at_utc": "2026-10-13T03:52:15.086387+00:00",
+  "source_hashes_match_before_and_after": true,
+  "samples_each_mode": 5084,
+  "classes_each_mode": 164,
+  "feature_parity": {
+    "classes": 164,
+    "sample_pairs": 5084,
+    "input_digest_length_outcome_diagnostic_equal": true
+  },
+  "machine_reference": "mac-machine.json (same host); os/hardware rechecked below",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+  "hardware": "Apple M2 Ultra\n24\n24\n206158430208\n",
+  "build_command": "scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- build --release -p iroha_parliament_ballot_proof --example qualify [--features accel]",
+  "run_command": "/tmp/parliament-b6-malformed-{portable|accel} malformed --samples 31 --source-id 7cc9ad79e452fe3cfd58cc0fdc570a7d5b76614f7352d9c13ba9b17be670a409 --run-id mac-m2-ultra-malformed-{portable|accel}",
+  "tests": "13/13 example tests per mode; strict release Clippy per mode; scoped two-crate format and no-legacy-codec checks pass",
+  "limitations": [
+    "Shared M2 Ultra host with concurrent upstream C verification and other development. Portable compilation overlapped accelerated observations. No isolation, cache flush, cooldown or baseline qualification.",
+    "One fixed proof/mutant per class; 31 repetitions after preflight in a warm process. Construction, proving and diagnostics untimed.",
+    "Canonical record, one mutant and harness bookkeeping included in requested Rust heap; no stack/native/RSS/allocator-overhead ceiling.",
+    "Malformed campaign covers 164 selected classes, not exhaustive malformed inputs or adversarial worst case.",
+    "Binary hashes identify copied local builds; not external attestation or release qualification. Old device campaigns retain their original 223-file snapshot."
+  ]
+}

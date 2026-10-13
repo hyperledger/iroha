@@ -126,13 +126,13 @@ fn capture(block: SetBlock<'_>) -> DetachedSet<()> {
 
 fn assert_all_writers_released(set: &Arc<Set>) {
     let worker = Arc::clone(set);
-    let (sent, received) = mpsc::channel();
+    let (completion_sender, received) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         // Each Storage::block obtains both concrete writers. This exercises
         // every actual owner rather than checking one representative lock.
         let all_ten = worker.block();
         drop(all_ten);
-        sent.send(()).unwrap();
+        completion_sender.send(()).unwrap();
     });
     received
         .recv_timeout(Duration::from_secs(5))

@@ -5,6 +5,7 @@
 use super::*;
 use crate::managed::{
     native_operation::{
+        attempts::metadata,
         now_ms,
         test_support::{
             UnavailablePeers,
@@ -178,7 +179,7 @@ fn native_provider_dag_recovers_interleaved_and_same_block_originals() {
             ProviderPurpose::InitialProviderIngestAuthority,
         )
         .unwrap();
-        let leaf = later.directory.ensure_child("setup").unwrap();
+        let leaf = metadata::ensure_operation(&later.directory, "setup").unwrap();
         leaf.write_atomic(
             "original.nrt",
             b"unexecuted later original",
@@ -523,7 +524,7 @@ fn provider_frontiers_bind_exact_original_slots_and_fresh_absence() {
         ProviderPurpose::InitialGatewaySetup,
     )
     .unwrap();
-    let lock_identity = iroha_fs::FileIdentity::of(&child._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&child.lock).unwrap();
     let retained = child.directory.retain().unwrap();
     drop(child);
     parent
@@ -544,7 +545,7 @@ fn provider_frontiers_bind_exact_original_slots_and_fresh_absence() {
     .unwrap()
     .unwrap();
     assert_eq!(
-        iroha_fs::FileIdentity::of(&reopened._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&reopened.lock).unwrap(),
         lock_identity
     );
     reopened.directory.revalidate().unwrap();

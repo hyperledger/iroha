@@ -11,6 +11,8 @@ use std::{
 mod attachment_installed;
 #[path = "installed_tests.rs"]
 mod installed;
+#[path = "installed_renewal_tests.rs"]
+mod installed_renewal;
 
 #[test]
 fn global_and_private_requests_select_only_their_original_scope_prerequisites() {
@@ -290,7 +292,7 @@ fn incomplete_managed_preparation_never_creates_a_replacement_generation() {
 fn managed_private_preparation_retains_owner_scope_and_listener_token_after_spawn_failure() {
     let _resources = super::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(&temporary.path().join("managed")).unwrap();
+    let directory = PrivateDirectory::open_or_create(temporary.path().join("managed")).unwrap();
     let binary = std::env::current_exe().unwrap();
     let store = ManagedStore::open(directory.path()).unwrap();
     let mut request = LocalnetRequest::private_root(binary.clone(), binary);
@@ -371,7 +373,7 @@ fn stopped_context_selection_retains_identity_and_never_exposes_keys() {
     assert_eq!(selected, prepared.context);
     assert_eq!(store.prepared("local").unwrap(), prepared);
     assert_eq!(store.context(None).unwrap(), selected);
-    assert_eq!(store.contexts().unwrap(), [selected.clone()]);
+    assert_eq!(store.contexts().unwrap(), std::slice::from_ref(&selected));
     let status = store.status("local").unwrap();
     assert_eq!(status.phase, ManagedPhase::Stopped);
     assert_eq!(store.down("local").unwrap(), status);
@@ -475,14 +477,17 @@ fn create_only_rejects_retained_global_and_private_names_under_the_operation_loc
         let owner = PrivateDirectory::open(store.root()).unwrap();
         let active = owner.read("active.json", MAX_METADATA).unwrap();
         // A frontend's snapshot predates a second frontend publishing the same requested name.
-        assert_eq!(store.contexts().unwrap(), [selected.context.clone()]);
+        assert_eq!(
+            store.contexts().unwrap(),
+            std::slice::from_ref(&selected.context)
+        );
         let directory = if private_root {
             let networks = PrivateDirectory::open(root.join("networks")).unwrap();
             let directory = networks.create_child("concurrent").unwrap();
             let binary = std::env::current_exe().unwrap();
             let mut request = LocalnetRequest::private_root(binary.clone(), binary);
             request.name = "concurrent".into();
-            let _operation = store::acquire(&directory, "operation.lock", &request.name).unwrap();
+            let operation = store::acquire(&directory, "operation.lock", &request.name).unwrap();
             let ports = LocalnetPorts::reserve().unwrap();
             generation::prepare(
                 &directory,
@@ -495,7 +500,7 @@ fn create_only_rejects_retained_global_and_private_names_under_the_operation_loc
                 &ports,
             )
             .unwrap();
-            drop(_operation);
+            drop(operation);
             directory
         } else {
             fixture(&root, "concurrent").1
@@ -650,7 +655,9 @@ fn foreground_expiry_uses_failed_startup_action_and_rejects_late_ready_or_other_
         }
     });
     let timeout = Duration::from_secs(30);
-    let expired_start = std::time::Instant::now() - Duration::from_secs(31);
+    let expired_start = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(31))
+        .unwrap();
     // This first call must perform no control exchange: a late idempotent observation
     // neither selects nor stops a network that was already ready when `up` began.
     assert!(matches!(
@@ -798,13 +805,14 @@ fn lifecycle_phases_have_strict_stable_json_spelling() {
 
 #[test]
 fn changed_binary_is_rejected_before_launch() {
+    use std::io::Write as _;
     let _resources = super::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let binary = temporary.path().join("daemon");
     std::fs::copy(std::env::current_exe().unwrap(), &binary).unwrap();
     let pin = store::pin_binary(&binary).unwrap();
     store::verify_binary(&pin).unwrap();
-    use std::io::Write as _;
+
     std::fs::OpenOptions::new()
         .append(true)
         .open(binary)
@@ -816,8 +824,9 @@ fn changed_binary_is_rejected_before_launch() {
 
 #[test]
 fn logs_return_only_the_requested_bounded_tail() {
-    let _resources = super::native_test_guard();
     use std::io::Write as _;
+    let _resources = super::native_test_guard();
+
     let temporary = tempfile::tempdir().unwrap();
     let (store, directory, _) = fixture(&temporary.path().join("managed"), "local");
     directory
@@ -835,8 +844,9 @@ fn logs_return_only_the_requested_bounded_tail() {
 #[cfg(unix)]
 #[test]
 fn symlinked_generation_config_is_rejected() {
-    let _resources = super::native_test_guard();
     use std::os::unix::fs::symlink;
+    let _resources = super::native_test_guard();
+
     let temporary = tempfile::tempdir().unwrap();
     let (_, directory, prepared) = fixture(&temporary.path().join("managed"), "local");
     let path = &prepared.peers[0].config_path;

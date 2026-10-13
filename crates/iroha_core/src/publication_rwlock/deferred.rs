@@ -142,8 +142,7 @@ mod tests {
                 let reader = releases.read();
                 let wait = index
                     .try_write_or_wait()
-                    .err()
-                    .expect("actual reader blocks writer");
+                    .expect_err("actual reader blocks writer");
                 let future = wait;
                 assert!(registration.poll_wait(&future, &mut context).is_pending());
                 pending = Some(future);
@@ -152,9 +151,7 @@ mod tests {
                 let mut writer = releases.write();
                 *writer += 1;
                 assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
-                if unwind {
-                    panic!("unwind through the held original writer");
-                }
+                assert!(!unwind, "unwind through the held original writer");
                 drop(writer);
                 assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
             }));

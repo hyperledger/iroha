@@ -1,0 +1,38 @@
+warning: patch `axum-core v0.5.6 (/Users/mtakemiya/dev/iroha/vendor/axum-core)` was not used in the crate graph
+warning: patch `bytes v1.11.1 (/Users/mtakemiya/dev/iroha/vendor/bytes)` was not used in the crate graph
+warning: patch `concread v0.5.10 (/Users/mtakemiya/dev/iroha/vendor/concread)` was not used in the crate graph
+warning: patch `cust_raw v0.11.3 (/Users/mtakemiya/dev/iroha/vendor/cust_raw)` was not used in the crate graph
+warning: patch `find_cuda_helper v0.2.0 (/Users/mtakemiya/dev/iroha/vendor/find_cuda_helper)` was not used in the crate graph
+warning: patch `http-body-util v0.1.3 (/Users/mtakemiya/dev/iroha/vendor/http-body-util)` was not used in the crate graph
+warning: patch `num-bigint v0.4.6 (/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6)` was not used in the crate graph
+warning: patch `wayland-scanner v0.31.10 (/Users/mtakemiya/dev/iroha/vendor/wayland-scanner-0.31.10)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+   Compiling parliament-native-probe v0.0.0 (/tmp/parliament-native-probe/worker-src-4)
+    Finished `release` profile [optimized] target(s) in 10.38s
+     Running unittests driver.rs (/tmp/parliament-native-probe/target-2/release/deps/parliament_native_probe-d7f41793ee9dab2b)
+
+running 15 tests
+test arena::tests::exact_budget_alignment_and_coalescing ... ok
+test arena::tests::zeroed_reallocation_copy_and_failed_growth_follow_allocator_contract ... ok
+test budget::tests::exact_budget_is_spent_and_failed_reservations_are_atomic ... ok
+test budget::tests::outer_cap_and_large_budgets_do_not_wrap_or_partially_debit ... ok
+test observer::tests::abi_layout_and_phase_validation_are_exact ... ok
+test workspace::tests::exhaustion_decimal_writer_is_bounded_and_exact ... ok
+test runtime_identity::tests::uuid_uses_byte_order_and_fixed_uppercase_groups ... ok
+test observer::tests::terminal_writer_is_bounded_and_preserves_every_counter ... ok
+test runtime_identity::tests::missing_symbol_refuses_identity_substitution ... ok
+test native::tests::supplied_native_stack_and_partition_are_exact ... ok
+test workspace::tests::operational_failures_are_never_invalid_proofs ... ok
+test runtime_identity::tests::captures_this_process_and_keeps_source_binding_unestablished ... ok
+test arena::tests::deterministic_fragmentation_campaign_preserves_live_bytes ... ok
+test budget::tests::empty_malformed_calls_are_charged_and_length_substitution_is_refused ... ok
+test budget::tests::honest_early_invalid_and_late_invalid_proofs_spend_the_same_unit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+

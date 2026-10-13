@@ -21,8 +21,7 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
             original.step().unwrap();
         }
         let mut expected_public = Vec::new();
-        let mut expected_private = Vec::new();
-        if boundary >= 2 {
+        let expected_private = if boundary >= 2 {
             original.step().unwrap();
             original.step().unwrap();
             assert_eq!(original.phase, Phase::PublicationEncoded);
@@ -33,8 +32,10 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
                 .encoded_public_frame()
                 .to_vec();
             original.seal_and_publish_checkpoint(1).unwrap();
-            expected_private = fs::read(directory.join("private-checkpoint-1.norito")).unwrap();
-        }
+            fs::read(directory.join("private-checkpoint-1.norito")).unwrap()
+        } else {
+            Vec::new()
+        };
         if boundary >= 3 {
             original.publish_phase(1).unwrap();
         }

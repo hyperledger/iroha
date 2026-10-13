@@ -378,7 +378,14 @@ fn a_foreign_predecessor_yields_a_root_that_differs_from_the_actual_world() {
 #[test]
 fn incremental_encoding_is_limited_to_touched_values() {
     let index = field_index().as_ref().unwrap();
-    let storage: Storage<u64, Vec<u8>> = (0..512).map(|key| (key, vec![key as u8])).collect();
+    let storage: Storage<u64, Vec<u8>> = (0..512)
+        .map(|key| {
+            (
+                key,
+                vec![u8::try_from((key) & 0xff).expect("masked fixture byte fits u8")],
+            )
+        })
+        .collect();
     let mut block = BlockField::new(storage.block());
     let builder = |accumulator, direction| Builder {
         index,
@@ -541,7 +548,8 @@ fn unwitnessed_role_and_parameter_changes_change_the_root() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             std::num::NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     let parameterized = parent.apply_block(&block).unwrap();
     assert_ne!(
         parameterized.root(),

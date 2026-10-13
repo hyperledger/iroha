@@ -27,10 +27,10 @@ pub(crate) fn install_network_index_test_outputs(
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &limits,
         )
         .expect("canonical bounded storage-fixture outputs");
@@ -300,12 +300,6 @@ fn canonical_network_index_rebuild_missing_body_and_replacement_stay_explicit() 
 #[test]
 fn canonical_network_position_roundtrips_and_refuses_retired_phase_layout() {
     use norito::codec::{DecodeAll, Encode};
-    let position = kaigi_signal_test_locator(3, 7).position;
-    let bytes = norito::encode_canonical(&position).unwrap();
-    assert_eq!(
-        norito::decode_canonical::<super::KaigiSignalCandidatePosition>(&bytes).unwrap(),
-        position
-    );
     #[derive(norito::Encode)]
     struct RetiredPosition {
         block_height: u64,
@@ -314,6 +308,12 @@ fn canonical_network_position_roundtrips_and_refuses_retired_phase_layout() {
         block_hash: HashOf<BlockHeader>,
         entrypoint_hash: HashOf<TransactionEntrypoint>,
     }
+    let position = kaigi_signal_test_locator(3, 7).position;
+    let bytes = norito::encode_canonical(&position).unwrap();
+    assert_eq!(
+        norito::decode_canonical::<super::KaigiSignalCandidatePosition>(&bytes).unwrap(),
+        position
+    );
     let old = RetiredPosition {
         block_height: 3,
         execution_phase: 1,

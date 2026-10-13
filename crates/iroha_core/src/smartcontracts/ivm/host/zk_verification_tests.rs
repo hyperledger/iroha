@@ -319,7 +319,7 @@ fn unaffordable_zk_verification_stops_before_verifier_or_latch_mutation() {
     let error = vm
         .run_with_host(&mut host)
         .expect_err("proof gas exceeds the pre-debited reserve");
-    assert_eq!(error, ivm::VMError::OutOfGas);
+    assert!(matches!(error, ivm::VMError::OutOfGas));
     assert_eq!(
         vm.remaining_gas(),
         15,
@@ -355,12 +355,14 @@ fn zk_verify_batch_quote_and_actual_scale_with_every_proof() {
             u64::try_from(count).expect("bounded count"),
         );
         assert_eq!(
-            host.prepare_syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &vm),
-            Ok(expected_quote)
+            (host.prepare_syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &vm))
+                .expect("expected successful fixture result"),
+            expected_quote
         );
         assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &mut vm),
-            Ok(expected_actual)
+            (host.syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &mut vm))
+                .expect("expected successful fixture result"),
+            expected_actual
         );
         assert!(expected_actual < expected_quote);
         assert_eq!(vm.register(11), ivm::host::ERR_VK_MISSING);
@@ -397,7 +399,10 @@ fn unaffordable_zk_batch_stops_before_decode_allocation_or_backend_work() {
         .prepare_syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &vm)
         .expect("quote bounded ZK batch");
     vm.set_gas_limit(quote);
-    assert_eq!(vm.run_with_host(&mut host), Err(ivm::VMError::OutOfGas));
+    assert!(matches!(
+        vm.run_with_host(&mut host),
+        Err(ivm::VMError::OutOfGas)
+    ));
     assert_eq!(vm.register(10), pointer);
     assert_eq!(vm.register(11), 0xfeed);
     assert_eq!(vm.register(12), 0xbeef);
@@ -428,8 +433,9 @@ fn zk_verify_batch_rejects_configured_count_cap_after_metered_prepare() {
     );
     assert_eq!(vm.register(10), pointer);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &mut vm),
-        Ok(quote)
+        (host.syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &mut vm))
+            .expect("expected successful fixture result"),
+        quote
     );
     assert_eq!(vm.register(10), 0);
     assert_eq!(vm.register(11), ivm::host::ERR_BATCH);
@@ -539,8 +545,10 @@ fn zk_verify_batch_accepts_stark_registry_bound_envelope() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let backend = "stark/fri/poseidon-x7-goldilocks-6x64-v1";
     // This checks generic proof dispatch through a host syscall, not an IVM
@@ -611,8 +619,10 @@ fn zk_verify_batch_returns_statuses_with_registry_binding() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let env_ok = registered_stark_batch_fixture(&mut host, "transfer");
     assert!(
@@ -642,8 +652,10 @@ fn zk_verify_batch_reports_backend_verifier_failure_after_prechecks() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let mut stark_cfg = iroha_config::parameters::actual::Stark::default();
-    stark_cfg.enabled = true;
+    let stark_cfg = iroha_config::parameters::actual::Stark {
+        enabled: true,
+        ..Default::default()
+    };
     host.set_stark_config(&stark_cfg);
     let env_ok = registered_stark_batch_fixture(&mut host, "transfer");
     let mut env_bad = env_ok.clone();
@@ -743,4 +755,293 @@ fn queued_ballot_and_tally_require_their_distinct_verification_latches() {
             Err(ValidationFail::NotPermitted(expected.into()))
         );
     }
+}
+
+/// The host reads native proof-size limits from the committed policy, independently of node limits.
+#[test]
+fn committed_native_proof_limit_accepts_exact_bound_and_rejects_one_more() {
+    use iroha_data_model::{parameter::Parameter, zk_validity_policy::ZkValidityPolicyV1};
+
+    let backend = "pipa-r/pasta";
+    let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+    let vk_bytes = canonical_confidential_transfer_vk_bytes();
+    let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
+    let public_inputs =
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
+    for node_limit in [1, 16, 1_000] {
+        let mut policy = ZkValidityPolicyV1::protocol_default();
+        policy.pipa_r.max_proof_bytes = 16;
+        let world = crate::state::World::default();
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+                .expect("valid fixture parameters");
+            block.commit();
+        }
+        let mut state = crate::state::State::new_for_testing(
+            world,
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        let mut node = crate::state::default_zk_config();
+        node.pipa_r.max_proof_bytes = node_limit;
+        state.install_node_zk(node).expect("install node resources");
+        let block = state.block(iroha_data_model::block::BlockHeader::new(
+            core::num::NonZeroU64::new(2).expect("nonzero"),
+            None,
+            None,
+            0,
+            0,
+        ));
+        assert_eq!(block.zk.pipa_r.max_proof_bytes, 16);
+        let mut host = CoreHost::new(fixture_account("alice"));
+        host.set_chain_id_bytes(b"chain".to_vec());
+        host.set_current_manifest_id(Some("core".to_owned()));
+        let record = active_vk_record(
+            commitment,
+            schema_hash(&public_inputs),
+            backend,
+            circuit_id,
+            "transfer",
+            vk_bytes.clone(),
+        );
+        host.set_verifying_keys(BTreeMap::from([(
+            VerifyingKeyId::new(backend, "vk"),
+            record,
+        )]))
+        .expect("install registry");
+        host.set_zk_config(&block.zk);
+        let at_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 16],
+        );
+        assert!(host.enforce_zk_envelope(&at_limit, "transfer").is_ok());
+        let above_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 17],
+        );
+        assert_eq!(
+            host.enforce_zk_envelope(&above_limit, "transfer").err(),
+            Some(ivm::host::ERR_PROOF_LEN)
+        );
+    }
+}
+
+#[test]
+fn zk_syscalls_preserve_original_decode_refusal_without_register_or_latch_publication() {
+    let envelope_bytes = dummy_env(
+        "halo2/ipa:metering",
+        [1u8; 32],
+        vec![1, 2, 3, 4],
+        vec![0xAA; 16],
+    );
+    let envelope = ivm::host::decode_canonical_zk_envelope(&envelope_bytes).unwrap();
+    let batch = norito::encode_canonical(&vec![envelope]).unwrap();
+    for syscall in [
+        ivm_sys::SYSCALL_VERIFY_PROOF,
+        ivm_sys::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
+        ivm_sys::SYSCALL_ZK_VOTE_VERIFY_TALLY,
+        ivm_sys::SYSCALL_ZK_VERIFY_BATCH,
+    ] {
+        let payload = if syscall == ivm_sys::SYSCALL_ZK_VERIFY_BATCH {
+            &batch
+        } else {
+            &envelope_bytes
+        };
+        let mut host = CoreHost::new(fixture_account("alice"));
+        let mut vm = IVM::new(u64::MAX);
+        let pointer = store_tlv(&mut vm, PointerType::NoritoBytes, payload);
+        vm.set_register(10, pointer);
+        vm.set_register(11, 0xfeed);
+        vm.set_register(12, 0xcafe);
+        let limit =
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let error =
+            norito::core::with_decode_limits_scope(limit, || host.syscall(syscall, &mut vm))
+                .unwrap_err();
+        assert!(matches!(error, ivm::VMError::DecodeDeferred(_)));
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(error.metered_gas(), None);
+        assert_eq!(
+            (vm.register(10), vm.register(11), vm.register(12)),
+            (pointer, 0xfeed, 0xcafe)
+        );
+        assert_eq!(vm.remaining_gas(), u64::MAX);
+        assert_eq!(vm.validate_tlv(pointer).unwrap().payload, payload);
+        assert!(host.zk_verified_ballot.is_empty());
+        assert!(host.zk_last_env_hash_ballot.is_empty());
+        assert!(host.zk_verified_tally.is_empty());
+        assert!(host.zk_last_env_hash_tally.is_empty());
+        host.syscall(syscall, &mut vm)
+            .expect("unchanged bytes complete the original read on retry");
+        assert_eq!(vm.register(11), ivm::host::ERR_VK_MISSING);
+        assert!(host.zk_verified_ballot.is_empty());
+        assert!(host.zk_verified_tally.is_empty());
+    }
+}
+
+/// Framing for gas inspection, deliberately not a valid cryptographic proof.
+fn gas_owner_instruction() -> InstructionBox {
+    use iroha_data_model::proof::{ProofAttachment, ProofBox};
+    let circuit = "pipa-r/pasta/kaigi-usage-v1";
+    let kind = crate::zk::native_pipa_r::relation("pipa-r/pasta", circuit).unwrap();
+    let payload = iroha_data_model::zk::NativePipaRProofV1 {
+        public_inputs: vec![[0; 32]; kind.instance_rows()],
+        proof: vec![0; kind.proof_length().unwrap()],
+    };
+    let envelope = iroha_data_model::zk::OpenVerifyEnvelope {
+        backend: iroha_data_model::zk::BackendTag::NativePipaRPasta,
+        circuit_id: circuit.into(),
+        vk_hash: [1; 32],
+        public_inputs: crate::zk::native_pipa_r::public_schema(kind).to_vec(),
+        proof_bytes: norito::encode_canonical(&payload).unwrap(),
+        aux: Vec::new(),
+    };
+    DMZk::VerifyProof::new(ProofAttachment::new_ref(
+        "pipa-r/pasta".into(),
+        ProofBox::new(
+            "pipa-r/pasta".into(),
+            norito::encode_canonical(&envelope).unwrap(),
+        ),
+        VerifyingKeyId::new("pipa-r/pasta", "gas-owner"),
+    ))
+    .into()
+}
+
+#[test]
+fn gas_refusal_precedes_queue_publication_and_preflight_charge() {
+    let instruction = gas_owner_instruction();
+    let expected_gas =
+        crate::gas::meter_instruction(&instruction, &crate::gas::DEFAULT_ZK_GAS).unwrap();
+    for preflight in [false, true] {
+        let mut host = CoreHost::new(fixture_account("alice"));
+        let vm = IVM::new(u64::MAX);
+        let invoke = |host: &mut CoreHost| {
+            if preflight {
+                host.queue_instruction_after_preflight(&vm, instruction.clone())
+            } else {
+                host.queue_instruction(instruction.clone())
+            }
+        };
+        let error = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || invoke(&mut host),
+        )
+        .unwrap_err();
+        assert!(host.queued.is_empty());
+        assert_eq!(host.instruction_queue_encoded_bytes, 0);
+        assert_eq!(vm.remaining_gas(), u64::MAX);
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(error.metered_gas(), None);
+        let ivm::VMError::VerificationDeferred(original) = error else {
+            panic!("lost original gas decoder owner");
+        };
+        let original = original.into_decode_refusal().unwrap();
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(invoke(&mut host).unwrap(), expected_gas);
+        assert_eq!(host.queued.len(), 1);
+        assert_eq!(host.queued[0].instruction().unwrap(), &instruction);
+    }
+}
+
+#[test]
+fn gas_refusal_preserves_pending_artifacts_for_unchanged_retry() {
+    let instruction = gas_owner_instruction();
+    let expected_gas =
+        crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS).unwrap();
+    let mut host = CoreHost::new(fixture_account("alice"));
+    host.queue_instruction(instruction.clone()).unwrap();
+    let from = fixture_account("alice");
+    let to = fixture_account("bob");
+    let asset = AssetDefinitionId::derive_from_components(
+        DomainId::try_new("wonderland", "universal").unwrap(),
+        "rose".parse().unwrap(),
+    );
+    let amount = Quantity::from(1_u64);
+    let mut vm = IVM::new(u64::MAX);
+    let from_ptr = store_tlv(
+        &mut vm,
+        PointerType::AccountId,
+        &norito::encode_canonical(&from).unwrap(),
+    );
+    let to_ptr = store_tlv(
+        &mut vm,
+        PointerType::AccountId,
+        &norito::encode_canonical(&to).unwrap(),
+    );
+    let asset_ptr = store_tlv(
+        &mut vm,
+        PointerType::AssetDefinitionId,
+        &norito::encode_canonical(&asset).unwrap(),
+    );
+    let amount_ptr = store_tlv(&mut vm, PointerType::Quantity, &quantity_frame(&amount));
+    vm.set_register(10, from_ptr);
+    vm.set_register(11, to_ptr);
+    vm.set_register(12, asset_ptr);
+    vm.set_register(13, amount_ptr);
+    host.begin_fastpq_batch().unwrap();
+    host.push_fastpq_batch_entry(&mut vm).unwrap();
+    let pending = host.fastpq_batch_entries.as_ref().unwrap();
+    assert_eq!(pending.len(), 1);
+    let pending_address = pending.as_ptr();
+    let pending_capacity = pending.capacity();
+    let expected_batch =
+        InstructionBox::from(TransferAssetBatch::new(vec![TransferAssetBatchEntry::new(
+            from, to, asset, amount,
+        )]));
+    assert_eq!(
+        crate::gas::confidential_gas_cost(&expected_batch, &host.confidential_gas).unwrap(),
+        0
+    );
+    let queued_address = host.queued.as_ptr();
+    let queued_capacity = host.queued.capacity();
+    let output_count = host.instruction_queue_count;
+    let output_bytes = host.instruction_queue_encoded_bytes;
+    let encoded_bytes = host.instruction_queue_encoded_bytes;
+    let result = norito::core::with_decode_limits_scope(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || host.take_execution_artifacts(None),
+    );
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("gas inspection unexpectedly completed"),
+    };
+    let crate::execution_attempt::ExecutionAttemptError::Deferred(original) = error else {
+        panic!("gas refusal became a wire rejection")
+    };
+    let moved = original.into_vm_error();
+    assert!(matches!(moved, ivm::VMError::VerificationDeferred(_)));
+    assert_eq!(moved.fault_kind(), None);
+    assert_eq!(moved.metered_gas(), None);
+    assert_eq!(host.queued.len(), 1);
+    assert_eq!(host.queued[0].instruction().unwrap(), &instruction);
+    assert_eq!(host.instruction_queue_encoded_bytes, encoded_bytes);
+    assert_eq!(host.queued.as_ptr(), queued_address);
+    assert_eq!(host.queued.capacity(), queued_capacity);
+    let retained_batch = host.fastpq_batch_entries.as_ref().unwrap();
+    assert_eq!(retained_batch.as_ptr(), pending_address);
+    assert_eq!(retained_batch.capacity(), pending_capacity);
+    assert_eq!(
+        InstructionBox::from(TransferAssetBatch::new(retained_batch.clone())),
+        expected_batch
+    );
+    assert_eq!(host.instruction_queue_count, output_count);
+    assert_eq!(host.instruction_queue_encoded_bytes, output_bytes);
+    let artifacts = host.take_execution_artifacts(None).unwrap();
+    assert!(host.queued.is_empty());
+    assert!(host.fastpq_batch_entries.is_none());
+    assert_eq!(artifacts.queued.len(), 2);
+    assert_eq!(artifacts.queued[1].instruction().unwrap(), &expected_batch);
+    assert_eq!(artifacts.queued[0].instruction().unwrap(), &instruction);
+    assert_eq!(artifacts.confidential_gas_delta, expected_gas);
 }

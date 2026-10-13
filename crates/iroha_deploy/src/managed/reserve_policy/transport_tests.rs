@@ -2,13 +2,14 @@
 //! Wallet preparation and once-only dispatch establish no native policy or activation evidence.
 
 use super::{ManagedInitialReservePolicy, Original, journal};
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::{
     native_fixture::policy, wallet_http::WalletHttp,
 };
 use crate::managed::{
     PreparedLocalnet,
     native_operation::{
-        MAX_CHECKPOINT_BYTES, now_ms, read_optional, require_empty, test_support::UnavailablePeers,
+        MAX_CHECKPOINT_BYTES, now_ms, read_optional, test_support::UnavailablePeers,
     },
 };
 use iroha_data_model::transaction::{FeePaymentIntent, SignedTransaction};
@@ -62,8 +63,7 @@ fn missing_reserve_original_recovery_performs_no_http_or_journal_creation() {
                 .authority
                 .directory
                 .open_child("set")
-                .err()
-                .expect("read-only recovery must not create an operation directory")
+                .expect_err("read-only recovery must not create an operation directory")
                 .kind(),
             io::ErrorKind::NotFound
         );
@@ -97,8 +97,7 @@ fn unavailable_reserve_finality_prevents_original_wallet_quote_and_dispatch() {
         };
         let error = coordinator
             .set_initial(&policy, utc_deadline, &options)
-            .err()
-            .expect("missing original finality must refuse initial reserve preparation");
+            .expect_err("missing original finality must refuse initial reserve preparation");
         assert!(
             error
                 .to_string()
@@ -106,12 +105,11 @@ fn unavailable_reserve_finality_prevents_original_wallet_quote_and_dispatch() {
             "refusal must precede wallet preparation: {error}"
         );
         let directory = coordinator.authority.directory.open_child("set").unwrap();
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory
                 .open_child("transaction")
-                .err()
-                .expect("no wallet journal before authenticated finality")
+                .expect_err("no wallet journal before authenticated finality")
                 .kind(),
             io::ErrorKind::NotFound
         );
@@ -131,7 +129,7 @@ fn unavailable_reserve_finality_prevents_original_wallet_quote_and_dispatch() {
                 .is_err()
         );
         assert_eq!(peers.requests.lock().unwrap().len(), observed_requests);
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         drop(directory);
         drop(coordinator);
         coordinator = ManagedInitialReservePolicy::open(&prepared).unwrap();
@@ -168,7 +166,7 @@ fn original_request_wallet_reopens_without_resigning_or_duplicate_dispatch() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared, mut coordinator, mut unavailable) = fixture();
     unavailable.finish();
-    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&coordinator.authority.directory, "set").unwrap();
     let policy = policy(&coordinator.authority);
     let options = BoundedTransactionOptions {
         fee_payment: FeePaymentIntent::authority(Vec::new(), None),
@@ -333,7 +331,7 @@ fn reserve_signed_journal_verifier_reuses_bound_account_and_refuses_tampering_wi
     let _resources = crate::managed::native_test_guard();
     let (_temporary, _prepared, coordinator, mut unavailable) = fixture();
     unavailable.finish();
-    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&coordinator.authority.directory, "set").unwrap();
     let policy = policy(&coordinator.authority);
     let options = BoundedTransactionOptions {
         fee_payment: FeePaymentIntent::authority(Vec::new(), None),

@@ -617,8 +617,8 @@ pub mod settlement {
     queries! {
         /// Fetch an immutable native settlement receipt by its business identifier.
         ///
-        /// The native executor requires ledger-wide read permission because a receipt
-        /// can contain movements belonging to multiple accounts and dataspaces.
+        /// The native executor permits the owner named by the identifier, readers
+        /// with that owner's account-data permission, and ledger-wide readers.
         #[repr(transparent)]
         #[norito(deny_unknown_fields)]
         #[norito_schema(name = "iroha_data_model::query::settlement::model::FindSettlementReceiptById")]

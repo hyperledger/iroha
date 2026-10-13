@@ -343,7 +343,19 @@ impl ConstraintFilter for OmitTerm {
 fn streamed_parity<C: PastaCurve>() {
     let params = PinnedParams::<C>::derive(K).unwrap();
     let mut rng = ChaCha20Rng::seed_from_u64(6241);
-    for lookup_count in [0, 1, 2, 5] {
+    let pools: Vec<_> = [1, 3, 4]
+        .into_iter()
+        .map(|workers| {
+            (
+                workers,
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(workers)
+                    .build()
+                    .unwrap(),
+            )
+        })
+        .collect();
+    for lookup_count in [0, 1, 2, 3, 4, 5, 8, 10] {
         let circuit = ScheduledLookups(lookup_count);
         for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
             let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
@@ -425,33 +437,39 @@ fn streamed_parity<C: PastaCurve>() {
             let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
             for omission in omissions {
                 let filter = OmitTerm(omission);
-                let expected =
-                    row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
-                        .unwrap();
-                for workers in [1, 4] {
-                    let pool = rayon::ThreadPoolBuilder::new()
-                        .num_threads(workers)
-                        .build()
-                        .unwrap();
-                    let actual = pool
-                        .install(|| {
-                            evaluate_with_workspace(
-                                &pk,
-                                &protocol,
-                                &compiled,
-                                &inputs,
-                                challenges,
-                                &filter,
-                                &mut workspace,
-                            )
-                        })
-                        .unwrap();
-                    assert_eq!(
-                        actual, expected,
-                        "L={lookup_count}, workers={workers}, omitted={omission:?}"
-                    );
-                    assert!(workspace.is_zeroized());
-                    assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                // Exercise batch boundaries and all Horner degeneracies through
+                // the complete independent lookup fold on both fields.
+                for y in [
+                    challenges.y,
+                    C::ScalarExt::ZERO,
+                    C::ScalarExt::ONE,
+                    -C::ScalarExt::ONE,
+                ] {
+                    let challenges = Challenges { y, ..challenges };
+                    let expected =
+                        row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
+                            .unwrap();
+                    for (workers, pool) in &pools {
+                        let actual = pool
+                            .install(|| {
+                                evaluate_with_workspace(
+                                    &pk,
+                                    &protocol,
+                                    &compiled,
+                                    &inputs,
+                                    challenges,
+                                    &filter,
+                                    &mut workspace,
+                                )
+                            })
+                            .unwrap();
+                        assert_eq!(
+                            actual, expected,
+                            "L={lookup_count}, workers={workers}, y={y:?}, omitted={omission:?}"
+                        );
+                        assert!(workspace.is_zeroized());
+                        assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                    }
                 }
             }
             if lookup_count > 0 {
@@ -963,6 +981,352 @@ fn tiny_lookup_scratch_shortfall_reuse_and_failures_both_fields() {
                         "same shape retains exactly the same allocations"
                     );
                 }
+            }
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+/// Repeated compound fixed selectors, including a gate root also read by a
+/// lookup. This fixture activates compact planning in the full quotient path.
+#[derive(Clone, Copy)]
+struct FactoredGateBoundary;
+
+impl<F: PastaField> Circuit<F> for FactoredGateBoundary {
+    type Config = (Vec<Column<Advice>>, Column<Fixed>);
+    type FloorPlanner = SimpleFloorPlanner;
+    type Params = ();
+
+    fn without_witnesses(&self) -> Self {
+        *self
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let (advice, fixed) = <ScheduledLookups as Circuit<F>>::configure_with_params(meta, 2);
+        for polynomial in 2_u64..19 {
+            meta.create_gate("factored gate boundary", |cells| {
+                let selector = cells.query_fixed(fixed, Rotation::cur())
+                    * cells.query_fixed(fixed, Rotation::prev());
+                let previous = cells.query_advice(advice[0], Rotation::prev());
+                let current = cells.query_advice(advice[1], Rotation::cur());
+                vec![selector * (previous + current * F::from(polynomial + 1))]
+            });
+        }
+        meta.lookup_any("shared factored gate root", |cells| {
+            let selector = cells.query_fixed(fixed, Rotation::cur())
+                * cells.query_fixed(fixed, Rotation::prev());
+            let previous = cells.query_advice(advice[0], Rotation::prev());
+            let current = cells.query_advice(advice[1], Rotation::cur());
+            let table = cells.query_fixed(fixed, Rotation::cur());
+            vec![(selector * (previous + current * F::from(4)), table)]
+        });
+        (advice, fixed)
+    }
+
+    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+        <ScheduledLookups as Circuit<F>>::synthesize(&ScheduledLookups(2), config, layouter)
+    }
+}
+
+fn factored_quotient_parity<C: PastaCurve>() {
+    let params = PinnedParams::<C>::derive(K).unwrap();
+    let pools: Vec<_> = [1, 4]
+        .into_iter()
+        .map(|workers| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .unwrap()
+        })
+        .collect();
+    let mut rng = ChaCha20Rng::seed_from_u64(6247);
+    for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
+        let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
+        config.coset_cache = policy;
+        let pk = keygen_pk(&params, &FactoredGateBoundary, &config).unwrap();
+        let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
+        let shape = protocol.shape();
+        let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
+        assert_eq!(compiled.gate_count(), 19);
+        assert_eq!(shape.lookups, 3);
+        let plan = GatePlan::new(&compiled);
+        assert!(plan.compiled().node_count() < compiled.node_count());
+        let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
+            (0..count)
+                .map(|_| {
+                    (0..shape.n)
+                        .map(|_| C::ScalarExt::random(&mut rng))
+                        .collect()
+                })
+                .collect()
+        };
+        let advice = columns(shape.num_advice);
+        let instance = columns(shape.num_instance);
+        let products = columns(shape.permutation_sets);
+        let lookups = columns(3 * shape.lookups);
+        let inputs = QuotientInputs {
+            advice: &advice,
+            instance: &instance,
+            permutation_products: products.iter().map(Vec::as_slice).collect(),
+            lookups: lookups
+                .chunks_exact(3)
+                .map(|column| LookupPolys {
+                    product: &column[0],
+                    input: &column[1],
+                    table: &column[2],
+                })
+                .collect(),
+        };
+        let filters = [
+            OmitTerms(Vec::new()),
+            OmitTerms(
+                (4..8)
+                    .map(|polynomial| ConstraintTerm::Gate { polynomial })
+                    .collect(),
+            ),
+            OmitTerms(
+                (8..16)
+                    .map(|polynomial| ConstraintTerm::Gate { polynomial })
+                    .collect(),
+            ),
+            OmitTerms(vec![
+                ConstraintTerm::Gate { polynomial: 3 },
+                ConstraintTerm::Gate { polynomial: 18 },
+                ConstraintTerm::PermutationFirst,
+                ConstraintTerm::Lookup {
+                    lookup: 2,
+                    part: LookupConstraint::Product,
+                },
+            ]),
+        ];
+        let elements = workspace_elements(&pk, &protocol).unwrap();
+        let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
+        for y in [
+            C::ScalarExt::ZERO,
+            C::ScalarExt::ONE,
+            -C::ScalarExt::ONE,
+            C::ScalarExt::from(11),
+        ] {
+            let challenges = Challenges {
+                theta: C::ScalarExt::from(3),
+                beta: C::ScalarExt::from(5),
+                gamma: C::ScalarExt::from(7),
+                y,
+            };
+            let unfiltered =
+                row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &AllTerms)
+                    .unwrap();
+            for filter in &filters {
+                let expected =
+                    row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, filter)
+                        .unwrap();
+                if y == C::ScalarExt::from(11) && !filter.0.is_empty() {
+                    assert_ne!(
+                        expected, unfiltered,
+                        "factored omissions must not be vacuous"
+                    );
+                }
+                for pool in &pools {
+                    let actual = pool
+                        .install(|| {
+                            evaluate_with_workspace(
+                                &pk,
+                                &protocol,
+                                &compiled,
+                                &inputs,
+                                challenges,
+                                filter,
+                                &mut workspace,
+                            )
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        actual, expected,
+                        "cache={policy:?}, y={y:?}, filter={:?}",
+                        filter.0
+                    );
+                    assert!(workspace.is_zeroized());
+                    assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn factored_gate_chunks_match_full_quotient_on_both_fields() {
+    factored_quotient_parity::<Ep>();
+    factored_quotient_parity::<Eq>();
+}
+
+/// Records every lookup-filter call, omitting terms across batch boundaries.
+struct RecordBatchedLookups(std::sync::Mutex<Vec<ConstraintTerm>>);
+impl ConstraintFilter for RecordBatchedLookups {
+    fn keeps(&self, term: ConstraintTerm) -> bool {
+        if matches!(term, ConstraintTerm::Lookup { .. }) {
+            self.0.lock().unwrap().push(term);
+        }
+        !matches!(
+            term,
+            ConstraintTerm::Lookup {
+                lookup: 3 | 4 | 9,
+                part: LookupConstraint::Product | LookupConstraint::Step,
+            }
+        )
+    }
+}
+
+#[test]
+fn batched_lookup_filter_order_cancellation_unwind_and_reuse_both_fields() {
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(K).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(6253);
+        for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
+            let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
+            config.coset_cache = policy;
+            let pk = keygen_pk(&params, &ScheduledLookups(10), &config).unwrap();
+            let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
+            let shape = protocol.shape();
+            // One row task fixes the filter observation order within each lookup;
+            // the multi-column FFT still uses the selected pool's workers.
+            assert!(shape.n <= ROWS_PER_TASK);
+            let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
+            let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
+                (0..count)
+                    .map(|_| {
+                        (0..shape.n)
+                            .map(|_| C::ScalarExt::random(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            };
+            let advice = columns(shape.num_advice);
+            let instance = columns(shape.num_instance);
+            let products = columns(shape.permutation_sets);
+            let lookups = columns(3 * shape.lookups);
+            let inputs = QuotientInputs {
+                advice: &advice,
+                instance: &instance,
+                permutation_products: products.iter().map(Vec::as_slice).collect(),
+                lookups: lookups
+                    .chunks_exact(3)
+                    .map(|column| LookupPolys {
+                        product: &column[0],
+                        input: &column[1],
+                        table: &column[2],
+                    })
+                    .collect(),
+            };
+            let challenges = Challenges {
+                theta: C::ScalarExt::from(3),
+                beta: C::ScalarExt::from(5),
+                gamma: C::ScalarExt::from(7),
+                y: C::ScalarExt::from(11),
+            };
+            let filter = OmitTerms(
+                [3, 4, 9]
+                    .into_iter()
+                    .flat_map(|lookup| {
+                        [LookupConstraint::Product, LookupConstraint::Step]
+                            .map(|part| ConstraintTerm::Lookup { lookup, part })
+                    })
+                    .collect(),
+            );
+            let expected =
+                row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
+                    .unwrap();
+            let expected_calls: Vec<_> = (0..shape.quotient_pieces)
+                .flat_map(|_| {
+                    (0..shape.lookups).flat_map(|lookup| {
+                        (0..shape.n).flat_map(move |_| {
+                            [
+                                LookupConstraint::First,
+                                LookupConstraint::Last,
+                                LookupConstraint::Product,
+                                LookupConstraint::Start,
+                                LookupConstraint::Step,
+                            ]
+                            .map(|part| ConstraintTerm::Lookup { lookup, part })
+                        })
+                    })
+                })
+                .collect();
+            let elements = workspace_elements(&pk, &protocol).unwrap();
+            let count = elements / shape.n;
+            let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
+            let pointers: Vec<_> = workspace
+                .lease(shape.n, count)
+                .unwrap()
+                .columns
+                .iter()
+                .map(|column| column.as_ptr())
+                .collect();
+            for workers in [1, 3, 4] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(workers)
+                    .build()
+                    .unwrap();
+                for recovery in 0..2 {
+                    let recording = RecordBatchedLookups(std::sync::Mutex::new(Vec::new()));
+                    let actual = pool
+                        .install(|| {
+                            evaluate_with_workspace(
+                                &pk,
+                                &protocol,
+                                &compiled,
+                                &inputs,
+                                challenges,
+                                &recording,
+                                &mut workspace,
+                            )
+                        })
+                        .unwrap();
+                    assert_eq!(actual, expected);
+                    assert_eq!(*recording.0.lock().unwrap(), expected_calls);
+                    assert!(workspace.is_zeroized());
+                    if recovery == 0 {
+                        let token = CancellationToken::new();
+                        let cancelled = pool.install(|| {
+                            evaluate_with_workspace_cancellable(
+                                &pk,
+                                &protocol,
+                                &compiled,
+                                &inputs,
+                                challenges,
+                                &CancelLookup(&token),
+                                &mut workspace,
+                                Some(&token),
+                            )
+                        });
+                        assert!(matches!(cancelled, Err(ProverError::Cancelled)));
+                        assert!(workspace.is_zeroized());
+                        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            pool.install(|| {
+                                evaluate_with_workspace(
+                                    &pk,
+                                    &protocol,
+                                    &compiled,
+                                    &inputs,
+                                    challenges,
+                                    &PanicLookup,
+                                    &mut workspace,
+                                )
+                            })
+                        }));
+                        assert!(unwind.is_err());
+                        assert!(workspace.is_zeroized());
+                    }
+                }
+                assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                let retained: Vec<_> = workspace
+                    .lease(shape.n, count)
+                    .unwrap()
+                    .columns
+                    .iter()
+                    .map(|column| column.as_ptr())
+                    .collect();
+                assert_eq!(retained, pointers);
             }
         }
     }

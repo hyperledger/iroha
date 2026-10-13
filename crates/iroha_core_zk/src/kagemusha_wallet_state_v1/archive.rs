@@ -315,8 +315,12 @@ where
     T: norito::NoritoSerialize,
     for<'de> T: norito::NoritoDeserialize<'de>,
 {
-    norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
-        .map_err(|_| Error::WitnessLost("canonical archive record"))
+    norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
+    })
+    .map_err(|error| {
+        super::decode_attempt_error(error, Error::WitnessLost("canonical archive record"))
+    })
 }
 
 impl<A: ArchiveStore> super::ObjectStore for A {

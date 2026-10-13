@@ -1,0 +1,102 @@
+{
+  "committees": {
+    "n4": {
+      "keys": [
+        "0x84c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14",
+        "0x8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223",
+        "0x98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90",
+        "0xb2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470"
+      ],
+      "n": 4,
+      "q": 3,
+      "root": "0x10c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc14",
+      "test_key_indices": [
+        1,
+        3,
+        0,
+        2
+      ]
+    }
+  },
+  "conventions": "the rows have the shape of the negative_certificates rows of finality_v1.json, with `transcript` in place of `dst`: byte strings are 0x-prefixed lowercase hex, and `expected.evm`/`expected.ton` name the \u00a75.2.2 outcome of VerifyCertificate steps 1\u201312 on a fresh destination deployed with `pin` at `now_ms`. `now_ms` is the destination clock: block.timestamp (EVM) or now() (TON) in whole seconds, times 1000, so every `now_ms` is a multiple of 1000. The test keys, the committee and the verification context are those of finality_v1.json; a row is well formed up to the pairing check, the only step a foreign transcript can fail",
+  "generator": "the Rust reference alone writes this file (cargo test -p iroha_sccp --test v1_reference_finality -- --ignored regenerate); the Python reference verifies every row (pytests/scripts/test_sccp_reference.py)",
+  "negative_certificates": [
+    {
+      "bitmap": "0x07",
+      "checkpoint_id": "0xf949c4c2af8d966d31f7e17ce3e12e3709d677394b4094b0dc0a0109cffa873a",
+      "commit_kind": 3,
+      "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004a709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d70000000000001ce80000000000000000b69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597270b7c7c008a671270a80a269a91c9aa6c34b2aae61c4b7b98a9aa06eb570246",
+      "committee": "n4",
+      "description": "a full quorum of the n = 4 test committee signs the commit digest m of the certificate through the generic signing API of iroha_crypto (the w3f transcript) instead of the consensus API; the certificate is genuine in every other field",
+      "evm": {
+        "committee": "0x84c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b148b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
+        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ce8000001a0c456868001000000027140b2fe9dbb189037d7c21b676b42cb07c6492d46ea3d9eeb9cfccce4be4ab200000000000000281c9e4dc240ef4c4c99bdca794e0c649a45754ac755151f8f16961e78907c52ff000000000000000710c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc1400000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "qc": "0x000000000000004a709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d70000000000000000b69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597e4f0a268e11599cfe9840eb442dc9ccaedf53af9cb16053d097ae31a0c361d9700000007",
+        "signature": "0x0aa29d3a884a9af4e177a094eb471cbeccf4168dc21528671824cbee92f0dfb4e2247d684f6fd759cac02b79fab023790b4c2927f65ef62d69f2ebc8bc765ca2abb937d7aa9ba28370549490090327ec5f0d2ee9873fe0f849f36dce8b1eca3a0e0c49866c66de32b823597f44dc0e74b4855a880e323af8702e4319874153bcf9a84e3fa1d4c1b58fe4875e9a968dc8086a299768cbca3b6d4212a27b796c299a442178bd071aec9bb33973616ff3fcae53a2039facb1ceb32c79ecbe9e4b42",
+        "signerYs": "0x06eaf00534679fb64796e5cc16179aa62dbe61e73a93db82e3911b1d419fe8a61d7d68ad2d0b8da14aec7c00516a5b0304993bb019a46cb0c276645a22c1cbc4c9f2fc733a99841d0fcec7786bc2efb96c971131c1af8e8187927932122a496a06fa68cbb86a5974271a65c0714c32dfe7ead3724e6900a962945b9db6188a96e1d4f38991905fe8663c56de8551f72e"
+      },
+      "expected": {
+        "evm": "BadSignature",
+        "ton": "BadSignature"
+      },
+      "forgery_evidence_id": "0xa72f384476fafccf2e602a6c4071780ca79c5f3dd8efd254464ca2ff1878a88d",
+      "header_fields": {
+        "committee_root": "0x10c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc14",
+        "flags": 1,
+        "generation": 7,
+        "height": 7400,
+        "history_root": "0x1c9e4dc240ef4c4c99bdca794e0c649a45754ac755151f8f16961e78907c52ff",
+        "history_size": 40,
+        "message_count": 2,
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "next_committee_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "sccp_root": "0x7140b2fe9dbb189037d7c21b676b42cb07c6492d46ea3d9eeb9cfccce4be4ab2",
+        "timestamp_ms": 1790000400000,
+        "validity_ms": 0
+      },
+      "label": "w3f_transcript_over_commit_digest",
+      "m": "0xa42132a3adb5c5d258d1d8dfe399bd96aaa46506e0fcf2416c4d913c93c445f5",
+      "now_ms": 1790003600000,
+      "pin": {
+        "committee_root": "0x10c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc14",
+        "generation": 7,
+        "start_height": 7000,
+        "until_ms": 1791209600000
+      },
+      "qc_fixed_fields": {
+        "block_hash": "0xb69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597",
+        "epoch": 74,
+        "epoch_context": "0x709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d7",
+        "result_body": "0xe4f0a268e11599cfe9840eb442dc9ccaedf53af9cb16053d097ae31a0c361d97",
+        "signers": 7,
+        "view": 0
+      },
+      "r": "0x270b7c7c008a671270a80a269a91c9aa6c34b2aae61c4b7b98a9aa06eb570246",
+      "signer_indices": [
+        0,
+        1,
+        2
+      ],
+      "ton": {
+        "qc_fixed_cell": "0x000000000000004a709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d70000000000000000b69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597e4f0a268e11599cfe9840eb442dc9ccaedf53af9cb16053d097ae31a0c361d97",
+        "signature": "0x8b4c2927f65ef62d69f2ebc8bc765ca2abb937d7aa9ba28370549490090327ec5f0d2ee9873fe0f849f36dce8b1eca3a0aa29d3a884a9af4e177a094eb471cbeccf4168dc21528671824cbee92f0dfb4e2247d684f6fd759cac02b79fab02379",
+        "signers": 7,
+        "x_head": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ce8000001a0c456868001000000027140b2fe9dbb189037d7c21b676b42cb07c6492d46ea3d9eeb9cfccce4be4ab20000000000000028",
+        "x_tail": "0x1c9e4dc240ef4c4c99bdca794e0c649a45754ac755151f8f16961e78907c52ff000000000000000710c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc1400000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "transcript": "w3f: iroha_crypto::Signature::new(sk_i, m) for every signer i, summed; no signature is made under DST_SIG"
+    }
+  ],
+  "schema": "iroha.sccp.finality.rust.v1",
+  "spec": "specs/sccp.md \u00a73.8, \u00a75.1.3, \u00a711.3 (revision 5)",
+  "verification_context": {
+    "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
+    "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
+    "network": "ethereum-mainnet",
+    "taira_network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "ton": {
+      "destination_word": "0x3535353535353535353535353535353535353535353535353535353535353535",
+      "network": "ton-mainnet"
+    }
+  }
+}

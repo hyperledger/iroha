@@ -149,6 +149,7 @@ impl PreparedLocalnet {
             &bytes,
         )
         .map_err(|_| invalid())?;
+        self.context.validate_client_config(&client)?;
         let table = crate::secret_toml::parse_table(
             std::str::from_utf8(&bytes).map_err(|_| invalid())?,
             "generated publication client",
@@ -214,7 +215,7 @@ impl PreparedLocalnet {
         }
         let service = publication_material::retained_from_parts(
             &manifest,
-            &client.chain.to_string(),
+            client.chain.as_ref(),
             client.account_chain_discriminant,
             root,
         )
@@ -237,13 +238,14 @@ impl PreparedLocalnet {
         let expected = render_client_config(
             port,
             &CanonicalHost::parse("127.0.0.1", "generated Torii host").map_err(|_| invalid())?,
-            &client.chain.to_string(),
+            client.chain.as_ref(),
             resolve_localnet_chain_discriminant(
-                &client.chain.to_string(),
+                client.chain.as_ref(),
                 Some(client.account_chain_discriminant),
             )
             .map_err(|_| invalid())?,
             &identity,
+            HttpTransportPolicy::DirectLoopback,
             Some(&public),
         )
         .map_err(|_| invalid())?;
@@ -484,7 +486,7 @@ impl GeneratedAuthorities {
         )?;
         let service = publication_material::retained_from_parts(
             &manifest,
-            &raw.chain_id().to_string(),
+            raw.chain_id().as_ref(),
             raw.chain_discriminant(),
             generation,
         )?;

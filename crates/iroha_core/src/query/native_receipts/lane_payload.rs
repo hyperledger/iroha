@@ -1,6 +1,6 @@
 //! Original archive-byte ownership for an independently committed complete lane payload.
 //!
-//! Only the lane field and the complete ordinary-write root acquire authority here. Casting
+//! The lane field and exact SCCP delta join the complete ordinary-write root here. Casting
 //! values have their own consumers. No World snapshot, embedded committee or supplied root can
 //! create this owner; the selected carrier is an opaque original committed execution receipt.
 
@@ -21,7 +21,6 @@ use iroha_data_model::{
 };
 
 use super::ordinary_writes::{WriteDecodeError, decode_projection};
-#[cfg(test)]
 use crate::sumeragi::certified_chain::CommittedBlock;
 
 /// Source corruption is distinct from retryable refusal of the original read pool.
@@ -88,7 +87,6 @@ pub(crate) struct LanePayloadRead {
 impl LanePayloadRead {
     /// Pin the caller's original byte/pool owners and an already authenticated carrier. No read,
     /// graph decode, clone or allocation occurs here, and the selection cannot change on retry.
-    #[cfg(test)]
     pub(crate) fn new(
         bytes: ChargedBuffer<u8>,
         budget: AllocationBudget,
@@ -123,7 +121,7 @@ impl LanePayloadRead {
         }
     }
 
-    fn authenticate_range(&self) -> Result<Range<usize>, LanePayloadError> {
+    fn authenticate_range(&self) -> Result<(Range<usize>, Range<usize>), LanePayloadError> {
         let projection = decode_projection(&self.bytes, &self.budget)?;
         if projection.carrier_height != self.height || projection.carrier_hash != self.carrier {
             return Err(LanePayloadError::Source);
@@ -145,7 +143,16 @@ impl LanePayloadRead {
         if self.bytes.as_slice().get(start..end) != Some(projection.lane_payload) {
             return Err(LanePayloadError::Source);
         }
-        Ok(start..end)
+        let delta_start = (projection.sccp_delta.as_ptr() as usize)
+            .checked_sub(self.bytes.as_slice().as_ptr() as usize)
+            .ok_or(LanePayloadError::Source)?;
+        let delta_end = delta_start
+            .checked_add(projection.sccp_delta.len())
+            .ok_or(LanePayloadError::Source)?;
+        if self.bytes.as_slice().get(delta_start..delta_end) != Some(projection.sccp_delta) {
+            return Err(LanePayloadError::Source);
+        }
+        Ok((start..end, delta_start..delta_end))
     }
 
     /// Authenticate complete original lane bytes and write root without decoding a lane graph.
@@ -156,9 +163,10 @@ impl LanePayloadRead {
     )]
     pub(crate) fn authenticate(self) -> Result<LanePayload, (Self, LanePayloadError)> {
         match self.authenticate_range() {
-            Ok(range) => Ok(LanePayload {
+            Ok((range, delta_range)) => Ok(LanePayload {
                 bytes: self.bytes,
                 range,
+                delta_range,
                 network: self.network,
                 height: self.height,
                 carrier: self.carrier,
@@ -174,14 +182,24 @@ impl LanePayloadRead {
 pub(crate) struct LanePayload {
     bytes: ChargedBuffer<u8>,
     range: Range<usize>,
+    delta_range: Range<usize>,
     network: NetworkId,
     height: u64,
     carrier: HashOf<BlockHeader>,
 }
 impl LanePayload {
+    #[cfg(test)]
+    pub(crate) fn archive_source_bytes_for_test(&self) -> usize {
+        self.bytes.as_slice().len()
+    }
     /// Original canonical lane payload, without a second frame or decoded graph.
     pub(crate) fn payload(&self) -> &[u8] {
         &self.bytes.as_slice()[self.range.clone()]
+    }
+    /// Exact delta authenticated by this carrier's complete ordinary-write root.
+    /// It grants historical SCCP values, never current snapshot authority.
+    pub(crate) fn sccp_delta(&self) -> &[u8] {
+        &self.bytes.as_slice()[self.delta_range.clone()]
     }
     /// Borrow one original creation record by incarnation; retirement may remove it later.
     pub(crate) fn lane_record(

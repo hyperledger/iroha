@@ -62,6 +62,7 @@ FINALITY_TESTS = (
     "native_finality_schema_matches_executed_norito_json_and_rejects_retired_fields",
     "ledger_state_endpoints_expose_one_closed_authenticated_native_schema",
     "bridge_finality_operations_describe_current_durable_evidence",
+    "finality_interval_openapi_binds_full_proofs_positive_selectors_and_native_count_limit",
     "signed_status_documents_actual_driver_fields",
     "current_finality_schemas_match_portable_wire_bounds",
     "generated_spec_documents_read_only_nexus_lifecycle_status",

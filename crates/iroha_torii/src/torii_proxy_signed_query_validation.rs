@@ -5,6 +5,10 @@ enum ProxySignedQueryReplayScope {
     RouteScanDeferred,
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_verified_proxy_signed_query(
     query_bytes: &[u8],
     request_kind: &'static str,
@@ -16,7 +20,7 @@ fn decode_verified_proxy_signed_query(
         <SignedQuery as iroha_version::codec::DecodeVersioned>::decode_all_versioned(query_bytes)
     };
     let query = norito::with_decode_limits_scope(limits, decode).map_err(|error| {
-        let resource_limit = matches!(error, iroha_version::error::Error::NoritoResourceLimit(_));
+        let resource_limit = error.is_decode_resource_limit();
         torii_proxy_error_response(
             if resource_limit {
                 StatusCode::PAYLOAD_TOO_LARGE
@@ -52,6 +56,10 @@ fn decode_verified_proxy_signed_query(
     .map_err(IntoResponse::into_response)
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn reject_proxy_client_continuation(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
     request_kind: &'static str,
@@ -69,6 +77,10 @@ fn reject_proxy_client_continuation(
     Ok(())
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_proxy_signed_query_route(
     authority: &AccountId,
     authorized_routes: &[RoutingDecision],

@@ -12,6 +12,10 @@ impl ToriiFanoutDecodeBudget {
             max_retained_bytes: max_retained_bytes.max(1),
         }
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn remaining(&self) -> Result<usize, Response> {
         let remaining = self
             .max_retained_bytes
@@ -35,6 +39,10 @@ impl ToriiFanoutDecodeBudget {
         }
         Ok(remaining)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn charge(&mut self, bytes: usize) -> Result<(), Response> {
         self.retained_bytes = self
             .retained_bytes
@@ -160,6 +168,10 @@ fn query_fanout_fixed_overhead_bytes() -> Option<usize> {
 ///   canonicalization scratch units. This is a sequential comparison phase,
 ///   not a route-count multiplier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Byte units are explicit for every independently admitted allocation phase."
+)]
 struct QueryFanoutMemoryEnvelope {
     working_set_bytes: usize,
     request_bytes: usize,
@@ -172,6 +184,10 @@ struct QueryFanoutMemoryEnvelope {
     final_body_bytes: usize,
 }
 impl QueryFanoutMemoryEnvelope {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn for_request_lengths(
         working_set_bytes: usize,
         signed_query_bytes: usize,
@@ -218,6 +234,10 @@ impl QueryFanoutMemoryEnvelope {
                     .checked_mul(QUERY_FANOUT_VERIFIED_REQUEST_REPRESENTATIONS)?,
             )
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn for_body_admission(working_set_bytes: usize) -> Result<Self, Response> {
         let phase_bytes = Self::body_admission_unit(working_set_bytes)?;
         Self::with_phase_bytes(working_set_bytes, 0, phase_bytes)
@@ -258,6 +278,10 @@ impl QueryFanoutMemoryEnvelope {
                 )
             })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn new(working_set_bytes: usize, request_bytes: usize) -> Result<Self, Response> {
         let fixed_overhead = query_fanout_fixed_overhead_bytes().ok_or_else(|| {
             torii_proxy_error_response(
@@ -282,6 +306,10 @@ impl QueryFanoutMemoryEnvelope {
             })?;
         Self::with_phase_bytes(working_set_bytes, request_bytes, phase_bytes)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn with_phase_bytes(
         working_set_bytes: usize,
         request_bytes: usize,
@@ -452,6 +480,10 @@ impl QueryFanoutMemoryEnvelope {
             u64::try_from(self.decode_allocated_bytes).unwrap_or(u64::MAX),
         )
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_limits(self, encoded_len: usize) -> Result<norito::DecodeLimits, Response> {
         // The coordinator retains the verified request while one local route
         // owns a decoded clone. Each representation receives half of the one
@@ -468,9 +500,17 @@ impl QueryFanoutMemoryEnvelope {
             canonical_encoded_bytes: self.candidate_encoded_bytes,
         }
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn response_decode_limits(self, encoded_len: usize) -> Result<norito::DecodeLimits, Response> {
         Self::decode_limits_for(encoded_len, self.decode_allocated_bytes)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn decode_limits_for(
         encoded_len: usize,
         max_allocated_bytes: usize,
@@ -502,6 +542,10 @@ struct QueryScopeMemoryLimits {
     canonical_encoded_bytes: usize,
 }
 impl QueryScopeMemoryLimits {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn decode_limits(self, encoded_len: usize) -> Result<norito::DecodeLimits, Response> {
         QueryFanoutMemoryEnvelope::decode_limits_for(encoded_len, self.decode_allocated_bytes)
     }
@@ -517,6 +561,10 @@ const QUERY_INGRESS_SLOT_COUNT: usize = 4;
 const QUERY_INGRESS_PHASE_UNITS: usize = 5;
 /// Complete memory reservation for one signed-query body before its route is known.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Byte units distinguish admitted ingress and canonicalization allocations."
+)]
 struct QueryIngressMemoryEnvelope {
     slot_bytes: usize,
     body_bytes: usize,
@@ -533,6 +581,10 @@ struct QueryIngressMemoryEnvelope {
 /// decoded envelope, one shared outbound frame and bounded codec scratch. Candidate attempts
 /// are sequential and retain at most one bounded retry diagnostic beside the next response.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Byte units are explicit for each retained and transient proxy allocation."
+)]
 struct ToriiProxyHttpIngressEnvelope {
     working_set_bytes: usize,
     body_bytes: usize,
@@ -561,6 +613,10 @@ impl ToriiProxyHttpIngressEnvelope {
         };
         envelope.phases_fit().then_some(envelope)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn decode_limits(self) -> Result<norito::DecodeLimits, Response> {
         QueryFanoutMemoryEnvelope::decode_limits_for(self.body_bytes, self.decode_allocated_bytes)
     }
@@ -604,6 +660,10 @@ impl QueryIngressMemoryEnvelope {
         };
         envelope.phases_fit().then_some(envelope)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_limits(
         self,
         provisional_fanout: QueryFanoutMemoryEnvelope,
@@ -624,6 +684,10 @@ impl QueryIngressMemoryEnvelope {
     /// receives at most two ingress allocation units for that transient. The independent fanout
     /// half-phase remains an upper bound so ingress cannot borrow memory it will not own after
     /// promotion.
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn json_request_two_unit_decode_limits(
         self,
         provisional_fanout: QueryFanoutMemoryEnvelope,
@@ -804,7 +868,7 @@ fn weighted_permit_count(bytes: u64, bytes_per_permit: NonZeroU64) -> Option<u32
         return Some(0);
     }
     let quantum = bytes_per_permit.get();
-    let permits = (bytes / quantum).checked_add(u64::from(bytes % quantum != 0))?;
+    let permits = (bytes / quantum).checked_add(u64::from(!bytes.is_multiple_of(quantum)))?;
     u32::try_from(permits).ok()
 }
 /// One app-local byte-weighted admission pool.
@@ -1092,6 +1156,10 @@ impl ToriiProxyMemoryReservation {
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn acquire_torii_proxy_memory(
     app: &SharedAppState,
 ) -> Result<ToriiProxyMemoryReservation, Response> {
@@ -1101,6 +1169,10 @@ fn acquire_torii_proxy_memory(
     // apply to this independent all-variant memory lane.
     try_acquire_torii_proxy_memory(app)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn try_acquire_torii_proxy_memory(
     app: &SharedAppState,
 ) -> Result<ToriiProxyMemoryReservation, Response> {
@@ -1116,6 +1188,10 @@ fn try_acquire_torii_proxy_memory(
             )
         })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn try_acquire_torii_proxy_receiver_memory(
     app: &SharedAppState,
 ) -> Result<ToriiProxyMemoryReservation, Response> {
@@ -1148,6 +1224,10 @@ fn hold_torii_proxy_memory_in_response_body(
 ///
 /// Failing fast here prevents a full fanout queue from pinning every ingress
 /// permit and starving ordinary signed-query body decoding.
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn try_acquire_query_fanout_memory(
     app: &SharedAppState,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
@@ -1159,6 +1239,10 @@ fn try_acquire_query_fanout_memory(
     }
     try_acquire_new_query_fanout_memory(app)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn try_acquire_new_query_fanout_memory(
     app: &SharedAppState,
 ) -> Result<QueryFanoutMemoryReservation, Response> {
@@ -1206,7 +1290,6 @@ fn try_acquire_query_memory_envelope(
 /// listener already bounds its raw HTTP head; the separate waiter count bounds
 /// how many of those heads remain here. No signed-query ingress permit or decoded
 /// request is pinned while waiting for the complete fanout working set.
-#[cfg(feature = "app_api")]
 async fn acquire_app_routed_read_http_memory(
     app: &SharedAppState,
     accepts_body: bool,
@@ -1303,6 +1386,10 @@ impl QueryFanoutMemoryReservation {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn from_admitted_fanout(
         permit: tokio::sync::OwnedSemaphorePermit,
         envelope: QueryFanoutMemoryEnvelope,
@@ -1347,6 +1434,10 @@ impl QueryFanoutMemoryReservation {
         })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admitted_envelope(
         &self,
         app: &SharedAppState,
@@ -1372,7 +1463,7 @@ fn current_query_fanout_memory_for_state(app: &AppState) -> Option<QueryFanoutMe
                 admission.pool_generation == app.query_fanout_inflight.generation()
             })
         };
-        return COLLECTION_READ_MEMORY_RESERVATION
+        COLLECTION_READ_MEMORY_RESERVATION
             .try_with(Clone::clone)
             .ok()
             .filter(matches_pool)
@@ -1381,7 +1472,7 @@ fn current_query_fanout_memory_for_state(app: &AppState) -> Option<QueryFanoutMe
                     .try_with(|admission| admission.reservation.clone())
                     .ok()
                     .filter(matches_pool)
-            });
+            })
     }
     #[cfg(not(feature = "app_api"))]
     {

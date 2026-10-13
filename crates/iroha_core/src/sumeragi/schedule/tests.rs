@@ -51,7 +51,7 @@ fn chain_params_record_round_trips_the_core_and_on_chain_forms() {
 fn chain_params_validation_uses_the_chain_transport_limit() {
     let mut record = params();
     record.max_block_bytes =
-        u32::try_from(CHAIN_TRANSPORT_FRAME_LIMIT - u64::from(FRAME_OVERHEAD)).expect("fits");
+        u32::try_from(CHAIN_TRANSPORT_FRAME_LIMIT - 2 * u64::from(FRAME_OVERHEAD)).expect("fits");
     record.validate().expect("exactly at the limit");
     record.max_block_bytes += 1;
     assert_eq!(
@@ -102,23 +102,23 @@ fn canonical_committee_sorts_by_core_key_and_dedups() {
 fn parameter_changes_validate_after_genesis_only() {
     let current = SumeragiParameters::default();
     let window = SumeragiParameter::DemotionWindow(NonZeroU64::new(64).unwrap());
-    validate_parameter_change(&current, &window, true).expect("genesis");
+    validate_parameter_change(&current, &window, true, false).expect("genesis");
     assert_eq!(
-        validate_parameter_change(&current, &window, false),
+        validate_parameter_change(&current, &window, false, false),
         Err(ScheduleError::GenesisOnly)
     );
     let too_fast_retry = SumeragiParameter::PayloadRetryIntervalMs(NonZeroU64::new(999).unwrap());
     assert_eq!(
-        validate_parameter_change(&current, &too_fast_retry, false),
+        validate_parameter_change(&current, &too_fast_retry, false, false),
         Err(ScheduleError::Params(
             ConfigError::BlockTimeAbovePayloadRetry
         ))
     );
     // In genesis the combination is checked when the schedule is installed.
-    validate_parameter_change(&current, &too_fast_retry, true).expect("genesis defers");
+    validate_parameter_change(&current, &too_fast_retry, true, false).expect("genesis defers");
     let huge = SumeragiParameter::MaxBlockBytes(NonZeroU32::new(u32::MAX).unwrap());
     assert!(matches!(
-        validate_parameter_change(&current, &huge, false),
+        validate_parameter_change(&current, &huge, false, false),
         Err(ScheduleError::Params(
             ConfigError::MaxBlockBytesAboveTransport
         ))
@@ -131,8 +131,72 @@ fn parameter_changes_validate_after_genesis_only() {
         SumeragiParameter::MaxBlockBytes(NonZeroU32::new(1 << 20).unwrap()),
         SumeragiParameter::EpochLengthBlocks(NonZeroU64::new(7_200).unwrap()),
     ] {
-        validate_parameter_change(&current, &ok, false).expect("valid change");
+        validate_parameter_change(&current, &ok, false, false).expect("valid change");
     }
+}
+
+#[test]
+fn clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes() {
+    use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+    let current = SumeragiParameters {
+        due_work_max_lag_ms: NonZeroU64::new(124_000).unwrap(),
+        ..SumeragiParameters::default()
+    };
+    for genesis in [true, false] {
+        for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
+            validate_parameter_change(
+                &current,
+                &SumeragiParameter::MaxClockDriftMs(value),
+                genesis,
+                false,
+            )
+            .expect("inclusive protocol bound");
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            let expected = iroha_data_model::parameter::system::validate_max_clock_drift_ms(value)
+                .unwrap_err();
+            assert_eq!(
+                validate_parameter_change(
+                    &current,
+                    &SumeragiParameter::MaxClockDriftMs(value),
+                    genesis,
+                    false,
+                ),
+                Err(ScheduleError::Epoch(expected.to_string())),
+            );
+        }
+    }
+}
+
+#[test]
+fn due_work_parameter_changes_preserve_combined_margin_and_genesis_order_independence() {
+    let current = SumeragiParameters::default();
+    for (lag, accepted) in [(5_999, false), (6_000, true), (60_000, true)] {
+        let change = SumeragiParameter::DueWorkMaxLagMs(NonZeroU64::new(lag).unwrap());
+        assert_eq!(
+            validate_parameter_change(&current, &change, false, false).is_ok(),
+            accepted
+        );
+        validate_parameter_change(&current, &change, true, false)
+            .expect("genesis validates the final combined policy");
+    }
+    assert!(
+        validate_parameter_change(
+            &current,
+            &SumeragiParameter::MaxClockDriftMs(28_001),
+            false,
+            false
+        )
+        .is_err()
+    );
+    validate_parameter_change(
+        &current,
+        &SumeragiParameter::MaxClockDriftMs(28_000),
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(current.due_work_max_lag_ms(), 60_000);
 }
 
 fn genesis_with(instructions: Vec<InstructionBox>) -> GenesisBlock {
@@ -516,4 +580,22 @@ fn genesis_outcome_cannot_supply_an_arbitrary_epoch_or_boundary() {
     }
     assert!(ConsensusSchedule::from_genesis_outcome(&bad).is_err());
     assert!(ConsensusSchedule::from_genesis_outcome(&retained_boundary(&outcome.current)).is_err());
+}
+
+#[test]
+fn sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization() {
+    let current = SumeragiParameters {
+        block_cadence_ms: NonZeroU64::new(1000).unwrap(),
+        ..Default::default()
+    };
+    for genesis in [false, true] {
+        let exact = SumeragiParameter::EpochLengthBlocks(NonZeroU64::new(3600).unwrap());
+        validate_parameter_change(&current, &exact, genesis, true).unwrap();
+        let short = SumeragiParameter::EpochLengthBlocks(NonZeroU64::new(3599).unwrap());
+        assert!(matches!(
+            validate_parameter_change(&current, &short, genesis, true),
+            Err(ScheduleError::Epoch(_))
+        ));
+        validate_parameter_change(&current, &short, genesis, false).unwrap();
+    }
 }

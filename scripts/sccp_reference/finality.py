@@ -24,7 +24,17 @@ from .bls12_381 import (
     g2_to_eip2537,
     g2_to_evm192,
 )
-from .common import MAX_HISTORY_SIZE, MAX_VALIDITY_MS, SccpError, be32, be64, h_iroha, sha256
+from .common import (
+    MAX_HISTORY_SIZE,
+    MAX_VALIDITY_MS,
+    SCCP_ANCHOR_CHUNK,
+    U64_MAX,
+    SccpError,
+    be32,
+    be64,
+    h_iroha,
+    sha256,
+)
 from .hash_to_curve import DST_SIG, hash_to_g2
 from .keccak import keccak256
 
@@ -46,6 +56,10 @@ ANCHOR_NODE_TAG = b"sccp/anchor-node/v1"
 FORGERY_EVIDENCE_TAG = b"sccp/forgery-evidence/v1"
 FLAG_ACTIVE = 0x01
 FLAG_ROTATION = 0x02
+# X6: a rotation at height `h` of generation `g` installs generation `g + 1` starting at `h + 1`,
+# and both successor values must fit `u64`.
+MAX_ROTATION_HEIGHT = U64_MAX - 1
+MAX_ROTATION_GENERATION = U64_MAX - 1
 ZERO32 = bytes(32)
 
 
@@ -132,7 +146,13 @@ def inactive_header(network_id: bytes, height: int, timestamp_ms: int) -> Finali
 
 
 def parse_header(data: bytes) -> FinalityHeader:
-    """`SccpFinalityHeaderV1::parse`: exact length, then X1–X7 in order (`SccpError(name="X<k>")`)."""
+    """`SccpFinalityHeaderV1::parse`: exact length, then X1–X7 (`SccpError(name="X<k>")`).
+
+    The checks run in the order Length, X1, X2 (inactive) or X3 (active), X4, X5,
+    X6, X7 and the first violated one is reported. X6 also bounds a rotation's
+    height and generation by `2^64 − 2`, so that the successor's start
+    `height + 1` and its generation `generation + 1` fit `u64`.
+    """
     if len(data) != X_LEN:
         raise SccpError("Length", f"X must be {X_LEN} bytes")
 
@@ -168,6 +188,10 @@ def parse_header(data: bytes) -> FinalityHeader:
     if x.rotation:
         if x.next_committee_root == ZERO32 or not 1 <= x.validity_ms <= MAX_VALIDITY_MS:
             raise SccpError("X6", "rotation needs a successor root and a validity")
+        if x.height > MAX_ROTATION_HEIGHT:
+            raise SccpError("X6", "rotation at the last height leaves no successor start")
+        if x.generation > MAX_ROTATION_GENERATION:
+            raise SccpError("X6", "rotation of the last generation leaves no successor generation")
     elif x.next_committee_root != ZERO32 or x.validity_ms != 0:
         raise SccpError("X6", "non-rotation X carries successor fields")
     if x.height < 1:
@@ -204,8 +228,14 @@ def checkpoint_id(x: bytes) -> bytes:
 
 
 def committee_root(keys: list[bytes]) -> bytes:
-    """`keccak256("SCCP/COMMITTEE/V1" ‖ u8 n ‖ PK_0 ‖ … ‖ PK_{n−1})` (18 + 48n bytes)."""
-    if not keys or any(len(k) != 48 for k in keys) or len(keys) > 255:
+    """`keccak256("SCCP/COMMITTEE/V1" ‖ u8 n ‖ PK_0 ‖ … ‖ PK_{n−1})` (18 + 48n bytes).
+
+    The root is defined for `1 ≤ n ≤ 255` keys only, the counts the `u8` can
+    name without ambiguity; any other list has no root and raises `ValueError`.
+    """
+    if not 1 <= len(keys) <= 255:
+        raise ValueError("a committee root is defined for 1 to 255 keys")
+    if any(len(k) != 48 for k in keys):
         raise ValueError("committee keys are 48-byte compressed points")
     return keccak256(COMMITTEE_TAG, bytes([len(keys)]), *keys)
 
@@ -327,9 +357,9 @@ def anchor_node(left: bytes, right: bytes) -> bytes:
 
 
 def anchor_chunk_levels(leaves: list[bytes]) -> list[list[bytes]]:
-    """The complete binary tree over one full chunk (4 096 anchors)."""
-    if len(leaves) & (len(leaves) - 1) or not leaves:
-        raise ValueError("a chunk tree needs a power-of-two leaf count")
+    """The complete binary tree over one full chunk: exactly 4 096 anchors (§4.2.1). An open chunk has no root."""
+    if len(leaves) != SCCP_ANCHOR_CHUNK:
+        raise ValueError(f"a chunk tree needs exactly {SCCP_ANCHOR_CHUNK} leaves")
     levels = [list(leaves)]
     while len(levels[-1]) > 1:
         level = levels[-1]
@@ -347,8 +377,10 @@ def anchor_chunk_path(levels: list[list[bytes]], position: int) -> list[bytes]:
 
 
 def anchor_chunk_position(height: int) -> tuple[int, int]:
-    """`(chunk, position) = (⌊(a − 1) / 4096⌋, (a − 1) mod 4096)`."""
-    return (height - 1) // 4096, (height - 1) % 4096
+    """`(chunk, position) = (⌊(a − 1) / 4096⌋, (a − 1) mod 4096)` for an anchor height `a ≥ 1`."""
+    if height < 1:
+        raise ValueError("anchor heights start at 1")
+    return (height - 1) // SCCP_ANCHOR_CHUNK, (height - 1) % SCCP_ANCHOR_CHUNK
 
 
 def forgery_evidence_id(generation: int, message: bytes, signers: int) -> bytes:

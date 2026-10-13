@@ -133,6 +133,14 @@ impl ExportFailure {
     }
 }
 
+/// Combine two exactly representable limbs after the range guard accepts a value.
+fn integer_projection(value: u64) -> f64 {
+    let bytes = value.to_be_bytes();
+    let high = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let low = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    f64::from(high).mul_add(4_294_967_296.0, f64::from(low))
+}
+
 fn values(usage: Usage) -> [u64; 5] {
     [
         usage.resident_associations,
@@ -175,11 +183,16 @@ impl ResourceCollector {
         let descriptors = SPECS
             .iter()
             .map(|(name, help, label)| {
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "Prometheus requires HashMap for constant labels; this map is empty"
+                )]
+                let constant_labels = std::collections::HashMap::new();
                 CollectorDesc::new(
                     format!("{PREFIX}{name}"),
                     (*help).to_owned(),
                     label.iter().map(|label| (*label).to_owned()).collect(),
-                    Default::default(),
+                    constant_labels,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -221,7 +234,7 @@ impl ResourceCollector {
                     let mut gauge = proto::Gauge::default();
                     // checked_projection validated every source integer before this path.
                     // Availability/status values are only zero or one.
-                    gauge.set_value(value as f64);
+                    gauge.set_value(integer_projection(value));
                     metric.set_gauge(gauge);
                     if let Some(label) = label {
                         let mut pair = proto::LabelPair::default();
@@ -236,9 +249,9 @@ impl ResourceCollector {
         family
     }
 
-    fn project(&self, observation: Result<Snapshot, ExportFailure>) -> Vec<proto::MetricFamily> {
+    fn project(&self, observation: Result<&Snapshot, ExportFailure>) -> Vec<proto::MetricFamily> {
         let qualified = observation.and_then(|snapshot| {
-            checked_projection(&snapshot).map(|represented| (snapshot, represented))
+            checked_projection(snapshot).map(|represented| (snapshot, represented))
         });
         let (snapshot, represented) = match qualified {
             Ok(value) => value,
@@ -279,7 +292,7 @@ impl Collector for ResourceCollector {
     }
 
     fn collect(&self) -> Vec<proto::MetricFamily> {
-        self.project(self.observe())
+        self.project(self.observe().as_ref().map_err(|reason| *reason))
     }
 }
 

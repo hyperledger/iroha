@@ -158,6 +158,484 @@ fn sync_refetches_a_gap_left_by_a_dropped_forged_prefix() {
     assert_eq!(h.core.tip.height, 6, "catch-up completes");
 }
 
+/// F28 seed 177: a restored proposal with a lost body must learn sync responders,
+/// even after every peer has advanced beyond its proposal height.
+#[test]
+fn det_l32_sync_enriches_restored_body_want() {
+    for existing_peer in [false, true] {
+        let mut h = H::new(4, pick::leader(0));
+        h.run_until(h.now + 1_100);
+        h.built(b"original before restart");
+        let bh = h.durable().unwrap().proposal.unwrap().block_hash;
+        let first = h.bodies.remove(&bh).expect("original authored body");
+        h.auto_fetch = false;
+        h.withheld_rows.insert(bh);
+        h.restart();
+        assert_eq!(h.core.resend_recorded, Some(bh));
+        assert!(h.core.wants[&bh].sources.is_empty());
+        assert!(h.core.blocks.is_empty());
+        let peers = h.others(2, &[]);
+        let source = peers[0];
+        let source_key = h.key_at(source);
+        let stale_key = h.key_at(peers[1]);
+        if existing_peer {
+            h.core.want(bh, 1, vec![stale_key.clone()]);
+        }
+        let want = &h.core.wants[&bh];
+        let retry = (want.cursor, want.attempt, want.next_retry);
+        let second = h.block_at(2, (bh, result_of(&first)), 0, b"next committed body");
+        let second_hash = h.bh(&second);
+        h.withheld_rows.insert(second_hash);
+        let second_qc = h.cqc_for(&second, 0);
+        let out = h.deliver(source, WireMessage::Qc(second_qc.clone()));
+        assert_eq!(sync_from(&out), Some(1));
+        let first_qc = h.cqc_for(&first, 0);
+        h.deliver(
+            source,
+            WireMessage::SyncResponse(SyncResponse {
+                instance: I,
+                blocks: vec![
+                    SyncEntry {
+                        manifest: manifest(&first),
+                        commit_qc: first_qc,
+                    },
+                    SyncEntry {
+                        manifest: manifest(&second),
+                        commit_qc: second_qc,
+                    },
+                ],
+            }),
+        );
+        let expected = if existing_peer {
+            vec![stale_key, source_key.clone()]
+        } else {
+            vec![source_key.clone()]
+        };
+        let want = &h.core.wants[&bh];
+        assert_eq!(
+            want.sources, expected,
+            "the original want learns the responder"
+        );
+        assert_eq!((want.cursor, want.attempt, want.next_retry), retry);
+        h.fire(Event::Tick);
+        assert_eq!(
+            h.core.wants[&bh].sources, expected,
+            "repeated merge deduplicates"
+        );
+        assert_eq!(h.core.tip.height, 0, "a manifest alone is not body custody");
+        assert!(h.store.is_empty());
+        let out = h.tick(h.local.fetch_retry);
+        assert!(out.iter().any(|action| matches!(action,
+            Action::FetchPayload { source: bound, peers }
+                if bound.instance() == I && bound.height() == 1 && bound.block_hash() == bh
+                    && bound.config() == h.core.config(1).unwrap() && peers.contains(&source_key)
+        )), "the unchanged retry fetches the original authenticated source from its new peer");
+        assert!(h.store.is_empty());
+        h.deliver_rows(source, &first);
+        assert_eq!(h.core.tip.height, 1);
+        assert_eq!(h.store.len(), 1);
+        h.deliver_rows(source, &second);
+        assert_eq!(h.core.tip.height, 2);
+        assert_eq!(
+            h.store
+                .iter()
+                .map(|(body, _)| body.header().height)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+}
+
+/// A requested sync donor must remain fetchable after finite stale-source saturation.
+#[test]
+fn det_l33_verified_sync_donor_survives_saturated_history() {
+    use crate::types::PublicKey;
+
+    let mut h = H::new(4, pick::leader(0));
+    h.run_until(h.now + 1_100);
+    h.built(b"original before restart");
+    let bh = h.durable().unwrap().proposal.unwrap().block_hash;
+    let first = h.bodies.remove(&bh).expect("original authored body");
+    h.auto_fetch = false;
+    h.withheld_rows.insert(bh);
+    h.restart();
+    assert!(h.core.wants[&bh].sources.is_empty());
+    let second = h.block_at(2, (bh, result_of(&first)), 0, b"next committed body");
+    h.withheld_rows.insert(h.bh(&second));
+    let entries = vec![
+        SyncEntry {
+            manifest: manifest(&first),
+            commit_qc: h.cqc_for(&first, 0),
+        },
+        SyncEntry {
+            manifest: manifest(&second),
+            commit_qc: h.cqc_for(&second, 0),
+        },
+    ];
+    let response = |blocks| {
+        WireMessage::SyncResponse(SyncResponse {
+            instance: I,
+            blocks,
+        })
+    };
+    let members: Vec<_> = h
+        .others(3, &[])
+        .into_iter()
+        .map(|index| h.key_at(index))
+        .collect();
+    let mut stale = members.clone();
+    stale.extend((0xa0..0xa9).map(|byte| PublicKey::new(vec![byte; 32]).unwrap()));
+    assert_eq!(stale.len(), h.core.n() + 8);
+    // Known-height certificates can be relayed by authenticated nonmembers. Across
+    // rotations the same bounded history can retain peers which no longer serve rows.
+    let donor = PublicKey::new(vec![0xe1; 48]).unwrap();
+    let replacement = PublicKey::new(vec![0xe2; 64]).unwrap();
+    assert!(!h.core.cfg.committee.contains(&donor));
+    for peer in stale.iter().chain([&donor, &replacement]) {
+        h.deliver_key(peer.clone(), WireMessage::Qc(entries[1].commit_qc.clone()));
+    }
+    h.core.want(bh, 1, stale.clone());
+    assert_eq!(h.core.wants[&bh].sources, stale);
+    let mut requested = false;
+    for _ in 0..=stale.len() + 1 {
+        let out = h.tick(h.local.sync_retry);
+        if out.iter().any(|action| {
+            matches!(action,
+                Action::Send { to, msg: WireMessage::SyncRequest(request) }
+                    if to == &replacement && request.from_height == 1
+            )
+        }) {
+            requested = true;
+            break;
+        }
+    }
+    assert!(
+        requested,
+        "both later-generation donors were actually asked"
+    );
+    // Exercise the small-fanout retry state as well as a full peer list; promotion
+    // must not reset these original fields or rely on exponential saturation.
+    let retry_at = h.now + h.local.fetch_retry;
+    let want = h.core.wants.get_mut(&bh).unwrap();
+    want.cursor = 0;
+    want.attempt = 0;
+    want.next_retry = retry_at;
+    let retry = (want.cursor, want.attempt, want.next_retry);
+    let unrequested = PublicKey::new(vec![0xe3; 32]).unwrap();
+    h.deliver_key(unrequested, response(entries.clone()));
+    assert_eq!(
+        h.core.wants[&bh].sources, stale,
+        "unsolicited metadata cannot evict peers"
+    );
+    assert!(h.core.wants[&bh].sync_responder.is_none());
+    let mut invalid = entries.clone();
+    invalid[0].commit_qc.result = Hash32([0x99; 32]);
+    h.deliver_key(stale[0].clone(), response(invalid));
+    assert_eq!(
+        h.core.wants[&bh].sources, stale,
+        "invalid QC cannot promote a donor"
+    );
+    assert!(h.core.wants[&bh].sync_responder.is_none());
+    let out = h.deliver_key(donor.clone(), response(entries.clone()));
+    let want = &h.core.wants[&bh];
+    assert!(
+        want.sources.contains(&donor),
+        "verified responder enters the saturated want"
+    );
+    assert_eq!(want.sync_responder.as_ref(), Some(&donor));
+    assert_eq!(want.sources.len(), stale.len());
+    assert!(members.iter().all(|peer| want.sources.contains(peer)));
+    assert_eq!((want.cursor, want.attempt, want.next_retry), retry);
+    assert!(out.iter().any(|action| matches!(action,
+        Action::FetchPayload { source, peers }
+            if source.instance() == I && source.height() == 1 && source.block_hash() == bh
+                && source.config() == h.core.config(1).unwrap() && peers.as_slice() == std::slice::from_ref(&donor)
+    )), "one immediate fetch uses the exact verified source and donor");
+    let bytes_before = h.core.status().footprint.sync_bytes;
+    // A solicited but different same-height carrier cannot replace the retained donor.
+    let mut foreign = entries.clone();
+    foreign[0].commit_qc.result = Hash32([0x88; 32]);
+    foreign[1].commit_qc.result = Hash32([0x88; 32]);
+    h.deliver_key(stale[1].clone(), response(foreign));
+    assert_eq!(h.core.wants[&bh].sync_responder.as_ref(), Some(&donor));
+    assert_eq!(h.core.status().footprint.sync_bytes, bytes_before);
+    let keys: Vec<_> = std::iter::once(h.signers[0].public_key().clone())
+        .chain(members.iter().take(h.q() - 1).cloned())
+        .collect();
+    let mut alternate = entries;
+    for (entry, body) in alternate.iter_mut().zip([&first, &second]) {
+        let height = body.header().height;
+        let committee = h.config(height).committee;
+        let qc = h.qc_keys(
+            &committee,
+            VoteKind::Commit,
+            height,
+            0,
+            (h.bh(body), result_of(body)),
+            &keys,
+        );
+        assert_ne!(entry.commit_qc.signers, qc.signers);
+        entry.commit_qc = qc;
+    }
+    let out = h.deliver_key(replacement.clone(), response(alternate));
+    assert_eq!(
+        h.core.wants[&bh].sync_responder.as_ref(),
+        Some(&replacement)
+    );
+    assert_eq!(
+        h.core.status().footprint.sync_bytes,
+        bytes_before,
+        "both maximum donor keys were prepaid"
+    );
+    assert!(out.iter().any(|action| matches!(action,
+        Action::FetchPayload { peers, .. } if peers.as_slice() == std::slice::from_ref(&replacement)
+    )));
+    assert_eq!(h.core.tip.height, 0, "a manifest is not body custody");
+    assert!(h.store.is_empty());
+    let out = h.fire(Event::Tick);
+    assert!(
+        !out.iter().any(|action| matches!(action,
+            Action::FetchPayload { source, .. } if source.block_hash() == bh
+        )),
+        "reprocessing the same donor does not emit extra fetches"
+    );
+    assert_eq!(h.core.wants[&bh].sources.len(), stale.len());
+    assert!(
+        members
+            .iter()
+            .all(|peer| h.core.wants[&bh].sources.contains(peer))
+    );
+    assert_eq!(
+        (
+            h.core.wants[&bh].cursor,
+            h.core.wants[&bh].attempt,
+            h.core.wants[&bh].next_retry
+        ),
+        retry
+    );
+    let out = h.tick(h.local.fetch_retry);
+    assert!(
+        out.iter().any(|action| matches!(action,
+            Action::FetchPayload { source, peers }
+                if source.block_hash() == bh && source.height() == 1
+                    && source.config() == h.core.config(1).unwrap()
+                    && peers.len() == 2 && peers.contains(&replacement)
+        )),
+        "the next ordinary retry preserves original fanout and retained donor"
+    );
+    assert!(h.store.is_empty());
+    // Deliver real authenticated rows using the donor's transport identity. No
+    // auto-fetch or acquisition autofill can satisfy these withheld bodies.
+    h.withheld_rows.remove(&bh);
+    for chunk in h.chunks(&first) {
+        h.deliver_key(replacement.clone(), WireMessage::PayloadChunk(chunk));
+    }
+    assert_eq!(h.core.tip.height, 1);
+    h.withheld_rows.remove(&h.bh(&second));
+    for chunk in h.chunks(&second) {
+        h.deliver_key(replacement.clone(), WireMessage::PayloadChunk(chunk));
+    }
+    assert_eq!(h.core.tip.height, 2);
+    assert_eq!(
+        h.core.status().footprint.sync_bytes,
+        0,
+        "commits refund the prepaid donor slots"
+    );
+    assert_eq!(
+        h.store
+            .iter()
+            .map(|(body, _)| body.header().height)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+/// A rejected future donor alternative must leave a route to refresh that same height.
+#[test]
+fn det_l34_deferred_sync_donor_failure_refetches_current_height() {
+    use crate::types::PublicKey;
+
+    let mut h = H::new(4, pick::set_a(0));
+    h.auto_fetch = false;
+    let mut bodies = Vec::new();
+    let mut parent = (G_HASH, G_RESULT);
+    for height in 1..=3_u64 {
+        let body = h.block_at(height, parent, 0, &height.to_be_bytes());
+        parent = (h.bh(&body), result_of(&body));
+        h.withheld_rows.insert(h.bh(&body));
+        bodies.push(body);
+    }
+    let entries: Vec<_> = bodies
+        .iter()
+        .map(|body| SyncEntry {
+            manifest: manifest(body),
+            commit_qc: h.cqc_for(body, 0),
+        })
+        .collect();
+    let response = |blocks| {
+        WireMessage::SyncResponse(SyncResponse {
+            instance: I,
+            blocks,
+        })
+    };
+    let request_peer = |actions: &[Action]| {
+        actions.iter().find_map(|action| match action {
+            Action::Send {
+                to,
+                msg: WireMessage::SyncRequest(request),
+            } if request.from_height == 3 => Some(to.clone()),
+            _ => None,
+        })
+    };
+    let source = h.key_at(h.others(1, &[])[0]);
+    let donor = PublicKey::new(vec![0xe4; 48]).unwrap();
+    let invalid_donor = PublicKey::new(vec![0xe5; 64]).unwrap();
+    for peer in [&source, &donor, &invalid_donor] {
+        h.deliver_key(peer.clone(), WireMessage::Qc(entries[1].commit_qc.clone()));
+    }
+    let mut requested = false;
+    for _ in 0..3 {
+        let out = h.tick(h.local.sync_retry);
+        if out.iter().any(|action| {
+            matches!(action,
+                Action::Send { to, msg: WireMessage::SyncRequest(request) }
+                    if to == &invalid_donor && request.from_height == 1
+            )
+        }) {
+            requested = true;
+            break;
+        }
+    }
+    assert!(requested);
+    assert!(
+        h.core.config(3).is_none(),
+        "the third authority is not yet known"
+    );
+    h.deliver_key(source.clone(), response(entries.clone()));
+    let initial_bytes = h.core.status().footprint.sync_bytes;
+    let mut keys = vec![h.signers[0].public_key().clone()];
+    keys.extend(
+        h.others(h.q() - 1, &[])
+            .into_iter()
+            .map(|index| h.key_at(index)),
+    );
+    let mut alternate = entries.clone();
+    for (entry, body) in alternate.iter_mut().zip(&bodies) {
+        let height = body.header().height;
+        let committee = h.config(height).committee;
+        let qc = h.qc_keys(
+            &committee,
+            VoteKind::Commit,
+            height,
+            0,
+            (h.bh(body), result_of(body)),
+            &keys,
+        );
+        assert_ne!(entry.commit_qc.signers, qc.signers);
+        entry.commit_qc = qc;
+    }
+    h.deliver_key(donor.clone(), response(alternate.clone()));
+    assert_eq!(
+        h.core.status().footprint.sync_bytes,
+        initial_bytes,
+        "the complete alternate QC and both maximum donor keys were prepaid"
+    );
+    let mut invalid = alternate.clone();
+    invalid[2].commit_qc.agg_sig.0[0] ^= 1;
+    h.deliver_key(invalid_donor.clone(), response(invalid));
+    assert_eq!(
+        h.core.status().footprint.sync_bytes,
+        initial_bytes,
+        "a maximum reserved alternative can be replaced without extra capacity"
+    );
+    assert!(h.core.config(3).is_none());
+    assert_eq!(
+        h.core.status().footprint.sync_entries,
+        3,
+        "the original future carrier remains"
+    );
+    let mut out = Vec::new();
+    for body in &bodies[..2] {
+        h.withheld_rows.remove(&h.bh(body));
+        for chunk in h.chunks(body) {
+            out.extend(h.deliver_key(donor.clone(), WireMessage::PayloadChunk(chunk)));
+        }
+    }
+    assert_eq!(h.core.tip.height, 2);
+    assert!(h.core.config(3).is_some());
+    assert_eq!(
+        h.core.status().footprint.sync_entries,
+        1,
+        "the valid original carrier is retained"
+    );
+    let empty_peer =
+        request_peer(&out).expect("invalid deferred donor requires a current-height request");
+    let out = h.deliver_key(empty_peer, response(Vec::new()));
+    let bad_peer = request_peer(&out).expect("empty reply retains current-height refresh");
+    let mut invalid = alternate[2].clone();
+    invalid.commit_qc.agg_sig.0[0] ^= 1;
+    let out = h.deliver_key(bad_peer, response(vec![invalid]));
+    assert!(
+        request_peer(&out).is_some(),
+        "invalid known-height alternative retains refresh"
+    );
+    let out = h.tick(h.local.sync_retry);
+    assert!(
+        request_peer(&out).is_some(),
+        "timeout retains current-height refresh"
+    );
+    let mut donor_requested = request_peer(&out).as_ref() == Some(&donor);
+    for _ in 0..3 {
+        if donor_requested {
+            break;
+        }
+        let out = h.tick(h.local.sync_retry);
+        donor_requested = request_peer(&out).as_ref() == Some(&donor);
+    }
+    assert!(
+        donor_requested,
+        "bounded source rotation reaches the live donor again"
+    );
+    let out = h.deliver_key(donor.clone(), response(vec![alternate[2].clone()]));
+    assert!(
+        request_peer(&out).is_none(),
+        "validated refresh ends the special current-height request"
+    );
+    let bh = h.bh(&bodies[2]);
+    assert_eq!(h.core.wants[&bh].sync_responder.as_ref(), Some(&donor));
+    assert_eq!(
+        h.core.tip.height, 2,
+        "valid alternate QC is not body custody"
+    );
+    let out = h.tick(h.local.fetch_retry);
+    assert!(out.iter().any(|action| matches!(action,
+        Action::FetchPayload { source, peers } if source.height() == 3 && source.block_hash() == bh
+            && source.config() == h.core.config(3).unwrap() && peers.contains(&donor)
+    )));
+    h.withheld_rows.remove(&bh);
+    for chunk in h.chunks(&bodies[2]) {
+        h.deliver_key(donor.clone(), WireMessage::PayloadChunk(chunk));
+    }
+    assert_eq!(h.core.tip.height, 3);
+    assert_eq!(
+        h.core.status().footprint.sync_bytes,
+        0,
+        "deferred resolution and commits refund all entries"
+    );
+    assert_eq!(
+        h.store
+            .iter()
+            .map(|(body, _)| body.header().height)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let out = h.tick(h.local.sync_retry);
+    assert!(
+        request_peer(&out).is_none(),
+        "height advance clears stale refresh state"
+    );
+}
+
 /// F2 seed 115: the driver answers the view-0 build `EMPTY` and a transaction arrives right
 /// after, so its `PayloadReady{req}` reaches the core before the `EMPTY` answer. The leader must
 /// build again at once instead of idling until `payload_retry_interval` (members would time the
@@ -258,12 +736,15 @@ fn anchoring_is_checked_when_the_next_configuration_is_known() {
     h.start(vec![(key, RecordState::Absent)]);
     for o in h.others(3, &[]) {
         let k = h.key_at(o);
-        let sig = h.signer_of(&k).sign(&crate::preimage::echo_preimage(
-            &I,
-            &crate::testing::TEST_EPOCH.id,
-            h.nonce,
-            3,
-        ));
+        let sig = h
+            .signer_of(&k)
+            .sign(&crate::preimage::echo_preimage(
+                &I,
+                &crate::testing::TEST_EPOCH.id,
+                h.nonce,
+                3,
+            ))
+            .expect("fixture signing succeeds");
         let msg = WireMessage::Status(Box::new(Status {
             instance: I,
             height: 3,

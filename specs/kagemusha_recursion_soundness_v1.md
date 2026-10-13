@@ -18,13 +18,43 @@ Poseidon implementation is a heuristic instantiation of that model.
 [BCMS20](https://eprint.iacr.org/2020/499.pdf) gives accumulation definitions,
 a PCD construction and a discrete-log polynomial-commitment accumulation
 construction (§§4–7 and Appendix A). [BCLMS21](https://eprint.iacr.org/2020/1618)
-studies split accumulation and PCD under discrete-log assumptions in the ROM.
+studies split accumulation under discrete-log assumptions in the ROM.
+Its PCD transformation, like BCMS20's, instead assumes the required argument
+and accumulation security in the standard CRS model; the concrete recursive
+construction follows after heuristic instantiation. The ROM accumulation
+results therefore do not by themselves establish security of the
+oracle-dependent recursive relation implemented here.
 [BGH19](https://eprint.iacr.org/2019/1021) is the underlying Halo construction.
 These results motivate the architecture; citing them does not prove that the
 particular layouts, encodings, mixed-curve wiring or containment rule here
 satisfy all their hypotheses. The arguments below are local derivations for
 this implementation. The canonical construction's caveat about unbounded
 lineage depth remains in force.
+
+### Selected recursive Fiat–Shamir assumption
+
+For the first release, the owner explicitly selects the current Pasta/Poseidon
+construction and accepts the following additional heuristic: instantiating the
+argument and accumulation transcripts with the pinned RP57 function preserves
+the knowledge-soundness and accumulation-security properties required by the
+recursive PCD composition, including when its relations evaluate that concrete
+function inside their verifier circuits. This is an assumption about this
+recursive instantiation, beyond the single-proof ROM claims. It is not a theorem
+from collision resistance, discrete-log hardness or the cited accumulation
+results. [Halo Infinite](https://eprint.iacr.org/2020/1536) likewise distinguishes
+its practical recursive construction from a proved black-box Fiat–Shamir use.
+
+This selection retains the current parameters, curves, relations and proof
+formats. It does not adopt a programmable setup oracle or an algebraic random
+oracle as a new production primitive. In particular, it does not supply the
+missing joint privacy simulator, justify programming a fixed circuit hash, or
+make independently derived local oracle models consistent. The C12 argument
+must still account for the actual public transcript, both fields, correlated
+folds, checkpoints, retries and failure branches under one explicit interface.
+Source-bound artifact admission, adversarial tests, performance gates and
+physical-device qualification remain separate. Unbounded lineage depth remains
+heuristic; accepting this premise does not establish a quantitative security
+bound for arbitrary depth.
 
 ## Injective framing and challenge distributions
 
@@ -164,44 +194,123 @@ words, two Pallas coordinates and 32 canonical challenge limbs. Thus D_A is a
 deterministic function of the public tuple and adds no further information
 conditional on that tuple. Neither fact proves that the tuple is zero knowledge.
 
-Each non-hiding fold absorbs its salt and complete ordered inputs before
-alpha/z/zeta and the sixteen L/R challenge rounds. The inputs may include public
-step proofs and earlier visible accumulators. A composed simulation must show
-that the adversary has not already queried each hidden fold's full random-oracle
-prefix, conditioned on that public history, and then maintain consistent answers
-across both fields, all domains and adaptive queries. Fresh private salts help
-only after their conditional entropy and exposure have been established; field
-canonicality alone proves neither. Durable checkpoint reuse, retries and the
-protocol's exceptional aborts must have the same distribution in the simulation.
+C12 compares the full terminal public proof view under one persistent typed
+random-oracle interface for RP57 transcripts. Addresses are the field and
+pinned parameter/IV identity together with cumulative padded rate-two blocks;
+logical absorb/squeeze aliases are identified. This is a proof model, with
+Poseidon its stated heuristic instantiation. A programmed ROM proof simulator
+need not be executable against the unmodified fixed hash. That distinction
+neither extends the selected recursive soundness premise to privacy nor
+establishes a coherent recursive-source experiment by itself.
 
-In particular, independently sampling two challenge vectors and computing their
-G values does not provide an Omega witness. Ordinary zero knowledge for valid
-witnesses does not by itself justify simulating Omega for those chosen instances.
-TODO: complete and independently review the joint simulator and this composition
-step for the final relation and artifact set. These are explicit missing
-hypotheses/arguments, not an observed plaintext leak or an established additional
-privacy guarantee from the non-hiding local fold protocol.
+The local outer simulator samples a complete PIPA transcript and programs only
+its last IPA raw challenge. It includes c,f and the folded-generator suffix,
+uses the native challenge map, and keeps occupied-prefix, zero/identity,
+noncanonical and other failure branches explicit. Its application requires
+the actual admitted descriptor/VK/public preprocessing to satisfy M(K): masked
+domain-boundary independence, S7 residual evaluation rank, and the independent
+R-last quotient-group mask. The test-only strict-catalog checker can establish
+these algebraic conditions for the current Omega and all public sigma keys;
+historical artifacts and sampled proof tests do not establish that current join.
 
-A possible bounded-network proof has two separate hybrids. First retain the
-real accumulator pair and replace only its Omega proof using an adaptive,
-multi-theorem simulator for valid instances. Then replace the accumulator pair
-while applying that same total, polynomial-time simulator. The second step
-requires joint indistinguishability under the simulator's complete stateful
-oracle-query and programming interface. Marginal pseudorandomness of each
-challenge vector is insufficient. If these premises hold, no known Omega witness
-for the sampled pair is needed: efficient postprocessing transfers the joint
-indistinguishability, including the public verifier's acceptance result. Neither
-premise is established by the local hiding-budget checks.
+The proposed order erases Omega, then the hidden final P/V folds it consumes, then
+public sigma proofs. A finite reverse-dependency hybrid can replace each fresh
+proof before its digest, receipt signature and Payment are published, then rerun
+the adaptive causal suffix, including later credit roots, refusals and restarts.
+Exact selected replay reuses the original bytes and oracle answers. This ordering
+requires no witness for an intermediate sampled Omega tuple, but only applies
+once its initial source and each remaining genuine proof cut are valid.
 
-For fixed inputs and the implemented fixed Poseidon function, a fold is a
-deterministic function of one base-field salt. Its vector support has at most
-the base-field cardinality, far fewer than all nonzero sixteen-scalar vectors.
-Consequently the required argument is computational, not statistical uniformity
-conditioned on that fixed function. Programming a different inner hash answer
-also does not preserve a witness satisfying the concrete Poseidon arithmetic
-gates. A model connecting the stateful sponge and the outer simulator must make
-that distinction explicit. The deterministic public Q nonce is not fresh private
-entropy; the argument must trace the final folds exporting acc_P and acc_V.
+A coherent local endpoint experiment is available: the private source may
+prepare a genuine witness and P/V using fixed Poseidon F, while only the new
+outer Omega proof uses the shared transcript oracle H. The local lemma compares
+that real Omega with its public-instance simulator for the same P/V and residual
+oracle service. It does not require all private ancestors to use H. This local
+cut is established in the independently agreeing source reviews
+`c12-endpoint-outer-first-quotient-review-1` and
+`c12-endpoint-only-rom-boundary-1` under `target/qualification`.
+
+Erasing Omega leaves the exported P/V and any original public sigma proofs with
+their F-derived joint law. The fresh-H fold lemma does not compare that law with
+its own independent challenge tapes. The full argument still needs that
+surviving-carrier comparison under the common query interface, or an alternative
+coherent source and valid-cut comparison chain. A replacement witness for the
+simulated Omega is unnecessary. Existing transcript domains separate encoded
+addresses; they neither justify changing the surviving law nor give the same
+address different answers when a public proof becomes a private input or replay.
+
+On the deciding support, that remaining view has a smaller exact representation:
+the original public sigma bodies, including c/f but excluding their unabsorbed
+generator suffixes, jointly with the 16 Pallas and 16 Vesta accumulator
+challenges. The pinned generators reconstruct deciding G values; public sigma
+statements and their bodies reconstruct their own challenges and suffixes;
+public18 and P reconstruct D_A. Projection and reconstruction are efficient
+inverses on this support. Malformed inputs and failed decides keep their actual
+branches. The required comparison is therefore the joint distribution of this
+representation after executing the private source, not equality of its hidden
+Direct prefixes or separate marginal hiding of each challenge vector.
+
+For adaptive composition, a public-only sampler must also preserve related
+durable selected-object states and the residual oracle service after every
+fresh attempt, including refusals. A bound epsilon_t conditional on each reached
+public history then composes by stopping at the first divergence and summing
+`E[1_{attempt t reached before divergence} epsilon_t(h_t)]` over fresh attempts.
+Exact replay of an already selected original
+adds no fresh proof error; storage outcomes still need their own state-relation
+argument. Equal returned errors alone are insufficient when immutable objects
+can be written before manifest publication. This is a sufficient reduction to
+prove, not a new privacy assumption or an established sampler. The
+[same-frame opening result](kagemusha_local_zk_v1.md#same-direct-frame-and-the-actual-opening-value)
+removes polynomial/blind differences within a common good fiber and preserves
+complete private proof bytes through deterministic consumers. It does not
+compare the distributions induced by different private Direct frames.
+
+Substituting H in native producers while retaining their genuine fixed-F
+consumers does not supply that alternative construction: the no-incoming Load
+and Send Q branches bind the native own-claim challenges to round cells computed
+by fixed Pow5 constraints. Generating fixed-Pow5 proofs and forcing H to their
+answers instead changes the fresh-oracle law; Send later publishes the queried
+proof prefix. These failures rule out those adapters, not the valid local
+endpoint experiment, a different composition proof or the production design.
+
+The [local auxiliary-input lemma](kagemusha_local_zk_v1.md) is derived for admitted
+M(K) keys with ideal fresh scalar masks and the normalized shared oracle,
+including the residual query service and joint final c/f law. A hybrid may retain
+private prepared state and run the actual signing/storage suffix on either
+proof. The final public-only proof simulator must eliminate that private proof
+state; original private admission, signing and storage checks may remain in a
+common experiment wrapper. It must preserve the experiment's observable typed
+outcomes, durable publication order and exact replay without conditioning on
+success. This logical terminal-proof claim adds no timing-obliviousness claim
+or independence assumption for actual mid-call cancellation.
+
+Existing primary results do not yet supply the remaining joint-law or
+source-composition bridge.
+[Arithmetized-random-oracle PCD](https://eprint.iacr.org/2023/587) adds oracle
+interfaces and query accumulation absent from these fixed constraints;
+[Plonk Without Random Oracles](https://eprint.iacr.org/2026/200) uses a
+hash/commitment zero-testing condition whose reduction to this PIPA/IPA protocol
+has not been established. Neither extension is adopted here. The accepted
+recursive Fiat–Shamir knowledge/accumulation heuristic supplies no privacy premise.
+
+C12 closes only with the surviving-carrier comparison or alternative coherent
+source/valid-cut argument above and a total final public simulator, actual
+current-key M(K) reports, and justified concrete OS/hedging/ChaCha conversion
+bounds. If a chosen construction needs changed recursive transcript constraints
+or an oracle-aware verification relation, those changes must be implemented,
+re-keyed and proved; renaming the existing Pow5 gates is insufficient. No such
+change is established by the current local lemma. Fresh-fold bounds apply to
+all bounded attempts without conditioning on success. No unconditional
+fixed-hash indistinguishability theorem or executable fixed-hash simulator is
+required.
+
+For terminal proof privacy with public18 and public sigma statements fixed,
+the head and map roots are public inputs, so no head-hash hiding premise is
+required. Hiding heads/statements generated from different private histories
+is a stronger claim: their joint public law must then be proved under an
+explicitly justified hash model. Collision resistance and the recursive-FS
+soundness selection alone do not supply that stronger hiding claim. C12
+remains open; no stronger privacy or linkability conclusion follows.
 
 There is a concrete encoding obstacle to directly replacing the sponge by an
 oracle on unrestricted logical absorb/squeeze histories. Starting from the same
@@ -1172,9 +1281,12 @@ algorithm on the recovered typed argument. For identical provider responses,
 configuration and matched external events, the entire response, partial
 transcript, residual oracle and provider trace are pointwise identical. Thus
 each conditional local distance is zero without an ideal-entropy or random-
-oracle substitution for these identical calls. The capsule-derived `kgwqnon1`
-query still occurs before preparation and remains in the common prior state,
-even though Load does not use its result in a Q-local fold. Additional decoding
+oracle substitution for these identical calls. The `kgwqnon1` query derives Q's
+nonce from the authenticated signed public capsule commitment d, while private h
+still selects and authenticates the original checkpoints. The query occurs before
+preparation and remains in the common prior state, even though Load does not use
+its result in a Q-local fold. This nonce is deterministic public data, not fresh
+private entropy; complete ordered inputs are still absorbed before challenges. Additional decoding
 or native validation work must occur before the cut or be charged explicitly;
 silently repeating preparation afterward would invalidate this equality.
 
@@ -1236,16 +1348,142 @@ the installed repair without proof or entropy execution
 independent review SHA
 `a59de5a32838dc35af919bdbdebfa7ccbc021529dee98b9fc39c7cc8ffc93582`).
 These are finite diagnostic bounds; the canonical descriptor limit remains
-65,535 columns. The full maintained regression now passes all 100 controls and
+65,535 columns. The preceding maintained regression passes all 100 controls and
 14 small k6 reference proofs with no failures, errors or skips (142.45 s). Its
 source/interpreter pins remain unchanged (`target/qualification/setup-current-source-controls-2`,
 result SHA `3a1d68c6ea2f92aabce9a109ab3812c58171e6da27bc2e74bffbdacfb6845efd`).
 Before execution, an exact old/current source review updated the stale commitment
 pin for the bounded-prefix helper and test-only observation changes; existing
 non-probe bodies remain byte-identical. The initial source refusal is retained.
-This establishes diagnostic regression results, not operational equivalence,
+The maintained zero-grouping successor now passes 101 controls with no failures,
+errors or skips (148.60 s), retaining all fourteen ordinary fixed-RP57 k6 proofs
+and counting two explicitly adapted x1=0 proofs separately. It exercises the
+actual simulator on both curves for public-last, masked-last and R-last groups;
+the ordinary verifier rejects the adapted proofs after the adapter is removed.
+Source pins remain unchanged (`target/qualification/c12-x1-zero-maintained-validation-1/result.json`,
+SHA `aa3d3efb56768593b08080257b52180a76668e48adc67ab188749268f90a3e6c`).
+These are diagnostic regression results, not operational equivalence,
 current setup authority or C12. Actual large A1 construction remains unexecuted,
 and unchanged inner recursive constants cannot supply coherent recursive authority.
+
+### Conditional fresh Load head
+
+The exact current head layout also admits a narrower, independently reviewed
+local lemma under an **ordinary ideal-permutation interface**. This is not an
+adopted release assumption about fixed RP57. The33 core words place the nonce
+last; the eight rest words and padding give the final two permutation edges
+
+`X = (a, b + N, c + R), U = π(X), Z = U + (0, 1, 0), V = π(Z), head = V₁`.
+
+For a fresh legal Load, all prefix values are independent of the new sampler
+coins. The analysis conditions on the actual prior private/public table plus
+six rest and seventeen head-prefix positions, with at most K edges. For an
+ordinary nonzero predecessor nonce, the sampler accepts s=p−2 field values in
+at most128 independent256-bit fills. Each fill clears only bit255 and then rejects
+zero, the predecessor and noncanonical Fp values without modular reduction. Every
+accepted scalar has exactly two raw preimages, so the conditional nonce remains
+uniform over that same set. Its exhaustion branch is
+`f = (1 − s/2²⁵⁵)¹²⁸ < 2⁻¹²⁸`, since the pinned modulus satisfies p−2 > 2²⁵⁴.
+For Bootstrap's zero predecessor, s=p−1 and the same strict bound applies, but
+its different exclusion set still requires its own branch comparison. Entropy
+errors return immediately; the128-fill cap includes all rejected values. This
+sampler improvement does not establish any OS entropy or full-view privacy claim.
+
+With at most Q subsequent outside primitive operations, a conservative stopped
+first-hit bound is
+
+`e = min(1, K/s + (3K+2)/p³ + 2Q(1/s + 2/p³ + 1/p²))`.
+
+This pays for both private edges and outside hits on their endpoints. The
+`p⁻²` term is necessary because V₁ is disclosed. Private prefix evaluation only
+reads the sampled permutation under the ordinary forward/inverse interface;
+it exposes no occupancy, programming-refusal, cache-hit or table-size bit.
+Thus unequal hidden balances and prefixes need not be equated. Retain d_B for
+the actual prior joint-view distance, including nonce-independent public roots
+and the ordinary residual oracle. A common continuation gives the conditional
+bound `min(1, d_B + (1−f)(e₀+e₁) + ε_rng,0 + ε_rng,1 + ε_interface)`.
+Provider/entropy failures, visible resource effects and the zero-head rejection
+must remain explicit. Exact selected replay reuses its original head and nonce;
+it is not another fresh sample.
+
+The stronger interface with observable occupied-input programming refusals can
+probe a guessed unsalted prefix before this late nonce. The ordinary lemma
+therefore cannot be transferred to an arbitrary programmable simulator. This
+interface counterexample is not an observed attack on fixed Poseidon. The
+capsule commitment, public-map joint law, proof simulation and future
+source-dependent wallet operations remain separate obligations. In particular,
+the capsule commitment requires the independent-opening law below; its native
+construction and failures cannot simply be placed in d_B as nonce-independent
+data. No C12 or fixed-RP57 theorem follows from this local result. Exact arguments and root
+source/mathematical review are retained in
+`target/qualification/c12-fresh-head-ordinary-oracle-lemma-1` and
+`c12-fresh-head-root-review-1` (review SHA
+`cf56180dbeb4e9ffa1f6007737745ce51499f9a2c85be3250d99eced3200b9e2`).
+
+### Selected recovery capsule commitment
+
+The sole first-release custody design uses the exact frozen canonical body B,
+`b = H("capsule-body", B)`, two injective LE128 digest limbs m0,m1 in Fp, and an
+independent canonical opening r in Fp. Its Vesta point is
+`C = m0 g[0] + m1 g[1] + r w`; the public receipt identifier is
+`d = P_bytes(kgwcapc1, enc(C))`. The private canonical wrapper W=(B,r) is selected
+and authenticated by `H("capsule", W)`. C and d are recomputed from validated W,
+not trusted as serialized caches. Opening a commitment needs B and r. Custody
+identities, the body hash and r are excluded from the public receipt.
+
+For every fixed B and pre-opening auxiliary state, nonidentity w maps uniform
+r bijectively onto the prime-order Vesta group. Thus the distribution of d is
+independent of B for any fixed deterministic identifier hash, without a SHA
+random-oracle or hiding premise. Applying the same explicit zero-d refusal to
+that distribution preserves this local law. Identity C is accepted. Neither
+d's uniformity nor a 1/p refusal probability follows. Under independent uniform
+256-bit entropy fills, clear only bit 255 before rejecting noncanonical Fp
+scalars, for at most 128 attempts. Every 255-bit candidate has exactly two raw
+preimages, so accepted r is exactly uniform, including zero. Since
+`2^254 < p < 2^255`, exhaustion is `(1 - p/2^255)^128 < 2^-128`. Real entropy errors and deviation from this ideal law
+remain explicit rather than being conditioned away.
+
+Two different accepted body/opening pairs sharing one signed d yield either a
+Poseidon collision on distinct canonical C encodings, a SHA collision between
+different B, or a nontrivial relation among g[0], g[1], w. The last case uses the
+existing admitted IPA vector-commitment premise, not point validity or discrete
+log hardness alone. The generator messages under `Halo2-Parameters` are
+`[0,0,0,0,0]`, `[0,1,0,0,0]` and `[1]`. Generator derivation, installed tuple
+identity and shared-setup assumptions remain part of qualification. No new
+caller-supplied points or private-input variable-time kernel are permitted.
+
+The independent-opening law holds jointly with the entire state fixed before r,
+including the actual statement/head, public roots, σ and Ω(pred), even when they
+are correlated with the hidden body. It adds no body-hiding premise to that
+pre-opening tuple. It does not hide separately disclosed fields or establish
+the joint law of commitments to hidden balances and maps. Receipt signing extends
+this law only under the same admitted key/provider-state/randomness/error
+interface and a common or explicitly charged release kernel. Public message
+syntax alone does not couple resource or custody failures.
+
+Keep pre-r freeze/cap failures and post-r private h-zero/custody refusals in the
+total experiment. For an efficiently generated frozen B, two independent uniform
+openings produce distinct canonical W frames hashing to zero with probability
+at least `(E[Pr_r[h(B,r)=0]])² − 1/p`. Thus a collision-resistance bound ε_CR at
+that reduction's actual budget gives an unconditional h-zero bound
+`sqrt(ε_CR + 1/p)`. This includes the square-root security loss; neither a
+`2^-256` zero probability nor 128-bit quantitative security follows by assertion.
+It does not charge other provider failures, and finite-sampler/entropy deviations
+remain explicit. The source-bound local argument is retained in
+`target/qualification/c12-capsule-signed-publication-joint-law-1/argument.md`;
+its review SHA is `63df45183f0c9e4e6fdcc240ec7eb9c1e14dca657a9bb3008fb56fa065eb805f`.
+That memo precedes the public-d Q nonce amendment and does not qualify its runtime.
+
+Future Q folding derives its deterministic nonce from authenticated public d;
+h continues to authenticate private checkpoint/source custody. This removes one
+private-h-dependent query without making Q's nonce fresh or hiding its source
+witnesses. The final joint proof still needs the head/σ/Ω/public-root law, coherent
+setup, the residual-oracle continuation and related private W/r/h successor
+states, including total failures and exact replay. After durable W or selection,
+replay uses the identical wrapper and recorded output; missing openings invoke
+reconciliation or custody loss. Verification never draws a replacement opening.
+C12 remains open pending that argument and validation of the current
+implementation, keys, SDK vectors and durable retry joins.
 
 ## Executable checks and remaining review
 

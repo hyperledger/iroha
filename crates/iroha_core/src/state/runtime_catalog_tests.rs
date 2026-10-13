@@ -46,7 +46,7 @@ fn materialized_manifest_install_rejects_status_only_without_publication() {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]
-            Default::default(),
+            crate::telemetry::StateTelemetry::default(),
         )
         .unwrap();
         let nexus = state.nexus_snapshot();
@@ -483,7 +483,8 @@ fn runtime_catalog_fixture_retains_original_schedule_and_cannot_authorize_by_hea
         // Retain the actual signed parent and all four live participant keys,
         // but corrupt only the schedule being tested. A header cannot replace it.
         let mut world = missing.world.block();
-        *world.consensus_schedule.get_mut() = Default::default();
+        *world.consensus_schedule.get_mut() =
+            crate::sumeragi::schedule::RetainedConsensusSchedule::default();
         world.commit();
         let before = norito::json::to_json(&missing.world).unwrap();
         let mut block = missing.block(catalog_test_header(&missing));
@@ -552,7 +553,8 @@ fn runtime_catalog_preflight_preserves_prior_additions_and_rejects_replacement()
             .get_mut()
             .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                 first.clone().into_custom_parameter().unwrap(),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         let second_plan = iroha_data_model::nexus::LaneLifecyclePlan {
             additions: vec![RuntimeLaneConfig {
@@ -907,9 +909,14 @@ fn runtime_catalog_rejects_native_lane_conflict_without_partial_state() {
                 })
                 .collect(),
         });
-        block.world.parameters.get_mut().set_parameter(
-            iroha_data_model::parameter::Parameter::Custom(policy.clone().into_custom_parameter()),
-        );
+        block
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.clone().into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         let before = block.world.parameters().clone();
         let mut transaction = block.transaction();
         transaction
@@ -1043,7 +1050,8 @@ fn runtime_catalog_accessor_rejects_malformed_protected_state_and_baseline_drift
                     NexusRuntimeCatalogV1::parameter_id(),
                     iroha_primitives::json::Json::new(norito::json!({"version": 255})),
                 ),
-            ));
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         assert!(runtime_catalog_from_world(&state.world.view()).is_err());
         assert!(runtime_catalog_root_from_world(&state.world.view()).is_err());

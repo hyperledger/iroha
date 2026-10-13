@@ -4,6 +4,12 @@ use super::*;
 use crate::sumeragi::finality::FinalityDecodeWorkspace;
 use iroha_data_model::sumeragi_finality::ScheduledSlot;
 
+fn query_committee_admission(
+    bytes: usize,
+) -> Result<(), crate::execution_attempt::ExecutionDeferred> {
+    state_certificate::query_scratch_admission(bytes)
+}
+
 fn epoch_clone_bytes(epoch: &ValidatorEpochContextV1) -> Result<usize, norito::Error> {
     let ValidatorEpochContextV1 {
         version: _,
@@ -172,34 +178,32 @@ impl VerifiedAuthority {
         validation: &mut EpochValidationScope,
     ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
         use super::super::crypto::QueryCommitteeError;
-        let crypto = BlsCrypto::for_query_committee(
-            &material.committee,
-            &mut state_certificate::query_scratch_admission,
-        )
-        .map_err(|error| match error {
-            QueryCommitteeError::Resource(error) => read_decode_error(height, error.into()),
-            QueryCommitteeError::Member { index, error } => {
-                use super::super::crypto::KeyError;
-                let detail = match &error {
-                    KeyError::Malformed(text) | KeyError::BadPop(text) => text.len(),
-                    KeyError::NotBlsNormal(_) => 0,
-                };
-                let bytes = detail
-                    .checked_add(128)
-                    .and_then(|bytes| bytes.checked_mul(2));
-                match bytes
-                    .ok_or(norito::Error::LengthMismatch)
-                    .and_then(norito::core::reserve_decode_allocation)
-                {
-                    Ok(()) => ChainReadError::Committee {
-                        height,
-                        reason: format!("member {index}: {error}"),
+        let crypto =
+            BlsCrypto::for_query_committee(&material.committee, &mut query_committee_admission)
+                .map_err(|error| match error {
+                    QueryCommitteeError::Resource(error) => ExecutionAttemptError::Deferred(error),
+                    QueryCommitteeError::Member { index, error } => {
+                        use super::super::crypto::KeyError;
+                        let detail = match &error {
+                            KeyError::Malformed(text) | KeyError::BadPop(text) => text.len(),
+                            KeyError::NotBlsNormal(_) => 0,
+                        };
+                        let bytes = detail
+                            .checked_add(128)
+                            .and_then(|bytes| bytes.checked_mul(2));
+                        match bytes
+                            .ok_or(norito::Error::LengthMismatch)
+                            .and_then(norito::core::reserve_decode_allocation)
+                        {
+                            Ok(()) => ChainReadError::Committee {
+                                height,
+                                reason: format!("member {index}: {error}"),
+                            }
+                            .into(),
+                            Err(error) => read_decode_error(height, error),
+                        }
                     }
-                    .into(),
-                    Err(error) => read_decode_error(height, error),
-                }
-            }
-        })?;
+                })?;
         // The canonical committee owns one Vec of core keys and each key's bytes.
         let bytes = core_keys_bytes(material.committee.len())
             .ok_or_else(|| read_decode_error(height, norito::Error::LengthMismatch))?;
@@ -263,8 +267,9 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         let prefix = cursor
             .as_mut()
             .expect("authenticated native genesis prefix");
-        let committed =
-            target.with(|| read_frame_with_validation(block, height, &mut prefix.validation))?;
+        let committed = target.with(|| {
+            read_frame_with_validation(block, height, self.root_scope, &mut prefix.validation)
+        })?;
         progress()?;
         let context = self.verification_context();
         while prefix
@@ -278,7 +283,12 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
             workspace.stage(|| {
                 let body = self.source.block(next_height)?;
                 progress()?;
-                let next = read_frame_with_validation(body, next_height, &mut prefix.validation)?;
+                let next = read_frame_with_validation(
+                    body,
+                    next_height,
+                    self.root_scope,
+                    &mut prefix.validation,
+                )?;
                 progress()?;
                 let prepared = context.prepare_advance_query(prefix, &next, None)?;
                 prefix.tip = next;
@@ -318,7 +328,8 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
     ) -> Result<VerifiedPrefix, ExecutionAttemptError<ChainReadError>> {
         let mut validation = EpochValidationScope::new();
         let genesis = self.source.block(GENESIS_HEIGHT)?;
-        let tip = read_frame_with_validation(genesis, GENESIS_HEIGHT, &mut validation)?;
+        let tip =
+            read_frame_with_validation(genesis, GENESIS_HEIGHT, self.root_scope, &mut validation)?;
         admit_epoch_clone(&self.genesis_epoch, GENESIS_HEIGHT)?;
         let (schedule, authority) =
             genesis_prefix_authority_query(&tip, self.genesis_epoch.clone(), &mut validation)?;

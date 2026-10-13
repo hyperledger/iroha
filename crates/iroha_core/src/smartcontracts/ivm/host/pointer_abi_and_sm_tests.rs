@@ -47,17 +47,23 @@ fn pointer_abi_daily_limit_rejects_noncanonical_options() {
     let layout = ivm::sum::SumLayoutV1::option(1).expect("quantity option layout");
     let invalid_tag = vm.alloc_heap(layout.allocation_bytes().unwrap()).unwrap();
     vm.store_u64(invalid_tag, 2).unwrap();
-    assert_eq!(
-        CoreHost::decode_optional_amount(&vm, invalid_tag),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(CoreHost::decode_optional_amount(&vm, invalid_tag)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     let noncanonical_none = vm.alloc_heap(layout.allocation_bytes().unwrap()).unwrap();
     vm.store_u64(noncanonical_none, 0).unwrap();
     vm.store_u64(noncanonical_none + 8, 1).unwrap();
-    assert_eq!(
-        CoreHost::decode_optional_amount(&vm, noncanonical_none),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(CoreHost::decode_optional_amount(&vm, noncanonical_none)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     let wrong_payload = store_tlv(
         &mut vm,
         PointerType::Name,

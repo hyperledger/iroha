@@ -29,7 +29,7 @@ use crate::{
     state::{State, StateReadOnly, WorldReadOnly},
 };
 
-pub(super) mod history;
+pub(crate) mod history;
 mod selection;
 use history::HistoryScan;
 
@@ -38,6 +38,24 @@ fn invalid(error: impl std::fmt::Display) -> io::Error {
 }
 fn pending(reason: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::WouldBlock, reason)
+}
+
+// Physical contention stays in the original typed I/O source. The append driver retains
+// its exact release owner; runtime allocation/decoder refusal keeps its existing carrier.
+fn state_view_error(error: crate::state::StateViewError) -> Attempt<io::Error> {
+    match error {
+        crate::state::StateViewError::Runtime(crate::state::LaneLifecycleError::NposPolicy(
+            Attempt::Deferred(reason),
+        )) => Attempt::Deferred(reason),
+        error => {
+            let kind = if matches!(error, crate::state::StateViewError::Busy(_)) {
+                io::ErrorKind::WouldBlock
+            } else {
+                io::ErrorKind::InvalidData
+            };
+            io::Error::new(kind, error).into()
+        }
+    }
 }
 
 /// Resolve global authority under one immutable configured instance and original State owner.
@@ -58,7 +76,7 @@ impl NativeGlobalAvailability {
         crypto: Arc<BlsCrypto>,
     ) -> Result<Self, Attempt<io::Error>> {
         let expected = {
-            let view = state.view();
+            let view = state.try_view_once().map_err(state_view_error)?;
             CertifiedChain::new(&view)
                 .map_err(|error| {
                     if cfg!(all(test, sumeragi_core_mutation = "HC47")) {
@@ -83,7 +101,7 @@ impl NativeGlobalAvailability {
         if height <= 1 {
             return Ok(None);
         }
-        let view = self.state.view();
+        let view = self.state.try_view_once().map_err(state_view_error)?;
         if view.kura().native_consensus_gate().is_closed() {
             return Err(
                 io::Error::other("native storage gate is closed; restart is required").into(),
@@ -173,6 +191,26 @@ impl NativeLaneStoreAuthorities {
         lane: LaneId,
         incarnation: [u8; 32],
     ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
+        let budget = self.state.ivm_execution_budget();
+        if cfg!(all(test, sumeragi_core_mutation = "HC351")) {
+            self.historical_record_with_scan(lane, incarnation)
+        } else {
+            budget.with_deferred_refund_notifications(|_| {
+                self.historical_record_with_scan(lane, incarnation)
+            })
+        }
+    }
+
+    // The original pool scope encloses every scan guard, including progress/refusal,
+    // cancellation, terminal rejection, stale-cut cleanup and successful transfer.
+    // Retire this frame before waking a caller that can reenter the full history reader;
+    // its large original scan temporaries must not remain on the callback's stack.
+    #[inline(never)]
+    fn historical_record_with_scan(
+        &self,
+        lane: LaneId,
+        incarnation: [u8; 32],
+    ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
         let mut pending_scan = self
             .scan
             .try_lock()
@@ -255,7 +293,7 @@ impl LaneStoreAuthorities for NativeLaneStoreAuthorities {
         let expected = incarnation_instance(
             &*self.crypto,
             &network,
-            &self.state.chain_id_ref().to_string(),
+            self.state.chain_id_ref().as_ref(),
             lane,
             incarnation,
         );
@@ -316,3 +354,6 @@ fn admit_lane_authority(
 #[cfg(test)]
 #[path = "runtime_availability/tests.rs"]
 pub(in crate::sumeragi) mod tests;
+
+#[cfg(test)]
+mod refund_tests;

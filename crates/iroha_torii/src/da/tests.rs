@@ -1128,8 +1128,7 @@ fn sample_pdp_commitment_for_tests() -> PdpCommitmentV1 {
     .expect("fixture PDP commitment")
 }
 fn encode_alias_proof_bytes(
-    alias_namespace: &str,
-    alias_name: &str,
+    (alias_namespace, alias_name): (&str, &str),
     manifest_cid: &[u8],
     bound_epoch: u64,
     expiry_epoch: u64,
@@ -1279,8 +1278,7 @@ where
 {
     let manifest_cid = canonical_manifest_root_cid(*alias_manifest_hash.as_bytes());
     let alias_proof = encode_alias_proof_bytes(
-        "sora",
-        "docs",
+        ("sora", "docs"),
         &manifest_cid,
         1,
         32,
@@ -1454,7 +1452,8 @@ fn seed_da_admission_parameter(app: &crate::SharedAppState, parameter: CustomPar
         .world_mut_for_testing()
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(parameter));
+        .set_parameter(Parameter::Custom(parameter))
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()
@@ -1656,8 +1655,10 @@ fn durable_server_assignment_survives_metadata_key_and_rent_policy_rotation() {
         &first.server_assignment,
     )
     .expect("publish initial server assignment");
-    let mut rotated_rent = DaRentPolicyV1::default();
-    rotated_rent.base_rate_per_gib_month = "0.75".parse().expect("rotated rent rate");
+    let rotated_rent = DaRentPolicyV1 {
+        base_rate_per_gib_month: "0.75".parse().expect("rotated rent rate"),
+        ..Default::default()
+    };
     let recovered = compute_da_manifest_artifacts(
         &request,
         &nexus,
@@ -2757,26 +2758,26 @@ fn taikai_artifact_persistence_converges_under_same_process_writers() {
     let storage_ticket = StorageTicketId::new([0x11; 32]);
     let fingerprint = ReplayFingerprint::from_hash(blake3::hash(b"fingerprint"));
     let barrier = Arc::new(Barrier::new(4));
-    let handles: Vec<_> = (0..4)
-        .map(|_| {
-            let spool_dir = spool_dir.clone();
-            let barrier = Arc::clone(&barrier);
-            std::thread::spawn(move || {
-                barrier.wait();
-                taikai_ingest::persist_envelope(
-                    &spool_dir,
-                    lane_id,
-                    epoch,
-                    sequence,
-                    &storage_ticket,
-                    &fingerprint,
-                    b"envelope",
-                )
-                .expect("concurrent Taikai artifact persist")
-                .expect("artifact path")
-            })
-        })
-        .collect();
+    let mut handles = Vec::with_capacity(4);
+    // Start every barrier participant before waiting for any worker.
+    for _ in 0..4 {
+        let spool_dir = spool_dir.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            taikai_ingest::persist_envelope(
+                &spool_dir,
+                lane_id,
+                epoch,
+                sequence,
+                &storage_ticket,
+                &fingerprint,
+                b"envelope",
+            )
+            .expect("concurrent Taikai artifact persist")
+            .expect("artifact path")
+        }));
+    }
     let paths: Vec<_> = handles
         .into_iter()
         .map(|handle| handle.join().expect("writer thread"))

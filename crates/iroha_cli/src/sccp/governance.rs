@@ -6,13 +6,12 @@
 //! transitions are permissionless (`iroha gov parliament`).
 //!
 //! `drive` is the Parliament driver of §4.14.5 item 4. It has no discretion: it creates the
-//! first attempt of every admissible open proposal, oldest first, and submits whatever Core's
-//! attempt plan (`GET /v1/gov/parliament/attempts/{id}/plan`) lists: due transitions in one
-//! transaction, each exact-height checkpoint in its own transaction for the next native candidate,
-//! corpus relays from published records and combined TLE releases. It ticks an idle tip so block
-//! windows elapse. Several drivers are harmless: a duplicate transition fails and pays its fee.
+//! first attempt of every admissible open proposal, oldest first, and submits the five
+//! permissionless manager intents advised by Core's attempt plan. Shared block-start work and
+//! keepalives advance the clock. The driver has no ballot, exact-height or tick authority.
+//! Several drivers are harmless: a duplicate transition fails and pays its fee.
 //!
-//! TODO(ws42): `show` (body, still-current flag, deployment checks).
+//! `show` returns the proposal body, current-revision verdict, deployment checks and attempts.
 
 use std::{
     collections::BTreeMap,
@@ -26,11 +25,11 @@ use iroha::{
     data_model::{
         NetworkId,
         governance::types::{
-            BallotAttemptId, GovernanceAttemptId, GovernanceAttemptStatusV1, ProposalKind,
+            GovernanceAttemptId, GovernanceAttemptStatusV1, ProposalKind,
             SccpRouteGovernanceProposal,
         },
         isi::{
-            InstructionBox, Log,
+            InstructionBox,
             governance::{
                 CreateParliamentGovernanceAttemptV1, ParliamentLifecycleTransitionV1,
                 ProposeSccpRouteGovernance, SubmitParliamentLifecycleTransitionV1,
@@ -43,7 +42,6 @@ use iroha::{
 };
 use iroha_sccp::api::SccpGovernanceProposalStatusV1;
 use iroha_torii_shared::parliament_api::ParliamentAttemptPlanResponseV1;
-use url::Url;
 
 use crate::{Run, RunContext};
 
@@ -52,32 +50,32 @@ use crate::{Run, RunContext};
 pub enum Command {
     /// Propose SCCP actions to the Parliament against Taira's current revisions.
     Propose(ProposeArgs),
+    /// Show a proposal body, current-revision verdict, deployment checks and attempts.
+    Show(ShowArgs),
+    /// Show governance readiness from the current committed state.
+    Readiness,
     /// Show Taira's nonzero per-subject governance revisions.
     Revisions,
     /// Run the Parliament driver: carry SCCP proposals through their Parliament attempts.
     Drive(DriveArgs),
 }
 
+/// Arguments of `iroha sccp governance show`.
+#[derive(clap::Args, Debug)]
+pub struct ShowArgs {
+    /// Proposal content id (32-byte hexadecimal).
+    pub content_id: String,
+}
+
 /// Arguments of `iroha sccp governance drive`.
 #[derive(clap::Args, Debug)]
 pub struct DriveArgs {
-    /// Torii root of one TLE signer peer, for combining ballot releases (repeatable; supply
-    /// every validator).
-    #[arg(
-        long = "release-peer",
-        value_name = "TORII_URL",
-        value_parser = crate::gov::parliament::parse_release_peer_url
-    )]
-    pub release_peers: Vec<Url>,
-    /// Directory of published masked-ballot record files to relay.
-    #[arg(long)]
-    pub relay_dir: Option<PathBuf>,
     /// Milliseconds between polls.
     #[arg(long, default_value_t = 500)]
     pub poll_interval_ms: u64,
-    /// Milliseconds without a new block after which the driver ticks while work is pending.
+    /// Retry still-needed intents after this interval even if the tip has not advanced.
     #[arg(long, default_value_t = 4_000)]
-    pub tick_interval_ms: u64,
+    pub retry_interval_ms: u64,
     /// Stop after this many polls; 0 runs until interrupted.
     #[arg(long, default_value_t = 0)]
     pub polls: u64,
@@ -88,32 +86,17 @@ pub struct DriveArgs {
 enum DriveStep {
     /// Create the first attempt of an admissible proposal.
     CreateAttempt(ProposalKind),
-    /// Transitions due at the execution height, in one transaction.
+    /// Permissionless manager intents advised for one candidate, in one transaction.
     Due(GovernanceAttemptId, Vec<ParliamentLifecycleTransitionV1>),
-    /// One exact-height transition in its own transaction, aimed at `execution_height`.
-    Exact {
-        attempt: GovernanceAttemptId,
-        execution_height: u64,
-        transition: ParliamentLifecycleTransitionV1,
-    },
-    /// Relay published masked-ballot records.
-    Relay(BallotAttemptId),
-    /// Combine the TLE release and finalize the opened ballot.
-    Finalize(BallotAttemptId),
 }
 
 impl DriveStep {
     /// Candidate height used to expire this submission's retry suppression.
-    fn candidate_height(&self, observed_tip: u64) -> Option<u64> {
-        match self {
-            Self::Exact {
-                execution_height, ..
-            } => Some(*execution_height),
-            _ => observed_tip.checked_add(1),
-        }
+    fn candidate_height(observed_tip: u64) -> Option<u64> {
+        observed_tip.checked_add(1)
     }
 
-    /// Key under which a submission is remembered until its execution height has passed.
+    /// Key remembered until candidate commitment or the bounded retry interval.
     fn key(&self) -> String {
         match self {
             Self::CreateAttempt(kind) => {
@@ -128,26 +111,19 @@ impl DriveStep {
                     .collect::<Vec<_>>()
                     .join(",")
             ),
-            Self::Exact {
-                attempt,
-                execution_height,
-                transition,
-            } => format!(
-                "exact:{}:{execution_height}:{}",
-                attempt.to_hex(),
-                hex::encode(transition.digest_v1())
-            ),
-            Self::Relay(ballot) => format!("relay:{}", ballot.to_hex()),
-            Self::Finalize(ballot) => format!("finalize:{}", ballot.to_hex()),
         }
     }
 }
 
-/// Admissible open proposals without an attempt, oldest first (the listing's order).
+/// Admissible open proposals without an attempt, in canonical creation order.
 fn proposals_to_attempt(proposals: &[SccpGovernanceProposalStatusV1]) -> Vec<ProposalKind> {
-    proposals
+    let mut proposals: Vec<_> = proposals
         .iter()
         .filter(|proposal| proposal.admissible && proposal.latest_attempt.is_none())
+        .collect();
+    proposals.sort_by_key(|proposal| (proposal.created_height, *proposal.content_id.as_bytes()));
+    proposals
+        .into_iter()
         .map(|proposal| {
             ProposalKind::SccpRouteGovernance(SccpRouteGovernanceProposal {
                 proposal: Box::new(proposal.proposal.clone()),
@@ -156,129 +132,107 @@ fn proposals_to_attempt(proposals: &[SccpGovernanceProposalStatusV1]) -> Vec<Pro
         .collect()
 }
 
-/// Whether an open proposal still needs blocks: it can get an attempt or its attempt is live.
-fn needs_blocks(proposal: &SccpGovernanceProposalStatusV1) -> bool {
-    match proposal.latest_attempt {
-        None => proposal.admissible,
-        Some(attempt) => matches!(
-            attempt.status,
-            GovernanceAttemptStatusV1::Active | GovernanceAttemptStatusV1::Certified
-        ),
-    }
+/// Manager intents are the only account-submitted lifecycle work of this driver (§4.14.5).
+fn manager_intent(transition: &ParliamentLifecycleTransitionV1) -> bool {
+    matches!(
+        transition,
+        ParliamentLifecycleTransitionV1::CompleteQualification
+            | ParliamentLifecycleTransitionV1::RegisterInitialSortition
+            | ParliamentLifecycleTransitionV1::RegisterSortitionRequest(_)
+            | ParliamentLifecycleTransitionV1::AdvanceBodyPhase(_)
+            | ParliamentLifecycleTransitionV1::EscalateRisk(_)
+    )
 }
 
-/// Steps advised for the next native candidate, without an inclusion guarantee. An exact
-/// transition one block later is sent as well so a delayed inclusion may reach its height;
-/// an early copy fails the on-chain height check.
+/// Plan DATA is advice; exact-height and retired ballot actions never become driver instructions.
 fn plan_steps(plan: &ParliamentAttemptPlanResponseV1) -> Vec<DriveStep> {
-    let attempt = plan.governance_attempt_id;
-    let mut steps = Vec::new();
-    if !plan.due.is_empty() {
-        steps.push(DriveStep::Due(attempt, plan.due.clone()));
+    let transitions: Vec<_> = plan
+        .due
+        .iter()
+        .filter(|transition| manager_intent(transition))
+        .cloned()
+        .collect();
+    if transitions.is_empty() {
+        Vec::new()
+    } else {
+        vec![DriveStep::Due(plan.governance_attempt_id, transitions)]
     }
-    for exact in &plan.exact {
-        if exact.height == plan.execution_height
-            || Some(exact.height) == plan.execution_height.checked_add(1)
-        {
-            steps.push(DriveStep::Exact {
-                attempt,
-                execution_height: plan.execution_height,
-                transition: exact.transition.clone(),
-            });
-        }
-    }
-    steps.extend(plan.relay_ballots.iter().copied().map(DriveStep::Relay));
-    steps.extend(
-        plan.finalize_ballots
-            .iter()
-            .copied()
-            .map(DriveStep::Finalize),
-    );
-    steps
 }
 
-/// The instructions of `step`'s transaction, or `None` when this driver lacks the off-chain
-/// input (published ballot records or signer peers).
-fn step_instructions(
-    parliament: &Client,
-    args: &DriveArgs,
-    step: &DriveStep,
-) -> Result<Option<Vec<InstructionBox>>> {
-    let submit = |attempt: GovernanceAttemptId, transition: &ParliamentLifecycleTransitionV1| {
-        InstructionBox::from(SubmitParliamentLifecycleTransitionV1 {
-            governance_attempt_id: attempt,
-            transition: transition.clone(),
-        })
-    };
-    Ok(Some(match step {
-        DriveStep::CreateAttempt(kind) => {
-            vec![InstructionBox::from(CreateParliamentGovernanceAttemptV1 {
+fn step_instructions(step: &DriveStep) -> Vec<InstructionBox> {
+    match step {
+        DriveStep::CreateAttempt(kind) => vec![
+            CreateParliamentGovernanceAttemptV1 {
                 proposal: kind.clone(),
                 attempt_sequence: 0,
-            })]
-        }
+            }
+            .into(),
+        ],
         DriveStep::Due(attempt, transitions) => transitions
             .iter()
-            .map(|transition| submit(*attempt, transition))
+            .map(|transition| {
+                SubmitParliamentLifecycleTransitionV1 {
+                    governance_attempt_id: *attempt,
+                    transition: transition.clone(),
+                }
+                .into()
+            })
             .collect(),
-        DriveStep::Exact {
-            attempt,
-            transition,
-            ..
-        } => vec![submit(*attempt, transition)],
-        DriveStep::Relay(ballot) => {
-            let Some(dir) = &args.relay_dir else {
-                return Ok(None);
-            };
-            let records = std::fs::read_dir(dir)
-                .wrap_err_with(|| format!("read {}", dir.display()))?
-                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-                .filter(|path| path.is_file())
-                .collect::<Vec<_>>();
-            vec![
-                crate::gov::parliament::ballot::relay_instruction(parliament, *ballot, &records)?.2,
-            ]
-        }
-        DriveStep::Finalize(ballot) => {
-            if args.release_peers.is_empty() {
-                return Ok(None);
-            }
-            vec![InstructionBox::from(
-                crate::gov::parliament::finalize_opened_ballot_instruction(
-                    parliament,
-                    *ballot,
-                    args.release_peers.clone(),
-                )?,
-            )]
-        }
-    }))
+    }
 }
 
-/// Forget submissions only after their candidate height has passed.
-fn retire_submissions(sent: &mut BTreeMap<String, u64>, tip: u64) {
-    sent.retain(|_, candidate| tip <= *candidate);
+/// Retry only after the candidate commits or a bounded local retry interval elapses.
+/// A lost submit response cannot suppress a necessary intent forever on an idle chain.
+fn retire_submissions(
+    sent: &mut BTreeMap<String, (u64, Instant)>,
+    tip: u64,
+    now: Instant,
+    retry: Duration,
+) {
+    sent.retain(|_, (candidate, submitted)| {
+        tip < *candidate && now.saturating_duration_since(*submitted) < retry
+    });
+}
+
+/// Observations cannot open an unavailable launch gate or silently switch chains.
+fn validate_drive_source(
+    network: NetworkId,
+    observed: [u8; 32],
+    binding_available: bool,
+) -> Result<()> {
+    if &observed != network.as_bytes() {
+        return Err(eyre!(
+            "the peer's network identity differs from the configured chain"
+        ));
+    }
+    if !binding_available {
+        return Err(eyre!(
+            "the qualified Parliament ballot is unavailable; SCCP governance remains closed"
+        ));
+    }
+    Ok(())
 }
 
 /// Run the Parliament driver until `args.polls` polls (0: until interrupted).
 fn drive<C: RunContext>(context: &mut C, args: &DriveArgs) -> Result<()> {
     let client = super::blocking(context)?;
+    let capabilities = client.sccp().capabilities()?;
+    validate_drive_source(
+        context.config().network_id,
+        capabilities.network_id,
+        capabilities.parliament_binding_ballot_available,
+    )?;
     let parliament: Client = context.client_from_config()?;
     let poll_interval = Duration::from_millis(args.poll_interval_ms.max(100));
-    let tick_interval = Duration::from_millis(args.tick_interval_ms.max(1_000));
-    // Submissions retain their actual candidate height; plan advice does not promise
-    // inclusion, so a still-needed step is retried after that candidate has passed.
-    let mut sent: BTreeMap<String, u64> = BTreeMap::new();
-    let mut last_block: Option<(u64, Instant)> = None;
+    let retry_interval = Duration::from_millis(args.retry_interval_ms.max(100));
+    // Every retry re-reads the committed plan; a prior submit never grants authority.
+    let mut sent: BTreeMap<String, (u64, Instant)> = BTreeMap::new();
     let mut polls = 0_u64;
     loop {
         polls = polls.saturating_add(1);
         let tip = client.status().get()?.blocks;
-        if last_block.is_none_or(|(height, _)| height != tip) {
-            last_block = Some((tip, Instant::now()));
-        }
-        retire_submissions(&mut sent, tip);
+        retire_submissions(&mut sent, tip, Instant::now(), retry_interval);
         let proposals = client.sccp().governance_proposals()?;
-        let pending = proposals.iter().any(needs_blocks);
         let mut steps: Vec<_> = proposals_to_attempt(&proposals)
             .into_iter()
             .map(DriveStep::CreateAttempt)
@@ -303,32 +257,16 @@ fn drive<C: RunContext>(context: &mut C, args: &DriveArgs) -> Result<()> {
             if sent.contains_key(&key) {
                 continue;
             }
-            let candidate = step
-                .candidate_height(tip)
+            let candidate = DriveStep::candidate_height(tip)
                 .ok_or_else(|| eyre!("committed height has no next native candidate"))?;
-            sent.insert(key.clone(), candidate);
-            match step_instructions(&parliament, args, &step) {
-                Ok(Some(instructions)) => {
-                    context.println(format_args!("tip {tip}: {key}"))?;
-                    if let Err(error) = context.finish_unconfirmed(instructions) {
-                        context.println(format_args!("{key}: {error:#}"))?;
-                    }
-                }
-                Ok(None) => context.println(format_args!(
-                    "{key}: waiting for its off-chain input (--relay-dir or --release-peer)"
-                ))?,
-                Err(error) => context.println(format_args!("{key}: {error:#}"))?,
+            sent.insert(key.clone(), (candidate, Instant::now()));
+            let instructions = step_instructions(&step);
+            context.println(format_args!("tip {tip}: {key}"))?;
+            if let Err(error) = context.finish_unconfirmed(instructions) {
+                // A failed transport response is ambiguous. Retain candidate suppression and
+                // re-read the original committed plan before attempting the same intent again.
+                context.println(format_args!("{key}: {error:#}"))?;
             }
-        }
-        if pending && last_block.is_some_and(|(_, since)| since.elapsed() >= tick_interval) {
-            context.println(format_args!("tip {tip}: tick"))?;
-            if let Err(error) = context.finish_unconfirmed(vec![InstructionBox::from(Log::new(
-                iroha::data_model::Level::INFO,
-                "SCCP Parliament driver tick".to_owned(),
-            ))]) {
-                context.println(format_args!("tick: {error:#}"))?;
-            }
-            last_block = Some((tip, Instant::now()));
         }
         if args.polls != 0 && polls >= args.polls {
             return Ok(());
@@ -384,6 +322,12 @@ impl Run for Command {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         let client = super::blocking(context)?;
         match self {
+            Self::Show(args) => context.print_data(
+                &client
+                    .sccp()
+                    .governance_proposal(&super::parse_word(&args.content_id)?)?,
+            ),
+            Self::Readiness => context.print_data(&client.sccp().governance_readiness()?),
             Self::Revisions => {
                 let revisions = client.sccp().governance_revisions()?;
                 context.print_data(&revisions)
@@ -471,108 +415,120 @@ mod tests {
                 proposal: Box::new(fresh.proposal.clone()),
             })
         );
-        assert!(needs_blocks(&fresh));
-        assert!(!needs_blocks(&stale));
-        assert!(needs_blocks(&running));
-        assert!(needs_blocks(&open_proposal(
-            true,
-            Some(attempt(GovernanceAttemptStatusV1::Certified))
-        )));
-        assert!(!needs_blocks(&open_proposal(
-            true,
-            Some(attempt(GovernanceAttemptStatusV1::Rejected))
-        )));
     }
 
     #[test]
-    fn plans_become_due_exact_relay_and_finalize_steps() {
-        use iroha::data_model::isi::governance::ParliamentCloseBallotRegistrationV1;
+    fn driver_uses_manager_intents_without_exact_height_or_ballot_authority() {
+        use iroha::data_model::{
+            governance::types::BallotAttemptId,
+            isi::governance::ParliamentCloseBallotRegistrationV1,
+        };
         use iroha_torii_shared::parliament_api::ParliamentExactTransitionProjectionV1;
         let attempt_id = attempt(GovernanceAttemptStatusV1::Active).id;
         let ballot = BallotAttemptId::new([9; 32]);
-        let close = |height| ParliamentExactTransitionProjectionV1 {
-            height,
-            transition: ParliamentLifecycleTransitionV1::CloseBallotRegistration(
-                ParliamentCloseBallotRegistrationV1 {
-                    ballot_attempt_id: ballot,
-                },
-            ),
-        };
-        let plan = ParliamentAttemptPlanResponseV1 {
+        let retired = ParliamentLifecycleTransitionV1::CloseBallotRegistration(
+            ParliamentCloseBallotRegistrationV1 {
+                ballot_attempt_id: ballot,
+            },
+        );
+        let mut plan = ParliamentAttemptPlanResponseV1 {
             version: 1,
             governance_attempt_id: attempt_id,
             current_height: 40,
             execution_height: 41,
-            due: vec![ParliamentLifecycleTransitionV1::CompleteQualification],
-            exact: vec![close(41), close(42), close(50)],
+            due: vec![
+                ParliamentLifecycleTransitionV1::CompleteQualification,
+                retired.clone(),
+                ParliamentLifecycleTransitionV1::RegisterInitialSortition,
+            ],
+            exact: vec![ParliamentExactTransitionProjectionV1 {
+                height: 41,
+                transition: retired,
+            }],
             relay_ballots: vec![ballot],
             finalize_ballots: vec![ballot],
         };
         let steps = plan_steps(&plan);
         assert_eq!(
             steps,
-            vec![
-                DriveStep::Due(
-                    attempt_id,
-                    vec![ParliamentLifecycleTransitionV1::CompleteQualification]
-                ),
-                DriveStep::Exact {
-                    attempt: attempt_id,
-                    execution_height: 41,
-                    transition: close(41).transition,
-                },
-                DriveStep::Exact {
-                    attempt: attempt_id,
-                    execution_height: 41,
-                    transition: close(42).transition,
-                },
-                DriveStep::Relay(ballot),
-                DriveStep::Finalize(ballot),
-            ],
-            "the exact checkpoint nine blocks out waits"
+            vec![DriveStep::Due(
+                attempt_id,
+                vec![
+                    ParliamentLifecycleTransitionV1::CompleteQualification,
+                    ParliamentLifecycleTransitionV1::RegisterInitialSortition
+                ]
+            )]
         );
-        // The same exact transition aimed at two execution heights is sent twice.
-        let later = DriveStep::Exact {
-            attempt: attempt_id,
-            execution_height: 42,
-            transition: close(42).transition,
-        };
-        assert_ne!(steps[2].key(), later.key());
-        let keys: std::collections::BTreeSet<_> = steps.iter().map(DriveStep::key).collect();
-        assert_eq!(
-            keys.len(),
-            steps.len() - 1,
-            "exact copies share a key per height only"
+        assert_eq!(step_instructions(&steps[0]).len(), 2);
+        plan.due.clear();
+        assert!(
+            plan_steps(&plan).is_empty(),
+            "clock and ballot work never creates driver transactions"
         );
     }
 
     #[test]
     fn retry_suppression_tracks_actual_native_candidate_boundaries() {
-        let ballot = BallotAttemptId::new([9; 32]);
-        let relay = DriveStep::Relay(ballot);
-        assert_eq!(relay.candidate_height(40), Some(41));
-        assert_eq!(relay.candidate_height(u64::MAX), None);
-        let exact = DriveStep::Exact {
-            attempt: attempt(GovernanceAttemptStatusV1::Active).id,
-            execution_height: 44,
-            transition: ParliamentLifecycleTransitionV1::CompleteQualification,
+        let step = DriveStep::Due(
+            attempt(GovernanceAttemptStatusV1::Active).id,
+            vec![ParliamentLifecycleTransitionV1::CompleteQualification],
+        );
+        assert_eq!(DriveStep::candidate_height(40), Some(41));
+        assert_eq!(DriveStep::candidate_height(u64::MAX), None);
+        let now = Instant::now();
+        let retry = Duration::from_secs(4);
+        let mut sent =
+            BTreeMap::from([(step.key(), (DriveStep::candidate_height(40).unwrap(), now))]);
+        retire_submissions(&mut sent, 40, now, retry);
+        assert_eq!(sent.len(), 1);
+        let mut delayed = sent.clone();
+        retire_submissions(&mut sent, 41, now, retry);
+        assert!(
+            sent.is_empty(),
+            "a committed candidate allows re-reading and retrying remaining work"
+        );
+        retire_submissions(&mut delayed, 40, now + retry, retry);
+        assert!(
+            delayed.is_empty(),
+            "an ambiguous submission must not stall an idle tip forever"
+        );
+    }
+
+    #[test]
+    fn proposal_driver_orders_original_creation_height_before_content_identity() {
+        let mut late = open_proposal(true, None);
+        late.created_height = 10;
+        late.proposal.base_revisions[0].revision = 8;
+        let early = open_proposal(true, None);
+        let kinds = proposals_to_attempt(&[late, early.clone()]);
+        assert_eq!(kinds.len(), 2);
+        let ProposalKind::SccpRouteGovernance(first) = &kinds[0] else {
+            panic!("SCCP proposal");
         };
-        assert_eq!(exact.candidate_height(40), Some(44));
-        let mut sent = BTreeMap::from([
-            (relay.key(), relay.candidate_height(40).unwrap()),
-            (exact.key(), exact.candidate_height(40).unwrap()),
-        ]);
-        for tip in [40, 41] {
-            retire_submissions(&mut sent, tip);
-            assert_eq!(sent.len(), 2);
+        assert_eq!(*first.proposal, early.proposal);
+    }
+
+    #[test]
+    fn driver_preserves_closed_binding_gate_and_configured_chain() {
+        let network = network_id();
+        assert!(validate_drive_source(network, *network.as_bytes(), true).is_ok());
+        assert!(validate_drive_source(network, *network.as_bytes(), false).is_err());
+        assert!(validate_drive_source(network, [0; 32], true).is_err());
+    }
+
+    #[test]
+    fn driver_arguments_reject_retired_ballot_and_tick_modes() {
+        use clap::Parser as _;
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            command: Command,
         }
-        retire_submissions(&mut sent, 42);
-        assert!(!sent.contains_key(&relay.key()));
-        assert!(sent.contains_key(&exact.key()));
-        retire_submissions(&mut sent, 44);
-        assert!(sent.contains_key(&exact.key()));
-        retire_submissions(&mut sent, 45);
-        assert!(sent.is_empty());
+        assert!(Cli::try_parse_from(["governance", "readiness"]).is_ok());
+        assert!(Cli::try_parse_from(["governance", "drive", "--polls", "1"]).is_ok());
+        for option in ["--release-peer", "--relay-dir", "--tick-interval-ms"] {
+            assert!(Cli::try_parse_from(["governance", "drive", option, "1"]).is_err());
+        }
     }
 
     #[test]

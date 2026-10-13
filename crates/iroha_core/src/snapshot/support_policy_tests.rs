@@ -112,10 +112,8 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::new(key.private_key(), &vote.preimage())
-                .payload()
-                .try_into()
-                .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };
@@ -139,29 +137,28 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
 }
 #[test]
 fn snapshot_evidence_fixture_preserves_original_signed_bytes() {
+    use iroha_crypto::{BlsNormalPopVerifiedKey, bls::consensus};
+
     let (evidence, attribution) = snapshot_evidence_fixture(snapshot_test_network_id());
     let iroha_sumeragi::message::Evidence::VoteEquivocation(first, mut second) =
         evidence.decode_native().unwrap()
     else {
         panic!("native vote pair")
     };
+    let key = (1_u8..=4)
+        .map(|seed| KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap())
+        .find(|key| key.public_key() == attribution.offenders[0].peer_id.public_key())
+        .expect("the original snapshot fixture signer");
+    let pop = iroha_crypto::bls_normal_pop_prove(key.private_key()).unwrap();
+    let admitted =
+        BlsNormalPopVerifiedKey::from_owned_uncached(key.public_key().clone(), &pop).unwrap();
     for vote in [&first, &second] {
-        Signature::from_bytes(&vote.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &vote.preimage(),
-            )
-            .unwrap();
+        let digest = consensus::ConsensusDigest::from_preimage(&vote.preimage()).unwrap();
+        assert!(consensus::verify(&admitted, &digest, &vote.sig.0));
     }
     second.epoch.context.0[0] ^= 1;
-    assert!(
-        Signature::from_bytes(&second.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &second.preimage()
-            )
-            .is_err()
-    );
+    let changed = consensus::ConsensusDigest::from_preimage(&second.preimage()).unwrap();
+    assert!(!consensus::verify(&admitted, &changed, &second.sig.0));
 }
 fn current_generation_name(store_dir: &Path) -> String {
     let pointer_path = store_dir.join(SNAPSHOT_CURRENT_FILE_NAME);
@@ -209,17 +206,17 @@ fn assert_canonical_snapshot_generation(store_dir: &Path) {
         ],
         "first-release snapshots expose only the atomic pointer and immutable generations"
     );
-    let generation_dir = current_generation_dir(store_dir);
+    let snapshot_directory = current_generation_dir(store_dir);
     let generation_name = current_generation_name(store_dir);
-    let payload = std::fs::read(generation_dir.join(SNAPSHOT_FILE_NAME))
+    let payload = std::fs::read(snapshot_directory.join(SNAPSHOT_FILE_NAME))
         .expect("read selected snapshot payload");
     assert_eq!(generation_name, hex::encode(Sha256::digest(&payload)));
     assert_eq!(
-        std::fs::read(generation_dir.join(SNAPSHOT_DIGEST_FILE_NAME))
+        std::fs::read(snapshot_directory.join(SNAPSHOT_DIGEST_FILE_NAME))
             .expect("read selected snapshot digest"),
         format!("{generation_name}\n").as_bytes()
     );
-    let mut artifact_names = std::fs::read_dir(&generation_dir)
+    let mut artifact_names = std::fs::read_dir(&snapshot_directory)
         .expect("read selected generation")
         .map(|entry| {
             entry
@@ -630,11 +627,13 @@ async fn snapshot_fixture_key_generation_preserves_algorithm() {
 }
 fn state_factory_with_kura_and_chain(kura: Arc<Kura>, chain_id: ChainId) -> State {
     let query_handle = LiveQueryStore::start_test();
+    let world = crate::queue::tests::world_with_test_domains();
+    // Retain the same original pool as every admitted World field. A fresh
+    // budget here would make subsequent State block acquisition foreign.
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     let mut state = State::try_new_with_chain(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
-        crate::queue::tests::world_with_test_domains(),
+        budget,
+        world,
         Arc::clone(&kura),
         query_handle,
         chain_id,
@@ -833,7 +832,7 @@ fn staged_and_committed_wsv_hashes_commit_consensus_evidence() {
         evidence_key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence,
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
                 attribution,
                 recorded_at_height: 2,
                 recorded_at_view: 0,
@@ -949,7 +948,9 @@ async fn staged_snapshot_wsv_hash_commits_consensus_evidence() {
                 key,
                 crate::state::RetainedEvidenceRecord::from_fixture(
                     EvidenceRecord {
-                        evidence,
+                        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                            evidence,
+                        ),
                         attribution,
                         recorded_at_height: 1,
                         recorded_at_view: 0,
@@ -1009,11 +1010,13 @@ async fn canonical_wsv_hash_sorts_sumeragi_key_algorithm_set() {
     let state = state_factory();
     {
         let mut parameters = state.world.parameters.block();
-        parameters.sumeragi.key_allowed_algorithms = vec![
+        let mut consensus = parameters.sumeragi().clone();
+        consensus.key_allowed_algorithms = vec![
             Algorithm::Secp256k1,
             Algorithm::Ed25519,
             Algorithm::Secp256k1,
         ];
+        parameters.set_sumeragi(consensus);
         parameters.commit();
     }
     let first = canonical_state_snapshot_bytes_for_tests(&state);
@@ -1025,7 +1028,9 @@ async fn canonical_wsv_hash_sorts_sumeragi_key_algorithm_set() {
     );
     {
         let mut parameters = state.world.parameters.block();
-        parameters.sumeragi.key_allowed_algorithms = vec![Algorithm::Ed25519, Algorithm::Secp256k1];
+        let mut consensus = parameters.sumeragi().clone();
+        consensus.key_allowed_algorithms = vec![Algorithm::Ed25519, Algorithm::Secp256k1];
+        parameters.set_sumeragi(consensus);
         parameters.commit();
     }
     let second = canonical_state_snapshot_bytes_for_tests(&state);
@@ -1295,7 +1300,7 @@ fn store_block_and_mark_state_height(
 ) {
     kura.store_block(block.clone()).expect("store block");
     state.push_block_hash_for_testing(block.hash());
-    seed_snapshot_genesis_resolver_checkpoint(&state);
+    seed_snapshot_genesis_resolver_checkpoint(state);
 }
 
 /// Direct block fixtures retain the resolver anchor required of every committed state.

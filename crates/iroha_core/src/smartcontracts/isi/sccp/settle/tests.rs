@@ -83,7 +83,7 @@ fn fund(stx: &mut StateTransaction<'_, '_>, network: SccpNetworkV1, revision: u3
         xor_balance(&*stx.world, &escrow)
     ));
     escrow::lock(stx, network, &holder(), amount, binding).expect("lock");
-    adjust_liability(stx, network, revision, to_i128(amount).expect("amount")).expect("liability");
+    credit_liability(stx, network, revision, amount).expect("liability");
     assert_escrow_invariant(&*stx.world, "fund");
 }
 
@@ -787,7 +787,7 @@ fn refunds_credit_the_sender_or_strand_and_never_abort() {
         SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
             kind: SccpVoidKindV1::Expired,
             proven_at_height: 5,
-            refund_pending: true,
+            refund_pending: Some(SccpPendingReasonV1::CreditRefused),
         })
     );
     void_expired(&mut stx, ETH, 4).expect("void");
@@ -813,10 +813,28 @@ fn refunds_credit_the_sender_or_strand_and_never_abort() {
     execute_settle(retry(), &holder(), &mut stx).expect_err("still refused");
     set_enabled(&mut stx, false);
     set_holding_limit(&mut stx, &refusing, None);
-    execute_settle(retry(), &holder(), &mut stx).expect_err("SCCP is disabled");
+    execute_settle(retry(), &holder(), &mut stx).expect("the reason changes to Disabled");
+    assert!(matches!(
+        outbound_status(&stx, &by_refusing),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::Disabled),
+            ..
+        })
+    ));
+    execute_settle(retry(), &holder(), &mut stx).expect_err("unchanged Disabled makes no progress");
     set_enabled(&mut stx, true);
     set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::Paused);
-    execute_settle(retry(), &holder(), &mut stx).expect_err("the revision is paused");
+    execute_settle(retry(), &holder(), &mut stx)
+        .expect("the reason changes to RevisionNotSettleable");
+    assert!(matches!(
+        outbound_status(&stx, &by_refusing),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::RevisionNotSettleable),
+            ..
+        })
+    ));
+    execute_settle(retry(), &holder(), &mut stx)
+        .expect_err("unchanged paused reason makes no progress");
     set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::Bidirectional);
     execute_settle(retry(), &holder(), &mut stx).expect("refunded");
     assert!(matches!(
@@ -855,11 +873,27 @@ fn release_stranded_pays_out_only_stranded_value() {
         )],
     };
     let recipient = authority(40);
-    governance::enact(&mut stx, &release(3 * ONE_XOR + 1, &recipient), [1; 32])
-        .expect_err("only 3 XOR is stranded");
-    governance::enact(&mut stx, &release(ONE_XOR, &escrow), [2; 32])
-        .expect_err("an escrow recipient");
-    governance::enact(&mut stx, &release(2 * ONE_XOR, &recipient), [3; 32]).expect("release");
+    governance::enact(
+        &mut stx,
+        &release(3 * ONE_XOR + 1, &recipient),
+        [1; 32],
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
+    )
+    .expect_err("only 3 XOR is stranded");
+    governance::enact(
+        &mut stx,
+        &release(ONE_XOR, &escrow),
+        [2; 32],
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
+    )
+    .expect_err("an escrow recipient");
+    governance::enact(
+        &mut stx,
+        &release(2 * ONE_XOR, &recipient),
+        [3; 32],
+        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
+    )
+    .expect("release");
     assert_eq!(xor_balance(&*stx.world, &recipient), 2 * ONE_XOR);
     assert_eq!(stranded(&stx, TON), ONE_XOR);
     assert_eq!(
@@ -977,6 +1011,15 @@ fn a_frozen_void_of_a_full_ton_bucket_refunds_strands_and_holds_without_aborting
         stx.apply();
     }
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"frozen-ton-end"));
+    execute_settle(SettleSccpV1::refund(TON, 1, 200), &holder(), &mut stx)
+        .expect("deferred refund now records its sender's credit refusal");
+    assert!(matches!(
+        outbound_status(&stx, &ids[200]),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::CreditRefused),
+            ..
+        })
+    ));
     execute_settle(SettleSccpV1::refund(TON, 1, 200), &holder(), &mut stx)
         .expect_err("the refusing sender still refuses");
     assert_eq!(
@@ -1257,6 +1300,7 @@ impl Outcomes {
                 SccpInboundStatusV1::Released(_) => outcomes.released += 1,
                 SccpInboundStatusV1::Bounced(_) => outcomes.bounced += 1,
                 SccpInboundStatusV1::Pending(_) => outcomes.inbound_held += 1,
+                SccpInboundStatusV1::Stranded(_) => outcomes.stranded += 1,
             }
         }
         for (_, record) in store::outbound_messages::iter(&*stx.world) {
@@ -1382,4 +1426,335 @@ fn refund_outcomes_report_changes_and_holds() {
     assert!(SccpRefundOutcomeV1::Held { changed: true }.is_held());
     assert!(!SccpRefundOutcomeV1::Refunded.is_held());
     assert!(!SccpRefundOutcomeV1::Stranded.is_held());
+}
+
+#[test]
+fn taira_fast_pause_holds_inbound_only_without_losing_proof_money_or_retry() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
+    for delta in [1_i64, 0, -1] {
+        let state = state();
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"fast-pause-inbound"));
+        install(&mut stx);
+        set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+        fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+        let recipient = authority(89);
+        let now = stx.block_unix_timestamp_ms();
+        // Taira hold is network-wide even when the destination revision list excludes 1.
+        install_consumer_fast_pause(
+            &mut stx,
+            ETH,
+            true,
+            vec![2],
+            now.checked_add_signed(delta).unwrap(),
+        );
+        let id = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), 0);
+        assert_eq!(
+            inbound_status(&stx, &id).is_pending(),
+            delta > 0,
+            "an active Taira pause must preserve the authenticated inbound as pending"
+        );
+        if delta > 0 {
+            let SccpInboundStatusV1::Pending(pending) = inbound_status(&stx, &id) else {
+                unreachable!()
+            };
+            assert_eq!(format!("{:?}", pending.reason), "Held");
+            assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+            assert_eq!(xor_balance(&*stx.world, &recipient), 0);
+            assert!(
+                stx.world.account(&recipient).is_err(),
+                "held proof must not register a recipient"
+            );
+            execute_settle(SettleSccpV1::inbound(id), &holder(), &mut stx)
+                .expect_err("unchanged hold is no progress");
+            // Exact expiry is supplied by a later source position in production. This
+            // fixture replaces only the precondition so the same consumer retry is tested.
+            install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now);
+            execute_settle(SettleSccpV1::inbound(id), &holder(), &mut stx)
+                .expect("expiry releases");
+        }
+        assert!(matches!(
+            inbound_status(&stx, &id),
+            SccpInboundStatusV1::Released(_)
+        ));
+        assert_eq!(liability(&stx, ETH, 1), ONE_XOR);
+        assert_eq!(xor_balance(&*stx.world, &recipient), ONE_XOR);
+        assert_pending_counts(&stx, "fast-pause inbound");
+        assert_escrow_invariant(&*stx.world, "fast-pause inbound");
+        drop(stx);
+        assert!(store::inbound_messages::is_empty(&block.world));
+        assert!(store::fast_pauses::is_empty(&block.world));
+    }
+}
+
+#[test]
+fn taira_fast_pause_keeps_void_refund_pending_without_stranding_or_moving_money() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"fast-pause-refund"));
+    install(&mut stx);
+    let absent = authority(90);
+    let id = seed_outbound(&mut stx, ETH, 0, &absent, ONE_XOR);
+    let escrow = escrow_of(&stx, ETH);
+    let escrow_id = seed_outbound(&mut stx, ETH, 1, &escrow, ONE_XOR);
+    set_activation(&mut stx, ETH, 1, SccpRouteActivationV1::InboundOnly);
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now + 1);
+    void_expired(&mut stx, ETH, 0).expect("proof of void is always recorded");
+    void_expired(&mut stx, ETH, 1).expect("proof of void is always recorded");
+    assert!(
+        outbound_status(&stx, &id).is_refund_pending(),
+        "fast pause must defer actual refund movement"
+    );
+    assert!(
+        outbound_status(&stx, &escrow_id).is_refund_pending(),
+        "hold also precedes stranding"
+    );
+    assert_eq!(liability(&stx, ETH, 1), 2 * ONE_XOR);
+    assert_eq!(stranded(&stx, ETH), 0);
+    assert!(stx.world.account(&absent).is_err());
+    assert_pending_counts(&stx, "held refund");
+    assert_escrow_invariant(&*stx.world, "held refund");
+    execute_settle(SettleSccpV1::refund(ETH, 1, 0), &holder(), &mut stx)
+        .expect_err("unchanged hold");
+    install_consumer_fast_pause(&mut stx, ETH, true, vec![2], now);
+    execute_settle(SettleSccpV1::refund(ETH, 1, 0), &holder(), &mut stx)
+        .expect("exact expiry credits");
+    execute_settle(SettleSccpV1::refund(ETH, 1, 1), &holder(), &mut stx)
+        .expect("exact expiry strands");
+    assert_eq!(xor_balance(&*stx.world, &absent), ONE_XOR);
+    assert_eq!(stranded(&stx, ETH), ONE_XOR);
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    assert_pending_counts(&stx, "released refund");
+    assert_escrow_invariant(&*stx.world, "released refund");
+}
+
+#[test]
+fn destination_fast_pause_does_not_prevent_release_refund_or_bounce() {
+    use crate::smartcontracts::isi::sccp::test_support::install_consumer_fast_pause;
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"destination-pause-bounce"));
+    install(&mut stx);
+    let refund = seed_outbound(&mut stx, ETH, 0, &holder(), ONE_XOR);
+    fund(&mut stx, ETH, 1, 2 * ONE_XOR);
+    let now = stx.block_unix_timestamp_ms();
+    install_consumer_fast_pause(&mut stx, ETH, false, vec![1], now + 1);
+    let recipient = authority(91);
+    let released = prove(&mut stx, 0, ONE_XOR, address_bytes(&recipient), 0);
+    assert!(matches!(
+        inbound_status(&stx, &released),
+        SccpInboundStatusV1::Released(_)
+    ));
+    let escrow = escrow_of(&stx, ETH);
+    let bounced = prove(&mut stx, 1, ONE_XOR, address_bytes(&escrow), 0);
+    assert!(matches!(
+        inbound_status(&stx, &bounced),
+        SccpInboundStatusV1::Bounced(_)
+    ));
+    void_expired(&mut stx, ETH, 0).expect("destination-only pause does not hold refund");
+    assert!(matches!(
+        outbound_status(&stx, &refund),
+        SccpOutboundStatusV1::Refunded(_)
+    ));
+    assert_eq!(
+        liability(&stx, ETH, 1),
+        ONE_XOR,
+        "bounce retains its liability"
+    );
+    assert_pending_counts(&stx, "destination-only pause");
+    assert_escrow_invariant(&*stx.world, "destination-only pause");
+}
+
+/// Open a genuine core window on test-quarantined State, then make its deadline due.
+fn close_reconciliation(stx: &mut StateTransaction<'_, '_>, forged: u128) {
+    reconciliation::open(stx, ETH, 1, 1).expect("open quarantine window");
+    let now = stx.block_unix_timestamp_ms();
+    let mut record = *reconciliation_store::get(&*stx.world, &(ETH, 1)).unwrap();
+    record.opened_at_ms = now - 1;
+    record.closes_at_ms = now;
+    if forged > 0 {
+        // Test DATA stands in for a distinct authenticated finalization; amount accounting
+        // and window close use their actual retained owner and production transition.
+        reconciliation_store::prove(stx, (ETH, 1), [0xFA; 32], forged).unwrap();
+        record.forged_supply = forged;
+    }
+    reconciliation_store::put(stx, (ETH, 1), record).unwrap();
+    assert!(reconciliation::end_one(stx, ETH, 1).unwrap());
+}
+
+fn quarantine_for_reconciliation(stx: &mut StateTransaction<'_, '_>) {
+    let mut route = store::routes::get(&*stx.world, &ETH).cloned().unwrap();
+    let record = route.revisions.get_mut(&1).unwrap();
+    record.quarantine = Some(iroha_data_model::sccp::native::SccpQuarantineV1 {
+        certificate_id: [0xFA; 32],
+        since_height: 1,
+    });
+    record.activation = SccpRouteActivationV1::InboundOnly;
+    store::routes::insert(stx, ETH, route).unwrap();
+}
+
+#[test]
+fn reconciliation_reserves_refunds_and_later_claims_exhaust_only_priced_backing() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"reconciliation-reserve"));
+    install(&mut stx);
+    fund(&mut stx, ETH, 1, 100);
+    let refund = seed_outbound(&mut stx, ETH, 0, &holder(), 20);
+    quarantine_for_reconciliation(&mut stx);
+    void_expired(&mut stx, ETH, 0).unwrap();
+    assert!(outbound_status(&stx, &refund).is_refund_pending());
+    assert_eq!(
+        reconciliation_store::pending_refunds(&*stx.world, &(ETH, 1)),
+        20
+    );
+    let recipient = authority(71);
+    let first = prove(&mut stx, 0, 100, address_bytes(&recipient), 0);
+    assert_eq!(
+        inbound_status(&stx, &first),
+        pending(SccpPendingReasonV1::Held)
+    );
+    close_reconciliation(&mut stx, 100);
+    assert!(settle_inbound(&mut stx, first).unwrap());
+    assert_eq!(xor_balance(&*stx.world, &recipient), 50);
+    assert_eq!(liability(&stx, ETH, 1), 70);
+    let second = prove(&mut stx, 1, 100, address_bytes(&recipient), 0);
+    assert!(matches!(
+        inbound_status(&stx, &second),
+        SccpInboundStatusV1::Released(SccpInboundSettledV1 { payout: 50, .. })
+    ));
+    assert_eq!(xor_balance(&*stx.world, &recipient), 100);
+    assert_eq!(liability(&stx, ETH, 1), 20);
+    // Zero payout needs neither a valid recipient nor a fee sink and creates no bounce.
+    let third = prove(&mut stx, 2, 200, vec![0xFF], 100);
+    assert!(
+        matches!(
+            inbound_status(&stx, &third),
+            SccpInboundStatusV1::Released(SccpInboundSettledV1 { payout: 0, .. })
+        ),
+        "reconciled claim must preserve pending refund backing"
+    );
+    assert_eq!(liability(&stx, ETH, 1), 20);
+    assert_eq!(
+        attempt_refund(&mut stx, refund).unwrap(),
+        SccpRefundOutcomeV1::Refunded
+    );
+    assert_eq!(
+        reconciliation_store::pending_refunds(&*stx.world, &(ETH, 1)),
+        0
+    );
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    assert_eq!(
+        reconciliation_store::get(&*stx.world, &(ETH, 1))
+            .unwrap()
+            .settled_face,
+        400
+    );
+    assert_escrow_invariant(&*stx.world, "pro-rata reserve");
+    assert_pending_counts(&stx, "pro-rata reserve");
+}
+
+#[test]
+fn reconciliation_pending_credit_retry_recomputes_rounding_without_spending_face() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"reconciliation-retry"));
+    install(&mut stx);
+    fund(&mut stx, ETH, 1, 7);
+    let refusing = refusing_account(&mut stx, 72);
+    quarantine_for_reconciliation(&mut stx);
+    close_reconciliation(&mut stx, 3);
+    let held = prove(&mut stx, 0, 3, address_bytes(&refusing), 0);
+    assert_eq!(
+        inbound_status(&stx, &held),
+        pending(SccpPendingReasonV1::CreditRefused)
+    );
+    assert_eq!(
+        reconciliation_store::get(&*stx.world, &(ETH, 1))
+            .unwrap()
+            .settled_face,
+        0,
+        "refused reconciled credit must not advance settled face"
+    );
+    assert_eq!(liability(&stx, ETH, 1), 7);
+    let other = authority(73);
+    prove(&mut stx, 1, 3, address_bytes(&other), 0);
+    assert_eq!(xor_balance(&*stx.world, &other), 2);
+    assert!(!settle_inbound(&mut stx, held).unwrap());
+    assert_eq!(
+        reconciliation_store::get(&*stx.world, &(ETH, 1))
+            .unwrap()
+            .settled_face,
+        3
+    );
+    set_holding_limit(&mut stx, &refusing, None);
+    settle_inbound(&mut stx, held).unwrap();
+    assert_eq!(xor_balance(&*stx.world, &refusing), 2);
+    prove(&mut stx, 2, 4, address_bytes(&other), 0);
+    assert_eq!(xor_balance(&*stx.world, &other), 5);
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    assert_eq!(
+        reconciliation_store::get(&*stx.world, &(ETH, 1))
+            .unwrap()
+            .settled_face,
+        10
+    );
+    assert_escrow_invariant(&*stx.world, "pro-rata retry");
+}
+
+#[test]
+fn reconciliation_quarantined_bounce_strands_payout_and_never_records_outbound() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"reconciliation-strand"));
+    install(&mut stx);
+    fund(&mut stx, ETH, 1, 50);
+    quarantine_for_reconciliation(&mut stx);
+    close_reconciliation(&mut stx, 50);
+    let id = prove(&mut stx, 0, 100, vec![0xFF], 0);
+    assert!(matches!(
+        inbound_status(&stx, &id),
+        SccpInboundStatusV1::Stranded(SccpInboundSettledV1 { payout: 50, .. })
+    ));
+    assert_eq!(stranded(&stx, ETH), 50);
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    assert_eq!(store::outbound_messages::iter(&*stx.world).count(), 0);
+    assert!(record_outbound(&mut stx, ETH, 1, &holder()).is_err());
+    assert_eq!(
+        reconciliation_store::get(&*stx.world, &(ETH, 1))
+            .unwrap()
+            .settled_face,
+        100
+    );
+    assert_escrow_invariant(&*stx.world, "quarantined fallback strand");
+}
+
+#[test]
+fn late_void_keeps_full_refund_pending_when_reconciled_claims_spent_liability() {
+    let state = state();
+    let mut block = state.block(header(5));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"reconciliation-late-void"));
+    install(&mut stx);
+    let outbound = seed_outbound(&mut stx, ETH, 0, &holder(), 100);
+    quarantine_for_reconciliation(&mut stx);
+    close_reconciliation(&mut stx, 100);
+    prove(&mut stx, 0, 200, address_bytes(&authority(74)), 0);
+    assert_eq!(liability(&stx, ETH, 1), 0);
+    void_expired(&mut stx, ETH, 0).unwrap();
+    assert!(outbound_status(&stx, &outbound).is_refund_pending());
+    assert!(matches!(
+        outbound_status(&stx, &outbound),
+        SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            refund_pending: Some(SccpPendingReasonV1::LiabilityShortfall),
+            ..
+        })
+    ));
+    assert_eq!(
+        reconciliation_store::pending_refunds(&*stx.world, &(ETH, 1)),
+        100
+    );
+    assert!(attempt_refund(&mut stx, outbound).unwrap().is_held());
+    assert_escrow_invariant(&*stx.world, "late void after reconciliation");
 }

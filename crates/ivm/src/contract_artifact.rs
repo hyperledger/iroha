@@ -97,7 +97,7 @@ impl PreparedContract {
             ContractArtifactError::invalid("executable stream offset exceeds artifact length")
         })?;
         let literal_table = decode_literal_table(
-            artifact.as_ref(),
+            artifact,
             verified.header_len,
             verified.literal_section(),
             SyscallPolicy::AbiV1,
@@ -220,9 +220,8 @@ mod preparation_deferral_tests {
         })
         .expect_err("cold native decode must expose local allocator refusal");
         let error = error.into_vm_error();
-        assert_eq!(
-            error,
-            VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+        assert!(
+            matches!(error, VMError::ExecutionDeferred(__actual_error_field) if __actual_error_field == (ExecutionDeferral::AllocationUnavailable))
         );
         assert_eq!(error.metered_gas(), None);
         let retried =
@@ -251,7 +250,7 @@ mod preparation_deferral_tests {
         };
         let error =
             ContractArtifactError::preparation("prepared instructions", deferred).into_vm_error();
-        assert_eq!(error, VMError::AllocationDeferred(original));
+        assert!(matches!(&error, VMError::AllocationDeferred(actual) if actual == &original));
         assert_eq!(
             error.execution_deferral(),
             Some(ExecutionDeferral::ActiveMemoryCapacity)
@@ -341,19 +340,21 @@ mod koto_test_harness_tests {
             outputs.suite.contract_interface().clone(),
         )
         .unwrap_or_else(|error| panic!("test-harness artifact must prepare: {error}"));
-        let unknown = Err(VMError::UnknownSyscall(
-            crate::syscalls::SYSCALL_KOTO_TEST_ACTOR_ACCOUNT,
-        ));
+        let number = crate::syscalls::SYSCALL_KOTO_TEST_ACTOR_ACCOUNT;
 
         let mut vm = IVM::new(u64::MAX);
         vm.load_koto_test_harness(&harness)
             .expect("harness contract loads with the test capability");
-        assert_ne!(koto_test_syscall_result(&mut vm), unknown);
+        assert!(
+            !matches!(koto_test_syscall_result(&mut vm), Err(VMError::UnknownSyscall(actual)) if actual == number)
+        );
 
         let mut vm = IVM::new(u64::MAX);
         vm.load_prepared(harness.prepared())
             .expect("the borrowed prepared contract loads as an ordinary program");
-        assert_eq!(koto_test_syscall_result(&mut vm), unknown);
+        assert!(
+            matches!(koto_test_syscall_result(&mut vm), Err(VMError::UnknownSyscall(actual)) if actual == number)
+        );
 
         let runtime = outputs
             .runtime
@@ -387,9 +388,14 @@ mod koto_test_harness_tests {
             assert_eq!(output.artifact[5], 1);
             let mut retired = output.artifact.clone();
             retired[5] = 0;
-            let expected = VMError::UnsupportedProgramVersion { major: 1, minor: 0 };
-            assert_eq!(IVM::validate_program(&retired), Err(expected.clone()));
-            assert_eq!(vm.load_program(&retired), Err(expected));
+            assert!(matches!(
+                IVM::validate_program(&retired),
+                Err(VMError::UnsupportedProgramVersion { major: 1, minor: 0 })
+            ));
+            assert!(matches!(
+                vm.load_program(&retired),
+                Err(VMError::UnsupportedProgramVersion { major: 1, minor: 0 })
+            ));
             assert_eq!(
                 (
                     vm.pc(),
@@ -401,13 +407,13 @@ mod koto_test_harness_tests {
             );
             assert_eq!(vm.register(7), 701);
             let error = prepare_contract_with_memory_budget(&retired, &budget).unwrap_err();
-            assert!(error.local_vm_error().is_none());
+            assert!(!error.is_local_deferral());
             assert!(error.to_string().contains("program version 1.0"), "{error}");
             let error =
                 prepare_koto_test_contract(Arc::from(retired), output.contract_interface().clone())
                     .err()
                     .expect("retired harness cannot grant a capability");
-            assert!(error.local_vm_error().is_none());
+            assert!(!error.is_local_deferral());
             assert!(error.to_string().contains("program version 1.0"), "{error}");
         }
         drop(vm);

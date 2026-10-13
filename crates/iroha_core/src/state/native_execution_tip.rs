@@ -20,7 +20,9 @@ pub struct NativeExecutionTip(NativeExecutionTipRecord);
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, norito::json::JsonSerialize, norito::json::JsonDeserialize,
 )]
+#[norito(deny_unknown_fields)]
 pub(crate) struct NativeExecutionTipRecord {
+    pub(crate) root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     pub(crate) height: u64,
     pub(crate) creation_time_ms: u64,
     pub(crate) iroha_hash: HashOf<BlockHeader>,
@@ -35,6 +37,12 @@ impl norito::json::JsonSerialize for NativeExecutionTip {
 }
 
 impl NativeExecutionTip {
+    /// Immutable root scope inherited from the original authenticated execution owner.
+    #[must_use]
+    pub const fn root_scope(self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.0.root_scope
+    }
+
     /// One-based original executed height.
     #[must_use]
     pub const fn height(self) -> u64 {
@@ -64,6 +72,7 @@ impl NativeExecutionTip {
 
 /// Complete fixed current/undo snapshot projection, still unauthenticated.
 #[derive(norito::json::JsonSerialize, norito::json::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
 pub(crate) struct NativeExecutionTipSnapshot {
     revert: Option<NativeExecutionTipUndo>,
     blocks: Option<NativeExecutionTipRecord>,
@@ -85,6 +94,10 @@ pub(in crate::state) fn empty_cell(
     initialize(budget, None, None).map_err(Into::into)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+)]
 fn initialize(
     budget: &AllocationBudget,
     current: Option<NativeExecutionTip>,
@@ -141,6 +154,10 @@ impl From<&str> for TipRestoreError {
 
 impl NativeExecutionTipSnapshot {
     /// Capture the exact original current and undo values without losing nested absence.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn from_original(
         current: Option<NativeExecutionTip>,
         previous: Option<Option<NativeExecutionTip>>,
@@ -155,6 +172,10 @@ impl NativeExecutionTipSnapshot {
 
     /// Compare serialized claims with the exact originals captured alongside the World.
     /// This grants no restore authority and never constructs an execution owner.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn matches_original(
         &self,
         current: Option<NativeExecutionTip>,
@@ -195,22 +216,13 @@ impl NativeExecutionTipSnapshot {
         // predecessor and records history checkpoints for off-chain readers.
         let checkpoints = kura.history_checkpoints();
         let mut previous = if height == 2 {
-            Some(record(
-                chain
-                    .authenticated_execution(1)
-                    .map_err(TipRestoreError::from)?
-                    .committed(),
-            ))
+            Some(restored_genesis_record(&chain)?)
         } else {
             None
         };
         let mut current = None;
-        for certified in chain.walk(2, height) {
-            let block = certified
-                .map_err(TipRestoreError::from)?
-                .into_authenticated_execution()
-                .map_err(|error| error.to_string())?;
-            let block = record(block.committed());
+        let mut walk = chain.walk(2, height);
+        while let Some(block) = next_restored_record(&mut walk)? {
             checkpoints.record_sparse(block.height, checkpoint_of(block));
             previous = current.replace(block).or(previous);
         }
@@ -233,6 +245,40 @@ impl NativeExecutionTipSnapshot {
     }
 }
 
+// Keep the complete H1 receipt outside the restore frame. It retires before the
+// successor walk starts, leaving only the authenticated fixed-size identity.
+#[inline(never)]
+fn restored_genesis_record(
+    chain: &CertifiedChain<'_, StateView<'_>>,
+) -> Result<NativeExecutionTipRecord, TipRestoreError> {
+    let genesis = chain
+        .authenticated_execution(1)
+        .map_err(TipRestoreError::from)?;
+    Ok(record(genesis.committed()))
+}
+
+// The iterator owns the same source-bound prefix and advances in the same order.
+// Complete certificate/result return temporaries belong to one step, rather than
+// remaining reserved in restore's frame while its next native decode runs.
+#[inline(never)]
+fn next_restored_record(
+    walk: &mut impl Iterator<
+        Item = Result<
+            crate::sumeragi::certified_chain::CertifiedBlock,
+            ExecutionAttemptError<ChainReadError>,
+        >,
+    >,
+) -> Result<Option<NativeExecutionTipRecord>, TipRestoreError> {
+    let Some(certified) = walk.next() else {
+        return Ok(None);
+    };
+    let block = certified
+        .map_err(TipRestoreError::from)?
+        .into_authenticated_execution()
+        .map_err(|error| error.to_string())?;
+    Ok(Some(record(block.committed())))
+}
+
 /// The history checkpoint of an authenticated native execution identity.
 fn checkpoint_of(
     record: NativeExecutionTipRecord,
@@ -245,6 +291,7 @@ fn checkpoint_of(
 }
 fn record(block: &CommittedBlock) -> NativeExecutionTipRecord {
     NativeExecutionTipRecord {
+        root_scope: block.root_scope(),
         height: block.height(),
         creation_time_ms: u64::try_from(block.block().header().creation_time().as_millis())
             .expect("block creation time is a u64 millisecond value"),
@@ -267,8 +314,9 @@ impl StateBlock<'_> {
         if next.height != iroha.header().height().get()
             || u128::from(next.creation_time_ms) != iroha.header().creation_time().as_millis()
             || next.iroha_hash != iroha.hash()
-            || next.result
-                != crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage()).0
+            || Some(next.result)
+                != crate::sumeragi::commitment::result_of_preimage(certificate.result_preimage())
+                    .map(|result| result.0)
         {
             return Err("native execution owner differs from the original sealed carrier".into());
         }
@@ -296,7 +344,8 @@ impl StateBlock<'_> {
                     && certificate.consensus_header().is_empty()
                     && certificate.commit_qc().is_empty() => {}
             (Some(previous), Some((parent_hash, parent_result)))
-                if previous.height().checked_add(1) == Some(next.height)
+                if previous.root_scope() == next.root_scope
+                    && previous.height().checked_add(1) == Some(next.height)
                     && usize::try_from(previous.height()).ok() == Some(self.block_hashes.len())
                     && self.block_hashes.last().copied() == Some(previous.iroha_hash())
                     && iroha.header().prev_block_hash() == Some(previous.iroha_hash())

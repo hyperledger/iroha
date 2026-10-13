@@ -1,7 +1,7 @@
 #[cfg(unix)]
 #[test]
 fn durable_inrou_egress_gc_retains_uncommitted_precharge_after_restart() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.container.runtime = SoraContainerRuntimeV1::Inrou;
     bundle.service.execution_plane =
@@ -29,11 +29,9 @@ fn durable_inrou_egress_gc_retains_uncommitted_precharge_after_restart() -> Resu
     let current = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
+        (lease_started_height, reporting_epoch),
         &bundle.service.service_version,
-        1,
-        &Hash::new(Encode::encode(&("placement", 1_u16))),
+        (1, &Hash::new(Encode::encode(&("placement", 1_u16)))),
         &ALICE_ID,
         None,
     )?;
@@ -43,11 +41,12 @@ fn durable_inrou_egress_gc_retains_uncommitted_precharge_after_restart() -> Resu
     let obsolete = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch.checked_add(1).expect("successor epoch"),
+        (
+            lease_started_height,
+            reporting_epoch.checked_add(1).expect("successor epoch"),
+        ),
         &bundle.service.service_version,
-        1,
-        &Hash::new(Encode::encode(&("placement", 1_u16))),
+        (1, &Hash::new(Encode::encode(&("placement", 1_u16)))),
         &ALICE_ID,
         None,
     )?;
@@ -379,7 +378,7 @@ fn portable_vm_loopback_bridge_stop_is_bounded_with_a_nonreading_backend() -> Re
     )?;
     let mut client = TcpStream::connect(public_address)?;
     let client_writer = thread::spawn(move || {
-        let payload = [0x5a_u8; 64 * 1024];
+        let payload = vec![0x5a_u8; 64 * 1024].into_boxed_slice();
         while client.write_all(&payload).is_ok() {}
     });
     accepted_rx.recv_timeout(Duration::from_secs(2))?;
@@ -491,12 +490,12 @@ fn hosted_http_probe_without_healthcheck_requires_a_live_listener() -> Result<()
     probe_hosted_http_health(&base_url, None)?;
     drop(listener);
     assert_eyre_error_contains(
-        probe_hosted_http_health(&base_url, None)
+        &probe_hosted_http_health(&base_url, None)
             .expect_err("a missing listener must not be reported as healthy"),
         "connect to hosted-HTTP listener",
     );
     assert_eyre_error_contains(
-        probe_hosted_http_health(&format!("{base_url}/unexpected"), None)
+        &probe_hosted_http_health(&format!("{base_url}/unexpected"), None)
             .expect_err("listener probes must reject URLs outside the exact origin"),
         "must be an explicit IPv4 loopback HTTP origin",
     );
@@ -505,7 +504,7 @@ fn hosted_http_probe_without_healthcheck_requires_a_live_listener() -> Result<()
 #[test]
 fn hosted_http_health_probe_rejects_redirects_and_non_loopback_origins() -> Result<()> {
     assert_eyre_error_contains(
-        probe_hosted_http_health("http://192.0.2.1:8080", Some("/health"))
+        &probe_hosted_http_health("http://192.0.2.1:8080", Some("/health"))
             .expect_err("health probes must remain on the explicit loopback origin"),
         "must be an explicit IPv4 loopback HTTP origin",
     );
@@ -540,7 +539,7 @@ fn hosted_http_health_probe_rejects_redirects_and_non_loopback_origins() -> Resu
     });
 
     assert_eyre_error_contains(
-        probe_hosted_http_health(&format!("http://{source_address}"), Some("/health"))
+        &probe_hosted_http_health(&format!("http://{source_address}"), Some("/health"))
             .expect_err("a redirect must not satisfy the health probe"),
         "returned 302",
     );
@@ -586,14 +585,14 @@ fn portable_vm_kvm_identity_allows_only_the_derived_device_group() -> Result<()>
     validate_portable_vm_kvm_identity(&identity, kvm_device)?;
     identity.supplementary_gids.push(999);
     assert_eyre_error_contains(
-        validate_portable_vm_kvm_identity(&identity, kvm_device)
+        &validate_portable_vm_kvm_identity(&identity, kvm_device)
             .expect_err("KVM must reject unrelated supplementary groups"),
         "supplementary gids must be exactly",
     );
     identity.gid = 108;
     identity.supplementary_gids.clear();
     assert_eyre_error_contains(
-        validate_portable_vm_kvm_identity(&identity, kvm_device)
+        &validate_portable_vm_kvm_identity(&identity, kvm_device)
             .expect_err("the shared KVM group must not protect tenant disks"),
         "must remain distinct",
     );
@@ -659,7 +658,7 @@ fn portable_vm_identity_accepts_exactly_four_equal_slots() -> Result<()> {
             ..accepted.clone()
         };
         assert_eyre_error_contains(
-            validate_portable_vm_child_identity_values(&rejected)
+            &validate_portable_vm_child_identity_values(&rejected)
                 .expect_err("Linux host-reserved supplementary gids must fail closed"),
             "Inrou QEMU supplementary gid",
         );
@@ -938,7 +937,7 @@ fn inrou_public_host_slot_zero_requires_a_locked_service_account() -> Result<()>
         "passwd: files\ngroup: files\nSUBID: sss\n",
     ] {
         assert_eyre_error_contains_any(
-            validate_inrou_local_nsswitch(invalid)
+            &validate_inrou_local_nsswitch(invalid)
                 .expect_err("remote, missing, or ambiguous NSS identity sources must fail closed"),
             &[
                 "/etc/nsswitch.conf",
@@ -963,7 +962,7 @@ fn inrou_public_host_slot_zero_requires_a_locked_service_account() -> Result<()>
         "other:x:1234:70000::/nonexistent:/usr/sbin/nologin\niroha-inrou-0:x:70000:70000::/nonexistent:/usr/sbin/nologin\n",
     ] {
         assert_eyre_error_contains(
-            validate_inrou_reserved_passwd(invalid, &identity)
+            &validate_inrou_reserved_passwd(invalid, &identity)
                 .expect_err("an ambiguous or login-capable service passwd row must fail closed"),
             "passwd",
         );
@@ -979,7 +978,7 @@ fn inrou_public_host_slot_zero_requires_a_locked_service_account() -> Result<()>
         "root:x:0:\niroha-inrou-0:x:70000:iroha-inrou-0\n",
     ] {
         assert_eyre_error_contains(
-            validate_inrou_reserved_group(invalid, &identity)
+            &validate_inrou_reserved_group(invalid, &identity)
                 .expect_err("ambiguous identity groups or memberships must fail closed"),
             "group",
         );
@@ -1131,7 +1130,7 @@ fn portable_vm_kvm_device_custody_fails_closed() {
         },
     ] {
         assert_eyre_error_contains(
-            validate_portable_vm_kvm_identity(&identity, insecure)
+            &validate_portable_vm_kvm_identity(&identity, insecure)
                 .expect_err("insecure `/dev/kvm` custody must fail closed"),
             "`/dev/kvm`",
         );
@@ -1250,7 +1249,12 @@ fn inrou_runtime_log_drain_caps_output_and_marks_truncation() -> Result<()> {
     let directory = secure_test_inrou_disk_directory(&temp_dir)?;
     let log_path = temp_dir.path().join("bounded.log");
     let log = open_inrou_runtime_log(&directory, OsStr::new("bounded.log"), "test Inrou log")?;
-    let oversized = vec![b'x'; SORACLOUD_INROU_LOG_MAX_BYTES as usize + 1_024];
+    let oversized = vec![
+        b'x';
+        usize::try_from(SORACLOUD_INROU_LOG_MAX_BYTES)
+            .expect("fixture log size fits usize")
+            + 1_024
+    ];
 
     drain_inrou_runtime_log_bounded(io::Cursor::new(oversized), log)?;
 
@@ -1299,7 +1303,7 @@ fn inrou_disk_install_never_replaces_existing_state() -> Result<()> {
     staged.file.sync_all()?;
 
     assert_eyre_error_contains(
-        install_staged_inrou_disk(
+        &install_staged_inrou_disk(
             &directory,
             &mut staged,
             OsStr::new("installed.raw"),
@@ -1439,7 +1443,6 @@ fn build_inrou_user_data_projects_isolated_portable_block_mounts() -> Result<()>
         },
     }];
     let user_data = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         bundle
             .service
@@ -1689,7 +1692,7 @@ fn build_inrou_user_data_projects_exact_guest_resource_limits() -> Result<()> {
         std::num::NonZeroU16::new(123).expect("nonzero task limit");
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     bundle.validate_for_admission()?;
-    let (_temp_dir, replica_plan, mut cache_key) =
+    let (_temp_dir, _replica_plan, mut cache_key) =
         materialize_inrou_replica_plan_for_tests(&bundle)?;
     cache_key
         .effective_env
@@ -1702,7 +1705,6 @@ fn build_inrou_user_data_projects_exact_guest_resource_limits() -> Result<()> {
         .insert("TEMP".to_owned(), "/run".to_owned());
 
     let user_data = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         8080,
         &bundle.container.resources,
@@ -1771,13 +1773,12 @@ fn build_inrou_user_data_projects_exact_guest_resource_limits() -> Result<()> {
 #[test]
 fn build_inrou_user_data_rejects_unrepresentable_resource_limits() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
-    let (_temp_dir, replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
+    let (_temp_dir, _replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
     let mut resources = bundle.container.resources;
     resources.cpu_millis = std::num::NonZeroU32::new(751).expect("nonzero unaligned CPU fixture");
 
     assert_report_contains(
-        build_inrou_user_data(
-            &replica_plan,
+        &build_inrou_user_data(
             &cache_key,
             8080,
             &resources,
@@ -1824,7 +1825,7 @@ fn inrou_data_volume_mount_validation_reserves_system_and_custody_paths() {
 #[test]
 fn build_inrou_user_data_never_formats_existing_portable_block_mounts() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
-    let (_temp_dir, replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
+    let (_temp_dir, _replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
     let data_mounts = vec![InrouDataVolumeMount {
         mount_path: "/var/lib/soracloud/volumes/index_state".to_owned(),
         kind: InrouDataVolumeMountKind::BlockDevice {
@@ -1837,7 +1838,6 @@ fn build_inrou_user_data_never_formats_existing_portable_block_mounts() -> Resul
     }];
 
     let user_data = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         8080,
         &bundle.container.resources,
@@ -1864,9 +1864,8 @@ fn build_inrou_user_data_never_formats_existing_portable_block_mounts() -> Resul
 #[test]
 fn build_inrou_user_data_rejects_invalid_portable_bundle_lengths() -> Result<()> {
     let bundle = sample_inrou_test_bundle()?;
-    let (_temp_dir, replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
+    let (_temp_dir, _replica_plan, cache_key) = materialize_inrou_replica_plan_for_tests(&bundle)?;
     let _ = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         8080,
         &bundle.container.resources,
@@ -1881,7 +1880,6 @@ fn build_inrou_user_data_rejects_invalid_portable_bundle_lengths() -> Result<()>
     )
     .expect_err("empty portable bundle binding must fail");
     let _ = build_inrou_user_data(
-        &replica_plan,
         &cache_key,
         8080,
         &bundle.container.resources,
@@ -1929,7 +1927,7 @@ fn reusable_inrou_disks_reject_links_and_unsafe_permissions() -> Result<()> {
     fs::set_permissions(&disk, fs::Permissions::from_mode(0o600))?;
     validate_reusable_inrou_disk(&disk, Some(4))?;
     assert_eyre_error_contains(
-        validate_reusable_inrou_disk(&disk, Some(5))
+        &validate_reusable_inrou_disk(&disk, Some(5))
             .expect_err("a reusable raw disk must retain its configured length"),
         "instead of the required",
     );
@@ -1937,7 +1935,7 @@ fn reusable_inrou_disks_reject_links_and_unsafe_permissions() -> Result<()> {
     let symbolic = temp_dir.path().join("symbolic.raw");
     std::os::unix::fs::symlink(&disk, &symbolic)?;
     assert_eyre_error_contains(
-        validate_reusable_inrou_disk(&symbolic, None)
+        &validate_reusable_inrou_disk(&symbolic, None)
             .expect_err("a reusable disk must not follow symbolic links"),
         "must be a regular file",
     );
@@ -1945,7 +1943,7 @@ fn reusable_inrou_disks_reject_links_and_unsafe_permissions() -> Result<()> {
     let hard = temp_dir.path().join("hard.raw");
     fs::hard_link(&disk, &hard)?;
     assert_eyre_error_contains(
-        validate_reusable_inrou_disk(&disk, None)
+        &validate_reusable_inrou_disk(&disk, None)
             .expect_err("a multiply linked reusable disk must fail closed"),
         "must have exactly one hard link",
     );
@@ -1953,13 +1951,13 @@ fn reusable_inrou_disks_reject_links_and_unsafe_permissions() -> Result<()> {
 
     fs::set_permissions(&disk, fs::Permissions::from_mode(0o622))?;
     assert_eyre_error_contains(
-        validate_reusable_inrou_disk(&disk, None)
+        &validate_reusable_inrou_disk(&disk, None)
             .expect_err("a disk writable by other users must fail closed"),
         "owner-writable and inaccessible",
     );
     fs::set_permissions(&disk, fs::Permissions::from_mode(0o400))?;
     assert_eyre_error_contains(
-        validate_reusable_inrou_disk(&disk, None)
+        &validate_reusable_inrou_disk(&disk, None)
             .expect_err("a reusable disk must remain writable by its owner"),
         "owner-writable and inaccessible",
     );
@@ -1988,7 +1986,7 @@ fn delegated_inrou_disk_validation_pins_the_predelegation_inode() -> Result<()> 
 
     validate_inrou_disk_under_exact_custody(&original, &delegated_file, 4, custody)?;
     assert_eyre_error_contains(
-        validate_inrou_disk_under_exact_custody(&substitute, &delegated_file, 4, custody)
+        &validate_inrou_disk_under_exact_custody(&substitute, &delegated_file, 4, custody)
             .expect_err("a same-shape path substitution must not authenticate another inode"),
         "changed during exact custody validation",
     );
@@ -2051,7 +2049,7 @@ fn inrou_disk_directory_rejects_replaceable_or_linked_custody() -> Result<()> {
 
     fs::set_permissions(&secure, fs::Permissions::from_mode(0o770))?;
     assert_eyre_error_contains(
-        ensure_secure_inrou_disk_directory(&secure)
+        &ensure_secure_inrou_disk_directory(&secure)
             .expect_err("a group-writable disk directory must fail closed"),
         "custody permits path replacement",
     );
@@ -2059,7 +2057,7 @@ fn inrou_disk_directory_rejects_replaceable_or_linked_custody() -> Result<()> {
     let linked = temp_root.join("linked-volume");
     std::os::unix::fs::symlink(&temp_root, &linked)?;
     assert_eyre_error_contains(
-        ensure_secure_inrou_disk_directory(&linked)
+        &ensure_secure_inrou_disk_directory(&linked)
             .expect_err("a disk-directory symbolic link must fail closed"),
         "symlink or non-directory component",
     );
@@ -2069,7 +2067,7 @@ fn inrou_disk_directory_rejects_replaceable_or_linked_custody() -> Result<()> {
     let linked_parent = temp_root.join("linked-parent");
     std::os::unix::fs::symlink(&real_parent, &linked_parent)?;
     assert_eyre_error_contains(
-        ensure_secure_inrou_disk_directory(&linked_parent.join("nested-volume"))
+        &ensure_secure_inrou_disk_directory(&linked_parent.join("nested-volume"))
             .expect_err("a symbolic-link ancestor must fail before disk creation or delegation"),
         "symlink or non-directory component",
     );
@@ -2098,7 +2096,7 @@ fn inrou_disk_directory_rejects_component_swap_while_opening() -> Result<()> {
     .expect_err("a directory component replacement between stat and open must fail closed");
 
     assert!(swapped, "the deterministic swap hook must have executed");
-    assert_eyre_error_contains(error, "changed while it was opened");
+    assert_eyre_error_contains(&error, "changed while it was opened");
     Ok(())
 }
 #[cfg(unix)]
@@ -2156,7 +2154,7 @@ fn inrou_disk_staging_cleanup_refuses_replaced_name() -> Result<()> {
     fs::set_permissions(&original_name, fs::Permissions::from_mode(0o600))?;
 
     assert_eyre_error_contains(
-        remove_inrou_disk_staging_file(&directory, &staging)
+        &remove_inrou_disk_staging_file(&directory, &staging)
             .expect_err("cleanup must never unlink a replaced staging name"),
         "refused to remove a replaced",
     );
@@ -2200,7 +2198,7 @@ fn inrou_root_disk_binding_covers_bundle_volume_and_replica_identity() -> Result
         original,
     )?;
     assert_eyre_error_contains(
-        validate_optional_inrou_root_disk_binding(
+        &validate_optional_inrou_root_disk_binding(
             &substituted_root_directory,
             OsStr::new("substituted-rootfs.ext4"),
             replacement_replica_binding,
@@ -2212,7 +2210,7 @@ fn inrou_root_disk_binding_covers_bundle_volume_and_replica_identity() -> Result
     let mut mismatched_plan = inrou_plan.clone();
     mismatched_plan.rootfs_image_path = "/inrou/other-rootfs.ext4".to_owned();
     assert_eyre_error_contains(
-        inrou_root_disk_binding(&bundle, &replica_plan, &mismatched_plan, root_volume)
+        &inrou_root_disk_binding(&bundle, &replica_plan, &mismatched_plan, root_volume)
             .expect_err("an unsigned rootfs plan substitution must fail closed"),
         "does not match the signed bundle",
     );
@@ -2256,7 +2254,7 @@ fn inrou_lease_disk_binding_covers_the_admitted_revision_and_volume_contract() -
         "test Inrou lease-disk binding",
     )?;
     assert_eyre_error_contains(
-        validate_optional_inrou_lease_disk_sidecar(
+        &validate_optional_inrou_lease_disk_sidecar(
             &substituted_sidecar_directory,
             OsStr::new("substituted-lease.raw.binding-v1"),
             replacement_replica_binding,
@@ -2337,7 +2335,7 @@ fn ensure_inrou_portable_root_disk_reuse_requires_matching_authenticated_base() 
     );
     fs::remove_file(inrou_root_disk_binding_path(&root_disk_path)?)?;
     assert_eyre_error_contains(
-        ensure_inrou_portable_root_disk(&base_rootfs, root_volume, base_binding)
+        &ensure_inrou_portable_root_disk(&base_rootfs, root_volume, base_binding)
             .expect_err("an existing unbound root disk must fail closed"),
         "has no authenticated replica binding",
     );
@@ -2461,7 +2459,7 @@ fn ensure_inrou_portable_lease_disks_create_reusable_raw_images() -> Result<()> 
         .write(true)
         .open(&second_disks[0].image_path)?;
     assert_eyre_error_contains(
-        validate_inrou_disk_under_exact_custody(
+        &validate_inrou_disk_under_exact_custody(
             &second_disks[0].image_path,
             &delegated_file,
             second_disks[0].exact_bytes,
@@ -2499,7 +2497,7 @@ fn ensure_inrou_portable_lease_disks_create_reusable_raw_images() -> Result<()> 
         Hash::new(b"substituted-lease-binding").to_string(),
     )?;
     assert_eyre_error_contains(
-        ensure_inrou_portable_lease_disks(&qemu_img, &replica_plan)
+        &ensure_inrou_portable_lease_disks(&qemu_img, &replica_plan)
             .expect_err("a substituted lease binding must fail closed"),
         "does not match the admitted Inrou lease-disk identity",
     );
@@ -2612,7 +2610,7 @@ fn portable_smoke_operator_preseed_artifact_is_authenticated_and_isa_scoped() ->
         Ok(_) => panic!("an empty guest member must fail before publication"),
         Err(error) => error,
     };
-    assert_report_contains(empty_error, "must be a nonempty regular file");
+    assert_report_contains(&empty_error, "must be a nonempty regular file");
     Ok(())
 }
 #[cfg(unix)]

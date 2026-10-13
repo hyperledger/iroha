@@ -463,23 +463,32 @@ mod tests {
     #[test]
     fn opaque_sccp_outbound_record_requires_a_signed_instruction() {
         let refused = |instruction_index| {
-            Err(OpaqueDeferredAuthorityError::SccpOutboundRecord { instruction_index }.into())
+            Err(OpaqueDeferredAuthorityError::SccpOutboundRecord { instruction_index })
         };
         // Directly derived (a trigger body, contract output or proved overlay).
-        assert_eq!(check(&[log("first"), sccp_record()], None), refused(1));
+        assert_eq!(
+            (check(&[log("first"), sccp_record()], None))
+                .map_err(crate::execution_attempt::expect_completed_rejection),
+            refused(1)
+        );
         // In a trigger that the opaque group registers.
         assert_eq!(
-            check(
+            (check(
                 &[register_by_call_trigger(
                     "nested_record",
                     vec![log("a"), sccp_record()]
                 )],
                 None,
-            ),
+            ))
+            .map_err(crate::execution_attempt::expect_completed_rejection),
             refused(1)
         );
         // In a multisig proposal that the opaque group creates.
-        assert_eq!(check(&[propose(vec![sccp_record()])], None), refused(0));
+        assert_eq!(
+            (check(&[propose(vec![sccp_record()])], None))
+                .map_err(crate::execution_attempt::expect_completed_rejection),
+            refused(0)
+        );
         // In a live proposal that an opaque multisig approval would execute.
         let approval: InstructionBox = MultisigApprove::new(
             iroha_test_samples::ALICE_ID.clone().clone(),
@@ -497,18 +506,27 @@ mod tests {
         )
         .into();
         assert_eq!(
-            check(core::slice::from_ref(&approval), Some(vec![sccp_record()])),
+            (check(core::slice::from_ref(&approval), Some(vec![sccp_record()])))
+                .map_err(crate::execution_attempt::expect_completed_rejection),
             refused(0)
         );
-        // The same approval of an ordinary proposal and every other SCCP instruction pass.
-        assert_eq!(check(&[approval], Some(vec![log("ordinary")])), Ok(()));
+        // This static outbound-value scan accepts other SCCP instructions. Public
+        // panel operations separately require their exact direct signed execution frame.
+        assert!(matches!(
+            check(&[approval], Some(vec![log("ordinary")])),
+            Ok(())
+        ));
         let others: Vec<InstructionBox> =
             crate::smartcontracts::isi::sccp::test_support::SampleInstructions::all()
                 .into_iter()
                 .filter(|instruction| !is_sccp_outbound_record(instruction))
                 .collect();
-        assert_eq!(others.len(), 9);
-        assert_eq!(check(&others, None), Ok(()));
+        assert_eq!(
+            others.len(),
+            10,
+            "every current SCCP instruction except the record"
+        );
+        assert!(matches!(check(&others, None), Ok(())));
         assert!(
             OpaqueDeferredAuthorityError::SccpOutboundRecord {
                 instruction_index: 3
@@ -568,7 +586,8 @@ mod tests {
         assert!(!derives(Executable::Ivm(IvmBytecode::from_compiled(
             Vec::new()
         ))));
-        // Other SCCP instructions are not signed-only.
+        // Other SCCP instructions are outside this outbound-value scan. Panel
+        // operations enforce their own direct signed execution frame.
         let others: Vec<InstructionBox> =
             crate::smartcontracts::isi::sccp::test_support::SampleInstructions::all()
                 .into_iter()

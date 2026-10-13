@@ -15,6 +15,7 @@ use iroha_data_model::{
     sumeragi_lanes::{
         SumeragiFixedLane, SumeragiLaneMember, SumeragiLaneRecord, SumeragiLaneRoute,
     },
+    transaction::SignedTransaction,
 };
 use iroha_model_base::topology::DataSpaceId;
 use iroha_sumeragi::{
@@ -127,13 +128,28 @@ fn policy() -> SumeragiLanePolicy {
 
 struct NoTransactions;
 impl LaneTransactions for NoTransactions {
+    type Lease = ();
+
     fn candidates(
         &self,
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<TransactionEntrypoint>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 
@@ -224,6 +240,23 @@ impl Fixture {
 
     /// Store a certified lane block at `height` carrying `transactions` anchored at `anchor`.
     fn certify(&self, height: u64, anchor: u64, transactions: Vec<SignedTransaction>) -> Hash32 {
+        self.certify_entrypoints(
+            height,
+            anchor,
+            transactions
+                .into_iter()
+                .map(TransactionEntrypoint::External)
+                .collect(),
+        )
+    }
+
+    /// Certify the complete original entrypoints through the same native lane owners.
+    fn certify_entrypoints(
+        &self,
+        height: u64,
+        anchor: u64,
+        transactions: Vec<TransactionEntrypoint>,
+    ) -> Hash32 {
         let record = self.record();
         let store = self
             .stores
@@ -262,6 +295,7 @@ impl Fixture {
             store.clone(),
             Arc::clone(&self.crypto),
             self.chain.state().ivm_execution_budget(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original lane recovery: {error}"));
@@ -299,8 +333,8 @@ impl Fixture {
         drop(authored.codeword);
         let block = authored.body;
         let block_hash = block.hash(&*self.crypto);
-        let outcome = executor.execute(&block, &block_hash);
-        let Some(ExecOutcome::Valid(result)) = outcome else {
+        let outcome = executor.execute(&block, &block_hash, false);
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = outcome else {
             panic!("original lane execution must succeed: {outcome:?}");
         };
         let crypto = BlsCrypto::new();
@@ -330,7 +364,10 @@ impl Fixture {
                     signer: u32::try_from(index).unwrap(),
                     sig: Signature([0; SIGNATURE_LEN]),
                 };
-                vote.sig = KeyPairSigner::new(key).unwrap().sign(&vote.preimage());
+                vote.sig = KeyPairSigner::new(key)
+                    .unwrap()
+                    .sign(&vote.preimage())
+                    .unwrap();
                 vote
             })
             .collect::<Vec<_>>();
@@ -372,6 +409,7 @@ impl Fixture {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &MergeProposal {
@@ -777,7 +815,8 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         Assembly {
             parent: parent.block(),
             view: 0,
-            cadence: cadence + Duration::from_millis(1),
+            cadence: cadence.checked_sub(Duration::from_millis(1)).unwrap(),
+            proposed_time: std::time::Duration::ZERO,
         },
         &[],
         &merges,
@@ -797,7 +836,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        control_witness: Default::default(),
+        control_witness: iroha_sumeragi::types::ControlWitness::default(),
     };
     // The negative changes only the global cadence; availability uses the original
     // chain's authenticated schedule, proposer custody and State allocation pool.
@@ -823,17 +862,20 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         fixture.chain.genesis_account(),
         cadence,
         ConsensusMode::Permissioned,
+        fixture.chain.root_scope(),
         expansion,
         &header,
         &bytes,
         state,
+        None,
+        None,
     )
     .unpack(|event| events.push(event))
     .err()
     .expect("wrong original cadence must reject");
     assert!(matches!(
         *error,
-        BlockValidationError::NonCanonicalBlockTime { .. }
+        BlockValidationError::BlockTimeBeforeRequiredFloor { .. }
     ));
     assert_eq!(rejected.merged_entrypoint_count(), 1);
     assert_ne!(
@@ -847,7 +889,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
     assert_eq!(event.header, original_header);
     assert_eq!(
         event.status,
-        BlockStatus::Rejected(BlockRejectionReason::BlockInTheFuture)
+        BlockStatus::Rejected(BlockRejectionReason::BlockInThePast)
     );
     assert_eq!(state.state_view_generation(), generation);
     assert_eq!(state.view().height(), 3);
@@ -902,3 +944,6 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
     assert_eq!(error.io_kind(), std::io::ErrorKind::PermissionDenied);
     assert_eq!(error.to_string(), "exact fixture custody failure");
 }
+
+#[path = "merge_tests/sealed_entrypoints.rs"]
+mod sealed_entrypoints;

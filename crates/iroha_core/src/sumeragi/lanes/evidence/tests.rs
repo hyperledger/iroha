@@ -9,7 +9,7 @@ use iroha_data_model::{
     block::BlockHeader as GlobalHeader,
     isi::Log,
     sumeragi_lanes::SumeragiLaneMember,
-    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionEntrypoint},
+    transaction::{FeePaymentIntent, TransactionBuilder, TransactionEntrypoint},
 };
 use iroha_model_base::{
     peer::PeerId,
@@ -60,13 +60,28 @@ impl AnchorSource for Anchors {
 }
 struct NoTransactions;
 impl LaneTransactions for NoTransactions {
+    type Lease = ();
+
     fn candidates(
         &self,
         _height: u64,
         _max_bytes: usize,
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<TransactionEntrypoint>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 struct EmptyStore;
@@ -126,7 +141,7 @@ impl Fixture {
             lane: LaneId::new(2),
             dataspace: DataSpaceId::new(0),
             incarnation: [0x73; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee: keys
                 .iter()
                 .map(|key| SumeragiLaneMember {
@@ -162,7 +177,7 @@ impl Fixture {
         let batch = LaneBatch {
             anchor_height: 3,
             anchor_hash: anchors.hash,
-            transactions: vec![tx.sign(user.private_key())],
+            transactions: vec![TransactionEntrypoint::External(tx.sign(user.private_key()))],
         };
         let config = lane_height_config(&record).unwrap();
         let crypto = Arc::new(BlsCrypto::new());
@@ -217,10 +232,12 @@ impl Fixture {
             Arc::new(EmptyStore),
             shared,
             budget.clone(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Some(ExecOutcome::Valid(result)) = executor.execute(&block, &block.hash(&*crypto))
+        let Ok(Some(ExecOutcome::Valid { result, .. })) =
+            executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");
         };
@@ -249,13 +266,17 @@ impl Fixture {
         fixture
     }
     fn resign(&mut self, count: usize) {
-        self.qc.signers = Bitmap::from_indices(4, (0..count).map(|index| index as u32)).unwrap();
+        self.qc.signers = Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let preimage = self.qc.preimage();
         let signatures = self.keys[..count]
             .iter()
-            .map(|key| KeyPairSigner::new(key).unwrap().sign(&preimage))
+            .map(|key| KeyPairSigner::new(key).unwrap().sign(&preimage).unwrap())
             .collect::<Vec<_>>();
-        self.qc.agg_sig = BlsCrypto::new().aggregate(&signatures);
+        self.qc.agg_sig = BlsCrypto::new().aggregate(&signatures).unwrap();
     }
     fn replace_payload(&mut self, bytes: &[u8], config: &HeightConfig) {
         let crypto = BlsCrypto::new();
@@ -386,7 +407,7 @@ fn anchor_history_refusal_retains_exact_source_through_lane_evidence_retry() {
     let pointer = fixture.body.payload().as_slice().as_ptr();
     for _ in 0..2 {
         assert!(
-            matches!(verify(), Err(LaneEntryError::AnchorDeferred(reason)) if reason == expected)
+            matches!(verify(), Err(LaneEntryError::AnchorDeferred(reason)) if reason.reason() == expected.reason() && reason.phase() == expected.phase() && reason.allocation_refusal() == expected.allocation_refusal() && reason.decode_refusal().is_none() && reason.verification_refusal().is_none())
         );
         assert_eq!(fixture.body.payload().as_slice().as_ptr(), pointer);
     }

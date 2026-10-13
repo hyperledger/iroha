@@ -24,7 +24,7 @@ fn remaining_io(deadline: Instant) -> std::io::Result<Duration> {
 
 // Availability is observed only at the direct endpoint or stream-I/O boundaries below.
 // Native directory custody, peer authentication and decoding remain strict refusals.
-pub(crate) enum RequestFailure {
+pub enum RequestFailure {
     Unavailable(Error),
     Refused(Error),
 }
@@ -107,11 +107,7 @@ mod native {
         path::PathBuf,
     };
 
-    pub(crate) fn supported() -> Result<()> {
-        Ok(())
-    }
-
-    pub(crate) fn detach(command: &mut Command) {
+    pub fn detach(command: &mut Command) {
         // The owned supervisor has a separate process group; its stdio is already retained
         // private files. Lifecycle control never signals a guessed process group or PID.
         command.process_group(0);
@@ -187,7 +183,7 @@ mod native {
 
     // The caller holds the managed operation and runtime locks; no owned worker can still use
     // this endpoint. Reject every unexpected object rather than broadening private tree removal.
-    pub(crate) fn clear_stopped_endpoint(store: &PrivateDirectory) -> Result<()> {
+    pub fn clear_stopped_endpoint(store: &PrivateDirectory) -> Result<()> {
         let directory = match ipc_directory(store, false) {
             Ok(directory) => directory,
             Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -225,7 +221,8 @@ mod native {
                 unsafe_code,
                 reason = "getpeereid only reads kernel credentials from this live socket and writes two valid local outputs"
             )]
-            let result = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
+            let result =
+                unsafe { libc::getpeereid(stream.as_raw_fd(), &raw mut uid, &raw mut gid) };
             if result != 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
@@ -243,11 +240,10 @@ mod native {
         Ok(())
     }
 
-    pub(crate) struct Listener {
-        listener: UnixListener,
-        path: PathBuf,
+    pub struct Listener {
+        socket: UnixListener,
         identity: (u64, u64),
-        _directory: PrivateDirectory,
+        directory: PrivateDirectory,
     }
 
     impl Listener {
@@ -268,15 +264,14 @@ mod native {
             listener.set_nonblocking(true)?;
             let identity = validate_endpoint(&directory)?;
             Ok(Self {
-                listener,
-                path,
+                socket: listener,
                 identity,
-                _directory: directory,
+                directory,
             })
         }
 
         pub(crate) fn accept(&self) -> Result<Option<Connection>> {
-            match self.listener.accept() {
+            match self.socket.accept() {
                 Ok((stream, _)) => {
                     let admission = (|| -> Result<()> {
                         authenticate_peer(&stream)?;
@@ -304,15 +299,16 @@ mod native {
 
     impl Drop for Listener {
         fn drop(&mut self) {
-            if let Ok(metadata) = fs::symlink_metadata(&self.path)
+            let path = endpoint(&self.directory);
+            if let Ok(metadata) = fs::symlink_metadata(&path)
                 && (metadata.dev(), metadata.ino()) == self.identity
             {
-                let _ = fs::remove_file(&self.path);
+                let _ = fs::remove_file(&path);
             }
         }
     }
 
-    pub(crate) struct Connection(UnixStream);
+    pub struct Connection(UnixStream);
 
     impl Connection {
         pub(crate) fn receive(&mut self) -> Result<ControlRequest> {
@@ -324,14 +320,14 @@ mod native {
         }
     }
 
-    pub(crate) fn request_as<T: JsonDeserialize>(
+    pub fn request_as<T: JsonDeserialize>(
         directory: &PrivateDirectory,
         request: &ControlRequest,
     ) -> Result<T> {
         request_observed_as(directory, request).map_err(RequestFailure::into_error)
     }
 
-    pub(crate) fn request_observed_as<T: JsonDeserialize>(
+    pub fn request_observed_as<T: JsonDeserialize>(
         directory: &PrivateDirectory,
         request: &ControlRequest,
     ) -> std::result::Result<T, RequestFailure> {
@@ -340,7 +336,7 @@ mod native {
         request_observed_with_deadline(directory, request, deadline)
     }
 
-    pub(crate) fn request_observed_with_deadline<T: JsonDeserialize>(
+    pub fn request_observed_with_deadline<T: JsonDeserialize>(
         directory: &PrivateDirectory,
         request: &ControlRequest,
         deadline: Option<Instant>,
@@ -353,11 +349,12 @@ mod native {
         let result = (|| -> std::result::Result<T, RequestFailure> {
             let before = endpoint_observation(&directory)?;
             original = Some(before);
-            let mut stream = match deadline {
-                Some(deadline) => connect_until(&endpoint(&directory), deadline),
-                None => UnixStream::connect(endpoint(&directory)),
-            }
-            .map_err(|error| RequestFailure::stream(error.into()))?;
+            let mut stream = deadline
+                .map_or_else(
+                    || UnixStream::connect(endpoint(&directory)),
+                    |deadline| connect_until(&endpoint(&directory), deadline),
+                )
+                .map_err(|error| RequestFailure::stream(error.into()))?;
             authenticate_peer(&stream)?;
             if deadline.is_none() {
                 stream.set_read_timeout(Some(IO_TIMEOUT))?;
@@ -493,7 +490,7 @@ mod native {
                 })?;
                 let mut descriptors = [PollFd::new(&self.stream, events)];
                 match poll(&mut descriptors, Some(&timeout)) {
-                    Ok(0) | Err(Errno::INTR) => continue,
+                    Ok(0) | Err(Errno::INTR) => {}
                     Ok(_) => {
                         remaining_io(self.deadline)?;
                         // HUP/ERR also wake poll. The next nonblocking receive/send obtains
@@ -525,7 +522,7 @@ mod native {
                         return Ok(received);
                     }
                     Err(Errno::AGAIN) => self.wait_ready(PollFlags::IN)?,
-                    Err(Errno::INTR) => continue,
+                    Err(Errno::INTR) => {}
                     Err(error) => return Err(error.into()),
                 }
             }
@@ -555,7 +552,7 @@ mod native {
                         return Ok(written);
                     }
                     Err(Errno::AGAIN) => self.wait_ready(PollFlags::OUT)?,
-                    Err(Errno::INTR) => continue,
+                    Err(Errno::INTR) => {}
                     Err(error) => return Err(error.into()),
                 }
             }
@@ -886,16 +883,19 @@ mod native {
                 "read-only lookup must not create custody"
             );
             let listener = Listener::bind(&directory).unwrap();
-            assert_eq!(listener.path, expected);
+            assert_eq!(endpoint(&listener.directory), expected);
             let ipc = ipc_directory(&directory, false).unwrap();
             assert_eq!(ipc.path(), directory.path().join("ipc"));
             validate_endpoint(&ipc).unwrap();
-            let stream = UnixStream::connect(&listener.path).unwrap();
+            let stream = UnixStream::connect(endpoint(&listener.directory)).unwrap();
             authenticate_peer(&stream).unwrap();
             assert!(listener.accept().unwrap().is_some());
             let other = PrivateDirectory::open_or_create(temporary.path().join("b")).unwrap();
             let other_listener = Listener::bind(&other).unwrap();
-            assert_ne!(listener.path, other_listener.path);
+            assert_ne!(
+                endpoint(&listener.directory),
+                endpoint(&other_listener.directory)
+            );
             drop(listener);
             assert!(!expected.exists());
             validate_endpoint(&ipc_directory(&other, false).unwrap()).unwrap();
@@ -949,13 +949,13 @@ mod native {
             let path = temporary.path().join("x".repeat(80)).join("y".repeat(80));
             let directory = PrivateDirectory::open_or_create(path).unwrap();
             let listener = Listener::bind(&directory).unwrap();
-            assert!(listener.path.as_os_str().as_bytes().len() < 104);
+            assert!(endpoint(&listener.directory).as_os_str().as_bytes().len() < 104);
             let ipc = ipc_directory(&directory, false).unwrap();
             validate_endpoint(&ipc).unwrap();
-            let stream = UnixStream::connect(&listener.path).unwrap();
+            let stream = UnixStream::connect(endpoint(&listener.directory)).unwrap();
             authenticate_peer(&stream).unwrap();
             assert!(listener.accept().unwrap().is_some());
-            let socket = listener.path.clone();
+            let socket = endpoint(&listener.directory);
             drop(listener);
             assert!(!socket.exists());
         }
@@ -968,15 +968,15 @@ mod native {
             let directory =
                 PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
             let listener = Listener::bind(&directory).unwrap();
-            let identity = validate_endpoint(&listener._directory).unwrap();
+            let identity = validate_endpoint(&listener.directory).unwrap();
 
             // Close a real queued client before the server accepts it. Darwin can still
             // authenticate this stream, but rejects its timeout options with EINVAL.
-            drop(UnixStream::connect(&listener.path).unwrap());
+            drop(UnixStream::connect(endpoint(&listener.directory)).unwrap());
             assert!(listener.accept().unwrap().is_none());
-            assert_eq!(validate_endpoint(&listener._directory).unwrap(), identity);
+            assert_eq!(validate_endpoint(&listener.directory).unwrap(), identity);
 
-            let mut client = UnixStream::connect(&listener.path).unwrap();
+            let mut client = UnixStream::connect(endpoint(&listener.directory)).unwrap();
             authenticate_peer(&client).unwrap();
             let mut connection = listener.accept().unwrap().unwrap();
             assert_eq!(connection.0.read_timeout().unwrap(), Some(IO_TIMEOUT));
@@ -994,7 +994,7 @@ mod native {
             assert_eq!(reply.token, request.token);
             assert_eq!(reply.action, request.action);
             assert!(listener.accept().unwrap().is_none());
-            assert_eq!(validate_endpoint(&listener._directory).unwrap(), identity);
+            assert_eq!(validate_endpoint(&listener.directory).unwrap(), identity);
             directory.revalidate().unwrap();
         }
 
@@ -1005,7 +1005,7 @@ mod native {
             let directory =
                 PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
             let listener = Listener::bind(&directory).unwrap();
-            let mut client = UnixStream::connect(&listener.path).unwrap();
+            let mut client = UnixStream::connect(endpoint(&listener.directory)).unwrap();
             let mut connection = listener.accept().unwrap().unwrap();
             assert_eq!(connection.0.read_timeout().unwrap(), Some(IO_TIMEOUT));
             assert_eq!(connection.0.write_timeout().unwrap(), Some(IO_TIMEOUT));
@@ -1056,11 +1056,6 @@ mod native;
 mod native {
     use super::*;
 
-    pub(crate) fn supported() -> Result<()> {
-        Err(Error::Invalid(
-            "this build does not yet provide owner-authenticated native managed IPC".into(),
-        ))
-    }
     pub(crate) fn detach(_: &mut Command) {}
     pub(crate) struct Listener;
     impl Listener {
@@ -1103,11 +1098,21 @@ mod native {
     }
 }
 
-pub(crate) use native::{Listener, detach, request_as, supported};
+pub use native::{Listener, detach, request_as};
+
+pub fn supported() -> Result<()> {
+    if cfg!(any(unix, windows)) {
+        Ok(())
+    } else {
+        Err(Error::Invalid(
+            "this build does not yet provide owner-authenticated native managed IPC".into(),
+        ))
+    }
+}
 
 /// Remove only a stopped worker's validated Unix socket while both managed ownership locks are held.
 /// Named pipes have no filesystem entry and disappear when their original handles close.
-pub(crate) fn clear_stopped_endpoint(directory: &PrivateDirectory) -> Result<()> {
+pub fn clear_stopped_endpoint(directory: &PrivateDirectory) -> Result<()> {
     #[cfg(unix)]
     {
         native::clear_stopped_endpoint(directory)
@@ -1119,14 +1124,11 @@ pub(crate) fn clear_stopped_endpoint(directory: &PrivateDirectory) -> Result<()>
     }
 }
 
-pub(crate) fn request(
-    directory: &PrivateDirectory,
-    request: &ControlRequest,
-) -> Result<ManagedStatus> {
+pub fn request(directory: &PrivateDirectory, request: &ControlRequest) -> Result<ManagedStatus> {
     request_as(directory, request)
 }
 
-pub(crate) fn request_observed_until(
+pub fn request_observed_until(
     directory: &PrivateDirectory,
     request: &ControlRequest,
     deadline: Instant,
@@ -1141,7 +1143,7 @@ mod tests {
 
     #[test]
     fn oversized_control_frame_is_rejected_before_allocating_payload() {
-        let bytes = ((MAX_METADATA + 1) as u32).to_be_bytes();
+        let bytes = u32::try_from(MAX_METADATA + 1).unwrap().to_be_bytes();
         assert!(read_frame(&mut bytes.as_slice()).is_err());
         assert!(read_frame(&mut [0_u8; 4].as_slice()).is_err());
     }

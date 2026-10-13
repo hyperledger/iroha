@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Capture the EON follow-up for unchanged fatal-control ARM64 workers.
+
+Requires Python 3.11+, pytest, Xcode llvm-objdump and both retained binaries.
+No environment overrides, builds or worker executions. --output must be new.
+The prior phase manifest pins the receipt; its other historical file hashes are
+not silently refreshed. All imported helpers, build inputs, binaries and tools
+are guarded before/after. Unknown stack/control edges remain diagnostic gaps.
+"""
+import argparse
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--root', required=True, type=Path)
+parser.add_argument('--output', required=True, type=Path)
+args = parser.parse_args()
+root, output = args.root.resolve(), args.output.resolve()
+output.mkdir(parents=True, exist_ok=False)
+(output / 'capture.py.template').write_bytes(Path(__file__).read_bytes())
+guards, captures, commands, failure = {}, {}, [], None
+try:
+    paths = {
+        'analyzer': root / 'scripts/parliament_ballot_stack_audit.py',
+        'tests': root / 'scripts/tests/parliament_ballot_stack_audit_test.py',
+        'checker': root / 'scripts/check_parliament_ballot_memory_entry.py',
+        'resource': root / 'scripts/check_parliament_ballot_resource_contract.py',
+        'supervisor': root / 'scripts/parliament_ballot_memory_supervisor.py',
+        'stlur_manifest': root / 'docs/validation/parliament_ballot_fatal_stack/SHA256SUMS',
+        'phase_manifest': root / 'docs/validation/parliament_ballot_b6/pre-fatal-stack-mask-artifact-manifest.sha256',
+        'build_receipt': root / 'docs/validation/parliament_ballot_fatal_control/build/build-receipt.json',
+        'capture_driver': Path(__file__).resolve(),
+    }
+    for path in paths.values():
+        guards[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if guards[str(paths['phase_manifest'])] != 'afc4c1b50ff5cffe455141fc7848fdac118100fc60361e21ac4f1362f27dd236':
+        raise ValueError('prior phase manifest differs')
+    manifest = {}
+    for line in paths['phase_manifest'].read_text().splitlines():
+        match = re.fullmatch(r'([0-9a-f]{64})  (.+)', line)
+        if match is None or match[2] in manifest:
+            raise ValueError('malformed or duplicate prior phase manifest entry')
+        manifest[match[2]] = match[1]
+    if guards[str(paths['stlur_manifest'])] != '66f24e6f15aaaaf56104a69d9b1ade685b1cc5ac8052df987042e142ce616546':
+        raise ValueError('STLUR-only artifact manifest differs')
+    stlur_names = set()
+    for line in paths['stlur_manifest'].read_text().splitlines():
+        match = re.fullmatch(r'([0-9a-f]{64})  (.+)', line)
+        if match is None or match[2] in stlur_names:
+            raise ValueError('malformed or duplicate STLUR-only manifest entry')
+        stlur_names.add(match[2])
+        path = paths['stlur_manifest'].parent / match[2]
+        if hashlib.sha256(path.read_bytes()).hexdigest() != match[1]:
+            raise ValueError('STLUR-only evidence differs')
+        guards[str(path)] = match[1]
+    receipt_name = str(paths['build_receipt'].relative_to(root))
+    if guards[str(paths['build_receipt'])] != manifest.get(receipt_name):
+        raise ValueError('build receipt differs from frozen phase manifest')
+    sys.path.insert(0, str(root / 'scripts'))
+    import check_parliament_ballot_memory_entry as checker
+    import parliament_ballot_stack_audit as analyzer
+    for key, module in [('checker', checker), ('resource', checker.resource),
+                        ('supervisor', checker.supervisor), ('analyzer', analyzer)]:
+        if Path(module.__file__).resolve() != paths[key]:
+            raise ValueError('unexpected loaded helper: ' + key)
+    receipt = checker.object_json(paths['build_receipt'].read_text())
+    if set(receipt['binaries']) != {'portable', 'accel'}:
+        raise ValueError('both compiled modes required')
+    binaries = {mode: Path(value['path']) for mode, value in receipt['binaries'].items()}
+    guards.update(checker.validate_build(receipt, binaries, root))
+    for path in binaries.values():
+        guards[str(path)] = analyzer.digest(path)
+    tool = Path(subprocess.check_output(['xcrun', '--find', 'llvm-objdump'], text=True).strip())
+    guards[str(tool)] = analyzer.digest(tool)
+    for key in ('analyzer', 'tests', 'checker', 'resource', 'supervisor'):
+        (output / (paths[key].name + '.template')).write_bytes(paths[key].read_bytes())
+    for mode, binary in binaries.items():
+        raw, identity = analyzer.capture(binary, output / mode)
+        if (identity['binary_sha256'] != guards[str(binary)]
+                or identity['objdump_sha256'] != guards[str(tool)]
+                or identity['script_sha256'] != guards[str(paths['analyzer'])]):
+            raise ValueError('capture identity differs from guarded inputs')
+        result = analyzer.audit(raw['disassembly'], raw['starts'], raw['stubs'], [
+            'workspace::worker::', 'budget::Reservation::verify::',
+            'iroha_zkp_vole::proof::verify::', 'fatal::exhausted::'])
+        result['identity'] = identity
+        result_path = output / (mode + '.json')
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+        captures[mode] = {'path': str(result_path), 'sha256': analyzer.digest(result_path),
+                          'binary_sha256': identity['binary_sha256'],
+                          'function_count': result['function_count'],
+                          'text_instructions': result['text_instructions'],
+                          'whole_image_frame_error_count': result['whole_image_frame_error_count'],
+                          'roots': [{key: item[key] for key in (
+                              'root', 'address', 'direct_reachable_functions', 'resolved_region_stack_bytes',
+                              'complete_stack_bound_bytes', 'frontier_kind_counts')}
+                                    for item in result['roots']]}
+    command = [sys.executable, '-m', 'pytest', '-q', str(paths['tests'])]
+    completed = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120)
+    log = output / 'tests.txt'
+    log.write_text(completed.stdout + completed.stderr)
+    commands.append({'command': command, 'exit': completed.returncode,
+                     'log': str(log), 'log_sha256': analyzer.digest(log)})
+    if completed.returncode:
+        raise ValueError('focused analyzer regression failed')
+except (Exception, KeyboardInterrupt) as error:
+    failure = f'{type(error).__name__}: {error}'
+changes = {}
+for name, before in guards.items():
+    path = Path(name)
+    after = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if before != after:
+        changes[name] = {'before': before, 'after': after}
+report = {'schema': 'parliament-fatal-stack-eon-capture-v1',
+          'capture_passed': failure is None and not changes and set(captures) == {'portable', 'accel'},
+          'failure': failure, 'input_sha256': guards, 'input_changes': changes,
+          'captures': captures, 'commands': commands,
+          'complete_stack_certificate': False, 'complete_workspace_certificate': False,
+          'physical_cost_calibrated': False, 'profile_qualified': False}
+(output / 'receipt.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+print(json.dumps({key: report[key] for key in ('capture_passed', 'failure', 'input_changes', 'captures')}, indent=2))
+raise SystemExit(0 if report['capture_passed'] else 1)

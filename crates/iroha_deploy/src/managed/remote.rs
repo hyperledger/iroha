@@ -593,34 +593,29 @@ impl ManagedStore {
                 "dataspace alias must be canonical and private".into(),
             ));
         }
-        let directory = match existing_outer(self, &request.name)? {
-            Some(directory) => directory,
-            None => {
-                let bootstrap = authenticate_parent(
-                    &release_path(self, &request.name),
-                    profile,
-                    deadline,
-                    false,
-                )?;
-                let spec = PrivateRootSpec {
-                    parent_network_id: bootstrap.release().network_id,
-                    dataspace_id: DataSpaceId::from_hash(&selector.name_hash()),
-                    dataspace_alias: request.alias.clone(),
-                };
-                spec.validate().map_err(|_| {
-                    Error::Invalid("invalid private scope derived from installed parent".into())
-                })?;
-                let binding = Binding {
-                    profile: ProfileBinding::from_profile(profile),
-                    spec,
-                    account_alias: request.account_alias.clone(),
-                    context: None,
-                };
-                self.publish_attachment(
-                    &request.name,
-                    &[("request.lock", b""), (BINDING, &encode(&binding)?)],
-                )?
-            }
+        let directory = if let Some(directory) = existing_outer(self, &request.name)? {
+            directory
+        } else {
+            let bootstrap =
+                authenticate_parent(&release_path(self, &request.name), profile, deadline, false)?;
+            let spec = PrivateRootSpec {
+                parent_network_id: bootstrap.release().network_id,
+                dataspace_id: DataSpaceId::from_hash(&selector.name_hash()),
+                dataspace_alias: request.alias.clone(),
+            };
+            spec.validate().map_err(|_| {
+                Error::Invalid("invalid private scope derived from installed parent".into())
+            })?;
+            let binding = Binding {
+                profile: ProfileBinding::from_profile(profile),
+                spec,
+                account_alias: request.account_alias.clone(),
+                context: None,
+            };
+            self.publish_attachment(
+                &request.name,
+                &[("request.lock", b""), (BINDING, &encode(&binding)?)],
+            )?
         };
         let gate = directory.open_existing_lock("request.lock")?;
         gate.try_lock()
@@ -782,7 +777,9 @@ impl AttachmentWorker {
             .name("private-parent-relay".into())
             .stack_size(16 * 1024 * 1024)
             .spawn(move || {
-                relay_loop(directory, release, binding, prepared, shared, cancelled);
+                relay_loop(
+                    &directory, &release, &binding, &prepared, &shared, &cancelled,
+                );
             })?;
         Ok(Some(Self { status, thread }))
     }
@@ -833,27 +830,24 @@ pub(super) fn inactive_status(
 }
 
 fn relay_loop(
-    directory: PrivateDirectory,
-    release: PathBuf,
-    binding: Binding,
-    prepared: PreparedLocalnet,
-    status: Arc<Mutex<ManagedAttachmentStatus>>,
-    cancelled: Arc<AtomicBool>,
+    directory: &PrivateDirectory,
+    release: &Path,
+    binding: &Binding,
+    prepared: &PreparedLocalnet,
+    status: &Mutex<ManagedAttachmentStatus>,
+    cancelled: &Arc<AtomicBool>,
 ) {
     let mut service = None;
     let mut refresh = false;
     while !cancelled.load(Ordering::Acquire) {
         let result = relay_turn(
-            &directory,
-            &release,
-            &binding,
-            &prepared,
+            directory,
+            release,
+            binding,
+            prepared,
             &mut service,
-            &status,
-            RelayControl {
-                refresh,
-                cancelled: &cancelled,
-            },
+            status,
+            RelayControl { refresh, cancelled },
         );
         // Failed current observations may mean signed peer mappings rotated. Fetch one new
         // artifact next turn without clearing the monotonic release or child identity binding.
@@ -896,6 +890,7 @@ fn relay_loop(
         }
     }
 }
+#[derive(Clone, Copy)]
 struct RelayControl<'a> {
     refresh: bool,
     cancelled: &'a Arc<AtomicBool>,

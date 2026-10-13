@@ -188,6 +188,11 @@ pub trait AcmeClient: Send + Sync {
     ///
     /// Provider diagnostics, credentials, and private material must remain
     /// behind this payload-free probe.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AcmeClientProbeError` if the backend cannot provide its current
+    /// public provider identity.
     fn qualification(&self) -> Result<AcmeClientIdentityV1, AcmeClientProbeError>;
     /// Place an order and return the resulting certificate bundle.
     ///

@@ -29,7 +29,7 @@ fn state() -> State {
         anchor_freshness: 16,
         max_merge_blocks: 32,
         stall_window: 256,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: vec![SumeragiFixedLane {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::UNIVERSAL,
@@ -45,10 +45,14 @@ fn state() -> State {
     policy.validate().expect("valid native policy fixture");
     // Component setup supplies committed native policy/state, not a certificate substitute.
     let mut parameters = world.parameters.view().get().clone();
-    parameters.set_parameter(Parameter::Custom(policy.into_custom_parameter()));
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+        .expect("valid fixture parameters");
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     world.parameters = mv::cell::Cell::new(parameters);
     let mut lanes = SumeragiLaneState::default();
     lanes.upsert(SumeragiLaneRecord {
@@ -56,7 +60,7 @@ fn state() -> State {
         lane: LaneId::new(1),
         dataspace: DataSpaceId::UNIVERSAL,
         incarnation: Hash::new(b"native ordering identity").into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee,
         created_at: 1,
         active_from: 3,
@@ -138,21 +142,21 @@ fn before_effects(
     replacement: bool,
     check: impl FnOnce(&mut StateBlock<'_>),
 ) {
-    let stage = |block: &mut StateBlock<'_>| {
+    let stage_update = |block: &mut StateBlock<'_>| {
         assert!(!block.start_of_block_effects_applied);
         check(block);
         Err::<(), _>("examined pristine owner")
     };
     let result = if replacement {
         state
-            .block_and_revert_with_pristine_carrier_stage(source, stage)
+            .block_and_revert_with_pristine_carrier_stage(source, stage_update)
             .map(|_| ())
     } else {
         state
             .block_with_owned_start_stages_with_carrier(
                 source.header(),
                 Some(source),
-                stage,
+                stage_update,
                 |_, ()| Ok(()),
             )
             .map(|_| ())
@@ -640,19 +644,19 @@ fn allocation_refusal_precedes_normal_and_replacement_pristine_callbacks() {
         let budget = state.ivm_execution_budget();
         let before = budget.reserved_bytes();
         budget.set_limit_bytes(before);
-        let stage = |_: &mut StateBlock<'_>| -> Result<(), &'static str> {
+        let stage_update = |_: &mut StateBlock<'_>| -> Result<(), &'static str> {
             panic!("allocation refusal cannot enter a pristine callback")
         };
         let result = if replacement {
             state
-                .block_and_revert_with_pristine_carrier_stage(&source, stage)
+                .block_and_revert_with_pristine_carrier_stage(&source, stage_update)
                 .map(|_| ())
         } else {
             state
                 .block_with_owned_start_stages_with_carrier(
                     source.header(),
                     Some(&source),
-                    stage,
+                    stage_update,
                     |_, ()| Ok(()),
                 )
                 .map(|_| ())
@@ -722,15 +726,17 @@ fn ordinary_capture_requires_immutable_metadata_even_with_valid_lane_policy() {
     let source = carrier(vec![input(&state, "no scope fallback")]);
     before_effects(&state, &source, false, |block| {
         let mut parameters = block.world.parameters.get().clone();
-        parameters.set_parameter(Parameter::Custom(
-            iroha_data_model::parameter::custom::CustomParameter::new(
-                iroha_data_model::parameter::system::consensus_metadata::handshake_meta_id(),
-                iroha_primitives::json::Json::from_norito_value_ref(&norito::json::Value::Bool(
-                    false,
-                ))
-                .unwrap(),
-            ),
-        ));
+        parameters
+            .set_parameter(Parameter::Custom(
+                iroha_data_model::parameter::custom::CustomParameter::new(
+                    iroha_data_model::parameter::system::consensus_metadata::handshake_meta_id(),
+                    iroha_primitives::json::Json::from_norito_value_ref(
+                        &norito::json::Value::Bool(false),
+                    )
+                    .unwrap(),
+                ),
+            ))
+            .expect("valid fixture parameters");
         *block.world.parameters.get_mut() = parameters;
         let budget = AllocationBudget::new(1024 * 1024);
         let mut owner = CapturedNetworkPolicyRoutes::reserve(&source, &budget).unwrap();
@@ -892,7 +898,15 @@ fn original_routing_capture_refusal(allocation: Option<usize>) {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 32),
             || crate::sumeragi::lanes::routing::RoutingSnapshot::of(block).unwrap_err(),
         );
-        assert_eq!(snapshot_refusal, reason);
+        // The current JSON routing adapter carries a diagnostic-only refusal;
+        // it does not yet retain a canonical captured decoder scope.
+        assert_eq!(snapshot_refusal.reason(), reason.reason());
+        assert_eq!(snapshot_refusal.phase(), reason.phase());
+        for observed in [&snapshot_refusal, &reason] {
+            assert!(observed.allocation_refusal().is_none());
+            assert!(observed.decode_refusal().is_none());
+            assert!(observed.verification_refusal().is_none());
+        }
         drop(owner);
         let snapshot = crate::sumeragi::lanes::routing::RoutingSnapshot::of(block).unwrap();
         assert_eq!(snapshot.policy().unwrap().fixed[0].lane, LaneId::new(1));

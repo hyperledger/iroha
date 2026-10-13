@@ -49,10 +49,10 @@ fn bind(
 ) -> Result<BoundNativeCheckV1, Error> {
     let signed = sign(state, instruction.clone().into(), 2, 3_000);
     bind_fixture(
-        &state,
+        state,
         round,
         NativeCustodyCheckRefV1::FinalPromotionAccount(instruction),
-        &state.view().chain_id().to_string(),
+        state.view().chain_id().as_ref(),
         *state.network_id_ref().as_bytes(),
         &AccountId::new(key(2).public_key().clone()),
         floor(),
@@ -205,7 +205,7 @@ fn common_binding_rejects_non_check_actions_for_both_closed_purposes() {
                 &state,
                 &mut round,
                 instruction,
-                &state.view().chain_id().to_string(),
+                state.view().chain_id().as_ref(),
                 *state.network_id_ref().as_bytes(),
                 &AccountId::new(key(2).public_key().clone()),
                 floor(),
@@ -245,7 +245,7 @@ fn complete_external_bytes_and_signature_are_retained_by_the_single_owner() {
             &state,
             &mut round,
             NativeCustodyCheckRefV1::FinalPromotionAccount(&exact),
-            &state.view().chain_id().to_string(),
+            state.view().chain_id().as_ref(),
             *state.network_id_ref().as_bytes(),
             &AccountId::new(key(2).public_key().clone()),
             floor(),
@@ -266,11 +266,14 @@ fn shared_check_replay_span_rejects_overlong_history_before_finality_io() {
     let floor = 7_u64;
     assert_eq!(check_history_span_v1(floor, floor), Ok(()));
     assert_eq!(
-        check_history_span_v1(floor, floor + MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1 - 1),
+        check_history_span_v1(
+            floor,
+            floor + u64::from(MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1) - 1
+        ),
         Ok(())
     );
     assert_eq!(
-        check_history_span_v1(floor, floor + MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1),
+        check_history_span_v1(floor, floor + u64::from(MAX_NATIVE_CHECK_HISTORY_BLOCKS_V1)),
         Err(Error::Finality)
     );
     assert_eq!(

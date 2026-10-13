@@ -299,11 +299,17 @@ fn execute_fixture_genesis(
         )
         .unwrap();
     let authority = AccountId::new(key.public_key().clone());
-    let world = World::with(
+    // World and State must share the same original finite execution pool.
+    let execution_budget = iroha_core::state::AllocationBudget::new(
+        iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+    );
+    let world = World::try_with_execution_budget(
         [Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&authority)],
         [Account::new(authority.clone()).build(&authority)],
         [],
-    );
+        &execution_budget,
+    )
+    .expect("initialize original World storage for native genesis fixture");
     let reprofile = |literal: &str| {
         iroha_data_model::account::address::AccountAddress::from_i105_for_discriminant(
             literal,
@@ -351,9 +357,7 @@ fn execute_fixture_genesis(
     )
     .expect("initialize authenticated temporary Kura for native genesis");
     let mut state = State::try_new_with_chain_and_network_id_with_default_telemetry(
-        iroha_core::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        execution_budget,
         world,
         kura,
         LiveQueryStore::start_test(),
@@ -396,6 +400,10 @@ fn execute_fixture_genesis(
     let topology = Topology::new(
         iroha_core::sumeragi::startup::genesis_committee_peers(&provisional.0).unwrap(),
     );
+    let root_scope = iroha_genesis::signed_genesis_consensus_metadata(&provisional.0)
+        .unwrap()
+        .sumeragi_context
+        .root_scope;
     let validation = ValidBlock::validate_signed_genesis(
         provisional.0,
         &topology,
@@ -403,6 +411,7 @@ fn execute_fixture_genesis(
         &iroha_primitives::time::TimeSource::new_system(),
         &state,
         iroha_data_model::block::consensus::ConsensusMode::Npos,
+        root_scope,
     )
     .unpack(|_| {});
     let (valid, staged) = match validation {

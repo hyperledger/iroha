@@ -347,6 +347,9 @@ mod tests {
         drop(pending);
         let read = pool.admit_inspection(65, 136 * 1024).unwrap();
         drop(read);
-        assert!(pool.resident.peak_reserved_bytes() <= policy.resident_bytes.0 as usize);
+        assert!(
+            pool.resident.peak_reserved_bytes()
+                <= usize::try_from(policy.resident_bytes.0).expect("fixture budget fits usize")
+        );
     }
 }

@@ -1501,7 +1501,7 @@ mod tests {
             );
             let mut actual = actual::Root::from_toml_source(TomlSource::inline(root.clone()))
                 .unwrap_or_else(|error| panic!("Nexus wizard config admission: {error:?}"));
-            iroha_config::sora_profile::SoraProfileSelection::from_table(&root).apply(&mut actual);
+            iroha_config::sora_profile::SoraProfileSelection::from_table(root).apply(&mut actual);
             assert!(!actual.torii.sorafs_storage.enabled);
         }
     }

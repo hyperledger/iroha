@@ -76,11 +76,11 @@ impl NativeTransactionsV1 {
         {
             return Err(SignerOperationErrorV1::InvalidOperation);
         }
-        if let Action::Check(check) = &instruction.request.action {
-            if check.expected_observer != self.observer || check.expected_operator != self.operator
-            {
-                return Err(SignerOperationErrorV1::InvalidOperation);
-            }
+        if let Action::Check(check) = &instruction.request.action
+            && (check.expected_observer != self.observer
+                || check.expected_operator != self.operator)
+        {
+            return Err(SignerOperationErrorV1::InvalidOperation);
         }
         let (authority, key) = if observer {
             (&self.observer, &self.observer_key)

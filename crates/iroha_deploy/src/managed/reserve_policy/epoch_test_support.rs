@@ -1,5 +1,6 @@
 //! Test-only generated selection using a real native cut, followed by the existing wallet/carrier owner.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::NativeFixture;
 use crate::managed::native_operation::{Fees, authorization::DispatchAuthorization};
 
@@ -23,19 +24,21 @@ impl ManagedInitialReservePolicy {
             checkpoint: checkpoint_bytes(&verifier).unwrap(),
         };
         self.validate_original(&original).unwrap();
-        let directory = self.authority.directory.ensure_child("set").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "set").unwrap();
         journal::publish_intent(&directory, &original).unwrap();
         let account = authorization
             .bind_account(AccountService::new(self.authority.config.clone()).unwrap())
             .unwrap();
         attempts::generated(
-            &directory,
-            Purpose::ReservePolicy,
-            original.digest().unwrap(),
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose: Purpose::ReservePolicy,
+                semantic: original.digest().unwrap(),
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_initial_reserve_policy_preparation(
@@ -65,7 +68,7 @@ impl ManagedInitialReservePolicy {
                 let state = native
                     .policy_proof(&self.authority.config.account)
                     .verify(
-                        &self.authority.config.chain.to_string(),
+                        self.authority.config.chain.as_ref(),
                         self.authority.config.network_id,
                         &self.authority.config.account,
                         policy,

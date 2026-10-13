@@ -51,6 +51,11 @@ macro_rules! schema_types {
             iroha_data_model::sumeragi_finality::SumeragiCommitCheckpointV1,
             iroha_data_model::sumeragi_finality::SumeragiFinalityBundle,
             iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+            // Committed fraud admission custom parameter has an opaque payload.
+            iroha_data_model::fraud::FraudAdmissionPolicyV1,
+            // Account-signed AMX debit-approval reads use separate request and proof frames.
+            iroha_data_model::sumeragi_amx::AmxDebitApprovalV1,
+            iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1,
             // Independent private roots and body-free parent anchoring.
             iroha_data_model::block::consensus::SumeragiRootScope,
             iroha_data_model::block::consensus::PrivateRootFeePolicy,
@@ -281,6 +286,7 @@ pub mod complete_data_model {
 mod tests {
     use super::{IntoSchema, complete_data_model::*};
     use iroha_schema::{MetaMap, Metadata};
+    mod amx_approval;
     mod final_promotion;
     mod final_promotion_account_custody;
     mod musubi;

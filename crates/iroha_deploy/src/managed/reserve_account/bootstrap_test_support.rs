@@ -1,6 +1,7 @@
 //! Test-only registration through its sole owner and genuine native provider absence proof.
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::{
     NativeFixture, NativeReadHttp,
 };
@@ -28,7 +29,7 @@ impl ManagedReserveAccountRegistration {
             checkpoint: checkpoint_bytes(&verifier).unwrap(),
         };
         self.validate_original(&original).unwrap();
-        let directory = self.authority.directory.ensure_child("register").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "register").unwrap();
         let original =
             super::tests::retain_explicit_request(self, &directory, &original, utc, options);
         let operator = self.authority.reserve_operations_config().unwrap();

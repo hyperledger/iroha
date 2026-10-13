@@ -42,30 +42,30 @@ impl SumeragiCommitCertificateV1 {
     ///
     /// # Errors
     /// Rejects noncanonical native components, malformed execution or an oversized frame.
-    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, FinalityError> {
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, FinalityReadError> {
         self.originals()?;
         need(
             norito::canonical_frame_len(self).map_err(malformed)?
                 <= MAX_COMMIT_CERTIFICATE_BYTES_V1,
             "compact certificate frame exceeds bound",
         )?;
-        norito::encode_canonical(self).map_err(malformed)
+        Ok(norito::encode_canonical(self).map_err(malformed)?)
     }
 
     /// Decode bounded canonical original DATA; only native BLS verification grants authority.
     ///
     /// # Errors
     /// Rejects oversized or noncanonical outer/inner frames and malformed native execution.
-    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityError> {
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityReadError> {
         need(
             !bytes.is_empty() && bytes.len() <= MAX_COMMIT_CERTIFICATE_BYTES_V1,
             "compact certificate frame exceeds bound",
         )?;
-        let certificate: Self = norito::decode_canonical_with_limits(
+        let certificate: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(bytes.len()),
         )
-        .map_err(malformed)?;
+        .map_err(FinalityReadError::from)?;
         certificate.originals()?;
         Ok(certificate)
     }
@@ -74,7 +74,7 @@ impl SumeragiCommitCertificateV1 {
     ///
     /// # Errors
     /// Rejects missing, oversized or noncanonical native header data.
-    pub fn height(&self) -> Result<u64, FinalityError> {
+    pub fn height(&self) -> Result<u64, FinalityReadError> {
         Ok(self.header()?.height)
     }
 
@@ -82,28 +82,31 @@ impl SumeragiCommitCertificateV1 {
     ///
     /// # Errors
     /// Rejects missing, oversized or noncanonical native header data.
-    pub fn epoch_id(&self) -> Result<u64, FinalityError> {
+    pub fn epoch_id(&self) -> Result<u64, FinalityReadError> {
         Ok(self.header()?.epoch.epoch)
     }
 
-    fn header(&self) -> Result<CoreHeader, FinalityError> {
+    fn header(&self) -> Result<CoreHeader, FinalityReadError> {
         self.validate_shape()?;
-        norito::decode_canonical_with_limits(
+        norito::decode_canonical_for_admission(
             &self.consensus_header,
             norito::canonical_decode_limits(self.consensus_header.len()),
         )
-        .map_err(malformed)
+        .map_err(FinalityReadError::from)
     }
 
-    fn originals(&self) -> Result<(CoreHeader, Qc, ExecutionResultCommitment), FinalityError> {
+    fn originals(&self) -> Result<(CoreHeader, Qc, CertifiedResultV1), FinalityReadError> {
         let header = self.header()?;
-        let qc = norito::decode_canonical_with_limits(
+        let qc = norito::decode_canonical_for_admission(
             &self.commit_qc,
             norito::canonical_decode_limits(self.commit_qc.len()),
         )
-        .map_err(malformed)?;
+        .map_err(FinalityReadError::from)?;
+        // This verifier is constructed only from an authenticated Global root. A compact
+        // certificate has no original Iroha block timestamp for C5; the native quorum binds X.
         let commitment =
-            ExecutionResultCommitment::decode(&self.result_preimage).map_err(malformed)?;
+            CertifiedResultV1::decode(&self.result_preimage, CertifiedResultScope::TairaGlobal)
+                .map_err(FinalityReadError::from)?;
         Ok((header, qc, commitment))
     }
 
@@ -151,14 +154,14 @@ pub struct VerifiedSumeragiCommitV1 {
     network: NetworkId,
     chain: String,
     core_hash: Hash32,
-    commitment: ExecutionResultCommitment,
+    certified_result: CertifiedResultV1,
 }
 
 impl VerifiedSumeragiCommitV1 {
     /// Original certified execution height.
     #[must_use]
     pub const fn height(&self) -> u64 {
-        self.commitment.height
+        self.certified_result.commitment().height
     }
 
     /// Native consensus block identity authenticated by the BLS certificate.
@@ -170,13 +173,19 @@ impl VerifiedSumeragiCommitV1 {
     /// Certified execution, including its original counted event commitment.
     #[must_use]
     pub const fn execution(&self) -> &ExecutionCommitment {
-        &self.commitment.execution
+        &self.certified_result.commitment().execution
     }
 
     /// Complete certified schedule and execution result.
     #[must_use]
     pub const fn commitment(&self) -> &ExecutionResultCommitment {
-        &self.commitment
+        self.certified_result.commitment()
+    }
+
+    /// Original finality header and body authenticated under the selected global root.
+    #[must_use]
+    pub const fn certified_result(&self) -> &CertifiedResultV1 {
+        &self.certified_result
     }
 
     /// Match the independently selected global network and chain.
@@ -271,7 +280,7 @@ impl SumeragiCommitVerifierV1 {
     pub fn verify_epoch_boundary(
         &mut self,
         certificate: &SumeragiCommitCertificateV1,
-    ) -> Result<SumeragiCommitCheckpointV1, FinalityError> {
+    ) -> Result<SumeragiCommitCheckpointV1, FinalityReadError> {
         let mut candidate = self.clone();
         let verified = candidate.verify(certificate)?;
         let boundary = verified
@@ -304,8 +313,9 @@ impl SumeragiCommitVerifierV1 {
     pub fn verify(
         &mut self,
         proof: &SumeragiCommitCertificateV1,
-    ) -> Result<VerifiedSumeragiCommitV1, FinalityError> {
-        let (header, qc, commitment) = proof.originals()?;
+    ) -> Result<VerifiedSumeragiCommitV1, FinalityReadError> {
+        let (header, qc, certified_result) = proof.originals()?;
+        let commitment = certified_result.commitment();
         let offered = &commitment.schedule.current;
         let selected = self
             .epochs
@@ -338,7 +348,7 @@ impl SumeragiCommitVerifierV1 {
                 && qc.kind == VoteKind::Commit
                 && qc.height == header.height
                 && qc.block_hash == core_hash
-                && qc.result == result_of_preimage(&proof.result_preimage)
+                && Some(qc.result) == result_of_preimage(&proof.result_preimage)
                 && commitment.height == header.height,
             "compact certificate does not bind the selected instance, epoch and execution",
         )?;
@@ -359,7 +369,7 @@ impl SumeragiCommitVerifierV1 {
             network: self.network,
             chain: self.chain.clone(),
             core_hash,
-            commitment,
+            certified_result,
         })
     }
 }

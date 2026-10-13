@@ -130,3 +130,90 @@ fn staged_state_snapshot_preserves_nonempty_current_and_predecessor_append_order
     let predecessor = state.world.domain_endorsements_by_domain.block_and_revert();
     assert_eq!(predecessor.get(&domain), Some(&before));
 }
+
+#[test]
+fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor() {
+    use crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map;
+    use crate::state::sccp_snapshot_state::{serialize_block_envelope, serialize_envelope};
+
+    let (state, _) = fixture();
+    let budget = state.ivm_execution_budget();
+    {
+        // Exact SCCP component setup carries no certified chain authority.
+        let mut world = state.world.block();
+        populate_every_sccp_map(&mut world, 1, &budget);
+        world.commit();
+    }
+    let mut block = state.block(BlockHeader::new(
+        std::num::NonZeroU64::MIN,
+        None,
+        None,
+        1,
+        0,
+    ));
+    populate_every_sccp_map(&mut block.world, 2, &budget);
+    block.finalize_axt_asset_incarnations().unwrap();
+    block.finalize_axt_policy_transition_ratchets().unwrap();
+    let mut envelope = String::new();
+    serialize_block_envelope(&block.world, &mut envelope);
+    let envelope_value: json::Value = json::from_str(&envelope).unwrap();
+    assert_eq!(envelope_value.as_object().unwrap().len(), 31);
+    for (field, before, after) in [
+        ("sccp_committee_current", 1_u64, 2_u64),
+        ("sccp_liability_clock", 1_000, 2_000),
+        ("sccp_degraded_run", 1, 2),
+    ] {
+        let cell = envelope_value.get(field).unwrap();
+        // Norito represents the present predecessor as the exact Option payload.
+        assert_eq!(
+            cell.get("revert").unwrap().get("value").unwrap().as_u64(),
+            Some(before),
+        );
+        assert_eq!(cell.get("blocks").unwrap().as_u64(), Some(after));
+    }
+    let staged_bytes = crate::snapshot::canonical_staged_state_snapshot_bytes(&block);
+    let staged_hash = crate::snapshot::canonical_staged_state_snapshot_hash(&block);
+    let staged: json::Value = json::from_slice(&staged_bytes).unwrap();
+    for field in [
+        "sccp_committee_generations",
+        "sccp_committee_current",
+        "sccp_liability_clock",
+        "sccp_degraded_run",
+        "sccp_anchor_open",
+        "sccp_anchor_chunks",
+    ] {
+        assert!(
+            staged.get("world").unwrap().get(field).is_none(),
+            "{field} must have one envelope"
+        );
+        assert!(
+            staged.get("sccp").unwrap().get(field).is_some(),
+            "{field} must be retained"
+        );
+    }
+    block.commit_world_overlay_for_testing().unwrap();
+    assert_eq!(
+        staged_bytes,
+        crate::snapshot::canonical_state_snapshot_bytes_for_tests(&state)
+    );
+    assert_eq!(
+        staged_hash,
+        crate::snapshot::canonical_state_snapshot_hash(&state).unwrap()
+    );
+    let mut committed_envelope = String::new();
+    serialize_envelope(&state.world, &mut committed_envelope);
+    assert_eq!(
+        committed_envelope, envelope,
+        "all 31 current/undo owners survive publication exactly"
+    );
+    let predecessor = state.world.block_and_revert();
+    assert_eq!(*predecessor.sccp_committee_current.get(), 1);
+    assert_eq!(*predecessor.sccp_liability_clock.get(), 1_000);
+    assert_eq!(*predecessor.sccp_degraded_run.get(), 1);
+    assert_eq!(predecessor.sccp_committee_generations.len(), 1);
+    assert_eq!(predecessor.sccp_anchor_chunks.len(), 1);
+    assert_eq!(
+        predecessor.sccp_anchor_open.get().as_slice()[0].core_hash,
+        [1; 32]
+    );
+}

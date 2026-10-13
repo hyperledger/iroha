@@ -99,13 +99,16 @@ impl SumeragiFinalityCheckpoint {
     /// the original consensus-visible committed execution, including the complete schedule,
     /// result, beacon and executed-wire commitment. Offered proofs cannot provide that source.
     /// The supplied tip may be historical; no current time or live effect is granted.
+    /// `scope` must come from the caller's independently selected authenticated root. It is
+    /// used only to check these DATA and does not install authority into this checkpoint.
     ///
     /// # Errors
     /// Refuses empty/excessive/discontinuous witnesses, foreign roots or invalid framing.
     pub fn with_independently_authenticated_decision_data(
         &self,
         proofs: &[SumeragiFinalityProof],
-    ) -> Result<Self, FinalityError> {
+        scope: CertifiedResultScope,
+    ) -> Result<Self, FinalityReadError> {
         self.validate_bounds()?;
         let tip = proofs
             .last()
@@ -122,7 +125,7 @@ impl SumeragiFinalityCheckpoint {
                 proof.height() == first + u64::try_from(offset).map_err(malformed)?,
                 "native decision data is discontinuous",
             )?;
-            let decoded = proof.decode_checked()?;
+            let decoded = proof.decode_checked(scope)?;
             if proof.height() == 1 {
                 need(
                     decoded
@@ -172,7 +175,7 @@ impl SumeragiFinalityCheckpoint {
     ///
     /// # Errors
     /// Empty, oversized, noncanonical or structurally malformed checkpoint.
-    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityError> {
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, FinalityReadError> {
         Self::decode_canonical_with_validation(bytes, None)
     }
 
@@ -185,7 +188,7 @@ impl SumeragiFinalityCheckpoint {
     pub fn decode_canonical_with_validation(
         bytes: &[u8],
         validation: Option<&mut EpochValidationScope>,
-    ) -> Result<Self, FinalityError> {
+    ) -> Result<Self, FinalityReadError> {
         // Sample before entering the native decoder's own input-derived scope.
         let validation = if norito::core::decode_limits_active() {
             None
@@ -196,11 +199,11 @@ impl SumeragiFinalityCheckpoint {
             !bytes.is_empty() && bytes.len() <= MAX_FINALITY_CHECKPOINT_BYTES,
             "checkpoint frame exceeds bound",
         )?;
-        let value: Self = norito::decode_canonical_with_limits(
+        let value: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(bytes.len()),
         )
-        .map_err(malformed)?;
+        .map_err(FinalityReadError::from)?;
         value.validate_bounds_with_validation(validation)?;
         Ok(value)
     }
@@ -276,7 +279,7 @@ impl SumeragiFinalityVerifier {
     pub fn export_checkpoint(
         &self,
         tip: &SumeragiFinalityProof,
-    ) -> Result<SumeragiFinalityCheckpoint, FinalityError> {
+    ) -> Result<SumeragiFinalityCheckpoint, FinalityReadError> {
         need(
             self.decisions.last_key_value().map(|(height, _)| *height) == Some(tip.height()),
             "checkpoint must export the authenticated tip",
@@ -315,7 +318,6 @@ impl SumeragiFinalityVerifier {
             checkpoint.validate_bounds()?;
         }
         // The result is the same DTO, not a retained epoch workspace or current-state grant.
-        drop(validation);
         Ok(checkpoint)
     }
 
@@ -419,81 +421,81 @@ impl SumeragiFinalityVerifier {
     where
         C: std::borrow::Borrow<SumeragiFinalityCheckpoint>,
     {
-        // No caller callback runs until native authentication is complete. Intrinsic decoder
-        // scopes retain their original work; only an owner active at this entry disables reuse.
-        let active_owner = norito::core::decode_limits_active();
-        let mut local_validation =
-            (!active_owner && shared_validation.is_none()).then(EpochValidationScope::new);
-        let mut validation = if active_owner {
-            None
-        } else {
-            shared_validation.or(local_validation.as_mut())
-        };
-        let selected = checkpoint.borrow();
-        selected.validate_bounds_with_validation(validation.as_deref_mut())?;
-        need(
-            selected.network_id == *network && selected.chain_id == chain_id,
-            "checkpoint differs from independently selected network or chain",
-        )?;
-        let genesis = norito::core::with_decode_limits_scope(
-            norito::canonical_decode_limits(selected.genesis_wire.len()),
-            || decode_framed_signed_block(&selected.genesis_wire),
-        )
-        .map_err(|error| match error.kind() {
-            norito::core::DecodeAttemptErrorKind::Allocator
-            | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-                super::FinalityReadError::DecodeResource(error)
-            }
-            norito::core::DecodeAttemptErrorKind::Invalid => {
-                super::FinalityReadError::Invalid(malformed(error))
-            }
-        })?;
-        need(
-            genesis.header().is_genesis()
-                && genesis.hash().as_ref() == network.as_bytes()
-                && genesis
-                    .canonical_resultless_proposal()
-                    .map_err(malformed)?
-                    .encode_wire()
-                    .map_err(malformed)?
-                    == selected.genesis_wire,
-            "checkpoint genesis differs from selected network or canonical root",
-        )?;
-        let mut verifier = Self::new_with_validation(
-            &genesis,
-            chain_id,
-            selected.genesis_committee.clone(),
-            validation.as_deref(),
-        )?;
-        verifier.decisions = selected
-            .decisions
-            .iter()
-            .map(|decision| (decision.height, decision.decision()))
-            .collect();
-        for decision in selected
-            .decisions
-            .iter()
-            .filter(|decision| decision.height <= 2)
-        {
+        let (verifier, tip) = {
+            // No caller callback runs until native authentication is complete. Intrinsic decoder
+            // scopes retain their original work; only an owner active at this entry disables reuse.
+            let active_owner = norito::core::decode_limits_active();
+            let mut local_validation =
+                (!active_owner && shared_validation.is_none()).then(EpochValidationScope::new);
+            let mut validation = if active_owner {
+                None
+            } else {
+                shared_validation.or(local_validation.as_mut())
+            };
+            let selected = checkpoint.borrow();
+            selected.validate_bounds_with_validation(validation.as_deref_mut())?;
             need(
-                decision.committee_digest == verifier.genesis_committee_digest,
-                "checkpoint initial committee differs from genesis selection",
+                selected.network_id == *network && selected.chain_id == chain_id,
+                "checkpoint differs from independently selected network or chain",
             )?;
-            if decision.height == 1 {
+            let genesis = norito::core::classify_decode_attempt(|| {
+                norito::core::with_decode_limits_scope(
+                    norito::canonical_decode_limits(selected.genesis_wire.len()),
+                    || {
+                        decode_framed_signed_block(&selected.genesis_wire)
+                            .map_err(norito::core::DecodeAttemptError::into_error)
+                    },
+                )
+            })
+            .map_err(FinalityReadError::from)?;
+            need(
+                genesis.header().is_genesis()
+                    && genesis.hash().as_ref() == network.as_bytes()
+                    && genesis
+                        .canonical_resultless_proposal()
+                        .map_err(malformed)?
+                        .encode_wire()
+                        .map_err(malformed)?
+                        == selected.genesis_wire,
+                "checkpoint genesis differs from selected network or canonical root",
+            )?;
+            let mut verifier = Self::new_with_validation(
+                &genesis,
+                chain_id,
+                selected.genesis_committee.clone(),
+                validation.as_deref(),
+            )?;
+            verifier.decisions = selected
+                .decisions
+                .iter()
+                .map(|decision| (decision.height, decision.decision()))
+                .collect();
+            for decision in selected
+                .decisions
+                .iter()
+                .filter(|decision| decision.height <= 2)
+            {
                 need(
-                    decision.block_hash == genesis.hash()
-                        && decision.core_hash == *genesis.hash().as_ref()
-                        && decision.schedule.current == verifier.genesis_epoch,
-                    "checkpoint genesis commitment differs from selected signed root",
+                    decision.committee_digest == verifier.genesis_committee_digest,
+                    "checkpoint initial committee differs from genesis selection",
                 )?;
+                if decision.height == 1 {
+                    need(
+                        decision.block_hash == genesis.hash()
+                            && decision.core_hash == *genesis.hash().as_ref()
+                            && decision.schedule.current == verifier.genesis_epoch,
+                        "checkpoint genesis commitment differs from selected signed root",
+                    )?;
+                }
             }
-        }
-        // Retain the capability produced by this complete single-witness verification.
-        let tip = verifier.verify_retained_decision_with_validation(&selected.tip, validation)?;
-        drop(genesis);
-        // End borrowed access before the consumer. Independent imports also release their
-        // bounded pure workspace here; a borrowed workspace remains with its operation owner.
-        drop(local_validation);
+            // Retain the capability produced by this complete single-witness verification.
+            let tip =
+                verifier.verify_retained_decision_with_validation(&selected.tip, validation)?;
+            drop(genesis);
+            (verifier, tip)
+        };
+        // The local pure workspace and borrowed access are confined to authentication;
+        // a shared workspace remains with its operation owner, never with the consumer.
         Ok(consume(checkpoint, verifier, tip))
     }
 }

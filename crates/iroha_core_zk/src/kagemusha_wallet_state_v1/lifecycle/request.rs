@@ -129,11 +129,17 @@ impl OperationRequestV1 {
         let id = scheme.scheme_id();
         match &self.action {
             OperationActionV1::Load { receipt, finality } => {
-                let receipt = valid(KagemushaWalletLoadReceiptV1::decode_canonical(receipt))?;
+                let receipt = read_model_original(
+                    || KagemushaWalletLoadReceiptV1::decode_canonical(receipt),
+                    Error::Invalid("Load receipt original"),
+                )?;
                 if receipt.scheme_id != id {
                     return Err(Error::Invalid("load request scheme"));
                 }
-                valid(KagemushaWalletLoadFinalityV1::decode_canonical(finality))?;
+                read_model_original(
+                    || KagemushaWalletLoadFinalityV1::decode_canonical(finality),
+                    Error::Invalid("Load finality original"),
+                )?;
             }
             OperationActionV1::Send { request } => {
                 bounded(request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
@@ -145,11 +151,14 @@ impl OperationRequestV1 {
                 payer_credential,
                 certificates: set,
             } => {
-                valid(KagemushaWalletPaymentV1::decode_canonical(payment, &id))?;
-                valid(KagemushaWalletCredentialV1::decode_canonical(
-                    payer_credential,
-                    &id,
-                ))?;
+                read_model_original(
+                    || KagemushaWalletPaymentV1::decode_canonical(payment, &id),
+                    Error::Invalid("G1 validation"),
+                )?;
+                read_model_original(
+                    || KagemushaWalletCredentialV1::decode_canonical(payer_credential, &id),
+                    Error::Invalid("G1 validation"),
+                )?;
                 certificates(set, &id)?;
             }
             OperationActionV1::Refresh {
@@ -160,19 +169,34 @@ impl OperationRequestV1 {
                 use KagemushaWalletPolicyUpdateKindV1 as K;
                 match kind {
                     K::Credential => {
-                        valid(KagemushaWalletCredentialV1::decode_canonical(update, &id))?;
+                        read_model_original(
+                            || KagemushaWalletCredentialV1::decode_canonical(update, &id),
+                            Error::Invalid("G1 validation"),
+                        )?;
                     }
                     K::SchemePolicy => {
-                        valid(KagemushaWalletSchemePolicyV1::decode_canonical(update, &id))?;
+                        read_model_original(
+                            || KagemushaWalletSchemePolicyV1::decode_canonical(update, &id),
+                            Error::Invalid("G1 validation"),
+                        )?;
                     }
                     K::Blacklist => {
-                        valid(KagemushaWalletBlacklistV1::decode_canonical(update, &id))?;
+                        read_model_original(
+                            || KagemushaWalletBlacklistV1::decode_canonical(update, &id),
+                            Error::Invalid("G1 validation"),
+                        )?;
                     }
                     K::TimeAnchor => {
-                        valid(KagemushaWalletTimeAnchorV1::decode_canonical(update, &id))?;
+                        read_model_original(
+                            || KagemushaWalletTimeAnchorV1::decode_canonical(update, &id),
+                            Error::Invalid("G1 validation"),
+                        )?;
                     }
                     K::QuotaShare => {
-                        valid(KagemushaWalletQuotaShareV1::decode_canonical(update, &id))?;
+                        read_model_original(
+                            || KagemushaWalletQuotaShareV1::decode_canonical(update, &id),
+                            Error::Invalid("G1 validation"),
+                        )?;
                     }
                 }
                 certificates(set, &id)?;
@@ -182,10 +206,10 @@ impl OperationRequestV1 {
                     return Err(Error::Invalid("unload request amount"));
                 }
                 if let Some(charge) = charge {
-                    valid(KagemushaWalletChargeQuoteV1::decode_canonical(
-                        &charge.quote,
-                        &id,
-                    ))?;
+                    read_model_original(
+                        || KagemushaWalletChargeQuoteV1::decode_canonical(&charge.quote, &id),
+                        Error::Invalid("G1 validation"),
+                    )?;
                     certificates(&charge.certificates, &id)?;
                 }
             }

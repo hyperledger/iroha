@@ -23,6 +23,34 @@ use iroha_data_model::privacy::{
 };
 use norito::derive::{JsonDeserialize, JsonSerialize};
 use std::collections::{BTreeMap, BTreeSet};
+/// An unsuccessful STARK producer retaining original local codec/verification causes.
+/// This is a local operation result, never an invalid incoming-proof verdict.
+#[derive(Debug, thiserror::Error)]
+pub enum StarkProofProductionError {
+    /// Completed input, shape or algebraic self-check failure.
+    #[error("{0}")]
+    Input(String),
+    /// Original captured canonical reader or writer failure.
+    #[error(transparent)]
+    Codec(#[from] norito::core::DecodeAttemptError),
+    /// Native self-verification or trusted key preparation did not complete.
+    #[error(transparent)]
+    Deferred(#[from] crate::VerificationRefusal),
+}
+impl From<String> for StarkProofProductionError {
+    fn from(input: String) -> Self {
+        Self::Input(input)
+    }
+}
+impl From<crate::VerificationAttemptError<String>> for StarkProofProductionError {
+    fn from(original: crate::VerificationAttemptError<String>) -> Self {
+        match original {
+            crate::VerificationAttemptError::Rejected(input) => Self::Input(input),
+            crate::VerificationAttemptError::Deferred(original) => Self::Deferred(original),
+        }
+    }
+}
+
 /// Goldilocks prime modulus p = 2^64 - 2^32 + 1
 const MOD_P: u128 = (1u128 << 64) - (1u128 << 32) + 1;
 const MOD_P_U64: u64 = MOD_P as u64;
@@ -244,6 +272,11 @@ fn effective_max_transcript_label_len(limits: &StarkVerifierLimits) -> usize {
 }
 fn effective_max_envelope_bytes(limits: &StarkVerifierLimits) -> usize {
     limits.max_envelope_bytes.min(MAX_ENVELOPE_BYTES)
+}
+/// Whether an encoded envelope of `len` bytes is above the effective envelope bound. The
+/// bound is inclusive: an envelope of exactly the bound is decoded.
+fn envelope_exceeds_limit(len: usize, limits: &StarkVerifierLimits) -> bool {
+    len > effective_max_envelope_bytes(limits)
 }
 /// Goldilocks field element with canonical modular reduction.
 ///
@@ -808,7 +841,7 @@ fn merkle_path_depth_ok(
 }
 #[cfg(any(test, feature = "test-utils"))]
 /// Verify a STARK FRI envelope under `zk-stark` with default limits.
-pub fn verify_stark_fri_envelope(bytes: &[u8]) -> bool {
+pub fn verify_stark_fri_envelope(bytes: &[u8]) -> Result<bool, crate::VerificationRefusal> {
     verify_stark_fri_envelope_with_limits(bytes, &StarkVerifierLimits::default())
 }
 fn log2_usize(value: usize) -> Option<usize> {
@@ -1093,12 +1126,15 @@ const STARK_FRI_VERIFYING_KEY_V1_MAX_NESTING_DEPTH: usize = 8;
 ///
 /// Returns an error when the frame exceeds the V1 byte bound, advertises an oversized field or
 /// allocation, is not canonical Norito, or does not decode to [`StarkFriVerifyingKeyV1`].
-pub fn decode_stark_fri_verifying_key_v1(bytes: &[u8]) -> Result<StarkFriVerifyingKeyV1, String> {
+pub fn decode_stark_fri_verifying_key_v1(
+    bytes: &[u8],
+) -> Result<StarkFriVerifyingKeyV1, crate::VerificationAttemptError<String>> {
     if bytes.len() > STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES {
-        return Err(format!(
+        return Err((format!(
             "STARK/FRI verifier key exceeds the {}-byte limit",
             STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES
-        ));
+        ))
+        .into());
     }
     let circuit_id_limit = MAX_TRANSCRIPT_LABEL_LEN;
     let limits = norito::DecodeLimits::new(
@@ -1108,8 +1144,10 @@ pub fn decode_stark_fri_verifying_key_v1(bytes: &[u8]) -> Result<StarkFriVerifyi
         STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES.saturating_mul(2),
         STARK_FRI_VERIFYING_KEY_V1_MAX_NESTING_DEPTH,
     );
-    norito::decode_canonical_with_limits(bytes, limits)
-        .map_err(|err| format!("invalid canonical STARK/FRI verifier key: {err}"))
+    iroha_plonk::verification_attempt::codec_attempt(
+        || norito::decode_canonical_with_limits(bytes, limits),
+        |err| format!("invalid canonical STARK/FRI verifier key: {err}"),
+    )
 }
 /// Validate that a STARK/FRI verifier-key payload uses ledger-grade verifier parameters.
 ///
@@ -1295,7 +1333,10 @@ mod verifying_key_decode_tests {
         let bytes = vec![0_u8; STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES + 1];
         let error = decode_stark_fri_verifying_key_v1(&bytes)
             .expect_err("oversized verifier-key frame must fail before decoding");
-        assert!(error.contains("exceeds"), "unexpected error: {error}");
+        assert!(
+            error.to_string().contains("exceeds"),
+            "unexpected error: {error}"
+        );
     }
 }
 /// Commitments for multiple layers and optional composition root.
@@ -2838,7 +2879,7 @@ pub(crate) fn prove_stark_fri_air_envelope_from_rows_and_composition_values_byte
     public_digest: GoldilocksDigest384V1,
     rows: Vec<Vec<u64>>,
     composition_values: Vec<u64>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_generic_stark_air_circuit_id(&circuit_id)?;
     prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes_for_validated_circuit(
         params,
@@ -2859,7 +2900,7 @@ pub(crate) fn prove_stark_fri_air_envelope_from_rows_and_composition_values_with
     rows: Vec<Vec<u64>>,
     composition_values: Vec<u64>,
     base_indices: &[usize],
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_generic_stark_air_circuit_id(&circuit_id)?;
     prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes_for_validated_circuit(
         params,
@@ -2882,7 +2923,7 @@ pub fn prove_stark_fri_reserved_air_envelope_from_rows_and_composition_values_wi
     rows: Vec<Vec<u64>>,
     composition_values: Vec<u64>,
     base_indices: &[usize],
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_stark_circuit_id(&circuit_id)
         .map_err(|err| format!("invalid STARK AIR circuit_id: {err}"))?;
     prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes_for_validated_circuit(
@@ -2903,7 +2944,7 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes_for_valid
     rows: Vec<Vec<u64>>,
     composition_values: Vec<u64>,
     base_indices: Option<&[usize]>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     let composition_values = composition_values
         .into_iter()
         .map(|value| {
@@ -2930,7 +2971,7 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
     rows: Vec<Vec<u64>>,
     composition_values: Vec<Fq>,
     base_indices: Option<&[usize]>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_stark_circuit_id(&circuit_id)
         .map_err(|err| format!("invalid STARK AIR circuit_id: {err}"))?;
     validate_stark_prover_params(&params, &transcript_label)?;
@@ -2938,30 +2979,30 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
         .checked_shl(u32::from(params.n_log2))
         .ok_or_else(|| "STARK domain size overflow".to_owned())?;
     if rows.len() != domain {
-        return Err("STARK AIR row count does not match domain size".to_owned());
+        return Err(("STARK AIR row count does not match domain size".to_owned()).into());
     }
     if composition_values.len() != domain {
-        return Err("STARK AIR composition count does not match domain size".to_owned());
+        return Err(("STARK AIR composition count does not match domain size".to_owned()).into());
     }
     let trace_width = rows
         .first()
         .map(Vec::len)
         .ok_or_else(|| "STARK AIR rows must not be empty".to_owned())?;
     if trace_width == 0 || trace_width > MAX_AIR_WIDTH {
-        return Err("invalid STARK AIR trace width".to_owned());
+        return Err(("invalid STARK AIR trace width".to_owned()).into());
     }
     let trace_width = u16::try_from(trace_width)
         .map_err(|_| "STARK AIR trace width does not fit u16".to_owned())?;
     for row in &rows {
         if row.len() != usize::from(trace_width) {
-            return Err("STARK AIR rows must have uniform width".to_owned());
+            return Err(("STARK AIR rows must have uniform width".to_owned()).into());
         }
         if row
             .iter()
             .copied()
             .any(|value| Fq::from_canonical_u64(value).is_none())
         {
-            return Err("STARK AIR row contains non-canonical field element".to_owned());
+            return Err(("STARK AIR row contains non-canonical field element".to_owned()).into());
         }
     }
     let trace_leaves = rows
@@ -3051,8 +3092,7 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
         trace_width,
         openings,
     });
-    let bytes = ivm_abi::codec::encode_canonical_norito(&envelope)
-        .map_err(|err| format!("failed to encode STARK envelope: {err}"))?;
+    let bytes = norito::core::classify_decode_attempt(|| norito::encode_canonical(&envelope))?;
     let mut limits = StarkVerifierLimits::default();
     limits.max_envelope_bytes = usize::MAX;
     let self_verified = if let Some(base_indices) = base_indices {
@@ -3075,8 +3115,8 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
             &composition_values_u64,
         )
     };
-    if !self_verified {
-        return Err("STARK AIR envelope self-verification failed".to_owned());
+    if !self_verified? {
+        return Err(("STARK AIR envelope self-verification failed".to_owned()).into());
     }
     Ok(bytes)
 }
@@ -3086,7 +3126,7 @@ pub fn prove_stark_fri_air_envelope_bytes(
     transcript_label: String,
     circuit_id: String,
     public_digest: GoldilocksDigest384V1,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_generic_stark_air_circuit_id(&circuit_id)?;
     validate_generic_binding_air_domain(&params)?;
     prove_stark_fri_air_envelope_bytes_for_validated_circuit(
@@ -3104,7 +3144,7 @@ pub fn prove_stark_fri_reserved_air_envelope_bytes(
     transcript_label: String,
     circuit_id: String,
     public_digest: GoldilocksDigest384V1,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_stark_circuit_id(&circuit_id)
         .map_err(|err| format!("invalid STARK AIR circuit_id: {err}"))?;
     prove_stark_fri_air_envelope_bytes_for_validated_circuit(
@@ -3119,7 +3159,7 @@ fn prove_stark_fri_air_envelope_bytes_for_validated_circuit(
     transcript_label: String,
     circuit_id: String,
     public_digest: GoldilocksDigest384V1,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_stark_prover_params(&params, &transcript_label)?;
     let domain = 1usize
         .checked_shl(u32::from(params.n_log2))
@@ -3169,7 +3209,7 @@ pub fn prove_stark_fri_zero_composition_air_envelope_bytes(
     circuit_id: String,
     public_digest: GoldilocksDigest384V1,
     rows: Vec<Vec<u64>>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_generic_stark_air_circuit_id(&circuit_id)?;
     validate_generic_binding_air_domain(&params)?;
     let domain = 1usize
@@ -3206,7 +3246,7 @@ pub fn prove_stark_fri_zero_composition_air_envelope_bytes(
 #[doc(hidden)]
 pub fn prove_stark_fri_bfv_full_bootstrap_air_envelope_bytes(
     material: &iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_v1(material)
         .map_err(|err| format!("BFV full-bootstrap prover input material invalid: {err}"))?;
     let statement_hash = material.proof_input_material.statement_hash;
@@ -3244,12 +3284,13 @@ pub fn prove_stark_fri_bfv_full_bootstrap_air_envelope_bytes(
         )?;
     let mut limits = StarkVerifierLimits::default();
     limits.max_envelope_bytes = usize::MAX;
-    if verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(&bytes, &limits, material) {
+    if verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(&bytes, &limits, material)? {
         Ok(bytes)
     } else {
         Err(
-            "BFV full-bootstrap STARK/FRI envelope failed transcript-bound self-verification"
-                .to_owned(),
+            ("BFV full-bootstrap STARK/FRI envelope failed transcript-bound self-verification"
+                .to_owned())
+            .into(),
         )
     }
 }
@@ -3265,7 +3306,7 @@ pub fn prove_stark_fri_bfv_full_bootstrap_air_envelope_bytes(
 pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope(
     bytes: &[u8],
     material: &iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1,
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         bytes,
         &StarkVerifierLimits::default(),
@@ -3331,14 +3372,14 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_lim
     trace_material_digest: iroha_crypto::Hash,
     slot_index: u32,
     bound_mode: iroha_crypto::BfvFullBootstrapExecutionProofBoundModeV1,
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     if !bfv_full_bootstrap_public_padding_inputs_are_admissible(
         statement_hash,
         trace_material_digest,
         slot_index,
         bound_mode,
     ) {
-        return false;
+        return Ok(false);
     }
     if !verify_stark_fri_envelope_with_context(
         bytes,
@@ -3349,19 +3390,25 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_lim
             slot_index,
             bound_mode,
         },
-    ) {
-        return false;
+    )? {
+        return Ok(false);
     }
-    let env: StarkVerifyEnvelopeV1 = match norito::decode_from_bytes(bytes) {
-        Ok(env) => env,
-        Err(_) => return false,
+    let Some(env): Option<StarkVerifyEnvelopeV1> =
+        iroha_plonk::verification_attempt::completed_result(
+            iroha_plonk::verification_attempt::codec_attempt(
+                || norito::decode_canonical(bytes),
+                |_| (),
+            ),
+        )?
+    else {
+        return Ok(false);
     };
     if !bfv_full_bootstrap_stark_air_transcript_label_allowed_v1(&env.transcript_label) {
-        return false;
+        return Ok(false);
     }
     let expected_params = bfv_full_bootstrap_stark_air_params_v1(statement_hash);
     if !bfv_full_bootstrap_stark_air_params_match_v1(&env.params, &expected_params) {
-        return false;
+        return Ok(false);
     }
     let statement_bytes: [u8; iroha_crypto::Hash::LENGTH] = statement_hash.into();
     let Some(expected_public_digest) = stark_public_digest_v1(
@@ -3369,10 +3416,10 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_lim
         iroha_crypto::BFV_FULL_BOOTSTRAP_CIRCUIT_ID_V1,
         &statement_bytes,
     ) else {
-        return false;
+        return Ok(false);
     };
     let Some(air) = env.proof.air.as_ref() else {
-        return false;
+        return Ok(false);
     };
     if air.circuit_id != iroha_crypto::BFV_FULL_BOOTSTRAP_CIRCUIT_ID_V1
         || air.public_digest != expected_public_digest
@@ -3381,7 +3428,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_lim
         || air.openings.len()
             != usize::from(iroha_crypto::BFV_FULL_BOOTSTRAP_NATIVE_STARK_FRI_QUERIES_V1)
     {
-        return false;
+        return Ok(false);
     }
     let opening_indices = air
         .openings
@@ -3409,11 +3456,12 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_lim
     )
     .is_err()
     {
-        return false;
+        return Ok(false);
     }
-    air.openings
+    Ok(air
+        .openings
         .iter()
-        .all(|opening| opening.composition_value == 0)
+        .all(|opening| opening.composition_value == 0))
 }
 fn bfv_full_bootstrap_air_openings_match_public_opening_material_v1(
     air: &StarkAirProofV1,
@@ -3450,8 +3498,8 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limit
     artifacts: &iroha_crypto::BfvFullBootstrapCircuitArtifactBundleV1,
     galois_keys: &[iroha_crypto::BfvGaloisKey],
     material: &iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1,
-) -> bool {
-    iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_for_public_key_and_artifacts_v1(
+) -> Result<bool, crate::VerificationRefusal> {
+    if !(iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_for_public_key_and_artifacts_v1(
         params,
         public_key,
         bootstrap_key,
@@ -3459,8 +3507,8 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limit
         galois_keys,
         material,
     )
-    .is_ok()
-        && verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(bytes, limits, material)
+    .is_ok()) { return Ok(false); }
+    verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(bytes, limits, material)
 }
 /// Verify a BFV full-bootstrap native STARK/FRI AIR proof envelope with limits.
 ///
@@ -3476,11 +3524,11 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
     bytes: &[u8],
     limits: &StarkVerifierLimits,
     material: &iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1,
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     if iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_v1(material)
         .is_err()
     {
-        return false;
+        return Ok(false);
     }
     let statement_hash = material.proof_input_material.statement_hash;
     let expected_params = bfv_full_bootstrap_stark_air_params_v1(statement_hash);
@@ -3490,7 +3538,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         iroha_crypto::BFV_FULL_BOOTSTRAP_CIRCUIT_ID_V1,
         &statement_bytes,
     ) else {
-        return false;
+        return Ok(false);
     };
     let witness = &material.proof_input_material.witness_material;
     if !verify_stark_fri_bfv_full_bootstrap_air_public_padding_structure_with_limits(
@@ -3500,8 +3548,8 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         material.arithmetic_trace_material_digest,
         witness.slot_index,
         witness.bound_mode,
-    ) {
-        return false;
+    )? {
+        return Ok(false);
     }
     let expected_base_indices = match bfv_full_bootstrap_expected_base_indices_v1(
         statement_hash,
@@ -3510,7 +3558,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         material.arithmetic_trace_material.rows.len(),
     ) {
         Ok(indices) => indices,
-        Err(_) => return false,
+        Err(_) => return Ok(false),
     };
     if !verify_stark_fri_air_envelope_from_rows_and_composition_values_with_base_indices_with_limits(
         bytes,
@@ -3522,21 +3570,27 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
             .arithmetic_air_evaluation_material
             .composition_values,
         &expected_base_indices,
-    ) {
-        return false;
+    )? {
+        return Ok(false);
     }
-    let env: StarkVerifyEnvelopeV1 = match norito::decode_from_bytes(bytes) {
-        Ok(env) => env,
-        Err(_) => return false,
+    let Some(env): Option<StarkVerifyEnvelopeV1> =
+        iroha_plonk::verification_attempt::completed_result(
+            iroha_plonk::verification_attempt::codec_attempt(
+                || norito::decode_canonical(bytes),
+                |_| (),
+            ),
+        )?
+    else {
+        return Ok(false);
     };
     if !bfv_full_bootstrap_stark_air_transcript_label_allowed_v1(&env.transcript_label) {
-        return false;
+        return Ok(false);
     }
     if !bfv_full_bootstrap_stark_air_params_match_v1(&env.params, &expected_params) {
-        return false;
+        return Ok(false);
     }
     let Some(air) = env.proof.air.as_ref() else {
-        return false;
+        return Ok(false);
     };
     if air.circuit_id != iroha_crypto::BFV_FULL_BOOTSTRAP_CIRCUIT_ID_V1
         || air.public_digest != public_digest
@@ -3545,13 +3599,13 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         || air.openings.len()
             != usize::from(iroha_crypto::BFV_FULL_BOOTSTRAP_NATIVE_STARK_FRI_QUERIES_V1)
     {
-        return false;
+        return Ok(false);
     }
     if !bfv_full_bootstrap_air_openings_match_public_opening_material_v1(
         air,
         &material.public_opening_material,
     ) {
-        return false;
+        return Ok(false);
     }
     let opening_indices = air
         .openings
@@ -3568,7 +3622,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         .iter()
         .map(|opening| opening.next_row.clone())
         .collect::<Vec<_>>();
-    iroha_crypto::validate_bfv_full_bootstrap_arithmetic_trace_transcript_public_padding_openings_v1(
+    Ok(iroha_crypto::validate_bfv_full_bootstrap_arithmetic_trace_transcript_public_padding_openings_v1(
         &opening_indices,
         &opened_rows,
         &opened_next_rows,
@@ -3577,7 +3631,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
         witness.slot_index,
         witness.bound_mode,
     )
-    .is_ok()
+    .is_ok())
 }
 #[cfg(any(test, feature = "test-utils"))]
 /// Build a deterministic V1 STARK/FRI envelope with verifier-owned composition terms.
@@ -3587,7 +3641,7 @@ pub fn prove_stark_fri_composition_envelope_bytes(
     constant: u64,
     z_coeff: u64,
     aux_terms: Vec<StarkCompositionTermV1>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, StarkProofProductionError> {
     validate_stark_composition_terms(constant, z_coeff, &aux_terms)?;
     let constant_f =
         Fq::from_canonical_u64(constant).ok_or_else(|| "invalid STARK constant".to_owned())?;
@@ -3599,8 +3653,8 @@ pub fn prove_stark_fri_composition_envelope_bytes(
         "composition-v1".to_owned(),
         public_digest,
     )?;
-    let mut envelope: StarkVerifyEnvelopeV1 = norito::decode_from_bytes(&bytes)
-        .map_err(|err| format!("failed to decode STARK AIR envelope: {err}"))?;
+    let mut envelope: StarkVerifyEnvelopeV1 =
+        norito::core::classify_decode_attempt(|| norito::decode_from_bytes(&bytes))?;
     let z_final = envelope
         .proof
         .queries
@@ -3609,7 +3663,7 @@ pub fn prove_stark_fri_composition_envelope_bytes(
         .and_then(|decommit| Fp4::from_wire(decommit.z))
         .ok_or_else(|| "invalid STARK final folded value".to_owned())?;
     if z_final != Fp4::zero() {
-        return Err("STARK terminal polynomial is not zero".to_owned());
+        return Err("STARK terminal polynomial is not zero".to_owned().into());
     }
     let mut expected = constant_f;
     for term in &aux_terms {
@@ -3639,8 +3693,8 @@ pub fn prove_stark_fri_composition_envelope_bytes(
     let comp_values = vec![comp_value; envelope.proof.queries.len()];
     envelope.proof.commits.comp_root = Some(comp_root);
     envelope.proof.comp_values = Some(comp_values);
-    ivm_abi::codec::encode_canonical_norito(&envelope)
-        .map_err(|err| format!("failed to encode STARK envelope: {err}"))
+    norito::core::classify_decode_attempt(|| norito::encode_canonical(&envelope))
+        .map_err(Into::into)
 }
 fn verify_stark_air_opening(
     params: &StarkFriParamsV1,
@@ -3742,7 +3796,10 @@ fn verify_stark_air_opening(
     true
 }
 /// Verify a STARK FRI envelope under `zk-stark` with caller-provided limits.
-pub fn verify_stark_fri_envelope_with_limits(bytes: &[u8], limits: &StarkVerifierLimits) -> bool {
+pub fn verify_stark_fri_envelope_with_limits(
+    bytes: &[u8],
+    limits: &StarkVerifierLimits,
+) -> Result<bool, crate::VerificationRefusal> {
     verify_stark_fri_envelope_with_context(bytes, limits, StarkAirVerificationContext::Binding)
 }
 /// Verify a STARK FRI AIR envelope against caller-provided trace rows and composition values.
@@ -3753,7 +3810,7 @@ pub(crate) fn verify_stark_fri_air_envelope_from_rows_and_composition_values(
     public_digest: &GoldilocksDigest384V1,
     rows: &[Vec<u64>],
     composition_values: &[u64],
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     verify_stark_fri_air_envelope_from_rows_and_composition_values_with_limits(
         bytes,
         &StarkVerifierLimits::default(),
@@ -3771,7 +3828,7 @@ pub(crate) fn verify_stark_fri_air_envelope_from_rows_and_composition_values_wit
     public_digest: &GoldilocksDigest384V1,
     rows: &[Vec<u64>],
     composition_values: &[u64],
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     let explicit = StarkAirExplicitVerificationContext {
         circuit_id,
         public_digest,
@@ -3794,7 +3851,7 @@ pub fn verify_stark_fri_air_envelope_from_rows_and_composition_values_with_base_
     rows: &[Vec<u64>],
     composition_values: &[u64],
     base_indices: &[usize],
-) -> bool {
+) -> Result<bool, crate::VerificationRefusal> {
     let explicit = StarkAirExplicitVerificationContext {
         circuit_id,
         public_digest,
@@ -3812,15 +3869,41 @@ fn verify_stark_fri_envelope_with_context(
     bytes: &[u8],
     limits: &StarkVerifierLimits,
     context: StarkAirVerificationContext<'_>,
-) -> bool {
-    if bytes.len() > effective_max_envelope_bytes(limits) {
-        return false;
+) -> Result<bool, crate::VerificationRefusal> {
+    if envelope_exceeds_limit(bytes.len(), limits) {
+        return Ok(false);
     }
-    // Decode the single canonical V1 representation.
-    let env: StarkVerifyEnvelopeV1 = match ivm_abi::codec::decode_canonical_norito(bytes) {
-        Ok(e) => e,
-        Err(_) => return false,
+    let Some(env) = iroha_plonk::verification_attempt::completed_result(
+        iroha_plonk::verification_attempt::codec_attempt(
+            || norito::decode_canonical(bytes),
+            |_| (),
+        ),
+    )?
+    else {
+        return Ok(false);
     };
+    Ok(verify_decoded_stark_fri_envelope_with_context(
+        &env, limits, context,
+    ))
+}
+
+/// Validate the already decoded generic binding proof; no wire reader is hidden here.
+pub(crate) fn verify_decoded_stark_fri_envelope_with_limits(
+    env: &StarkVerifyEnvelopeV1,
+    limits: &StarkVerifierLimits,
+) -> bool {
+    verify_decoded_stark_fri_envelope_with_context(
+        env,
+        limits,
+        StarkAirVerificationContext::Binding,
+    )
+}
+
+fn verify_decoded_stark_fri_envelope_with_context(
+    env: &StarkVerifyEnvelopeV1,
+    limits: &StarkVerifierLimits,
+    context: StarkAirVerificationContext<'_>,
+) -> bool {
     if validate_stark_transcript_label(
         &env.transcript_label,
         effective_max_transcript_label_len(limits),
@@ -4146,4 +4229,96 @@ fn verify_stark_fri_envelope_with_context(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod original_refusal_tests {
+    use super::*;
+
+    fn key(circuit: &str) -> StarkFriVerifyingKeyV1 {
+        StarkFriVerifyingKeyV1 {
+            version: 1,
+            circuit_id: circuit.into(),
+            n_log2: STARK_FRI_CONSENSUS_MIN_N_LOG2,
+            blowup_log2: STARK_FRI_CONSENSUS_MIN_BLOWUP_LOG2,
+            fold_arity: 2,
+            queries: STARK_FRI_CONSENSUS_MIN_QUERIES,
+            merkle_arity: 2,
+        }
+    }
+
+    #[test]
+    fn original_refusal_key_decode_and_preparation_leave_no_failed_cache_entry() {
+        let circuit = format!("{STARK_FRI_PROFILE_ID_V1}:original-owner-cache-retry");
+        let bytes = norito::encode_canonical(&key(&circuit)).unwrap();
+        let original_input = bytes.clone();
+        let cache_key = crate::StarkVerifyingKeyCacheKeyV1 {
+            backend: STARK_FRI_PROFILE_ID_V1.into(),
+            circuit_id: circuit.clone(),
+            vk_hash: crate::hash_vk_bytes(STARK_FRI_PROFILE_ID_V1, &bytes),
+        };
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let direct =
+            norito::with_decode_limits_scope(limits, || decode_stark_fri_verifying_key_v1(&bytes))
+                .unwrap_err();
+        let owner = direct
+            .local_refusal()
+            .expect("captured original key reader")
+            .clone();
+        norito::with_decode_limits_scope(limits, || {
+            assert_eq!(direct.local_refusal(), Some(&owner));
+        });
+        let prepared = norito::with_decode_limits_scope(limits, || {
+            crate::validate_stark_fri_verifying_key_v1(STARK_FRI_PROFILE_ID_V1, &circuit, &bytes)
+        })
+        .unwrap_err();
+        assert!(prepared.local_refusal().is_some());
+        assert!(
+            !crate::STARK_VERIFYING_KEY_CACHE_V1
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .contains_key(&cache_key)
+        );
+        let retried =
+            crate::validate_stark_fri_verifying_key_v1(STARK_FRI_PROFILE_ID_V1, &circuit, &bytes)
+                .unwrap();
+        assert_eq!(retried.circuit_id, circuit);
+        assert!(
+            crate::STARK_VERIFYING_KEY_CACHE_V1
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .contains_key(&cache_key)
+        );
+        assert_eq!(bytes, original_input);
+    }
+
+    #[test]
+    fn original_refusal_intrinsic_frame_failures_remain_completed_rejections() {
+        let key = key(&format!("{STARK_FRI_PROFILE_ID_V1}:intrinsic-frame"));
+        let mut bytes = norito::encode_canonical(&key).unwrap();
+        // The canonical reader's intrinsic frame checks precede materialization. Circuit-id
+        // semantic length validation is a separate payload policy, not a decode sequence cap.
+        bytes[0] ^= 1;
+        assert!(bytes.len() < STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES);
+        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let error =
+            norito::with_decode_limits_scope(zero, || decode_stark_fri_verifying_key_v1(&bytes))
+                .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::VerificationAttemptError::Rejected(_)
+        ));
+        let error = norito::with_decode_limits_scope(zero, || {
+            decode_stark_fri_verifying_key_v1(&vec![0; STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES + 1])
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::VerificationAttemptError::Rejected(_)
+        ));
+    }
 }

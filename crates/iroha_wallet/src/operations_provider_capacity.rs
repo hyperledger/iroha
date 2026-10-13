@@ -1,7 +1,7 @@
 //! Closed provider capacity declarations through the sole wallet journal.
 //!
 //! Selected policy, partition and credit rows are immutable caller claims, not proofs or native
-//! compare-and-set conditions. Native RegisterCapacityDeclaration replaces a provider declaration
+//! compare-and-set conditions. Native `RegisterCapacityDeclaration` replaces a provider declaration
 //! after authenticating its owner, actual backing and active allocations. The owner pays fees only;
 //! a stake pointer is not a principal transfer, provider admission or service readiness claim.
 
@@ -237,11 +237,12 @@ pub(super) fn instructions(
     Ok(vec![plan.instruction(config)?])
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ProviderCapacityExpectation<'a>(
     pub(super) &'a ProviderCapacityDeclarationRequest,
 );
 impl ProviderCapacityExpectation<'_> {
-    pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+    pub(super) fn verify(self, record: &preparation::Selection<'_>) -> Result<()> {
         let NativeOperation::ProviderCapacityDeclaration { plan, terms } = record.operation else {
             eyre::bail!(
                 "provider capacity journal differs from selected capacity declaration purpose"

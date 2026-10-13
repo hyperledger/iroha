@@ -6,8 +6,6 @@
 //! decimal arithmetic from the rest of the code base. Pricing results are not
 //! execution receipts and never authorize an XOR balance or reserve change.
 use iroha_config::parameters::actual as config;
-#[cfg(any(feature = "telemetry", test))]
-use iroha_primitives::bigint::BigInt;
 use iroha_primitives::numeric::{Numeric, Quantity};
 pub use settlement_router::VolatilityBucket;
 use settlement_router::{
@@ -19,51 +17,6 @@ use settlement_router::{
     receipt::SettlementReceipt,
 };
 use time::Duration as TimeDuration;
-#[cfg(any(feature = "telemetry", test))]
-const SETTLEMENT_MICRO_SCALE: u32 = 6;
-/// Convert a bounded legacy micro-unit scalar into its exact canonical quantity.
-#[cfg(test)]
-pub(crate) fn quantity_from_micro_units(value: u128) -> Quantity {
-    let numeric = Numeric::try_new(value, SETTLEMENT_MICRO_SCALE)
-        .expect("a u128 mantissa at scale six is always a valid numeric");
-    Quantity::try_from_numeric(numeric)
-        .expect("a non-negative micro-unit scalar is always a valid quantity")
-}
-/// Convert an exact quantity to micro-units without rounding or truncation.
-#[cfg(any(feature = "telemetry", test))]
-pub(crate) fn quantity_to_micro_units(value: &Quantity) -> Result<u128, &'static str> {
-    let numeric = value.as_numeric();
-    let mantissa = numeric.mantissa();
-    let scaled = if numeric.scale() <= SETTLEMENT_MICRO_SCALE {
-        let factor = BigInt::pow10(SETTLEMENT_MICRO_SCALE - numeric.scale())
-            .ok_or("micro-unit scale factor exceeds numeric bounds")?;
-        mantissa
-            .checked_mul(&factor)
-            .map_err(|_| "quantity exceeds micro-unit numeric bounds")?
-    } else {
-        let divisor = BigInt::pow10(numeric.scale() - SETTLEMENT_MICRO_SCALE)
-            .ok_or("micro-unit divisor exceeds numeric bounds")?;
-        let (quotient, remainder) = mantissa
-            .checked_div_rem(&divisor)
-            .map_err(|_| "quantity cannot be projected to micro-units")?;
-        if !remainder.is_zero() {
-            return Err("quantity has precision below one micro-unit");
-        }
-        quotient
-    };
-    scaled
-        .to_string()
-        .parse::<u128>()
-        .map_err(|_| "quantity exceeds u128 micro-unit bounds")
-}
-/// Project a settlement quantity into the legacy telemetry domain.
-///
-/// Telemetry is deliberately non-consensus: values that cannot be represented
-/// exactly as `u128` micro-units saturate instead of affecting block execution.
-#[cfg(any(feature = "telemetry", test))]
-pub(crate) fn quantity_to_micro_units_saturating_for_telemetry(value: &Quantity) -> u128 {
-    quantity_to_micro_units(value).unwrap_or(u128::MAX)
-}
 /// Error returned when quoting settlement amounts fails.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum QuoteError {
@@ -132,6 +85,10 @@ impl SettlementEngine {
         &self.buffer_policy
     }
     /// Evaluate the remaining buffer against the configured guard rails.
+    ///
+    /// # Errors
+    /// Returns a buffer-policy error if configured thresholds are invalid or exact
+    /// threshold arithmetic fails. Zero capacity instead returns `Ok(Halt)`.
     pub fn evaluate_buffer(
         &self,
         remaining: &XorQuantity,
@@ -214,44 +171,6 @@ mod tests {
         assert!(quote.xor_after_haircut <= quote.xor_due);
         assert_eq!(quote.receipt.local_amount, Quantity::from(2_000_000_u64));
         assert_eq!(quote.effective_epsilon_bps, 25);
-    }
-    #[test]
-    fn micro_unit_quantity_conversion_is_exact_and_canonical() {
-        let quantity = quantity_from_micro_units(2_000_000);
-        assert_eq!(quantity, "2".parse().expect("valid quantity"));
-        assert_eq!(quantity_to_micro_units(&quantity), Ok(2_000_000));
-        let fractional: Quantity = "0.000001".parse().expect("valid quantity");
-        assert_eq!(quantity_to_micro_units(&fractional), Ok(1));
-    }
-    #[test]
-    fn micro_unit_projection_rejects_sub_micro_and_overflow() {
-        let sub_micro: Quantity = "0.0000001".parse().expect("valid quantity");
-        assert_eq!(
-            quantity_to_micro_units(&sub_micro),
-            Err("quantity has precision below one micro-unit")
-        );
-        let too_large: Quantity = "340282366920938463463374607431768211456"
-            .parse()
-            .expect("bounded quantity exceeds u128 but fits 512 bits");
-        assert_eq!(
-            quantity_to_micro_units(&too_large),
-            Err("quantity exceeds u128 micro-unit bounds")
-        );
-    }
-    #[test]
-    fn telemetry_micro_unit_projection_saturates_inexact_and_wide_values() {
-        let sub_micro: Quantity = "0.0000001".parse().expect("valid quantity");
-        assert_eq!(
-            quantity_to_micro_units_saturating_for_telemetry(&sub_micro),
-            u128::MAX
-        );
-        let too_large: Quantity = "340282366920938463463374607431768211456"
-            .parse()
-            .expect("bounded quantity exceeds u128 but fits 512 bits");
-        assert_eq!(
-            quantity_to_micro_units_saturating_for_telemetry(&too_large),
-            u128::MAX
-        );
     }
     #[test]
     fn non_positive_twap_errors() {

@@ -2040,6 +2040,10 @@ mod tests {
         let actual: iroha::data_model::smart_contract::manifest::ContractManifest =
             norito::json::from_slice(&std::fs::read(path).expect("signed manifest output"))
                 .expect("decode signed manifest output");
+        assert!(
+            actual.same_signed_content(&expected),
+            "manifest signing must preserve the verified payload"
+        );
         let provenance = actual.provenance.as_ref().expect("manifest provenance");
         assert_eq!(&provenance.signer, key.public_key());
         let frame = owner
@@ -3062,7 +3066,7 @@ seiyaku DebugResult { permission Admin;
             transaction::executable::{ContractArgumentRecord, ContractInvocation},
         };
         use iroha_core::{
-            smartcontracts::code,
+            smartcontracts::{Execute as _, code},
             state::World,
             sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
         };
@@ -3084,10 +3088,6 @@ seiyaku DebugResult { permission Admin;
         let mut permissions = Permissions::new();
         assert!(permissions.insert(Permission::new(
             "CanManageSmartContractCode".to_owned(),
-            iroha_primitives::json::Json::new(()),
-        )));
-        assert!(permissions.insert(Permission::new(
-            "Admin".to_owned(),
             iroha_primitives::json::Json::new(()),
         )));
         world
@@ -3200,6 +3200,15 @@ seiyaku DebugResult { permission Admin;
                 transaction,
             )
             .expect("activate contract instance");
+            Grant::account_permission(
+                iroha::executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "Admin".parse().expect("declared contract permission"),
+                },
+                authority.clone(),
+            )
+            .execute(&authority, transaction)
+            .expect("grant this instance's exact declared permission");
         });
         let state = chain.state();
         let tx = TransactionBuilder::new(
@@ -3493,6 +3502,7 @@ seiyaku DebugResult { permission Admin;
                 key_pair,
                 basic_auth: None,
                 api_token: None,
+                http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
                 torii_api_url: Url::parse("http://127.0.0.1/").unwrap(),
                 torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
                 transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,

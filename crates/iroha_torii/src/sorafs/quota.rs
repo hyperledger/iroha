@@ -555,12 +555,12 @@ mod tests {
     fn poisoned_accounting_state_fails_closed() {
         let tracker = StreamTokenQuotaTracker::default();
         let poisoner = tracker.clone();
-        let poisoned = thread::spawn(move || {
+        let poison_task = thread::spawn(move || {
             let _guard = poisoner.inner.windows.lock().expect("quota lock");
             panic!("poison quota state");
         })
         .join();
-        assert!(poisoned.is_err(), "poisoning worker must panic");
+        assert!(poison_task.is_err(), "poisoning worker must panic");
         assert_eq!(
             tracker
                 .try_acquire(

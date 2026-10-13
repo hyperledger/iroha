@@ -8,8 +8,67 @@ impl State {
         self.ivm_execution_budget.clone()
     }
 
-    /// Update pipeline preferences using a loaded configuration.
+    /// Install complete pipeline settings, validity values included.
+    ///
+    /// Test and fixture builds only: the caller owns the whole policy of an
+    /// isolated State. A node has no way to call this; it uses
+    /// [`Self::install_node_pipeline`], which takes local resource settings
+    /// only. A committed pipeline validity policy still overrides the validity
+    /// values installed here in every view and block.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn set_pipeline(&mut self, pipeline: iroha_config::parameters::actual::Pipeline) {
+        self.install_pipeline_settings(pipeline);
+    }
+
+    /// Edit the installed pipeline settings of a fixture State in place.
+    ///
+    /// Test and fixture builds only. The edited value is installed through
+    /// [`Self::set_pipeline`], so the caches and pools that follow the
+    /// settings are sized again; the settings field itself has no other
+    /// writer.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
+    pub fn edit_pipeline_for_testing(
+        &mut self,
+        edit: impl FnOnce(&mut iroha_config::parameters::actual::Pipeline),
+    ) {
+        let mut pipeline = self.pipeline.clone();
+        edit(&mut pipeline);
+        self.set_pipeline(pipeline);
+    }
+
+    /// Install the pipeline settings of this node's own configuration.
+    ///
+    /// Only local resource settings (workers, caches, tracing, accelerator
+    /// selection, signature batching and the default cursor mode) are taken from
+    /// `node`. Fee policy comes only from committed parameters. Every execution
+    /// limit is the committed pipeline validity policy
+    /// ([`crate::pipeline_validity_policy::PipelineValidityPolicyV1`]) when
+    /// the restored World already holds one, and the protocol default
+    /// otherwise; a policy committed later governs the blocks after it. A node
+    /// configuration therefore cannot change which transaction, program or
+    /// query this validator accepts. Returns the names of the validity fields
+    /// `node` held with a non-default value, which were ignored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the typed committed execution limits fail validation.
+    /// The parameter owner already validates raw fee/limit bytes during mutation
+    /// and restore; this installation performs no resource-sensitive decoding.
+    pub fn install_node_pipeline(
+        &mut self,
+        node: iroha_config::parameters::actual::Pipeline,
+    ) -> core::result::Result<
+        Vec<&'static str>,
+        crate::pipeline_validity_policy::PipelineValidityPolicyError,
+    > {
+        self.world.parameters.view().pipeline_policy().validate()?;
+        let ignored = crate::pipeline_validity_policy::node_validity_overrides(&node);
+        self.install_pipeline_settings(crate::pipeline_validity_policy::node_local_resources(node));
+        Ok(ignored)
+    }
+
+    /// Store `pipeline` and size the caches and pools that follow it.
+    fn install_pipeline_settings(&mut self, pipeline: iroha_config::parameters::actual::Pipeline) {
         let execution_budget = self.ivm_execution_budget();
         self.pipeline = pipeline;
         self.pipeline_parallelism = PipelineParallelism::new(&self.pipeline);

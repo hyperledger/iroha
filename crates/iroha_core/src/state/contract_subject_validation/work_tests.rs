@@ -34,6 +34,10 @@ fn every_actual_advance_mask_and_lookup_tail_is_funded_before_next() {
     let first = test_support::address();
     let other = test_support::other_address();
     let width = first.as_str().len() + other.as_str().len();
+    #[expect(
+        clippy::zero_sized_map_values,
+        reason = "Storage snapshot parts encode current unit-valued membership rows and their separate undo map"
+    )]
     let rows = Storage::from_snapshot_parts(
         BTreeMap::from([(first.clone(), ())]),
         BTreeMap::from([(first.clone(), None), (other.clone(), None)]),
@@ -218,10 +222,17 @@ fn shared_controller_and_lifecycle_geometry_are_complete_without_new_validity() 
     }
     for (hash, exact) in [(None, 1), (Some(Hash::new(b"active")), 33)] {
         assert_eq!(
-            kind(prepay_optional_hash(&hash, &mut Work::bounded(exact - 1))),
+            kind(prepay_optional_hash(
+                hash.as_ref(),
+                &mut Work::bounded(exact - 1)
+            )),
             Err(ErrorKind::WorkLimit)
         );
-        kind(prepay_optional_hash(&hash, &mut Work::bounded(exact))).unwrap();
+        kind(prepay_optional_hash(
+            hash.as_ref(),
+            &mut Work::bounded(exact),
+        ))
+        .unwrap();
     }
 }
 

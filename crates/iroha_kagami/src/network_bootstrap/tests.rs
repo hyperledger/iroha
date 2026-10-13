@@ -85,7 +85,7 @@ fn native_proof_input_preserves_typed_original_and_refuses_malformed_json() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("proof.json");
     std::fs::write(&path, json::to_json(fixture.latest()).unwrap()).unwrap();
-    let read = read_proofs(&[path.clone()]).unwrap();
+    let read = read_proofs(std::slice::from_ref(&path)).unwrap();
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].block_wire, fixture.latest().block_wire);
     assert_eq!(read[0].committee, fixture.latest().committee);
@@ -107,7 +107,7 @@ fn proof_input_refuses_count_depth_raw_and_cumulative_decode_expansion() {
     let limits = norito::DecodeLimits::new(1_000_000, 1_000_000, 1_000_000, 4_000_000, 16);
     std::fs::write(&path, format!("{}0{}", "[".repeat(17), "]".repeat(17))).unwrap();
     assert!(
-        read_proofs_with_limits(&[path.clone()], 1000, limits)
+        read_proofs_with_limits(std::slice::from_ref(&path), 1000, limits)
             .unwrap_err()
             .to_string()
             .contains("lexical")
@@ -115,7 +115,9 @@ fn proof_input_refuses_count_depth_raw_and_cumulative_decode_expansion() {
     let fixture = NativeFinalityFixture::new();
     let encoded = json::to_json(fixture.latest()).unwrap();
     std::fs::write(&path, &encoded).unwrap();
-    assert!(read_proofs_with_limits(&[path.clone()], encoded.len() - 1, limits).is_err());
+    assert!(
+        read_proofs_with_limits(std::slice::from_ref(&path), encoded.len() - 1, limits).is_err()
+    );
     let allocation_limit = norito::DecodeLimits::new(
         1_000_000,
         1_000_000,
@@ -123,7 +125,10 @@ fn proof_input_refuses_count_depth_raw_and_cumulative_decode_expansion() {
         std::mem::size_of::<SumeragiFinalityProof>() + encoded.len(),
         16,
     );
-    assert!(read_proofs_with_limits(&[path.clone()], encoded.len(), allocation_limit).is_err());
+    assert!(
+        read_proofs_with_limits(std::slice::from_ref(&path), encoded.len(), allocation_limit)
+            .is_err()
+    );
     let profile = json::preflight_slice(
         encoded.as_bytes(),
         json::JsonPreflightLimits::from_decode_limits(encoded.len(), limits),
@@ -136,7 +141,9 @@ fn proof_input_refuses_count_depth_raw_and_cumulative_decode_expansion() {
         4_000_000,
         16,
     );
-    assert!(read_proofs_with_limits(&[path.clone()], encoded.len(), element_limit).is_ok());
+    assert!(
+        read_proofs_with_limits(std::slice::from_ref(&path), encoded.len(), element_limit).is_ok()
+    );
     assert!(
         read_proofs_with_limits(&[path.clone(), path], encoded.len() * 2, element_limit).is_err()
     );
@@ -221,8 +228,8 @@ fn operator_prepares_both_canonical_artifacts_atomically_from_real_native_execut
     std::fs::write(&signed_path, &signed).unwrap();
     let proof_paths = (1..=2)
         .map(|height| {
-            let committed = chain.committed(height);
-            let block = committed.block();
+            let decision = chain.committed(height);
+            let block = decision.block();
             let proof = SumeragiFinalityProof {
                 block_header: block.header(),
                 block_wire: block.encode_wire().unwrap(),

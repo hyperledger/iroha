@@ -1,0 +1,140 @@
+{
+  "commands": [
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-workspace",
+        "--incremental",
+        "--",
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "resource_contract"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_resource_contract/test-portable.txt",
+      "log_bytes": 1845,
+      "log_sha256": "64452cf297b23eb30f9757c1c28f53e9ef9c943810d1b0f601bf0e92f4122afb",
+      "mode": "portable",
+      "operation": "test",
+      "passed_tests": 10
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-workspace",
+        "--incremental",
+        "--",
+        "clippy",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "resource_contract",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_resource_contract/clippy-portable.txt",
+      "log_bytes": 790,
+      "log_sha256": "2c20808a698ae099dbaec4746d8a0844c47dad0baa9b358fdb706e2ccf379904",
+      "mode": "portable",
+      "operation": "clippy"
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-workspace",
+        "--incremental",
+        "--",
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "resource_contract",
+        "--features",
+        "accel"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_resource_contract/test-accel.txt",
+      "log_bytes": 2036,
+      "log_sha256": "774ddd35f889b78a29fa39728647c5affea1b2616bd8447c1ebd49fcf8cf4ca9",
+      "mode": "accel",
+      "operation": "test",
+      "passed_tests": 10
+    },
+    {
+      "command": [
+        "scripts/cargo_fast.sh",
+        "--target-slot",
+        "parliament-workspace",
+        "--incremental",
+        "--",
+        "clippy",
+        "--release",
+        "--locked",
+        "-p",
+        "iroha_parliament_ballot_proof",
+        "--example",
+        "resource_contract",
+        "--features",
+        "accel",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_resource_contract/clippy-accel.txt",
+      "log_bytes": 981,
+      "log_sha256": "e9bfdbaafff7d5b0053ec48ff02efcf1b3a3438b441c522d19d74d6ac8a551a4",
+      "mode": "accel",
+      "operation": "clippy"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "execution_source_scope": {
+    "file_count": 230,
+    "guard_changes": {},
+    "limitation": "The original test/Clippy/build source guard omitted the newly added crates/norito/src/prepared_canonical.rs. It is retained as a limited-scope guard, not retrospectively expanded.",
+    "manifest": "docs/validation/parliament_ballot_resource_contract/initial-build/build-source.sha256",
+    "receipt": "docs/validation/parliament_ballot_resource_contract/initial-build/build-receipt.json",
+    "receipt_sha256": "0eb880759457639e585af99d2365f609ebd520688b61b8f0d4f8744b3c8742f9",
+    "sha256": "52933412ae2d5120bdcc7cd57c12e4a6eef282b91ce3629d00a55588c2c5de58"
+  },
+  "normal_metadata": true,
+  "profile_qualified": false,
+  "scope": "Exact successful test and strict Clippy executions recovered from retained command receipts and log headers/trailers; no new commands executed for this receipt.",
+  "subsequent_expanded_build_scope": {
+    "binaries": {
+      "accel": {
+        "path": "/tmp/parliament-resource-contract/resource-accel",
+        "sha256": "72b7fb66d5eb308b70c0cbeb9716226113a8621c419249b6613a010d14b877b5"
+      },
+      "portable": {
+        "path": "/tmp/parliament-resource-contract/resource-portable",
+        "sha256": "aee963a937b52c999a74c6a831b6ea64289305bd2ac99ad542a8892530a98ee0"
+      }
+    },
+    "file_count": 231,
+    "guard_changes": {},
+    "manifest": "docs/validation/parliament_ballot_resource_contract/build-source.sha256",
+    "receipt": "docs/validation/parliament_ballot_resource_contract/build-receipt.json",
+    "receipt_sha256": "10e64b2cba1339214c1c1df53a02f0a4b4f26855098bf1839d1b604c4952201e",
+    "release_executables_match_initial_builds": true,
+    "scope": "Fresh guarded builds captured all current relevant Rust modules, including the omitted Norito module, before rebuilding and copying both executables. Tests and Clippy were not rerun merely to expand the manifest.",
+    "sha256": "5c6258c0ca60b5bfaa05ce0c3f38d47ca62f0e1e6d1099912c2660122bc75bca"
+  },
+  "target_slot": "parliament-workspace",
+  "test_executable_hashes_retained": false,
+  "working_directory": "repository root"
+}

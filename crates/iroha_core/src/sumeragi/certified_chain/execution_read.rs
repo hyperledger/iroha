@@ -59,13 +59,23 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         &self,
         height: u64,
     ) -> Result<AuthenticatedExecutionBlock, ExecutionAttemptError<ChainReadError>> {
-        if height != GENESIS_HEIGHT {
-            return self
-                .certified(height)?
-                .into_authenticated_execution()
-                .map_err(Into::into);
+        if height == GENESIS_HEIGHT {
+            self.authenticated_genesis_execution()
+        } else {
+            self.authenticated_successor_execution(height)
         }
-        self.authenticated_genesis_execution()
+    }
+
+    // Ordinary-height certificate return slots must not remain on the genesis
+    // branch's active stack while it decodes and authenticates the H1/H2 prefix.
+    #[inline(never)]
+    fn authenticated_successor_execution(
+        &self,
+        height: u64,
+    ) -> Result<AuthenticatedExecutionBlock, ExecutionAttemptError<ChainReadError>> {
+        self.certified(height)?
+            .into_authenticated_execution()
+            .map_err(Into::into)
     }
 
     // The complete H1/H2 prefix owners belong to the genesis read only. Keep them
@@ -270,8 +280,170 @@ pub fn read_authenticated_execution(
     unreachable!("the admitted prefix always includes H2")
 }
 
-// Decode only the original admitted physical frame. This compiler boundary keeps
-// its full value temporary off the caller's active prefix/result decoder stack.
+// One original source/frame owner is shared by one-shot reads and durable replay.
+// Its bytes and shell survive a later refusal; ordinary nested decoder destinations
+// still retire on decode failure. TODO: complete deep nested graph custody separately.
+struct PendingExecutionFrame<'source> {
+    source: crate::kura::NativeFrameRead<'source>,
+    current: u64,
+    expected: HashOf<IrohaHeader>,
+    length: u64,
+    next: u64,
+    wire: Option<crate::kura::NativeFrameBytes>,
+    shell: Option<iroha_data_model::block::ReservedSharedSignedBlock>,
+    block: Option<iroha_data_model::block::SharedSignedBlock>,
+}
+impl<'source> PendingExecutionFrame<'source> {
+    fn new(
+        kura: &'source Kura,
+        current: u64,
+        expected: HashOf<IrohaHeader>,
+        height: u64,
+        limits: NativeExecutionReadLimits,
+        total: u64,
+    ) -> Result<Self, NativeExecutionReadError> {
+        let source = kura
+            .native_frame_read(current, expected)
+            .map_err(|error| execution_frame_storage_error(error, current))?
+            .ok_or(ChainReadError::NotInView { height: current })?;
+        let length = source.wire_len();
+        if current == height && length != limits.admitted_target_wire_bytes {
+            return Err(NativeExecutionReadError::Storage {
+                height: current,
+                reason: "native target length changed after consumer admission".into(),
+            });
+        }
+        admit_source(
+            NativeExecutionReadResource::FrameWireBytes,
+            length,
+            limits
+                .max_frame_wire_bytes
+                .min(crate::kura::STRICT_INIT_MAX_BLOCK_BYTES),
+        )?;
+        let next = total
+            .checked_add(length)
+            .ok_or(NativeExecutionReadError::Capacity {
+                resource: NativeExecutionReadResource::SourceWireBytes,
+                actual: u64::MAX,
+                limit: limits.max_source_wire_bytes,
+            })?;
+        admit_source(
+            NativeExecutionReadResource::SourceWireBytes,
+            next,
+            limits.max_source_wire_bytes,
+        )?;
+
+        Ok(Self {
+            source,
+            current,
+            expected,
+            length,
+            next,
+            wire: None,
+            shell: None,
+            block: None,
+        })
+    }
+
+    // Keep the large ordinary decode temporary off the retained operation's stack.
+    #[inline(never)]
+    fn read_block(
+        &mut self,
+        kura: &Kura,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<iroha_data_model::block::SharedSignedBlock, NativeExecutionReadError> {
+        if self.wire.is_some() {
+            let current = kura
+                .native_frame_read(self.current, self.expected)
+                .map_err(|error| execution_frame_storage_error(error, self.current))?
+                .ok_or(ChainReadError::NotInView {
+                    height: self.current,
+                })?;
+            if !self.source.same_original_slot(&current) {
+                return Err(ChainReadError::NotInView {
+                    height: self.current,
+                }
+                .into());
+            }
+        }
+        if let Some(block) = &self.block {
+            return Ok(block.clone());
+        }
+        if self.wire.is_none() {
+            self.wire = Some(
+                self.source
+                    .read_original(self.length, budget)
+                    .map_err(|error| execution_frame_storage_error(error, self.current))?
+                    .ok_or(ChainReadError::NotInView {
+                        height: self.current,
+                    })?,
+            );
+        }
+        if self.shell.is_none() {
+            self.shell = Some(
+                iroha_data_model::block::SharedSignedBlock::reserve(budget)
+                    .map_err(|error| NativeExecutionReadError::Deferred(error.into()))?,
+            );
+        }
+        let wire = self.wire.as_ref().expect("original frame retained");
+        let block = iroha_data_model::block::decode_framed_signed_block(wire).map_err(|error| {
+            match crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                NativeExecutionReadError::Storage {
+                    height: self.current,
+                    reason: error.to_string(),
+                }
+            }) {
+                ExecutionAttemptError::Rejected(error) => error,
+                ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
+            }
+        })?;
+        if block.header().height().get() != self.current || block.hash() != self.expected {
+            return Err(ChainReadError::NotInView {
+                height: self.current,
+            }
+            .into());
+        }
+        let identity =
+            block
+                .canonical_wire_identity()
+                .map_err(|error| NativeExecutionReadError::Storage {
+                    height: self.current,
+                    reason: error.to_string(),
+                })?;
+        if identity != (self.length, Hash::new(wire)) {
+            return Err(ChainReadError::Malformed {
+                height: self.current,
+                reason: "stored native execution is not the exact canonical frame".into(),
+            }
+            .into());
+        }
+        let block = self
+            .shell
+            .take()
+            .expect("original shared shell retained")
+            .initialize(block);
+        self.block = Some(block.clone());
+        Ok(block)
+    }
+}
+
+fn execution_frame_storage_error(
+    error: crate::kura::Error,
+    current: u64,
+) -> NativeExecutionReadError {
+    let rejected = |error: crate::kura::Error| NativeExecutionReadError::Storage {
+        height: current,
+        reason: error.to_string(),
+    };
+    let attempt = crate::execution_attempt::kura_read_attempt_error(error, rejected);
+    match attempt {
+        ExecutionAttemptError::Rejected(error) => error,
+        ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
+    }
+}
+
+// Decode only the original admitted physical frame. The same owner/kernel serves
+// the existing one-shot boundary; its returned success and abandonment remain unchanged.
 #[inline(never)]
 fn read_admitted_execution_frame(
     kura: &Kura,
@@ -289,101 +461,199 @@ fn read_admitted_execution_frame(
     ),
     NativeExecutionReadError,
 > {
-    let storage = |error: crate::kura::Error| {
-        let rejected = |error: crate::kura::Error| NativeExecutionReadError::Storage {
-            height: current,
-            reason: error.to_string(),
-        };
-        let attempt = match error {
-            crate::kura::Error::NoritoFrame(error) => norito_decode_attempt_error(error, |error| {
-                rejected(crate::kura::Error::NoritoFrame(error))
-            }),
-            crate::kura::Error::BlockDecode(error) => {
-                crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
-                    rejected(crate::kura::Error::BlockDecode(error))
-                })
-            }
-            crate::kura::Error::NativeFrameAllocation(error) => {
-                let deferred = match error {
-                    iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
-                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                        ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+    let mut original = PendingExecutionFrame::new(kura, current, expected, height, limits, total)?;
+    let block = original.read_block(kura, budget)?;
+    Ok((
+        block,
+        original.wire.take().expect("original canonical wire"),
+        original.next,
+    ))
+}
+
+/// One durable replay operation over its caller's retained immutable hash cut.
+/// The current original wire/shell, prefix and intermediate verification slots
+/// remain owned on local refusal. Admission grants no new source authority.
+/// TODO: complete deep nested decoder and cryptographic scratch custody.
+pub(crate) struct NativeExecutionReadAttempt<'source> {
+    kura: &'source Kura,
+    chain_id: &'source ChainId,
+    network: NetworkId,
+    height: u64,
+    end: u64,
+    current: u64,
+    total: u64,
+    limits: NativeExecutionReadLimits,
+    budget: iroha_allocation::AllocationBudget,
+    prefix: Option<iroha_allocation::ChargedBuffer<CertifiedPrefix>>,
+    genesis_frame: super::AdmittedFrameRead,
+    pending: Option<PendingExecutionFrame<'source>>,
+    retained_wire: Option<crate::kura::NativeFrameBytes>,
+    completed: bool,
+}
+impl<'source> NativeExecutionReadAttempt<'source> {
+    pub(crate) fn new(
+        kura: &'source Kura,
+        chain_id: &'source ChainId,
+        network: NetworkId,
+        hashes: &dyn crate::state::BlockHashRead,
+        height: u64,
+        limits: NativeExecutionReadLimits,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, NativeExecutionReadError> {
+        if height == 0 {
+            return Err(ChainReadError::NotCommitted { height }.into());
+        }
+        let end = height.max(GENESIS_HEIGHT + 1);
+        admit_source(
+            NativeExecutionReadResource::SourceBlocks,
+            end,
+            limits.max_source_blocks,
+        )?;
+        if usize::try_from(end)
+            .ok()
+            .is_none_or(|end| end > hashes.hash_count())
+        {
+            return Err(ChainReadError::NotCommitted { height: end }.into());
+        }
+        Ok(Self {
+            kura,
+            chain_id,
+            network,
+            height,
+            end,
+            current: GENESIS_HEIGHT,
+            total: 0,
+            limits,
+            budget: budget.clone(),
+            prefix: None,
+            genesis_frame: super::AdmittedFrameRead::default(),
+            pending: None,
+            retained_wire: None,
+            completed: false,
+        })
+    }
+
+    pub(crate) const fn is_completed(&self) -> bool {
+        self.completed
+    }
+
+    pub(crate) fn advance(
+        &mut self,
+        hashes: &dyn crate::state::BlockHashRead,
+    ) -> Result<NativeExecutionRead, NativeExecutionReadError> {
+        if self.completed {
+            return Err(NativeExecutionReadError::Storage {
+                height: self.height,
+                reason: "native execution read attempt already completed".into(),
+            });
+        }
+        while self.current <= self.end {
+            let expected = *hashes
+                .hash_at(usize::try_from(self.current - 1).map_err(|_| {
+                    ChainReadError::NotCommitted {
+                        height: self.current,
                     }
-                };
-                ExecutionAttemptError::Deferred(deferred)
+                })?)
+                .ok_or(ChainReadError::NotCommitted {
+                    height: self.current,
+                })?;
+            if self.pending.is_none() {
+                self.pending = Some(PendingExecutionFrame::new(
+                    self.kura,
+                    self.current,
+                    expected,
+                    self.height,
+                    self.limits,
+                    self.total,
+                )?);
             }
-            completed => ExecutionAttemptError::Rejected(rejected(completed)),
-        };
-        match attempt {
-            ExecutionAttemptError::Rejected(error) => error,
-            ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
-        }
-    };
-    let source = kura
-        .native_frame_read(current, expected)
-        .map_err(storage)?
-        .ok_or(ChainReadError::NotInView { height: current })?;
-    let length = source.wire_len();
-    if current == height && length != limits.admitted_target_wire_bytes {
-        return Err(NativeExecutionReadError::Storage {
-            height: current,
-            reason: "native target length changed after consumer admission".into(),
-        });
-    }
-    admit_source(
-        NativeExecutionReadResource::FrameWireBytes,
-        length,
-        limits
-            .max_frame_wire_bytes
-            .min(crate::kura::STRICT_INIT_MAX_BLOCK_BYTES),
-    )?;
-    let next = total
-        .checked_add(length)
-        .ok_or(NativeExecutionReadError::Capacity {
-            resource: NativeExecutionReadResource::SourceWireBytes,
-            actual: u64::MAX,
-            limit: limits.max_source_wire_bytes,
-        })?;
-    admit_source(
-        NativeExecutionReadResource::SourceWireBytes,
-        next,
-        limits.max_source_wire_bytes,
-    )?;
-    let wire = source
-        .read(length, budget)
-        .map_err(storage)?
-        .ok_or(ChainReadError::NotInView { height: current })?;
-    let shell = iroha_data_model::block::SharedSignedBlock::reserve(budget)
-        .map_err(|error| NativeExecutionReadError::Deferred(error.into()))?;
-    let block = iroha_data_model::block::decode_framed_signed_block(&wire).map_err(|error| {
-        match crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
-            NativeExecutionReadError::Storage {
-                height: current,
-                reason: error.to_string(),
+            let original = self.pending.as_mut().expect("same current original frame");
+            if original.expected != expected {
+                return Err(ChainReadError::NotInView {
+                    height: self.current,
+                }
+                .into());
             }
-        }) {
-            ExecutionAttemptError::Rejected(error) => error,
-            ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
+            let block = original.read_block(self.kura, &self.budget)?;
+            if self.current == GENESIS_HEIGHT {
+                if self.prefix.is_none() {
+                    self.prefix = Some(
+                        iroha_allocation::ChargedBuffer::new(1, &self.budget).map_err(|error| {
+                            match error {
+                                iroha_allocation::ChargedBufferError::Admission(original) => {
+                                    NativeExecutionReadError::Deferred(original.into())
+                                }
+                                iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                                    NativeExecutionReadError::Deferred(
+                                        ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+                                    )
+                                }
+                            }
+                        })?,
+                    );
+                }
+                initialize_execution_read_prefix(
+                    self.prefix.as_mut().expect("original prepaid prefix slot"),
+                    &mut self.genesis_frame,
+                    self.chain_id,
+                    self.network,
+                    block,
+                    &self.budget,
+                )?;
+                if self.height == GENESIS_HEIGHT {
+                    self.retained_wire = original.wire.take();
+                }
+            } else {
+                let authority = advance_execution_read_prefix(
+                    &mut self
+                        .prefix
+                        .as_mut()
+                        .expect("genesis verified first")
+                        .as_mut_slice()[0],
+                    block,
+                    self.height,
+                    self.current == self.end,
+                )?;
+                if let Some(authority) = authority {
+                    let wire = if self.height == GENESIS_HEIGHT {
+                        self.retained_wire.take().expect("original genesis wire")
+                    } else {
+                        original.wire.take().expect("original target wire")
+                    };
+                    self.total = original.next;
+                    self.pending = None;
+                    self.completed = true;
+                    return Ok(NativeExecutionRead {
+                        authority,
+                        wire,
+                        source_blocks: self.end,
+                        source_wire_bytes: self.total,
+                    });
+                }
+            }
+            self.total = original.next;
+            self.pending = None;
+            self.current += 1;
         }
-    })?;
-    if block.header().height().get() != current || block.hash() != expected {
-        return Err(ChainReadError::NotInView { height: current }.into());
+        unreachable!("admitted original prefix includes H2")
     }
-    let identity =
-        block
-            .canonical_wire_identity()
-            .map_err(|error| NativeExecutionReadError::Storage {
-                height: current,
-                reason: error.to_string(),
-            })?;
-    if identity != (length, Hash::new(&wire)) {
-        return Err(ChainReadError::Malformed {
-            height: current,
-            reason: "stored native execution is not the exact canonical frame".into(),
-        }
-        .into());
+}
+
+// Reuse the existing stack-safe admitted construction in the original retained
+// slot. Its backing survives refusal; no complete prefix temporary is introduced.
+#[inline(never)]
+fn initialize_execution_read_prefix(
+    slot: &mut iroha_allocation::ChargedBuffer<CertifiedPrefix>,
+    frame: &mut super::AdmittedFrameRead,
+    chain_id: &ChainId,
+    network: NetworkId,
+    block: iroha_data_model::block::SharedSignedBlock,
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<(), NativeExecutionReadError> {
+    if slot.as_slice().is_empty() {
+        CertifiedPrefix::initialize_admitted(slot, frame, chain_id, network, block, budget)?;
     }
-    Ok((shell.initialize(block), wire, next))
+    Ok(())
 }
 
 // Borrow the verified cursor while its original complete push validates this frame.
@@ -427,11 +697,99 @@ fn select_execution_read_receipt(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::{
         state::World,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
+
+    #[test]
+    fn native_storage_mapper_retains_actual_scoped_and_physical_causes_without_allocating() {
+        use crate::test_allocations::{allocations_during, refuse_one_layout_during};
+        use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
+        use std::alloc::Layout;
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit(Vec::new());
+        let expected = chain.committed(2).block_hash();
+        // The actual Kura sidecar producer captures its refusal, before this scope retires.
+        let error = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || match chain.kura().native_frame_read(2, expected) {
+                Err(error) => error,
+                Ok(_) => panic!("actual durable metadata cannot fit a zero input allowance"),
+            },
+        );
+        let crate::kura::Error::CodecAttempt(ref codec) = error else {
+            panic!("actual observed input reservation: {error:?}");
+        };
+        let original = codec.local_refusal().expect("genuine retired scope owner");
+        let map = |error| match execution_frame_storage_error(error, 2) {
+            NativeExecutionReadError::Deferred(owner) => owner,
+            other => panic!("original unfinished reader: {other:?}"),
+        };
+        let mut moved = None;
+        let allocations = allocations_during(|| moved = Some(map(error)));
+        assert_eq!(allocations, 0);
+        let owner = moved.unwrap();
+        assert_eq!(owner.decode_refusal(), Some(&original));
+        assert!(owner.allocation_refusal().is_none());
+        assert!(owner.allocator_refusal().is_none());
+        let ivm::VMError::DecodeDeferred(exported) = owner.into_vm_error() else {
+            panic!("same original decoder owner");
+        };
+        assert_eq!(exported, original);
+        assert!(
+            chain
+                .kura()
+                .native_frame_read(2, expected)
+                .unwrap()
+                .is_some()
+        );
+
+        // A real lower null result must keep its exact typed cause through the same mapper.
+        // This checks transport; it does not claim the null occurred inside a Kura syscall.
+        let layout = Layout::array::<u64>(19).unwrap();
+        let pool = AllocationBudget::new(layout.size());
+        let (failed, denied) =
+            refuse_one_layout_during(layout, || ChargedBuffer::<u64>::new(19, &pool));
+        assert!(denied);
+        let error = match failed {
+            Err(original) => original,
+            Ok(_) => panic!("physical allocation denied"),
+        };
+        assert_eq!(pool.reserved_bytes(), 0);
+        let mut moved = None;
+        let allocations = allocations_during(|| {
+            moved = Some(map(crate::kura::Error::NativeFrameAllocation(error)))
+        });
+        assert_eq!(allocations, 0);
+        let owner = moved.unwrap();
+        assert_eq!(
+            owner.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(owner.allocation_refusal().is_none());
+        let ivm::VMError::AllocatorDeferred(original) = owner.into_vm_error() else {
+            panic!("typed original allocator refusal");
+        };
+        assert!(
+            matches!(original.into_buffer_error().unwrap(), ChargedBufferError::Allocator { requested_bytes } if requested_bytes == layout.size())
+        );
+        drop(ChargedBuffer::<u64>::new(19, &pool).unwrap());
+        assert_eq!(pool.reserved_bytes(), 0);
+        let malformed = crate::kura::Error::CodecAttempt(
+            norito::core::classify_decode_attempt::<()>(|| {
+                Err(norito::Error::NonCanonicalEncoding)
+            })
+            .unwrap_err(),
+        );
+        assert!(matches!(
+            execution_frame_storage_error(malformed, 2),
+            NativeExecutionReadError::Storage { height: 2, .. }
+        ));
+    }
 
     #[test]
     fn signed_genesis_cannot_supply_execution_authority_without_h2() {
@@ -546,13 +904,18 @@ mod tests {
                 view.block_hashes(),
                 height,
                 NativeExecutionReadLimits {
-                    admitted_target_wire_bytes: frames[(height - 1) as usize].len() as u64,
+                    admitted_target_wire_bytes: frames
+                        [usize::try_from(height - 1).expect("fixture value fits usize")]
+                    .len() as u64,
                     ..limits
                 },
                 &chain.state().ivm_execution_budget(),
             )
             .unwrap();
-            assert_eq!(read.wire.as_slice(), frames[(height - 1) as usize]);
+            assert_eq!(
+                read.wire.as_slice(),
+                frames[usize::try_from(height - 1).expect("fixture value fits usize")]
+            );
             assert_eq!(read.authority.committed().height(), height);
             assert_eq!(read.source_blocks, 2);
             assert_eq!(read.source_wire_bytes, total);

@@ -551,7 +551,7 @@
     ],
     "source": "ethereum/bls12-381-tests generator private keys and messages; the outputs for (key 0, 0x00\u202600) and (key 2, 0xab\u2026ab) equal the published sign vectors"
   },
-  "generator": "scripts/sccp_reference/generate.py (independent Python reference)",
+  "generator": "scripts/sccp_reference/generate.py (independent Python reference) writes this file alone; iroha_crypto::bls::consensus reproduces every row (crates/iroha_crypto/src/signature/bls/consensus/tests/python_reference.rs)",
   "hash_to_g2_dst_sig": [
     {
       "label": "spec_11_2_m",
@@ -925,6 +925,7 @@
     },
     "source": "RFC 9380 Appendix K.1 (expand_message_xmd SHA-256) and Appendix J.10.1 (BLS12381G2_XMD:SHA-256_SSWU_RO_)"
   },
+  "rust_only_vectors": "the vectors that need the w3f transcript of iroha_crypto (pinned w3f proofs of possession, a w3f-transcript signature over a consensus digest, a DST_SIG signature presented to the generic API and a proof of possession used as a signature) are not rows of this file. They live in fixtures/sccp/bls_consensus_rust_v1.json (schema iroha.bls_consensus.rust.v1), generated and drift-checked by iroha_crypto. The Python reference checks in pytests/scripts/test_sccp_reference.py every row of that file it can decide without the w3f transcript: the standard sign, verify and aggregate vectors, the allowlist rows and rejections, and the key and consensus-API negatives; the proofs of possession and the verdict of the generic-API negative stay Rust-only",
   "schema": "iroha.sccp.bls-consensus.v1",
   "sign_verify": {
     "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
@@ -1093,7 +1094,6 @@
   },
   "spec": "specs/sccp.md \u00a73.8; specs/sumeragi.md \u00a71 item 6 (revision 5)",
   "todo": [
-    "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet aggregate above are the current Ethereum cross-checks",
-    "TODO: pinned w3f proof-of-possession vectors, a w3f-transcript signature over a consensus digest, a DST_SIG signature presented to the generic API and a PoP used as a signature need iroha_crypto; the Rust reference (iroha_crypto::bls::consensus) adds them and must reproduce every row of this file"
+    "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet aggregate above are the current Ethereum cross-checks"
   ]
 }

@@ -76,7 +76,7 @@ fn required_metal_root_exact_geometry_uses_whole_operation_and_synthetic_receipt
                         }).expect("profile belongs to original physical owner");
                         let before = counts(&health, false);
                         let probes = counts(&health, true);
-                        assert_eq!(crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(input, chunk), Ok(expected));
+                        assert_eq!((crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(input, chunk)).expect("expected successful fixture result"), expected);
                         let native = u64::from(profile.cost().is_some());
                         assert_eq!(counts(&health, false), [before[0] + native, before[1] + native * levels]);
                         assert_eq!(counts(&health, true), probes);
@@ -87,7 +87,7 @@ fn required_metal_root_exact_geometry_uses_whole_operation_and_synthetic_receipt
                     crate::set_acceleration_config(refused);
                     let before = counts(&health, false);
                     assert_eq!(metal_merkle::root_from_bytes(input, chunk), None);
-                    assert_eq!(crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(input, chunk), Ok(expected));
+                    assert_eq!((crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(input, chunk)).expect("expected successful fixture result"), expected);
                     assert_eq!(counts(&health, false), before, "unfunded native attempt earns no dispatch credit");
                     crate::set_acceleration_config(enabled);
                     assert!(input.iter().all(|&byte| byte == 0x63));

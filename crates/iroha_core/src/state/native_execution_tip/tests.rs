@@ -152,6 +152,32 @@ fn restore_reauthenticates_native_current_and_undo_and_rejects_claim_substitutio
     let mut wrong_result = snapshot_claim(chain.state());
     wrong_result.blocks.as_mut().unwrap().result[0] ^= 1;
     assert!(restore(wrong_result).is_err());
+    let mut wrong_scope = snapshot_claim(chain.state());
+    wrong_scope.blocks.as_mut().unwrap().root_scope =
+        iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+            parent_network_id: *view.network_id(),
+            dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+        };
+    assert!(
+        matches!(restore(wrong_scope), Err(TipRestoreError::History(_))),
+        "a decoded scope cannot replace the authenticated genesis scope"
+    );
+    let mut wrong_undo_scope = snapshot_claim(chain.state());
+    wrong_undo_scope
+        .revert
+        .as_mut()
+        .unwrap()
+        .value
+        .as_mut()
+        .unwrap()
+        .root_scope = iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+        parent_network_id: *view.network_id(),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(19),
+    };
+    assert!(
+        matches!(restore(wrong_undo_scope), Err(TipRestoreError::History(_))),
+        "the predecessor scope is checked against the same authenticated prefix"
+    );
     let mut wrong_undo = snapshot_claim(chain.state());
     wrong_undo
         .revert
@@ -340,8 +366,7 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
         chain.kura(),
         &pool,
     )
-    .err()
-    .expect("the actual original native source must refuse its full pool");
+    .expect_err("the actual original native source must refuse its full pool");
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain the original source's typed local refusal: {original:?}");
     };
@@ -371,12 +396,12 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
     let reads = chain.kura().canonical_query_reads_for_test();
     let pending = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     drop(blocker);
-    let ready = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
+    let poll_outcome = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
     // Retire contention before any assertion, including the causal before-fix assertion.
     assert_eq!(occupied, pool.limit_bytes());
     assert_eq!(reads, (0, 0), "refused backing never reads a native body");
     assert!(pending.is_pending());
-    assert!(ready.is_ready());
+    assert!(poll_outcome.is_ready());
     let error = refused
         .err()
         .expect("full original pool must refuse restore");
@@ -385,16 +410,25 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
             "native tip restore must preserve the original pool refusal as ExecutionDeferred: {error:?}"
         );
     };
+    assert_eq!(actual.reason(), original.reason());
+    assert_eq!(actual.phase(), original.phase());
     assert_eq!(
-        actual, original,
-        "original release and all refusal fields survive restore"
+        actual.allocation_refusal(),
+        original.allocation_refusal(),
+        "original release and every allocation field survive restore"
     );
+    assert!(actual.decode_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
     let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
         crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
     else {
         panic!("the snapshot boundary must preserve the typed original refusal");
     };
-    assert_eq!(exported, original);
+    assert_eq!(exported.reason(), original.reason());
+    assert_eq!(exported.phase(), original.phase());
+    assert_eq!(exported.allocation_refusal(), original.allocation_refusal());
+    assert!(exported.decode_refusal().is_none());
+    assert!(exported.verification_refusal().is_none());
     assert_eq!(pool.reserved_bytes(), reserved);
     let restored = retry_claim
         .restore(
@@ -514,8 +548,7 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             .walk(2, 3)
             .next()
             .unwrap()
-            .err()
-            .expect("next actual prefix decode must refuse")
+            .expect_err("next actual prefix decode must refuse")
     });
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain a typed original prefix refusal: {original:?}");
@@ -563,7 +596,43 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             "native tip restore must preserve the cumulative prefix decode refusal as ExecutionDeferred: {error:?}"
         );
     };
-    assert_eq!(actual, original);
+    // Independent invocations own different scopes; compare every resource fact,
+    // then require each captured identity to stay distinct.
+    assert_eq!(actual.reason(), original.reason());
+    assert_eq!(actual.phase(), original.phase());
+    assert!(actual.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
+    let actual_decode = actual
+        .decode_refusal()
+        .expect("actual captured decoder owner");
+    let reference_decode = original
+        .decode_refusal()
+        .expect("reference captured decoder owner");
+    assert_eq!(
+        actual_decode.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(actual_decode.kind(), reference_decode.kind());
+    assert!(
+        matches!(actual_decode.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit && limit == u64::try_from(constructor_bytes).unwrap())
+    );
+    assert!(actual.allocator_refusal().is_none());
+    assert!(original.allocator_refusal().is_none());
+    assert_eq!(
+        actual_decode.resource_error(),
+        reference_decode.resource_error()
+    );
+    assert_ne!(
+        actual_decode, reference_decode,
+        "fresh attempts never share scoped identity"
+    );
+    let captured = actual.decode_refusal().unwrap().clone();
+    let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
+        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
+    else {
+        panic!("snapshot boundary retains original decoder owner")
+    };
+    assert_eq!(exported.decode_refusal(), Some(&captured));
     let restored = retry_claim
         .restore(
             &pool,
@@ -586,9 +655,14 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
         .sum::<usize>();
     assert_eq!(pool.reserved_bytes(), reserved + retired);
     drop(counter);
+    // Captured refusals retain both original funded counter controls after their
+    // contexts retire; the snapshot adapter moves the same physical owner.
+    assert_eq!(pool.reserved_bytes(), reserved + retired);
+    assert_eq!(exported.decode_refusal(), Some(&captured));
+    drop((exported, captured, original));
     assert_eq!(pool.reserved_bytes(), baseline + retired);
     drop(view);
-    drop((chain, actual, original));
+    drop(chain);
     collect_retired_restore_owners(&pool);
 }
 
@@ -626,4 +700,27 @@ fn restore_keeps_corrupt_native_history_a_completed_schema_rejection() {
     assert!(!message.is_empty());
     assert_eq!(pool.reserved_bytes(), reserved);
     assert_eq!(view.native_execution_tip().unwrap().height(), 2);
+}
+
+#[test]
+fn native_tip_snapshot_scope_is_mandatory_and_objects_are_closed() {
+    let chain = chain();
+    let original = norito::json::to_value(&snapshot_claim(chain.state())).unwrap();
+    let mut missing_scope = original.clone();
+    missing_scope
+        .get_mut("blocks")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("root_scope");
+    assert!(norito::json::from_value::<NativeExecutionTipSnapshot>(missing_scope).is_err());
+    for path in [None, Some("blocks")] {
+        let mut unknown = original.clone();
+        let object = match path {
+            None => unknown.as_object_mut().unwrap(),
+            Some(key) => unknown.get_mut(key).unwrap().as_object_mut().unwrap(),
+        };
+        object.insert("retired_scope".into(), norito::json::Value::Null);
+        assert!(norito::json::from_value::<NativeExecutionTipSnapshot>(unknown).is_err());
+    }
 }

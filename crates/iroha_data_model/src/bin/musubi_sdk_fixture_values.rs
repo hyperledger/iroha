@@ -780,7 +780,7 @@ fn rejection_vectors() -> Value {
 }
 /// Construct the complete SDK fixture from concrete request and response types.
 #[must_use]
-pub(crate) fn sdk_document() -> Value {
+pub fn sdk_document() -> Value {
     norito::json!({
         "format": "iroha-musubi-sdk-v1",
         "fixture_version": 1,

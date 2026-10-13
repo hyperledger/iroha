@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::localnet::service_authorities::LocalnetServiceProfile;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_crypto::{Algorithm, HashOf, KeyPair};
 use iroha_data_model::{
     NetworkId,
@@ -158,7 +159,7 @@ pub(super) fn intent(
         Quantity::zero(),
         1,
         1,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     ManagedInitialProviderCreditIntent {
         policy: policy(coordinator),
@@ -190,7 +191,7 @@ fn codec_original() -> Original {
         Quantity::zero(),
         1,
         1,
-        Default::default(),
+        iroha_model_base::metadata::Metadata::default(),
     );
     Original {
         selection: ProviderCreditUpsertSelection {
@@ -235,7 +236,8 @@ fn initial_credit_original_roundtrip_and_large_checkpoint_preserve_explicit_abse
     );
 
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("install")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "install").unwrap();
     let original = codec_original();
     journal::publish_intent(&directory, &original).unwrap();
     let bytes = directory.read("original.nrt", 256 * 1024).unwrap();
@@ -388,9 +390,10 @@ fn initial_credit_preserves_lagged_partition_digest_and_bounds_complete_record()
     );
     assert!(original.validate().is_err());
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("install")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "install").unwrap();
     assert!(journal::publish_intent(&directory, &original).is_err());
-    require_empty(&directory).unwrap();
+    metadata::require_unselected(&directory).unwrap();
 }
 
 #[test]

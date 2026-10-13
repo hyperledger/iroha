@@ -1,7 +1,7 @@
 //! Sealed local body-chain evidence; only the custody owner supplies its original namespace proof.
 use super::*;
 use crate::managed::stream_token_custody::body_history::SnapshotReadPass;
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 mod sealed {
     pub trait EnrollmentScopeEvidence {}
@@ -77,6 +77,23 @@ pub(in crate::managed) trait SemanticSuccessor:
     -> Result<()>;
 }
 
+// A completed exact predecessor has already passed this sealed reader's last wallet
+// callback and current-body closure. Only immutable receipt checks remain adjacent to
+// binding the next body. Every later body's own namespace/Original checks stay fresh,
+// and the reader closes the complete predecessor graph before any result can escape.
+// A decoder activated after admission and every different/seeded owner use the original
+// local/full source recipe. No effectful caller can manufacture this completed coverage.
+fn require_predecessor_binding(
+    prior: &VerifiedUnsignedClosure,
+    pass: Option<&EnrollmentReadPass<'_>>,
+) -> Result<()> {
+    if pass.is_some_and(|pass| pass.completed_predecessor(prior)) {
+        prior.require_receipt()
+    } else {
+        prior.require_retained_with_pass(pass)
+    }
+}
+
 struct BodyScopeState {
     evidence: Arc<dyn EnrollmentScopeEvidence>,
     // Moving the verified predecessor keeps its exact local custody attached to the count.
@@ -85,7 +102,7 @@ struct BodyScopeState {
     operation_identity: iroha_fs::FileIdentity,
 }
 pub(in crate::managed) struct BodyDispatchScope {
-    state: Arc<BodyScopeState>,
+    state: Rc<BodyScopeState>,
 }
 impl BodyDispatchScope {
     pub(in crate::managed) fn verify(
@@ -110,7 +127,7 @@ impl BodyDispatchScope {
         let root_identity = evidence.root().identity()?;
         let operation_identity = evidence.operation().identity()?;
         if let Some(prior) = &predecessor {
-            prior.require_retained_with_pass(pass)?;
+            require_predecessor_binding(prior, pass)?;
             if prior.purpose() != binding.purpose
                 || prior.outer_intent() != binding.outer_intent
                 || prior.root_identity() != root_identity
@@ -123,7 +140,7 @@ impl BodyDispatchScope {
             }
         }
         let value = Self {
-            state: Arc::new(BodyScopeState {
+            state: Rc::new(BodyScopeState {
                 evidence,
                 predecessor,
                 root_identity,
@@ -135,7 +152,7 @@ impl BodyDispatchScope {
     }
     fn duplicate(&self) -> Self {
         Self {
-            state: Arc::clone(&self.state),
+            state: Rc::clone(&self.state),
         }
     }
     fn revalidate_with_pass(&self, pass: Option<&EnrollmentReadPass<'_>>) -> Result<()> {
@@ -185,17 +202,16 @@ impl BodyDispatchScope {
             return Err(invalid("enrollment predecessor closure changed"));
         }
         value.evidence.fees().validate()?;
-        if let Some(prior) = &value.predecessor {
-            if prior.purpose() != binding.purpose
+        if let Some(prior) = &value.predecessor
+            && (prior.purpose() != binding.purpose
                 || prior.outer_intent() != binding.outer_intent
                 || prior.root_identity() != value.root_identity
                 || prior.fees() != value.evidence.fees()
-                || prior.cumulative_reserved_count() > MAX_ATTEMPTS
-            {
-                return Err(invalid(
-                    "enrollment predecessor closure changed its original scope",
-                ));
-            }
+                || prior.cumulative_reserved_count() > MAX_ATTEMPTS)
+        {
+            return Err(invalid(
+                "enrollment predecessor closure changed its original scope",
+            ));
         }
         Ok(())
     }
@@ -216,6 +232,14 @@ impl HistoryScope {
         match self {
             Self::FixedBody => Self::FixedBody,
             Self::Enrollment(value) => Self::Enrollment(value.duplicate()),
+        }
+    }
+    // Exact immutable owner identity binds every original predecessor, including native Arcs.
+    // A separately reconstructed equal scope is deliberately not interchangeable here.
+    pub(super) fn same_original_owner(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Enrollment(a), Self::Enrollment(b)) => Rc::ptr_eq(&a.state, &b.state),
+            _ => false,
         }
     }
     pub(super) fn validate(
@@ -329,12 +353,12 @@ impl HistoryScope {
         }
     }
     pub(super) fn require_fees(&self, fees: &super::super::Fees) -> Result<()> {
-        if let Self::Enrollment(value) = self {
-            if value.state.evidence.fees() != fees {
-                return Err(invalid(
-                    "dispatch changed original enrollment fee authorization",
-                ));
-            }
+        if let Self::Enrollment(value) = self
+            && value.state.evidence.fees() != fees
+        {
+            return Err(invalid(
+                "dispatch changed original enrollment fee authorization",
+            ));
         }
         Ok(())
     }
@@ -373,4 +397,18 @@ pub(super) fn is_enrollment(purpose: Purpose) -> bool {
         purpose,
         Purpose::CustodyEnroll(_) | Purpose::CustodyRenewal { .. }
     )
+}
+
+#[cfg(test)]
+impl History {
+    pub(in crate::managed) fn test_require_predecessor_binding(
+        &self,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        let prior = self
+            .scope
+            .predecessor()
+            .ok_or_else(|| invalid("test history predecessor absent"))?;
+        require_predecessor_binding(prior, pass)
+    }
 }

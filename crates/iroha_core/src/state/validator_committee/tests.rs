@@ -73,7 +73,12 @@ pub(crate) fn fixture_with_native_selection(
     // Pure World component fixture: one explicit original pool for both generations.
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
     let mut keys = (1..=size)
-        .map(|index| KeyPair::from_seed(vec![index as u8; 32], Algorithm::BlsNormal))
+        .map(|index| {
+            KeyPair::from_seed(
+                vec![u8::try_from(index).expect("fixture value fits u8"); 32],
+                Algorithm::BlsNormal,
+            )
+        })
         .collect::<Vec<_>>();
     keys.sort_by(|a, b| a.public_key().cmp(b.public_key()));
     let roster = keys
@@ -115,8 +120,8 @@ pub(crate) fn fixture_with_native_selection(
             attempt_id,
             authority_generation: u64::from(start_height > 1),
             roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(roster),
-            committee_size: roster.len() as u16,
-            threshold: ((roster.len() - 1) / 3 + 1) as u16,
+            committee_size: u16::try_from(roster.len()).expect("fixture value fits u16"),
+            threshold: u16::try_from((roster.len() - 1) / 3 + 1).expect("fixture value fits u16"),
             start_height,
             commitments_end_height: start_height + 1,
             deliveries_end_height: start_height + 2,
@@ -216,12 +221,14 @@ pub(crate) fn fixture_with_native_selection(
         outcome: None,
     };
     for (index, signer) in signers.iter().enumerate() {
-        let context = transition.readiness_context(index as u32).unwrap();
+        let context = transition
+            .readiness_context(u32::try_from(index).expect("fixture value fits u32"))
+            .unwrap();
         let generation = transition.preparation.generation();
         transition
             .readiness
             .push(ValidatorCommitteeSeatReadinessV1 {
-                validator_index: index as u32,
+                validator_index: u32::try_from(index).expect("fixture value fits u32"),
                 beacon: prove_global_threshold_beacon_seat_readiness_v1(
                     signer,
                     &target,
@@ -282,7 +289,7 @@ fn outcome(fixture: &Fixture, activate: bool) -> ValidatorEpochAuthorizationV1 {
         } else {
             ValidatorEpochDecisionV1::RetainAndCancel
         },
-        authority_generation: if activate { 1 } else { 0 },
+        authority_generation: u64::from(activate),
         authority_id: if activate {
             fixture
                 .transition
@@ -405,12 +412,7 @@ fn committee_bls_consent_and_beacon_readiness_reject_network_generation_replay()
 #[test]
 fn committee_pending_transcript_cannot_activate_or_escape_its_attempt_cutoff() {
     let fixture = fixture(7);
-    let peers = fixture
-        .incumbent
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let peers = fixture.incumbent.validators.clone();
     let view = fixture.world.view();
     let record = view
         .global_beacon_key_sessions()
@@ -474,12 +476,7 @@ fn committee_pending_transcript_cannot_activate_or_escape_its_attempt_cutoff() {
 #[test]
 fn committee_bootstrap_beacon_requires_the_exact_genesis_authority() {
     let fixture = fixture(4);
-    let peers = fixture
-        .incumbent
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let peers = fixture.incumbent.validators.clone();
     let BeaconEpochBindingV1::Installed(binding) = fixture.authorization.beacon else {
         panic!("installed fixture")
     };
@@ -585,14 +582,16 @@ fn committee_retention_extends_exit_and_pending_unbond_liability() {
         },
     );
     let mut parameters = fixture.world.parameters.block();
-    parameters.set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 2,
-            slashing_delay_blocks: 1,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    parameters
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 2,
+                slashing_delay_blocks: 1,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     // This component fixture exercises the native boundary reducer with the exact original
     // credentials. It does not claim a certified chain or executed transition.

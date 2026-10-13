@@ -1,0 +1,505 @@
+//! Fixed-storage allocation observations for a separately derived worker.
+//!
+//! Hooks use atomic state and a preallocated 16 MiB mapping only. The mapping
+//! lives until process exit. No TLS, formatting, lookup,
+//! allocation or waiting occurs in a record hook. This instrument changes the
+//! diagnostic binary; it is not a certificate for the original worker binary.
+//! The dump uses Norito JSON after joining and sealing; its Vec/String and I/O
+//! work are additional instrumentation overhead outside the charged interval.
+
+use std::{
+    alloc::Layout,
+    fs::{File, OpenOptions},
+    io::{self, Read, Write},
+    os::fd::{FromRawFd, IntoRawFd},
+    path::Path,
+    ptr,
+    sync::atomic::{AtomicI32, AtomicPtr, AtomicU64, AtomicUsize, Ordering},
+};
+
+/// Number of fixed, four-u64 records available before fail-closed overflow.
+pub const CAPACITY: usize = 524_288;
+/// Instrumentation mapping, separate from the original verifier reservation.
+pub const RESERVED_BYTES: usize = CAPACITY * 32;
+/// Exact heap range whose offsets the recorder admits.
+pub const ARENA_BYTES: usize = 32 * 1024 * 1024;
+
+/// Fixed in-memory record; serialized with Norito only after the interval ends.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, norito::json::JsonSerialize)]
+pub struct Record {
+    /// One for successful allocation, two for arena-provenance release.
+    pub op: u64,
+    /// Byte offset from the installed heap base; never a process address.
+    pub offset: u64,
+    /// Original requested allocation size, before buddy rounding.
+    pub size: u64,
+    /// Original requested power-of-two alignment.
+    pub align: u64,
+}
+
+const _: () = assert!(std::mem::size_of::<Record>() == 32);
+
+const UNINITIALIZED: u64 = 0;
+const SETUP: u64 = 1;
+const CHARGED: u64 = 2;
+const ENDED: u64 = 3;
+const SEALED: u64 = 4;
+const BUSY: u64 = 8;
+const BAD_LAYOUT: u64 = 1;
+const OVERFLOW: u64 = 2;
+const COLLISION: u64 = 4;
+const BAD_PHASE: u64 = 8;
+const BAD_BASE: u64 = 16;
+const WRITE_FAILURE: u64 = 32;
+
+struct Recorder {
+    phase: AtomicU64,
+    flags: AtomicU64,
+    count: AtomicUsize,
+    records: AtomicPtr<Record>,
+    base: AtomicUsize,
+    fd: AtomicI32,
+}
+
+impl Recorder {
+    const fn new() -> Self {
+        Self {
+            phase: AtomicU64::new(UNINITIALIZED),
+            flags: AtomicU64::new(0),
+            count: AtomicUsize::new(0),
+            records: AtomicPtr::new(ptr::null_mut()),
+            base: AtomicUsize::new(0),
+            fd: AtomicI32::new(-1),
+        }
+    }
+
+    fn flag(&self, flag: u64) {
+        self.flags.fetch_or(flag, Ordering::AcqRel);
+    }
+
+    fn acquire(&self, phase: u64) -> bool {
+        match self
+            .phase
+            .compare_exchange(phase, phase | BUSY, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => true,
+            Err(actual) => {
+                self.flag(if actual & BUSY != 0 {
+                    COLLISION
+                } else {
+                    BAD_PHASE
+                });
+                false
+            }
+        }
+    }
+
+    fn set_base(&self, pointer: *mut u8) {
+        if !self.acquire(SETUP) {
+            return;
+        }
+        let address = pointer as usize;
+        if address == 0
+            || !address.is_multiple_of(64)
+            || address.checked_add(ARENA_BYTES).is_none()
+            || self.base.load(Ordering::Relaxed) != 0
+        {
+            self.flag(BAD_BASE);
+        } else {
+            self.base.store(address, Ordering::Relaxed);
+        }
+        self.phase.store(SETUP, Ordering::Release);
+    }
+
+    fn transition(&self, before: u64, after: u64) {
+        if !self.acquire(before) {
+            return;
+        }
+        if after == CHARGED && self.base.load(Ordering::Relaxed) == 0 {
+            self.flag(BAD_BASE);
+        }
+        self.phase.store(after, Ordering::Release);
+    }
+
+    fn record(&self, op: u64, pointer: *mut u8, layout: Layout) {
+        if !self.acquire(CHARGED) {
+            if self.phase.load(Ordering::Acquire) == SEALED {
+                // Seal won the entry race: no later success may be published.
+                unsafe { libc::_exit(76) };
+            }
+            return;
+        }
+        let base = self.base.load(Ordering::Relaxed);
+        let address = pointer as usize;
+        let offset = address.checked_sub(base);
+        let valid = base != 0
+            && matches!(op, 1 | 2)
+            && layout.size() != 0
+            && address.is_multiple_of(layout.align())
+            && address.is_multiple_of(64)
+            && offset.is_some_and(|value| {
+                value
+                    .checked_add(layout.size())
+                    .is_some_and(|end| end <= ARENA_BYTES)
+            });
+        if !valid {
+            self.flag(BAD_LAYOUT);
+        } else {
+            let count = self.count.load(Ordering::Relaxed);
+            let records = self.records.load(Ordering::Relaxed);
+            if records.is_null() {
+                self.flag(BAD_PHASE);
+            } else if count >= CAPACITY {
+                self.flag(OVERFLOW);
+            } else {
+                // SAFETY: init installed CAPACITY writable records. This CAS
+                // grants exclusive writer access, and seal cannot pass BUSY.
+                unsafe {
+                    records.add(count).write(Record {
+                        op,
+                        offset: (address - base) as u64,
+                        size: layout.size() as u64,
+                        align: layout.align() as u64,
+                    });
+                }
+                self.count.store(count + 1, Ordering::Relaxed);
+            }
+        }
+        self.phase.store(CHARGED, Ordering::Release);
+    }
+
+    fn seal(&self) -> Result<u64, &'static str> {
+        let before = self.phase.load(Ordering::Acquire);
+        if !matches!(before, SETUP | ENDED) {
+            self.flag(if before & BUSY != 0 {
+                COLLISION
+            } else {
+                BAD_PHASE
+            });
+            return Err("recorder cannot seal in this phase");
+        }
+        if self
+            .phase
+            .compare_exchange(before, SEALED, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            self.flag(COLLISION);
+            return Err("recorder seal collided with a hook or marker");
+        }
+        Ok(before)
+    }
+}
+
+static RECORDER: Recorder = Recorder::new();
+static READ_MODE: AtomicU64 = AtomicU64::new(0);
+
+/// Reserve fixed storage and exclusively create the dump during setup.
+pub fn init(path: &Path) -> io::Result<()> {
+    if RECORDER
+        .phase
+        .compare_exchange(UNINITIALIZED, BUSY, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err(io::Error::other("allocation recorder already initialized"));
+    }
+    let file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    // SAFETY: reserve a new anonymous writable instrument mapping only.
+    let records = unsafe {
+        libc::mmap(
+            ptr::null_mut(),
+            RESERVED_BYTES,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANON,
+            -1,
+            0,
+        )
+    };
+    if records == libc::MAP_FAILED {
+        return Err(io::Error::last_os_error());
+    }
+    RECORDER.records.store(records.cast(), Ordering::Relaxed);
+    RECORDER.fd.store(file.into_raw_fd(), Ordering::Relaxed);
+    RECORDER.phase.store(SETUP, Ordering::Release);
+    Ok(())
+}
+
+/// Install the exact heap base before publishing the arena or starting work.
+pub fn set_base(pointer: *mut u8) {
+    RECORDER.set_base(pointer);
+}
+
+/// Begin immediately before the derived worker activates its arena.
+pub fn begin() {
+    RECORDER.transition(SETUP, CHARGED);
+}
+
+/// End immediately after deactivation, after all invocation-owned drops.
+pub fn end() {
+    RECORDER.transition(CHARGED, ENDED);
+}
+
+/// Observe a successful allocation after the real arena returns its pointer.
+pub fn record_alloc(pointer: *mut u8, layout: Layout) {
+    record(1, pointer, layout);
+}
+
+/// Observe an arena-provenance deallocation immediately before real release.
+pub fn record_free(pointer: *mut u8, layout: Layout) {
+    record(2, pointer, layout);
+}
+
+fn record(op: u64, pointer: *mut u8, layout: Layout) {
+    // A late hook cannot let a previously sealed success receipt survive.
+    if RECORDER.phase.load(Ordering::Acquire) == SEALED {
+        unsafe { libc::_exit(76) };
+    }
+    RECORDER.record(op, pointer, layout);
+}
+
+/// Fixed summary, serialized only after the original worker has returned.
+#[derive(Clone, Copy, norito::json::JsonSerialize)]
+pub struct Report {
+    /// Versioned Norito JSON diagnostic schema.
+    pub schema: &'static str,
+    /// Complete records retained, possibly only an invalid overflow prefix.
+    pub events: usize,
+    /// Fixed capacity; exceeding it invalidates the observation.
+    pub capacity: usize,
+    /// Bitmask: layout 1, overflow 2, collision 4, phase 8, base 16, write 32.
+    pub flags: u64,
+    /// Setup 1 or completed interval 3; active intervals cannot serialize.
+    pub phase_before_seal: u64,
+    /// Instrumentation mapping outside the original workspace reservation.
+    pub trace_reserved_bytes: usize,
+    /// Heap offset range, not the full workspace mapping.
+    pub arena_bytes: usize,
+    /// Hook/seal/write validity only, not model agreement or memory sufficiency.
+    pub observation_valid: bool,
+    /// Always false in retained streams; terminal OOM has no completed dump.
+    pub terminal_prefix: bool,
+    /// Always false; finite instrumentation is not full workspace coverage.
+    pub complete_workspace_certificate: bool,
+    /// Always false; this is not profile qualification.
+    pub profile_qualified: bool,
+}
+
+#[derive(norito::json::JsonSerialize)]
+struct Dump {
+    header: Report,
+    records: Vec<Record>,
+}
+
+/// Seal once and retain Norito JSON, also for invalid diagnostic runs.
+/// The caller must have joined the worker and deactivated arena routing first.
+/// No dump is serialized for a terminal OOM or any still-charged interval.
+pub fn seal_and_write() -> Result<Report, &'static str> {
+    if !matches!(RECORDER.phase.load(Ordering::Acquire), SETUP | ENDED) {
+        return Err("allocation dump requires an uncharged or completed interval");
+    }
+    let phase = RECORDER.seal()?;
+    let count = RECORDER.count.load(Ordering::Acquire);
+    let flags = RECORDER.flags.load(Ordering::Acquire);
+    let records = RECORDER.records.load(Ordering::Acquire);
+    let fd = RECORDER.fd.swap(-1, Ordering::AcqRel);
+    if records.is_null() || fd < 0 || count > CAPACITY {
+        return Err("recorder storage was not initialized");
+    }
+    let report = Report {
+        schema: "parliament-allocation-trace-v1",
+        events: count,
+        capacity: CAPACITY,
+        flags,
+        phase_before_seal: phase,
+        trace_reserved_bytes: RESERVED_BYTES,
+        arena_bytes: ARENA_BYTES,
+        observation_valid: flags == 0,
+        terminal_prefix: false,
+        complete_workspace_certificate: false,
+        profile_qualified: false,
+    };
+    // SAFETY: sealing excludes all record writes and storage lives until exit.
+    let records = unsafe { std::slice::from_raw_parts(records, count) }.to_vec();
+    let dump = Dump {
+        header: report,
+        records,
+    };
+    // All serialization ownership is created after the arena has been disabled.
+    let encoded =
+        norito::json::to_json(&dump).map_err(|_| "allocation dump serialization failed")?;
+    // SAFETY: init transferred this unique descriptor, now taken exactly once.
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    if file
+        .write_all(encoded.as_bytes())
+        .and_then(|()| file.write_all(b"\n"))
+        .and_then(|()| file.sync_all())
+        .is_err()
+    {
+        RECORDER.flag(WRITE_FAILURE);
+        return Err("allocation trace write or sync failed");
+    }
+    Ok(report)
+}
+
+/// Select a trusted diagnostic read failure before dispatch; 0 normal/1 EOF/2 EIO.
+pub fn set_read_mode(mode: u64) -> Result<(), &'static str> {
+    if RECORDER.phase.load(Ordering::Acquire) != SETUP || mode > 2 {
+        return Err("read mode must be selected during setup");
+    }
+    READ_MODE.store(mode, Ordering::Release);
+    Ok(())
+}
+
+/// The ordinary read condition, with an explicitly injected first-read failure.
+/// Invoked only after reservation and record allocation in the derived worker.
+pub fn read_record(file: &mut File, record: &mut [u8]) -> bool {
+    read_record_mode(file, record, READ_MODE.load(Ordering::Acquire))
+}
+
+fn read_record_mode(reader: &mut impl Read, record: &mut [u8], mode: u64) -> bool {
+    let first = match mode {
+        0 => reader.read_exact(record),
+        1 => Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+        2 => Err(io::Error::from_raw_os_error(libc::EIO)),
+        _ => return false,
+    };
+    first.is_ok() && matches!(reader.read(&mut [0u8; 1]), Ok(0))
+}
+
+/// Deterministically exercise the real collision refusal path in a control.
+pub fn collision_control() {
+    if !RECORDER.acquire(CHARGED) {
+        return;
+    }
+    let pointer = RECORDER.base.load(Ordering::Relaxed) as *mut u8;
+    // The record is refused before pointer use because this control holds BUSY.
+    let layout = Layout::from_size_align(64, 64).expect("constant layout");
+    RECORDER.record(1, pointer, layout);
+    RECORDER.phase.store(CHARGED, Ordering::Release);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recorder(storage: &mut [Record]) -> Recorder {
+        let recorder = Recorder::new();
+        recorder
+            .records
+            .store(storage.as_mut_ptr(), Ordering::Relaxed);
+        recorder.phase.store(SETUP, Ordering::Relaxed);
+        recorder.set_base(0x10000usize as *mut u8);
+        recorder.transition(SETUP, CHARGED);
+        recorder
+    }
+
+    #[test]
+    fn exact_records_use_offsets_and_typed_norito_json() {
+        let mut storage = [Record::default(); 2];
+        let recorder = recorder(&mut storage);
+        let layout = Layout::from_size_align(73, 16).unwrap();
+        for op in [1, 2] {
+            recorder.record(op, 0x10080usize as *mut u8, layout);
+        }
+        recorder.transition(CHARGED, ENDED);
+        assert_eq!(recorder.seal(), Ok(ENDED));
+        assert_eq!(
+            storage,
+            [
+                Record {
+                    op: 1,
+                    offset: 128,
+                    size: 73,
+                    align: 16
+                },
+                Record {
+                    op: 2,
+                    offset: 128,
+                    size: 73,
+                    align: 16
+                }
+            ]
+        );
+        assert_eq!(recorder.flags.load(Ordering::Relaxed), 0);
+        let encoded = norito::json::to_json(&storage[0]).unwrap();
+        let decoded: norito::json::Value = norito::json::from_str(&encoded).unwrap();
+        assert_eq!(
+            decoded.get("op").and_then(norito::json::Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            decoded.get("offset").and_then(norito::json::Value::as_u64),
+            Some(128)
+        );
+        assert_eq!(std::mem::size_of::<Record>(), 32);
+    }
+
+    #[test]
+    fn overflow_never_writes_beyond_capacity() {
+        let mut storage = [Record::default(); 1];
+        let recorder = recorder(&mut storage);
+        recorder.count.store(CAPACITY, Ordering::Relaxed);
+        recorder.record(1, 0x10000usize as *mut u8, Layout::new::<u64>());
+        assert_eq!(recorder.flags.load(Ordering::Relaxed), OVERFLOW);
+        assert_eq!(storage, [Record::default(); 1]);
+    }
+
+    #[test]
+    fn collisions_and_bad_phases_fail_closed() {
+        let mut storage = [Record::default(); 1];
+        let recorder = recorder(&mut storage);
+        assert!(recorder.acquire(CHARGED));
+        recorder.record(1, 0x10000usize as *mut u8, Layout::new::<u64>());
+        assert!(recorder.seal().is_err());
+        assert_eq!(recorder.flags.load(Ordering::Relaxed), COLLISION);
+        recorder.phase.store(ENDED, Ordering::Relaxed);
+        recorder.record(1, 0x10000usize as *mut u8, Layout::new::<u64>());
+        assert_ne!(recorder.flags.load(Ordering::Relaxed) & BAD_PHASE, 0);
+        assert_eq!(recorder.count.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn outside_zero_and_misaligned_layouts_are_refused() {
+        for (pointer, layout) in [
+            (0xffffusize, Layout::new::<u64>()),
+            (0x10001usize, Layout::new::<u64>()),
+            (0x10000usize + ARENA_BYTES, Layout::new::<u64>()),
+            (0x10000usize, Layout::from_size_align(0, 8).unwrap()),
+        ] {
+            let mut storage = [Record::default(); 1];
+            let recorder = recorder(&mut storage);
+            recorder.record(1, pointer as *mut u8, layout);
+            assert_eq!(recorder.flags.load(Ordering::Relaxed), BAD_LAYOUT);
+            assert_eq!(recorder.count.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
+    fn setup_seals_once_and_active_intervals_cannot_serialize() {
+        let recorder = Recorder::new();
+        recorder.phase.store(SETUP, Ordering::Relaxed);
+        assert_eq!(recorder.seal(), Ok(SETUP));
+        assert!(recorder.seal().is_err());
+        let mut storage = [Record::default(); 1];
+        let active = self::recorder(&mut storage);
+        assert!(active.seal().is_err());
+        assert_eq!(active.phase.load(Ordering::Relaxed), CHARGED);
+        assert_eq!(active.flags.load(Ordering::Relaxed), BAD_PHASE);
+    }
+
+    #[test]
+    fn real_read_requires_exact_length_and_forced_errors_consume_nothing() {
+        let mut out = [0u8; 3];
+        assert!(read_record_mode(&mut &b"abc"[..], &mut out, 0));
+        assert_eq!(&out, b"abc");
+        assert!(!read_record_mode(&mut &b"ab"[..], &mut out, 0));
+        assert!(!read_record_mode(&mut &b"abcd"[..], &mut out, 0));
+        for mode in [1, 2] {
+            let mut input = &b"abc"[..];
+            let mut out = [0; 3];
+            assert!(!read_record_mode(&mut input, &mut out, mode));
+            assert_eq!(input, b"abc");
+            assert_eq!(out, [0; 3]);
+        }
+    }
+}

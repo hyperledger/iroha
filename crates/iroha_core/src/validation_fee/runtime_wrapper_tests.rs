@@ -118,7 +118,7 @@ seiyaku FullFillPool { permission SwapQuotePublic;
         )
         .replace("@@POOL_VAULT_ACCOUNT_ID@@", &pool.subject_id().to_string())
         .replace("@@REWARD_POOL_ACCOUNT_ID@@", &reward_pool.to_string())
-        .replace("@@POOL_CONTRACT_ADDRESS@@", &pool.to_string())
+        .replace("@@POOL_CONTRACT_ADDRESS@@", pool.as_ref())
         .replace("7ZepsJTHCVLKsrFFNZGSRGZgvBhv", &sbd.to_string())
         .replace("6TEAJqbb8oEPmLncoNiMRbLEK6tw", &xor.to_string());
     let install = |stx: &mut StateTransaction<'_, '_>,

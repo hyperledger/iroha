@@ -45,20 +45,20 @@ fn key(algorithm: Algorithm, index: u32) -> PublicKey {
 fn member(key: PublicKey, weight: u16) -> MultisigMember {
     MultisigMember::new(key, weight).unwrap()
 }
-fn account_case(name: &str, account: AccountId) -> Value {
-    let canonical = norito::encode_canonical(&account).unwrap();
+fn account_case(name: &str, account: &AccountId) -> Value {
+    let canonical = norito::encode_canonical(account).unwrap();
     assert_eq!(
         norito::decode_canonical::<AccountId>(&canonical).unwrap(),
-        account
+        *account
     );
     let literal = account.canonical_i105().unwrap();
-    assert_eq!(AccountId::parse_encoded(&literal).unwrap(), account);
-    let (raw, flags) = norito::codec::encode_with_header_flags(&account);
+    assert_eq!(AccountId::parse_encoded(&literal).unwrap(), *account);
+    let (raw, flags) = norito::codec::encode_with_header_flags(account);
     assert_eq!(
         flags, 0x02,
         "fixture advertises the canonical compact-field layout"
     );
-    let policy = if let Some(policy) = account.multisig_policy() {
+    let policy = account.multisig_policy().map_or(Value::Null, |policy| {
         object([
             ("version", u64::from(policy.version()).into()),
             ("threshold", u64::from(policy.threshold()).into()),
@@ -87,9 +87,7 @@ fn account_case(name: &str, account: AccountId) -> Value {
                 ),
             ),
         ])
-    } else {
-        Value::Null
-    };
+    });
     object([
         ("name", text(name)),
         ("i105", text(literal)),
@@ -105,7 +103,7 @@ fn account_case(name: &str, account: AccountId) -> Value {
 }
 
 /// Emit checked positives and malformed external policy payloads as Norito JSON.
-pub(super) fn emit() {
+pub fn emit() {
     let _chain = ChainDiscriminantGuard::enter(753);
     let _layout = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let algorithms = [
@@ -124,7 +122,12 @@ pub(super) fn emit() {
     let keys: Vec<_> = algorithms
         .into_iter()
         .enumerate()
-        .map(|(index, algorithm)| key(algorithm, index as u32))
+        .map(|(index, algorithm)| {
+            key(
+                algorithm,
+                u32::try_from(index).expect("fixture algorithm index fits u32"),
+            )
+        })
         .collect();
     let mut positives = Vec::new();
     for public_key in &keys {
@@ -134,7 +137,7 @@ pub(super) fn emit() {
             ControllerFields::Single(public_key.clone()).encode(),
             account.encode()
         );
-        positives.push(account_case(algorithm.as_static_str(), account));
+        positives.push(account_case(algorithm.as_static_str(), &account));
     }
     let base = MultisigPolicy::new(
         2,
@@ -146,15 +149,15 @@ pub(super) fn emit() {
     .unwrap();
     positives.push(account_case(
         "weighted-two",
-        AccountId::new_multisig(base.clone()),
+        &AccountId::new_multisig(base.clone()),
     ));
     positives.push(account_case(
         "threshold-three",
-        AccountId::new_multisig(MultisigPolicy::new(3, base.members().to_vec()).unwrap()),
+        &AccountId::new_multisig(MultisigPolicy::new(3, base.members().to_vec()).unwrap()),
     ));
     positives.push(account_case(
         "weights-swapped",
-        AccountId::new_multisig(
+        &AccountId::new_multisig(
             MultisigPolicy::new(
                 2,
                 base.members()
@@ -167,12 +170,17 @@ pub(super) fn emit() {
     ));
     positives.push(account_case(
         "all-eleven-algorithms",
-        AccountId::new_multisig(
+        &AccountId::new_multisig(
             MultisigPolicy::new(
                 11,
                 keys.into_iter()
                     .enumerate()
-                    .map(|(index, key)| member(key, (index + 1) as u16))
+                    .map(|(index, key)| {
+                        member(
+                            key,
+                            u16::try_from(index + 1).expect("fixture member weight fits u16"),
+                        )
+                    })
                     .collect(),
             )
             .unwrap(),
@@ -180,7 +188,7 @@ pub(super) fn emit() {
     ));
     positives.push(account_case(
         "members-256",
-        AccountId::new_multisig(
+        &AccountId::new_multisig(
             MultisigPolicy::new(
                 256,
                 (0..256)

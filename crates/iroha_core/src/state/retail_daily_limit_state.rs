@@ -564,7 +564,7 @@ pub(crate) fn validate_persistence(world: &mut World) -> Result<(), String> {
                 body.physical_dataspace,
             )?
             .ok_or_else(|| "retail DAY identity has no exact policy".to_owned())?;
-            if &body.account_id == &policy.reserve_account {
+            if body.account_id == policy.reserve_account {
                 return Err("retail DAY reserve cannot carry a retail identity binding".to_owned());
             }
             attestation
@@ -603,7 +603,7 @@ pub(crate) fn validate_persistence(world: &mut World) -> Result<(), String> {
                 .get(&activation_key(&operation.asset_definition_id))
                 .ok_or_else(|| "retail DAY monetary operation has no activation".to_owned())?;
             let activation: RetailDailyActivationV1 = decode(activation_bytes, "activation")?;
-            if &activation.asset_definition_id != &operation.asset_definition_id {
+            if activation.asset_definition_id != operation.asset_definition_id {
                 return Err(
                     "retail DAY monetary operation activation differs from its definition"
                         .to_owned(),

@@ -2232,7 +2232,7 @@ fn lsp_completion_items() -> norito::json::Value {
                 push(spec.name, 3);
                 push(builtin.name(), 2);
             }
-            BuiltinSurface::CompilerInternal => continue,
+            BuiltinSurface::CompilerInternal => {}
         }
     }
     norito::json::Value::Array(items)
@@ -2308,7 +2308,10 @@ fn fixture_project(
         let start = text.rfind(&token).unwrap();
         exports.insert(
             (identity.into(), export.into()),
-            TextRange::new(start as u32, (start + token.len()) as u32),
+            TextRange::new(
+                u32::try_from(start).expect("fixture export start fits u32"),
+                u32::try_from(start + token.len()).expect("fixture export end fits u32"),
+            ),
         );
     }
     project.manifests = vec![ProjectManifestSource::new(
@@ -2480,14 +2483,20 @@ mod tests {
                 .and_then(norito::json::Value::as_str),
             Some("values.set(index: 0, value: 2);")
         );
-        let start = indexed_edit
-            .pointer("/range/start/character")
-            .and_then(norito::json::Value::as_u64)
-            .expect("indexed edit start") as usize;
-        let end = indexed_edit
-            .pointer("/range/end/character")
-            .and_then(norito::json::Value::as_u64)
-            .expect("indexed edit end") as usize;
+        let start = usize::try_from(
+            indexed_edit
+                .pointer("/range/start/character")
+                .and_then(norito::json::Value::as_u64)
+                .expect("indexed edit start"),
+        )
+        .expect("indexed edit start fits usize");
+        let end = usize::try_from(
+            indexed_edit
+                .pointer("/range/end/character")
+                .and_then(norito::json::Value::as_u64)
+                .expect("indexed edit end"),
+        )
+        .expect("indexed edit end fits usize");
         assert_eq!(&indexed[start..end], "values[0] = 2;");
         let unresolved = "seiyaku C { fn f() { target(1, second: 2); } }";
         let unresolved_diagnostics = collect_lsp_diagnostics(&session, uri, unresolved);

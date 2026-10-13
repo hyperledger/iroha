@@ -1,188 +1,19 @@
-// SCCP v1 verification primitives shared by the TON minter: roster digests
-// (§3.7), EIP-712 attestation digests (§3.6), signature sets (§3.8),
-// commitment and history paths (§3.4, §3.5), transfer and control leaves, and
-// the §3.2 transfer payload in both directions.
+// SCCP v1 proof primitives shared by the TON minter: commitment and history
+// trees (§3.4, §3.5), block references and leaf paths against a verified
+// finality header (§5.1.5), message ids, transfer and control leaves with the
+// control constraints (§3.3, §3.4, §5.1.6), and the §3.2 transfer payload in
+// both directions. Certificates and headers are in `sccp-finality.tolk`.
+//
+// The proof cells of a message (`MessageProof`, `ControlProof`, `BlockRef`)
+// are opened here by hand: each must be an ordinary cell with exactly the bit
+// and reference counts of §5.3.2 (`BadSnake`). A well-formed cell whose
+// content fails a proof rule is `BadProof`.
 
 import "sccp-cells"
 import "sccp-constants"
 import "sccp-crypto"
 import "sccp-errors"
-import "sccp-messages"
-
-// ---------------------------------------------------------------------------
-// Rosters (§3.7).
-
-/// `⌊2n/3⌋ + 1`.
-@pure
-fun sccpThreshold(n: int): int {
-    return (2 * n) / 3 + 1;
-}
-
-/// Recomputes the §3.7 roster digest while checking the `n` range, the `t`
-/// formula, `valid_until > valid_from`, `generation ≥ 1` and the member order
-/// (zero members first, then nonzero members strictly ascending). The members
-/// list must be canonical and made of ordinary cells (`BadSnake` otherwise).
-/// Throws `BadRoster` on any other violation.
-fun sccpRosterDigest(
-    networkId: int,
-    generation: int,
-    validFromMs: int,
-    validUntilMs: int,
-    n: int,
-    t: int,
-    members: cell,
-): uint256 {
-    assert ((n >= SCCP_MIN_ROSTER_SIZE) & (n <= SCCP_MAX_ROSTER_SIZE)) throw SccpErrors.BadRoster;
-    assert (t == sccpThreshold(n)) throw SccpErrors.BadRoster;
-    assert (generation >= 1) throw SccpErrors.BadRoster;
-    assert (validUntilMs > validFromMs) throw SccpErrors.BadRoster;
-    val (values, parts) = sccpLoadMembers(members, n);
-    var previous = 0;
-    var i = 0;
-    while (i < n) {
-        val member = values.get(i);
-        if (member == 0) {
-            assert (previous == 0) throw SccpErrors.BadRoster;
-        } else {
-            assert (member > previous) throw SccpErrors.BadRoster;
-            previous = member;
-        }
-        i += 1;
-    }
-    var preimage: tuple = [];
-    preimage.push(
-        beginCell()
-            .storeUint(SCCP_TAG_ROSTER_V1, SCCP_TAG_ROSTER_V1_BITS)
-            .storeUint(networkId, 256)
-            .storeUint(generation, 64)
-            .storeUint(validFromMs, 64)
-            .storeUint(validUntilMs, 64)
-            .storeUint(n, 8)
-            .storeUint(t, 8),
-    );
-    i = 0;
-    while (i < parts.size()) {
-        preimage.push(parts.get(i));
-        i += 1;
-    }
-    return keccak256Parts(preimage);
-}
-
-/// §5.1.5 validity bounds of a roster installed at `nowMs` (initial roster at
-/// `sccp_init`, or `next` at a rotation); throws `BadRosterValidity`.
-fun sccpCheckRosterValidity(validFromMs: int, validUntilMs: int, nowMs: int) {
-    assert (validFromMs <= nowMs + SCCP_MAX_CLOCK_SKEW_MS) throw SccpErrors.BadRosterValidity;
-    assert (
-        validUntilMs - validFromMs <= SCCP_MAX_ROSTER_VALIDITY_MS
-    ) throw SccpErrors.BadRosterValidity;
-    assert (nowMs < validUntilMs) throw SccpErrors.BadRosterValidity;
-    assert (validUntilMs <= nowMs + SCCP_MAX_ROSTER_VALIDITY_MS) throw SccpErrors.BadRosterValidity;
-}
-
-// ---------------------------------------------------------------------------
-// Attestations (§3.6).
-
-/// `DOMAIN_SEPARATOR` for `salt = networkId`.
-@pure
-fun sccpDomainSeparator(networkId: int): uint256 {
-    return keccak256Builders2(
-        beginCell().storeUint(SCCP_DOMAIN_TYPEHASH, 256).storeUint(SCCP_NAME_HASH, 256),
-        beginCell().storeUint(SCCP_VERSION_HASH, 256).storeUint(networkId, 256),
-    );
-}
-
-/// EIP-712 digest of an attestation statement.
-fun sccpAttestationDigest(networkId: int, a: Attestation, tail: AttestationTail): uint256 {
-    var words: tuple = [];
-    words.push(
-        beginCell()
-            .storeUint(SCCP_ATTESTATION_TYPEHASH, 256)
-            .storeUint(a.height, 256)
-            .storeUint(a.epoch, 256),
-    );
-    words.push(
-        beginCell()
-            .storeUint(a.timestampMs, 256)
-            .storeUint(a.blockHash, 256)
-            .storeUint(a.sccpRoot, 256),
-    );
-    words.push(
-        beginCell()
-            .storeUint(a.messageCount, 256)
-            .storeUint(tail.historyRoot, 256)
-            .storeUint(a.historySize, 256),
-    );
-    words.push(
-        beginCell().storeUint(tail.rosterDigest, 256).storeUint(tail.nextRosterDigest, 256),
-    );
-    val structHash = keccak256Parts(words);
-    return keccak256Builder(
-        beginCell()
-            .storeUint(0x1901, 16)
-            .storeUint(sccpDomainSeparator(networkId), 256)
-            .storeUint(structHash, 256),
-    );
-}
-
-/// §3.6.1 invariants checked by every verifier; throws `BadAttestation`.
-fun sccpCheckAttestation(a: Attestation, tail: AttestationTail) {
-    assert ((a.messageCount == 0) == (a.sccpRoot == 0)) throw SccpErrors.BadAttestation;
-    assert ((a.historySize == 0) == (tail.historyRoot == 0)) throw SccpErrors.BadAttestation;
-    assert (a.messageCount <= SCCP_MAX_BLOCK_LEAVES) throw SccpErrors.BadAttestation;
-}
-
-/// Verifies a §3.8 signature set over `digest` against the stored members.
-///
-/// `signatures#_ signer_bitmap:uint32 first:^SignatureCell`; one 521-bit
-/// `signature_cell#_ r:uint256 s:uint256 v:uint8 next:(Maybe ^SignatureCell)`
-/// per set bit, in ascending bit order. Bits ≥ `n` must be zero, every set bit
-/// must address a nonzero member equal to the recovered address, and at least
-/// `t` bits must be set. `members` is a canonical stored `^MemberChunk` list
-/// (validated when it was installed), walked once up to the highest set bit.
-fun sccpVerifySignatures(digest: uint256, signatures: cell, members: cell, n: int, t: int) {
-    var cs = signatures.beginParse();
-    assert (
-        (cs.remainingBitsCount() == 32) & (cs.remainingRefsCount() == 1)
-    ) throw SccpErrors.BadSignatures;
-    var pending = cs.loadUint(32);
-    assert ((pending >> n) == 0) throw SccpErrors.BadSignatures;
-    var sig = cs.preloadRef().beginParse();
-    var member = members.beginParse();
-    var inChunk = 0;
-    var count = 0;
-    var more = true;
-    while (pending != 0) {
-        if (inChunk == SCCP_MEMBERS_PER_CHUNK) {
-            member = member.preloadRef().beginParse();
-            inChunk = 0;
-        }
-        val signer = member.loadUint(160);
-        inChunk += 1;
-        if ((pending & 1) != 0) {
-            assert (more & (sig.remainingBitsCount() == 521)) throw SccpErrors.BadSignatures;
-            val r = sig.loadUint(256);
-            val s = sig.loadUint(256);
-            val v = sig.loadUint(8);
-            more = sig.loadBool();
-            assert (sig.remainingRefsCount() == (more ? 1 : 0)) throw SccpErrors.BadSignatures;
-            // §3.8: nonzero member, 1 ≤ r < N, 1 ≤ s ≤ HALF_N, v ∈ {27, 28}
-            assert (
-                (signer != 0) & (r >= 1) & (r < SECP256K1_N) & (s >= 1) & (s <= SECP256K1_HALF_N) &
-                ((v == 27) | (v == 28))
-            ) throw SccpErrors.BadSignatures;
-            val (_, x, y, ok) = ecrecoverRaw(digest, v - 27, r, s);
-            assert (ok) throw SccpErrors.BadSignatures;
-            assert (sccpAddressOfPoint(x!, y!) == signer) throw SccpErrors.BadSignatures;
-            count += 1;
-            if (more) {
-                sig = sig.preloadRef().beginParse();
-            }
-        }
-        pending = pending >> 1;
-    }
-    assert (!more) throw SccpErrors.BadSignatures;
-    assert (count >= t) throw SccpErrors.TooFewSignatures;
-}
+import "sccp-finality"
 
 // ---------------------------------------------------------------------------
 // Commitment and history trees (§3.4, §3.5).
@@ -199,6 +30,7 @@ fun sccpNode(left: int, right: int): uint256 {
 }
 
 /// Positional promote-odd Merkle root (§3.4); throws `BadProof`.
+@inline_ref
 fun sccpMerkleRoot(leaf: int, index: int, count: int, siblings: array<int>): int {
     assert ((count >= 1) & (index >= 0) & (index < count)) throw SccpErrors.BadProof;
     var h = leaf;
@@ -235,42 +67,158 @@ fun sccpHistoryLeaf(height: int, sccpRoot: int, messageCount: int): uint256 {
     );
 }
 
-/// Verifies that `leaf` is committed by the attestation: directly against
-/// `A.sccpRoot`, or (historical mode) against the proven block and that
-/// block's history leaf against `A.historyRoot`. Throws `BadProof`.
-fun sccpVerifyLeafInclusion(
+// ---------------------------------------------------------------------------
+// Block references, leaf paths and proof cells (§5.1.5, §5.1.6, §5.3.2).
+
+/// Checks a `^BlockRef` (`BlockRefV1`) against a verified header `x` and
+/// returns the `(sccpRoot, messageCount)` of the block it names.
+///
+/// The cell must be ordinary with exactly 425 bits and its history path in
+/// the canonical `HashChunk` shape (`BadSnake`). The reference rules are
+/// `BadProof`:
+///
+/// - `height = X.height`: the certified block itself takes no history proof.
+///   `sccpRoot = X.sccp_root ≠ 0`, `messageCount = X.message_count`,
+///   `historyIndex = 0` and an empty path.
+/// - otherwise `height < X.height`, `1 ≤ messageCount ≤ 512`, `sccpRoot ≠ 0`,
+///   a path of at most 32 siblings, and the history leaf of the block proves
+///   under `X.history_root` at `(historyIndex, X.history_size)`. X5 bounds
+///   `X.history_size` by 2^32.
+@inline_ref
+fun sccpCheckBlockRef(block: cell, x: XHeader): (int, int) {
+    var s = sccpBeginParseOrdinary(block);
+    assert (s.remainingBitsCount() == SCCP_BLOCK_REF_BITS) throw SccpErrors.BadSnake;
+    val height = s.loadUint(64);
+    val sccpRoot = s.loadUint(256);
+    val messageCount = s.loadUint(32);
+    val historyIndex = s.loadUint(64);
+    val pathLen = s.loadUint(8);
+    val hasPath = s.loadUint(1);
+    assert (s.remainingRefsCount() == hasPath) throw SccpErrors.BadSnake;
+    val path = hasPath == 0 ? null : s.preloadRef();
+    val siblings = sccpLoadHashPath(path, pathLen, SCCP_MAX_HISTORY_PATH);
+    if (height == x.height) {
+        assert (
+            (sccpRoot == x.sccpRoot) & (sccpRoot != 0) & (messageCount == x.messageCount) &
+            (historyIndex == 0) &
+            (pathLen == 0)
+        ) throw SccpErrors.BadProof;
+        return (sccpRoot, messageCount);
+    }
+    assert (
+        (height < x.height) & (messageCount >= 1) & (messageCount <= SCCP_MAX_BLOCK_LEAVES) &
+        (sccpRoot != 0)
+    ) throw SccpErrors.BadProof;
+    assert (
+        sccpMerkleRoot(
+            sccpHistoryLeaf(height, sccpRoot, messageCount),
+            historyIndex,
+            x.historySize,
+            siblings,
+        ) ==
+        x.historyRoot
+    ) throw SccpErrors.BadProof;
+    return (sccpRoot, messageCount);
+}
+
+/// Verifies `leaf` at `leafIndex` of a block with root `sccpRoot` and `count`
+/// leaves, as `sccpCheckBlockRef` returned them. The path holds at most 9
+/// siblings in the canonical `HashChunk` shape (`BadSnake`); a path that is
+/// too long or does not reproduce the root is `BadProof`.
+fun sccpVerifyLeaf(
     leaf: int,
     leafIndex: int,
     pathLen: int,
     path: cell?,
-    a: Attestation,
-    tail: AttestationTail,
-    history: Cell<HistoryProof>?,
+    sccpRoot: int,
+    count: int,
 ) {
     val siblings = sccpLoadHashPath(path, pathLen, SCCP_MAX_BLOCK_PATH);
-    if (history == null) {
-        assert (a.messageCount >= 1) throw SccpErrors.BadProof;
-        assert (
-            sccpMerkleRoot(leaf, leafIndex, a.messageCount, siblings) == a.sccpRoot
-        ) throw SccpErrors.BadProof;
-        return;
-    }
-    val h = history!.load();
-    assert (
-        (h.messageCount >= 1) & (h.messageCount <= SCCP_MAX_BLOCK_LEAVES)
-    ) throw SccpErrors.BadProof;
-    assert (h.sccpRoot != 0) throw SccpErrors.BadProof;
-    assert (
-        sccpMerkleRoot(leaf, leafIndex, h.messageCount, siblings) == h.sccpRoot
-    ) throw SccpErrors.BadProof;
-    assert (
-        (a.historySize >= 1) & (a.historySize <= SCCP_MAX_HISTORY_SIZE)
-    ) throw SccpErrors.BadProof;
-    val historySiblings = sccpLoadHashPath(h.path, h.pathLen, SCCP_MAX_HISTORY_PATH);
-    val historyLeaf = sccpHistoryLeaf(h.height, h.sccpRoot, h.messageCount);
-    assert (
-        sccpMerkleRoot(historyLeaf, h.leafIndex, a.historySize, historySiblings) == tail.historyRoot
-    ) throw SccpErrors.BadProof;
+    assert (sccpMerkleRoot(leaf, leafIndex, count, siblings) == sccpRoot) throw SccpErrors.BadProof;
+}
+
+/// A `^MessageProof` opened by `sccpOpenMessageProof`. `payload`, `path` and
+/// `block` are still unchecked cells: `sccpParseInboundPayload`,
+/// `sccpVerifyLeaf` and `sccpCheckBlockRef` open them.
+struct OpenedMessageProof {
+    leafIndex: uint32
+    pathLen: uint8
+    /// `^SnakeBytes` with the §3.2 payload.
+    payload: cell
+    /// `(Maybe ^HashChunk)`.
+    path: cell?
+    /// `^BlockRef`.
+    block: cell
+}
+
+/// Opens a `^MessageProof` (`MessageProofV1`): an ordinary cell of exactly 41
+/// bits whose references are the payload, the path iff its Maybe bit is set,
+/// and the block reference (`BadSnake`).
+fun sccpOpenMessageProof(proof: cell): OpenedMessageProof {
+    var s = sccpBeginParseOrdinary(proof);
+    assert (s.remainingBitsCount() == SCCP_MESSAGE_PROOF_BITS) throw SccpErrors.BadSnake;
+    val leafIndex = s.loadUint(32);
+    val pathLen = s.loadUint(8);
+    val hasPath = s.loadUint(1);
+    assert (s.remainingRefsCount() == 2 + hasPath) throw SccpErrors.BadSnake;
+    val payload = s.loadRef();
+    val path = hasPath == 0 ? null : s.loadRef();
+    return {
+        leafIndex,
+        pathLen,
+        payload,
+        path,
+        block: s.loadRef(),
+    };
+}
+
+/// A `^ControlProof` opened by `sccpOpenControlProof`; `path` and `block`
+/// are still unchecked cells.
+struct OpenedControlProof {
+    controlNonce: uint64
+    track: uint8
+    parliamentPaused: bool
+    fastPauseUntilMs: uint64
+    certificateId: uint256
+    effectHash: uint256
+    leafIndex: uint32
+    pathLen: uint8
+    /// `(Maybe ^HashChunk)`.
+    path: cell?
+    /// `^BlockRef`.
+    block: cell
+}
+
+/// Opens a `^ControlProof` (`ControlProofV1`): an ordinary cell of exactly
+/// 690 bits whose references are the path iff its Maybe bit is set, and the
+/// block reference (`BadSnake`). `parliament_paused` is one bit, so no value
+/// other than 0 or 1 reaches the §3.4 constraints.
+fun sccpOpenControlProof(proof: cell): OpenedControlProof {
+    var s = sccpBeginParseOrdinary(proof);
+    assert (s.remainingBitsCount() == SCCP_CONTROL_PROOF_BITS) throw SccpErrors.BadSnake;
+    val controlNonce = s.loadUint(64);
+    val track = s.loadUint(8);
+    val parliamentPaused = s.loadBool();
+    val fastPauseUntilMs = s.loadUint(64);
+    val certificateId = s.loadUint(256);
+    val effectHash = s.loadUint(256);
+    val leafIndex = s.loadUint(32);
+    val pathLen = s.loadUint(8);
+    val hasPath = s.loadUint(1);
+    assert (s.remainingRefsCount() == 1 + hasPath) throw SccpErrors.BadSnake;
+    val path = hasPath == 0 ? null : s.loadRef();
+    return {
+        controlNonce,
+        track,
+        parliamentPaused,
+        fastPauseUntilMs,
+        certificateId,
+        effectHash,
+        leafIndex,
+        pathLen,
+        path,
+        block: s.loadRef(),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -315,16 +263,29 @@ fun sccpTransferLeaf(messageId: int, destinationWord: int): uint256 {
     );
 }
 
-/// Control leaf of §3.4 for `target = ton-mainnet` (126-byte preimage).
+/// Control leaf of §3.4 for `target = ton-mainnet`: the complete pause state
+/// of `(network, revision)` after a change, with the authority that made it.
+/// The 199-byte preimage exceeds one cell, so it is hashed as two
+/// byte-aligned builders: `b1` = tag ‖ lane ‖ destination word ‖ revision ‖
+/// nonce (125 bytes) and `b2` = track ‖ `parliament_paused` ‖
+/// `fast_pause_until_ms` ‖ `certificate_id` ‖ `effect_hash` (74 bytes).
+///
+/// The leaf is computed from the supplied fields as they are: its path is
+/// checked first and `sccpCheckControl` after it, so a certified leaf of
+/// refused fields answers `BadControl`, not `BadProof`.
 @pure
 fun sccpControlLeaf(
     networkId: int,
     destinationWord: int,
     routeRevision: int,
     controlNonce: int,
-    paused: bool,
+    track: int,
+    parliamentPaused: bool,
+    fastPauseUntilMs: int,
+    certificateId: int,
+    effectHash: int,
 ): uint256 {
-    return keccak256Builder(
+    return keccak256Builders2(
         beginCell()
             .storeUint(SCCP_TAG_CONTROL_V1, SCCP_TAG_CONTROL_V1_BITS)
             .storeUint(SCCP_TAG_TAIRA, 8)
@@ -333,9 +294,42 @@ fun sccpControlLeaf(
             .storeUint(SCCP_TON_IDENTITY_WORD, 256)
             .storeUint(destinationWord, 256)
             .storeUint(routeRevision, 32)
-            .storeUint(controlNonce, 64)
-            .storeUint(paused ? 1 : 0, 8),
+            .storeUint(controlNonce, 64),
+        beginCell()
+            .storeUint(track, 8)
+            .storeUint(parliamentPaused ? 1 : 0, 8)
+            .storeUint(fastPauseUntilMs, 64)
+            .storeUint(certificateId, 256)
+            .storeUint(effectHash, 256),
     );
+}
+
+/// The §3.4 constraints a destination checks on a control leaf (`BadControl`):
+/// `track ∈ {1, 2}`, `track = 2 ⇒ fast_pause_until_ms ≠ 0`, `certificate_id ≠
+/// 0` and `effect_hash ≠ 0`. They are checked after the leaf path and before
+/// the control nonce (§5.1.6).
+fun sccpCheckControl(track: int, fastPauseUntilMs: int, certificateId: int, effectHash: int) {
+    assert (
+        (track == SCCP_TRACK_PARLIAMENT) | (track == SCCP_TRACK_FAST_PAUSE)
+    ) throw SccpErrors.BadControl;
+    assert ((track != SCCP_TRACK_FAST_PAUSE) | (fastPauseUntilMs != 0)) throw SccpErrors.BadControl;
+    assert ((certificateId != 0) & (effectHash != 0)) throw SccpErrors.BadControl;
+}
+
+/// `fast_pause_until_ms` as an applied control stores it (§5.1.6 step 5):
+/// `min(leaf value, min(now_ms + MAX_FAST_PAUSE_MS, 2^64 − 1))`. The clamp
+/// bounds a Byzantine Taira time, and the sum saturates.
+@pure
+fun sccpAppliedFastPauseUntilMs(fastPauseUntilMs: int, nowMs: int): int {
+    return min(fastPauseUntilMs, min(nowMs + SCCP_MAX_FAST_PAUSE_MS, SCCP_MAX_U64));
+}
+
+/// The effective pause (§5.1.6): `parliamentPaused ∨ now_ms <
+/// fastPauseUntilMs`. It blocks minting only; burns, voids, checkpoints,
+/// rotations and controls are never paused.
+@pure
+fun sccpEffectivePause(parliamentPaused: bool, fastPauseUntilMs: int, nowMs: int): bool {
+    return parliamentPaused | (nowMs < fastPauseUntilMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -370,10 +364,14 @@ const SCCP_INBOUND_PREFIX_BYTES = 59
 const SCCP_INBOUND_SUFFIX_BYTES = 55
 
 /// Parses and validates a Taira→TON payload for this deployment (§3.2 and
-/// §5.1.3 step 4): kind, version, domains, revision, nonzero deadline, asset,
-/// amount (nonzero, below 2^96), codecs and lengths, the `ton_account36`
-/// recipient (workchain 0, nonzero, not the minter itself), the route id and
-/// no trailing bytes. The deadline itself is checked by the caller.
+/// §5.1.5 step 4): kind, version, domains, revision, nonzero deadline, asset,
+/// amount (nonzero, below 2^96), codecs and lengths, the route id and no
+/// trailing bytes (`BadPayload`), then the `ton_account36` recipient:
+/// workchain 0, a nonzero account id, not the minter itself
+/// (`BadRecipient`). `BadRecipient` therefore answers only a payload that is
+/// valid in everything else, as the reference models report it. The payload
+/// cell is a canonical `SnakeBytes` (`BadSnake`). The deadline itself is
+/// checked by the caller.
 ///
 /// The fixed prefix always lies in the first 127-byte chunk; the fixed suffix
 /// spans at most the last two chunks and is joined into one slice.
@@ -400,7 +398,7 @@ fun sccpParseInboundPayload(payload: cell, routeRevision: int, minterHash: int):
     assert (s.loadUint(16) == SCCP_ASSET_ID_XOR_LEN) throw SccpErrors.BadPayload;
     assert (s.loadUint(24) == SCCP_ASSET_ID_XOR) throw SccpErrors.BadPayload;
     val amount = s.loadUint(128);
-    assert ((amount != 0) & (amount < SCCP_TON_AMOUNT_LIMIT)) throw SccpErrors.BadAmount;
+    assert ((amount != 0) & (amount < SCCP_TON_AMOUNT_LIMIT)) throw SccpErrors.BadPayload;
     assert (s.loadUint(8) == SCCP_CODEC_TAIRA_ACCOUNT) throw SccpErrors.BadPayload;
     val senderLen = s.loadUint(16);
     assert (
@@ -418,14 +416,15 @@ fun sccpParseInboundPayload(payload: cell, routeRevision: int, minterHash: int):
     assert (suffix.loadUint(16) == SCCP_TON_ACCOUNT36_LEN) throw SccpErrors.BadPayload;
     val workchain = suffix.loadUint(32);
     val recipientHash = suffix.loadUint(256);
-    assert (workchain == 0) throw SccpErrors.BadRecipient;
-    assert (recipientHash != 0) throw SccpErrors.BadRecipient;
-    assert (recipientHash != minterHash) throw SccpErrors.BadRecipient;
     assert (suffix.loadUint(8) == SCCP_CODEC_CANONICAL_TEXT) throw SccpErrors.BadPayload;
     assert (suffix.loadUint(16) == SCCP_ROUTE_ID_TON_LEN) throw SccpErrors.BadPayload;
     assert (
         suffix.loadUint(SCCP_ROUTE_ID_TON_LEN * 8) == SCCP_ROUTE_ID_TON
     ) throw SccpErrors.BadPayload;
+    // the recipient's own rules come last: everything else about the payload holds
+    assert (
+        (workchain == 0) & (recipientHash != 0) & (recipientHash != minterHash)
+    ) throw SccpErrors.BadRecipient;
     return {
         nonce,
         deadlineMs,

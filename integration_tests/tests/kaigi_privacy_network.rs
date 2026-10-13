@@ -27,7 +27,7 @@ use iroha_data_model::{
         error::{InstructionExecutionError, InvalidParameterError},
     },
     kaigi::{KaigiId, KaigiPrivacyMode, KaigiRecord, KaigiStatus, NewKaigi, kaigi_metadata_key},
-    prelude::{AssetId, FindDomainById, HasMetadata, Identifiable},
+    prelude::{AssetId, FindDomainById, HasMetadata},
     transaction::{FeePaymentIntent, SignedTransaction, error::TransactionRejectionReason},
 };
 use iroha_executor_data_model::permission::governance::CanManageVerifyingKeys;
@@ -315,11 +315,24 @@ async fn lifecycle() -> Result<()> {
     let (participant, participant_key) = gen_account_in("kaigi");
     let refs = kaigi_release_verifier_references_v1();
     let registrations = kaigi_release_verifier_registrations_v1();
+    // The relation-selecting Kaigi verifying keys are committed chain policy: genesis
+    // installs them in `zk_validity_policy_v1`. A node configuration cannot select them.
+    let mut zk_policy = iroha_core::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+    let [authorization_vk, usage_vk] =
+        refs.map(|key| iroha_core::zk_validity_policy::ZkVerifyingKeyRefV1 {
+            backend: key.backend,
+            name: key.name,
+        });
+    zk_policy.proofs.kaigi_authorization_vk = Some(authorization_vk);
+    zk_policy.proofs.kaigi_usage_vk = Some(usage_vk);
     let builder = NetworkBuilder::new()
         .with_peers(4)
         .with_auto_populated_trusted_peers()
         .with_permissioned_consensus()
         .with_block_cadence(Duration::from_millis(100))
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom(zk_policy.into_custom_parameter()),
+        ))
         .with_genesis_instruction(Register::domain(Domain::new(domain.clone())))
         .with_genesis_instruction(Register::account(Account::new(participant.clone())))
         .with_genesis_instruction(Grant::account_permission(
@@ -327,22 +340,10 @@ async fn lifecycle() -> Result<()> {
             ALICE_ID.clone(),
         ))
         .with_config_layer(move |layer| {
-            layer
-                .write(
-                    ["nexus", "storage", "local_budget_bytes"],
-                    1_073_741_824_i64,
-                )
-                .write(["zk", "pipa_r", "enabled"], true)
-                .write(
-                    ["zk", "kaigi_authorization_vk", "backend"],
-                    refs[0].backend.clone(),
-                )
-                .write(
-                    ["zk", "kaigi_authorization_vk", "name"],
-                    refs[0].name.clone(),
-                )
-                .write(["zk", "kaigi_usage_vk", "backend"], refs[1].backend.clone())
-                .write(["zk", "kaigi_usage_vk", "name"], refs[1].name.clone());
+            layer.write(
+                ["nexus", "storage", "local_budget_bytes"],
+                1_073_741_824_i64,
+            );
         });
     let network = sandbox::start_network_async_or_skip(builder, TEST_NAME)
         .await?

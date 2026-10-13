@@ -1,5 +1,6 @@
 //! Genuine native component helpers; no production constructors, source mutators or proof stubs.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_fs::PublishMode;
 impl ManagedInitialProviderCredit {
     pub(in crate::managed) fn funding_prepare(
@@ -18,7 +19,7 @@ impl ManagedInitialProviderCredit {
         if current.height() != tip.height()
             || current.context_id() != tip.context_id()
             || current.block_time_ms() != tip.header().creation_time_ms
-            || &current.policy().policy != &intent.policy
+            || current.policy().policy != intent.policy
         {
             return Err(invalid("fixture current cut differs"));
         }
@@ -36,7 +37,7 @@ impl ManagedInitialProviderCredit {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(&original)?;
-        let directory = self.authority.directory.ensure_child("install")?;
+        let directory = metadata::ensure_operation(&self.authority.directory, "install")?;
         journal::publish_intent(&directory, &original)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("fixture wallet"))?;
@@ -49,7 +50,7 @@ impl ManagedInitialProviderCredit {
                 &directory.path().join("transaction"),
             )
             .map_err(|_| invalid("fixture wallet prepare"))?;
-        self.verify_wallet(&directory, &original, options.deadline)
+        self.verify_wallet(directory, &original, options.deadline)
     }
     pub(in crate::managed) fn funding_retain(
         &self,
@@ -60,7 +61,7 @@ impl ManagedInitialProviderCredit {
         let original = journal::required_original(&directory)?;
         self.validate_original(&original)?;
         let directory = original.directory();
-        let signed = self.verify_wallet(&directory, &original, deadline)?;
+        let signed = self.verify_wallet(directory, &original, deadline)?;
         let finalized = crate::managed::native_operation::verify_carrier(verifier, &signed)?;
         self.validate_carrier(&original, &finalized)?;
         directory.write_atomic(

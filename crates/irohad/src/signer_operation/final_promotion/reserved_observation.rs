@@ -62,7 +62,7 @@ use super::{
 /// Pre-submission Reserve owner with the exact signed role-15 envelope and independent floor.
 ///
 /// This is not a finalized reservation. Only an actual successful native Reserve followed by a
-/// fresh finalized observer Check can produce a verified BeforeProvider phase.
+/// fresh finalized observer Check can produce a verified `BeforeProvider` phase.
 pub struct FinalPromotionReservedCheckRuntimeV1 {
     state: Arc<State>,
     observer: FinalPromotionObserverTransactionsV1,
@@ -88,7 +88,7 @@ impl FinalPromotionReservedCheckRuntimeV1 {
         signed_reserve: SignedFinalPromotionAccountTransactionV1,
         max_elapsed: Duration,
         floor: &mut impl FinalPromotionRetainedFloorV1,
-        journal: FinalPromotionPendingReserveJournalV1,
+        journal: &FinalPromotionPendingReserveJournalV1,
     ) -> Result<Self, Error> {
         if max_elapsed.is_zero()
             || max_elapsed > Duration::from_secs(60)
@@ -157,9 +157,9 @@ impl FinalPromotionReservedCheckRuntimeV1 {
         let FinalPromotionAuthorityActionV1::Reserve(reserve) = &instruction.action else {
             return Err(Error::Payload);
         };
-        let signer = AccountId::new(observer.account_binding().public_key.clone());
-        if payload.authority != signer
-            || payload.network_id().map(|id| id.as_bytes())
+        let authority = AccountId::new(observer.account_binding().public_key.clone());
+        if payload.authority != authority
+            || payload.network_id().map(iroha_data_model::NetworkId::as_bytes)
                 != Some(&observer.receipt_binding().network_id)
             || &instruction.deployment_id
                 != match &observer.receipt_binding().purpose {
@@ -182,9 +182,11 @@ impl FinalPromotionReservedCheckRuntimeV1 {
         let pending_reserve = journal
             .stage(
                 request,
-                observer.receipt_binding(),
-                observer.account_binding(),
-                observer.observer(),
+                super::pending_reserve_journal::ReserveBindings {
+                    receipt_binding: observer.receipt_binding(),
+                    account_binding: observer.account_binding(),
+                    observer: observer.observer(),
+                },
                 pre_reserve_floor,
                 signed_reserve.original_current_check(),
                 signed_reserve.reconciliation_transaction(),
@@ -270,7 +272,7 @@ fn authenticate_pre_reserve_floor_at_v1(
     Ok(())
 }
 
-/// Exact submitted Reserve awaiting a fresh finalized BeforeProvider observer Check.
+/// Exact submitted Reserve awaiting a fresh finalized `BeforeProvider` observer Check.
 pub struct FinalPromotionSubmittedReserveV1(FinalPromotionReservedCheckRuntimeV1);
 
 impl FinalPromotionSubmittedReserveV1 {
@@ -430,7 +432,7 @@ impl FinalPromotionReservedPostPersistenceV1 {
     }
 }
 
-/// One exact finalized BeforeProvider Check and same-cut eligible custody observation.
+/// One exact finalized `BeforeProvider` Check and same-cut eligible custody observation.
 #[must_use = "consume this verified Reserved Check within its original interval"]
 pub struct FinalPromotionReservedObservationV1 {
     verified: VerifiedFinalPromotionCheckV1,

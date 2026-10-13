@@ -86,7 +86,7 @@ fn deterministic_fixture_v1(
         *network_id.as_bytes(),
         session_id,
         roster_hash,
-        EXACT_TEST_VALIDATORS_V1 as u16,
+        u16::try_from(EXACT_TEST_VALIDATORS_V1).expect("fixture value fits u16"),
         EXACT_TEST_THRESHOLD_V1,
     )
     .map_err(|_| TestNetworkParliamentTleSignerErrorV1::InvalidCryptographicFixture)?;
@@ -102,14 +102,18 @@ fn deterministic_fixture_v1(
     let mut rng = StdRng::from_seed(dealer_seed);
     let mut dealer_secrets = Vec::with_capacity(EXACT_TEST_VALIDATORS_V1);
     let mut dealer_commitments = Vec::with_capacity(EXACT_TEST_VALIDATORS_V1);
-    for dealer_index in 1_u16..=EXACT_TEST_VALIDATORS_V1 as u16 {
+    for dealer_index in
+        1_u16..=u16::try_from(EXACT_TEST_VALIDATORS_V1).expect("fixture value fits u16")
+    {
         let (secret, commitment) =
             DasRenDealerSecret::generate_with_rng(&parameters, dealer_index, &mut rng)
                 .map_err(|_| TestNetworkParliamentTleSignerErrorV1::InvalidCryptographicFixture)?;
         dealer_secrets.push(secret);
         dealer_commitments.push(commitment);
     }
-    let qualified_dealers = (1_u16..=EXACT_TEST_VALIDATORS_V1 as u16).collect::<Vec<_>>();
+    let qualified_dealers = (1_u16
+        ..=u16::try_from(EXACT_TEST_VALIDATORS_V1).expect("fixture value fits u16"))
+        .collect::<Vec<_>>();
     let dkg_event_hash: [u8; 32] = Hash::new_from_chunks(&[
         TEST_EVENT_HASH_DOMAIN_V1,
         network_id.as_bytes(),
