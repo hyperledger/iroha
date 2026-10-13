@@ -940,6 +940,25 @@ restart or a delayed issuer reply. Successful cancellation returns
 `LocalAbandoned`; it has no ledger instruction or slot/key effects. A different
 request identity may then start while the old Client and cancellation remain
 retained. If an Accepted original already exists, this pre-permit form refuses.
+
+An Accepted E1 whose account authorization never selected a Slot or Phase has a
+separate terminal expiry path. The Enrollment-role issuer signs a canonical
+`KagemushaEnrollmentExpiryProofV1` under the distinct
+`iroha:kagemusha:pre-key-expired:v1\0` domain. It binds the exact current Resume
+dispatch and retained Accepted permit SHA-256 digests, request and attempt
+identities, challenge digest, immutable expiry, and issuer observation at or
+after that expiry. Native verifies the rooted signer and every binding, retains
+Client and Accepted unchanged, requires Slot, Phase and Cancelled absence and
+refuses any matching intent or unavailable custody. Only then does it durably
+publish the immutable Expired proof. This has no ledger or hardware-key effect.
+Begin authenticates a retained Expired proof as terminal recovery DATA; permit
+acceptance and account authorization always refuse it. Generic abandonment or
+the expiry action may adopt that authenticated terminal outcome after restart
+without matching the new dispatch nonce to the old proof. This recovers a crash
+between Native publication and app completion DATA without replacing the proof,
+creating a key or allowing the expired identity to resume. A new request may
+start after `LocalAbandoned`; the old originals and proof remain retained.
+
 For selected slots, abandonment has two forms, chosen by the slot's durable
 state. The names below are Native's slot statuses
 (`KagemushaWalletSlotStatusV1`). Two different Native names say Pending. The

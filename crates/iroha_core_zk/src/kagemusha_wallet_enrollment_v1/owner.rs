@@ -6,6 +6,7 @@ use crate::kagemusha_wallet_advance_v1::*;
 use iroha_crypto::{Algorithm, Signature};
 use iroha_data_model::{account::AccountId, kagemusha::*};
 mod apple_collection;
+mod expired_prekey;
 mod prekey_owner;
 use sha2::{Digest as _, Sha256};
 
