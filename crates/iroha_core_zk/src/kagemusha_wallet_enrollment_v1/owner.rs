@@ -320,6 +320,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         Ok(EnrollmentAbandonmentV1::Abandonment(bytes))
     }
+
+    /// Permanently release an Accepted E1 attempt under an issuer-authenticated expiry proof.
+    /// This path is valid only before Slot/E2 selection; ordinary `abandon` remains refusal-safe
+    /// for every Accepted attempt.
+    pub fn abandon_expired(&mut self, proof: &[u8]) -> Result<EnrollmentAbandonmentV1, Error> {
+        self.abandon_expired_accepted(proof)
+    }
     /// Permanently abandon this unused enrollment and frame its exact retained marker receipt
     /// for an ordinary account-signed ledger transaction. The local no-marker form has no
     /// ledger effect and returns `None`. Retrying preserves the signed inner receipt exactly;
