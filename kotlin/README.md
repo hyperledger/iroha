@@ -1387,8 +1387,9 @@ native startup. `KagemushaWalletEnrollmentSessionOriginalsV1(accessToken, dpopPr
 carries no attestation root: the KeyMint chain carries its own root, pinned by SPKI in
 the enrollment policy. `begin` retains the retry identity and returns native-selected
 issuer dispatch DATA; `acceptPermit` verifies the rooted signed pre-key permit before
-returning the existing-account challenge. Native rechecks the same-boot elapsed deadline
-at hardware generation and preserves the original server attempt on retry.
+returning the existing-account challenge. Native rechecks the process-bound,
+suspend-inclusive elapsed deadline at hardware generation. Restart discards live
+authorization while preserving the original server attempt for a fresh signed permit.
 
 The payment key has one hardware plan (design §2.2): StrongBox where the phone declares
 it, otherwise the TEE. There is no policy-driven selector, StrongBox-only profile or

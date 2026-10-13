@@ -905,6 +905,7 @@ fn canonical_policy_registry_state(
         ValidationFeePolicyRegistryEntryV1::from_enactment(policy.clone(), policy_authorization)
             .expect("registry entry");
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: vec![entry],
         payout_policies: iroha_data_model::validation_fee::ValidationFeePayoutPolicyRegistryV1 {
             entries: vec![

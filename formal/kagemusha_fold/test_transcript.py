@@ -185,6 +185,8 @@ class FoldTranscript(unittest.TestCase):
     def test_source_inventory_mutations_refuse(self):
         manifest = json.loads((subject.HERE / 'transcript_source_manifest.json').read_text())
         for section, name in (('files', 'transcript.py'),
+                              ('sources', 'crates/iroha_plonk/src/pcs/ipa/mod.rs'),
+                              ('sources', 'crates/iroha_plonk/src/pcs/ipa/generator_prefix.rs'),
                               ('sources', 'crates/iroha_plonk_recursion/src/tests.rs')):
             absent = copy.deepcopy(manifest)
             del absent[section][name]
@@ -215,6 +217,18 @@ class FoldTranscript(unittest.TestCase):
                 (here / 'README.md').unlink()
                 with self.assertRaises(FileNotFoundError):
                     subject.checked_sources()
+
+    def test_delegated_generator_prefix_sources_are_not_replaceable(self):
+        read_bytes = Path.read_bytes
+        for name in ('crates/iroha_plonk/src/pcs/ipa/mod.rs',
+                     'crates/iroha_plonk/src/pcs/ipa/generator_prefix.rs'):
+            def substituted(path, selected=subject.ROOT / name):
+                raw = read_bytes(path)
+                return raw + b'\nchanged\n' if path == selected else raw
+            with self.subTest(source=name):
+                with patch.object(Path, 'read_bytes', substituted):
+                    with self.assertRaisesRegex(ValueError, 'changed source ' + name):
+                        subject.checked_sources()
 
 
 if __name__ == '__main__':

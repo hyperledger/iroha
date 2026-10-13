@@ -66,6 +66,8 @@ pub enum ValidationFeePolicyRegistryError {
     RegistryEncoding,
     /// The complete authenticated history exceeds its per-block evidence budget.
     RegistryByteLimit,
+    /// A compacted registry checkpoint does not bind its retained suffix.
+    InvalidHistoryCheckpoint,
     /// No registered policy entries were supplied.
     EmptyRegistry,
     /// A policy entry did not continue the monotonic version chain.
@@ -126,6 +128,9 @@ impl core::fmt::Display for ValidationFeePolicyRegistryError {
                 f,
                 "validation-fee registry exceeds its canonical byte limit"
             ),
+            Self::InvalidHistoryCheckpoint => {
+                write!(f, "invalid validation-fee history checkpoint")
+            }
             Self::EmptyRegistry => write!(f, "validation-fee policy registry is empty"),
             Self::UnexpectedPolicyVersion { expected, found } => write!(
                 f,
@@ -304,6 +309,42 @@ impl ValidationFeePolicyRegistryEntryV1 {
         })
     }
 }
+/// Authenticated original registry snapshot whose retired prefix is no longer hot.
+///
+/// The exact prior snapshot remains in its certified native fee corpus. A consumer
+/// authenticates that original corpus before trusting the checkpoint; these fields
+/// are not independent authority to skip governance revisions.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::validation_fee::ValidationFeePolicyHistoryV1")]
+pub struct ValidationFeePolicyHistoryV1 {
+    /// Certified original corpus containing the complete preceding hot registry.
+    pub archived_at_height: u64,
+    /// Domain-separated hash of that exact preceding registry, including its checkpoint.
+    pub registry_hash: [u8; 32],
+    /// Immutable first pricing policy hash, if pricing existed at the archived snapshot.
+    #[norito(required)]
+    pub genesis_policy_hash: Option<[u8; 32]>,
+    /// Last retired pricing version, or zero when pricing has never been retired.
+    pub retired_policy_version: u64,
+    /// Exact hash of the last retired pricing version; absent only for version zero.
+    #[norito(required)]
+    pub retired_policy_hash: Option<[u8; 32]>,
+    /// Last retired conversion revision, or zero when conversion has never been retired.
+    pub retired_payout_revision: u64,
+}
 /// On-ledger validation-fee policy registry used to reject rollback and
 /// skipped-version policy changes while retaining scheduled policy history.
 #[derive(
@@ -321,6 +362,9 @@ impl ValidationFeePolicyRegistryEntryV1 {
 #[norito(deny_unknown_fields)]
 #[norito_schema(name = "iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1")]
 pub struct ValidationFeePolicyRegistryV1 {
+    /// Exact original snapshot and contiguous retired-prefix anchors.
+    #[norito(required)]
+    pub history: Option<ValidationFeePolicyHistoryV1>,
     /// Registered policy chain in ascending, contiguous version order.
     pub registered_policies: Vec<ValidationFeePolicyRegistryEntryV1>,
     /// Independently revised conversion policies under the same authenticated registry root.
@@ -349,30 +393,6 @@ impl ValidationFeePolicyRegistryV1 {
         }
         custom.payload().try_into_any_norito::<Self>().ok()
     }
-    /// Reconstruct the exact protected registry after the requested finalized height.
-    ///
-    /// Authenticate the complete offered history before selecting both independent enactment
-    /// prefixes. A payout-only bootstrap remains a configured snapshot; no later conversion or
-    /// pricing enactment may enter the historical registry hash.
-    ///
-    /// # Errors
-    /// Returns the original registry validation error for an invalid full or retained history.
-    pub fn retained_at_height(
-        mut self,
-        height: u64,
-    ) -> Result<Option<Self>, ValidationFeePolicyRegistryError> {
-        self.validate()?;
-        self.registered_policies
-            .retain(|entry| entry.parliament_authorization.enacted_at_height <= height);
-        self.payout_policies
-            .entries
-            .retain(|entry| entry.parliament_authorization.enacted_at_height <= height);
-        if self.registered_policies.is_empty() && self.payout_policies.entries.is_empty() {
-            return Ok(None);
-        }
-        self.validate()?;
-        Ok(Some(self))
-    }
     /// Validate the complete contiguous policy chain and authenticate every retained Parliament
     /// proposal fingerprint.
     ///
@@ -384,8 +404,6 @@ impl ValidationFeePolicyRegistryV1 {
     /// Returns an error when the registry is empty, non-monotonic, broken, unauthenticated, or
     /// contains a policy whose stored hash differs from its payload.
     pub fn validate(&self) -> Result<(), ValidationFeePolicyRegistryError> {
-        // TODO: authenticate compact historical registry checkpoints before
-        // admitting revisions beyond this bound; never discard signed evidence.
         if norito::to_bytes(self)
             .map_err(|_| ValidationFeePolicyRegistryError::RegistryEncoding)?
             .len()
@@ -393,13 +411,51 @@ impl ValidationFeePolicyRegistryV1 {
         {
             return Err(ValidationFeePolicyRegistryError::RegistryByteLimit);
         }
-        self.payout_policies.validate().map_err(|_| {
-            ValidationFeePolicyRegistryError::InvalidPayoutLifecycleReference { policy_version: 0 }
-        })?;
+        let (retired_policy_version, retired_policy_hash, retired_payout_revision) =
+            self.history.as_ref().map_or((0, None, 0), |history| {
+                (
+                    history.retired_policy_version,
+                    history.retired_policy_hash,
+                    history.retired_payout_revision,
+                )
+            });
+        if self.history.as_ref().is_some_and(|history| {
+            history.archived_at_height < 2
+                || history.registry_hash == [0; 32]
+                || (history.retired_policy_version == 0) != history.retired_policy_hash.is_none()
+                || (history.retired_policy_version > 0 && history.genesis_policy_hash.is_none())
+                || (history.retired_policy_version == 0 && history.retired_payout_revision == 0)
+        }) {
+            return Err(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint);
+        }
+        self.payout_policies
+            .validate(retired_payout_revision)
+            .map_err(
+                |_| ValidationFeePolicyRegistryError::InvalidPayoutLifecycleReference {
+                    policy_version: 0,
+                },
+            )?;
         let mut entries = self.registered_policies.iter();
         let Some(first) = entries.next() else {
+            if retired_policy_version != 0
+                || self
+                    .history
+                    .as_ref()
+                    .is_some_and(|history| history.genesis_policy_hash.is_some())
+            {
+                return Err(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint);
+            }
             return Ok(());
         };
+        if first.policy.policy_version == 1
+            && self
+                .history
+                .as_ref()
+                .and_then(|history| history.genesis_policy_hash)
+                .is_some_and(|hash| hash != first.policy_hash)
+        {
+            return Err(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint);
+        }
         let payout_custody = self
             .payout_policies
             .head()
@@ -411,9 +467,12 @@ impl ValidationFeePolicyRegistryV1 {
                 policy_version: first.policy.policy_version,
             });
         }
-        if first.policy.policy_version != 1 {
+        let first_version = retired_policy_version
+            .checked_add(1)
+            .ok_or(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint)?;
+        if first.policy.policy_version != first_version {
             return Err(ValidationFeePolicyRegistryError::UnexpectedPolicyVersion {
-                expected: 1,
+                expected: first_version,
                 found: first.policy.policy_version,
             });
         }
@@ -422,7 +481,7 @@ impl ValidationFeePolicyRegistryV1 {
                 policy_version: first.policy.policy_version,
             });
         }
-        if first.policy.previous_policy_hash.is_some() {
+        if first.policy.previous_policy_hash != retired_policy_hash {
             return Err(ValidationFeePolicyRegistryError::BrokenPreviousPolicyHash {
                 policy_version: first.policy.policy_version,
             });
@@ -438,7 +497,9 @@ impl ValidationFeePolicyRegistryV1 {
             });
         }
         let mut seen_hashes = BTreeSet::from([first.policy_hash]);
-        let mut expected_version = 2u64;
+        let mut expected_version = first_version
+            .checked_add(1)
+            .ok_or(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint)?;
         let mut previous_hash = first.policy_hash;
         let mut previous_enacted_height = first.parliament_authorization.enacted_at_height;
         let mut previous_effective_ms = first.policy.effective_from_ms;
@@ -510,6 +571,191 @@ impl ValidationFeePolicyRegistryV1 {
             previous_effective_ms = entry.policy.effective_from_ms;
         }
         Ok(())
+    }
+    /// Construct a bounded hot suffix after retiring only superseded pricing and conversion.
+    ///
+    /// `pricing_frontier_ms` is the earliest unsettled wallet month (or current month), and
+    /// `service_height` is the oldest service block still needing payout selection. The caller
+    /// must authenticate this exact original registry at `archived_at_height` before installing
+    /// the result. This function never establishes archive availability or governance authority.
+    ///
+    /// # Errors
+    /// Invalid source registry, checkpoint height, or canonical encoding.
+    pub fn compacted_suffix(
+        &self,
+        archived_at_height: u64,
+        pricing_frontier_ms: u64,
+        service_height: u64,
+    ) -> Result<Option<Self>, ValidationFeePolicyRegistryError> {
+        self.validate()?;
+        if archived_at_height < 2
+            || service_height > archived_at_height
+            || self
+                .history
+                .as_ref()
+                .is_some_and(|history| history.archived_at_height >= archived_at_height)
+        {
+            return Err(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint);
+        }
+        let pricing_start = self
+            .registered_policies
+            .iter()
+            .rposition(|entry| {
+                entry.policy.effective_from_ms <= pricing_frontier_ms
+                    && entry.parliament_authorization.enacted_at_height < service_height
+            })
+            .unwrap_or(0);
+        let payout_start = self
+            .payout_policies
+            .entries
+            .iter()
+            .rposition(|entry| entry.parliament_authorization.enacted_at_height < service_height)
+            .unwrap_or(0);
+        if pricing_start == 0 && payout_start == 0 {
+            return Ok(None);
+        }
+        let previous = self.history.as_ref();
+        let retired_pricing = pricing_start
+            .checked_sub(1)
+            .map(|index| &self.registered_policies[index]);
+        let history = ValidationFeePolicyHistoryV1 {
+            archived_at_height,
+            registry_hash: self
+                .snapshot_hash()
+                .map_err(|_| ValidationFeePolicyRegistryError::RegistryEncoding)?,
+            genesis_policy_hash: self.genesis_policy_hash(),
+            retired_policy_version: retired_pricing.map_or_else(
+                || previous.map_or(0, |history| history.retired_policy_version),
+                |entry| entry.policy.policy_version,
+            ),
+            retired_policy_hash: retired_pricing.map_or_else(
+                || previous.and_then(|history| history.retired_policy_hash),
+                |entry| Some(entry.policy_hash),
+            ),
+            retired_payout_revision: payout_start.checked_sub(1).map_or_else(
+                || previous.map_or(0, |history| history.retired_payout_revision),
+                |index| self.payout_policies.entries[index].revision,
+            ),
+        };
+        let compacted = Self {
+            history: Some(history),
+            registered_policies: self.registered_policies[pricing_start..].to_vec(),
+            payout_policies: ValidationFeePayoutPolicyRegistryV1 {
+                entries: self.payout_policies.entries[payout_start..].to_vec(),
+            },
+        };
+        compacted.validate()?;
+        Ok(Some(compacted))
+    }
+    /// Authenticate the compacted suffix against its exact certified original registry.
+    ///
+    /// The caller authenticates the original corpus, carrier height and network. This checks
+    /// the complete retained overlap, retired anchors, and immutable pricing/custody identity;
+    /// an arbitrary checkpoint cannot authorize a gap, rollback, substitution or omitted suffix.
+    ///
+    /// # Errors
+    /// A checkpoint or retained suffix differs from the offered original registry.
+    pub fn validate_history_source(
+        &self,
+        source_height: u64,
+        source: &Self,
+    ) -> Result<(), ValidationFeePolicyRegistryError> {
+        self.validate()?;
+        source.validate()?;
+        let history = self
+            .history
+            .as_ref()
+            .ok_or(ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint)?;
+        let invalid = ValidationFeePolicyRegistryError::InvalidHistoryCheckpoint;
+        if history.archived_at_height != source_height
+            || history.genesis_policy_hash != source.genesis_policy_hash()
+            || source
+                .snapshot_hash()
+                .map_err(|_| ValidationFeePolicyRegistryError::RegistryEncoding)?
+                != history.registry_hash
+            || source
+                .history
+                .as_ref()
+                .is_some_and(|previous| previous.archived_at_height >= source_height)
+        {
+            return Err(invalid);
+        }
+        let first_pricing = self.registered_policies.first();
+        let source_pricing = source.registered_policies.iter().position(|entry| {
+            first_pricing
+                .is_some_and(|first| entry.policy.policy_version == first.policy.policy_version)
+        });
+        match (first_pricing, source_pricing) {
+            (Some(_), Some(start)) => {
+                let remaining = &source.registered_policies[start..];
+                if !self.registered_policies.starts_with(remaining) {
+                    return Err(invalid);
+                }
+                let (version, hash) = if start == 0 {
+                    source.history.as_ref().map_or((0, None), |h| {
+                        (h.retired_policy_version, h.retired_policy_hash)
+                    })
+                } else {
+                    let prior = &source.registered_policies[start - 1];
+                    (prior.policy.policy_version, Some(prior.policy_hash))
+                };
+                if history.retired_policy_version != version || history.retired_policy_hash != hash
+                {
+                    return Err(invalid);
+                }
+            }
+            (None, None)
+                if source.registered_policies.is_empty() && history.retired_policy_version == 0 => {
+            }
+            // Pricing may be installed after a payout-only checkpoint.
+            (Some(first), None)
+                if source.registered_policies.is_empty()
+                    && first.policy.policy_version == 1
+                    && history.retired_policy_version == 0 => {}
+            _ => return Err(invalid),
+        }
+        let first = self.payout_policies.entries.first().ok_or(invalid)?;
+        let start = source
+            .payout_policies
+            .entries
+            .iter()
+            .position(|entry| entry.revision == first.revision)
+            .ok_or(invalid)?;
+        if !self
+            .payout_policies
+            .entries
+            .starts_with(&source.payout_policies.entries[start..])
+        {
+            return Err(invalid);
+        }
+        let retired = if start == 0 {
+            source
+                .history
+                .as_ref()
+                .map_or(0, |h| h.retired_payout_revision)
+        } else {
+            source.payout_policies.entries[start - 1].revision
+        };
+        if history.retired_payout_revision != retired {
+            return Err(invalid);
+        }
+        Ok(())
+    }
+    /// Return the immutable first pricing policy hash from retained policy or authenticated history.
+    ///
+    /// A payout-only checkpoint has no pricing hash until the first pricing policy is enacted.
+    /// Consumers must authenticate the registry snapshot before trusting this projection.
+    #[must_use]
+    pub fn genesis_policy_hash(&self) -> Option<[u8; 32]> {
+        self.registered_policies
+            .first()
+            .filter(|entry| entry.policy.policy_version == 1)
+            .map(|entry| entry.policy_hash)
+            .or_else(|| {
+                self.history
+                    .as_ref()
+                    .and_then(|history| history.genesis_policy_hash)
+            })
     }
     /// Return the latest enacted entry, including a policy scheduled for a future calendar boundary.
     #[must_use]
@@ -1131,6 +1377,10 @@ pub fn initial_validation_fee_amount() -> Quantity {
         .expect("hard-coded validation-fee amount is canonical")
 }
 #[cfg(test)]
+#[path = "validation_fee/policy_history_tests.rs"]
+mod policy_history_tests;
+
+#[cfg(test)]
 mod parliament_tests {
     use super::*;
     use crate::parliament_types::{
@@ -1165,7 +1415,7 @@ mod parliament_tests {
             Name::from_str("xor").expect("asset name"),
         )
     }
-    fn payout_binding() -> ValidationFeeTreasuryPayoutBindingV1 {
+    pub(super) fn payout_binding() -> ValidationFeeTreasuryPayoutBindingV1 {
         let contract_address: ContractAddress =
             "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
                 .parse()
@@ -1202,7 +1452,7 @@ mod parliament_tests {
             min_reward_claim_xor_minor: 1,
         }
     }
-    fn proposal_operator() -> AccountId {
+    pub(super) fn proposal_operator() -> AccountId {
         account(7)
     }
     fn policy_jury_body(
@@ -1310,7 +1560,7 @@ mod parliament_tests {
             }),
         }
     }
-    fn authorization(
+    pub(super) fn authorization(
         proposal_fingerprint: [u8; 32],
         marker: u8,
     ) -> ValidationFeeParliamentAuthorizationV1 {
@@ -1350,7 +1600,10 @@ mod parliament_tests {
             enacted_at_height: enact_at_height,
         }
     }
-    fn policy(version: u64, previous_policy_hash: Option<[u8; 32]>) -> ValidationFeePolicyV1 {
+    pub(super) fn policy(
+        version: u64,
+        previous_policy_hash: Option<[u8; 32]>,
+    ) -> ValidationFeePolicyV1 {
         let binding = payout_binding();
         ValidationFeePolicyV1 {
             retail_schedule: RetailFeeScheduleV1::default(),
@@ -1371,7 +1624,10 @@ mod parliament_tests {
             reward_custody: binding.custody(),
         }
     }
-    fn entry(policy: ValidationFeePolicyV1, marker: u8) -> ValidationFeePolicyRegistryEntryV1 {
+    pub(super) fn entry(
+        policy: ValidationFeePolicyV1,
+        marker: u8,
+    ) -> ValidationFeePolicyRegistryEntryV1 {
         let proposal_id = validation_fee_policy_proposal_fingerprint(&proposal_operator(), &policy);
         ValidationFeePolicyRegistryEntryV1::from_enactment(
             policy,
@@ -1398,6 +1654,7 @@ mod parliament_tests {
         let policy = policy(1, None);
         let binding = payout_binding();
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![entry(policy.clone(), 1)],
         };
@@ -1502,6 +1759,7 @@ mod parliament_tests {
         let height = first.parliament_authorization.enacted_at_height;
         let activation = first.policy.effective_from_ms;
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![first],
         };
@@ -1680,6 +1938,7 @@ mod parliament_tests {
         let second_entry = entry(second, 2);
         let second_effective_height = second_entry.parliament_authorization.enacted_at_height + 1;
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![first_entry, second_entry],
         };
@@ -1712,6 +1971,7 @@ mod parliament_tests {
         let first_entry = entry(first, 1);
         let second = policy(2, Some(first_entry.policy_hash));
         let mut registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![first_entry, entry(second, 2)],
         };
@@ -1728,6 +1988,7 @@ mod parliament_tests {
         let first = entry(policy(1, None), 1);
         let second = policy(2, Some([9; 32]));
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![first, entry(second, 2)],
         };
@@ -1812,7 +2073,7 @@ mod parliament_tests {
         let oversized = AccountId::new_multisig(
             MultisigPolicy::new(
                 1,
-                (0u8..16)
+                (1u8..=16)
                     .map(|seed| {
                         MultisigMember::new(
                             iroha_crypto::KeyPair::from_seed(
@@ -1845,6 +2106,7 @@ mod parliament_tests {
     #[test]
     fn complete_registry_byte_limit_reserves_automatic_reward_evidence_capacity() {
         let mut registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies: payout_registry(),
         };
@@ -1889,115 +2151,10 @@ mod parliament_tests {
         );
     }
     #[test]
-    fn historical_registry_retains_both_enactment_prefixes_and_payout_only_bootstrap() {
-        let payouts = payout_registry();
-        let first_payout_height = payouts.entries[0]
-            .parliament_authorization
-            .enacted_at_height;
-        let pricing = entry(policy(1, None), 2);
-        let pricing_height = pricing.parliament_authorization.enacted_at_height;
-        assert!(first_payout_height < pricing_height);
-        let original = ValidationFeePolicyRegistryV1 {
-            payout_policies: payouts,
-            registered_policies: vec![pricing.clone()],
-        };
-        let mut complete = original.clone();
-        let mut revised = complete.payout_policies.entries[0].clone();
-        revised.revision = 2;
-        revised.payout_binding.max_sbd_per_attempt_minor += 1;
-        revised.proposal_id = validation_fee_payout_lifecycle_proposal_fingerprint(
-            &proposal_operator(),
-            &revised.payout_binding,
-        );
-        revised.lifecycle_seal = revised.payout_binding.lifecycle_seal().unwrap();
-        revised.parliament_authorization = authorization(revised.proposal_id, 3);
-        let conversion_height = revised.parliament_authorization.enacted_at_height;
-        complete.payout_policies.entries.push(revised);
-        let next_pricing = entry(policy(2, Some(pricing.policy_hash)), 4);
-        let next_pricing_height = next_pricing.parliament_authorization.enacted_at_height;
-        complete.registered_policies.push(next_pricing);
-        complete
-            .validate()
-            .expect("complete independent mathematical Parliament fixtures");
-        assert_eq!(
-            complete
-                .clone()
-                .retained_at_height(first_payout_height - 1)
-                .unwrap(),
-            None
-        );
-        let bootstrap = complete
-            .clone()
-            .retained_at_height(first_payout_height)
-            .unwrap()
-            .unwrap();
-        assert!(bootstrap.registered_policies.is_empty());
-        assert_eq!(bootstrap.payout_policies.entries.len(), 1);
-        let bootstrap_commitment = ValidationFeePolicySnapshotCommitmentV1::from_registry(
-            first_payout_height,
-            1_793_451_600_000,
-            Some(&bootstrap),
-        );
-        assert!(
-            matches!(
-                bootstrap_commitment.status,
-                ValidationFeePolicySnapshotStatusV1::Available(_)
-            ),
-            "configured payout-only history is not Unconfigured"
-        );
-        let historical = complete
-            .clone()
-            .retained_at_height(pricing_height)
-            .unwrap()
-            .unwrap();
-        assert_eq!(historical, original);
-        let witness = ValidationFeePolicySnapshotCommitmentV1::from_registry(
-            pricing_height,
-            1_793_451_600_000,
-            Some(&original),
-        );
-        assert_eq!(
-            ValidationFeePolicySnapshotCommitmentV1::from_registry(
-                pricing_height,
-                1_793_451_600_000,
-                Some(&historical)
-            ),
-            witness
-        );
-        assert_ne!(
-            ValidationFeePolicySnapshotCommitmentV1::from_registry(
-                pricing_height,
-                1_793_451_600_000,
-                Some(&complete)
-            ),
-            witness,
-            "later independently enacted conversion changes the committed registry root"
-        );
-        let revised_only = complete
-            .clone()
-            .retained_at_height(conversion_height)
-            .unwrap()
-            .unwrap();
-        assert_eq!(revised_only.registered_policies.len(), 1);
-        assert_eq!(revised_only.payout_policies.entries.len(), 2);
-        assert_eq!(
-            complete
-                .clone()
-                .retained_at_height(next_pricing_height)
-                .unwrap(),
-            Some(complete.clone())
-        );
-        let mut invalid_future = complete;
-        invalid_future.payout_policies.entries[1].lifecycle_seal[0] ^= 1;
-        assert!(
-            invalid_future.retained_at_height(pricing_height).is_err(),
-            "filtering must not hide an invalid offered later authority"
-        );
-    }
-    #[test]
     fn independent_conversion_registry_requires_exact_authority_and_stable_custody() {
         let pricing = entry(policy(1, None), 1);
         let mut registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: payout_registry(),
             registered_policies: vec![pricing.clone()],
         };
@@ -2217,6 +2374,7 @@ mod snapshot_tests {
             ValidationFeePolicySnapshotStatusV1::Unconfigured
         ));
         let empty_registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: Vec::new(),
             },

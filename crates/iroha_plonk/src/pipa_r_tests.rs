@@ -189,6 +189,59 @@ fn descriptor_v2_requires_direct_and_suffix() {
     assert!(matches!(pk.vk().transcript_repr(), TranscriptRepr::Base(_)));
 }
 
+#[test]
+fn descriptor_binding_v2_preserves_canonical_admission_on_both_curves() {
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(K).expect("params");
+        let config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
+        let (original, _) =
+            crate::keys::keygen_vk_with_binding_v2(&params, &ARITHMETIC, &config).expect("binding");
+        let encoded = original.encoded();
+        let descriptor = CircuitDescriptorV2::decode(encoded).expect("descriptor");
+        let constructed = DescriptorBinding::new_v2(descriptor.clone()).expect("constructor");
+        let decoded = DescriptorBinding::decode_v2(encoded).expect("binding decode");
+        assert_eq!(decoded, constructed);
+        assert_eq!(decoded, original);
+        assert_eq!(decoded.encoded(), encoded);
+        assert_eq!(decoded.digest(), &descriptor.digest().expect("digest"));
+
+        let mut trailing = encoded.to_vec();
+        trailing.push(0);
+        let mut concatenated = encoded.to_vec();
+        concatenated.extend_from_slice(encoded);
+        let mut changed = encoded.to_vec();
+        *changed.last_mut().expect("nonempty") ^= 1;
+        for malformed in [
+            &[][..],
+            &encoded[..encoded.len() - 1],
+            trailing.as_slice(),
+            concatenated.as_slice(),
+            changed.as_slice(),
+        ] {
+            assert!(DescriptorBinding::decode_v2(malformed).is_err());
+        }
+
+        // Canonical framing alone never admits an invalid arithmetic or V2 profile.
+        for mutation in 0..5 {
+            let mut invalid = descriptor.clone();
+            match mutation {
+                0 => invalid.instance_mode = InstanceModeV1::Committed,
+                1 => invalid.proof_suffix = ProofSuffixV1::None,
+                2 => invalid.instance_types.clear(),
+                3 => invalid.instance_types[0] = InstanceType::Bits(254),
+                _ => invalid.permutation_chunk_len = 0,
+            }
+            let expected = invalid.validate().expect_err("invalid descriptor");
+            let framed = invalid
+                .encode()
+                .expect("canonical invalid descriptor frame");
+            assert_eq!(DescriptorBinding::decode_v2(&framed), Err(expected));
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
 fn proof_case<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
 where
     C: PastaCurve,

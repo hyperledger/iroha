@@ -3,6 +3,11 @@
 #[cfg(unix)]
 #[path = "runtime_reward_crash_tests.rs"]
 mod crash_tests;
+#[path = "runtime_policy_history_tests.rs"]
+mod policy_history_tests;
+
+#[path = "runtime_reward_history_tests.rs"]
+mod history_tests;
 
 use super::*;
 use crate::{smartcontracts::Execute as _, sumeragi::test_chain::CertifiedTestChain};
@@ -137,6 +142,7 @@ fn prepare_scheduled_reward_fixture(
         // explicit component prestate. Service, exposure, funded allocations,
         // entitlements and claims below are produced only by native execution.
         let registry = iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies:
                 iroha_data_model::validation_fee::ValidationFeePayoutPolicyRegistryV1 {

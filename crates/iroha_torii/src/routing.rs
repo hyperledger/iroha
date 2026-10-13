@@ -42084,7 +42084,7 @@ mod cursor_mode_tests {
 }
 include!("routing/transaction_ingress_overload_tests.rs");
 #[cfg(test)]
-mod validation_fee_torii_ingress_tests {
+pub(crate) mod validation_fee_torii_ingress_tests {
     use super::*;
     use iroha_config::parameters::actual::ParliamentTimedOvn;
     use iroha_core::{
@@ -42357,7 +42357,7 @@ mod validation_fee_torii_ingress_tests {
             ivm::verify_contract_artifact(&artifact).expect("valid pool contract artifact");
         (artifact, verified.manifest)
     }
-    fn payout_binding(
+    pub(crate) fn payout_binding(
         state: &State,
         user: &AccountId,
         fee_asset: &AssetDefinitionId,
@@ -42447,7 +42447,7 @@ mod validation_fee_torii_ingress_tests {
         initial.commit();
         world
     }
-    fn native_fee_fixture() -> (
+    pub(crate) fn native_fee_fixture() -> (
         CertifiedTestChain,
         KeyPair,
         AccountId,
@@ -43051,6 +43051,7 @@ mod validation_fee_torii_ingress_tests {
         )
         .expect("validation-fee registry entry");
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: vec![entry],
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: vec![ValidationFeePayoutPolicyEntryV1 {

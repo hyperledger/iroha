@@ -1975,6 +1975,32 @@ in parallel. Stand-in payloads are useful for carrier work but cannot satisfy a
 completed-payment claim. Neither the POC nor production integration introduces
 a flag that bypasses monetary validation.
 
+### 10.1 First-release completion sequence
+
+The remaining work is executed in the following order, with independent proof,
+ledger and measurement work continuing while a platform dependency is resolved.
+This is the first release: replace defective layouts, APIs and constructions
+directly, regenerate their artifacts and consumers, and remove superseded paths.
+Do not preserve compatibility decoders, old-key fallbacks or a second monetary
+implementation. The stock-phone, hardware-key, shared-native-core, irreversible
+offline payment, exact-byte recovery and offline onward-spending requirements
+remain unchanged.
+
+| Priority | Existing goals / owner | Required completion evidence |
+| --- | --- | --- |
+| 1. iOS rollback and release | G2 / native provider and Swift storage | Trace Selected marker, journal, signature, anchor and externally available Payment bytes. Reproduce interrupted/ambiguous writes, restart, concurrency and replay. Determine which backup/restore schedules supported stock-device operations actually permit. Establish the platform persistence guarantee before claiming that a released Payment precludes a competing successor from restored state; Keychain readback alone is insufficient. Preserve any residual counterexample and identify the smallest unavailable primitive or required design decision. |
+| 2. Complete monetary lifecycle | G4/G5, NF1–NF6 / wallet, node and SDK | From one source/artifact candidate, perform enrollment → activation → funded Load → A pays B → B pays C offline → Unload → ledger payout. Cover supported selectors, Receive folding, ArchiveReceive, ArchiveStatus, fees and enabled controls; crashes, lost acknowledgements, exact retries, duplicate credits, conflicting inputs, invalid proofs, stale state and restart must preserve conservation, committed payments and once-only payout. Retain actual four-validator and physical Android/iPhone results separately from software fixtures. |
+| 3. Proof correctness and privacy | G3 / proof owners and independent reviewer | Run genuine-proof native/circuit binding mutations for every consuming operation, including Ω opening and both exposed accumulator decisions at acceptance boundaries. Complete [C12](kagemusha_recursion_soundness_v1.md) for the actual recursive setup, three-Q prefix, RP57 interfaces, exposed challenges, adaptive histories, checkpoints, retries and joint folding/publication, with explicit assumptions and independent review. Regenerate affected artifacts after a construction change. |
+| 4. Size and performance | G1/G4/G7 / native, SDK and carrier owners | Retain each genuine bounded message's exact canonical envelope and demonstrate ≤10,000 bytes across supported variants. Measure cold opening, peak memory, retained storage, durable payment completion and the separate time until received value is spendable. Evaluate the two-second p95 requirement on a declared physical-device/OS/carrier population; preserve failed, cancelled and slow trials. Stand-in proofs and host timings do not qualify phone payments. |
+| 5. One verified delivery | G6/G7 / native and managed consumer owners | Record source closure, lock/build inputs, catalog/key/native-library/SDK hashes and exact test commands. Rebuild matching consumers, run focused regressions followed by complete required suites and release checks, and update current specifications/status/public documentation. A changed source candidate requires affected evidence to be repeated; compilation or another candidate's results do not close a requirement. |
+
+The completion report names concrete defects and their regressions, exact source
+and artifact identities, network/device results, size/resource/timing measurements,
+completed cryptographic arguments and their assumptions. Every remaining item
+names its precise external dependency and smallest necessary decision. A
+component passing its tests is evidence for that component's recorded scope,
+not completion of this sequence.
+
 ## 11. Verification and present implementation truth
 
 The checklist covers conservation, competing successors, receipt substitution,

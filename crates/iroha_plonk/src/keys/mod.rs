@@ -108,7 +108,14 @@ impl DescriptorBinding {
     /// # Errors
     /// The bytes are not exactly one valid canonical V2 descriptor.
     pub fn decode_v2(bytes: &[u8]) -> Result<Self, DescriptorError> {
-        Self::new_v2(CircuitDescriptorV2::decode(bytes)?)
+        // Decode already validates the descriptor and compares its canonical
+        // encoding to these bytes; retain that checked frame without a second pass.
+        let descriptor = CircuitDescriptorV2::decode(bytes)?;
+        Ok(Self {
+            descriptor: descriptor.into(),
+            encoded: bytes.to_vec(),
+            digest: crate::cs::descriptor_v2::descriptor_digest_v2(bytes),
+        })
     }
 
     /// Whether this binding is from the explicit V2 schema.

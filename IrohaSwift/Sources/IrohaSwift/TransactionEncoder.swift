@@ -19,9 +19,6 @@ public enum TransactionInputError: Error, LocalizedError, Equatable {
     case invalidGovernanceSelector(field: String, value: String)
     case governanceOwnerMustEqualAuthority
     case invalidZkBallotPublicInputs(String)
-    /// The native transfer encoder cannot attach a memo yet; a non-empty
-    /// `TransferRequest.description` would otherwise be silently dropped.
-    case transferDescriptionUnsupported
 
     public var errorDescription: String? {
         switch self {
@@ -61,8 +58,6 @@ public enum TransactionInputError: Error, LocalizedError, Equatable {
             return "A public conviction update must be owned by its transaction authority."
         case let .invalidZkBallotPublicInputs(reason):
             return "Governance ZK public inputs are invalid: \(reason)"
-        case .transferDescriptionUnsupported:
-            return "TransferRequest.description is not encoded into transfers yet; pass nil. A non-empty memo is rejected rather than silently dropped from the signed transaction."
         }
     }
 }
@@ -436,13 +431,16 @@ enum SingleInstructionSwiftNoritoEncoder {
         creationTimeMs: UInt64,
         ttlMs: UInt64?,
         frames: [TransactionInstructionFrame],
-        feePayment: FeePaymentIntent
+        feePayment: FeePaymentIntent,
+        nonce: UInt32? = nil,
+        metadata: [String: ToriiJSONValue] = [:]
     ) throws -> Data {
         guard !frames.isEmpty else { throw ExecutableBatchInputError.emptyBatch }
         return try encodeNetworkTransactionPayload(
             networkId: networkId, authority: authority, creationTimeMs: creationTimeMs,
             ttlMs: ttlMs, feePayment: feePayment,
-            instructionPayloads: try frames.map { try $0.compactInstructionBoxPayload(expectedNetworkId: networkId) }
+            instructionPayloads: try frames.map { try $0.compactInstructionBoxPayload(expectedNetworkId: networkId) },
+            nonce: nonce, metadata: metadata
         )
     }
 
@@ -639,7 +637,7 @@ enum SingleInstructionSwiftNoritoEncoder {
             networkId: networkId,
             authority: authority,
             creationTimeMs: creationTimeMs,
-            ttlMs: ttlMs,
+            ttlMs: ttlMs ?? 100_000,
             feePayment: feePayment,
             instructionPayloads: [instructionPayload],
 
@@ -652,13 +650,12 @@ enum SingleInstructionSwiftNoritoEncoder {
         creationTimeMs: UInt64,
         ttlMs: UInt64?,
         feePayment: FeePaymentIntent,
-        instructionPayloads: [Data]
-
+        instructionPayloads: [Data],
+        nonce: UInt32? = nil,
+        metadata: [String: ToriiJSONValue] = [:]
     ) throws -> Data {
-        let resolvedTtlMs = ttlMs ?? 100_000
-        guard resolvedTtlMs != 0 else {
-            throw ExecutableBatchInputError.zeroTimeToLive
-        }
+        if let ttlMs, ttlMs == 0 { throw ExecutableBatchInputError.zeroTimeToLive }
+        if let nonce, nonce == 0 { throw ExecutableBatchInputError.zeroNonce }
         let ids = try TransactionInputValidator.validate(
             networkId: networkId,
             authorityId: authority
@@ -679,14 +676,13 @@ enum SingleInstructionSwiftNoritoEncoder {
         transactionPayload.writeField(executablePayload)
         transactionPayload.writeField(
             try CompactNorito.encodeOption(
-                resolvedTtlMs,
+                ttlMs,
                 encode: CompactNorito.encodeUInt64
             )
         )
-        transactionPayload.writeField(encodeNoneOption())
+        transactionPayload.writeField(try CompactNorito.encodeOption(nonce, encode: CompactNorito.encodeUInt32))
         transactionPayload.writeField(try feePayment.compactNorito())
-
-        transactionPayload.writeField(encodeEmptyMetadata())
+        transactionPayload.writeField(try CanonicalNorito.encodeCompactMetadata(metadata))
         transactionPayload.writeField(encodeNoneOption())
         return transactionPayload.data
     }
@@ -815,36 +811,29 @@ struct SwiftTransactionEncoder {
     static func encodeTransfer(transfer: TransferRequest,
                                signingKey: SigningKey,
                                creationTimeMs: UInt64) throws -> SignedTransactionEnvelope {
-        // TODO: encode the memo once the native transfer encoder accepts one;
-        // until then reject it rather than signing a transaction without it.
-        if let description = transfer.description, !description.isEmpty {
-            throw TransactionInputError.transferDescriptionUnsupported
-        }
+        _ = try privateKeyBytes(from: signingKey)
+        let payload = try transferPayload(transfer: transfer, creationTimeMs: creationTimeMs)
+        let signature = try signingKey.sign(IrohaHash.hash(payload))
+        return SingleInstructionSwiftNoritoEncoder.signedEnvelope(transactionPayload: payload, signature: signature)
+    }
+
+    /// One canonical native transfer instruction, with the exact caller memo in signed metadata.
+    static func transferPayload(transfer: TransferRequest, creationTimeMs: UInt64) throws -> Data {
         let ids = try TransactionInputValidator.validate(networkId: transfer.networkId,
-                                                         authorityId: transfer.authority,
-                                                         assetDefinitionId: transfer.assetDefinitionId,
-                                                         accountIds: [.init(field: "destination", value: transfer.destination)])
+            authorityId: transfer.authority, assetDefinitionId: transfer.assetDefinitionId,
+            accountIds: [.init(field: "destination", value: transfer.destination)])
         guard let assetDefinitionId = ids.assetDefinitionId else {
             throw TransactionInputError.emptyAssetDefinitionId
         }
-        let destination = ids.accountIds["destination"] ?? transfer.destination
-        let quantity = try KotodamaNumericV1Codec.decodeQuantityJSON(transfer.quantity).canonicalString
-        let feePaymentJSON = try transfer.feePayment.canonicalJSONData()
-        let privateKey = try privateKeyBytes(from: signingKey)
-        let native = try bridgeOrThrow {
-            try NoritoNativeBridge.shared.encodeTransfer(networkId: ids.networkId,
-                                                         authority: ids.authorityId,
-                                                         creationTimeMs: creationTimeMs,
-                                                         ttlMs: transfer.ttlMs,
-                                                         nonce: transfer.nonce,
-                                                         assetDefinitionId: assetDefinitionId,
-                                                         quantity: quantity,
-                                                         destination: destination,
-                                                         feePaymentJSON: feePaymentJSON,
-                                                         privateKey: privateKey,
-                                                         algorithm: signingKey.algorithm)
-        }
-        return try wrap(native: native)
+        let frame = try NoritoNativeBridge.shared.encodeTransferInstructionFrame(
+            authority: ids.authorityId, assetDefinitionId: assetDefinitionId,
+            quantity: transfer.quantity, destination: ids.accountIds["destination"] ?? transfer.destination)
+        var metadata: [String: ToriiJSONValue] = [:]
+        if let memo = transfer.description, !memo.isEmpty { metadata["memo"] = .string(memo) }
+        return try SingleInstructionSwiftNoritoEncoder.instructionsPayload(
+            networkId: ids.networkId, authority: ids.authorityId, creationTimeMs: creationTimeMs,
+            ttlMs: transfer.ttlMs ?? 100_000, frames: [frame], feePayment: transfer.feePayment,
+            nonce: transfer.nonce, metadata: metadata)
     }
 
     static func encodeMint(request: MintRequest,

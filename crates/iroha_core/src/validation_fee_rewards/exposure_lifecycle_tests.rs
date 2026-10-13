@@ -243,6 +243,7 @@ fn run_historical_reward_lifecycle() {
     let mut setup = lifecycle_block(state, setup_height, NOW);
     let mut stx = setup.transaction_for_callback_testing();
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: Vec::new(),
         payout_policies: ValidationFeePayoutPolicyRegistryV1 {
             entries: vec![crate::validation_fee::tests::payout_registry_entry(

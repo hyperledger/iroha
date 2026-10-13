@@ -1,8 +1,9 @@
 # Native exchange acceptance inputs
 
 `native_exchange.rs` contains **ignored, artifact-dependent** host acceptance tests for the complete software pipeline.
-None has passed until its actual source/receipt dependencies have qualified. The ordinary
-host-custody test covers only persistence of the explicit software hardware fixture.
+Each result belongs to its independently admitted source/receipt dependencies; retained
+historical executions do not qualify a changed candidate. The ordinary host-custody test
+covers only persistence of the explicit software hardware fixture.
 
 The export test first authenticates the complete signed producer catalog and independent
 native genesis through `open_pinned_engineering_wallet_sources`. Its seven source
@@ -73,9 +74,46 @@ package, folds the complete outgoing backlog, reopens the same custody, and
 replays the acknowledgement without another signature or monetary change. B's
 final CreditStatus must expose an empty pending-outgoing root. The four exact
 acknowledgement/Archive originals are retained with their lengths and hashes in
-`archive_originals`; every original must fit 10,000 bytes. These new checks are
-pending compilation and execution on the current candidate; their registration
-does not establish either Archive branch's acceptance.
+`archive_originals`; every original must fit 10,000 bytes. Exact current-candidate
+execution, rather than registration of the checks, establishes acceptance.
+
+The exchange additionally retains the **complete canonical envelopes** for both
+Payments, their predecessor Lineage messages, the Receive acknowledgement and
+the CreditStatus acknowledgement. `message_envelopes` records each full frame's
+role, byte count, SHA-256 and bound. Each frame and its measurement are synced
+before checking the bound, so an oversized failure remains inspectable. A naked
+Payment or Credited object's byte count does not establish the carrying frame's
+size. All measured frames are retained before Sigma proofs and the Omega
+opening/accumulator decisions are verified against the admitted catalog. The
+separate `proof-checks.json` retains each proof decision, including failures.
+This helper checks CreditStatus's Omega only: it does not independently recheck
+its credit-membership opening, receipt or Request/Payment linkage. The parent
+exchange's Archive owner performs full native admission separately. These six observed
+messages cover the zero-fee, controls-off ABC exchange only; they do not qualify
+Offer, every fee/control variant, all message types, or physical carriers.
+
+`message_census::remeasure_retained_genuine_exchange_envelopes_without_wallet_mutation`
+rechecks existing public originals without opening wallet custody, reenrolling,
+signing or repeating a monetary operation. In addition to the catalog inputs it
+requires `KAGEMUSHA_NATIVE_MESSAGE_ORIGINALS` and `_SHA256`, a privately retained
+JSON manifest with schema `iroha.kagemusha.message-originals.v1`, the exact seven
+`source_pins`, and exactly four `originals` entries (`name`, `bytes`, `sha256`):
+`a-b-payment.norito`, `b-c-payment.norito`, `a-credited-receive.norito` and
+`b-credited-status.norito`. Those files are siblings of the manifest. Use a fresh
+`KAGEMUSHA_NATIVE_MESSAGE_CENSUS_OUTPUT`. The result binds its observer binary
+and source snapshot separately. The snapshot is diagnostic and is not a guarded
+compiler consumed-input attestation. It cannot promote historical producer
+evidence into a current-candidate lifecycle result. Its proof verification is
+not a new native message/operation-admission verdict. The focused ordinary regression
+`message_census_records_complete_frame_and_retains_oversize_failure` uses clearly
+labelled structural vectors solely to reject a payload that fits while its
+carrying envelope exceeds 10,000 bytes.
+
+No host-census result supplies a physical latency measurement. Device campaigns
+must retain separate monotonic events for payer confirmation, receiver durable
+completion, and the receiver's fold reaching its current head. Report durable
+completion and additional time to onward spendability separately; a fold retry
+or restart cannot reset the original interval. Keep failed and slow trials.
 
 The software-key file is test-only private custody, not a portable wallet format or runtime
 API. Never distribute it with the public target. Consumer execution changes A's selected

@@ -24,7 +24,7 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 | IVM/Kotodama | IVM is the sole VM with ABI V1 and program header 1.1; header 1.0 is rejected. Compiler separation and state-free proof owners reduce normal dependency graphs. Source bundles support declaration includes and explicit module exports; authenticated error-message catalogs preserve nominal schemas. FASTPQ Metal uses one embedded-bundle admission owner; runtime source/path loading is removed. Ordinary Linux/Windows daemon dependencies include driver-loaded IVM CUDA; genuine bundle absence permits CPU build/startup, and supplied unapproved material is rejected. Original-pool idle-runtime rows and scoped committed/frozen account-rekey, trigger-contract and all four trigger-action captures are integrated; fresh compilation and runtime validation remain pending. | [Syntax and developer-experience completion](specs/kotodama_devex_goals.md): compiler/tooling integration, scoped authority, atomic call semantics, interfaces, emitted events and lifecycle behavior pass matching component/API regressions; examples and owned artifacts are regenerated and checked. Installed native SDK and whole-node qualification remain open. Lifecycle/custody closure, complete State/Kura publication, native execution proofs, anchored private invocation/AXT, coherent SDK regeneration and hardware validation. FASTPQ has no approved Metal bundle. IVM CUDA approval is `None`; genuine signed ten-family artifacts, driverless runtime checks and physical qualification remain open. |
 | ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with a pinned history; the FHE ownership inventory; the RAM-LFE V1 policy, receipt, opening, class and query-limit contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); and the unified resource contract. Two shared crates exist: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic used by BFV, ZK-AMS, Jindo and Bootle-Lantern) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). | No new proof relation, FHE construction, native ISI or SDK operation exists yet, and nothing consumes the RAM-LFE V1 types. The certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The resource contract records eleven relations violated today, so a maximum zk-X509 proof transaction cannot be committed under current defaults. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
 | SoraFS | Software signing, canonical manifests and storage/billing/publication ownership are implemented; the ordinary Node library tests pass. | Matched daemon/harness, provider resilience and L1/L2 promotion. |
-| KAGEMUSHA | G1 revision4, fixed64 quotas, Request-recorded controls, native PIPA-R/PIPA-AS, operation relations and durable wallet/C/JNI paths are implemented. Load checks ordinary Sumeragi BLS finality before Advance and has 3 Q/4 A/3 W/Ω; Pasta proofs and local folding remain. Funding assurance relies on the released wallet and an uncompromised OS. Any Universal Dataspace token is eligible without Parliament approval; regulated eligibility comes from bank middleware. Controls default off and fees default to zero. Retired monetary engines, recursive/mint finality and generic consensus attestation are removed. See [NF1–NF6](specs/kagemusha_native_finality_goals.md) and [candidate evidence](specs/kagemusha_evidence_gate.md#8-recorded-results). | The current wallet capture passes 739 ordinary tests, and native A preparation passes 95 tests, including the new own-original bindings. The repaired genuine Send regression and Load Q public-inverse checks pass; the latter verify seven actual proofs. The remaining genuine component campaign is running. Selected Pasta/Plonk/Gadgets strict lint and both proof-byte golden families pass. Proof lib/tests strict lint fails at 93 distinct locations across 21 test files; a reviewed repair is prepared but held during captured-source runs. The unrelated primitives lint failure remains open. Current M3 has completed the first of three blocks for all eight configurations: all valid runs meet hard limits, but real-Q one-worker CPU median is 27.491 s against the required 27 s margin. One calibration-invalid attempt is retained. Full qualification and the prepared optimizations remain open. Kotlin covers all 1,907 current JVM cases, including 222 Java-consumer tests and 17 new enrollment cases, against the fresh bridge. Seven missing-generator-setting failures from the full run are retained and covered by a passing 13-test rerun. The authenticated bridge rebuild and complete Swift suite pass all 2,236 tests, including all 21 new enrollment cases, with pre/post custody verification. These are host SDK results. Stock4 node/client compile successfully, but eight consumed deployment inputs changed during compilation; source closure rejects the capture. Prior stock3 acceptance remains withdrawn and harness3 is source-inconclusive. Current complete52 artifact reconstruction and actual ≤10,000 B envelopes, real-proof A→B→C→Unload on four validators, recursive privacy C12, rebuilt SDK delivery and Android release artifacts remain open. The 2 s p95 durable-completion and separate physical-phone gates remain unqualified. |
+| KAGEMUSHA | G1 revision4, fixed64 quotas, Request-recorded controls, native PIPA-R/PIPA-AS, operation relations and durable wallet/C/JNI paths are implemented. Load checks ordinary Sumeragi BLS finality before Advance and has 3 Q/4 A/3 W/Ω; Pasta proofs and local folding remain. Funding assurance relies on the released wallet and an uncompromised OS. Any Universal Dataspace token is eligible without Parliament approval; regulated eligibility comes from bank middleware. Controls default off and fees default to zero. Retired monetary engines, recursive/mint finality and generic consensus attestation are removed. See [NF1–NF6](specs/kagemusha_native_finality_goals.md) and [candidate evidence](specs/kagemusha_evidence_gate.md#8-recorded-results). | The current wallet capture passes 739 ordinary tests, and native A preparation passes 95 tests, including the new own-original bindings. The repaired genuine Send regression and Load Q public-inverse checks pass; the latter verify seven actual proofs. The remaining genuine component campaign is running. Selected Pasta/Plonk/Gadgets strict lint and both proof-byte golden families pass. Proof lib/tests strict lint fails at 93 distinct locations across 21 test files; a reviewed repair is prepared but held during captured-source runs. The unrelated primitives lint failure remains open. Current M3 has completed the first of three blocks for all eight configurations: all valid runs meet hard limits, but real-Q one-worker CPU median is 27.491 s against the required 27 s margin. One calibration-invalid attempt is retained. Full qualification and the prepared optimizations remain open. Kotlin covers all 1,907 current JVM cases, including 222 Java-consumer tests and 17 new enrollment cases, against the fresh bridge. Seven missing-generator-setting failures from the full run are retained and covered by a passing 13-test rerun. The authenticated bridge rebuild and complete Swift suite pass all 2,236 tests, including all 21 new enrollment cases, with pre/post custody verification. These are host SDK results. Stock4 node/client compile successfully, but eight consumed deployment inputs changed during compilation; source closure rejects the capture. Prior stock3 acceptance remains withdrawn and harness3 is source-inconclusive. Complete 32-program/52-route compact catalogue admission and Android 38/iOS 20261013030704 SDK packaging pass; the later E1 repair still needs matching rebuilt consumers. The iOS provider requires acknowledged Selected and Released anchor mutations and refuses uncertain readback; power-loss persistence and supported restore behavior remain unqualified, including loss of both updates followed by restoration of old files. Current whole-operation ≤10,000 B envelopes, real-proof A→B→C→Unload on four validators, recursive privacy C12 and physical app acceptance remain open. The 2 s p95 durable-completion and separate physical-phone gates remain unqualified. |
 | Petal Stream | `iroha_petal` implements the [Petal Stream](specs/petal_stream.md) animated optical transport (`天` orientation field, katakana, tile polarity and ring dots as three Reed–Solomon lanes under a rateless fountain) with decoder, renderer, camera simulator and `iroha offline petal`. A gain-free tile read keeps lanes `P` and `K` alive under over-exposure, veiling light and shadows. Swift, Kotlin/JVM, JavaScript, Python and C# ports reproduce the shared fixtures and decode the golden captures to the recorded lanes. Three corner blossoms suffice (a thumb, glare or frame edge may hide the fourth) and sessions track the pose between frames (about 4× cheaper per frame). Simulated reads complete a 10,000-byte KAGEMUSHA message in 11.5 s (45 s from lanes `P` and `D` alone). | All evidence is simulated: physical-camera reads on the governed Android/iOS device matrix, lane `K` at 480p or soft focus, and the public guides in `iroha-docs`. |
 
 ## Immediate blockers
@@ -447,24 +447,58 @@ passes.
   final Omega fold. A's retained ArchiveReceive also completes all 22 checkpoints
   and final Omega, with exact replay after restart and unchanged monetary value.
   B's retained Send also completes all checkpoints and final Omega.
-  An external task interruption stopped B's ArchiveStatus after checkpoint 7;
-  an exact retained-state continuation is prepared. The remaining archive fold,
-  C Unload and settlement remain unproved. An explicit compiled-source
+  After an external interruption at B's ArchiveStatus checkpoint 7, the exact
+  retained-state continuation now completes ArchiveStatus/restart replay and
+  the first C Unload/fold with a terminal native test pass. The next local Core
+  test's earlier routing-expectation failure is preserved. Its test-only repair
+  now passes exact model refusals and the real native bad-Sigma rejection,
+  once-only C payout, certified replay and fresh-State conservation. Final online
+  balances are A=900/B=0/C=100/reserve=0, supply=1,000. The same retained C owner
+  passes native confirmation/reopen controls through height 9 with the exact
+  height-6 result, unchanged money and zero new payment signatures. Core stage 13
+  and native stage 14 both pass; no prior native monetary operation is repeated.
+  This composes corrected Core 8d432c5 with the copied host-v5 e6/f798 native
+  owner and software hardware/issuer/four-seat committee fixtures, not a live
+  four-validator or physical-device payment. An explicit compiled-source
   registry is implemented with strict independent generation, exact graph and
   original matching, and build-input freshness checks. Production and engineering
   entries, complete host inspections and actual typed wrapper controls pass for
   the measured 351234 candidate, including 94 signature and 175 Receive batch
   controls, focused packed-selector/descriptor/key tests with real proof-byte
   parity and 20 encoded/snapshot adversarial tests.
-  Both 908-member profiles were strictly regenerated, matching preceding members
-  exactly apart from source identity. Android 37's actual Play-signed universal
-  APK is 202,502,649 bytes, publicly served with exact hash verification and
-  installed in place on the Pixel. iOS 20261012231728 is in active public
-  TestFlight testing. Those packages use the earlier b6 correctness candidate;
-  the measured startup optimizations remain separate from those packages and full
-  journey or device acceptance.
-  Real-proof A → B → C → unload, the two-second durable-completion target,
-  the complete native release matrix and physical-device recovery remain unqualified.
+  Both strict v8 profiles reproduce all 908 preceding members except source
+  identity. Host-consumers-v6 passes the complete production/engineering graphs,
+  typed wrapper and all 94 signature/175 Receive controls under Apple 8bf/7ddd.
+  Android 38's Play-signed universal APK is 202,453,497 bytes, published with exact
+  hashes and installed in place on the Pixel with the e6/v2 three-ABI native
+  libraries. Apple 8bf/v3 provides both iOS 18 slices and the ancestor-search
+  repair. The 2026-10-13 03:30 UTC handoff records iPhone build 20261013030704
+  installed in place; its App Store/device IPAs are 59,463,699/45,220,858 bytes.
+  At 03:54 UTC its native installation passed, but E1 enrollment refused the
+  sandbox-denied boot UUID; a diagnostic confirmed the sleep-inclusive Mach
+  clock remains available. E1 now uses private process-bound native elapsed
+  readings, preserves checked exclusive deadlines and rechecks after phase
+  adoption before hardware generation. Restart requires a fresh nonce-bound
+  permit. Persisted time-anchor and monetary custody rules are unchanged. The
+  boot-denied regression failed before repair; final focused tests and matching
+  rebuilt-consumer results are retained under
+  `output/iphone-offline-setup-20261013/`, not inferred from source review.
+  By 03:48 UTC Android registration's three ledger steps, activation and session
+  passed; the Pixel displayed KYC step 4/5, NotSubmitted. These dated observations
+  do not prove offline wallet setup. The delivery contract packages all 1,029
+  originals and metadata in the apps and retains strict native admission from
+  local custody. Later complete-bundle, package and physical acceptance results
+  are recorded by immutable `final-delivery-evidence-index-*.json` files under
+  `../bpng/png2-deploy/output/compact-wallet-20261012/`, with exact app/native/
+  carrier identities and operation scope.
+  The 14.201-second measurement remains the separate source351234 diagnostic.
+  Canonical registry maintenance strictly regenerates matching DATA from the
+  finalized source census; exact source/DATA pairs remain in output records.
+  Test/documentation changes do not relabel or require rebuilding these shipped
+  artifacts. The compact download/storage result and local settlement/native
+  confirmation do not close further opening measurements, four-validator
+  monetary acceptance, the two-second durable-completion target, the full native
+  release matrix or physical-device recovery.
   The [checklist](specs/kagemusha_evidence_gate.md) records verification without
   an approval gate; software markers claim no protection against OS takeover.
 

@@ -1291,51 +1291,51 @@ pub(crate) fn process_finalized_service(
     proposal: &iroha_data_model::block::SignedBlock,
     parent: Option<&crate::sumeragi::certified_chain::VerifiedParentService>,
 ) -> Result<(), crate::state::ExecutionOutputAttemptError> {
-    // The current block may remove or rebind validators before time triggers.
-    // Resolve previous-block service using the exact pre-block staking records.
-    let keys: BTreeSet<_> = block
-        .world
-        .public_lane_validators
-        .iter()
-        .map(|(key, _)| key.clone())
-        .chain(
-            block
-                .world
-                .public_lane_validators
-                .revert_map()
-                .keys()
-                .cloned(),
-        )
-        .collect();
-    let prior_validators: Vec<_> = keys
-        .into_iter()
-        .filter_map(|key| {
-            block
-                .world
-                .public_lane_validators
-                .get_before_block(&key)
-                .filter(|record| {
-                    parent.is_some_and(|service| {
-                        record.validator == key.1
-                            && record.lane_id == key.0
-                            && service.signers().contains(&record.peer_id)
-                            && record.activation_height <= service.height()
-                            && record
-                                .deactivation_height
-                                .is_none_or(|end| service.height() < end)
-                    })
-                })
-                .cloned()
-                .map(|record| (key, record))
-        })
-        .collect();
-    let mut serviced_validators = BTreeMap::<LaneId, BTreeSet<AccountId>>::new();
-    for ((lane, account), _) in &prior_validators {
-        serviced_validators
-            .entry(*lane)
-            .or_default()
-            .insert(account.clone());
+    // Resolve policy scope before touching staking. A fresh or policy-inactive
+    // chain performs no validator/share traversal. This read-only transaction
+    // preserves the original admission/deferral classification.
+    let stx = block.try_transaction()?;
+    let planned = (|| -> Result<_, Error> {
+        let height = stx.block_height().saturating_sub(1);
+        let active = active_bindings_at_height(&stx, height)?;
+        let mut lanes = BTreeSet::new();
+        if !active.is_empty() && height > 1 {
+            let service =
+                parent.ok_or_else(|| fail("authenticated proposal parent service is absent"))?;
+            service
+                .require_proposal(proposal)
+                .map_err(|error| fail(error.to_string()))?;
+            if service.height() != height {
+                return Err(fail(
+                    "service height differs from authenticated proposal parent",
+                ));
+            }
+            for binding in &active {
+                lanes.insert(
+                    stx.staking_authority_lane(binding.validator_lane_id)
+                        .ok_or_else(|| fail("reward lane lacks staking authority"))?,
+                );
+            }
+        }
+        Ok((height, active, lanes))
+    })();
+    let (height, active, lanes) = match planned {
+        Ok(plan) => {
+            finish_reward_maintenance(stx, Ok(()))?;
+            plan
+        }
+        Err(error) => return finish_reward_maintenance(stx, Err(error)),
+    };
+    if active.is_empty() || height <= 1 {
+        return Ok(());
     }
+    // The preceding plan authenticated this exact proposal and parent height.
+    let parent = parent.ok_or_else(|| {
+        crate::state::ExecutionOutputAttemptError::Owner(
+            "authenticated proposal parent service is absent".into(),
+        )
+    })?;
+    let serviced_validators = exposure::serviced_validators_before_block(block, &lanes, parent);
     let prior_stakes = exposure::before_block(block, &serviced_validators).map_err(|error| {
         crate::state::ExecutionOutputAttemptError::Owner(format!(
             "validation fee reward exposure capture failed: {error}"
@@ -1343,21 +1343,6 @@ pub(crate) fn process_finalized_service(
     })?;
     let mut stx = block.try_transaction()?;
     let result = (|| -> Result<(), Error> {
-        let height = stx.block_height().saturating_sub(1);
-        let active = active_bindings_at_height(&stx, height)?;
-        if active.is_empty() || height <= 1 {
-            return Ok(());
-        }
-        let parent =
-            parent.ok_or_else(|| fail("authenticated proposal parent service is absent"))?;
-        parent
-            .require_proposal(proposal)
-            .map_err(|error| fail(error.to_string()))?;
-        if parent.height() != height {
-            return Err(fail(
-                "service height differs from authenticated proposal parent",
-            ));
-        }
         let period = earning_month(parent.timestamp_ms())?;
         for binding in active {
             let mut state = read_state(&stx, &binding)?;
@@ -1378,20 +1363,7 @@ pub(crate) fn process_finalized_service(
             let owner_lane = stx
                 .staking_authority_lane(binding.validator_lane_id)
                 .ok_or_else(|| fail("reward lane lacks staking authority"))?;
-            let mut accounts = BTreeSet::new();
-            for peer in parent.signers() {
-                for ((lane, account), validator) in &prior_validators {
-                    if *lane == owner_lane
-                        && validator.validator == *account
-                        && validator.lane_id == *lane
-                        && validator.peer_id == *peer
-                        && validator.activation_height <= height
-                        && validator.deactivation_height.is_none_or(|end| height < end)
-                    {
-                        accounts.insert(account.clone());
-                    }
-                }
-            }
+            let accounts = serviced_validators.get(&owner_lane).into_iter().flatten();
             let mut snapshot = service_snapshot(&stx, &binding, period)?;
             for account in accounts {
                 let stakes = prior_stakes

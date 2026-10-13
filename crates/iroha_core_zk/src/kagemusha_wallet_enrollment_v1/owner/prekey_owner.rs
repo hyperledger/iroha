@@ -9,13 +9,13 @@ use rand::rand_core::TryRngCore as _;
 pub(super) enum Pending {
     Dispatch {
         dispatch: Box<PreKeyDispatchV1>,
-        started: KagemushaWalletMonotonicReadingV1,
+        started: LiveEnrollmentReadingV1,
         /// Digest of the exact Client original `begin` authenticated.
         client_digest: [u8; 32],
     },
     Account {
         dispatch: Box<PreKeyDispatchV1>,
-        started: KagemushaWalletMonotonicReadingV1,
+        started: LiveEnrollmentReadingV1,
         permit: KagemushaEnrollmentPermitV1,
         original: Vec<u8>,
         message: [u8; 32],
@@ -354,7 +354,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         } else {
             self.selected = None;
         }
-        let started = self.provider.monotonic_reading()?;
+        let started = self.provider.live_enrollment_reading()?;
         let bytes = dispatch.encode().map_err(Error::Original)?;
         self.pending = Some(Pending::Dispatch {
             dispatch: Box::new(dispatch),
@@ -414,7 +414,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         require_elapsed(
             &started,
-            &self.provider.monotonic_reading()?,
+            &self.provider.live_enrollment_reading()?,
             permit.body.observed_at_ms,
             permit
                 .body
@@ -730,7 +730,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         require_elapsed(
             &started,
-            &self.provider.monotonic_reading()?,
+            &self.provider.live_enrollment_reading()?,
             permit.body.observed_at_ms,
             permit
                 .body
@@ -868,7 +868,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         ));
         self.request = None;
         self.apple_clock = Some(super::apple_collection::LiveClock {
-            started: started.clone(),
+            started,
             observed_at_ms: permit.body.observed_at_ms,
             expires_at_ms: permit
                 .body

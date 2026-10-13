@@ -81,12 +81,26 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   and packed admission share the same ordered compression planner and descriptor
   map check. Strict source admission still compares every native activation;
   no source authority is inferred from a decoded bitmap.
+- V2 descriptor bindings retain the exact frame after the canonical decoder has
+  re-encoded it for byte equality and validated every descriptor rule. Binding
+  computes the same V2-domain digest without repeating validation and encoding;
+  malformed frames and invalid arithmetic or transcript profiles still fail
+  before a binding is constructed. This removes duplicate work, not admission.
 - Complete admission may retain a bounded transient snapshot of compressed
   public originals. Every unique stored/decoded original and each logical role
   is checked; the actual original identities, immutable metadata, names and
   ancestry are revalidated before an owner can return, including error exits.
   The same observed-file map remains with live runtime imports. No expanded
   tables or snapshot bytes persist on disk or survive admission in the wallet.
+- Retail delivery packages the complete authenticated carrier with the app:
+  all 1,029 compact originals and the four metadata files. Apps stage these exact
+  local originals into private custody and use the unchanged strict native
+  admission path. Packaging does not confer proof authority or replace signed
+  inventory, source, original-hash, bounds or complete-graph checks. Setup does
+  not require 1,029 separate artifact HTTP requests. Missing or changed bundled
+  material refuses admission; payment generation and verification use local
+  material and never trigger a download. App acceptance records must verify the
+  actual complete bundle and this local installation path.
 - No dense-format production fallback, remote prover, on-demand network fetch
   during payments, signature-only monetary path, or feature switch is added.
 
@@ -124,8 +138,10 @@ compressed bytes and decode to 117,796,512 bytes in total; decoding is streamed,
 not retained as a second disk copy. The four metadata files add 1,131,504 bytes.
 The preceding complete dense carrier was 18,689,631,983 bytes. The coordinated
 release task reports the generation-3 server cutover and signed runtime
-selection complete on the approved OVH host. Shipping native v9/G3 remains
-separate from the unshipped startup optimizations below.
+selection complete on the approved OVH host. Android 38 now contains the e6/v2 native libraries; iOS build 20261013030704
+contains the 8bf/v3 device library, including the Apple ancestor-search repair.
+Both retain their actual source/profile identities. Their app acceptance and
+performance scopes remain distinct from the isolated phone diagnostics below.
 An independent public HTTPS check retrieved all 1,029 encoded originals with
 their exact stored extents and hashes. Ten initial connection timeouts passed
 one targeted retry; this verifies the served bytes, not uninterrupted
@@ -201,27 +217,51 @@ downloads or installed app sizes. Do not describe the 4.785 MiB catalogue as the
 total app download. The one-trial constructor measurements exclude file reading
 and post-constructor equality checks; whole-child memory and time include them.
 
-Corrected Android build 37 and iOS build 20261012231728 have completed packaging.
-The actual Google Play-signed universal Android APK is 202,502,649 bytes. Its
-stable and versioned direct downloads match the complete APK hash, and an
-in-place Pixel update preserved the admitted signer and original installation.
-The four catalogue metadata files in that APK match the compact generation-3
-handoff exactly. A bounded warm launch loaded JNI without a crash, but the
-device keyguard prevented wallet/session acceptance checks. The AAB is
-105,204,401 bytes; neither universal-package size is a Play per-device estimate.
-The iOS App Store export is 59,460,655 bytes and the signed device IPA is
-45,233,031 bytes; these are complete exported packages, not Apple's final
-per-device download estimate or installed storage. The coordinated owner
-verified the iPhone's in-place installation and version. Apple reports this
-exact build valid, approved and in active public TestFlight testing. Interactive
-device acceptance remains pending. Those packages precede the separately tested 351234
-startup optimizations; no final APK/IPA size or app startup claim is inferred
-from the diagnostic CLI.
+Android build 38's Play-signed universal APK is **202,453,497 bytes**. Its
+stable and immutable direct downloads match the complete APK hash. The in-place
+Pixel update from 37 to 38 preserved the original installation. By 03:48 UTC on
+2026-10-13, the deployment owner had verified all three saved-registration ledger
+steps, successful account activation and session creation. The Pixel displayed
+Complete KYC at step 4 of 5, with KYC not submitted. That observation establishes
+registration, not offline wallet setup or a physical offline payment.
+The packaged three-ABI native libraries and generation-3 runtime match the e6/v2
+handoff exactly, including 16 KiB native alignment. Play review and interactive
+app acceptance are separate from direct publication. This is a universal APK
+size, not a Play per-device download or installed-storage estimate.
+
+The 2026-10-13 03:30 UTC handoff records iOS build **20261013030704** archived,
+exported and installed in place. Its App Store IPA is **59,463,699 bytes** and its signed device IPA is
+**45,220,858 bytes**. These are complete exports, not Apple's final per-device
+download estimate or installed storage. The app consumes the independently
+checked v3 device-only SDK, ABI 29/iOS 18, with production App Attest entitlement
+and the exact generation-3 runtime. The separately completed full v3 SDK also
+contains the simulator slice. All 2,011 device archive member payloads match;
+only the archive symbol-index header timestamp differs between the early and
+full packages. No extra native compilation or protocol variant was introduced.
+
+That handoff records 32 migration/opening and 33 artifact-delivery simulator
+tests, plus 147 native private-filesystem tests including six Apple ancestry
+cases. Build 20261013030704 contains no temporary ancestry diagnostic, launches
+with the expected native ABI and preserves the 1,029 compact originals. Its
+handoff records `uploaded=false` and `hardware_setup_verified=false`. The
+03:54 UTC physical retry passed native installation, then encountered an E1
+clock refusal. Diagnostic build 20261013040510 confirmed the sandbox denied
+`kern.bootsessionuuid` while the sleep-inclusive Mach clock remained available.
+These dated observations do not establish hardware enrollment or an offline
+payment. The retained app record is
+`../bpng/png2-ios/output/iphone-offline-setup-20261013/final-build-handoff.json`;
+Android publication is recorded in
+`../bpng/png2-android/output/sogeri-final-release/android38-20261013/play38-publication-install-completion.json`.
+Those package records contain no whole-app startup or payment timing. Subsequent
+package, complete-bundle and physical acceptance results belong in the immutable
+`final-delivery-evidence-index-*.json` records under
+`../bpng/png2-deploy/output/compact-wallet-20261012/`; they must identify the exact
+app, native library, carrier and actual operation observed.
 
 The records are in `output/compact-wallet-phone-20261012/phone-v8/` and
 `output/compiled-source-registry-20261013/phone-builtin-v1/`,
 `phone-builtin-v2/`, `phone-builtin-v3/`, `phone-builtin-v4/`,
-`phone-parameters-v1/`, and `host-consumers-v4/`. A read-only host sample identified packed
+`phone-parameters-v1/`, and `host-consumers-v6/`. A read-only host sample identified packed
 selector expansion/planning and physical snapshot checks as remaining hotspots.
 Direct packed-bit validation now passes focused planner/descriptor/key tests,
 including both-curve proof parity. Reusing the already checked snapshot at
@@ -229,9 +269,41 @@ the closing fence passes all 20 encoded/snapshot adversarial tests. The 351234
 candidate passes both complete strict exports with every one of the 908 member
 entries unchanged except source identity, both complete host inspections, the
 typed wrapper regression and all 94 signature/175 Receive batch controls. Its
-14.201-second phone result is recorded above. Matching shipping libraries require
-a fresh source capture that includes the SDK test-packaging fix; that resource
-packaging change does not alter the native proof implementation.
+14.201-second phone result is recorded above. Shipping Android e6/v2 includes
+the SDK test-packaging resource fix; Apple 8bf/v3 additionally fixes private
+filesystem ancestor access on Apple platforms. Both complete strict v8 exports
+match all 908 preceding members except source identity. Host-consumers-v6 passes
+both complete profiles, the actual typed wrapper regression and all 94 signature
+and 175 Receive batch controls under Apple 8bf/7ddd source/DATA. These records do
+not relabel the earlier 351234 phone measurement as a timing of the shipped apps.
+
+The E1 implementation now uses an opaque process-bound, suspend-inclusive native
+reading for its five transient elapsed checks. It does not query the custody
+boot identity to authorize a live enrollment. Storage checks bracket every
+reading; checked duration conversion and the strict floor-milliseconds-plus-one
+bound preserve the exclusive signed permit/session deadline. Restart discards
+live authority and requires a fresh nonce-bound permit without extending the
+original attempt dates. The definitive-absence path rechecks after phase
+adoption and before recording a dispatch or generating a hardware key. Returned
+vendor originals retain their existing custody and recovery rules. Persisted
+time anchors, boot-stamped durability and controlled-payment checks are unchanged.
+The clock override and simulated domain exist only in unit tests; production
+reads the native clock directly. The boot-denied regression was observed to fail
+before the repair with `Provider(Unavailable(Io(1)))`. Final focused test outcomes
+and rebuilt consumer acceptance are recorded under
+`output/iphone-offline-setup-20261013/` and the delivery index above; source review
+alone is not a passing test or a physical-device result. Consumers need a matching
+rebuilt native library to receive this E1 runtime repair.
+
+Registry maintenance binds generated DATA to the finalized canonical source
+census, which includes tests and documentation. Source changes require a fresh
+strict generator, independent complete profile exports and exact member parity
+before installing matching DATA; generated DATA alone is excluded from its own
+source hash. Exact captures, generated hashes and validation results remain in
+the retained output records. Test-only settlement and documentation changes do
+not alter already shipped libraries' internally matched source/profile pairs,
+the generation-3 carrier, circuits or monetary runtime. Existing e6/v2 and
+8bf/v3 artifacts keep their original identities.
 
 ### Real proofs and retained monetary recovery
 
@@ -268,24 +340,57 @@ ArchiveReceive then completed all 22 checkpoints and its final Omega fold;
 exact replay after restart passes with unchanged monetary value. The same
 continuation also completed B's retained Send through all 11 checkpoints and
 its final Omega fold. An external task interruption stopped B's ArchiveStatus
-after checkpoint 7, without a terminal test result. A separate continuation test
-requires the exact retained checkpoint before resuming the remaining archive
-proofs and the first C Unload; it does not repeat completed monetary operations.
-That remaining archive fold, Unload, local Core settlement and native confirmation
-remain unproved until it finishes.
+after checkpoint 7. The exact retained-state continuation now passes as one
+terminal native test: it completes the remaining ArchiveStatus fold and restart
+replay, then the first C Unload and its fold, using the same retained originals.
+It also publishes a model-valid, deliberately bad Sigma fixture and confirms
+native proof rejection. Native result `exchange-recovery-5/result.json` and
+`12-retained-b-archive-continuation-passed.json` retain these results; no earlier
+monetary operation was repeated.
+
+The corrected local Core settlement test passes. The prior failed attempt is
+preserved: it expected ledger execution for a malformed claim that routing
+correctly refused. The test-only repair verifies the exact account/signature
+model refusals, a model-valid bad-Sigma native proof rejection at height 8, and
+a real signed Log at height 9. The genuine C payout executes once at height 6;
+exact replay and fresh-State replay preserve final online balances A=900, B=0,
+C=100 and reserve=0, with total supply 1,000 unchanged.
+
+The same retained C owner then confirms the actual certified settlement in a
+separate native process. It ingests heights 1–9, rejects premature confirmation,
+retains the exact height-6 result after reopening at heights 5, 6 and 9, and
+rejects changed claims/transactions. The monetary snapshot stays unchanged and
+no new payment signature is produced. Core stage 13 and native stage 14 each
+pass one selected test with zero failures; the aggregate result is
+`native-journey-recovery-7-completed.json`. The Core test uses the corrected
+8d432c5 fixture; the native continuation uses the copied host-v5 e6/f798 owner.
+This is real proof/ledger/finality composition with software hardware and
+issuer fixtures and three votes of a four-seat committee. It is not live
+four-validator P2P, physical hardware or disk/power-loss qualification.
 No successful enrollment, Load, Send or Receive is repeated. Records are in
 `../bpng/png2-deploy/output/compact-wallet-native-journey-20261013/` and
 `output/compiled-source-registry-20261013/fee-recovery-core-v2/`.
 
-### Outstanding completion conditions
+### Delivery acceptance
+
+The selected Android and iPhone delivery records must demonstrate the complete
+bundled carrier, exact native/runtime selection, local artifact installation and
+interactive hardware wallet setup. Build, host-test, packaging and in-place
+installation results establish only their recorded scopes. Physical offline
+operation requires its own observation. Keep later package and acceptance
+results in the immutable delivery index above so a new observation does not
+change the native source census or relabel an earlier binary.
+
+### Remaining performance goals
 
 - Reduce the measured 14.201-second catalogue opening further while preserving
   complete source admission; repeat phone loading, memory and disk measurements
   for the selected binary and measure actual app/package sizes.
-- Finish the retained monetary continuation through Archive and Unload;
-  keep real proofs, finality, exact retries and permanent deduplication intact.
-- Rebuild and validate the current Android/iOS native consumers, then hand off
-  only a matching tested candidate through the coordinated deployment owner.
 - Keep complete payment latency, the two-second durable-completion target,
   low-memory devices and physical-device recovery explicitly unqualified until
   their own measurements pass. Small downloads alone do not establish them.
+
+The compact-catalogue objective and the broader performance goals have different
+completion scopes. Meeting the 10 MiB budget with preserved offline proof and
+source checks does not close the explicit further-opening measurement item,
+whole-payment latency, low-memory readiness or physical recovery requirements.

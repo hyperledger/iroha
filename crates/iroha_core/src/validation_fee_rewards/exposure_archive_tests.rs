@@ -90,6 +90,7 @@ fn archived_tail_fixture() -> (
     }
     chain.setup_world_at(NOW, |stx| {
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: vec![crate::validation_fee::tests::payout_registry_entry(

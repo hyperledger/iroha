@@ -874,6 +874,42 @@ fn prekey_permit_rejects_wrong_scope_nonce_attempt_and_consumes_failed_dispatch(
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
 }
 #[test]
+fn prekey_live_exchange_does_not_require_a_readable_custody_boot_identity() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 106);
+    d.platform.with(|state| {
+        state.boot = Err(KagemushaWalletUnavailableV1::Io(1));
+        state.monotonic = Err(KagemushaWalletUnavailableV1::Io(1));
+        state.live_enrollment_native_clock = true;
+    });
+    let mut current = owner(&f, &d);
+    let selected = dispatch(&f, &mut current);
+    let original = permit(&f, &selected).encode_canonical().unwrap();
+    let message = current.accept_permit(&original).unwrap();
+    assert!(matches!(
+        current.authorize(&sign(&f, &message)).unwrap(),
+        EnrollmentProgressV1::Evidence { .. }
+    ));
+    let provider = current.into_provider();
+    assert!(matches!(
+        provider.live_enrollment_reading().unwrap(),
+        LiveEnrollmentReadingV1::Native(_)
+    ));
+    assert_eq!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Io(1)
+        ))
+    );
+    d.platform.with(|state| {
+        assert_eq!(state.boot, Err(KagemushaWalletUnavailableV1::Io(1)));
+        assert_eq!(state.generate_calls, 1);
+        assert_eq!(state.sign_calls, 0);
+        assert_eq!(state.delete_calls, 0);
+    });
+}
+
+#[test]
 fn prekey_clock_deadline_is_checked_again_after_account_authorization() {
     for (index, time) in [
         Ok(120_000),
@@ -898,7 +934,8 @@ fn prekey_clock_deadline_is_checked_again_after_account_authorization() {
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 113);
     let mut owner = owner(&f, &d);
     let message = begin(&f, &mut owner);
-    d.platform.with(|state| state.boot = Ok([99; 32]));
+    d.platform
+        .with(|state| state.live_enrollment_clock_domain = [99; 32]);
     assert!(owner.authorize(&sign(&f, &message)).is_err());
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
 }
@@ -3360,4 +3397,40 @@ fn session_renewal_preserves_exact_retained_e5_and_e6() {
         assert_eq!(s.generate_calls, 1);
         assert_eq!(s.delete_calls, 0);
     });
+}
+
+#[test]
+fn prekey_definitive_absence_rechecks_deadline_after_intent_phase_selection() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 164);
+    let mut owner = owner(&f, &d);
+    let message = begin(&f, &mut owner);
+    // Owner authorization, grant, begin, pre-intent and pre-phase checks all pass.
+    // Time expires during the phase's filesystem work, before the hardware dispatch.
+    d.platform.with(|state| {
+        state.monotonic_script = std::iter::repeat_n(Ok(1000), 5)
+            .chain([Ok(120000)])
+            .collect();
+    });
+    let result = owner.authorize(&sign(&f, &message));
+    d.platform.with(|state| {
+        assert_eq!(
+            state.generate_calls, 0,
+            "expired phase must not generate a key"
+        );
+        assert_eq!(state.sign_calls, 0);
+        assert_eq!(state.delete_calls, 0);
+        assert!(
+            state.monotonic_script.is_empty(),
+            "final dispatch check must run"
+        );
+    });
+    assert!(result.is_err());
+    let mut provider = owner.into_provider();
+    let slots = provider.slots().unwrap();
+    assert_eq!(slots.len(), 1, "retain the already durable intent");
+    assert!(matches!(
+        provider.status(&slots[0]).unwrap(),
+        KagemushaWalletSlotStatusV1::IntentOnly
+    ));
 }

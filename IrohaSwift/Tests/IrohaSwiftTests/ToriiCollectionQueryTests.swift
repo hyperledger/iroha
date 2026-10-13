@@ -1615,7 +1615,7 @@ final class ToriiSDKFootgunTests: XCTestCase {
         XCTAssertThrowsError(try AccountId.make(publicKey: Data([1, 2, 3])))
     }
 
-    func testTransferDescriptionsAreRejectedInsteadOfDropped() throws {
+    func testTransferDescriptionsArePreservedInSignedMetadata() throws {
         let keypair = try Keypair(privateKeyBytes: Data(repeating: 0x2A, count: 32))
         let authority = try AccountId.make(publicKey: keypair.publicKey)
         let transfer = TransferRequest(networkId: TestNetworkIds.canonical,
@@ -1625,15 +1625,21 @@ final class ToriiSDKFootgunTests: XCTestCase {
                                        destination: authority,
                                        description: "invoice 42",
                                        feePayment: .authority(chargeLimits: [], gasLimit: nil))
-        XCTAssertThrowsError(
-            try SwiftTransactionEncoder.encodeTransfer(
-                transfer: transfer,
-                signingKey: SigningKey.ed25519(privateKey: keypair.privateKeyBytes),
-                creationTimeMs: 1
-            )
-        ) { error in
-            XCTAssertEqual(error as? TransactionInputError, .transferDescriptionUnsupported)
+        let envelope = try SwiftTransactionEncoder.encodeTransfer(
+            transfer: transfer,
+            signingKey: SigningKey.ed25519(privateKey: keypair.privateKeyBytes),
+            creationTimeMs: 1)
+        let payload = try XCTUnwrap(InstructionTransactionV1.unsignedPayloadJSON(envelope))
+        XCTAssertEqual(payload["metadata"], .object(["memo": .string("invoice 42")]))
+        let unsigned = try IrohaSDK.buildTransferPayload(transfer: transfer, creationTimeMs: 1)
+        let independentlySigned = try InstructionTransactionV1.envelope(payload: unsigned,
+            signature: keypair.sign(InstructionTransactionV1.signingMessage(payload: unsigned)),
+            ed25519PublicKey: keypair.publicKey)
+        for wire in [envelope.norito, independentlySigned.norito] {
+            XCTAssertEqual(try ToriiCanonicalTransactionDraft.transactionPayload(
+                fromVersionedSignedTransaction: wire, context: "transfer description"), unsigned)
         }
+        XCTAssertEqual(envelope.transactionHash, independentlySigned.transactionHash)
     }
 
     func testConcurrentStatusSnapshotsDoNotRace() async throws {

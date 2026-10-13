@@ -984,6 +984,7 @@ pub(crate) fn policy_registry(
         })
         .collect();
     ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies,
         payout_policies: ValidationFeePayoutPolicyRegistryV1 {
             entries: bindings

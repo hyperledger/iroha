@@ -488,6 +488,10 @@ pub(super) struct FakeStateV1 {
     pub(super) monotonic: Result<u64, KagemushaWalletUnavailableV1>,
     pub(super) monotonic_script:
         std::collections::VecDeque<Result<u64, KagemushaWalletUnavailableV1>>,
+    /// Use the actual native E1 clock instead of the scripted test reading.
+    pub(super) live_enrollment_native_clock: bool,
+    /// Transient simulated E1 clock domain, independent of the custody boot identity.
+    pub(super) live_enrollment_clock_domain: [u8; 32],
     /// Change the boot result during the next clock read to detect mixed observations.
     pub(super) boot_after_monotonic: Option<Result<[u8; 32], KagemushaWalletUnavailableV1>>,
     /// Storage state answer.
@@ -574,6 +578,8 @@ impl FakePlatformV1 {
                 monotonic: Ok(1_000),
                 monotonic_script: std::collections::VecDeque::new(),
                 boot_after_monotonic: None,
+                live_enrollment_native_clock: false,
+                live_enrollment_clock_domain: [0xe1; 32],
                 storage: Ok(()),
                 storage_lock_after: None,
                 probe_unavailable: false,
@@ -922,6 +928,28 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
 
     fn boot_id(&self) -> Result<[u8; 32], KagemushaWalletUnavailableV1> {
         self.with(|state| state.boot)
+    }
+
+    fn live_enrollment_clock_for_test(
+        &self,
+    ) -> Option<Result<([u8; 32], u128), KagemushaWalletUnavailableV1>> {
+        self.with(|state| {
+            if state.live_enrollment_native_clock {
+                return None;
+            }
+            Some(
+                state
+                    .monotonic_script
+                    .pop_front()
+                    .unwrap_or(state.monotonic)
+                    .map(|ms| {
+                        (
+                            state.live_enrollment_clock_domain,
+                            u128::from(ms) * 1_000_000,
+                        )
+                    }),
+            )
+        })
     }
 
     fn monotonic_ms(&self) -> Result<u64, KagemushaWalletUnavailableV1> {

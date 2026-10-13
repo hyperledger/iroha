@@ -5606,6 +5606,7 @@ pub mod isi {
     ) -> Result<bool, Error> {
         let mut registry = validation_fee_policy_registry(state_transaction)?.unwrap_or(
             ValidationFeePolicyRegistryV1 {
+                history: None,
                 registered_policies: Vec::new(),
                 payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                     entries: Vec::new(),
@@ -8734,6 +8735,7 @@ pub mod isi {
                 )?;
                 let mut registry = validation_fee_policy_registry(state_transaction)?.unwrap_or(
                     ValidationFeePolicyRegistryV1 {
+                        history: None,
                         registered_policies: Vec::new(),
                         payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                             entries: Vec::new(),
@@ -20709,10 +20711,9 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
             proposal_kind: ProposalKind,
         ) -> DueParliamentCertificateFixture {
-            assert_eq!(
-                state_transaction.block_height(),
-                PARLIAMENT_DUE_CERTIFICATE_HEIGHT
-            );
+            // Existing exact-due tests still supply height 60. Capacity/retry tests
+            // retain the same reducer flow at a later certified chain height.
+            let due_height = state_transaction.block_height();
             let proposal_id = proposal_kind.fingerprint();
             let proposal_content_id = ProposalContentId::new(proposal_id);
             let governance_attempt_id = GovernanceAttemptId::derive_v1(proposal_content_id, 0);
@@ -20803,11 +20804,7 @@ pub mod isi {
             }
             assert_eq!(attempt.attempt().stage, GovernanceStageV1::Certification);
             let certificate = attempt
-                .construct_certificate(
-                    governance_attempt_id,
-                    certified_at_height,
-                    PARLIAMENT_DUE_CERTIFICATE_HEIGHT,
-                )
+                .construct_certificate(governance_attempt_id, certified_at_height, due_height)
                 .expect("construct complete exact-due Parliament certificate");
             certificate
                 .validate()
@@ -20840,6 +20837,378 @@ pub mod isi {
                 governance_attempt_id,
                 certificate,
             }
+        }
+
+        // The registry and dormant wallet are explicit component prestate. Refusal uses the
+        // production effect/dispatcher; settlement, archival compaction and successful retry
+        // then run in genuinely certified blocks. This is not a Parliament lifecycle rehearsal.
+        fn assert_live_pricing_capacity_waits_for_certified_settlement() {
+            use crate::validation_fee::tests::{
+                install_policy_registry_fixture, policy_registry,
+                signed_payout_lifecycle_registry_fixture, test_authorization,
+            };
+            use iroha_data_model::{
+                asset::Asset,
+                fee_evidence::FeeEvidencePayloadV1,
+                validation_fee::{
+                    MAX_VALIDATION_FEE_REGISTRY_BYTES, RETAIL_FEE_NOTICE_MS,
+                    RetailFeeAccountStateV1, RetailFeeScheduleV1,
+                    VALIDATION_FEE_POLICY_SCHEMA_VERSION,
+                    VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS, ValidationFeeChargingMode,
+                    ValidationFeePolicyRegistryEntryV1, ValidationFeePolicyRegistryError,
+                    ValidationFeePolicyV1, honiara_month_bounds,
+                },
+                validation_fee_rewards::{
+                    ValidationFeeRewardsState, validation_fee_reward_state_key,
+                },
+            };
+
+            const FIRST_MONTH: u64 = 1_793_451_600_000;
+            const WALLET_MINOR: u64 = 10_000;
+            let (mut chain, binding) = signed_payout_lifecycle_registry_fixture();
+            while chain.height() < PARLIAMENT_DUE_CERTIFICATE_HEIGHT - 1 {
+                chain.commit_at((chain.height() + 1) * 1_000, Vec::new());
+            }
+            let mut live = policy_registry(&[], std::slice::from_ref(&binding));
+            let mut candidate = ValidationFeePolicyV1 {
+                schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
+                network_id: chain.network_id(),
+                policy_version: 1,
+                previous_policy_hash: None,
+                ds_asset_id: binding.ds_asset_id.clone(),
+                ds_scale: 2,
+                fee: "0.10".parse().unwrap(),
+                treasury_account_id: binding.treasury_account_id.clone(),
+                charging_mode: ValidationFeeChargingMode::RetailMonthlyAllowance,
+                retail_schedule: RetailFeeScheduleV1::default(),
+                effective_from_ms: FIRST_MONTH,
+                notice_published_at_ms: FIRST_MONTH - RETAIL_FEE_NOTICE_MS,
+                exemption_classes: vec![VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS.into()],
+                reward_custody: binding.custody(),
+            };
+            loop {
+                let kind = ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
+                    proposal_operator: ALICE_ID.clone(),
+                    policy: candidate.clone(),
+                });
+                let entry = ValidationFeePolicyRegistryEntryV1::from_enactment(
+                    candidate.clone(),
+                    test_authorization(&kind, 20),
+                )
+                .unwrap();
+                live.registered_policies.push(entry);
+                if norito::to_bytes(&live).unwrap().len() > MAX_VALIDATION_FEE_REGISTRY_BYTES {
+                    assert_eq!(
+                        live.validate(),
+                        Err(ValidationFeePolicyRegistryError::RegistryByteLimit)
+                    );
+                    live.registered_policies.pop().unwrap();
+                    break;
+                }
+                let head = live.head().unwrap();
+                candidate.policy_version = head.policy.policy_version.checked_add(1).unwrap();
+                candidate.previous_policy_hash = Some(head.policy_hash);
+                candidate.effective_from_ms = honiara_month_bounds(head.policy.effective_from_ms)
+                    .unwrap()
+                    .1;
+            }
+            live.validate().unwrap();
+            assert!(live.registered_policies.len() > 2);
+            let live_bytes = norito::to_bytes(&live).unwrap();
+            assert!(live_bytes.len() <= MAX_VALIDATION_FEE_REGISTRY_BYTES);
+            let current_month = live.head().unwrap().policy.effective_from_ms;
+            let mut now = current_month + 1_000;
+            // The refused successor must satisfy the real enactment notice rule too.
+            while candidate.effective_from_ms < now + RETAIL_FEE_NOTICE_MS + 60_000 {
+                candidate.effective_from_ms =
+                    honiara_month_bounds(candidate.effective_from_ms).unwrap().1;
+            }
+            let wallet = parliament_test_account(2);
+            let wallet_asset = AssetId::new(binding.ds_asset_id.clone(), wallet.clone());
+            chain.setup_world_at(now, |stx| {
+                install_policy_registry_fixture(&live, stx);
+                let (_, amount) = Asset::new(
+                    wallet_asset.clone(),
+                    iroha_primitives::numeric::Quantity::from(100_u32),
+                )
+                .into_key_value();
+                stx.world.assets.insert(wallet_asset.clone(), amount);
+                crate::retail_fee::write_account(
+                    &mut stx.world,
+                    &RetailFeeAccountStateV1::enroll(wallet.clone(), FIRST_MONTH, WALLET_MINOR)
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    crate::retail_fee::oldest_unsettled_policy_month(&stx.world, now).unwrap(),
+                    FIRST_MONTH
+                );
+                assert!(
+                    live.compacted_suffix(
+                        stx.block_height() - 1,
+                        FIRST_MONTH,
+                        stx.block_height() - 1
+                    )
+                    .unwrap()
+                    .is_none(),
+                    "all original monthly schedules remain necessary before wallet settlement"
+                );
+            });
+            let original_state = crate::snapshot::canonical_state_snapshot_bytes(chain.state());
+            let proposal = chain.proposal(Some(now), Vec::new());
+            {
+                let state = std::sync::Arc::clone(chain.state());
+                let mut block = state.block(proposal.header());
+                let (fixture, kind) = {
+                    let mut setup = block.transaction();
+                    let kind = ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
+                        proposal_operator: ALICE_ID.clone(),
+                        policy: candidate.clone(),
+                    });
+                    let fixture = seed_due_parliament_certificate(&mut setup, kind.clone());
+                    setup.apply();
+                    (fixture, kind)
+                };
+                let staged = crate::snapshot::canonical_staged_state_snapshot_bytes(&block);
+                {
+                    let mut attempt = block.transaction();
+                    validate_validation_fee_policy_proposal(&candidate, &attempt).unwrap();
+                    let record = attempt
+                        .world
+                        .governance_proposals
+                        .get(&fixture.proposal_id)
+                        .unwrap()
+                        .clone();
+                    let ProposalKind::ValidationFeePolicy(payload) = &kind else {
+                        unreachable!()
+                    };
+                    let entry = ValidationFeePolicyRegistryEntryV1::from_enactment(
+                        candidate.clone(),
+                        validation_fee_parliament_authorization(
+                            fixture.proposal_id,
+                            &record,
+                            &fixture.certificate,
+                            attempt.block_height(),
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    let mut too_large = live.clone();
+                    too_large.registered_policies.push(entry);
+                    assert_eq!(
+                        too_large.validate(),
+                        Err(ValidationFeePolicyRegistryError::RegistryByteLimit)
+                    );
+                    let error = enact_validation_fee_policy(
+                        fixture.proposal_id,
+                        &record,
+                        payload,
+                        &fixture.certificate,
+                        &mut attempt,
+                    )
+                    .expect_err("valid successor must reach the real registry byte-cap refusal");
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("registry exceeds its canonical byte limit"),
+                        "{error}"
+                    );
+                    assert_eq!(
+                        norito::to_bytes(
+                            &validation_fee_policy_registry(&attempt).unwrap().unwrap()
+                        )
+                        .unwrap(),
+                        live_bytes
+                    );
+                }
+                assert_eq!(
+                    crate::snapshot::canonical_staged_state_snapshot_bytes(&block),
+                    staged
+                );
+                {
+                    let mut attempt = block.transaction();
+                    assert!(matches!(
+                        execute_due_parliament_certificate_v1(
+                            fixture.governance_attempt_id,
+                            &mut attempt
+                        )
+                        .unwrap(),
+                        DueParliamentCertificateExecutionV1::EffectFailed { .. }
+                    ));
+                    // The production owner drops this refused effect before publication.
+                }
+                assert_eq!(
+                    crate::snapshot::canonical_staged_state_snapshot_bytes(&block),
+                    staged
+                );
+            }
+            assert_eq!(
+                crate::snapshot::canonical_state_snapshot_bytes(chain.state()),
+                original_state,
+                "refused append cannot alter registry, wallet, frontier, assets or reward obligations"
+            );
+
+            let mut receipts = BTreeMap::new();
+            let state_key = validation_fee_reward_state_key(&binding, "State").unwrap();
+            let maximum_blocks = live.registered_policies.len().div_ceil(12) * 2 + 6;
+            let mut hot = live.clone();
+            for _ in 0..maximum_blocks {
+                now += 1_000;
+                chain.commit_at(now, Vec::new());
+                let view = chain.state().view();
+                let original =
+                    crate::query::native_receipts::committed_fee_evidence(&view, chain.height())
+                        .unwrap();
+                for record in &original.records {
+                    if let FeeEvidencePayloadV1::RetailReceipt(receipt) = &record.payload {
+                        assert_eq!(receipt.account_id, wallet);
+                        let source = &live.registered_policies
+                            [usize::try_from(receipt.policy_revision - 1).unwrap()];
+                        assert_eq!(receipt.policy_hash, source.policy_hash);
+                        assert_eq!(
+                            receipt.billing_month_start_ms,
+                            source.policy.effective_from_ms
+                        );
+                        assert_eq!(receipt.scheduled_minor, 100);
+                        assert!(
+                            receipts
+                                .insert(receipt.billing_month_start_ms, receipt.collected_minor)
+                                .is_none(),
+                            "monthly maintenance cannot be collected twice during compaction"
+                        );
+                    }
+                }
+                let collected = receipts.values().copied().map(u128::from).sum::<u128>();
+                let rewards: ValidationFeeRewardsState = norito::decode_canonical(
+                    view.world.smart_contract_state.get(&state_key).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(rewards.pending_sbd_total, collected);
+                assert_eq!(rewards.reserved_xor, 0);
+                hot = original.registry().unwrap().clone();
+                if hot.registered_policies.len() == 1 {
+                    break;
+                }
+            }
+            assert_eq!(
+                hot.registered_policies.len(),
+                1,
+                "bounded idle settlement releases the old policy prefix"
+            );
+            assert_eq!(hot.genesis_policy_hash(), live.genesis_policy_hash());
+            assert_eq!(receipts.len(), live.registered_policies.len() - 1);
+            let expected_collected =
+                (u128::try_from(receipts.len()).unwrap() * 100).min(u128::from(WALLET_MINOR));
+            assert_eq!(
+                receipts.values().copied().map(u128::from).sum::<u128>(),
+                expected_collected
+            );
+            crate::validation_fee::policy_history::validate_retained_history(
+                &chain.state().view(),
+                &hot,
+                chain.height(),
+            )
+            .unwrap();
+            let checkpoint = hot.history.as_ref().unwrap();
+            let archived = crate::query::native_receipts::committed_fee_evidence(
+                &chain.state().view(),
+                checkpoint.archived_at_height,
+            )
+            .unwrap();
+            hot.validate_history_source(
+                checkpoint.archived_at_height,
+                archived.registry().unwrap(),
+            )
+            .unwrap();
+
+            // The refused effect was never published. A fresh certified attempt can now
+            // enact the same successor against the unchanged governance head.
+            now += 1_000;
+            let mut retry = None;
+            chain.setup_world_at(now, |stx| {
+                retry = Some(seed_due_parliament_certificate(
+                    stx,
+                    ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
+                        proposal_operator: ALICE_ID.clone(),
+                        policy: candidate.clone(),
+                    }),
+                ));
+            });
+            let retry = retry.unwrap();
+            chain.commit_at(now, Vec::new());
+            let view = chain.state().view();
+            let accepted =
+                crate::query::native_receipts::committed_fee_evidence(&view, chain.height())
+                    .unwrap();
+            assert_eq!(
+                accepted.registry().unwrap().head().unwrap().policy,
+                candidate
+            );
+            assert_eq!(
+                view.world
+                    .parliament_attempts
+                    .get(&retry.governance_attempt_id)
+                    .unwrap()
+                    .attempt()
+                    .status,
+                GovernanceAttemptStatusV1::Enacted
+            );
+            assert_eq!(
+                view.world
+                    .governance_proposals
+                    .get(&retry.proposal_id)
+                    .unwrap()
+                    .status,
+                crate::state::GovernanceProposalStatus::Enacted
+            );
+            let rewards: ValidationFeeRewardsState =
+                norito::decode_canonical(view.world.smart_contract_state.get(&state_key).unwrap())
+                    .unwrap();
+            assert_eq!(
+                (rewards.pending_sbd_total, rewards.reserved_xor),
+                (expected_collected, 0)
+            );
+            for (asset, minor) in [
+                (wallet_asset, u128::from(WALLET_MINOR) - expected_collected),
+                (
+                    AssetId::new(
+                        binding.ds_asset_id.clone(),
+                        binding.treasury_account_id.clone(),
+                    ),
+                    expected_collected,
+                ),
+            ] {
+                let expected: iroha_primitives::numeric::Quantity =
+                    format!("{}.{:02}", minor / 100, minor % 100)
+                        .parse()
+                        .unwrap();
+                let actual = view
+                    .world
+                    .assets
+                    .get(&asset)
+                    .map(|amount| amount.as_ref().clone())
+                    .unwrap_or_else(iroha_primitives::numeric::Quantity::zero);
+                assert_eq!(
+                    actual, expected,
+                    "maintenance moves only the exact collected SBD"
+                );
+            }
+            // Count the exact initially accepted registry and the distinct newly accepted
+            // entry. Neither the rejected candidate nor repeated archival snapshots count.
+            let admitted_bytes = live_bytes.len()
+                + norito::to_bytes(accepted.registry().unwrap().head().unwrap())
+                    .unwrap()
+                    .len();
+            assert!(
+                admitted_bytes > MAX_VALIDATION_FEE_REGISTRY_BYTES,
+                "settlement permits cumulative accepted pricing beyond the former lifetime cap"
+            );
+            eprintln!(
+                "pricing capacity: {} valid retained policies, {} live bytes, {} original monthly receipts, {admitted_bytes} cumulative accepted bytes",
+                live.registered_policies.len(),
+                live_bytes.len(),
+                receipts.len()
+            );
         }
 
         fn automatic_parliament_execution_event(

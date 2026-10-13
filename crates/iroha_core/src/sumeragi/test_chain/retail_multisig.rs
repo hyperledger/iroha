@@ -481,6 +481,7 @@ fn install_monthly_policy(
     });
     let authorization = install_enacted(transaction, kind);
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: vec![
             ValidationFeePolicyRegistryEntryV1::from_enactment(policy, authorization).unwrap(),
         ],

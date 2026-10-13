@@ -694,6 +694,51 @@ fn query_memory_geometry_separates_complete_request_ceiling_from_concurrency() {
 }
 
 #[test]
+fn query_memory_pool_admits_eight_portal_reads_without_raising_request_limits() {
+    let per_request_bytes = 192_000_000;
+    let previous = query_memory_geometry(512_000_000, per_request_bytes, 64_000_000, 64)
+        .expect("previous query pool is valid");
+    let expanded = query_memory_geometry(2_048_000_000, per_request_bytes, 64_000_000, 64)
+        .expect("expanded query pool is valid");
+    assert_eq!(previous.fanout_slots.get(), 2);
+    assert_eq!(expanded.fanout_slots.get(), 8);
+    for geometry in [&previous, &expanded] {
+        assert_eq!(geometry.fanout_working_set_bytes, per_request_bytes);
+        let pool = ByteWeightedMemoryPool::new(geometry.fanout_pool_bytes)
+            .expect("query pool fits the weighted semaphore");
+        assert!(
+            pool.try_acquire_parts([pool.capacity_bytes() + 1])
+                .is_none()
+        );
+        let mut retained_responses = Vec::new();
+        for _ in 0..geometry.fanout_slots.get() {
+            retained_responses.push(
+                pool.try_acquire_parts([per_request_bytes as u64])
+                    .expect("each normal portal read owns its complete working set"),
+            );
+        }
+        assert_eq!(pool.available_bytes(), 0);
+        assert!(pool.try_acquire_parts([per_request_bytes as u64]).is_none());
+        drop(retained_responses.pop());
+        let next = pool
+            .try_acquire_parts([per_request_bytes as u64])
+            .expect("draining one response admits the next read");
+        assert!(pool.try_acquire_parts([per_request_bytes as u64]).is_none());
+        drop(next);
+        drop(retained_responses);
+        assert_eq!(pool.available_bytes(), pool.capacity_bytes());
+    }
+    let previous_envelope =
+        QueryFanoutMemoryEnvelope::for_body_admission(previous.fanout_working_set_bytes).unwrap();
+    let expanded_envelope =
+        QueryFanoutMemoryEnvelope::for_body_admission(expanded.fanout_working_set_bytes).unwrap();
+    assert_eq!(
+        previous_envelope.route_body_bytes,
+        expanded_envelope.route_body_bytes
+    );
+}
+
+#[test]
 fn query_memory_parser_geometry_matches_runtime_complete_phases() {
     use iroha_config::parameters::defaults::torii as config;
     assert_eq!(

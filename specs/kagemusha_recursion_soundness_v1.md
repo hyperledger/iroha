@@ -88,9 +88,11 @@ The salt is fixed before α; each grinding attempt is another hash query.
 An undecided suffix can satisfy the succinct equation even for a false
 claim. The API therefore returns an explicitly undecided accumulator.
 Neither successful parsing nor `verify_fold` alone authorizes a payment.
-Native acceptance must decide all three claims with pinned parameters: the
-Pallas batch contains Omega's own opening and `acc_P`, and the Vesta batch
-contains `acc_V`. Checking only the two exposed accumulators is insufficient.
+Native acceptance must decide all three claims with pinned parameters.
+`ArtifactSet::verify_lineage_cancellable` first calls the full PIPA-R verifier,
+which decides Omega's own Pallas opening, then separately decides `acc_P` and
+`acc_V`. Checking only the two exposed accumulators is insufficient. The generic
+V1 batch API is not this V2 wallet acceptance boundary.
 
 Short-only non-hiding folds have a structural liveness problem: the upper
 coefficient half is zero and the first-round L commitment is identity for
@@ -1161,8 +1163,9 @@ statement, key index, verdict and normalized opening. The worker uses the exact
 installed sigma key, and its prepared object has no incoming witness or local
 fold. Q1/Q2 export every signature-witness field through canonical digest and
 128/128-bit integer limbs; the unchanged native prover re-derives each hard
-low-S and fixed-key verdict. A future decoder must also reject malformed tape
-padding, lengths, fields and parts; reconstruction alone supplies no admission.
+low-S and fixed-key verdict. The maintained private inverse controls reject
+malformed tape padding, lengths, fields and parts; reconstruction alone supplies
+no admission.
 
 At the native proof-entry cut, replace each Q call with that same native
 algorithm on the recovered typed argument. For identical provider responses,
@@ -1175,22 +1178,29 @@ even though Load does not use its result in a Q-local fold. Additional decoding
 or native validation work must occur before the cut or be charged explicitly;
 silently repeating preparation afterward would invalidate this equality.
 
-The Q2,Q1,Q0 comparisons add no local terms to the ten suffix bounds under the
-same continuation/publication premises. They preserve exact checkpoint replay
+The Q2,Q1,Q0 comparisons add no local terms to the suffix bounds under the
+same continuation/publication premises (eight current Load suffix calls; ten
+in the historical five-A/four-W argument). They preserve exact checkpoint replay
 and require later folds to use the selected Q proofs' actual outer openings.
 Their stage-public inputs are not the final external wallet/payment view:
 those inputs still include the original sigma and signatures. Their joint
 distribution, hidden source hashing, coherent recursive setup and the different
 A/W/Omega algorithms' shared RP57 interface remain obligations. The private
-native inverse and proof-parity tests now have a separately reviewed four-file
-implementation in `target/qualification/c12-load-q-public-inverse-draft-1`.
-Its manifest SHA is `2b67be25aae2fefe9af91202378c59b227ec5e43dc1a8ae413244c6c2b04656a`.
-The patch is unapplied, uncompiled and unrun. Eleven ordinary controls and two
-ignored genuine tests preserve canonical fields/tapes, exact native policy
-and pre-cut validation, then compare the unchanged native prover under matched
-deterministic recovery contexts and actual 32-byte provider responses. Running
-the genuine tests requires seven proofs, four keygens and three strict imports;
-source review does not supply those results or an OS entropy claim.
+native inverse and proof-parity controls are integrated in
+`q_sigma/native/public_witness_tests.rs` and
+`q_signature/native/public_witness_tests.rs`. Eleven ordinary controls and two
+explicitly scheduled genuine tests preserve canonical fields/tapes, exact native
+policy and pre-cut validation, then compare the unchanged native prover under
+matched deterministic recovery contexts and actual 32-byte provider responses.
+The [recorded component capture](kagemusha_evidence_gate.md#8-recorded-results)
+reports all eleven controls and both genuine tests passing, covering seven
+proofs, four key generations and three strict original imports. The separate
+`output/compact-wallet-proof-20261013/results.json` capture also records the
+signature parity test passing with four proofs. These historical captures
+retain their own source identities; they do not establish the current complete
+catalog, different-history privacy or OS entropy. The earlier unapplied draft
+at `target/qualification/c12-load-q-public-inverse-draft-1` is historical
+preparation, not the state of the maintained implementation.
 The source argument and independent review are retained at
 `target/qualification/c12-load-q-public-reconstruction-1` (argument SHA
 `6dca35a226079f9d317b40391d939871fcbc559867d01bcb844e2fcb894105ab`,

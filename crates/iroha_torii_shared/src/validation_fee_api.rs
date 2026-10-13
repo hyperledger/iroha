@@ -454,11 +454,10 @@ impl ValidationFeeCurrentPolicyProofV1 {
         let head = registry
             .head()
             .ok_or_else(|| "validation-fee registry is empty".to_owned())?;
-        let first = registry
-            .registered_policies
-            .first()
-            .ok_or_else(|| "validation-fee registry is empty".to_owned())?;
-        if first.policy_hash != policy_chain_genesis_hash {
+        let genesis_policy_hash = registry
+            .genesis_policy_hash()
+            .ok_or_else(|| "validation-fee registry has no pricing genesis anchor".to_owned())?;
+        if genesis_policy_hash != policy_chain_genesis_hash {
             return Err("validation-fee policy-chain genesis hash mismatch".into());
         }
         let registry_hash = registry
@@ -892,6 +891,9 @@ fn require_canonical_iroha_hash(label: &str, value: &[u8; 32]) -> Result<(), Str
     Ok(())
 }
 #[cfg(test)]
+#[path = "validation_fee_compaction_tests.rs"]
+mod compaction_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     use iroha_data_model::governance::types::{
@@ -902,13 +904,13 @@ mod tests {
         ProposalContentId, RiskTierV1, SortitionRequestV1, TleKeySessionId, TleSessionId,
         parliament_ballot_result_root_v1,
     };
-    fn fixture_account(seed: u8) -> AccountId {
+    pub(super) fn fixture_account(seed: u8) -> AccountId {
         let key_pair =
             iroha_crypto::KeyPair::try_from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519)
                 .expect("derive deterministic validation-fee fixture account");
         AccountId::new(key_pair.public_key().clone())
     }
-    fn parliament_authorization(
+    pub(super) fn parliament_authorization(
         proposal_fingerprint: [u8; 32],
         enacted_at_height: u64,
     ) -> ValidationFeeParliamentAuthorizationV1 {

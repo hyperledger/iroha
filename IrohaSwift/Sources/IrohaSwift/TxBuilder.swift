@@ -193,10 +193,8 @@ public struct TransferRequest: Sendable {
     public let assetDefinitionId: String // e.g., "66owaQmAQMuHxPzxUN3bqZ6FJfDa"
     public let quantity: String         // decimal string
     public let destination: String      // i105 account id
-    /// Transfer memo. Not encoded by the native bridge yet: building a transfer
-    /// with a non-empty description throws
-    /// `TransactionInputError.transferDescriptionUnsupported` instead of
-    /// silently signing a transaction without it.
+    /// Exact transfer memo stored as signed transaction metadata under `memo`.
+    /// Nil and empty descriptions omit that metadata entry.
     public let description: String?
     public let feePayment: FeePaymentIntent
     public let ttlMs: UInt64?
@@ -937,7 +935,13 @@ public final class IrohaSDK: @unchecked Sendable {
         creationTimeProvider()
     }
 
-    /// Build a signed transfer payload using the experimental Swift encoder.
+    /// Build the exact unsigned transfer payload at a retained creation time for fee quotation
+    /// or detached signing. Its instruction, memo, fee intent, TTL and nonce match signed transfer wire.
+    public static func buildTransferPayload(transfer: TransferRequest, creationTimeMs: UInt64) throws -> Data {
+        try SwiftTransactionEncoder.transferPayload(transfer: transfer, creationTimeMs: creationTimeMs)
+    }
+
+    /// Build a signed transfer with its canonical native instruction and exact memo metadata.
     public func buildSignedTransfer(transfer: TransferRequest, keypair: Keypair) throws -> SignedTransactionEnvelope {
         let creationTimeMs = makeCreationTimeMs()
         return try SwiftTransactionEncoder.encodeTransfer(transfer: transfer,

@@ -41,6 +41,8 @@ mod archive;
 mod load;
 #[path = "native_exchange/load_seam.rs"]
 mod load_seam;
+#[path = "native_exchange/message_census.rs"]
+mod message_census;
 #[path = "native_exchange/network_settlement.rs"]
 mod network_settlement;
 #[path = "native_exchange/proof_negative.rs"]
@@ -1138,6 +1140,12 @@ fn finish_unload(
         &output.join("c-unload-bad-sigma-claim.norito"),
         &bad_sigma_claim,
     );
+    let message_envelopes = message_census::retain(
+        &output,
+        &sources,
+        [&payment_ab, &payment_bc],
+        [&credited_ab, &credited_bc],
+    );
     let archive_originals = [
         ("a-credited-receive.norito", credited_ab),
         ("b-credited-status.norito", credited_bc),
@@ -1194,6 +1202,7 @@ fn finish_unload(
         "c_unload_bad_sigma_claim": bad_sigma_original,
         "archive_receive_folded": true, "archive_status_folded": true,
         "archive_exact_replay_after_restart": true, "archive_originals": archive_originals,
+        "message_envelopes": message_envelopes,
         "ledger_settlement_executed": false, "physical_device_qualified": false,
         "scope": "Real installed proof source, finalized receipt proof, native host custody, exact replay and local folds; simulated hardware. Exported Unload claim still requires actual ledger execution and replay qualification." });
     publish(

@@ -23166,6 +23166,13 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
         value.count == 32 && value == value.lowercased() && Data(hexString: value) != nil
     }
 
+    /// Validate this client's node against the current transaction schema before recording a
+    /// dispatch intent. Successful validation is cached and reused by transaction submission.
+    /// No transaction is submitted by this check.
+    public func validateTransactionSubmissionCompatibility() async throws {
+        try await ensureDataModelValidation()
+    }
+
     private func ensureDataModelValidation() async throws {
         let expectedVersion = ToriiNodeCapabilities.expectedDataModelVersion
         let expectedSchemaHash = ToriiNodeCapabilities.expectedSignedTransactionSchemaHashHex

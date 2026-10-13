@@ -199,6 +199,9 @@ enum KagemushaWalletAppleNotPublishedV1: Equatable {
 }
 
 /// Outcome of an anchor write (Rust `KagemushaWalletPublishOutcomeV1`).
+/// For Keychain, `published` means Security returned `errSecSuccess`. The public SecItem
+/// contract supplies no application-accessible power-loss persistence fence; this status
+/// must not be described as the filesystem's `F_FULLFSYNC` durability guarantee.
 enum KagemushaWalletApplePublishOutcomeV1: Equatable {
   case published
   case notPublished(KagemushaWalletAppleNotPublishedV1)
@@ -776,7 +779,9 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   }
 
   /// Replace the value of the slot's anchor item (Rust `anchor_update`). The provider raises
-  /// it only to a durable marker and re-reads it after an uncertain outcome.
+  /// it only to a durable filesystem marker, before receipt signing and again before release.
+  /// An uncertain result stays uncertain even if the new value can be read back. A retry
+  /// requires another acknowledged mutation, including when the visible value already matches.
   func anchorUpdate(_ slot: KagemushaWalletAppleSlotV1, value: Data)
     -> KagemushaWalletApplePublishOutcomeV1
   {
@@ -818,7 +823,7 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   }
 
   /// Statuses with which the keychain refused before changing anything. Every other failure
-  /// of a write is uncertain and reconciled by re-reading.
+  /// of a write is uncertain. Readback alone cannot acknowledge that mutation.
   static func definitelyNotPerformed(_ status: OSStatus) -> Bool {
     [
       errSecInteractionNotAllowed, errSecParam, errSecMissingEntitlement, errSecNotAvailable,

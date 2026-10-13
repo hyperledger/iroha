@@ -91,7 +91,14 @@ pub(super) fn validate(
     let mut outstanding = BTreeMap::<AccountId, BigInt>::new();
     let mut checkpoint_balance_total = 0u128;
     let mut actual_claimable = BTreeMap::new();
-    for (key, bytes) in world.smart_contract_state().iter() {
+    let scope: StatePath = prefix
+        .parse()
+        .map_err(|error| fail(format!("invalid reward history prefix: {error}")))?;
+    for (key, bytes) in world
+        .smart_contract_state()
+        .range(scope..)
+        .take_while(|(key, _)| key.as_ref().starts_with(prefix))
+    {
         let Some(leaf) = key.as_ref().strip_prefix(prefix) else {
             continue;
         };
@@ -269,6 +276,12 @@ pub(super) fn validate(
                 .map_err(fail)?
             {
                 return Err(fail("noncanonical reward beneficiary revision").into());
+            }
+        } else if leaf == "HistoryPruneCursor" {
+            let period: u64 = read_from_world(world, key)?
+                .ok_or_else(|| fail("reward history pruning cursor disappeared"))?;
+            if earning_month(period)? != period {
+                return Err(fail("noncanonical reward history pruning cursor").into());
             }
         } else if leaf.starts_with("Oracle/") {
             let reference: ValidationFeeReferenceObservation =

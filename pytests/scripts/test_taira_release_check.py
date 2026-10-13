@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 1952 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 1985 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 1967 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2000 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -58,6 +58,8 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     )),
     'validation_fee_rewards/beneficiary/tests.rs': ('validation_fee_rewards::beneficiary::tests::', (
         'current_owner_requires_explicit_alias_before_initial_and_recovered_claims',
+        'superseded_owner_retirement_requires_exact_successor_and_journal',
+        'dropped_recovery_discards_retirement_journal_and_keeps_claim_owner',
     )),
     'validation_fee_rewards/exposure.rs': ('validation_fee_rewards::exposure::tests::', (
         'changed_exposure_preserves_chronology_and_only_adjacent_snapshots_coalesce',
@@ -67,6 +69,12 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     )),
     'validation_fee_rewards/exposure_service_tests.rs': ('validation_fee_rewards::exposure::service_tests::', (
         'authenticated_finalized_service_captures_nominators_once_before_current_mutations',
+        'inactive_reward_policy_skips_staking_and_creates_no_fragment',
+    )),
+    'validation_fee_rewards/exposure_scale_tests.rs': ('validation_fee_rewards::exposure::scale_tests::', (
+        'maximum_service_capture_visits_only_exact_current_and_undo_prefixes',
+        'prefix_capture_handles_identity_extremes_rollback_and_replacement',
+        'malformed_parent_identity_and_excess_recipient_count_are_rejected',
     )),
     'validation_fee_rewards/exposure_restart_tests.rs': ('validation_fee_rewards::exposure::restart_tests::', (
         'certified_reward_replay_resumes_unfinished_pages_and_actual_signed_claims',
@@ -97,6 +105,11 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
         'retirement_journal_decode_refusal_defers_without_retiring_original_bytes',
         'unavailable_original_archive_leaves_journal_and_checkpoint_intact',
     )),
+    'validation_fee_rewards/settlement.rs': ('validation_fee_rewards::settlement::tests::', (
+        'historical_pruning_round_robin_passes_blocked_month_and_preserves_cursor_on_rollback',
+        'historical_pruning_cursor_bounds_work_across_many_independent_months',
+        'pruning_keeps_up_with_maximum_month_arrivals_behind_pending_funding',
+    )),
     'query/native_receipts/reward_history/tests.rs': ('query::native_receipts::reward_history::tests::', (
         'committed_fee_archive_preserves_original_corpus_and_rejects_absent_exposure',
         'committed_reward_archive_missing_corrupt_and_changed_root_defer_without_fabrication',
@@ -110,6 +123,7 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
         'wallet_recovery_and_closure_keep_exact_frontier_without_lifetime_rows',
         'restart_rejects_missing_or_fabricated_unsettled_month_frontier',
         'rejected_wallet_update_rolls_back_frontier_and_closure_seal',
+        'policy_frontier_preserves_dormant_wallet_pricing_until_actual_settlement',
     )),
     'validation_fee/runtime_rewards_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::', (
         'scheduled_production_conversion_automatically_funds_nominator_signed_claims',
@@ -119,6 +133,17 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     )),
     'validation_fee/runtime_reward_crash_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::crash_tests::', (
         'process_crashes_preserve_funding_entitlements_claims_and_checkpoints',
+    )),
+    'validation_fee/runtime_reward_history_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::history_tests::', (
+        'certified_recovery_compacts_superseded_owners_preserves_delayed_claims_and_replays',
+    )),
+    'validation_fee/policy_history.rs': ('validation_fee::policy_history::tests::', (
+        'original_registry_compaction_is_atomic_and_missing_or_corrupt_custody_defers',
+        'certified_maintenance_compacts_registry_and_restart_replays_exact_original_history',
+        'current_block_settlement_receipt_keeps_original_pricing_provenance',
+    )),
+    'validation_fee/runtime_policy_history_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::policy_history_tests::', (
+        'compacted_policy_history_preserves_delayed_funding_signed_nominator_claims_and_restart',
     )),
 }
 
@@ -483,8 +508,8 @@ class BeaconGateTests(unittest.TestCase):
     def test_reward_accounting_repairs_are_required_once_in_both_scopes(self):
         required = [prefix + name for prefix, names in REWARD_ACCOUNTING_SOURCE_TESTS.values()
                     for name in names]
-        self.assertEqual(len(required), 48)
-        self.assertEqual(len(set(required)), 48)
+        self.assertEqual(len(required), 63)
+        self.assertEqual(len(set(required)), 63)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("reward_accounting_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -527,7 +552,7 @@ class BeaconGateTests(unittest.TestCase):
         self.assertIn('#[cfg(test)]\nmod tests;',
                       (root / "validation_fee_rewards/beneficiary.rs").read_text())
         exposure = (root / "validation_fee_rewards/exposure.rs").read_text()
-        for child in ("archive", "budget", "restart", "service"):
+        for child in ("archive", "budget", "restart", "service", "scale"):
             self.assertIn('#[path = "exposure_' + child + '_tests.rs"]\nmod ' + child + '_tests;', exposure)
         self.assertIn('mod reward_history;', (root / "retail_fee.rs").read_text())
         self.assertIn('pub mod native_receipts;', (root / "query/mod.rs").read_text())
@@ -544,6 +569,12 @@ class BeaconGateTests(unittest.TestCase):
                       (root / "validation_fee/runtime_wrapper_tests.rs").read_text())
         self.assertIn('#[path = "runtime_reward_crash_tests.rs"]\nmod crash_tests;',
                       (root / "validation_fee/runtime_rewards_tests.rs").read_text())
+        for file_name, module in (("runtime_reward_history_tests.rs", "history_tests"),
+                                  ("runtime_policy_history_tests.rs", "policy_history_tests")):
+            self.assertIn(f'#[path = "{file_name}"]\nmod {module};',
+                          (root / "validation_fee/runtime_rewards_tests.rs").read_text())
+        self.assertIn('pub(crate) mod policy_history;',
+                      (root / "validation_fee.rs").read_text())
         for child in ("smartcontracts/isi/multisig.rs",
                       "validation_fee_rewards.rs", "validation_fee_rewards/exposure.rs",
                       "validation_fee_rewards/reconciliation.rs", "validation_fee_rewards/history.rs",

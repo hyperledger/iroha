@@ -188,8 +188,9 @@ binding over that generated key and original evidence. Native retains E5 before
 returning network bytes, including the App Attest key identifier and first assertion.
 Enrollment begin returns native-retained issuer dispatch DATA for the selected request ID,
 account and asset. `acceptPermit` verifies the rooted signed pre-key permit before returning
-the existing-account challenge. Native checks the same-boot elapsed deadline again at actual
-key generation and preserves the original server attempt across retries.
+the existing-account challenge. Native checks the process-bound, suspend-inclusive elapsed
+deadline again at actual key generation. Restart discards live authorization while preserving
+the original server attempt for a fresh signed permit.
 The issuer still owns live-challenge, account eligibility and platform verification.
 Native authenticates and retains its exact E6 evidence and signed credential before
 selecting credential zero. `loadRuntime` qualifies the complete proof-source graph;
@@ -654,7 +655,7 @@ torii.listAttachments(canonicalAuth: canonicalAuth) { result in
 }
 
 // Build and submit a signed transfer.
-// `description` is not encoded yet; a non-empty one is rejected rather than dropped.
+// A non-empty `description` is preserved exactly in signed transaction metadata under `memo`.
 let transfer = TransferRequest(
     networkId: networkId,
     authority: accountId,

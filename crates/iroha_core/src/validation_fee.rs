@@ -1,4 +1,5 @@
 //! Parliament-authorized retail fees and exact native conversion execution.
+pub(crate) mod policy_history;
 use crate::execution_attempt::ExecutionAttemptError;
 use crate::{
     smartcontracts::isi::triggers::{
@@ -764,6 +765,7 @@ pub(crate) fn validate_persisted_policy_registry_runtime_v1(
     else {
         return Ok(());
     };
+    policy_history::validate_retained_history(state, &registry, restored_height)?;
     for entry in &registry.registered_policies {
         validate_policy_network_id(&entry.policy, state.network_id())
             .map_err(|error| error.to_string())?;

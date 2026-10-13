@@ -199,7 +199,12 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   4,096 stake entries. Each earning month admits at most 4,096 distinct validator
   beneficiary roots. Capture creates at most one new page per serviced validator
   per block, bounded by the global committee ceiling of 31; adjacent identical
-  exposure only increments its existing cohort. Staking participant and recovered
+  exposure only increments its existing cohort. Capture seeks the current and
+  undo trees by the policy's staking-owner lane and each authenticated validator's
+  exact prefix. It does not scan unrelated retained validators or shares. Each
+  validator has at most 256 retained parent positions; current-block touches to
+  that same prefix remain bounded by admitted block work. An inactive policy
+  traverses no staking rows. Staking participant and recovered
   reward-owner identities
   must fit 256 canonical Norito bytes; this does not limit the general account
   identity model. Account recovery while reward custody is retained must fit
@@ -208,10 +213,18 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   enforce that bound before creating an obligation. A full page rolls over even
   during mandatory slashing, without limiting the number of earning changes.
   Payout custody/provider identities have the same 256-byte cap. The complete
-  signed fee-policy registry is limited to 1 MiB; an optional governance append
-  exceeding that bound is refused atomically. Signed history is not pruned to
-  admit a new revision. TODO: authenticated registry-history compaction is
-  required before admitting revisions beyond that limit.
+  hot signed fee-policy registry is limited to 1 MiB. Native maintenance removes
+  superseded pricing and payout prefixes only after authenticating their exact
+  original committed corpus. Its checkpoint binds the source height, registry
+  hash, immutable genesis-policy hash and contiguous retired revision floors.
+  Pricing retains the schedule at the earliest unsettled-wallet month, policies
+  referenced by current-block settlement receipts and every later scheduled revision; payout
+  retains the parent-service policy and later revisions. An append exceeding the
+  remaining hot-state budget is still refused atomically. Settled historical
+  revisions consume archive storage rather than the hot registry budget. Restore
+  validates the checkpoint against one certified source, and historical policy
+  proofs read the exact original registry rather than reconstructing it from
+  current state.
   Retained signed oracle reports are limited to 16 KiB each and a funded
   allocation to 3 MiB before conversion mutates any reserves. Together with the
   identity, registry and page limits, these bounds keep a mandatory page and
@@ -235,13 +248,18 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   Closed-month maintenance authenticates and cools resident tails to their head
   references, including months awaiting delayed funding. After all original-month
   wallet fees are settled, its closure seal forbids new credits; with no pending
-  funding or active allocation, bounded maintenance retires the month summary and
-  heads. A native monetary checkpoint compacts original funded allocations,
+  funding or active allocation, bounded round-robin maintenance retires the month
+  summary and heads. It examines at most 64 candidates per block even while an
+  allocation advances, so an older delayed conversion does not pin unrelated
+  completed months. A native monetary checkpoint compacts original funded allocations,
   entitlement and claim receipts into exact lifetime totals and outstanding
   original-beneficiary balances; the active allocation and uncompacted block
   remain hot. Retirement journals require the original authenticated evidence
-  before removing any receipt. Beneficiary revisions and original native archives
-  retain the audit trail. These bounds limit resident bodies and work per block;
+  before removing any receipt. Superseded beneficiary revisions enter the recovery
+  block's retirement journal; compaction verifies the original predecessor and
+  successor evidence before retiring them alongside that block's claims. The
+  current owner and aliases needed by delayed exposure remain live, while original
+  native archives retain the audit trail. These bounds limit resident bodies and work per block;
   cold chain custody and outstanding month or beneficiary roots have no fixed
   lifetime disk cap. Entitlements never expire.
   Exact source-asset reserves

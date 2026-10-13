@@ -33,6 +33,7 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
     // The policy becomes service-active only after its enactment height.
     chain.setup_world_at(now, |stx| {
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: Vec::new(),
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: vec![crate::validation_fee::tests::payout_registry_entry(
@@ -99,6 +100,44 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
     };
     assert!(service.signers().contains(&peer));
     let state = std::sync::Arc::clone(chain.state());
+    {
+        // Corrupt only the persisted parent fixture: a mutation in the current
+        // block would correctly leave the healthy parent preimage earning.
+        let key = (LaneId::SINGLE, validator.clone(), first.clone());
+        let mut shares = state.world.public_lane_stake_shares.block();
+        let mut malformed = shares.get(&key).cloned().unwrap();
+        malformed.lane_id = LaneId::new(u32::MAX);
+        shares.insert(key, malformed);
+        shares.commit();
+    }
+    {
+        let mut rejected = state.block(proposal.header());
+        let sibling: StatePath = "reward_capture_sibling_TESTDATA".parse().unwrap();
+        {
+            let mut stx = rejected.transaction();
+            stx.world
+                .smart_contract_state
+                .insert(sibling.clone(), vec![23]);
+            stx.apply();
+        }
+        let fragments = rejected.committed_fragment_count();
+        let error = process_finalized_service(&mut rejected, &proposal, Some(&service))
+            .expect_err("reject malformed original parent exposure");
+        assert!(
+            matches!(error, crate::state::ExecutionOutputAttemptError::Owner(reason)
+            if reason.contains("historical reward stake share has a non-canonical identity"))
+        );
+        assert_eq!(rejected.committed_fragment_count(), fragments);
+        assert_eq!(
+            rejected.world.smart_contract_state.get(&sibling),
+            Some(&vec![23])
+        );
+    }
+    state
+        .world
+        .public_lane_stake_shares
+        .block_and_revert()
+        .commit();
     let mut block = state.block(proposal.header());
     {
         let mut stx = block.transaction();
@@ -125,10 +164,15 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
         );
         stx.apply();
     }
+    let fragments = block.committed_fragment_count();
+    assert!(process_finalized_service(&mut block, &proposal, None).is_err());
+    assert_eq!(block.committed_fragment_count(), fragments);
     process_finalized_service(&mut block, &proposal, Some(&service))
         .expect("capture actual authenticated signer exposure");
+    assert_eq!(block.committed_fragment_count(), fragments + 1);
     process_finalized_service(&mut block, &proposal, Some(&service))
         .expect("duplicate parent processing is idempotent");
+    assert_eq!(block.committed_fragment_count(), fragments + 1);
     let stx = block.transaction();
     let period = earning_month(service.timestamp_ms()).unwrap();
     let summary = service_snapshot(&stx, &binding, period).unwrap();
@@ -158,4 +202,27 @@ fn authenticated_finalized_service_captures_nominators_once_before_current_mutat
         read_state(&stx, &binding).unwrap().service_height,
         service.height()
     );
+}
+
+#[test]
+fn inactive_reward_policy_skips_staking_and_creates_no_fragment() {
+    use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    let mut chain =
+        CertifiedTestChain::start(TestChainConfig::new(crate::state::World::new(), 1_000))
+            .expect("signed four-seat genesis");
+    chain.commit_at(2_000, Vec::new());
+    let proposal = chain.proposal(Some(3_000), Vec::new());
+    let state = std::sync::Arc::clone(chain.state());
+    let mut block = state.block(proposal.header());
+    let key: StatePath = "inactive_reward_policy_original_TESTDATA".parse().unwrap();
+    {
+        let mut stx = block.transaction();
+        stx.world.smart_contract_state.insert(key.clone(), vec![23]);
+        stx.apply();
+    }
+    let fragments = block.committed_fragment_count();
+    process_finalized_service(&mut block, &proposal, None).unwrap();
+    assert_eq!(block.committed_fragment_count(), fragments);
+    assert_eq!(block.world.smart_contract_state.get(&key), Some(&vec![23]));
+    assert!(block.world.public_lane_stake_shares.revert_map().is_empty());
 }

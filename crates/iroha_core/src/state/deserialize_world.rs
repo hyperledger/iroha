@@ -7001,6 +7001,7 @@ mod validation_fee_registry_restore_tests {
             enacted_at_height,
         };
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: vec![
                 ValidationFeePolicyRegistryEntryV1::from_enactment(policy, authorization)
                     .expect("canonical validation-fee registry entry"),

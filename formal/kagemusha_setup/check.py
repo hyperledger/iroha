@@ -19,12 +19,14 @@ def main():
     args = parser.parse_args()
     manifest_raw = (custody.HERE/'source_manifest.json').read_bytes()
     custody.checked_sources()
+    generated_before = custody.observed_generated_data()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
     (output/'started.json').write_text(json.dumps(
         {'argv': sys.argv, 'manifest_sha256': custody.sha(manifest_raw),
-         'source_checked_before_imports': True, 'scope': 'Diagnostic controls only'},
+         'source_checked_before_imports': True, 'generated_data_before': generated_before,
+         'scope': 'Diagnostic controls only'},
         indent=2, sort_keys=True)+'\n')
     record = {'success': False, 'C12_closed': False, 'current_setup_qualified': False,
               'planned_toy_k6_proofs': 14, 'native_proofs': 0, 'large_proofs': 0}
@@ -39,10 +41,12 @@ def main():
                    ('test_raw', 'AdapterTests'), ('test_seam', 'SeamTests'),
                    ('test_proof', 'ProofControls'), ('test_bounded', 'ProducerTests'),
                    ('test_requests', 'OwnerTests'), ('test_generic', 'GenericKnownLog'),
+                   ('test_compact_source', 'CompactSourceControls'),
                    ('test_load_a1_case', 'ConstructorControls')]
         for name, class_name in modules:
             module = importlib.import_module(__package__+'.'+name)
-            if name in ('test_seam', 'test_proof', 'test_bounded', 'test_requests', 'test_generic'):
+            if name in ('test_seam', 'test_proof', 'test_bounded', 'test_requests', 'test_generic',
+                        'test_compact_source'):
                 module.OUTPUT = output/name
                 module.OUTPUT.mkdir()
             klass = getattr(module, class_name)
@@ -55,27 +59,35 @@ def main():
         shape_names = unittest.defaultTestLoader.getTestCaseNames(shape_class)
         selected.extend('test_requests.RequestShapeTests.'+name for name in shape_names)
         suites.append(unittest.defaultTestLoader.loadTestsFromTestCase(shape_class))
-        custody.require(len(selected) == 100 and len(set(selected)) == 100,
-                        'exact 100 maintained controls')
+        custody.require(len(selected) == 108 and len(set(selected)) == 108,
+                        'exact 108 maintained controls')
         result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(suites))
         record.update(tests=result.testsRun, failures=len(result.failures),
                       errors=len(result.errors), skipped=len(result.skipped), selected=selected)
         custody.checked_sources()
         custody.require((custody.HERE/'source_manifest.json').read_bytes() == manifest_raw,
                         'source manifest changed during controls')
+        custody.require(custody.observed_generated_data() == generated_before,
+                        'generated DATA changed during controls')
         record['source_pins_unchanged'] = True
-        record['success'] = (result.wasSuccessful() and result.testsRun == 100
+        record['success'] = (result.wasSuccessful() and result.testsRun == 108
                              and not result.skipped and
                              sum(c.verified_toy_proofs for c in proof_classes) == 14)
         record['scope'] = ('Source-map ideal raw-RO setup, bounded k0/k2/k6 parameter ownership, and fourteen k6 fixed-Poseidon algebra cases; '
                            'common proof coins within a curve are counterfactual diagnostics. '
                            'Sequential adaptive request/replay and fourteen closed A1 intake controls are diagnostic only. '
+                           'Seven current compact-source algebra controls require explicit small public rows; no native source synthesis is inferred. '
                            'No adaptive privacy theorem, concrete hash, current authority or C12 claim.')
         return 0 if record['success'] else 1
     except BaseException as error:
         record['exception'] = type(error).__name__+': '+str(error)
         raise
     finally:
+        record['generated_data_before'] = generated_before
+        record['generated_data_after'] = custody.observed_generated_data()
+        record['generated_data_unchanged'] = (
+            record['generated_data_after'] == generated_before)
+        record['generated_data_qualified'] = False
         record['verified_toy_k6_proofs'] = sum(c.verified_toy_proofs for c in proof_classes)
         record['elapsed_seconds'] = time.monotonic()-start
         record['manifest_sha256'] = custody.sha(manifest_raw)

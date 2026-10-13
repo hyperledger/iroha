@@ -213,14 +213,17 @@ fn archive_anchor_unknown_outcomes_and_storage_unavailability_never_mean_absence
         provider.status(&slot).expect("warm");
         device.platform.with(|s| s.anchor_write = mode);
         let outcome = provider.publish_archive_checkpoint(&slot, [0; 32], b"checkpoint");
-        if mode == AnchorWriteV1::UncertainApplied {
-            assert!(
-                outcome.is_ok(),
-                "the anchor adapter confirms an applied write by readback"
-            );
-        } else {
-            assert!(outcome.is_err());
-        }
+        assert!(
+            outcome.is_err(),
+            "readback cannot acknowledge an anchor mutation"
+        );
+        // Neither the unchanged owner nor a new one can certify an unacknowledged
+        // checkpoint from the visible anchor alone.
+        assert!(provider.archive_checkpoint(&slot).is_err());
+        drop(provider);
+        device.fs.restart();
+        let mut provider = device.open();
+        assert!(provider.archive_checkpoint(&slot).is_err());
         device
             .platform
             .with(|s| s.anchor_write = AnchorWriteV1::Normal);
