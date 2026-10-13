@@ -134,6 +134,24 @@ pub fn transaction_payload_signing_hash(payload_bytes: Uint8Array) -> napi::Resu
     Ok(Buffer::from(builder.payload_hash_bytes().to_vec()))
 }
 
+/// Decode one canonical unsigned transaction payload into its model JSON.
+///
+/// The payload must decode canonically without trailing bytes. Account literals render
+/// with `network_prefix`; instructions render as canonical base64 `InstructionBox` frames.
+#[napi(js_name = "decodeTransactionPayloadJson")]
+pub fn decode_transaction_payload_json(
+    payload_bytes: Uint8Array,
+    network_prefix: f64,
+) -> napi::Result<String> {
+    let _network = network_guard(network_prefix)?;
+    if payload_bytes.is_empty() || payload_bytes.len() > EXTERNAL_TRANSACTION_PAYLOAD_MAX_BYTES {
+        return Err(invalid("payloadBytes must contain 1..=1048576 bytes"));
+    }
+    let builder = TransactionBuilder::decode_payload(payload_bytes.as_ref())
+        .map_err(|error| invalid(format!("invalid canonical transaction payload: {error}")))?;
+    json::to_json(builder.payload()).map_err(|error| invalid(error.to_string()))
+}
+
 fn faucet_claim(claim_json: &str) -> napi::Result<AccountFaucetClaimV1> {
     let value = bounded_json(claim_json, "faucet claim")?;
     let claim: AccountFaucetClaimV1 = json::from_value(value.clone())
@@ -308,6 +326,48 @@ mod tests {
                 .expect("transaction hash")
         );
         assert!(verify_account_faucet_prepared_transaction_json(input("6")).is_err());
+    }
+
+    #[test]
+    fn payload_decoder_and_signing_hash_cover_the_exact_built_payload() {
+        use iroha_data_model::{NetworkId, isi::Log, transaction::FeePaymentIntent};
+        let authority = AccountId::new(
+            KeyPair::try_from_seed(vec![6; 32], Algorithm::Ed25519)
+                .expect("key")
+                .public_key()
+                .clone(),
+        );
+        let network_id =
+            NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                iroha_crypto::Hash::new(b"payload-review"),
+            ));
+        let builder = TransactionBuilder::new(
+            network_id,
+            authority.clone(),
+            FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([Log::new(iroha_data_model::Level::INFO, "review".into())]);
+        let bytes = builder.encode_payload();
+        let json_text = decode_transaction_payload_json(Uint8Array::from(bytes.clone()), 369.0)
+            .expect("decode");
+        let value: json::Value = json::from_str(&json_text).expect("payload JSON");
+        let _network = ChainDiscriminantGuard::enter(369);
+        assert_eq!(
+            value["authority"],
+            json::to_value(&authority).expect("authority JSON")
+        );
+        assert_eq!(
+            transaction_payload_signing_hash(Uint8Array::from(bytes.clone()))
+                .expect("signing hash")
+                .to_vec(),
+            builder.payload_hash_bytes().to_vec()
+        );
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(
+            decode_transaction_payload_json(Uint8Array::from(trailing.clone()), 369.0).is_err()
+        );
+        assert!(transaction_payload_signing_hash(Uint8Array::from(trailing)).is_err());
     }
 
     #[test]

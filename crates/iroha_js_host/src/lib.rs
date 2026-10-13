@@ -25,9 +25,9 @@ mod secure_private_fs;
 mod settlement_lifecycle;
 pub use settlement_lifecycle::{
     JsAccountFaucetPreparedVerification, JsRepoIntentHashes, account_faucet_binding_json,
-    canonical_settle_atomic_instruction_json, instruction_json_from_wire_pair,
-    repo_intent_hashes_json, settle_atomic_intent_hash_json, transaction_payload_signing_hash,
-    verify_account_faucet_prepared_transaction_json,
+    canonical_settle_atomic_instruction_json, decode_transaction_payload_json,
+    instruction_json_from_wire_pair, repo_intent_hashes_json, settle_atomic_intent_hash_json,
+    transaction_payload_signing_hash, verify_account_faucet_prepared_transaction_json,
 };
 mod sorafs_orderbook_submission;
 macro_rules! norito_json {
