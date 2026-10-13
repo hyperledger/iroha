@@ -22,6 +22,13 @@ pub use kaigi_authorization_v1::{JsKaigiAuthorizationProofV1, build_kaigi_author
 pub use kaigi_usage_v1::{JsKaigiUsageProofV1, build_kaigi_usage_proof_v1};
 mod private_settlement_response;
 mod secure_private_fs;
+mod settlement_lifecycle;
+pub use settlement_lifecycle::{
+    JsAccountFaucetPreparedVerification, JsRepoIntentHashes, account_faucet_binding_json,
+    canonical_settle_atomic_instruction_json, instruction_json_from_wire_pair,
+    repo_intent_hashes_json, settle_atomic_intent_hash_json, transaction_payload_signing_hash,
+    verify_account_faucet_prepared_transaction_json,
+};
 mod sorafs_orderbook_submission;
 macro_rules! norito_json {
     ({ $($key:literal : $value:expr),+ $(,)? }) => {{
