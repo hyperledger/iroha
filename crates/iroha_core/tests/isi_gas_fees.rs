@@ -199,7 +199,8 @@ fn non_vm_instructions_charge_fees() {
             _ => unreachable!(),
         },
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     assert!(used > 0);
     let fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
@@ -322,7 +323,8 @@ fn non_vm_instructions_charge_restricted_gas_asset_on_current_route() {
             _ => unreachable!(),
         },
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     assert!(used > 0);
     let fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
@@ -458,7 +460,8 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor() {
             _ => unreachable!(),
         },
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     assert!(used > 0);
     let program_id = default_fee_sponsor_program_id(&sponsor_id);
     let fee_payment = FeePaymentIntent::sponsor(
@@ -916,7 +919,8 @@ fn non_vm_gas_limit_too_low_rejects() {
             _ => unreachable!(),
         },
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     assert!(used > 0);
     let gas_limit = NonZeroU64::new(used.saturating_sub(1))
         .expect("metered instruction usage must exceed one gas unit");
@@ -1286,7 +1290,8 @@ fn block_gas_rejection_rolls_back_actual_fee_and_business_effects() {
             _ => unreachable!(),
         },
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     assert!(used > 0);
     let rate: u64 = 10;
     let fee = u128::from(used) * u128::from(rate);

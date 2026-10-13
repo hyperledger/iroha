@@ -255,8 +255,9 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
     )
     .unwrap();
     assert_eq!(
-        Queue::compute_proposal_gas_cost(&accepted, &crate::gas::DEFAULT_ZK_GAS),
-        Ok(block_gas)
+        Queue::compute_proposal_gas_cost(&accepted, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed proposal gas quote"),
+        block_gas
     );
     let original = accepted.entrypoint_bytes().to_vec();
     let hash = accepted.hash_as_entrypoint();
@@ -306,8 +307,9 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
             original.as_slice()
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&pending[0], &crate::gas::DEFAULT_ZK_GAS),
-            Ok(block_gas)
+            Queue::compute_proposal_gas_cost(&pending[0], &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
+            block_gas
         );
         assert_eq!(queue.routing_plans.get(&hash).unwrap().value(), &plan);
         assert_eq!((queue.active_len(), queue.queued_len()), (1, 1));

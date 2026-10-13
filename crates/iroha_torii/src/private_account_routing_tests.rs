@@ -146,10 +146,10 @@ async fn account_routes_require_valid_root_metadata_and_preserve_explicit_global
                 .expect("unparsed root metadata fixture");
         }
         block.commit();
-        assert_eq!(
+        assert!(matches!(
             resolve_torii_target_account_routes(&app, &owner),
             Err(queue::RoutingResolveError::UnauthenticatedRootScope)
-        );
+        ));
     }
 }
 
@@ -303,11 +303,11 @@ async fn private_account_route_never_falls_back_to_global_physical_materializati
     // A Global physical catalog is not authority to host this signed private root.
     let app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(world);
     set_read_permission(&app, &owner, dataspace, true);
-    assert_eq!(
+    assert!(matches!(
         resolve_torii_target_account_routes(&app, &owner),
         Err(queue::RoutingResolveError::NoLaneForDataspace {
-            dataspace_id: dataspace
-        })
-    );
+            dataspace_id
+        }) if dataspace_id == dataspace
+    ));
     assert!(torii_visible_account_read_routes(&app, Some(&owner)).is_empty());
 }

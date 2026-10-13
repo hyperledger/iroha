@@ -255,7 +255,7 @@ impl<'a> FundedExecutionAuthority<'a> {
         state_certificate::query_scratch_admission(
             iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_bytes(),
         )
-        .map_err(VerificationReadError::Resource)?;
+        .map_err(VerificationReadError::Deferred)?;
         let config = FundedHeightConfig::from_reservation(scheduled, epoch, params, &mut original)
             .map_err(|error| admission_error(height, error))?;
         let crypto =
@@ -305,9 +305,6 @@ impl FundedAuthorityGraph {
 
 fn admission_error(height: u64, error: CommitteeAdmissionError) -> VerificationReadError {
     use CommitteeAdmissionError as E;
-    let unavailable = || {
-        VerificationReadError::Deferred(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
-    };
     // A complete original reservation already succeeded. Wrong custody, an
     // undersized prepaid child, or a different key layout cannot be repaired by
     // waiting for pool capacity; the native worker must enter local recovery.
@@ -324,10 +321,20 @@ fn admission_error(height: u64, error: CommitteeAdmissionError) -> VerificationR
         E::Buffer(PrepaidBufferError::Allocation(ChargedBufferError::Admission(original))) => {
             VerificationReadError::Deferred(original.into())
         }
-        E::Buffer(PrepaidBufferError::Allocation(ChargedBufferError::Allocator { .. }))
-        | E::KeyAllocation(PublicKeyAllocationError::Allocation(
-            ChargedBufferFromChargeError::Allocator { .. },
-        )) => unavailable(),
+        E::Buffer(PrepaidBufferError::Allocation(
+            original @ ChargedBufferError::Allocator { .. },
+        )) => VerificationReadError::Deferred(
+            iroha_allocation::AllocatorRefusal::try_from(original)
+                .expect("matched original buffer allocator refusal")
+                .into(),
+        ),
+        E::KeyAllocation(PublicKeyAllocationError::Allocation(
+            original @ ChargedBufferFromChargeError::Allocator { .. },
+        )) => VerificationReadError::Deferred(
+            iroha_allocation::AllocatorRefusal::try_from(original)
+                .expect("matched original prepaid key allocator refusal")
+                .into(),
+        ),
         E::ForeignPool
         | E::Reservation(_)
         | E::Buffer(PrepaidBufferError::Reservation(_))

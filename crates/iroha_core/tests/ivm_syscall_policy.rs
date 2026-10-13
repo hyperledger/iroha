@@ -61,9 +61,8 @@ fn deny_unlisted_syscall_in_current() {
     let err = vm
         .load_program(&prog)
         .expect_err("strict program loading must reject an unknown syscall");
-    assert_eq!(
-        err,
-        ivm::VMError::UnknownSyscall(u32::from(unlisted_syscall_number()))
+    assert!(
+        matches!(err, ivm::VMError::UnknownSyscall(__actual_error_field) if __actual_error_field == (u32::from(unlisted_syscall_number())))
     );
 }
 #[test]

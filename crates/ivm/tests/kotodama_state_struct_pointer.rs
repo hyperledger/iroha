@@ -87,10 +87,10 @@ fn pointer_from_norito_rejects_retired_blob_carrier() {
     vm.set_register(10, ptr);
     vm.set_register(11, PointerType::AccountId as u64);
     let mut host = CoreHost::new();
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(vm.register(10), ptr);
 }
 #[test]

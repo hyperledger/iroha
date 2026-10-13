@@ -28,7 +28,7 @@ use std::sync::{
 ///
 /// Native allocation refusals keep their original retry owner; local bytes never turn an
 /// unavailable native observation into successful registration evidence.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MusubiPublicationFinalizedSeedReadErrorV1 {
     /// The original native registration read failed, including its retained allocation deferral.
     Finality(MusubiPublicationFinalizedArchiveRegistrationReadErrorV1),

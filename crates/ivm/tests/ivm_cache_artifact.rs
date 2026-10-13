@@ -41,8 +41,20 @@ fn artifact_predecode_rejects_retired_header() {
     let err = cache
         .get_or_predecode_artifact(&artifact)
         .expect_err("retired header must reject");
-    assert_eq!(
-        err,
-        ivm::VMError::UnsupportedProgramVersion { major: 1, minor: 0 }
-    );
+    assert!(match (
+        &(err),
+        &(ivm::VMError::UnsupportedProgramVersion { major: 1, minor: 0 })
+    ) {
+        (
+            ivm::VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            ivm::VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }

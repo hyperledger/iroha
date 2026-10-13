@@ -94,7 +94,8 @@ fn assert_native_fee(
     assert_eq!(instructions.len(), instruction_count);
     let view = native.chain.state().view();
     assert_eq!(
-        iroha_core::gas::meter_instructions(instructions, &view.zk.gas),
+        iroha_core::gas::meter_instructions(instructions, &view.zk.gas)
+            .expect("native instruction metering completes without a local refusal"),
         gas
     );
     assert_eq!(

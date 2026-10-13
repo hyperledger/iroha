@@ -137,6 +137,13 @@ pub enum FinalityReadError {
     /// Only a surviving enclosing limit or local allocator refusal reaches this variant.
     #[error("canonical finality decoder resource: {0}")]
     DecodeResource(#[source] norito::core::DecodeAttemptError),
+    /// The exact finite local availability scratch policy refused this demand.
+    /// This carries no pool release source and is not a consensus invalidity verdict.
+    #[error("availability scratch policy: {0}")]
+    ScratchLimit(#[source] iroha_allocation::AllocationRefusal),
+    /// Original canonical proof or scratch vector reservation failure and its checked layout.
+    #[error("canonical finality allocator: {0}")]
+    Allocator(#[source] iroha_allocation::AllocatorRefusal),
 }
 
 impl From<norito::core::DecodeAttemptError> for FinalityReadError {
@@ -329,14 +336,20 @@ fn malformed(error: impl std::fmt::Display) -> FinalityError {
 }
 
 // Stream the exact borrowed resultless view; never clone the executed block graph.
-fn proposal_wire(block: &SignedBlock) -> Result<Vec<u8>, FinalityError> {
+fn proposal_wire(block: &SignedBlock) -> Result<Vec<u8>, FinalityReadError> {
     let length = block.resultless_proposal_wire_len().map_err(malformed)?;
     need(
         length <= MAX_FINALITY_BLOCK_BYTES,
         "proposal exceeds portable reader bound",
     )?;
+    let layout = std::alloc::Layout::array::<u8>(length)
+        .expect("portable canonical proposal length is publicly bounded");
     let mut bytes = Vec::new();
-    bytes.try_reserve_exact(length).map_err(malformed)?;
+    bytes.try_reserve_exact(length).map_err(|original| {
+        FinalityReadError::Allocator(iroha_allocation::AllocatorRefusal::from_vec_reserve(
+            original, layout,
+        ))
+    })?;
     block
         .write_resultless_proposal_wire(&mut bytes)
         .map_err(malformed)?;
@@ -344,24 +357,44 @@ fn proposal_wire(block: &SignedBlock) -> Result<Vec<u8>, FinalityError> {
     Ok(bytes)
 }
 
-/// A signed availability failure or a local scratch-allocation refusal.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum PayloadAvailabilityError {
+/// A completed signed-availability failure or the original unfinished local attempt.
+/// The callback's error type is retained intact and never reconstructed from diagnostics.
+#[derive(Debug, thiserror::Error)]
+pub enum PayloadAvailabilityError<E> {
     /// The signed source, payload or portable shape bound is invalid for this reader.
     #[error(transparent)]
     Invalid(#[from] FinalityError),
-    /// The caller's original allocation scope or physical allocator refused scratch.
-    /// This is not an invalidity verdict about the signed source.
-    #[error("availability scratch resource: {0}")]
-    Resource(norito::core::DecodeResourceError),
+    /// The caller's unchanged original admission error.
+    #[error("availability scratch admission: {0}")]
+    Admission(#[source] E),
+    /// The actual finite portable scratch policy refused this demand, without a pool.
+    #[error("availability scratch policy: {0}")]
+    Limit(#[source] iroha_allocation::AllocationRefusal),
+    /// The unchanged reservation error from an actual bounded vector allocation.
+    #[error("canonical finality allocator: {0}")]
+    Allocator(#[source] iroha_allocation::AllocatorRefusal),
 }
 
-impl From<PayloadAvailabilityError> for FinalityError {
-    fn from(error: PayloadAvailabilityError) -> Self {
+impl From<PayloadAvailabilityError<std::convert::Infallible>> for FinalityReadError {
+    fn from(error: PayloadAvailabilityError<std::convert::Infallible>) -> Self {
         match error {
-            PayloadAvailabilityError::Invalid(error) => error,
-            PayloadAvailabilityError::Resource(error) => Self(error.to_string()),
+            PayloadAvailabilityError::Invalid(error) => Self::Invalid(error),
+            PayloadAvailabilityError::Admission(never) => match never {},
+            PayloadAvailabilityError::Limit(error) => Self::ScratchLimit(error),
+            PayloadAvailabilityError::Allocator(error) => Self::Allocator(error),
         }
+    }
+}
+
+// This is an actual local policy comparison, not a decoder scope or pool reservation.
+fn check_portable_scratch_limit(scratch: usize) -> Result<(), iroha_allocation::AllocationRefusal> {
+    if scratch > MAX_FINALITY_AVAILABILITY_SCRATCH_BYTES {
+        Err(iroha_allocation::AllocationRefusal::ExceedsLimit {
+            requested_bytes: scratch,
+            limit_bytes: MAX_FINALITY_AVAILABILITY_SCRATCH_BYTES,
+        })
+    } else {
+        Ok(())
     }
 }
 
@@ -369,7 +402,7 @@ impl From<PayloadAvailabilityError> for FinalityError {
 ///
 /// This wrapper grants no request-pool allocation authority. Callers with a scoped
 /// owner must use [`verify_payload_availability_with_admission`] and preserve its
-/// typed local refusal; existing portable callers receive diagnostic errors only.
+/// typed local refusal. Portable callers retain exact policy and allocator causes too.
 ///
 /// # Errors
 /// Rejects invalid signatures, layout, payload, rows and physical allocation failures.
@@ -380,7 +413,7 @@ pub fn verify_payload_availability(
     availability: &AvailabilityFrame,
     payload: &[u8],
     crypto: &dyn Crypto,
-) -> Result<(), FinalityError> {
+) -> Result<(), FinalityReadError> {
     verify_payload_availability_with_admission(
         instance,
         config,
@@ -388,7 +421,7 @@ pub fn verify_payload_availability(
         availability,
         payload,
         crypto,
-        |_| Ok(()),
+        |_| Ok::<(), std::convert::Infallible>(()),
     )
     .map_err(Into::into)
 }
@@ -402,15 +435,15 @@ pub fn verify_payload_availability(
 ///
 /// # Errors
 /// Rejects invalid signed sources separately from local admission/allocation refusal.
-pub fn verify_payload_availability_with_admission(
+pub fn verify_payload_availability_with_admission<E>(
     instance: Hash32,
     config: &iroha_sumeragi::types::HeightConfig,
     header: &CoreHeader,
     availability: &AvailabilityFrame,
     payload: &[u8],
     crypto: &dyn Crypto,
-    mut admit: impl FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
-) -> Result<(), PayloadAvailabilityError> {
+    mut admit: impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), PayloadAvailabilityError<E>> {
     let verified = iroha_sumeragi::availability::verify_availability(
         instance,
         config,
@@ -425,29 +458,30 @@ pub fn verify_payload_availability_with_admission(
         .checked_mul(std::mem::size_of::<u16>())
         .and_then(|bytes| bytes.checked_add(shape.encoded_bytes()))
         .ok_or_else(|| FinalityError("availability scratch length overflow".into()))?;
-    if scratch > MAX_FINALITY_AVAILABILITY_SCRATCH_BYTES {
-        return Err(PayloadAvailabilityError::Resource(
-            norito::core::DecodeResourceError::TotalAllocationExceeded {
-                attempted: scratch as u64,
-                limit: MAX_FINALITY_AVAILABILITY_SCRATCH_BYTES as u64,
-            },
-        ));
-    }
-    admit(scratch).map_err(PayloadAvailabilityError::Resource)?;
-    let allocation_failed = |bytes| {
-        PayloadAvailabilityError::Resource(norito::core::DecodeResourceError::AllocationFailed {
-            bytes: bytes as u64,
-        })
-    };
+    check_portable_scratch_limit(scratch).map_err(PayloadAvailabilityError::Limit)?;
+    admit(scratch).map_err(PayloadAvailabilityError::Admission)?;
+    // The checked aggregate is bounded above; both empty-vector layouts are representable.
+    let codeword_layout = std::alloc::Layout::array::<u8>(shape.encoded_bytes())
+        .expect("bounded availability codeword layout");
+    let workspace_layout = std::alloc::Layout::array::<u16>(shape.workspace_words())
+        .expect("bounded availability field workspace layout");
     let mut codeword = Vec::new();
     codeword
         .try_reserve_exact(shape.encoded_bytes())
-        .map_err(|_| allocation_failed(shape.encoded_bytes()))?;
+        .map_err(|original| {
+            PayloadAvailabilityError::Allocator(
+                iroha_allocation::AllocatorRefusal::from_vec_reserve(original, codeword_layout),
+            )
+        })?;
     codeword.resize(shape.encoded_bytes(), 0);
     let mut workspace = Vec::new();
     workspace
         .try_reserve_exact(shape.workspace_words())
-        .map_err(|_| allocation_failed(shape.workspace_words() * size_of::<u16>()))?;
+        .map_err(|original| {
+            PayloadAvailabilityError::Allocator(
+                iroha_allocation::AllocatorRefusal::from_vec_reserve(original, workspace_layout),
+            )
+        })?;
     workspace.resize(shape.workspace_words(), 0);
     verified
         .verify_payload(payload, &mut codeword, &mut workspace, crypto)
@@ -1264,7 +1298,7 @@ impl SumeragiFinalityVerifier {
         proposal: Option<&[u8]>,
         crypto: &ProofCrypto,
         mut validation: Option<&mut EpochValidationScope>,
-    ) -> Result<(), FinalityError> {
+    ) -> Result<(), FinalityReadError> {
         let height = proof.height();
         need(
             self.root_scope() == crate::block::consensus::SumeragiRootScope::Global
@@ -1382,7 +1416,8 @@ impl SumeragiFinalityVerifier {
             let ScheduledSlot::Ready(scheduled) = &parent.schedule.next else {
                 return Err(FinalityError(
                     "parent has no authenticated next-height configuration".into(),
-                ));
+                )
+                .into());
             };
             need(
                 scheduled.height == height,
@@ -2005,3 +2040,7 @@ mod block_bound_tests {
         assert_eq!(invalid_read_error(empty).0, REFUSAL);
     }
 }
+
+#[cfg(test)]
+#[path = "sumeragi_finality/allocation_tests.rs"]
+mod allocation_tests;

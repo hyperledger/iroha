@@ -593,10 +593,10 @@ async fn pipeline_block_event_keeps_exact_writer_refusal_and_returns_before_publ
     let pending = cache.pending_blocks.get(&height).unwrap();
     assert_eq!(pending.kind, PipelineStatusKind::Applied);
     assert_eq!(pending.block_hash, original.hash());
-    assert_eq!(
-        pending.deferred,
-        Some(PendingBlockDeferral::StateViewBusy(expected))
-    );
+    let Some(PendingBlockDeferral::StateViewBusy(retained)) = &pending.deferred else {
+        panic!("pending event must retain its original State writer wait");
+    };
+    assert_eq!(retained, &expected);
     let original_observed_at = pending.observed_at;
     drop(pending);
     let unrelated = cache.pending_blocks.get(&unrelated_height).unwrap();

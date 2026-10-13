@@ -40,7 +40,7 @@ fn original_native_lane_authority_refusal_reaches_merge_and_original_pool_retry(
     let Attempt::Deferred(original) = &error else {
         panic!("original native authority was erased: {error:?}")
     };
-    let original = original.clone();
+    let observed_allocation = original.allocation_refusal().unwrap().clone();
     let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
         original.allocation_refusal()
     else {
@@ -50,7 +50,7 @@ fn original_native_lane_authority_refusal_reaches_merge_and_original_pool_retry(
     let mut context = Context::from_waker(std::task::Waker::noop());
     assert!(registration.poll_wait(&wait, &mut context).is_pending());
     assert!(
-        matches!(crate::block::BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::Storage(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained == original)
+        matches!(crate::block::BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::Storage(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained.allocation_refusal() == Some(&observed_allocation))
     );
     assert_eq!(budget.reserved_bytes(), ceiling);
     drop(occupied);
@@ -1132,7 +1132,8 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
             panic!("tip must propagate the same original unfinished local attempt");
         };
         assert_eq!(
-            retained, original,
+            retained.allocation_refusal(),
+            original.allocation_refusal(),
             "tip must preserve original cause, Capacity fields and pool release owner"
         );
         assert!(Arc::ptr_eq(

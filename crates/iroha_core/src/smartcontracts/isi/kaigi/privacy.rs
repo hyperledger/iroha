@@ -88,7 +88,8 @@ pub fn verify_authorization(
         configured.as_ref(),
         "kaigi authorization",
     )?;
-    let envelope = decode_privacy_proof_envelope(proof)?;
+    let envelope = decode_privacy_proof_envelope(proof)
+        .map_err(|error| state.attempt_error_to_instruction_error(error.into()))?;
     if envelope.circuit_id != KAIGI_AUTHORIZATION_CIRCUIT_ID_V1 {
         return Err(privacy_error(
             "Kaigi authorization requires the full canonical V1 circuit ID",
@@ -99,9 +100,15 @@ pub fn verify_authorization(
         .ok_or_else(|| privacy_error("verifier not configured"))?;
     let columns = zk::native_pipa_r::public_instances(&configured_backend.backend, &envelope)
         .map_err(|error| {
-            privacy_error(format!(
-                "failed to decode Kaigi authorization instances: {error}"
-            ))
+            state.attempt_error_to_instruction_error(
+                error
+                    .map_rejection(|error| {
+                        privacy_error(format!(
+                            "failed to decode Kaigi authorization instances: {error}"
+                        ))
+                    })
+                    .into(),
+            )
         })?;
     authorization_v1::verify_public_inputs_v1(
         &columns,
@@ -164,7 +171,8 @@ pub fn verify_usage_commitment(
     }
     let configured = state.zk.kaigi_usage_vk.clone();
     validate_configured_verifier(state, proof.len(), configured.as_ref(), "kaigi usage")?;
-    let envelope = decode_privacy_proof_envelope(proof)?;
+    let envelope = decode_privacy_proof_envelope(proof)
+        .map_err(|error| state.attempt_error_to_instruction_error(error.into()))?;
     if envelope.circuit_id != KAIGI_USAGE_CIRCUIT_ID_V1 {
         return Err(privacy_error(
             "Kaigi usage requires the full canonical V1 circuit ID",
@@ -175,7 +183,13 @@ pub fn verify_usage_commitment(
         .ok_or_else(|| privacy_error("verifier not configured"))?;
     let columns = zk::native_pipa_r::public_instances(&configured_backend.backend, &envelope)
         .map_err(|error| {
-            privacy_error(format!("failed to decode Kaigi usage instances: {error}"))
+            state.attempt_error_to_instruction_error(
+                error
+                    .map_rejection(|error| {
+                        privacy_error(format!("failed to decode Kaigi usage instances: {error}"))
+                    })
+                    .into(),
+            )
         })?;
     let [column] = columns.as_slice() else {
         return Err(privacy_error("Kaigi usage requires one instance column"));
@@ -263,7 +277,8 @@ fn verify_with_config(
     let record_circuit_id = record.circuit_id.clone();
     let record_commitment = record.commitment;
     let record_key = record.key.clone();
-    let envelope = decode_privacy_proof_envelope(proof_bytes)?;
+    let envelope = decode_privacy_proof_envelope(proof_bytes)
+        .map_err(|error| state_transaction.attempt_error_to_instruction_error(error.into()))?;
     validate_privacy_proof_envelope_metadata(
         &envelope,
         backend_tag.as_str(),
@@ -271,7 +286,7 @@ fn verify_with_config(
         &record_circuit_id,
         record_commitment,
     )?;
-    state_transaction.register_confidential_proof(proof_bytes.len())?;
+    state_transaction.check_confidential_proof(proof_bytes.len())?;
     let backend_ident = Ident::from_str(backend_tag.as_str())
         .map_err(|_| privacy_error("invalid verifier backend identifier"))?;
     let proof_box = ProofBox::new(backend_ident, proof_bytes.to_vec());
@@ -286,6 +301,17 @@ fn verify_with_config(
         key,
         guardrails_from_config(&state_transaction.zk),
     );
+    // An unfinished local verification has no proof verdict or charge.
+    let result = match result {
+        Err(zk::VerificationAttemptError::Deferred(original)) => {
+            return Err(state_transaction.attempt_error_to_instruction_error(
+                crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+            ));
+        }
+        Err(zk::VerificationAttemptError::Rejected(error)) => Err(error),
+        Ok(verified) => Ok(verified),
+    };
+    state_transaction.register_confidential_proof(proof_bytes.len())?;
     #[cfg(feature = "telemetry")]
     {
         let status = if result.is_ok() {
@@ -323,12 +349,17 @@ fn enforce_verifier_proof_size(
     }
     Ok(())
 }
-fn decode_privacy_proof_envelope(proof_bytes: &[u8]) -> Result<OpenVerifyEnvelope, Error> {
-    norito::decode_canonical(proof_bytes).map_err(|err| {
-        privacy_error(format!(
-            "failed to decode canonical privacy proof envelope: {err}"
-        ))
-    })
+fn decode_privacy_proof_envelope(
+    proof_bytes: &[u8],
+) -> Result<OpenVerifyEnvelope, zk::VerificationAttemptError<Error>> {
+    crate::zk::verification_attempt::codec_attempt(
+        || norito::decode_canonical(proof_bytes),
+        |error| {
+            privacy_error(format!(
+                "failed to decode canonical privacy proof envelope: {error}"
+            ))
+        },
+    )
 }
 fn validate_privacy_proof_envelope_metadata(
     envelope: &OpenVerifyEnvelope,
@@ -370,6 +401,108 @@ fn validate_privacy_proof_envelope_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn original_kaigi_reader_refusal_reaches_state_from_all_live_adapters() {
+        use crate::{
+            kura::Kura,
+            query::store::LiveQueryStore,
+            state::{State, StateReadOnly, World},
+        };
+        use iroha_data_model::{block::BlockHeader, kaigi::KaigiPrivacyMode};
+        use kaigi_zk::authorization_v1::KaigiAuthorizationActionV1;
+        use std::num::NonZeroU64;
+
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        // Each actual caller gets a fresh State owner: a previous sticky refusal
+        // cannot make a broken later adapter appear to preserve the original.
+        for caller in 0..3 {
+            let state = State::new_for_testing(
+                World::default(),
+                Kura::blank_kura_for_testing(),
+                LiveQueryStore::start_test(),
+            );
+            let mut block = state.block(BlockHeader::new(
+                NonZeroU64::new(1).unwrap(),
+                None,
+                None,
+                0,
+                0,
+            ));
+            let mut tx = block.transaction();
+            let (record, host, _) = super::super::tests::new_record(KaigiPrivacyMode::ZkRosterV1);
+            let fixture = proof_fixture_v1::authorization_fixture_v1(
+                &mut tx,
+                &record,
+                &host,
+                0,
+                KaigiAuthorizationActionV1::HostCreate,
+                77,
+            );
+            let context = authorization_v1::context_from_ledger_v1(
+                *tx.network_id(),
+                &record.id,
+                &record.host,
+                &host,
+                0,
+                KaigiAuthorizationActionV1::HostCreate,
+                &record.roster_root(),
+            )
+            .unwrap();
+            tx.zk.kaigi_usage_vk = tx.zk.kaigi_authorization_vk.clone();
+            let configured = tx.zk.kaigi_authorization_vk.clone();
+            let bytes = fixture.proof.clone();
+            let artifacts = PrivacyArtifacts {
+                commitment: Some(&fixture.commitment),
+                nullifier: Some(&fixture.nullifier),
+                roster_root: Some(&fixture.root),
+                proof: Some(&fixture.proof),
+            };
+            let events = tx.world.internal_event_buf.clone();
+            let result = norito::with_decode_limits_scope(limits, || match caller {
+                0 => verify_authorization(&mut tx, &artifacts, &context, None),
+                1 => verify_usage_commitment(
+                    &mut tx,
+                    &record,
+                    1,
+                    1,
+                    Some(&fixture.proof),
+                    &fixture.commitment.commitment,
+                ),
+                _ => verify_with_config(
+                    &mut tx,
+                    &fixture.proof,
+                    configured.clone(),
+                    "kaigi authorization",
+                    zk::ProofRelation::KaigiAuthorization,
+                ),
+            });
+            assert!(result.is_err(), "actual model boundary must refuse");
+            assert!(
+                tx.is_execution_deferred(),
+                "caller {caller} must retain its actual owner"
+            );
+            assert_eq!(
+                (
+                    tx.zk_confidential_ops_in_tx,
+                    tx.zk_verify_calls_in_tx,
+                    tx.zk_proof_bytes_in_tx
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(tx.world.internal_event_buf, events);
+            let original = tx.take_execution_deferral().unwrap();
+            let captured = original.decode_refusal().unwrap().clone();
+            norito::with_decode_limits_scope(limits, || {
+                assert_eq!(original.decode_refusal(), Some(&captured))
+            });
+            assert!(tx.is_execution_deferred());
+            // Retry the unchanged framed bytes at the original low reader after
+            // scope retirement. Publication still requires a fresh transaction.
+            assert!(decode_privacy_proof_envelope(&fixture.proof).is_ok());
+            assert_eq!(fixture.proof, bytes);
+        }
+    }
+
     #[test]
     fn verifier_proof_size_enforces_governed_cap() {
         assert!(enforce_verifier_proof_size(8, 8, "kaigi usage").is_ok());
@@ -469,6 +602,11 @@ mod tests {
             norito::encode_canonical(&envelope).expect("encode canonical privacy envelope");
         assert_eq!(
             decode_privacy_proof_envelope(&canonical)
+                .map_err(|error| match error {
+                    zk::VerificationAttemptError::Rejected(error) => error,
+                    zk::VerificationAttemptError::Deferred(original) =>
+                        panic!("unexpected local refusal: {original}"),
+                })
                 .expect("canonical privacy envelope must decode"),
             envelope
         );
@@ -480,6 +618,12 @@ mod tests {
         };
         assert_ne!(alternate, canonical);
         let err = decode_privacy_proof_envelope(&alternate)
+            .map_err(|error| match error {
+                zk::VerificationAttemptError::Rejected(error) => error,
+                zk::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local refusal: {original}")
+                }
+            })
             .expect_err("alternate-layout privacy envelope must reject");
         let Error::InvalidParameter(
             iroha_data_model::isi::error::InvalidParameterError::SmartContract(message),

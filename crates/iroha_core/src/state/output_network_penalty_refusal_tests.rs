@@ -162,7 +162,8 @@ fn ballot_source(fixture: &PenaltyFixture) -> (SignedBlock, u64, u64) {
             }
             .into(),
         ];
-        gas[index] = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas);
+        gas[index] = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas)
+            .expect("gas quote must complete for this fixture");
         inputs.push(input(
             state,
             body,
@@ -319,26 +320,21 @@ fn actual_penalty_refusal_and_fresh_retry(fee_phase: bool) {
         let original =
             original.expect("actual registered-policy/fee JSON refusal stays transaction-local");
         assert_eq!(
-            original.reason(),
+            original.0,
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(
-            original.allocation_refusal().is_none(),
+            !original.2,
             "cumulative scope refusal has no physical release owner"
         );
-        if fee_phase {
-            assert_eq!(
-                result,
-                Err(ExecutionOutputAttemptError::Deferred(original)),
-                "fee refusal after an actual slash must preserve the original deferral"
+        let Err(ExecutionOutputAttemptError::Deferred(returned)) = result else {
+            panic!(
+                "the original penalty/fee-tail refusal must remain deferred, including after a slash"
             );
-        } else {
-            assert_eq!(
-                result,
-                Err(ExecutionOutputAttemptError::Deferred(original)),
-                "the original penalty-tail deferral must not become a completed Network rejection"
-            );
-        }
+        };
+        assert_eq!(returned.reason(), original.0);
+        assert_eq!(returned.decode_refusal(), original.1.as_ref());
+        assert_eq!(returned.allocation_refusal().is_some(), original.2);
         assert!(block.retained_execution_outputs_for_test().is_err());
         assert!(matches!(
             block.execution_output_plan,

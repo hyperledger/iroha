@@ -193,7 +193,7 @@ fn complete_exec(kernel: &mut Kernel, now: Millis, op: &ExecOp) {
             result: Ok(()),
         },
         ExecOp::Build { .. } => ExecDone::Built(Ok(None)),
-        ExecOp::Execute { .. } => ExecDone::Executed(None),
+        ExecOp::Execute { .. } => ExecDone::Executed(Ok(None)),
         ExecOp::Discard { .. } => ExecDone::Discarded,
         ExecOp::Reject { .. } => ExecDone::Rejected,
         op => panic!("no commit here: {op:?}"),

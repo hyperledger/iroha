@@ -238,7 +238,7 @@ fn completed_replay_is_invalidated_by_the_next_original_forward_commit() {
         worker.replay(&block, &qc).unwrap();
         let next = publication_tests::proposal(chain, worker);
         let hash = next.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&next, hash, false) else {
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&next, hash, false) else {
             panic!("original next execution");
         };
         // A duplicate old replay must not retire the unrelated next original execution.
@@ -439,7 +439,10 @@ fn check_historical_replay_retirement(case: ReplayRetirementCase) {
                 );
                 assert!(events.try_recv().is_err());
                 assert!(
-                    worker.execute(&block, qc.block_hash, false).is_none(),
+                    worker
+                        .execute(&block, qc.block_hash, false)
+                        .unwrap()
+                        .is_none(),
                     "pending owner cannot execute twice"
                 );
                 assert!(matches!(
@@ -495,7 +498,7 @@ fn check_historical_replay_retirement(case: ReplayRetirementCase) {
                 ));
                 assert!(matches!(
                     worker.execute(&block, qc.block_hash, false),
-                    Some(ExecOutcome::Failed(_))
+                    Err(PublicationError::RecoveryRequired(_))
                 ));
                 assert!(events.try_recv().is_err());
                 // Retire the original failed worker graph during an outer unwind.

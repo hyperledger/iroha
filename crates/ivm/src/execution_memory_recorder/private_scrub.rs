@@ -83,10 +83,10 @@ mod tests {
         recorder.inner.lock().next_access_ordinal = u64::MAX;
         let mut ranges = PrivateMemoryRanges::default();
         ranges.try_insert(0..1).unwrap();
-        assert_eq!(
+        assert!(matches!(
             recorder.record_private_scrub(&[9], &ranges),
             Err(VMError::HostUnavailable)
-        );
+        ));
         assert_eq!(recorder.len(), 0);
         assert_eq!(recorder.inner.lock().next_access_ordinal, u64::MAX);
     }
@@ -99,10 +99,10 @@ mod tests {
         let mut ranges = PrivateMemoryRanges::default();
         ranges.try_insert(0..1).unwrap();
         ranges.try_insert(2..3).unwrap();
-        assert_eq!(
+        assert!(matches!(
             recorder.record_private_scrub(&[9, 8], &ranges),
             Err(VMError::HostUnavailable)
-        );
+        ));
         assert_eq!(recorder.len(), 0);
         assert_eq!(recorder.inner.lock().next_access_ordinal, 0);
     }

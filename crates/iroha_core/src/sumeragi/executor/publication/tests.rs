@@ -106,7 +106,6 @@ fn state_publication_lock_refusals_reach_scheduler_with_original_execution_and_r
                     source.allocation_refusal().is_none(),
                     "locks are not allocation demand"
                 );
-                let source = source.clone();
                 let wait = source.release_wait().unwrap().clone();
                 let mut context = Context::from_waker(Waker::noop());
                 assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
@@ -114,7 +113,12 @@ fn state_publication_lock_refusals_reach_scheduler_with_original_execution_and_r
                 drop(unrelated.try_reserve_bytes(1).unwrap());
                 assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
                 scheduler.done(0, ExecDone::Committed(Err(failure)));
-                assert_eq!(scheduler.preparation_refusal(), Some(&source));
+                assert_eq!(
+                    scheduler
+                        .preparation_refusal()
+                        .and_then(PublicationDeferral::release_wait),
+                    Some(&wait)
+                );
                 assert_eq!(scheduler.applied(), 1);
                 assert!(scheduler.next(0).is_none());
                 assert!(scheduler.take_events().is_empty());
@@ -126,9 +130,9 @@ fn state_publication_lock_refusals_reach_scheduler_with_original_execution_and_r
                     overlay
                 );
                 assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
-                source
+                wait
             };
-            let source = if hash_writer {
+            let wait = if hash_writer {
                 chain
                     .state()
                     .with_hash_publication_blocked_for_test(attempt)
@@ -137,7 +141,6 @@ fn state_publication_lock_refusals_reach_scheduler_with_original_execution_and_r
                     .state()
                     .with_membership_publication_blocked_for_test(attempt)
             };
-            let wait = source.release_wait().unwrap().clone();
             assert_eq!(
                 registration.poll_wait(&wait, &mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
@@ -147,7 +150,12 @@ fn state_publication_lock_refusals_reach_scheduler_with_original_execution_and_r
                 panic!("same queued execution retries after physical release");
             };
             assert!(Arc::ptr_eq(&original, &retry));
-            assert_eq!(scheduler.preparation_refusal(), Some(&source));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             let prepared = worker.prepare(&retry.block, &retry.qc);
             assert_eq!(prepared.as_ref().unwrap(), &Some(qc.result));
             assert_eq!(
@@ -226,7 +234,9 @@ fn state_execution_and_membership_refusals_preserve_actual_release_owners() {
         else {
             panic!("retain original membership writer refusal");
         };
-        assert_eq!(source, PublicationDeferral::MembershipBusy(original));
+        assert!(
+            matches!(&source, PublicationDeferral::MembershipBusy(actual) if actual == &original)
+        );
         assert!(source.execution().is_none());
         assert!(source.allocation_refusal().is_none());
         let wait = source.release_wait().unwrap().clone();

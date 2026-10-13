@@ -138,10 +138,17 @@ source, artifact, profile, configuration and hardware. It does not trust the
 manifest for the verdict or the scope: the report must agree with the
 manifest, every record is decoded and judged again, the derived verdict must
 be the one the report states, and each record's own identity must equal the
-scope. The manifest is not signed and the harness creates no signing or
-qualification authority. `run` prints the manifest's SHA-256; an operator who
-retains or signs that digest under the existing release-signing contract
-passes it to `salvage --manifest-sha256` to bind the manifest itself.
+scope. `salvage --manifest-sha256` requires the digest retained from the original
+`run`; a missing external pin always refuses. The reader reproduces the original
+requirements before checking separately requested consumer constraints. It
+returns the same held-descriptor bytes it verified, so consumers must not reopen
+those paths. The manifest is not signed and the harness creates no signing or
+qualification authority.
+
+The admitted child inventory contains only public records. Unknown files remain
+rejected workload state and are excluded from the evidence manifest. The harness
+provides no filesystem sandbox or private-data clearing guarantee; reviewed
+emitters own their public-only output contract.
 
 ```sh
 cargo test -p iroha_core_privacy --features fastpq-replay-measurement \
@@ -160,3 +167,48 @@ unattributed, belong to their consumer tasks.
 
 Validate with `cargo test -p iroha_measurement` and
 `python3 -m pytest scripts/tests/zk_resource_harness_test.py`.
+
+## Rust SDK diagnostic flow
+
+`crates/iroha/tests/sdk_phase_tree_measurement.rs` exercises the actual immutable
+`AccountClient` through transaction preparation, signing, canonical frame
+encoding, complete canonical decoding and signature verification. It emits the
+same `FlowKind::Sdk` record through the existing recorder and original harness.
+The recorder is a dev-dependency of this explicit integration target; shipping
+SDK code gains no recorder dependency. The client uses an existing public test
+key and makes no HTTP request or ledger admission.
+
+The main workload performs 128 actual transactions at public-call granularity.
+Its scoped allocation counter covers only the canonical frame vectors it owns,
+using their actual capacities, and does not claim all SDK allocations. The
+record reports process observations and its largest undivided phase normally;
+no timing or resource threshold can change an SDK result. The controls compare
+identical chosen-payload signatures with and without recording, retain an
+actual wrong-authority signing failure, and retain a test unwind before another
+independent successful call. Both Norito records and their JSON views are
+round-tripped through the shared schema.
+
+```sh
+cargo test --offline --locked -p iroha_measurement --test layering --test public_api
+cargo test --offline --locked -p iroha --test sdk_phase_tree_measurement
+cargo test --offline --locked -p iroha --test sdk_phase_tree_measurement \
+    --no-run --message-format=json-render-diagnostics
+python3 scripts/zk_resource_harness.py run \
+    --hardware <reference-hardware-record> --profile <actual-profile> \
+    --config sdk.prepare-sign-frame.128 --cache-policy warm -- \
+    <exact-cargo-test-artifact> --exact \
+    actual_sdk_prepare_sign_and_canonical_frame_emit_shared_records --nocapture
+```
+
+Run `actual_sdk_error_is_returned_and_failed_record_is_retained` and
+`sdk_unwind_is_retained_and_next_actual_call_remains_usable` separately through
+the same harness to retain intentional rejected records; a passing Rust test
+for these controls does not make the measured failed flow acceptable. Do not
+combine them with the success workload when qualifying a successful run. Keep
+the manifest digest printed by each original harness invocation and replay it
+with the same pinned artifact and source.
+
+TODO: This is one Rust SDK flow. It does not complete the six SDK delivery
+surfaces (Rust, Kotlin/Java/Android, Swift, JavaScript, Python and C#), other-language emitters, SDK device thermal adapters, physical-device
+runs or HTTP/ledger integration. Those ordinary implementation and execution
+gaps remain separate from this diagnostic target's component qualification.

@@ -224,15 +224,13 @@ fn non_zk_mode_mutation_cannot_append_or_repair_a_foreign_pending_batch() {
     let newer = vm.begin_trace_invocation().unwrap();
     let retained = original.reserved_bytes();
     original.set_limit_bytes(0);
-    assert_eq!(
-        vm.record_trace_prefetch(&original_invocation),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(vm.record_trace_prefetch(&original_invocation), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
-    assert_eq!(
-        vm.prepare_trace_instruction(&original_invocation, encode_halt(), |_| Ok(())),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(vm.prepare_trace_instruction(&original_invocation, encode_halt(), |_| Ok(())), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
@@ -341,13 +339,13 @@ fn no_observation_preflight_skips_destination_geometry_and_retains_no_backing() 
     // Opcode validation is the ordinary caller's earlier responsibility. This
     // helper-only sentinel proves absent observations do not invoke the delta
     // classifier, which would reject it. No invalid instruction is executed.
-    assert_eq!(
+    assert!(matches!(
         vm.prepare_trace_instruction(&invocation, 0, |_| {
             calls += 1;
             Ok(41)
         }),
         Ok(41)
-    );
+    ));
     assert_eq!(calls, 1);
     assert_eq!(state(&vm), before);
     assert_eq!(original.reserved_bytes(), retained);
@@ -365,11 +363,10 @@ fn no_observation_tail_refusal_panic_and_policy_checks_preserve_their_precedence
     let before = state(&vm);
     original.set_limit_bytes(original.reserved_bytes());
     let refusal = original.try_reserve_bytes(1).unwrap_err();
-    assert_eq!(
-        vm.prepare_trace_instruction(&invocation, encode_halt(), |_| {
+    assert!(
+        matches!(vm.prepare_trace_instruction(&invocation, encode_halt(), |_| {
             Err::<(), _>(VMError::AllocationDeferred(refusal.clone()))
-        }),
-        Err(VMError::AllocationDeferred(refusal))
+        }), Err(VMError::AllocationDeferred(__actual_error_field)) if __actual_error_field == (refusal))
     );
     let panic = catch_unwind(AssertUnwindSafe(|| {
         let _ =
@@ -385,20 +382,19 @@ fn no_observation_tail_refusal_panic_and_policy_checks_preserve_their_precedence
     assert_eq!(state(&vm), before);
     vm.prepare_trace_instruction(&invocation, encode_halt(), |_| Ok(()))
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         vm.prepare_trace_instruction(&invocation, encode_halt(), |vm| {
             vm.set_trace_mode(TraceMode::PcOnly);
             Err::<(), _>(VMError::PrivacyViolation)
         }),
         Err(VMError::PrivacyViolation)
-    );
+    ));
     let mut called = false;
-    assert_eq!(
-        vm.prepare_trace_instruction(&invocation, encode_halt(), |_| {
+    assert!(
+        matches!(vm.prepare_trace_instruction(&invocation, encode_halt(), |_| {
             called = true;
             Ok(())
-        }),
-        Err(VMError::ExecutionDeferred(
+        }), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
@@ -412,12 +408,11 @@ fn no_observation_successful_tail_cannot_authorize_a_replaced_policy() {
     let mut vm = loaded(&original, TraceMode::Off, false);
     let invocation = vm.begin_trace_invocation().unwrap();
     let retained = original.reserved_bytes();
-    assert_eq!(
-        vm.prepare_trace_instruction(&invocation, encode_halt(), |vm| {
+    assert!(
+        matches!(vm.prepare_trace_instruction(&invocation, encode_halt(), |vm| {
             vm.set_trace_mode(TraceMode::DeltaRegisters);
             Ok(())
-        }),
-        Err(VMError::ExecutionDeferred(
+        }), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );

@@ -3138,9 +3138,9 @@ impl StateBlock<'_> {
         genesis: Option<&crate::block::AuthenticatedGenesisTransaction>,
     ) -> Result<DataTriggerSequence, ExecutionAttemptError<TransactionRejectionReason>> {
         state_transaction.genesis_execution_scope = None;
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if genesis.is_some() && !matches!(tx.entrypoint(), TransactionEntrypoint::External(_)) {
             return Err(
                 reject_not_permitted("genesis admission requires an external input").into(),
@@ -3248,9 +3248,9 @@ impl StateBlock<'_> {
         } else {
             debug!("Transaction validated successfully; processing data triggers");
             let trigger_result = state_transaction.execute_data_triggers_dfs(&authority);
-            if let Some(reason) = state_transaction.execution_deferral() {
-                return Err(ExecutionAttemptError::Deferred(reason));
-            }
+            state_transaction
+                .ensure_execution_ready()
+                .map_err(ExecutionAttemptError::Deferred)?;
             let trigger_sequence = trigger_result?;
             debug!("Data triggers executed successfully");
             trigger_sequence
@@ -3376,9 +3376,10 @@ impl StateBlock<'_> {
         // Parse and cache metadata + derived hashes.
         let bytes = contract.as_ref();
         let summary = ivm_cache.summarize_executable(bytes).map_err(|error| {
-            if let Some(owner) = ExecutionDeferred::from_vm_error(&error) {
-                return ExecutionAttemptError::Deferred(owner);
-            }
+            let error = match ExecutionDeferred::try_from_vm_error(error) {
+                Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                Err(error) => error,
+            };
             let failure = match error {
                 ivm::VMError::UnknownSyscall(number) => ValidationFail::NotPermitted(format!(
                     "unknown syscall number 0x{number:02x} for abi_version 1"
@@ -3485,9 +3486,10 @@ impl StateBlock<'_> {
                     &state_transaction.execution_budget(),
                 )
                 .map_err(|err| {
-                    if let Some(owner) = ExecutionDeferred::from_vm_error(&err) {
-                        return ExecutionAttemptError::Deferred(owner);
-                    }
+                    let err = match ExecutionDeferred::try_from_vm_error(err) {
+                        Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                        Err(error) => error,
+                    };
                     ExecutionAttemptError::Rejected(TransactionRejectionReason::Validation(
                         ValidationFail::IvmAdmission(
                             iroha_data_model::executor::IvmAdmissionError::BytecodeDecodingFailed(

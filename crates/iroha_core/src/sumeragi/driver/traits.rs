@@ -225,7 +225,7 @@ impl Clock for SystemClock {
 }
 
 /// Original local resource owner retained with an unfinished publication.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PublicationDeferral {
     /// The exact prepaid shared-control construction failed without a release-bearing owner.
     #[error(transparent)]
@@ -327,7 +327,7 @@ impl PublicationDeferral {
 }
 
 /// A local publication failure, distinguished by whether the original owner may retry.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PublicationError {
     /// No consuming publication began; the same original owner remains available.
     #[error("retryable publication refusal: {0}")]
@@ -338,6 +338,17 @@ pub enum PublicationError {
     /// Publication consumed its owner, may be visible, or lost its worker; recovery is required.
     #[error("publication recovery required: {0}")]
     RecoveryRequired(String),
+    /// An original execution custody or trusted initializer failure requires recovery.
+    /// This retains the exact local cause and never registers a retry wakeup.
+    #[error("publication recovery required from original execution: {0}")]
+    RecoveryRefusal(crate::execution_attempt::ExecutionDeferred),
+}
+
+impl PublicationError {
+    /// Whether this result requires a terminal local halt, with or without an original cause.
+    pub fn is_recovery_required(&self) -> bool {
+        matches!(self, Self::RecoveryRequired(_) | Self::RecoveryRefusal(_))
+    }
 }
 
 impl From<crate::state::StateViewError> for PublicationError {
@@ -345,6 +356,13 @@ impl From<crate::state::StateViewError> for PublicationError {
         match error {
             crate::state::StateViewError::Busy(wait) => {
                 Self::Deferred(PublicationDeferral::StateViewBusy(wait))
+            }
+            crate::state::StateViewError::Runtime(
+                crate::state::LaneLifecycleError::NposPolicy(
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
+                ),
+            ) if reason.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation => {
+                Self::RecoveryRefusal(reason)
             }
             crate::state::StateViewError::Runtime(
                 crate::state::LaneLifecycleError::NposPolicy(
@@ -373,7 +391,11 @@ impl From<crate::execution_attempt::ExecutionAttemptError<String>> for Publicati
                 Self::Retryable(reason)
             }
             crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
-                Self::Deferred(original.into())
+                if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation {
+                    Self::RecoveryRefusal(original)
+                } else {
+                    Self::Deferred(original.into())
+                }
             }
         }
     }
@@ -394,12 +416,16 @@ pub trait Executor: Send {
     /// the request until the parent is applied or executed, O4). A `Valid` post-state is kept
     /// until the block is applied or discarded. `certified` is the core's authenticated
     /// PrepareQC/lock indication, forwarded unchanged; only local clock guards may use it.
+    ///
+    /// # Errors
+    /// An unfinished local attempt transfers its exact owner to the driver's retained job.
+    /// It emits no completed execution event; consuming custody failure requires recovery.
     fn execute(
         &mut self,
         block: &AvailableBody,
         block_hash: &Hash32,
         certified: bool,
-    ) -> Option<ExecOutcome>;
+    ) -> Result<Option<ExecOutcome>, PublicationError>;
     /// Drop the post-states of the blocks at `height` other than `keep`.
     fn discard(&mut self, height: u64, keep: &[Hash32]);
     /// The post-state of the next committed block (its parent is the applied state): the

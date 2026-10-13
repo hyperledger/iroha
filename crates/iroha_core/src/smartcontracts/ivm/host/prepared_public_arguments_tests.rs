@@ -71,7 +71,10 @@ seiyaku PreparedArguments { permission Invoke;
     let mut unpaid = IVM::new(100_000);
     unpaid.load_program(&program).unwrap();
     unpaid.set_program_counter(entry_pc).unwrap();
-    assert_eq!(unpaid.run_with_host(&mut host), Err(VMError::DecodeError));
+    assert!(matches!(
+        (&(unpaid.run_with_host(&mut host)), &(VMError::DecodeError)),
+        (Err(VMError::DecodeError), VMError::DecodeError)
+    ));
     assert!(unpaid.call_result_word_count().is_err());
     assert_eq!(ivm::argument_record_decode_count(), 1);
 }
@@ -189,9 +192,12 @@ seiyaku PreparedArgumentEventProbe {
     record_only_host
         .prepare_syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &absent_vm)
         .expect("quote missing event");
-    assert_eq!(
-        record_only_host.syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &mut absent_vm),
-        Err(VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(record_only_host.syscall(ivm_sys::SYSCALL_GET_PUBLIC_INPUT, &mut absent_vm)),
+            &(VMError::PermissionDenied)
+        ),
+        (Err(VMError::PermissionDenied), VMError::PermissionDenied)
+    ));
     assert_eq!(ivm::argument_record_decode_count(), 1);
 }

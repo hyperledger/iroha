@@ -327,7 +327,7 @@ fn prepaid_dirty_tracking_resets_warm_vm_after_budget_shrink_with_identical_gas(
     let before_gas = vm.remaining_gas();
     let before_pc = vm.pc;
     // Tracked probes reuse this prepaid read array throughout zero-limit resets.
-    assert_eq!(vm.memory.load_u64(Memory::STACK_START), Ok(0));
+    assert!(matches!(vm.memory.load_u64(Memory::STACK_START), Ok(0)));
     let reserved = budget.reserved_bytes();
     let row_bytes = 4 * std::mem::size_of::<crate::WriteLogEntry>();
     budget.set_limit_bytes(0);
@@ -344,12 +344,15 @@ fn prepaid_dirty_tracking_resets_warm_vm_after_budget_shrink_with_identical_gas(
             .unwrap();
         assert_eq!(vm.remaining_gas(), before_gas);
         assert_eq!(vm.pc, before_pc);
-        assert_eq!(vm.memory.load_u64(Memory::STACK_START), Ok(0x1234));
+        assert_eq!(
+            (vm.memory.load_u64(Memory::STACK_START)).expect("expected successful fixture result"),
+            0x1234
+        );
         vm.reset_from_runtime_template(&template).unwrap();
         ordinary
             .reset_from_runtime_template(&ordinary_template)
             .unwrap();
-        assert_eq!(vm.memory.load_u64(Memory::STACK_START), Ok(0));
+        assert!(matches!(vm.memory.load_u64(Memory::STACK_START), Ok(0)));
         assert_eq!(vm.remaining_gas(), ordinary.remaining_gas());
         assert_eq!(vm.pc, ordinary.pc);
         assert_eq!(budget.reserved_bytes(), reserved + row_bytes);
@@ -386,7 +389,7 @@ fn funded_write_log_refusal_preserves_guest_bytes_privacy_gas_and_retry_result()
     vm.load_program(&program).unwrap();
     local.load_program(&program).unwrap();
     // Probe reads below must not borrow write-log or bitmap observation credit.
-    assert_eq!(vm.memory.load_u64(Memory::STACK_START), Ok(0));
+    assert!(matches!(vm.memory.load_u64(Memory::STACK_START), Ok(0)));
     let base = budget.reserved_bytes();
     let gas = vm.remaining_gas();
     let pc = vm.pc;
@@ -399,7 +402,7 @@ fn funded_write_log_refusal_preserves_guest_bytes_privacy_gas_and_retry_result()
     ));
     assert_eq!(vm.remaining_gas(), gas);
     assert_eq!(vm.pc, pc);
-    assert_eq!(vm.memory.load_u64(Memory::STACK_START), Ok(0));
+    assert!(matches!(vm.memory.load_u64(Memory::STACK_START), Ok(0)));
     assert_eq!(vm.memory.current_root(), root);
     assert_eq!(vm.private_memory_bytes.pairs_for_testing(), privacy);
     assert_eq!(budget.reserved_bytes(), base);
@@ -438,8 +441,8 @@ fn runtime_template_rejects_same_program_reloaded_after_memory_writes() {
 
     assert!(error.to_string().contains("lifecycle mismatch"));
     assert_eq!(
-        vm.memory.load_u64(Memory::STACK_START),
-        Ok(0xDEAD_BEEF),
+        (vm.memory.load_u64(Memory::STACK_START)).expect("expected successful fixture result"),
+        0xDEAD_BEEF,
         "failed reset must leave the VM unchanged for pool discard"
     );
 }
@@ -488,12 +491,18 @@ fn loading_a_program_clears_prior_heap_and_allocator_state() {
     vm.memory
         .store_u64(Memory::HEAP_START, 0xDEAD_BEEF)
         .expect("dirty first program heap");
-    assert_eq!(vm.alloc_heap(16), Ok(Memory::HEAP_START));
+    assert_eq!(
+        (vm.alloc_heap(16)).expect("expected successful fixture result"),
+        Memory::HEAP_START
+    );
 
     vm.load_program(&second).expect("replacement program loads");
 
-    assert_eq!(vm.memory.load_u64(Memory::HEAP_START), Ok(0));
-    assert_eq!(vm.alloc_heap(8), Ok(Memory::HEAP_START));
+    assert!(matches!(vm.memory.load_u64(Memory::HEAP_START), Ok(0)));
+    assert_eq!(
+        (vm.alloc_heap(8)).expect("expected successful fixture result"),
+        Memory::HEAP_START
+    );
 }
 #[test]
 fn runtime_template_geometry_mismatch_never_replaces_the_memory_image() {
@@ -1064,8 +1073,8 @@ fn funded_read_refusal_preserves_output_privacy_gas_and_exact_credit_retry() {
         .unwrap();
     assert_eq!(output, [1, 2, 3, 4, 5, 6, 7, 8]);
     assert_eq!(
-        vm.memory.load_u64(Memory::INPUT_START),
-        local.memory.load_u64(Memory::INPUT_START)
+        vm.memory.load_u64(Memory::INPUT_START).unwrap(),
+        local.memory.load_u64(Memory::INPUT_START).unwrap()
     );
     assert_eq!(budget.reserved_bytes(), occupied + read_bytes / 2);
     allow_exact_invocation_shell(&mut vm, &budget);

@@ -1739,7 +1739,11 @@ mod tests {
         let vm = cache
             .checkout_generic_runtime(&summary, 10_000, HEAP_LIMIT)
             .expect("next runtime");
-        assert_eq!(vm.memory.load_u64(ivm::Memory::HEAP_START), Ok(0));
+        assert_eq!(
+            (vm.memory.load_u64(ivm::Memory::HEAP_START))
+                .expect("expected successful VM operation"),
+            0
+        );
     }
 
     #[test]
@@ -2005,9 +2009,8 @@ mod tests {
             let error = IvmCache::new()
                 .summarize_generic_program(&program)
                 .expect_err("generic syscall profile must reject contract-only calls");
-            assert_eq!(
-                error,
-                ivm::VMError::GenericSyscallNotAllowed { syscall },
+            assert!(
+                matches!((&(error), &(ivm::VMError::GenericSyscallNotAllowed { syscall })), (ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}, ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
                 "generic syscall profile must reject 0x{syscall:02x}"
             );
         }

@@ -118,13 +118,13 @@ mod tests {
     #[test]
     fn option_and_result_layouts_reserve_only_the_larger_branch() {
         let option = SumLayoutV1::option(3).expect("Option layout");
-        assert_eq!(option.active_words(0), Ok(0));
-        assert_eq!(option.active_words(1), Ok(3));
-        assert_eq!(option.allocation_bytes(), Ok(32));
+        assert!(matches!(option.active_words(0), Ok(0)));
+        assert!(matches!(option.active_words(1), Ok(3)));
+        assert!(matches!(option.allocation_bytes(), Ok(32)));
         let result = SumLayoutV1::try_new(5, 2).expect("Result layout");
-        assert_eq!(result.active_words(0), Ok(5));
-        assert_eq!(result.active_words(1), Ok(2));
-        assert_eq!(result.allocation_bytes(), Ok(48));
+        assert!(matches!(result.active_words(0), Ok(5)));
+        assert!(matches!(result.active_words(1), Ok(2)));
+        assert!(matches!(result.allocation_bytes(), Ok(48)));
     }
     #[test]
     fn tags_widths_and_overflow_fail_closed() {

@@ -626,9 +626,14 @@ fn original_lane_history_refusal_reaches_evidence_without_recovery_or_rejection(
     let Attempt::Deferred(original) = &error else {
         panic!("original history was erased: {error:?}")
     };
-    let original = original.clone();
-    let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
-        original.allocation_refusal()
+    let original_reason = original.reason();
+    let original_phase = original.phase();
+    assert!(original.decode_refusal().is_none() && original.verification_refusal().is_none());
+    let original = original
+        .allocation_refusal()
+        .expect("original pool cause")
+        .clone();
+    let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) = Some(&original)
     else {
         panic!("actual original archive capacity")
     };
@@ -636,7 +641,7 @@ fn original_lane_history_refusal_reaches_evidence_without_recovery_or_rejection(
     let mut context = Context::from_waker(std::task::Waker::noop());
     assert!(registration.poll_wait(&wait, &mut context).is_pending());
     assert!(
-        matches!(classify(EvidenceAdmissionError::Source(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained == original)
+        matches!(classify(EvidenceAdmissionError::Source(error)), crate::block::BlockValidationError::ExecutionDeferred(retained) if retained.reason() == original_reason && retained.phase() == original_phase && retained.allocation_refusal() == Some(&original) && retained.decode_refusal().is_none() && retained.verification_refusal().is_none())
     );
     drop(occupied);
     assert!(registration.poll_wait(&wait, &mut context).is_ready());
@@ -916,13 +921,18 @@ fn original_signed_evidence_root_scope_refusal_stays_local_and_retries_same_stat
         else {
             panic!("original signed root decode refusal was erased: {error:?}")
         };
-        assert_eq!(local, &original_local);
+        assert_eq!(local.reason(), original_local.reason());
+        let original_reason = local.reason();
+        let original_decode = local.decode_refusal().cloned();
+        let original_allocation = local.allocation_refusal().cloned();
         let admission = EvidenceAdmissionError::from(error);
         assert!(admission::retryable(&admission));
         let classified = classify(admission);
         assert!(
             matches!(classified, crate::block::BlockValidationError::ExecutionDeferred(local)
-                if local == original_local),
+                if local.reason() == original_reason
+                    && local.decode_refusal() == original_decode.as_ref()
+                    && local.allocation_refusal() == original_allocation.as_ref()),
             "root refusal must not become signed-input rejection or storage recovery"
         );
         assert_eq!(execution_pool.reserved_bytes(), expected_reserved);
@@ -990,7 +1000,7 @@ fn original_root_observation_refusal_keeps_pending_bytes_and_same_state_retry() 
     let error = norito::with_decode_limits_scope(limits(policy_bytes), || observe(state, &native))
         .unwrap_err();
     assert!(
-        matches!(&error, EvidenceAdmissionError::History(Attempt::Deferred(local)) if *local == expected),
+        matches!(&error, EvidenceAdmissionError::History(Attempt::Deferred(local)) if local.reason() == expected.reason() && local.allocation_refusal().is_none()),
         "real root observation lost original decode refusal: {error:?}"
     );
     assert!(admission::retryable(&error));

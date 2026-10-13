@@ -475,25 +475,27 @@ mod tests {
     fn command_requires_an_explicit_mode_and_accepts_a_staged_output_root() {
         let default_root = Path::new("/workspace");
         assert_eq!(
-            parse_options_from(&["--check".to_owned()], default_root),
-            Ok(Options {
+            (parse_options_from(&["--check".to_owned()], default_root))
+                .expect("expected successful fixture result"),
+            Options {
                 mode: Mode::Check,
                 output_root: default_root.to_path_buf(),
-            })
+            }
         );
         assert_eq!(
-            parse_options_from(
+            (parse_options_from(
                 &[
                     "--output-root".to_owned(),
                     "/staged/fixtures".to_owned(),
                     "--write".to_owned(),
                 ],
                 default_root,
-            ),
-            Ok(Options {
+            ))
+            .expect("expected successful fixture result"),
+            Options {
                 mode: Mode::Write,
                 output_root: PathBuf::from("/staged/fixtures"),
-            })
+            }
         );
         assert!(parse_options_from(&[], default_root).is_err());
         assert!(

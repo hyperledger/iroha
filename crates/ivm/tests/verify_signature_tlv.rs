@@ -69,7 +69,10 @@ fn direct_signature_opcodes_charge_each_aliased_payload_before_hashing() {
         assert_eq!(exact.register(3), 0, "oversized key material must reject");
 
         let mut short = aliased_signature_operand_vm(opcode, PAYLOAD_LEN, base + surcharge - 1);
-        assert_eq!(short.run(), Err(VMError::OutOfGas), "opcode {opcode:#x}");
+        assert!(
+            matches!(short.run(), Err(VMError::OutOfGas)),
+            "opcode {opcode:#x}"
+        );
         assert_eq!(
             short.gas_remaining,
             surcharge - 1,
@@ -137,7 +140,7 @@ fn direct_signature_preflight_reports_private_memory_after_a_malformed_operand()
     vm.set_register(1, 0); // malformed public message pointer
     vm.set_register(2, tlv_pointer); // later private signature range
     vm.set_register(3, 0);
-    assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
 }
 
 #[test]
@@ -808,7 +811,7 @@ fn opcode_verify_ed25519_batch_debits_payload_before_hash_validation() {
     code.extend_from_slice(&word.to_le_bytes());
     code.extend_from_slice(&halt);
     vm.load_program(&assemble(&code)).unwrap();
-    assert_eq!(vm.run(), Err(VMError::OutOfGas));
+    assert!(matches!(vm.run(), Err(VMError::OutOfGas)));
     assert_eq!(vm.gas_remaining, payload_gas - 1);
 }
 #[test]
@@ -1003,16 +1006,16 @@ fn syscall_verify_signature_ed25519_via_tlv() {
 #[test]
 fn syscall_verify_signature_rejects_norito_message_tlv() {
     let message = br#"{"amount":123,"dpn_id":"dpn-live"}"#;
-    assert_eq!(
+    assert!(matches!(
         run_syscall_verify_signature_ed25519(PointerType::NoritoBytes, message, 6),
         Err(VMError::NoritoInvalid)
-    );
+    ));
 }
 #[test]
 fn syscall_verify_signature_rejects_json_message_tlv() {
     let message = br#"{"amount":456,"dpn_id":"dpn-json"}"#;
-    assert_eq!(
+    assert!(matches!(
         run_syscall_verify_signature_ed25519(PointerType::Json, message, 7),
         Err(VMError::NoritoInvalid)
-    );
+    ));
 }

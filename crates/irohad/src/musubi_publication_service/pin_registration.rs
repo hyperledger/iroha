@@ -44,7 +44,7 @@ pub struct MusubiPublicationFinalizedPinRegistrationQueryV1 {
 }
 
 /// Redacted finality/replay failure for one signed pin registration.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MusubiPublicationFinalizedPinRegistrationReadErrorV1 {
     /// Original local allocation admission has not completed; retry the same read.
     Deferred(iroha_core::execution_attempt::ExecutionDeferred),
@@ -549,7 +549,7 @@ mod tests {
                 .expect("exact signed pin"),
             manifest
         );
-        assert_eq!(
+        assert!(matches!(
             validate_signed_pin_intent(
                 &network,
                 &authority,
@@ -558,16 +558,16 @@ mod tests {
                 digest,
             ),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
+        ));
         let mut wrong_archive = archive.clone();
         wrong_archive.car_size += 1;
-        assert_eq!(
+        assert!(matches!(
             validate_signed_pin_intent(&network, &authority, &wrong_archive, &transaction, digest,),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
+        ));
         let mut wrong_chunk_plan = archive.clone();
         wrong_chunk_plan.chunk_plan_digest = MusubiContentDigestV1::new([0x52; 32]);
-        assert_eq!(
+        assert!(matches!(
             validate_signed_pin_intent(
                 &network,
                 &authority,
@@ -576,8 +576,8 @@ mod tests {
                 digest,
             ),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             validate_signed_pin_intent(
                 &network,
                 &authority,
@@ -586,11 +586,11 @@ mod tests {
                 ManifestDigest::new([0x90; 32]),
             ),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
+        ));
         let foreign_network = NetworkId::from_genesis_hash(
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0x17; 32])),
         );
-        assert_eq!(
+        assert!(matches!(
             validate_signed_pin_intent(
                 &foreign_network,
                 &authority,
@@ -599,14 +599,14 @@ mod tests {
                 digest,
             ),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
+        ));
         let foreign_key =
             KeyPair::try_from_seed(vec![0x38; 32], Algorithm::Ed25519).expect("foreign key");
         let foreign_authority = AccountId::new(foreign_key.public_key().clone());
         let wrong_signature = transaction
             .clone()
             .with_authority(foreign_authority.clone());
-        assert_eq!(
+        assert!(matches!(
             validate_signed_pin_intent(
                 &network,
                 &foreign_authority,
@@ -615,7 +615,7 @@ mod tests {
                 digest,
             ),
             Err(MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid)
-        );
+        ));
     }
 
     #[test]
@@ -663,10 +663,14 @@ mod tests {
                 source: norito::Error::AllocationFailed { bytes: 64 },
             },
         ] {
+            let Deferred(original) = manifest_codec_refusal(error) else {
+                panic!("decoder allocation report must remain unfinished");
+            };
             assert_eq!(
-                manifest_codec_refusal(error),
-                Deferred(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
+                original.reason(),
+                ivm::error::ExecutionDeferral::AllocationUnavailable
             );
+            assert!(original.allocation_refusal().is_none());
         }
         for error in [
             ManifestDecodeError::NonCanonicalEncoding,
@@ -677,7 +681,7 @@ mod tests {
                 source: norito::Error::LengthMismatch,
             },
         ] {
-            assert_eq!(manifest_codec_refusal(error), Invalid);
+            assert!(matches!(manifest_codec_refusal(error), Invalid));
         }
     }
 

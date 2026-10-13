@@ -39,6 +39,51 @@ static FREED_SIZE: AtomicUsize = AtomicUsize::new(0);
 static FREED_ALIGN: AtomicUsize = AtomicUsize::new(0);
 static FREED: AtomicBool = AtomicBool::new(false);
 
+// End the actual allocator observation before unlocking the shared counters.
+struct ResetObservation;
+impl Drop for ResetObservation {
+    fn drop(&mut self) {
+        OBSERVE_ALLOCATIONS.with(|enabled| enabled.set(false));
+        NEXT_SIZE.store(usize::MAX, SeqCst);
+        FAIL_NEXT.store(false, SeqCst);
+        OBSERVED_BUDGET.with(|observed| observed.borrow_mut().take());
+    }
+}
+
+// Struct fields drop in declaration order: retire the thread-local observer and
+// its borrowed budget before another test can acquire the shared counters.
+struct SerialObservation {
+    _reset: ResetObservation,
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+fn serial_observation() -> SerialObservation {
+    let guard = SERIAL.lock().unwrap();
+    SerialObservation {
+        _reset: ResetObservation,
+        _serial: guard,
+    }
+}
+
+#[test]
+fn observer_retires_before_harness_cleanup_and_the_next_control() {
+    {
+        let _observation = serial_observation();
+        let budget = AllocationBudget::new(0);
+        observe_next(0, false, &budget);
+        assert!(OBSERVE_ALLOCATIONS.with(std::cell::Cell::get));
+    }
+    // This is the same thread after the test's local guard has retired. The
+    // harness may now allocate capture/result storage while another test runs.
+    assert!(!OBSERVE_ALLOCATIONS.with(std::cell::Cell::get));
+    assert!(OBSERVED_BUDGET.with(|budget| budget.borrow().is_none()));
+    let _observation = serial_observation();
+    let before = OBSERVED_COUNT.load(SeqCst);
+    let harness_storage = std::hint::black_box(Vec::<u8>::with_capacity(19));
+    assert_eq!(OBSERVED_COUNT.load(SeqCst), before);
+    drop(harness_storage);
+}
+
 fn registration(budget: &AllocationBudget) -> ReleaseRegistration {
     ReleaseRegistration::from_reservation(
         &mut budget
@@ -50,7 +95,7 @@ fn registration(budget: &AllocationBudget) -> ReleaseRegistration {
 
 #[test]
 fn child_backing_consumes_parent_credit_before_allocating_without_reacquisition() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(137);
     let mut parent = budget.try_reserve_bytes(137).unwrap();
     let mut child = parent.try_partition_bytes(137).unwrap();
@@ -71,7 +116,7 @@ fn child_backing_consumes_parent_credit_before_allocating_without_reacquisition(
 
 #[test]
 fn prepaid_refusal_never_allocates_and_allocator_failure_retains_original_charge_for_retry() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(113);
     let mut parent = budget.try_reserve_bytes(113).unwrap();
     observe_next(114, false, &budget);
@@ -200,7 +245,7 @@ impl Wake for AfterFree {
 
 #[test]
 fn exact_backing_layout_and_charge_survive_fill_until_actual_deallocation() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(257 + ReleaseRegistration::allocation_layout().size());
     let mut budget_registration = registration(&budget);
     observe_next(257, false, &budget);
@@ -252,7 +297,7 @@ fn exact_backing_layout_and_charge_survive_fill_until_actual_deallocation() {
 
 #[test]
 fn capacity_refusal_precedes_allocation_and_original_wait_allows_retry() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(79 + ReleaseRegistration::allocation_layout().size());
     let mut budget_registration = registration(&budget);
     let occupied = budget.try_reserve_bytes(79).unwrap();
@@ -296,7 +341,7 @@ fn capacity_refusal_precedes_allocation_and_original_wait_allows_retry() {
 
 #[test]
 fn allocator_failure_returns_unused_charge_without_constructing_a_vec() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(113);
     observe_next(113, true, &budget);
     let error = match ChargedBuffer::<u8>::new(113, &budget) {
@@ -322,7 +367,7 @@ fn allocator_failure_returns_unused_charge_without_constructing_a_vec() {
 
 #[test]
 fn zero_and_unrepresentable_layouts_never_request_backing_storage() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(0);
     observe_next(0, false, &budget);
     let mut bytes = ChargedBuffer::<u8>::new(0, &budget).unwrap();
@@ -355,7 +400,7 @@ fn zero_and_unrepresentable_layouts_never_request_backing_storage() {
 
 #[test]
 fn unwind_frees_the_original_initialized_buffer_before_refund() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(191);
     observe_next(191, false, &budget);
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -375,7 +420,7 @@ fn unwind_frees_the_original_initialized_buffer_before_refund() {
 
 #[test]
 fn simultaneous_buffers_share_capacity_until_their_actual_owners_drop() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(128);
     let mut first = ChargedBuffer::<u8>::new(64, &budget).unwrap();
     first.append(&[13; 64]).unwrap();
@@ -406,7 +451,7 @@ fn aligned_copy_elements_use_exact_typed_layout_before_allocation() {
     #[repr(align(128))]
     struct Entry([u8; 33]);
 
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let layout = Layout::array::<Entry>(3).unwrap();
     let budget = AllocationBudget::new(layout.size());
     observe_next(layout.size(), false, &budget);
@@ -435,7 +480,7 @@ fn aligned_copy_elements_use_exact_typed_layout_before_allocation() {
 
 #[test]
 fn canonical_hash_batch_sort_and_prefix_compaction_preserve_original_allocation() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let layout = Layout::array::<[u8; 32]>(8).unwrap();
     let budget = AllocationBudget::new(layout.size());
     observe_next(layout.size(), false, &budget);
@@ -478,7 +523,7 @@ fn zero_sized_elements_obey_logical_capacity_without_allocation() {
     #[repr(align(256))]
     struct Entry;
 
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(0);
     observe_next(0, false, &budget);
     let allocations = OBSERVED_COUNT.load(SeqCst);
@@ -500,7 +545,7 @@ fn zero_sized_elements_obey_logical_capacity_without_allocation() {
 
 #[test]
 fn typed_layout_overflow_is_refused_before_reservation_or_allocation() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(usize::MAX);
     observe_next(1, false, &budget);
     let allocations = OBSERVED_COUNT.load(SeqCst);
@@ -532,7 +577,7 @@ fn appending_copy_elements_never_invokes_payload_clone() {
         }
     }
 
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let budget = AllocationBudget::new(16);
     let mut entries = ChargedBuffer::<Entry>::new(2, &budget).unwrap();
     entries.append(&[Entry(4), Entry(8)]).unwrap();
@@ -562,7 +607,7 @@ fn non_copy_elements_move_into_exact_backing_and_drop_before_refund() {
         }
     }
 
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     let layout = Layout::array::<DropEntry<'_>>(3).unwrap();
     let budget =
         AllocationBudget::new(layout.size() + ReleaseRegistration::allocation_layout().size());
@@ -651,7 +696,7 @@ fn non_copy_zero_sized_elements_keep_logical_capacity_and_drop_once() {
         }
     }
 
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = serial_observation();
     DROPS.store(0, SeqCst);
     let budget = AllocationBudget::new(0);
     observe_next(0, false, &budget);

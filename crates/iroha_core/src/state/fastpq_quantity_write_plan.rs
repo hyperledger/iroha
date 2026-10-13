@@ -37,7 +37,7 @@ pub(super) struct ExpectedQuantityWrite<K, Q> {
 }
 
 /// Finite preparation failure; messages and caller-supplied evidence are not retained.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(super) enum QuantityWritePlanError {
     /// The operation exceeds the original finite write-port reservation.
     Capacity,
@@ -674,7 +674,7 @@ mod tests {
         permit.applied();
         plan.consume(&2, &0, &1).unwrap().applied();
         plan.consume(&1, &9, &14).unwrap().applied();
-        assert_eq!(plan.finish(), Ok(()));
+        assert!(matches!(plan.finish(), Ok(())));
     }
 
     #[test]
@@ -689,13 +689,19 @@ mod tests {
                 plan.consume(&1, &10, &9),
                 Err(QuantityWritePlanError::Exhausted)
             ));
-            assert_eq!(plan.finish(), Err(QuantityWritePlanError::Mismatch));
+            assert!(matches!(
+                plan.finish(),
+                Err(QuantityWritePlanError::Mismatch)
+            ));
         }
     }
 
     #[test]
     fn omitted_or_extra_ports_and_unreserved_capacity_never_seal() {
-        assert_eq!(plan().finish(), Err(QuantityWritePlanError::Incomplete));
+        assert!(matches!(
+            plan().finish(),
+            Err(QuantityWritePlanError::Incomplete)
+        ));
         let mut plan = plan();
         plan.consume(&1, &10, &9).unwrap().applied();
         plan.consume(&2, &0, &1).unwrap().applied();
@@ -704,7 +710,10 @@ mod tests {
             plan.consume(&1, &9, &14),
             Err(QuantityWritePlanError::Exhausted)
         ));
-        assert_eq!(plan.finish(), Err(QuantityWritePlanError::Mismatch));
+        assert!(matches!(
+            plan.finish(),
+            Err(QuantityWritePlanError::Mismatch)
+        ));
         assert!(matches!(
             QuantityWritePlan::new(
                 vec![ExpectedQuantityWrite {
@@ -717,7 +726,7 @@ mod tests {
             Err(QuantityWritePlanError::Capacity)
         ));
         let empty = QuantityWritePlan::<u64, u64>::new(vec![], 0).unwrap();
-        assert_eq!(empty.finish(), Ok(()));
+        assert!(matches!(empty.finish(), Ok(())));
         let overallocated = Vec::<ExpectedQuantityWrite<u64, u64>>::with_capacity(8);
         assert!(matches!(
             QuantityWritePlan::new(overallocated, 1),
@@ -729,14 +738,20 @@ mod tests {
     fn dropped_or_unwinding_permit_poison_the_original_operation() {
         let mut abandoned = plan();
         drop(abandoned.consume(&1, &10, &9).unwrap());
-        assert_eq!(abandoned.finish(), Err(QuantityWritePlanError::Mismatch));
+        assert!(matches!(
+            abandoned.finish(),
+            Err(QuantityWritePlanError::Mismatch)
+        ));
         let mut interrupted = plan();
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _permit = interrupted.consume(&1, &10, &9).unwrap();
             panic!("interrupt the actual write owner");
         }));
         assert!(failure.is_err());
-        assert_eq!(interrupted.finish(), Err(QuantityWritePlanError::Mismatch));
+        assert!(matches!(
+            interrupted.finish(),
+            Err(QuantityWritePlanError::Mismatch)
+        ));
     }
 
     #[test]
@@ -750,7 +765,7 @@ mod tests {
         plan.consume(&1, &10, &9).unwrap().applied();
         plan.consume(&2, &0, &1).unwrap().applied();
         plan.consume(&1, &9, &14).unwrap().applied();
-        assert_eq!(plan.finish(), Ok(()));
+        assert!(matches!(plan.finish(), Ok(())));
     }
 
     fn removal_plan(amount: u32) -> (QuantityWritePlan<QuantityWriteKey, Quantity>, AssetId) {
@@ -803,7 +818,7 @@ mod tests {
             plan.consume_balance(&id, &Quantity::from(amount), &Quantity::zero())
                 .unwrap()
                 .applied();
-            assert_eq!(plan.finish(), Ok(()));
+            assert!(matches!(plan.finish(), Ok(())));
         }
     }
 
@@ -837,7 +852,10 @@ mod tests {
                 plan.order_supply_before_complete_removal(&id, &Quantity::from(3_u32))
                     .is_err()
             );
-            assert_eq!(plan.finish(), Err(QuantityWritePlanError::Mismatch));
+            assert!(matches!(
+                plan.finish(),
+                Err(QuantityWritePlanError::Mismatch)
+            ));
         }
     }
 

@@ -2516,22 +2516,25 @@ mod tests {
             .alloc_input_tlv(&make_amount_tlv(canonical.clone()))
             .expect("allocate canonical quantity");
         vm.set_register(13, canonical_ptr);
-        assert_eq!(CoreHost::expect_amount(&vm, 13), Ok(()));
+        assert!(matches!(CoreHost::expect_amount(&vm, 13), Ok(())));
         let legacy_ptr = vm
             .alloc_input_tlv(&make_numeric_tlv(canonical.into_numeric()))
             .expect("allocate legacy Numeric pointer");
         vm.set_register(13, legacy_ptr);
-        assert_eq!(
+        assert!(matches!(
             CoreHost::expect_amount(&vm, 13),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let malformed_payload =
             norito::to_bytes(&Numeric::new(1_250_u32, 3)).expect("encode malformed quantity");
         let noncanonical_ptr = vm
             .alloc_input_tlv(&make_pointer_tlv(PointerType::Quantity, &malformed_payload))
             .expect("allocate malformed quantity");
         vm.set_register(13, noncanonical_ptr);
-        assert_eq!(CoreHost::expect_amount(&vm, 13), Err(VMError::DecodeError));
+        assert!(matches!(
+            CoreHost::expect_amount(&vm, 13),
+            Err(VMError::DecodeError)
+        ));
     }
     #[test]
     fn core_host_decoder_enforces_pointer_policy() {
@@ -2621,8 +2624,9 @@ mod tests {
                 .expect("path length fits")
             + u64::try_from(1 + "orders/1".len() + 1 + "orders/2".len()).expect("scan length fits");
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_COUNT, &mut vm),
-            Ok(count_gas)
+            (host.syscall(syscalls::SYSCALL_STATE_COUNT, &mut vm))
+                .expect("expected successful fixture result"),
+            count_gas
         );
         assert_eq!(vm.register(10), 2);
     }
@@ -2681,10 +2685,10 @@ mod tests {
         let paths_before = host.state_paths();
         for malformed in [0_i64, 1_i64, 2_i64, -1_i64] {
             let bytes = norito::to_bytes(&malformed).expect("canonical i64");
-            assert_eq!(
+            assert!(matches!(
                 build_typed_map_path(&mut vm, &mut host, "flags", &bytes),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(host.state_paths(), paths_before);
         }
 
@@ -2722,10 +2726,10 @@ mod tests {
         vm.set_register(10, invalid_page_ptr);
         vm.set_register(11, base_ptr);
         vm.set_register(12, 0);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_STATE_MAP_KEY_AT, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(vm.register(10), invalid_page_ptr);
         assert_eq!(host.state_paths(), paths_before);
     }
@@ -2828,22 +2832,26 @@ mod tests {
         use iroha_primitives::{numeric::Numeric, numeric_abi::IntValueV1};
         let canonical_int = int_state_value_record(1);
         let mut schemaless_vm = IVM::new(u64::MAX);
-        assert_eq!(
-            build_typed_map_path(
-                &mut schemaless_vm,
-                &mut CoreHost::new(),
-                "values",
-                &canonical_int,
+        assert!(
+            matches!(
+                build_typed_map_path(
+                    &mut schemaless_vm,
+                    &mut CoreHost::new(),
+                    "values",
+                    &canonical_int,
+                ),
+                Err(VMError::NoritoInvalid)
             ),
-            Err(VMError::NoritoInvalid),
             "schema-bound key helpers must fail closed without CNTR metadata"
         );
         let mut vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut vm, "values", EmbeddedStateType::Int);
         let mut host = CoreHost::new();
-        assert_eq!(
-            build_typed_map_path(&mut vm, &mut host, "values", &[0x11]),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                build_typed_map_path(&mut vm, &mut host, "values", &[0x11]),
+                Err(VMError::NoritoInvalid)
+            ),
             "the key carrier itself must be a canonical record"
         );
         let truncated = state_value_record(
@@ -2869,13 +2877,11 @@ mod tests {
                     .expect("encode cross-typed decimal key"),
             )],
         );
-        assert_eq!(
-            build_typed_map_path(&mut vm, &mut host, "values", &decimal),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::WrongType))
+        assert!(
+            matches!(build_typed_map_path(&mut vm, &mut host, "values", &decimal), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::WrongType))
         );
-        assert_eq!(
-            decode_typed_map_page_key(&mut vm, &mut host, "values", &decimal),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::WrongType)),
+        assert!(
+            matches!(decode_typed_map_page_key(&mut vm, &mut host, "values", &decimal), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::WrongType)),
             "iteration must not surface a cross-typed persisted key"
         );
         let mut noncanonical_body = Vec::new();
@@ -2890,13 +2896,11 @@ mod tests {
                 make_pointer_tlv(PointerType::Int, &noncanonical_frame),
             )],
         );
-        assert_eq!(
-            build_typed_map_path(&mut vm, &mut host, "values", &noncanonical),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::NonCanonical))
+        assert!(
+            matches!(build_typed_map_path(&mut vm, &mut host, "values", &noncanonical), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::NonCanonical))
         );
-        assert_eq!(
-            decode_typed_map_page_key(&mut vm, &mut host, "values", &noncanonical),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::NonCanonical)),
+        assert!(
+            matches!(decode_typed_map_page_key(&mut vm, &mut host, "values", &noncanonical), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::NonCanonical)),
             "iteration must not surface a noncanonical persisted key"
         );
         let base: Name = "values".parse().expect("map base");
@@ -2908,9 +2912,8 @@ mod tests {
             .expect("direct STATE_SET accepts the canonical typed path");
         let noncanonical_path = crate::host::canonical_state_map_path(&base, &noncanonical)
             .expect("build adversarial alternate path bytes");
-        assert_eq!(
-            set_raw_state_path(&mut vm, &mut host, &noncanonical_path, b"alternate"),
-            Err(VMError::PointerAbiFault(PointerAbiFaultV1::NonCanonical)),
+        assert!(
+            matches!(set_raw_state_path(&mut vm, &mut host, &noncanonical_path, b"alternate"), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::NonCanonical)),
             "direct raw STATE_SET must not bypass typed map-key validation"
         );
         assert_eq!(host.state_paths(), vec![canonical_path.to_string()]);
@@ -2941,9 +2944,11 @@ mod tests {
         load_state_map_schema(&mut name_vm, "values", EmbeddedStateType::Name);
         build_typed_map_path(&mut name_vm, &mut CoreHost::new(), "values", &name_key)
             .expect("canonical typed Name key remains valid");
-        assert_eq!(
-            build_typed_map_path(&mut name_vm, &mut CoreHost::new(), "values", &blob_key,),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                build_typed_map_path(&mut name_vm, &mut CoreHost::new(), "values", &blob_key,),
+                Err(VMError::NoritoInvalid)
+            ),
             "pointer-compatible bytes cannot cross a declared key type"
         );
     }
@@ -2962,9 +2967,8 @@ mod tests {
         ] {
             let path_ptr = alloc_state_path(&mut vm, &base);
             vm.set_register(10, path_ptr);
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(host.syscall(syscall, &mut vm), Err(VMError::NoritoInvalid)),
                 "value syscall {syscall:#x} must reject a bare StateMap base"
             );
             assert_eq!(vm.register(10), path_ptr, "failure must publish no output");
@@ -2973,9 +2977,11 @@ mod tests {
         let value_ptr = alloc_state_value(&mut vm, &valid_value);
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
-        assert_eq!(
-            host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
+                Err(VMError::NoritoInvalid)
+            ),
             "STATE_SET must not conflate a map collection with one map value"
         );
         assert!(host.state_paths().is_empty());
@@ -3101,10 +3107,10 @@ mod tests {
             u64::try_from(prefix_payload.len() + 1 + key_text.len()).expect("scan work fits");
         let combined = STATE_QUERY_GAS_BASE.saturating_add(scan_work);
         vm.set_gas_limit(combined.saturating_sub(1));
-        assert_eq!(
+        assert!(matches!(
             vm.execute_syscall(&mut host, syscalls::SYSCALL_STATE_COUNT),
             Err(VMError::OutOfGas)
-        );
+        ));
         assert_eq!(host.state_scan_examined.load(Ordering::Relaxed), 0);
         assert!(host.access_log.read_keys.is_empty());
         assert_eq!(vm.register(10), prefix_ptr);
@@ -3139,10 +3145,10 @@ mod tests {
             .saturating_add(failing_work)
             .saturating_sub(1);
         vm.set_gas_limit(reserve);
-        assert_eq!(
+        assert!(matches!(
             vm.execute_syscall(&mut host, syscalls::SYSCALL_STATE_COUNT),
             Err(VMError::OutOfGas)
-        );
+        ));
         assert_eq!(
             host.state_scan_examined.load(Ordering::Relaxed),
             FAILING_ITEM - 1
@@ -3176,7 +3182,7 @@ mod tests {
         let error = vm
             .execute_syscall(&mut host, syscalls::SYSCALL_STATE_GET)
             .expect_err("response cost exceeds the available syscall reserve");
-        assert_eq!(error, VMError::OutOfGas);
+        assert!(matches!(error, VMError::OutOfGas));
         assert_eq!(
             vm.remaining_gas(),
             0,
@@ -3254,7 +3260,7 @@ mod tests {
                     );
                     let log = host.finish_tx().expect("finish the read transaction");
                     if available < actual {
-                        assert_eq!(result, Err(VMError::OutOfGas));
+                        assert!(matches!(result, Err(VMError::OutOfGas)));
                         assert_eq!(vm.register(10), path_ptr);
                         assert_eq!(vm.register(11), 0xfeed);
                         assert!(log.read_keys.is_empty());
@@ -3268,7 +3274,7 @@ mod tests {
                             input_before + (before_len as u64).next_multiple_of(8)
                         );
                     } else {
-                        assert_eq!(result, Ok(()));
+                        assert!(matches!(result, Ok(())));
                         assert_eq!(vm.remaining_gas(), available - actual);
                         assert!(log.read_keys.contains(path.as_ref()));
                         if present {
@@ -3364,10 +3370,10 @@ mod tests {
         let available =
             crate::host::state_path_gas(norito::to_bytes(&key).expect("encode path").len()) - 1;
         vm.set_gas_limit(available);
-        assert_eq!(
+        assert!(matches!(
             vm.execute_syscall(&mut host, syscalls::SYSCALL_STATE_GET),
             Err(VMError::OutOfGas)
-        );
+        ));
         assert_eq!(vm.remaining_gas(), available);
         assert_eq!(vm.register(10), path_ptr);
         assert_eq!(vm.register(11), 0xfeed);
@@ -3425,7 +3431,7 @@ mod tests {
         let error = vm
             .execute_syscall(&mut host, syscalls::SYSCALL_STATE_SET)
             .expect_err("the state quote is one gas beyond the syscall budget");
-        assert_eq!(error, VMError::OutOfGas);
+        assert!(matches!(error, VMError::OutOfGas));
         assert!(host.state.keys().next().is_none());
         assert!(host.access_log.read_keys.is_empty());
         assert!(host.access_log.write_keys.is_empty());
@@ -3454,11 +3460,12 @@ mod tests {
         vm.run().expect("restore wide Int");
         let output = vm.validate_tlv(vm.register(10)).expect("Int output");
         assert_eq!(
-            crate::numeric_tlv::decode_int_bytes(&make_pointer_tlv(
+            (crate::numeric_tlv::decode_int_bytes(&make_pointer_tlv(
                 PointerType::Int,
                 output.payload
-            )),
-            Ok(value)
+            )))
+            .expect("expected successful fixture result"),
+            value
         );
     }
     #[test]
@@ -3612,9 +3619,11 @@ mod tests {
                 .alloc_input_tlv(&envelope)
                 .expect("allocate wrong-type envelope");
             vm.set_register(10, pointer);
-            assert_eq!(
-                host.prepare_syscall(syscalls::SYSCALL_JSON_DECODE, &vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.prepare_syscall(syscalls::SYSCALL_JSON_DECODE, &vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "{label} pointer types must fail closed before gas debit"
             );
         }
@@ -3730,9 +3739,11 @@ mod tests {
                 .memory
                 .try_write_log_snapshot()
                 .expect("allocate write-log snapshot");
-            assert_eq!(
-                CoreHost::new().prepare_syscall(syscalls::SYSCALL_JSON_GET_JSON, &vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    CoreHost::new().prepare_syscall(syscalls::SYSCALL_JSON_GET_JSON, &vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "{label} bytes must fail during quote preparation"
             );
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
@@ -3742,9 +3753,11 @@ mod tests {
                     .expect("allocate write-log snapshot"),
                 writes_before
             );
-            assert_eq!(
-                CoreHost::new().syscall(syscalls::SYSCALL_JSON_GET_JSON, &mut vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    CoreHost::new().syscall(syscalls::SYSCALL_JSON_GET_JSON, &mut vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "{label} bytes must fail during execution"
             );
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
@@ -3765,10 +3778,10 @@ mod tests {
             .expect("allocate partial-case key");
         partial_vm.set_register(10, partial_pointer);
         partial_vm.set_register(11, key_pointer);
-        assert_eq!(
+        assert!(matches!(
             CoreHost::new().prepare_syscall(syscalls::SYSCALL_JSON_GET_JSON, &partial_vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let mut corrupted_vm = IVM::new(u64::MAX);
         let mut corrupted = json_envelope;
         let last = corrupted.len() - 1;
@@ -3785,10 +3798,10 @@ mod tests {
             .prepare_syscall(syscalls::SYSCALL_JSON_GET_JSON, &corrupted_vm)
             .expect("header-only quote remains bounded for a corrupted payload hash");
         let registers_before = [corrupted_vm.register(10), corrupted_vm.register(11)];
-        assert_eq!(
+        assert!(matches!(
             CoreHost::new().syscall(syscalls::SYSCALL_JSON_GET_JSON, &mut corrupted_vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             [corrupted_vm.register(10), corrupted_vm.register(11)],
             registers_before
@@ -3841,9 +3854,11 @@ mod tests {
                 .memory
                 .try_write_log_snapshot()
                 .expect("allocate write-log snapshot");
-            assert_eq!(
-                host.prepare_syscall(number, &vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.prepare_syscall(number, &vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "oversized owned payload for syscall {number:#x} must fail before debit"
             );
             assert_eq!(
@@ -3876,9 +3891,11 @@ mod tests {
                 .memory
                 .try_write_log_snapshot()
                 .expect("allocate write-log snapshot");
-            assert_eq!(
-                host.prepare_syscall(number, &vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.prepare_syscall(number, &vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "oversized literal payload for syscall {number:#x} must fail before debit"
             );
             assert_eq!(
@@ -3993,7 +4010,7 @@ mod tests {
         let error = vm
             .run_with_host(&mut host)
             .expect_err("schema response exceeds the syscall reserve");
-        assert_eq!(error, VMError::OutOfGas);
+        assert!(matches!(error, VMError::OutOfGas));
         assert_eq!(
             vm.remaining_gas(),
             20 - gas::cost_of(scall).expect("SCALL is scheduled"),
@@ -4025,16 +4042,18 @@ mod tests {
         vm.set_register(10, encoded_ptr);
         vm.set_register(11, u64::from(PointerType::Int as u16));
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(CoreHost::pointer_gas(int_envelope.len()))
+            (host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::pointer_gas(int_envelope.len())
         );
         let restored = vm.validate_tlv(vm.register(10)).expect("restored Int");
         assert_eq!(
-            crate::numeric_tlv::decode_int_bytes(&make_pointer_tlv(
+            (crate::numeric_tlv::decode_int_bytes(&make_pointer_tlv(
                 PointerType::Int,
                 restored.payload
-            )),
-            Ok(value)
+            )))
+            .expect("expected successful fixture result"),
+            value
         );
         let base: Name = "orders".parse().expect("base name");
         let base_bytes = norito::to_bytes(&base).expect("encode base");
@@ -4134,9 +4153,11 @@ mod tests {
         );
         vm.set_register(10, object_with_value_ptr);
         vm.set_register(11, key_name_ptr);
-        assert_eq!(
-            host.syscall(syscalls::SYSCALL_JSON_GET_INT, &mut vm),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                host.syscall(syscalls::SYSCALL_JSON_GET_INT, &mut vm),
+                Err(VMError::DecodeError)
+            ),
             "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
         );
         let missing: Name = "missing".parse().expect("missing key");
@@ -4198,9 +4219,11 @@ mod tests {
                 .alloc_input_tlv(&make_pointer_tlv(PointerType::NoritoBytes, &payload))
                 .unwrap_or_else(|error| panic!("allocate {label} payload: {error:?}"));
             vm.set_register(10, pointer);
-            assert_eq!(
-                CoreHost::new().syscall(syscalls::SYSCALL_NAME_DECODE, &mut vm),
-                Err(VMError::DecodeError),
+            assert!(
+                matches!(
+                    CoreHost::new().syscall(syscalls::SYSCALL_NAME_DECODE, &mut vm),
+                    Err(VMError::DecodeError)
+                ),
                 "{label} must not be accepted as a first-release Name frame"
             );
             assert_eq!(vm.register(10), pointer);
@@ -4299,10 +4322,10 @@ mod tests {
             .prepare_syscall(syscalls::SYSCALL_BUILD_PATH_KEY_NORITO, &vm)
             .expect("quote path");
         vm.set_gas_limit(quote - 1);
-        assert_eq!(
+        assert!(matches!(
             vm.execute_syscall(&mut host, syscalls::SYSCALL_BUILD_PATH_KEY_NORITO),
             Err(VMError::OutOfGas)
-        );
+        ));
         assert_eq!(vm.register(10), base_ptr);
         assert_eq!(vm.register(11), key_ptr);
         assert!(host.state_paths().is_empty());
@@ -4322,10 +4345,10 @@ mod tests {
         vm.set_register(10, base_ptr);
         vm.set_register(11, key_ptr);
         let host = CoreHost::new();
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(syscalls::SYSCALL_BUILD_PATH_KEY_NORITO, &vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn pointer_from_norito_rejects_noncanonical_int_frames() {
@@ -4365,8 +4388,9 @@ mod tests {
         direct_vm.set_register(10, direct_ptr1);
         direct_vm.set_register(11, direct_ptr2);
         assert_eq!(
-            direct_host.syscall(syscalls::SYSCALL_TLV_EQ, &mut direct_vm),
-            Ok(CoreHost::tlv_eq_gas(4, 4))
+            (direct_host.syscall(syscalls::SYSCALL_TLV_EQ, &mut direct_vm))
+                .expect("expected successful fixture result"),
+            CoreHost::tlv_eq_gas(4, 4)
         );
         assert_eq!(direct_vm.register(10), 1);
         let program = assemble_program(&[
@@ -4452,14 +4476,18 @@ mod tests {
                 .expect("unallocated heap pointer fits"),
         ] {
             vm.set_register(10, forged);
-            assert_eq!(
-                host.prepare_syscall(syscalls::SYSCALL_DEBUG_LOG, &vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.prepare_syscall(syscalls::SYSCALL_DEBUG_LOG, &vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "quote accepted forged pointer 0x{forged:016x}"
             );
-            assert_eq!(
-                host.syscall(syscalls::SYSCALL_DEBUG_LOG, &mut vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.syscall(syscalls::SYSCALL_DEBUG_LOG, &mut vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "dispatch accepted forged pointer 0x{forged:016x}"
             );
             assert_eq!(vm.register(10), forged);
@@ -4472,8 +4500,9 @@ mod tests {
         let ptr = vm.alloc_input_tlv(&make_tlv(b"length")).expect("alloc tlv");
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TLV_LEN, &mut vm),
-            Ok(CoreHost::tlv_len_gas(6))
+            (host.syscall(syscalls::SYSCALL_TLV_LEN, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::tlv_len_gas(6)
         );
         assert_eq!(vm.register(10), 6);
     }
@@ -4482,13 +4511,15 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let mut host = CoreHost::new().with_current_time_ms(42);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_TIME_MS, &mut vm),
-            Ok(CoreHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_BLOCK_TIME_MS, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 42);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SYSVAR_CHAIN_ID, &mut vm),
-            Ok(CoreHost::sysvar_gas(0))
+            (host.syscall(syscalls::SYSCALL_SYSVAR_CHAIN_ID, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::sysvar_gas(0)
         );
         assert_eq!(vm.register(10), 0);
     }
@@ -4530,8 +4561,9 @@ mod tests {
         let envelope_len = 2 + 1 + 4 + payload.len() + iroha_crypto::Hash::LENGTH;
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm),
-            Ok(CoreHost::pointer_gas(envelope_len))
+            (host.syscall(syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::pointer_gas(envelope_len)
         );
         let wrapped_ptr = vm.register(10);
         let wrapped = vm.validate_tlv(wrapped_ptr).expect("wrapped tlv");
@@ -4540,8 +4572,9 @@ mod tests {
         vm.set_register(10, wrapped_ptr);
         vm.set_register(11, PointerType::Name as u64);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(CoreHost::pointer_gas(envelope_len))
+            (host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::pointer_gas(envelope_len)
         );
         let roundtrip = vm.validate_tlv(vm.register(10)).expect("roundtrip tlv");
         assert_eq!(roundtrip.type_id, PointerType::Name);
@@ -4555,20 +4588,21 @@ mod tests {
             .expect("allocate retired Blob carrier");
         vm.set_register(10, retired_carrier_ptr);
         vm.set_register(11, PointerType::Name as u64);
-        assert_eq!(
+        assert!(matches!(
             host.prepare_syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &vm),
             Err(VMError::NoritoInvalid)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(vm.register(10), retired_carrier_ptr);
         vm.set_register(10, 0);
         vm.set_register(11, 0);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-            Ok(CoreHost::pointer_gas(0))
+            (host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::pointer_gas(0)
         );
         assert_eq!(vm.register(10), 0);
         for kind in [
@@ -4578,9 +4612,11 @@ mod tests {
         ] {
             vm.set_register(10, 0);
             vm.set_register(11, u64::from(kind as u16));
-            assert_eq!(
-                host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    host.syscall(syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "numeric {kind:?} cannot decode from null"
             );
             assert_eq!(vm.register(10), 0);
@@ -4616,10 +4652,10 @@ mod tests {
                 .alloc_input_tlv(&make_pointer_tlv(PointerType::Blob, payload))
                 .expect("allocate retired blob carrier");
             vm.set_register(10, ptr);
-            assert_eq!(
+            assert!(matches!(
                 host.syscall(syscalls::SYSCALL_JSON_DECODE, &mut vm),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(vm.register(10), ptr);
         }
     }
@@ -4686,8 +4722,9 @@ mod tests {
         let ptr = vm.alloc_input_tlv(&tlv).expect("alloc tlv");
         vm.set_register(10, ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm),
-            Ok(CoreHost::input_publish_gas(tlv.len()))
+            (host.syscall(syscalls::SYSCALL_INPUT_PUBLISH_TLV, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::input_publish_gas(tlv.len())
         );
     }
     #[test]
@@ -4786,10 +4823,9 @@ mod tests {
             vm.set_register(11, key_ptr);
             // A present JSON number token is malformed input for an exact
             // getter, never an absent field.
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(VMError::DecodeError),
-                "{key} must reject a JSON number token",
+            assert!(
+                matches!(host.syscall(syscall, &mut vm), Err(VMError::DecodeError)),
+                "{key} must reject a JSON number token"
             );
         }
     }
@@ -4841,7 +4877,10 @@ mod tests {
                 .memory
                 .try_write_log_snapshot()
                 .expect("allocate write-log snapshot");
-            assert_eq!(vm.run_with_host(&mut host), Err(VMError::OutOfGas));
+            assert!(matches!(
+                vm.run_with_host(&mut host),
+                Err(VMError::OutOfGas)
+            ));
             assert_eq!(vm.remaining_gas(), quote - 1);
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
             assert_eq!(vm.memory.heap_allocated_len(), heap_before);
@@ -4864,13 +4903,11 @@ mod tests {
             let registers_before = [vm.register(10), vm.register(11)];
             let heap_before = vm.memory.heap_allocated_len();
             let gas_before = vm.remaining_gas();
-            assert_eq!(
-                host.prepare_syscall(number, &vm),
-                Err(VMError::UnknownSyscall(number))
+            assert!(
+                matches!(host.prepare_syscall(number, &vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
             );
-            assert_eq!(
-                host.syscall(number, &mut vm),
-                Err(VMError::UnknownSyscall(number))
+            assert!(
+                matches!(host.syscall(number, &mut vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
             );
             assert_eq!([vm.register(10), vm.register(11)], registers_before);
             assert_eq!(vm.memory.heap_allocated_len(), heap_before);
@@ -4882,7 +4919,10 @@ mod tests {
         let mut host = CoreHost::new();
         let mut vm = IVM::new(u64::MAX);
         vm.set_register(10, 8);
-        assert_eq!(host.syscall(syscalls::SYSCALL_ALLOC, &mut vm), Ok(2));
+        assert!(matches!(
+            host.syscall(syscalls::SYSCALL_ALLOC, &mut vm),
+            Ok(2)
+        ));
         assert!(vm.register(10) >= Memory::HEAP_START);
     }
     #[test]
@@ -4903,8 +4943,9 @@ mod tests {
         vm.set_register(11, name);
         vm.set_register(12, json);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_SET_ACCOUNT_DETAIL, &mut vm),
-            Ok(CoreHost::mutation_gas(json_payload.len()))
+            (host.syscall(syscalls::SYSCALL_SET_ACCOUNT_DETAIL, &mut vm))
+                .expect("expected successful fixture result"),
+            CoreHost::mutation_gas(json_payload.len())
         );
     }
     #[test]
@@ -4912,8 +4953,9 @@ mod tests {
         let mut host = CoreHost::new();
         let mut vm = IVM::new(1_000);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-            Ok(gas::G_FASTPQ_BATCH)
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::G_FASTPQ_BATCH
         );
         let err = host
             .syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm)
@@ -4953,14 +4995,16 @@ mod tests {
         );
         vm.set_register(13, Memory::INPUT_START + amount_offset);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-            Ok(gas::G_FASTPQ_BATCH)
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::G_FASTPQ_BATCH
         );
         host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm)
             .expect("push entry");
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm),
-            Ok(gas::G_FASTPQ_BATCH)
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::G_FASTPQ_BATCH
         );
     }
 }

@@ -616,10 +616,12 @@ fn list_of_options_uses_one_word_per_element() {
     let list = vm
         .public_call_result_word(0)
         .expect("completed return word");
-    assert_eq!(vm.load_u64(list), Ok(2), "returned List length header");
-    assert_eq!(
-        vm.load_u64(list + 8),
-        Ok(4),
+    assert!(
+        matches!(vm.load_u64(list), Ok(2)),
+        "returned List length header"
+    );
+    assert!(
+        matches!(vm.load_u64(list + 8), Ok(4)),
         "returned List capacity header"
     );
     let list_layout = ListLayoutV1::try_new(4, 1).expect("List<Option<int>, 4> layout");
@@ -636,8 +638,9 @@ fn list_of_options_uses_one_word_per_element() {
         "Option::some payload"
     );
     assert_eq!(
-        ivm::sum::read_words(&vm, elements[1][0], sum_layout),
-        Ok((false, vec![]))
+        (ivm::sum::read_words(&vm, elements[1][0], sum_layout))
+            .expect("expected successful fixture result"),
+        (false, vec![])
     );
 }
 #[test]

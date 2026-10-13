@@ -136,10 +136,10 @@ pub enum ExecOp {
 }
 
 /// The executor thread's answer to the operation in flight.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ExecDone {
     /// `Execute`: the outcome, or `None` if the parent post-state is not held.
-    Executed(Option<ExecOutcome>),
+    Executed(Result<Option<ExecOutcome>, PublicationError>),
     /// `Discard` done.
     Discarded,
     /// `Prepare`: the local commitment (`None`: not `Valid`), or a local failure.
@@ -172,6 +172,26 @@ pub enum ExecDone {
     Built(Result<Option<PayloadBytes>, PublicationError>),
     /// `Reject` done.
     Rejected,
+}
+
+impl ExecDone {
+    /// Extract a terminal original before completion-kind or source checks can discard it.
+    /// Unmatched completions retain every original field for their normal handling.
+    fn into_recovery_refusal(self) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
+        match self {
+            Self::Executed(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::Prepared(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::Committed(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::ControlWitnessBuilt(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::ApplicationControlDriven(Err(PublicationError::RecoveryRefusal(original)))
+            | Self::ApplicationControlReceived {
+                result: Err(PublicationError::RecoveryRefusal(original)),
+                ..
+            }
+            | Self::Built(Err(PublicationError::RecoveryRefusal(original))) => Ok(original),
+            other => Err(other),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +250,7 @@ struct ControlBuild {
 /// Exact preadmitted waiter custody for every bounded execution queue.
 #[derive(Debug)]
 pub struct ExecutionRegistrations {
+    speculative: ReleaseRegistration,
     committed: ReleaseRegistration,
     payload: ReleaseRegistration,
     witness: ReleaseRegistration,
@@ -241,7 +262,7 @@ impl ExecutionRegistrations {
     /// Total physical control bytes required before any Core work is started.
     pub fn admission_bytes() -> usize {
         Self::inbound_layout().size()
-            + ReleaseRegistration::allocation_layout().size() * (4 + MAX_COMMITTEE_SIZE)
+            + ReleaseRegistration::allocation_layout().size() * (5 + MAX_COMMITTEE_SIZE)
     }
 
     fn inbound_layout() -> std::alloc::Layout {
@@ -269,6 +290,7 @@ impl ExecutionRegistrations {
             });
         }
         Ok(Self {
+            speculative: ReleaseRegistration::from_reservation(&mut reservation)?,
             committed: ReleaseRegistration::from_reservation(&mut reservation)?,
             payload: ReleaseRegistration::from_reservation(&mut reservation)?,
             witness: ReleaseRegistration::from_reservation(&mut reservation)?,
@@ -308,7 +330,7 @@ impl RetryGate {
         }
     }
     fn refuse(&mut self, now: Millis, backoff: Backoff, error: PublicationError) {
-        debug_assert!(!matches!(error, PublicationError::RecoveryRequired(_)));
+        debug_assert!(!error.is_recovery_required());
         self.registration.cancel();
         self.error = Some(error);
         self.failures = self.failures.saturating_add(1);
@@ -458,6 +480,10 @@ pub struct ExecSched {
     /// Queued `Execute`s; the last is the most recent.
     jobs: Vec<Job>,
     parked: Vec<Job>,
+    /// Exact accepted speculative job awaiting its original local refusal gate.
+    deferred_execution: Option<Job>,
+    /// Preadmitted before any attempt; retains the sole original error during retry.
+    execution_retry: RetryGate,
     /// Queued jobs of the block being applied, answered from its apply.
     merged: Vec<Job>,
     running: Option<Running>,
@@ -493,6 +519,7 @@ pub struct ExecSched {
     discards: VecDeque<(u64, Vec<Hash32>)>,
     applied: u64,
     halted: Option<HaltReason>,
+    recovery_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
     failures: u32,
     retry_at: Option<Millis>,
     backoff: Backoff,
@@ -506,6 +533,7 @@ impl ExecSched {
     /// A scheduler whose executor has applied `applied`.
     pub fn new(applied: u64, backoff: Backoff, registrations: ExecutionRegistrations) -> Self {
         let ExecutionRegistrations {
+            speculative,
             committed,
             payload,
             witness,
@@ -515,6 +543,8 @@ impl ExecSched {
         Self {
             jobs: Vec::new(),
             parked: Vec::new(),
+            deferred_execution: None,
+            execution_retry: RetryGate::new(speculative),
             merged: Vec::new(),
             running: None,
             running_cancelled: false,
@@ -543,6 +573,7 @@ impl ExecSched {
             discards: VecDeque::new(),
             applied,
             halted: None,
+            recovery_refusal: None,
             failures: 0,
             retry_at: None,
             backoff,
@@ -610,6 +641,14 @@ impl ExecSched {
         }
         for job in &cancelled {
             self.answer(job, ExecOutcome::Cancelled);
+        }
+        if self.deferred_execution.as_ref().is_some_and(out) {
+            let job = self
+                .deferred_execution
+                .take()
+                .expect("matched original job");
+            self.execution_retry.reset();
+            self.answer(&job, ExecOutcome::Cancelled);
         }
         if let Some(Running::Execute(job)) = &mut self.running
             && out(job)
@@ -1016,9 +1055,19 @@ impl ExecSched {
                 block_hash,
             });
         }
-        let Some(job) = self.jobs.pop() else {
-            self.prefer_control = false;
-            return self.next_control(now);
+        let job = if self.deferred_execution.is_some() {
+            if !self.execution_retry.ready(now, &self.release_waker) {
+                return self.next_control(now);
+            }
+            self.deferred_execution
+                .take()
+                .expect("retained original job")
+        } else {
+            let Some(job) = self.jobs.pop() else {
+                self.prefer_control = false;
+                return self.next_control(now);
+            };
+            job
         };
         self.prefer_control = true;
         let op = ExecOp::Execute {
@@ -1122,6 +1171,18 @@ impl ExecSched {
         let (running, op) = match self.stage {
             Stage::Fresh => {
                 let bh = commit.qc.block_hash;
+                if self
+                    .deferred_execution
+                    .as_ref()
+                    .is_some_and(|job| job.block_hash == bh)
+                {
+                    let job = self
+                        .deferred_execution
+                        .take()
+                        .expect("matched committed job");
+                    self.execution_retry.reset();
+                    self.merged.push(job);
+                }
                 for list in [&mut self.jobs, &mut self.parked] {
                     let (same, rest): (Vec<Job>, Vec<Job>) =
                         list.drain(..).partition(|job| job.block_hash == bh);
@@ -1175,6 +1236,23 @@ impl ExecSched {
         }
     }
 
+    /// Borrow the original cause retained by a terminal local recovery halt.
+    /// No consuming publication or retry is authorized by this diagnostic accessor.
+    pub fn recovery_refusal(&self) -> Option<&crate::execution_attempt::ExecutionDeferred> {
+        self.recovery_refusal.as_ref()
+    }
+
+    fn require_recovery_refusal(
+        &mut self,
+        height: u64,
+        original: crate::execution_attempt::ExecutionDeferred,
+    ) {
+        // Move into the admitted inline slot before resetting the retry owners. Formatting
+        // diagnostics must never substitute for this original, nor create a release source.
+        self.recovery_refusal = Some(original);
+        self.require_recovery(height, "original local execution requires recovery");
+    }
+
     fn require_recovery(&mut self, height: u64, reason: &str) {
         self.cancel_registrations();
         self.clear_commit_wait();
@@ -1195,6 +1273,10 @@ impl ExecSched {
         self.drive_retry.reset();
         self.rejects.clear();
         self.discards.clear();
+        if let Some(job) = self.deferred_execution.take() {
+            self.execution_retry.reset();
+            self.answer(&job, ExecOutcome::Cancelled);
+        }
         // Preserve the committed head for diagnostics; no owner is re-entered after this point.
         self.events
             .push(Event::PublicationRecoveryRequired { height });
@@ -1214,25 +1296,76 @@ impl ExecSched {
     /// any (its stored bodies can be pruned).
     #[allow(clippy::too_many_lines)] // one arm per operation
     pub fn done(&mut self, now: Millis, done: ExecDone) -> Option<u64> {
-        let running = self.running.take()?;
+        let running = self.running.take();
+        let done = match done.into_recovery_refusal() {
+            Ok(original) => {
+                // Use the original accepted request's context, never a replacement completion's
+                // claimed identity. Unsolicited recovery still halts at the known applied height.
+                let height = match running.as_ref() {
+                    Some(Running::Execute(job)) => job.height(),
+                    Some(Running::Build(build)) => build.height,
+                    Some(Running::BuildControl(build)) => build.context.height,
+                    Some(Running::DriveControl(context)) => context.height,
+                    Some(Running::ReceiveControl { index }) => self.inbound[*index]
+                        .in_flight
+                        .as_ref()
+                        .map_or(self.applied, |identity| identity.context.height),
+                    Some(Running::Prepare | Running::Append | Running::Commit) => self
+                        .commits
+                        .front()
+                        .map_or(self.applied, |commit| commit.block.header().height),
+                    Some(Running::Discard | Running::Reject) | None => self.applied,
+                };
+                self.running_cancelled = false;
+                if let Some(Running::Execute(job)) = running {
+                    self.execution_retry.reset();
+                    self.answer(&job, ExecOutcome::Cancelled);
+                }
+                self.require_recovery_refusal(height, original);
+                return None;
+            }
+            Err(done) => done,
+        };
+        let running = running?;
         // HC78: once cancelled, the original in-flight work cannot become current again.
         let cancelled = std::mem::take(&mut self.running_cancelled)
             && !cfg!(all(test, sumeragi_core_mutation = "HC78"));
         match (running, done) {
-            (Running::Execute(job), ExecDone::Executed(outcome)) => match outcome {
-                _ if job.cancelled => self.answer(&job, ExecOutcome::Cancelled),
-                None if job.height() <= self.applied => {
+            (Running::Execute(job), ExecDone::Executed(outcome)) => {
+                if cancelled || job.cancelled || job.height() <= self.applied {
+                    self.execution_retry.reset();
                     self.answer(&job, ExecOutcome::Cancelled);
-                }
-                None => self.parked.push(job),
-                Some(outcome) => {
-                    let valid = matches!(outcome, ExecOutcome::Valid(_));
-                    self.answer(&job, outcome);
-                    if valid {
-                        self.unpark(&job.block_hash);
+                } else {
+                    match outcome {
+                        Err(PublicationError::RecoveryRefusal(original)) => {
+                            self.execution_retry.reset();
+                            self.answer(&job, ExecOutcome::Cancelled);
+                            self.require_recovery_refusal(job.height(), original);
+                        }
+                        Err(PublicationError::RecoveryRequired(reason)) => {
+                            self.execution_retry.reset();
+                            self.answer(&job, ExecOutcome::Cancelled);
+                            self.require_recovery(job.height(), &reason);
+                        }
+                        Err(original) => {
+                            self.execution_retry.refuse(now, self.backoff, original);
+                            self.deferred_execution = Some(job);
+                        }
+                        Ok(None) => {
+                            self.execution_retry.reset();
+                            self.parked.push(job);
+                        }
+                        Ok(Some(outcome)) => {
+                            self.execution_retry.reset();
+                            let valid = matches!(outcome, ExecOutcome::Valid(_));
+                            self.answer(&job, outcome);
+                            if valid {
+                                self.unpark(&job.block_hash);
+                            }
+                        }
                     }
                 }
-            },
+            }
             (Running::Prepare, ExecDone::Prepared(result)) => {
                 let commit = self.commits.front().cloned()?;
                 match result {
@@ -1289,6 +1422,9 @@ impl ExecSched {
                             .cloned();
                         self.retain_commit_wait(CommitWaitPhase::Prepare, release);
                         self.retry(now, "prepare", &diagnostic);
+                    }
+                    Err(PublicationError::RecoveryRefusal(original)) => {
+                        self.require_recovery_refusal(commit.block.header().height, original)
                     }
                     Err(PublicationError::RecoveryRequired(reason)) => {
                         self.require_recovery(commit.block.header().height, &reason)
@@ -1354,6 +1490,20 @@ impl ExecSched {
                             });
                         }
                     }
+                    if self
+                        .deferred_execution
+                        .as_ref()
+                        .is_some_and(|job| job.height() <= applied)
+                    {
+                        let job = self.deferred_execution.take().expect("matched applied job");
+                        self.execution_retry.reset();
+                        let outcome = if job.block_hash == commit.qc.block_hash {
+                            ExecOutcome::Valid(commit.qc.result)
+                        } else {
+                            ExecOutcome::Cancelled
+                        };
+                        self.answer(&job, outcome);
+                    }
                     self.unpark(&commit.qc.block_hash);
                     return Some(height);
                 }
@@ -1372,6 +1522,13 @@ impl ExecSched {
                     self.stage = Stage::Fresh;
                     self.retry(now, "commit", &reason);
                 }
+                Err(PublicationError::RecoveryRefusal(original)) => {
+                    let height = self
+                        .commits
+                        .front()
+                        .map_or(self.applied, |commit| commit.block.header().height);
+                    self.require_recovery_refusal(height, original);
+                }
                 Err(PublicationError::RecoveryRequired(reason)) => {
                     if let Some(commit) = self.commits.front() {
                         self.require_recovery(commit.block.header().height, &reason);
@@ -1383,6 +1540,9 @@ impl ExecSched {
                     && self.witness_build_is_current(&build)
                     && self.control_build.is_none_or(|pending| pending == build);
                 match result {
+                    Err(PublicationError::RecoveryRefusal(original)) => {
+                        self.require_recovery_refusal(build.context.height, original)
+                    }
                     Err(PublicationError::RecoveryRequired(reason)) => {
                         self.require_recovery(build.context.height, &reason)
                     }
@@ -1406,6 +1566,9 @@ impl ExecSched {
                     && self.partial_is_current(context)
                     && self.control_drive.is_none_or(|pending| pending == context);
                 match result {
+                    Err(PublicationError::RecoveryRefusal(original)) => {
+                        self.require_recovery_refusal(context.height, original)
+                    }
                     Err(PublicationError::RecoveryRequired(reason)) => {
                         self.require_recovery(context.height, &reason)
                     }
@@ -1445,6 +1608,9 @@ impl ExecSched {
                     return None;
                 }
                 match result {
+                    Err(PublicationError::RecoveryRefusal(original)) => {
+                        self.require_recovery_refusal(identity.context.height, original)
+                    }
                     Err(PublicationError::RecoveryRequired(reason)) => {
                         self.require_recovery(identity.context.height, &reason)
                     }
@@ -1468,10 +1634,17 @@ impl ExecSched {
                 }
             }
             (Running::Build(build), ExecDone::Built(result)) => {
-                if let Err(PublicationError::RecoveryRequired(reason)) = &result {
-                    self.require_recovery(build.height, reason);
-                    return None;
-                }
+                let result = match result {
+                    Err(PublicationError::RecoveryRefusal(original)) => {
+                        self.require_recovery_refusal(build.height, original);
+                        return None;
+                    }
+                    Err(PublicationError::RecoveryRequired(reason)) => {
+                        self.require_recovery(build.height, &reason);
+                        return None;
+                    }
+                    completed => completed,
+                };
                 if !cancelled && self.active_build == Some(build) {
                     match result {
                         Ok(payload) => {
@@ -1487,6 +1660,9 @@ impl ExecSched {
                             if !empty || arrived {
                                 self.events.push(Event::PayloadReady { req: build.req });
                             }
+                        }
+                        Err(PublicationError::RecoveryRefusal(original)) => {
+                            self.require_recovery_refusal(build.height, original)
                         }
                         Err(PublicationError::RecoveryRequired(reason)) => {
                             self.require_recovery(build.height, &reason)
@@ -1546,7 +1722,11 @@ impl ExecSched {
             .build
             .filter(|build| build.height <= next && self.payload_build_is_current(build))
             .map_or(Millis::MAX, |_| self.payload_retry.deadline());
-        witness.min(drive).min(inbound).min(payload)
+        let execution = self
+            .deferred_execution
+            .as_ref()
+            .map_or(Millis::MAX, |_| self.execution_retry.deadline());
+        witness.min(drive).min(inbound).min(payload).min(execution)
     }
 
     /// The local events produced so far (answers for the core), in order.
@@ -1557,6 +1737,7 @@ impl ExecSched {
     /// `Execute` requests not answered yet (queued, parked, merged or running).
     pub fn outstanding(&self) -> usize {
         self.jobs.len()
+            + usize::from(self.deferred_execution.is_some())
             + self.parked.len()
             + self.merged.len()
             + usize::from(matches!(self.running, Some(Running::Execute(_))))
@@ -1672,3 +1853,7 @@ mod source_retry_tests;
 #[cfg(test)]
 #[path = "producer_retry_tests.rs"]
 mod producer_retry_tests;
+
+#[cfg(test)]
+#[path = "execution_owner_retry_tests.rs"]
+mod execution_owner_retry_tests;

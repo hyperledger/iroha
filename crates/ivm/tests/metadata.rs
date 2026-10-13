@@ -160,17 +160,40 @@ fn parse_rejects_unknown_mode_bits() {
         m.mode = 0x80; // unknown bit
     });
     let err = ProgramMetadata::parse(&bytes).unwrap_err();
-    assert_eq!(err, VMError::UnsupportedProgramFeatureBits { bits: 0x80 });
+    assert!(match (
+        &(err),
+        &(VMError::UnsupportedProgramFeatureBits { bits: 0x80 })
+    ) {
+        (
+            VMError::UnsupportedProgramFeatureBits {
+                bits: actual_field_0,
+            },
+            VMError::UnsupportedProgramFeatureBits {
+                bits: expected_field_0,
+            },
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
 }
 #[test]
 fn parse_rejects_retired_transactional_memory_bit() {
     let bytes = encode_with(ProgramMetadata::default(), |metadata| {
         metadata.mode = 0x04;
     });
-    assert_eq!(
-        ProgramMetadata::parse(&bytes).unwrap_err(),
-        VMError::UnsupportedProgramFeatureBits { bits: 0x04 }
-    );
+    assert!(match (
+        &(ProgramMetadata::parse(&bytes).unwrap_err()),
+        &(VMError::UnsupportedProgramFeatureBits { bits: 0x04 })
+    ) {
+        (
+            VMError::UnsupportedProgramFeatureBits {
+                bits: actual_field_0,
+            },
+            VMError::UnsupportedProgramFeatureBits {
+                bits: expected_field_0,
+            },
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
 }
 #[test]
 fn parse_rejects_retired_minor_zero_without_cntr() {
@@ -179,10 +202,22 @@ fn parse_rejects_retired_minor_zero_without_cntr() {
     });
     let current_abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
     assert_eq!(&bytes[17..49], current_abi_hash.as_slice());
-    assert_eq!(
-        ProgramMetadata::parse(&bytes).unwrap_err(),
-        VMError::UnsupportedProgramVersion { major: 1, minor: 0 },
-    );
+    assert!(match (
+        &(ProgramMetadata::parse(&bytes).unwrap_err()),
+        &(VMError::UnsupportedProgramVersion { major: 1, minor: 0 })
+    ) {
+        (
+            VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }
 #[test]
 fn parse_rejects_retired_pointer_layout_abi_hash_at_current_header() {
@@ -231,13 +266,25 @@ fn parse_rejects_vector_len_above_abi_max() {
         m.vector_length = ivm::VECTOR_LENGTH_MAX + 1;
     });
     let err = ProgramMetadata::parse(&bytes).unwrap_err();
-    assert_eq!(
-        err,
-        VMError::ProgramVectorLengthTooLarge {
+    assert!(match (
+        &(err),
+        &(VMError::ProgramVectorLengthTooLarge {
             vector_length: ivm::VECTOR_LENGTH_MAX + 1,
             max_allowed: ivm::VECTOR_LENGTH_MAX,
-        }
-    );
+        })
+    ) {
+        (
+            VMError::ProgramVectorLengthTooLarge {
+                vector_length: actual_field_0,
+                max_allowed: actual_field_1,
+            },
+            VMError::ProgramVectorLengthTooLarge {
+                vector_length: expected_field_0,
+                max_allowed: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }
 #[test]
 fn parse_rejects_wrong_major_version() {
@@ -245,18 +292,42 @@ fn parse_rejects_wrong_major_version() {
         m.version_major = 0;
     });
     let err = ProgramMetadata::parse(&bytes).unwrap_err();
-    assert_eq!(
-        err,
-        VMError::UnsupportedProgramVersion { major: 0, minor: 1 }
-    );
+    assert!(match (
+        &(err),
+        &(VMError::UnsupportedProgramVersion { major: 0, minor: 1 })
+    ) {
+        (
+            VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
     let bytes = encode_with(ProgramMetadata::default(), |m| {
         m.version_major = 2;
     });
     let err = ProgramMetadata::parse(&bytes).unwrap_err();
-    assert_eq!(
-        err,
-        VMError::UnsupportedProgramVersion { major: 2, minor: 1 }
-    );
+    assert!(match (
+        &(err),
+        &(VMError::UnsupportedProgramVersion { major: 2, minor: 1 })
+    ) {
+        (
+            VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }
 #[test]
 fn parse_accepts_contract_minor_one_with_cntr() {
@@ -308,10 +379,22 @@ fn parse_rejects_unknown_minor_version() {
         m.version_minor = 2;
     });
     let err = ProgramMetadata::parse(&bytes).unwrap_err();
-    assert_eq!(
-        err,
-        VMError::UnsupportedProgramVersion { major: 1, minor: 2 }
-    );
+    assert!(match (
+        &(err),
+        &(VMError::UnsupportedProgramVersion { major: 1, minor: 2 })
+    ) {
+        (
+            VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }
 #[test]
 fn load_program_honors_zk_mode_bit() {

@@ -2337,7 +2337,7 @@ fn execute_governance_mutation<'block, 'state>(
     let result = execute(state_transaction, &mut rejection_reason);
     #[cfg(feature = "telemetry")]
     {
-        if result.is_err() && state_transaction.execution_deferral().is_none() {
+        if result.is_err() && !state_transaction.is_execution_deferred() {
             state_transaction
                 .telemetry
                 .record_musubi_governance_rejection(action, rejection_reason);

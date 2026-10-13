@@ -190,9 +190,9 @@ mod tests {
         context
             .record_charge(SyscallMeteringPhase::Arithmetic, u64::MAX)
             .expect("maximum first charge");
-        assert_eq!(
+        assert!(matches!(
             context.record_charge(SyscallMeteringPhase::Arithmetic, 1),
             Err(VMError::GasCostOverflow)
-        );
+        ));
     }
 }

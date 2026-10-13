@@ -5680,6 +5680,12 @@ fn full_bootstrap_execution_bfv_native_air_rejects_wrapper_statement_retarget() 
         guardrails,
         proof_bytes_len(&source_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect("source BFV-native full-bootstrap execution proof must verify");
     assert!(source_verified);
     let retargeted_proof = sample_full_bootstrap_execution_bfv_native_air_proof(
@@ -5711,6 +5717,12 @@ fn full_bootstrap_execution_bfv_native_air_rejects_wrapper_statement_retarget() 
         guardrails,
         proof_bytes_len(&retargeted_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect_err("BFV-native full-bootstrap execution proof must reject wrapper retargets");
     assert_invalid_parameter_contains(err, "domain tag mismatch");
 }
@@ -5765,6 +5777,12 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
         test_guardrails,
         proof_bytes_len(&safe_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect("safe BFV AIR must pass the full-bootstrap arithmetic verifier boundary");
     assert!(bfv_native_verified);
     let mut non_stark_envelope = safe_envelope.clone();
@@ -5778,6 +5796,12 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
         test_guardrails,
         proof_bytes_len(&non_stark_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect_err("BFV-native arithmetic verifier must reject non-STARK envelopes directly");
     assert_invalid_parameter_contains(err, "must declare STARK backend");
     let mut stale_trace_digest_context = public_padding_context
@@ -5795,6 +5819,12 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
         test_guardrails,
         proof_bytes_len(&safe_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect_err("stale governed trace-material digest must fail before verifier fallback");
     assert_invalid_parameter_contains(err, "trace material digest mismatch");
     let mut private_native = safe_native;
@@ -5817,6 +5847,12 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
         test_guardrails,
         proof_bytes_len(&private_envelope),
     )
+    .map_err(|error| match error {
+        crate::zk::VerificationAttemptError::Rejected(error) => error,
+        crate::zk::VerificationAttemptError::Deferred(original) => {
+            panic!("unexpected local refusal: {original}")
+        }
+    })
     .expect_err("private-row BFV AIR must fail before dedicated-verifier fallback");
     assert_invalid_parameter_contains(err, "transcript public-padding openings");
 }
@@ -10528,7 +10564,7 @@ fn soracloud_fhe_full_bootstrap_execution_prover_emits_valid_native_air_proof() 
             &artifacts,
             &evaluation_keys.galois_keys,
             &prover_input_material,
-        ),
+        ).expect("completed native verification"),
         "valid native BFV proof must match its governed arithmetic source"
     );
     let alternate_flags =
@@ -10623,7 +10659,8 @@ fn soracloud_fhe_full_bootstrap_execution_prover_emits_valid_native_air_proof() 
             &unselected_coefficient_envelope,
             &native_limits,
             &unselected_coefficient_prover_input,
-        ),
+        )
+        .expect("completed native verification"),
         "self-contained native verification checks the drifted material it receives"
     );
     assert!(
@@ -10636,7 +10673,7 @@ fn soracloud_fhe_full_bootstrap_execution_prover_emits_valid_native_air_proof() 
             &artifacts,
             &evaluation_keys.galois_keys,
             &unselected_coefficient_prover_input,
-        ),
+        ).expect("completed native verification"),
         "governed replay must reject an unselected blind-rotation coefficient drift"
     );
 }

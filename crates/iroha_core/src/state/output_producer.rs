@@ -474,9 +474,9 @@ impl ExecutionOutputProducer<'_, '_, '_> {
             transaction.current_network_entrypoint_hash = Some(input.hash());
             transaction.current_tx_hash = signed_hash;
             let executed = execute(input, transaction);
-            if let Some(reason) = transaction.execution_deferral() {
-                return Err(ExecutionAttemptError::Deferred(reason));
-            }
+            transaction
+                .ensure_execution_ready()
+                .map_err(ExecutionAttemptError::Deferred)?;
             let mut actual = executed?;
             if transaction.tx_call_hash != Some(call)
                 || transaction.current_entrypoint_index != Some(u64::from(input_index))

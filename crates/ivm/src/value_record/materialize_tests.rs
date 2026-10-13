@@ -198,10 +198,10 @@ mod tests {
         assert_eq!(destination.load_u64(result_table).unwrap(), 7);
         for word in [0, 2, u64::MAX] {
             source.store_u64(source_table, word).unwrap();
-            assert_eq!(
+            assert!(matches!(
                 transfer_return(&source, &mut destination, &schema, 1, result_table),
                 Err(VMError::DecodeError)
-            );
+            ));
             assert_eq!(destination.load_u64(result_table).unwrap(), 7);
         }
     }
@@ -308,7 +308,7 @@ fn funded_arguments_install_once_without_public_input_transport_or_record_decode
     child
         .run_with_host(&mut crate::host::DefaultHost::default())
         .unwrap();
-    assert_eq!(child.public_call_result_word(0), Ok(1));
+    assert!(matches!(child.public_call_result_word(0), Ok(1)));
     assert_eq!(crate::argument_record::argument_record_decode_count(), 0);
     assert!(child.captured_root_tables.is_none());
 }
@@ -366,11 +366,11 @@ fn funded_return_transfer_uses_explicit_escrow_and_preserves_call_descriptors() 
     parent.store_u64(table, 77).unwrap();
     parent.set_register(10, 91);
     parent.set_register(11, 92);
-    assert_eq!(
+    assert!(matches!(
         transfer_return_record_funded(&captured, &schema, &mut parent, table, 1, 0, &budget),
         Err(VMError::OutOfGas)
-    );
-    assert_eq!(parent.load_u64(table), Ok(77));
+    ));
+    assert!(matches!(parent.load_u64(table), Ok(77)));
     assert_eq!(budget.reserved_bytes(), retained);
     let gas = transfer_return_record_funded(
         &captured,
@@ -384,7 +384,7 @@ fn funded_return_transfer_uses_explicit_escrow_and_preserves_call_descriptors() 
     .unwrap();
     assert!(gas > 0);
     assert_eq!(parent.remaining_gas(), 0);
-    assert_eq!(parent.load_u64(table), Ok(1));
+    assert!(matches!(parent.load_u64(table), Ok(1)));
     assert_eq!(parent.register(10), 91);
     assert_eq!(parent.register(11), 92);
     let other = iroha_allocation::AllocationBudget::new(1024 * 1024);
@@ -414,7 +414,7 @@ fn empty_captured_root_is_metered_and_selection_invalidates_preparation() {
     assert!(child.captured_root_tables.is_none());
     install_empty_captured_arguments(&mut child, 1).unwrap();
     child.run().unwrap();
-    assert_eq!(child.public_call_result_word(0), Ok(1));
+    assert!(matches!(child.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -449,14 +449,14 @@ fn funded_return_copy_retries_original_record_after_pool_shrink_and_guest_capaci
     )
     .unwrap_err();
     assert!(matches!(error, VMError::AllocationDeferred(_)));
-    assert_eq!(parent.load_u64(table), Ok(77));
+    assert!(matches!(parent.load_u64(table), Ok(77)));
     assert_eq!(parent.memory.heap_allocated_len(), heap);
     assert_eq!(budget.reserved_bytes(), retained);
     assert_eq!(captured.get().atoms.as_ptr(), original_atoms);
 
     budget.set_limit_bytes(1024 * 1024);
     parent.memory.set_heap_max_limit(heap).unwrap();
-    assert_eq!(
+    assert!(matches!(
         transfer_return_record_funded(
             &captured,
             &schema,
@@ -467,8 +467,8 @@ fn funded_return_copy_retries_original_record_after_pool_shrink_and_guest_capaci
             &budget
         ),
         Err(VMError::OutOfMemory)
-    );
-    assert_eq!(parent.load_u64(table), Ok(77));
+    ));
+    assert!(matches!(parent.load_u64(table), Ok(77)));
     assert_eq!(parent.memory.heap_allocated_len(), heap);
     assert_eq!(budget.reserved_bytes(), retained);
     assert_eq!(captured.get().atoms.as_ptr(), original_atoms);

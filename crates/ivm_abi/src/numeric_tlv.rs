@@ -71,9 +71,8 @@ mod tests {
         below[MAX_MANTISSA_BYTES - 1] = 0x7f;
         for bytes in [&above, &below] {
             let value = BigInt::from_twos_bytes(bytes).expect("arbitrary-width integer");
-            assert_eq!(
-                encode_int(&value),
-                Err(VMError::PointerAbiFault(PointerAbiFaultV1::NonCanonical))
+            assert!(
+                matches!(encode_int(&value), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (PointerAbiFaultV1::NonCanonical))
             );
         }
     }

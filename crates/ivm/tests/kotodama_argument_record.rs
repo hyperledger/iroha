@@ -274,10 +274,9 @@ seiyaku JsonArgumentRecordRuntime {
     vm.set_host(host);
     // A present JSON number token is malformed input for the exact int getter:
     // the call aborts instead of reading the field as absent.
-    assert_eq!(
-        vm.run(),
-        Err(ivm::VMError::DecodeError),
-        "typed int getter must reject a JSON number token",
+    assert!(
+        matches!(vm.run(), Err(ivm::VMError::DecodeError)),
+        "typed int getter must reject a JSON number token"
     );
 }
 #[test]

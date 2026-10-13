@@ -257,13 +257,13 @@ fn wsv_host_overlay_state_get_spills_to_heap_when_input_bump_is_full() {
 #[test]
 fn wsv_state_ingress_rejects_oversized_raw_payload() {
     let mut wsv = MockWorldStateView::new();
-    assert_eq!(
+    assert!(matches!(
         wsv.sc_set(
             "bad",
             vec![0u8; syscalls::STATE_MAX_VALUE_BYTES.saturating_add(1)],
         ),
         Err(VMError::NoritoInvalid)
-    );
+    ));
 }
 #[test]
 fn wsv_host_overlay_delete_shadows_base_value_during_tx() {
@@ -396,10 +396,11 @@ fn wsv_host_state_count_uses_overlay_and_tombstones() {
     IVMHost::syscall(&mut host, syscalls::SYSCALL_STATE_SET, &mut vm).expect("stage set");
     vm.set_register(10, prefix_ptr);
     assert_eq!(
-        IVMHost::syscall(&mut host, syscalls::SYSCALL_STATE_COUNT, &mut vm),
-        Ok(ivm::host::STATE_QUERY_GAS_BASE
+        (IVMHost::syscall(&mut host, syscalls::SYSCALL_STATE_COUNT, &mut vm))
+            .expect("expected successful fixture result"),
+        ivm::host::STATE_QUERY_GAS_BASE
             + u64::try_from(prefix_payload_len).expect("prefix length fits")
-            + scanned_key_gas)
+            + scanned_key_gas
     );
     assert_eq!(vm.register(10), 2);
 }
@@ -418,8 +419,9 @@ fn wsv_host_pointer_helpers_charge_envelope_bytes() {
     let envelope_len = 2 + 1 + 4 + payload.len() + iroha_crypto::Hash::LENGTH;
     vm.set_register(10, ptr);
     assert_eq!(
-        IVMHost::syscall(&mut host, syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm),
-        Ok(16 + u64::try_from(envelope_len).expect("test envelope length"))
+        (IVMHost::syscall(&mut host, syscalls::SYSCALL_POINTER_TO_NORITO, &mut vm))
+            .expect("expected successful fixture result"),
+        16 + u64::try_from(envelope_len).expect("test envelope length")
     );
     let wrapped_ptr = vm.register(10);
     let wrapped_payload = {
@@ -431,8 +433,9 @@ fn wsv_host_pointer_helpers_charge_envelope_bytes() {
     vm.set_register(10, wrapped_ptr);
     vm.set_register(11, PointerType::Blob as u64);
     assert_eq!(
-        IVMHost::syscall(&mut host, syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
-        Ok(16 + u64::try_from(envelope_len).expect("test envelope length"))
+        (IVMHost::syscall(&mut host, syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm))
+            .expect("expected successful fixture result"),
+        16 + u64::try_from(envelope_len).expect("test envelope length")
     );
     let roundtrip = vm.validate_tlv(vm.register(10)).expect("roundtrip tlv");
     assert_eq!(roundtrip.type_id, PointerType::Blob);
@@ -443,10 +446,10 @@ fn wsv_host_pointer_helpers_charge_envelope_bytes() {
         .expect("allocate retired blob carrier");
     vm.set_register(10, retired_blob_carrier_ptr);
     vm.set_register(11, PointerType::Blob as u64);
-    assert_eq!(
+    assert!(matches!(
         IVMHost::syscall(&mut host, syscalls::SYSCALL_POINTER_FROM_NORITO, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(vm.register(10), retired_blob_carrier_ptr);
 }
 #[test]
@@ -466,8 +469,9 @@ fn wsv_host_tlv_eq_charges_payload_bytes() {
     vm.set_register(10, left);
     vm.set_register(11, right);
     assert_eq!(
-        IVMHost::syscall(&mut host, syscalls::SYSCALL_TLV_EQ, &mut vm),
-        Ok(16 + 4 + 4)
+        (IVMHost::syscall(&mut host, syscalls::SYSCALL_TLV_EQ, &mut vm))
+            .expect("expected successful fixture result"),
+        16 + 4 + 4
     );
     assert_eq!(vm.register(10), 1);
 }
@@ -484,8 +488,9 @@ fn wsv_host_tlv_len_charges_payload_bytes() {
         .expect("alloc tlv");
     vm.set_register(10, ptr);
     assert_eq!(
-        IVMHost::syscall(&mut host, syscalls::SYSCALL_TLV_LEN, &mut vm),
-        Ok(16 + 6)
+        (IVMHost::syscall(&mut host, syscalls::SYSCALL_TLV_LEN, &mut vm))
+            .expect("expected successful fixture result"),
+        16 + 6
     );
     assert_eq!(vm.register(10), 6);
 }

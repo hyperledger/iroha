@@ -89,7 +89,8 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
             Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
             Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
         ];
-        let expected_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+        let expected_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
         assert!(expected_gas > 0 && expected_gas < 1_000_000_000);
         let fee = Quantity::from(expected_gas);
         let remaining = initial.checked_sub(&fee).unwrap();

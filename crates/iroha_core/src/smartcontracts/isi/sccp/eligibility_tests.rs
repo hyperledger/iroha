@@ -497,11 +497,11 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
         let classified = admission::classify(world, &view, 3, &transaction);
         match expected {
             Expected::Ordinary => {
-                assert_eq!(classified, Ok(None), "{name}: admitted as ordinary");
+                assert_eq!(classified.unwrap(), None, "{name}: admitted as ordinary");
             }
             Expected::Admitted(class) => assert_eq!(
-                classified.map(|keys| keys.map(|keys| keys.class)),
-                Ok(Some(*class)),
+                classified.unwrap().map(|keys| keys.class),
+                Some(*class),
                 "{name}: admitted as exempt"
             ),
             Expected::Rejected(_) => {
@@ -654,8 +654,8 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
     );
     let view = parent.state.view();
     assert_eq!(
-        admission::classify(view.world(), &view, 3, &transaction),
-        Ok(None),
+        admission::classify(view.world(), &view, 3, &transaction).unwrap(),
+        None,
         "a relayer proof is admitted as an ordinary transaction"
     );
     let mut nexus = nexus();

@@ -1729,7 +1729,7 @@ fn ivm_host_out_of_gas_does_not_query_or_allocate_public_input() -> Result<()> {
         PointerType::Name,
         &input_name_payload,
     )?;
-    assert_eq!(error, VMError::OutOfGas);
+    assert!(matches!(error, VMError::OutOfGas));
     assert_eq!(host.metering_query_count(), 0);
     assert_eq!(host.metering_allocation_count(), 0);
     assert!(host.local_read_bindings().is_empty());
@@ -1795,7 +1795,7 @@ fn ivm_host_out_of_gas_does_not_query_state_or_materialize_side_effects() -> Res
             PointerType::SoracloudRequest,
             &request_payload,
         )?;
-        assert_eq!(error, VMError::OutOfGas, "syscall {syscall:#x}");
+        assert!(matches!(error, VMError::OutOfGas), "syscall {syscall:#x}");
         assert_eq!(host.metering_query_count(), 0, "syscall {syscall:#x}");
         assert_eq!(host.metering_allocation_count(), 0, "syscall {syscall:#x}");
         assert!(host.local_read_bindings().is_empty());

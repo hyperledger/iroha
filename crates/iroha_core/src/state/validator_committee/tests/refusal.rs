@@ -394,6 +394,7 @@ fn original_incumbent_history_refusal_keeps_authority_and_same_source_retry() {
         ivm::error::ExecutionDeferral::ActiveMemoryCapacity
     );
     assert!(reason.allocation_refusal().is_none());
+    drop(reason);
     assert_eq!(current_authority(&view).unwrap(), expected);
     assert_eq!(view.height(), 1);
 }
@@ -438,13 +439,14 @@ fn original_credentials_command_decode_refusal_has_no_publication_and_retries() 
         let mut tx = block.transaction();
         let _error = no_allocation(|| instruction.clone().execute(&owner, &mut tx)).unwrap_err();
         let reason = tx
-            .execution_deferral()
+            .borrow_execution_deferral()
             .expect("original command decoder refusal must be retained before a wire verdict");
         assert_eq!(
             reason.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
+        drop(reason);
         assert_eq!(
             tx.world.validator_committee_transitions.get(&2),
             Some(&before)
@@ -510,6 +512,7 @@ fn original_credentials_authority_refusal_keeps_command_and_same_source_retry() 
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
+        drop(reason);
         assert_eq!(
             tx.world.validator_committee_transitions.get(&2),
             Some(&before)
@@ -568,7 +571,7 @@ fn malformed_committee_command_is_terminal_and_never_installs_credentials() {
         format!("{error:?}").contains("invalid validator committee command"),
         "{error:?}"
     );
-    assert!(tx.execution_deferral().is_none());
+    assert!(!tx.is_execution_deferred());
     assert!(tx.world.validator_committee_transitions.is_empty());
     drop(tx);
     assert!(block.world.validator_committee_transitions.is_empty());
@@ -662,7 +665,7 @@ fn original_beacon_public_state_decode_refusal_defers_before_installation() {
             roster
         );
         let _error = no_allocation(|| instruction.clone().execute(&owner, &mut tx)).unwrap_err();
-        let reason = tx.execution_deferral().expect(
+        let reason = tx.borrow_execution_deferral().expect(
             "original public-state decoder refusal cannot become a deterministic lifecycle failure",
         );
         assert_eq!(
@@ -670,6 +673,7 @@ fn original_beacon_public_state_decode_refusal_defers_before_installation() {
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
+        drop(reason);
         assert!(
             tx.world
                 .global_beacon_key_sessions
@@ -801,7 +805,7 @@ fn original_tle_public_state_decode_refusal_defers_before_installation() {
             format!("{error:?}").contains("Parliament TLE public key session is not canonical"),
             "{error:?}"
         );
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         assert!(
             tx.world
                 .tle_key_sessions
@@ -817,7 +821,7 @@ fn original_tle_public_state_decode_refusal_defers_before_installation() {
             roster
         );
         let _error = no_allocation(|| instruction.clone().execute(&owner, &mut tx)).unwrap_err();
-        let reason = tx.execution_deferral().expect(
+        let reason = tx.borrow_execution_deferral().expect(
             "original public-state decoder refusal cannot become a deterministic lifecycle failure",
         );
         assert_eq!(
@@ -825,6 +829,7 @@ fn original_tle_public_state_decode_refusal_defers_before_installation() {
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
+        drop(reason);
         assert!(
             tx.world
                 .tle_key_sessions
@@ -925,7 +930,7 @@ fn original_staking_authority_refusal_keeps_exit_overlay_and_same_signed_retry()
         })
         .unwrap_err();
         assert!(
-            tx.execution_deferral().is_some(),
+            tx.is_execution_deferred(),
             "original authority owner was dropped by staking scheduling: {error:?}"
         );
         assert_eq!(
@@ -1021,7 +1026,10 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
     let retry =
         crate::smartcontracts::isi::staking::preparation::prepare_public_lane_plan(&view, request)
             .unwrap_err();
-    assert_eq!(retry, expected);
+    assert_eq!(
+        crate::execution_attempt::expect_completed_rejection(retry),
+        crate::execution_attempt::expect_completed_rejection(expected)
+    );
 }
 
 #[test]
@@ -1084,13 +1092,14 @@ fn original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry() {
         let mut tx = block.transaction();
         let error = no_allocation(|| instruction.clone().execute(&owner, &mut tx)).unwrap_err();
         let refusal = tx
-            .execution_deferral()
+            .borrow_execution_deferral()
             .unwrap_or_else(|| panic!("policy refusal became a wire rejection: {error:?}"));
         assert_eq!(
             refusal.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(refusal.allocation_refusal().is_none());
+        drop(refusal);
         assert_eq!(
             tx.world.public_lane_validators.get(&key),
             Some(&overlay_before)
@@ -1263,13 +1272,14 @@ fn late_original_npos_activation_read_refusal_rolls_back_and_same_signed_retry()
         })
         .unwrap_err();
         let refusal = tx
-            .execution_deferral()
+            .borrow_execution_deferral()
             .unwrap_or_else(|| panic!("late policy refusal lost: {error:?}"));
         assert_eq!(
             refusal.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(refusal.allocation_refusal().is_none());
+        drop(refusal);
         assert_eq!(tx.world.public_lane_validators.get(&key), Some(&before));
         assert_eq!(tx.last_tx_gas_used, 0);
         tx.apply();

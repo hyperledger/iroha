@@ -1038,7 +1038,7 @@ mod tests {
         budget.set_limit_bytes(limit);
         assert!(result.is_err());
         assert!(
-            stx.execution_deferral().is_some(),
+            stx.borrow_execution_deferral().is_some(),
             "physical decode refusal must not become protocol rejection"
         );
         assert_eq!(
@@ -1554,7 +1554,7 @@ mod tests {
     }
 
     fn deferred(stx: &StateTransaction<'_, '_>) -> bool {
-        stx.execution_deferral().is_some_and(|deferral| {
+        stx.borrow_execution_deferral().is_some_and(|deferral| {
             deferral.reason() == ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
         })
     }
@@ -1670,7 +1670,7 @@ mod tests {
         assert_eq!(ensure_profiles_compiled(world, 5), Ok(()));
         let reject = admission_profiles(world, 6).expect_err("not compiled");
         assert!(reject.reason.contains("does not compile"), "{reject}");
-        assert_eq!(admission_profiles(world, 5), Ok(GENESIS_PROFILES));
+        assert_eq!(admission_profiles(world, 5).unwrap(), GENESIS_PROFILES);
     }
 
     #[test]

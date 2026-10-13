@@ -59,7 +59,13 @@ seiyaku CycleCallee { view fn value() authorize(anyone) -> int { return 42; } }
         assert_eq!(allowance.remaining(), 0);
         assert!(!allowance.exhausted());
         let (result, parent, overlay, target) = run(&allowance);
-        assert_eq!(result, Err(ivm::VMError::ExceededMaxCycles));
+        assert!(matches!(
+            (&(result), &(ivm::VMError::ExceededMaxCycles)),
+            (
+                Err(ivm::VMError::ExceededMaxCycles),
+                ivm::VMError::ExceededMaxCycles
+            )
+        ));
         assert_eq!(parent.get_cycle_count(), 0);
         assert_eq!(parent.register(14), target);
         assert!(parent.call_result_word_count().is_err());
@@ -117,7 +123,13 @@ seiyaku CycleFailure { permission AssetOps;
                 );
             let error = result.unwrap_err();
             if limit == boundary_only_limit {
-                assert_eq!(error.as_unmetered(), &ivm::VMError::ExceededMaxCycles);
+                assert!(matches!(
+                    (&(error.as_unmetered()), &(ivm::VMError::ExceededMaxCycles)),
+                    (
+                        ivm::VMError::ExceededMaxCycles,
+                        ivm::VMError::ExceededMaxCycles
+                    )
+                ));
                 assert_eq!(
                     allowance.consumed(),
                     completed_parent_cycles,

@@ -42,7 +42,7 @@ impl From<StateAdmissionError> for MergeLedgerCommitError {
 }
 
 /// Separate local acquisition refusal from the caller's deterministic start stage.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum StateBlockStartError<E: std::fmt::Debug> {
     /// The original committed scheduling policy is malformed.
     #[error("invalid committed block-start policy: {0}")]

@@ -117,11 +117,10 @@ fn committee_restore_requires_retained_finality_even_when_all_progress_is_omitte
         &iroha_allocation::AllocationBudget::new(64 * 1024 * 1024),
     )
     .expect_err("absence of progress does not permit absence of its authentication");
-    assert_eq!(
-        error,
-        crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(error, crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (
             crate::sumeragi::certified_chain::ChainReadError::NotInView { height: 1 }.to_string()
-        )
+        ))
     );
     assert!(
         validate_committed_progress(

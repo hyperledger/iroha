@@ -500,7 +500,7 @@ fn write_log_backing_reserves_before_allocation_and_frees_before_final_credit_re
     LOG_PAYLOAD_BYTES.store(PAYLOAD, SeqCst);
     let mut vm = ivm::IVM::try_new_with_memory_budget(257, &budget).unwrap();
     // Own probe-read capacity before observing exact write-row/payload requests.
-    assert_eq!(vm.memory.load_u8(ivm::Memory::STACK_START), Ok(0));
+    assert!(matches!(vm.memory.load_u8(ivm::Memory::STACK_START), Ok(0)));
     let base = budget.reserved_bytes();
     let gas = vm.remaining_gas();
     budget.set_limit_bytes(base + 4 * row + PAYLOAD - 1);
@@ -516,7 +516,7 @@ fn write_log_backing_reserves_before_allocation_and_frees_before_final_credit_re
     assert!(matches!(refused, Err(ivm::VMError::AllocationDeferred(_))));
     assert_eq!(vm.remaining_gas(), gas);
     assert_eq!(budget.reserved_bytes(), base);
-    assert_eq!(vm.memory.load_u8(ivm::Memory::STACK_START), Ok(0));
+    assert!(matches!(vm.memory.load_u8(ivm::Memory::STACK_START), Ok(0)));
 
     budget.set_limit_bytes(base + 4 * row + 4 * PAYLOAD);
     observe_log_requests();
@@ -547,7 +547,10 @@ fn write_log_backing_reserves_before_allocation_and_frees_before_final_credit_re
     assert!(matches!(refused, Err(ivm::VMError::ExecutionDeferred(_))));
     assert_eq!(LOG_ROW_POINTER.load(SeqCst), original_rows);
     assert_eq!(budget.reserved_bytes(), occupied);
-    assert_eq!(vm.memory.load_u8(ivm::Memory::STACK_START + 4 * 32), Ok(0));
+    assert!(matches!(
+        vm.memory.load_u8(ivm::Memory::STACK_START + 4 * 32),
+        Ok(0)
+    ));
 
     observe_log_requests();
     vm.memory

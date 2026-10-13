@@ -91,10 +91,12 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
             if exit == 3 {
                 assert!(matches!(
                     result,
-                    Err(da_hydration::DaIndexHydrationError::MissingBlock { .. })
+                    Err(da_hydration::DaIndexHydrationError::Completed(
+                        da_hydration::DaIndexHydrationFailure::MissingBlock { .. }
+                    ))
                 ));
             } else {
-                assert_eq!(result, Ok(()));
+                assert!(matches!(result, Ok(())));
             }
             assert_eq!(callback.observations(), [0; 5]);
             assert!(Pin::new(&mut future).poll(&mut context).is_pending());

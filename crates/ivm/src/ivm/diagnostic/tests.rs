@@ -137,7 +137,8 @@ fn nested_fault_keeps_deepest_hash_selector_and_relative_position() {
     parent.load_code(&encode_halt().to_le_bytes()).unwrap();
     assert_ne!(parent.code_hash(), child.code_hash());
     parent.inherit_execution_fault(&child, &error, IvmFaultPositionV1::Initialization);
-    parent.capture_trap(&VMError::metered(31, error.clone()));
+    let error = VMError::metered(31, error);
+    parent.capture_trap(&error);
     assert_eq!(parent.last_diagnostic().unwrap().fault, Some(fault));
     assert!(parent.last_diagnostic().unwrap().source.is_none());
     let mut root = IVM::try_new(100).unwrap();

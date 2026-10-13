@@ -1174,7 +1174,7 @@ fn namespace_binding_sns_refusal_retains_original_owner_before_replay_and_retrie
         let result =
             norito::with_decode_limits_scope(limits, || original_attempt.execute(&owner, &mut tx));
         assert!(result.is_err());
-        assert!(tx.execution_deferral().is_some());
+        assert!(tx.is_execution_deferred());
         assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
         assert_eq!(
             tx.world.musubi_namespace_bindings.get(&binding.namespace),
@@ -1184,11 +1184,11 @@ fn namespace_binding_sns_refusal_retains_original_owner_before_replay_and_retrie
     }
     let mut retry = retry_block.transaction();
     command.clone().execute(&owner, &mut retry).unwrap();
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     assert!(retry.world.take_external_events().is_empty());
     retry.world.smart_contract_state.insert(key, vec![0xff]);
     assert!(command.execute(&owner, &mut retry).is_err());
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     assert!(retry.world.take_external_events().is_empty());
 }
 #[test]

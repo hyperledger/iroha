@@ -751,7 +751,7 @@ fn unavailable_production_artifacts_retain_local_deferral_and_no_activation() {
         let rows = tx.world.kagemusha_wallet_ledger.iter().count();
         assert!(instruction.execute(&memory.authority, tx).is_err());
         assert_eq!(
-            tx.execution_deferral().unwrap().reason(),
+            tx.borrow_execution_deferral().unwrap().reason(),
             ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
         );
         assert_eq!(tx.world.kagemusha_wallet_ledger.iter().count(), rows);

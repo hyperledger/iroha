@@ -1302,6 +1302,18 @@ pub enum Executor {
     /// User-provided executor with arbitrary logic.
     UserProvided(LoadedExecutor),
 }
+/// Migration outcome at the State-owning instruction boundary.
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutorMigrationError {
+    /// A completed migration error retains its original VM fields.
+    #[error("executor migration rejected: {0}")]
+    Rejected(#[source] VMError),
+    /// The transaction retains the first local refusal. This notice owns no cause and cannot
+    /// become a completed rejection; the outer State terminal must export the original once.
+    #[error("local executor migration did not complete; original refusal retained in State")]
+    LocalRefusalRetained,
+}
+
 /// Execution profile applied when running native ISIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InstructionExecutionProfile {
@@ -2829,9 +2841,9 @@ fn overlay_build_error_to_attempt_validation_fail(
     state: &mut StateTransaction<'_, '_>,
     error: crate::pipeline::overlay::OverlayBuildError,
 ) -> ValidationFail {
-    match error.execution_deferral() {
-        Some(reason) => state.defer_execution(reason),
-        None => overlay_build_error_to_validation_fail(error),
+    match error.into_execution_deferral() {
+        Ok(reason) => state.defer_execution(reason),
+        Err(error) => overlay_build_error_to_validation_fail(error),
     }
 }
 fn overlay_build_error_to_validation_fail(
@@ -4219,7 +4231,10 @@ pub(crate) fn compute_nexus_fee_amount(
 fn fee_bound_for_admission_payload(
     payload: &TransactionPayload,
     zk_gas: &ConfidentialGas,
-) -> Result<(usize, usize, u64), NexusFeeAdmissionError> {
+) -> Result<
+    (usize, usize, u64),
+    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
     let tx_bytes_len = norito::canonical_frame_len(payload).map_err(|err| {
         NexusFeeAdmissionError::ConfigInvalid(format!(
             "failed to encode transaction for fee metering: {err}"
@@ -4228,7 +4243,9 @@ fn fee_bound_for_admission_payload(
     let (instruction_count, gas_used) = match &payload.instructions {
         Executable::Instructions(instructions) => (
             instructions.len(),
-            isi_gas::meter_instructions(instructions.as_ref(), zk_gas),
+            isi_gas::meter_instructions(instructions.as_ref(), zk_gas).map_err(|original| {
+                crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+            })?,
         ),
         Executable::ContractCall(_) | Executable::Ivm(_) => {
             let gas_limit = payload
@@ -4279,7 +4296,9 @@ fn fee_bound_for_admission_payload(
                         )
                     })?
             } else {
-                isi_gas::meter_instructions(&instructions, zk_gas)
+                isi_gas::meter_instructions(&instructions, zk_gas).map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                })?
             };
             (instructions.len(), gas_used)
         }
@@ -4289,7 +4308,10 @@ fn fee_bound_for_admission_payload(
 fn fee_bound_for_admission(
     transaction: &SignedTransaction,
     zk_gas: &ConfidentialGas,
-) -> Result<(usize, usize, u64), NexusFeeAdmissionError> {
+) -> Result<
+    (usize, usize, u64),
+    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
     fee_bound_for_admission_payload(transaction.payload(), zk_gas)
 }
 fn pipeline_gas_component_enabled(
@@ -4929,7 +4951,7 @@ fn applied_overlay_base_gas(
     transaction: &SignedTransaction,
     overlay: &crate::pipeline::overlay::TxOverlay,
     zk_gas: &ConfidentialGas,
-) -> Result<(u64, usize), ValidationFail> {
+) -> Result<(u64, usize), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     let gas_limit = transaction_gas_limit(transaction);
     let (gas_used, instruction_count, require_gas_limit) = match transaction.instructions() {
         Executable::ContractCall(_) | Executable::Ivm(_) => (
@@ -4942,9 +4964,15 @@ fn applied_overlay_base_gas(
             true,
         ),
         Executable::Instructions(_) => (
-            overlay.instructions().fold(0_u64, |gas, instruction| {
-                gas.saturating_add(isi_gas::meter_instruction(instruction, zk_gas))
-            }),
+            overlay
+                .instructions()
+                .try_fold(0_u64, |gas, instruction| {
+                    isi_gas::meter_instruction(instruction, zk_gas)
+                        .map(|cost| gas.saturating_add(cost))
+                })
+                .map_err(|original| {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into())
+                })?,
             overlay.instruction_count(),
             false,
         ),
@@ -4961,20 +4989,23 @@ fn applied_overlay_base_gas(
         Executable::Batch(_) => {
             return Err(ValidationFail::InternalError(
                 "mixed batch reached overlay fee settlement".to_owned(),
-            ));
+            )
+            .into());
         }
     };
     if require_gas_limit && gas_limit.is_none() {
         return Err(ValidationFail::NotPermitted(
             "missing gas limit in fee payment intent".to_owned(),
-        ));
+        )
+        .into());
     }
     if let Some(limit) = gas_limit
         && gas_used > limit
     {
         return Err(ValidationFail::NotPermitted(format!(
             "out of gas: used {gas_used} > limit {limit}"
-        )));
+        ))
+        .into());
     }
     Ok((gas_used, instruction_count))
 }
@@ -5017,10 +5048,14 @@ fn charge_fees_for_applied_overlay(
         .iter()
         .find(|limit| limit.kind == FeeChargeKind::PipelineGas)
         .map(|limit| limit.asset_definition_id.canonical_address());
-    let pipeline_gas = &state_transaction.pipeline.gas;
     let pipeline_gas_bound = fee_bound_for_admission(transaction, &state_transaction.zk.gas)
-        .map_err(nexus_fee_admission_error_to_validation_fail)?
+        .map_err(|attempt| {
+            state_transaction.attempt_error_to_validation_fail(
+                attempt.map_rejection(nexus_fee_admission_error_to_validation_fail),
+            )
+        })?
         .2;
+    let pipeline_gas = &state_transaction.pipeline.gas;
     if !skip_nexus_fee
         && pipeline_gas_component_enabled(&state_transaction.nexus, &state_transaction.pipeline)
         && pipeline_gas_bound > 0
@@ -6063,10 +6098,24 @@ impl Executor {
         }
         // 1) Deterministically meter the instruction batch. Proved IVM transactions retain the
         // verified replay gas because the plain overlay does not account for VM execution cost.
-        let used = ivm_proved_replay.as_ref().map_or_else(
-            || isi_gas::meter_instructions(&instructions, &state_transaction.zk.gas),
-            |replay| replay.gas_used,
-        );
+        let used = match ivm_proved_replay.as_ref() {
+            Some(replay) => replay.gas_used,
+            None => isi_gas::meter_instructions(&instructions, &state_transaction.zk.gas).map_err(
+                |original| {
+                    state_transaction.defer_execution(
+                        crate::execution_attempt::ExecutionDeferred::from(original),
+                    )
+                },
+            )?,
+        };
+        // Finish both fallible measurements before publishing an authored effect or fee basis.
+        let confidential_delta =
+            crate::gas::sum_confidential_gas_costs(instructions.iter(), &state_transaction.zk.gas)
+                .map_err(|original| {
+                    state_transaction.defer_execution(
+                        crate::execution_attempt::ExecutionDeferred::from(original),
+                    )
+                })?;
         // 2) Enforce optional payer-provided gas limit (caps fee exposure).
         if let Some(limit) = gas_limit_md
             && used > limit
@@ -6109,8 +6158,6 @@ impl Executor {
             )
             .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         }
-        let confidential_delta =
-            crate::gas::sum_confidential_gas_costs(instructions.iter(), &state_transaction.zk.gas);
         if confidential_delta > 0 {
             state_transaction.record_confidential_gas_delta(confidential_delta);
         }
@@ -6784,13 +6831,20 @@ impl Executor {
             )
         });
         let artifacts = host.into_execution_artifacts(contract_runtime_context.clone());
+        let artifacts = match artifacts {
+            Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+                return Err(state_transaction.defer_execution(original));
+            }
+            completed => completed,
+        };
         // Retain completed VM work even when artifact validation or application later fails.
         state_transaction.last_tx_gas_used =
             state_transaction.last_tx_gas_used.saturating_add(gas_used);
         if trigger_context.is_none() {
             state_transaction.record_execution_fee_vm_work(gas_used)?;
         }
-        let artifacts = artifacts?;
+        let artifacts = artifacts
+            .map_err(|attempt| state_transaction.attempt_error_to_validation_fail(attempt))?;
         let validation_outcome = crate::validation_fee::enforce_opaque_deferred_instruction_groups(
             &artifacts.queued_instructions_by_authority(),
             &artifacts.queued_instructions_with_authority(),
@@ -7000,14 +7054,20 @@ impl Executor {
                     } else {
                         (vk_commitment, false)
                     };
-                let res = state_transaction.preverify_proof(
-                    &proof,
-                    None,
-                    state_transaction.zk.preverify_budget_bytes,
-                    vk_commitment,
-                    expected_commitment,
-                    vk_active,
-                );
+                let res = state_transaction
+                    .preverify_proof(
+                        &proof,
+                        None,
+                        state_transaction.zk.preverify_budget_bytes,
+                        vk_commitment,
+                        expected_commitment,
+                        vk_active,
+                    )
+                    .map_err(|original| {
+                        state_transaction.defer_execution(
+                            crate::execution_attempt::ExecutionDeferred::from(original),
+                        )
+                    })?;
                 match res {
                     PreverifyResult::Accepted => {}
                     PreverifyResult::Duplicate => {
@@ -7069,11 +7129,9 @@ impl Executor {
         ivm_cache: &mut IvmCache,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                reason,
-            ));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
         let result =
             self.execute_transaction_body(state_transaction, authority, transaction, ivm_cache);
         state_transaction.clear_sccp_forgery_source();
@@ -7082,11 +7140,9 @@ impl Executor {
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);
         // A local refusal has no completed execution, fee, gas, or effect result.
         // The transaction overlay remains poisoned until its owner drops it.
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                reason,
-            ));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
         let effects = state_transaction.finish_execution_effect_budget();
         state_transaction.close_execution_fee_meter();
         effects?;
@@ -7226,10 +7282,14 @@ impl Executor {
             .find(|limit| limit.kind == FeeChargeKind::PipelineGas)
             .map(|limit| limit.asset_definition_id.canonical_address());
         let gas_limit_md = transaction_gas_limit(&transaction);
-        let pipeline_gas = &state_transaction.pipeline.gas;
         let pipeline_gas_bound = fee_bound_for_admission(&transaction, &state_transaction.zk.gas)
-            .map_err(nexus_fee_admission_error_to_validation_fail)?
+            .map_err(|attempt| {
+                state_transaction.attempt_error_to_validation_fail(
+                    attempt.map_rejection(nexus_fee_admission_error_to_validation_fail),
+                )
+            })?
             .2;
+        let pipeline_gas = &state_transaction.pipeline.gas;
         if !skip_nexus_fee
             && pipeline_gas_component_enabled(&state_transaction.nexus, &state_transaction.pipeline)
             && pipeline_gas_bound > 0
@@ -7489,7 +7549,21 @@ impl Executor {
                     })
                     .collect();
                 let explicit_gas =
-                    isi_gas::meter_instructions(&explicit_instructions, &state_transaction.zk.gas);
+                    isi_gas::meter_instructions(&explicit_instructions, &state_transaction.zk.gas)
+                        .map_err(|original| {
+                            state_transaction.defer_execution(
+                                crate::execution_attempt::ExecutionDeferred::from(original),
+                            )
+                        })?;
+                let confidential_delta = crate::gas::sum_confidential_gas_costs(
+                    explicit_instructions.iter(),
+                    &state_transaction.zk.gas,
+                )
+                .map_err(|original| {
+                    state_transaction.defer_execution(
+                        crate::execution_attempt::ExecutionDeferred::from(original),
+                    )
+                })?;
                 if let Some(limit) = gas_limit
                     && explicit_gas > limit
                 {
@@ -7520,10 +7594,6 @@ impl Executor {
                 state_transaction.last_tx_gas_used = explicit_gas;
                 state_transaction
                     .record_execution_fee_instructions(explicit_instructions.len(), explicit_gas)?;
-                let confidential_delta = crate::gas::sum_confidential_gas_costs(
-                    explicit_instructions.iter(),
-                    &state_transaction.zk.gas,
-                );
                 if confidential_delta > 0 {
                     state_transaction.record_confidential_gas_delta(confidential_delta);
                 }
@@ -7778,12 +7848,20 @@ impl Executor {
                     return Err(error);
                 }
                 let artifacts = host.into_execution_artifacts(None);
+                let artifacts = match artifacts {
+                    Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+                        return Err(state_transaction.defer_execution(original));
+                    }
+                    completed => completed,
+                };
                 // Consume the host borrow, then retain root work before artifact
                 // validation/application can reject. Later nested work must not be
                 // overwritten by a post-application root-gas assignment.
                 state_transaction.last_tx_gas_used = gas_used;
                 state_transaction.record_execution_fee_vm_work(gas_used)?;
-                let artifacts = artifacts?;
+                let artifacts = artifacts.map_err(|attempt| {
+                    state_transaction.attempt_error_to_validation_fail(attempt)
+                })?;
                 let _executed = artifacts.apply_to_transaction(state_transaction, authority)?;
                 Self::enforce_transaction_gas_fits_block(state_transaction, gas_used)?;
                 if should_charge_pipeline_gas_asset(
@@ -7990,9 +8068,16 @@ impl Executor {
         // Retain completed root work before artifact validation/application;
         // a rejected artifact must not make an executed raw contract free.
         let artifacts = host.into_execution_artifacts(contract_runtime_context);
+        let artifacts = match artifacts {
+            Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+                return Err(state_transaction.defer_execution(original));
+            }
+            completed => completed,
+        };
         state_transaction.last_tx_gas_used = gas_used;
         state_transaction.record_execution_fee_vm_work(gas_used)?;
-        let artifacts = artifacts?;
+        let artifacts = artifacts
+            .map_err(|attempt| state_transaction.attempt_error_to_validation_fail(attempt))?;
         let _executed = artifacts.apply_to_transaction(state_transaction, authority)?;
         Self::enforce_transaction_gas_fits_block(state_transaction, gas_used)?;
         // Charge gas fees: if a gas asset was provided and accepted by policy.
@@ -8719,20 +8804,26 @@ impl Executor {
         raw_executor: data_model_executor::Executor,
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
-    ) -> Result<(), VMError> {
+    ) -> Result<(), ExecutorMigrationError> {
         trace!("Running executor migration");
+        if state_transaction.is_execution_deferred() {
+            return Err(ExecutorMigrationError::LocalRefusalRetained);
+        }
         let can_upgrade: Permission = executor_permission::executor::CanUpgradeExecutor.into();
         if !is_initial_genesis_context(state_transaction)
             && !authority_has_permission(&state_transaction.world, authority, &can_upgrade)
-                .map_err(|_| VMError::PermissionDenied)?
+                .map_err(|_| ExecutorMigrationError::Rejected(VMError::PermissionDenied))?
         {
-            return Err(VMError::PermissionDenied);
+            return Err(ExecutorMigrationError::Rejected(VMError::PermissionDenied));
         }
         // Load new executor bytecode
-        let loaded_executor = LoadedExecutor::load(raw_executor).inspect_err(|error| {
-            if let Some(reason) = crate::execution_attempt::ExecutionDeferred::from_vm_error(error)
-            {
-                state_transaction.defer_execution(reason);
+        let loaded_executor = LoadedExecutor::load(raw_executor).map_err(|error| {
+            match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                Ok(original) => {
+                    state_transaction.defer_execution(original);
+                    ExecutorMigrationError::LocalRefusalRetained
+                }
+                Err(error) => ExecutorMigrationError::Rejected(error),
             }
         })?;
         let curr_block = state_transaction._curr_block;
@@ -8752,11 +8843,11 @@ impl Executor {
         )
         .map_err(|error| match error {
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
-                map_migration_fail_to_vm_error(error)
+                ExecutorMigrationError::Rejected(map_migration_fail_to_vm_error(error))
             }
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                state_transaction.defer_execution(reason.clone());
-                reason.into_vm_error()
+                state_transaction.defer_execution(reason);
+                ExecutorMigrationError::LocalRefusalRetained
             }
         })?;
         if let Some(data_model) = maybe_data_model {
@@ -10336,7 +10427,8 @@ mod tests {
         let expected_gas = isi_gas::meter_instructions(
             core::slice::from_ref(&ballot),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
+        )
+        .expect("completed fixture gas quote");
         assert!(expected_gas > 0);
         let execute_rejected = |executable: Executable| {
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
@@ -10464,7 +10556,8 @@ mod tests {
         let direct_gas = isi_gas::meter_instructions(
             core::slice::from_ref(&execute_trigger),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
+        )
+        .expect("completed fixture gas quote");
         let transaction = TransactionBuilder::new(
             *state.network_id_ref(),
             ALICE_ID.clone(),
@@ -10527,8 +10620,10 @@ mod tests {
         let direct_gas = isi_gas::meter_instructions(
             core::slice::from_ref(&execute_trigger),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
-        let nested_gas = isi_gas::meter_instructions(&trigger_body, &crate::gas::DEFAULT_ZK_GAS);
+        )
+        .expect("completed fixture gas quote");
+        let nested_gas = isi_gas::meter_instructions(&trigger_body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
         let transaction = TransactionBuilder::new(
             *state.network_id_ref(),
             ALICE_ID.clone(),
@@ -16423,14 +16518,15 @@ mod tests {
             transaction,
             &mut ivm_cache,
         );
-        assert_eq!(
-            result,
-            Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                reason.into()
-            ))
+        assert!(
+            matches!(result, Err(crate::execution_attempt::ExecutionAttemptError::Deferred(original)) if original.reason() == reason)
         );
         assert_eq!(state_transaction.last_tx_gas_used, 0);
-        assert_eq!(state_transaction.execution_deferral(), Some(reason.into()));
+        assert!(state_transaction.is_execution_deferred());
+        assert!(
+            state_transaction.borrow_execution_deferral().is_none(),
+            "outer terminal transferred the owner once"
+        );
         // Releasing local pressure cannot bless this already incomplete overlay.
         shared_cache.set_checkout_refusal_for_test(None);
         assert_eq!(
@@ -16619,7 +16715,11 @@ mod tests {
                 )),
             ),
         )];
-        assert!(isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS) > 0);
+        assert!(
+            isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote")
+                > 0
+        );
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority.clone(),
@@ -17150,7 +17250,8 @@ mod tests {
             ),
             parameter_instruction("ivm_gas_units_per_gas", governed_rates),
         ];
-        let gas_used = isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS);
+        let gas_used = isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed fixture gas quote");
         assert!(gas_used > 0);
         let expected_fee = Quantity::from(u128::from(gas_used));
         let transaction = TransactionBuilder::new(
@@ -22138,7 +22239,7 @@ seiyaku GuardedValue { permission CanInvokeContractEntrypoint;
         )
         .expect_err("raw-IVM pre-proof admission must observe the execution block height");
         assert!(
-            matches!(crate::execution_attempt::expect_completed_rejection(preproof_held.clone()), ValidationFail::NotPermitted(ref message)
+            matches!(&preproof_held, crate::execution_attempt::ExecutionAttemptError::Rejected(ValidationFail::NotPermitted(message))
                 if message.contains("held by Parliament")),
             "unexpected raw-IVM pre-proof emergency-hold error: {preproof_held}"
         );
@@ -22703,7 +22804,8 @@ seiyaku OrderedBatchGuard { permission CanInvokeContractEntrypoint;
         );
         assert!(
             state_tx.last_tx_gas_used
-                > isi_gas::meter_instructions(&explicit_instructions, &crate::gas::DEFAULT_ZK_GAS),
+                > isi_gas::meter_instructions(&explicit_instructions, &crate::gas::DEFAULT_ZK_GAS)
+                    .expect("completed fixture gas quote"),
             "aggregate batch gas must include contract execution"
         );
         state_tx.apply();
@@ -22746,7 +22848,8 @@ seiyaku OrderedBatchGuard { permission CanInvokeContractEntrypoint;
                 > isi_gas::meter_instructions(
                     &explicit_instructions[..1],
                     &crate::gas::DEFAULT_ZK_GAS
-                ),
+                )
+                .expect("completed fixture gas quote"),
             "overlay-cap rejection must retain the completed contract attempt"
         );
         drop(instruction_capped_state_tx);

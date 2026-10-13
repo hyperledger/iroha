@@ -257,10 +257,12 @@ mod tests {
             if target == ds {
                 assert_eq!(bootstrap.unwrap().decision().dataspace_id, ds);
             } else {
-                assert_eq!(
+                assert!(matches!(
                     bootstrap,
-                    Err(PhysicalPolicyRouteRejection::DataspaceMismatch.into())
-                );
+                    Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                        PhysicalPolicyRouteRejection::DataspaceMismatch
+                    ))
+                ));
             }
         }
     }

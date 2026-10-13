@@ -1208,12 +1208,16 @@ pub mod isi {
     }
     fn decode_open_verify_envelope(
         proof: &iroha_data_model::proof::ProofBox,
-    ) -> Option<ZkOpenVerifyEnvelope> {
-        let backend = proof.backend.as_str();
-        if !crate::zk::is_production_verify_backend_label(backend) {
-            return None;
+    ) -> Result<Option<ZkOpenVerifyEnvelope>, crate::zk::VerificationRefusal> {
+        if !crate::zk::is_production_verify_backend_label(proof.backend.as_str()) {
+            return Ok(None);
         }
-        norito::decode_canonical::<ZkOpenVerifyEnvelope>(&proof.bytes).ok()
+        crate::zk::verification_attempt::completed_result(
+            crate::zk::verification_attempt::codec_attempt(
+                || norito::decode_canonical(&proof.bytes),
+                |error| error,
+            ),
+        )
     }
     struct VotePublicInputs {
         columns: Vec<Vec<[u8; 32]>>,
@@ -1287,6 +1291,25 @@ pub mod isi {
         }
         Ok(())
     }
+    fn verification_attempt<T, E>(
+        state: &mut StateTransaction<'_, '_>,
+        attempt: Result<T, crate::zk::VerificationAttemptError<E>>,
+        rejected: impl FnOnce(E) -> Error,
+    ) -> Result<T, Error> {
+        attempt.map_err(|error| {
+            state.attempt_error_to_instruction_error(error.map_rejection(rejected).into())
+        })
+    }
+    fn verification_completed<T>(
+        state: &mut StateTransaction<'_, '_>,
+        attempt: Result<T, crate::zk::VerificationRefusal>,
+    ) -> Result<T, Error> {
+        attempt.map_err(|original| {
+            state.attempt_error_to_instruction_error(
+                crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+            )
+        })
+    }
     fn ensure_production_verifying_key_backend_id(backend: &str) -> Result<(), Error> {
         if crate::zk::is_production_claim_backend_label(backend) {
             return Err(InstructionExecutionError::InvalidParameter(
@@ -1354,9 +1377,15 @@ pub mod isi {
     fn validate_soracloud_fhe_stark_verifying_key_records(
         id: &VerifyingKeyId,
         record: &VerifyingKeyRecord,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         for profile in SORACLOUD_FHE_STARK_VERIFIER_PROFILES {
-            validate_soracloud_fhe_stark_verifying_key_record(id, record, *profile)?;
+            validate_soracloud_fhe_stark_verifying_key_record(
+                id,
+                record,
+                *profile,
+                state_transaction,
+            )?;
         }
         Ok(())
     }
@@ -1364,6 +1393,7 @@ pub mod isi {
         id: &VerifyingKeyId,
         record: &VerifyingKeyRecord,
         profile: SoracloudFheStarkVerifierProfile,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         let has_canonical_name = id.name == profile.circuit_id;
         if !has_canonical_name && record.circuit_id != profile.circuit_id {
@@ -1425,7 +1455,7 @@ pub mod isi {
         }
         if let Some(vk) = &record.key {
             #[cfg(feature = "zk-stark")]
-            validate_soracloud_fhe_stark_verifying_key_payload(profile, vk)?;
+            validate_soracloud_fhe_stark_verifying_key_payload(profile, vk, state_transaction)?;
             #[cfg(not(feature = "zk-stark"))]
             let _ = vk;
         }
@@ -1441,18 +1471,22 @@ pub mod isi {
     fn validate_soracloud_fhe_stark_verifying_key_payload(
         profile: SoracloudFheStarkVerifierProfile,
         vk: &VerifyingKeyBox,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        let payload = crate::zk::validate_stark_fri_verifying_key_v1(
-            vk.backend.as_str(),
-            profile.circuit_id,
-            vk.bytes.as_slice(),
-        )
-        .map_err(|_| {
-            invalid_smart_contract_parameter(format!(
-                "{} verifying key has invalid STARK payload",
-                profile.label
-            ))
-        })?;
+        let payload = verification_attempt(
+            state_transaction,
+            crate::zk::validate_stark_fri_verifying_key_v1(
+                vk.backend.as_str(),
+                profile.circuit_id,
+                vk.bytes.as_slice(),
+            ),
+            |_| {
+                invalid_smart_contract_parameter(format!(
+                    "{} verifying key has invalid STARK payload",
+                    profile.label
+                ))
+            },
+        )?;
         crate::zk_stark::validate_stark_fri_canonical_verifying_key_payload(
             &payload,
             profile.circuit_id,
@@ -1652,28 +1686,36 @@ pub mod isi {
     fn extract_vote_public_inputs(
         backend: &str,
         proof_bytes: &[u8],
-    ) -> Result<VotePublicInputs, Error> {
+    ) -> Result<VotePublicInputs, crate::zk::VerificationAttemptError<Error>> {
         if crate::zk::is_stark_fri_v1_backend(backend) {
-            let env: ZkOpenVerifyEnvelope =
-                norito::decode_canonical(proof_bytes).map_err(|_| {
+            let env: ZkOpenVerifyEnvelope = crate::zk::verification_attempt::codec_attempt(
+                || norito::decode_canonical(proof_bytes),
+                |_| {
                     InstructionExecutionError::InvariantViolation(
                         "invalid OpenVerifyEnvelope payload".into(),
                     )
-                })?;
+                },
+            )?;
             if env.backend != BackendTag::Stark {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    "unexpected OpenVerifyEnvelope backend tag".into(),
+                return Err(crate::zk::VerificationAttemptError::Rejected(
+                    InstructionExecutionError::InvariantViolation(
+                        "unexpected OpenVerifyEnvelope backend tag".into(),
+                    ),
                 ));
             }
-            let open: StarkFriOpenProofV1 =
-                norito::decode_canonical(&env.proof_bytes).map_err(|_| {
+            let open: StarkFriOpenProofV1 = crate::zk::verification_attempt::codec_attempt(
+                || norito::decode_canonical(&env.proof_bytes),
+                |_| {
                     InstructionExecutionError::InvariantViolation(
                         "invalid STARK open proof payload".into(),
                     )
-                })?;
+                },
+            )?;
             if open.version != 1 {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    "unsupported STARK open proof version".into(),
+                return Err(crate::zk::VerificationAttemptError::Rejected(
+                    InstructionExecutionError::InvariantViolation(
+                        "unsupported STARK open proof version".into(),
+                    ),
                 ));
             }
             let columns = open.public_inputs;
@@ -1682,7 +1724,29 @@ pub mod isi {
                 envelope: env,
             });
         }
-        Err(unsupported_proof_backend_error())
+        Err(crate::zk::VerificationAttemptError::Rejected(
+            unsupported_proof_backend_error(),
+        ))
+    }
+    fn extract_verified_vote_public_inputs(
+        state: &mut StateTransaction<'_, '_>,
+        backend: &str,
+        proof_bytes: &[u8],
+    ) -> Result<VotePublicInputs, Error> {
+        match extract_vote_public_inputs(backend, proof_bytes) {
+            Err(crate::zk::VerificationAttemptError::Deferred(original)) => Err(state
+                .attempt_error_to_instruction_error(
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                )),
+            Err(crate::zk::VerificationAttemptError::Rejected(error)) => {
+                state.register_confidential_proof(proof_bytes.len())?;
+                Err(error)
+            }
+            Ok(inputs) => {
+                state.register_confidential_proof(proof_bytes.len())?;
+                Ok(inputs)
+            }
+        }
     }
     fn ballot_inputs_from_columns(
         columns: &[Vec<[u8; 32]>],
@@ -2504,14 +2568,17 @@ pub mod isi {
         world: &WorldTransaction<'_, '_>,
         error: ivm::ContractArtifactError,
     ) -> InstructionExecutionError {
-        if let Some(error) = error.local_vm_error()
-            && let Some(reason) = crate::execution_attempt::ExecutionDeferred::from_vm_error(&error)
-        {
-            return world.attempt_error_to_instruction_error(
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
-            );
+        match error.try_into_local_vm_error() {
+            Ok(error) => {
+                match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                    Ok(reason) => world.attempt_error_to_instruction_error(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
+                    ),
+                    Err(error) => invalid_smart_contract_parameter(error.to_string()),
+                }
+            }
+            Err(error) => invalid_smart_contract_parameter(error.to_string()),
         }
-        invalid_smart_contract_parameter(error.to_string())
     }
     fn verify_registered_contract_artifact_for_manifest(
         world: &WorldTransaction<'_, '_>,
@@ -2675,14 +2742,16 @@ pub mod isi {
                     ),
                 ));
             }
-            crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &record).map_err(
+            verification_attempt(
+                state_transaction,
+                crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &record),
                 |err| {
                     invalid_smart_contract_parameter(format!(
                         "invalid canonical verifying-key record: {err}"
                     ))
                 },
             )?;
-            validate_soracloud_fhe_stark_verifying_key_records(&id, &record)?;
+            validate_soracloud_fhe_stark_verifying_key_records(&id, &record, state_transaction)?;
             state_transaction
                 .world
                 .verifying_keys
@@ -4058,7 +4127,7 @@ pub mod isi {
                         ));
                     }
                 };
-            state_transaction.register_confidential_proof(proof_bytes.len())?;
+            state_transaction.check_confidential_proof(proof_bytes.len())?;
             if max_proof > 0 && proof_bytes.len() > max_proof {
                 state_transaction.world.emit_events(Some(
                     iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
@@ -4380,8 +4449,14 @@ pub mod isi {
                 &proof_box,
                 Some(&vk_box),
                 &state_transaction.zk,
-            );
+            )
+            .map_err(|original| {
+                state_transaction.attempt_error_to_instruction_error(
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                )
+            })?;
             if !verify_report.ok {
+                state_transaction.register_confidential_proof(proof_bytes.len())?;
                 return reject_governance_ballot_with_penalty(
                     &self.election_id,
                     authority,
@@ -4396,7 +4471,13 @@ pub mod isi {
             let proof_verified = true;
             let inputs = match extract_vote_public_inputs(backend, &proof_bytes) {
                 Ok(inputs) => inputs,
-                Err(err) => {
+                Err(crate::zk::VerificationAttemptError::Deferred(original)) => {
+                    return Err(state_transaction.attempt_error_to_instruction_error(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                    ));
+                }
+                Err(crate::zk::VerificationAttemptError::Rejected(err)) => {
+                    state_transaction.register_confidential_proof(proof_bytes.len())?;
                     return reject_governance_ballot_with_penalty(
                         &self.election_id,
                         authority,
@@ -4409,6 +4490,7 @@ pub mod isi {
                     );
                 }
             };
+            state_transaction.register_confidential_proof(proof_bytes.len())?;
             if let Err(err) =
                 validate_open_verify_envelope_metadata("ballot", backend, &inputs.envelope, &vk_rec)
             {
@@ -8888,11 +8970,9 @@ pub mod isi {
             &certificate,
             state_transaction,
         );
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                reason,
-            ));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
         if effect_result.is_err() {
             return Ok(DueParliamentCertificateExecutionV1::EffectFailed {
                 failure_root:
@@ -11234,7 +11314,7 @@ pub mod isi {
         id: &VerifyingKeyId,
         new: &VerifyingKeyRecord,
         old: &VerifyingKeyRecord,
-        state_transaction: &StateTransaction<'_, '_>,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         if matches!(old.status, ConfidentialStatus::Withdrawn) {
             return Err(InstructionExecutionError::InvariantViolation(
@@ -11349,12 +11429,16 @@ pub mod isi {
                 ),
             ));
         }
-        crate::zk::validate_and_prepare_verifying_key_record_v1(id, new).map_err(|err| {
-            invalid_smart_contract_parameter(format!(
-                "invalid canonical verifying-key record: {err}"
-            ))
-        })?;
-        validate_soracloud_fhe_stark_verifying_key_records(id, new)?;
+        verification_attempt(
+            state_transaction,
+            crate::zk::validate_and_prepare_verifying_key_record_v1(id, new),
+            |err| {
+                invalid_smart_contract_parameter(format!(
+                    "invalid canonical verifying-key record: {err}"
+                ))
+            },
+        )?;
+        validate_soracloud_fhe_stark_verifying_key_records(id, new, state_transaction)?;
         Ok(())
     }
     // Runtime Upgrade Governance — minimal implementation (see specs/runtime_upgrades.md)
@@ -12607,7 +12691,8 @@ pub mod isi {
         ) -> Result<(), Error> {
             let attachment = self.attachment().clone();
             let proof = attachment.proof.clone();
-            let envelope_meta = decode_open_verify_envelope(&proof);
+            let envelope_meta =
+                verification_completed(state_transaction, decode_open_verify_envelope(&proof))?;
             let backend_label = attachment.backend.as_str();
             let expects_envelope = backend_requires_open_verify_envelope(backend_label);
             let envelope_ref = validate_proof_attachment(
@@ -12616,7 +12701,7 @@ pub mod isi {
                 expects_envelope,
                 envelope_meta.as_ref(),
             )?;
-            state_transaction.register_confidential_proof(proof.bytes.len())?;
+            state_transaction.check_confidential_proof(proof.bytes.len())?;
             let vk_commitment =
                 resolve_vk_commitment(&attachment, envelope_ref, state_transaction)?;
             let pid = iroha_data_model::proof::ProofId {
@@ -12626,6 +12711,7 @@ pub mod isi {
             ensure_unique_proof(state_transaction, &pid)?;
             let (ok, verify_elapsed) =
                 verify_proof_backend(&attachment, &proof, state_transaction)?;
+            state_transaction.register_confidential_proof(proof.bytes.len())?;
             let status = if ok {
                 iroha_data_model::proof::ProofStatus::Verified
             } else {
@@ -13014,12 +13100,15 @@ pub mod isi {
             .ok_or_else(|| {
                 InstructionExecutionError::InvariantViolation("verifying key not found".into())
             })?;
-        crate::zk::validate_and_prepare_verifying_key_record_v1(&attachment.vk_ref, &record)
-            .map_err(|err| {
+        verification_attempt(
+            state_transaction,
+            crate::zk::validate_and_prepare_verifying_key_record_v1(&attachment.vk_ref, &record),
+            |err| {
                 InstructionExecutionError::InvariantViolation(
                     format!("invalid stored verifying-key record: {err}").into(),
                 )
-            })?;
+            },
+        )?;
         let vk_box = record.key.clone().ok_or_else(|| {
             InstructionExecutionError::InvariantViolation("verifying key bytes missing".into())
         })?;
@@ -13039,7 +13128,12 @@ pub mod isi {
             proof,
             Some(&vk_box),
             &state_transaction.zk,
-        );
+        )
+        .map_err(|original| {
+            state_transaction.attempt_error_to_instruction_error(
+                crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+            )
+        })?;
         Ok((report.ok, report.elapsed))
     }
     fn index_proof_tags(world: &mut WorldTransaction<'_, '_>, pid: &ProofId, proof_bytes: &[u8]) {
@@ -13756,7 +13850,7 @@ pub mod isi {
                         vk_box,
                     )
                 };
-                result.map_err(|err| {
+                verification_attempt(state_transaction, result, |err| {
                     InstructionExecutionError::InvariantViolation(
                         format!("invalid vk_unshield verifying key: {err}").into(),
                     )
@@ -14320,19 +14414,29 @@ pub mod isi {
             }
             let proof_len = self.ballot_proof.proof.bytes.len();
             enforce_vk_max_proof_bytes("ballot", &vk_rec, proof_len)?;
-            state_transaction.register_confidential_proof(proof_len)?;
+            state_transaction.check_confidential_proof(proof_len)?;
             let report = crate::zk_guardrails::verify_backend_with_timing_checked(
                 backend,
                 &self.ballot_proof.proof,
                 Some(&vk_box),
                 &state_transaction.zk,
-            );
+            )
+            .map_err(|original| {
+                state_transaction.attempt_error_to_instruction_error(
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                )
+            })?;
             if !report.ok {
+                state_transaction.register_confidential_proof(proof_len)?;
                 return Err(InstructionExecutionError::InvariantViolation(
                     "invalid ballot proof".into(),
                 ));
             }
-            let inputs = extract_vote_public_inputs(backend, &self.ballot_proof.proof.bytes)?;
+            let inputs = extract_verified_vote_public_inputs(
+                state_transaction,
+                backend,
+                &self.ballot_proof.proof.bytes,
+            )?;
             validate_open_verify_envelope_metadata("ballot", backend, &inputs.envelope, &vk_rec)?;
             let (commit_bytes, root_bytes) = ballot_inputs_from_columns(&inputs.columns)?;
             if root_bytes != st.eligible_root {
@@ -14510,19 +14614,26 @@ pub mod isi {
             }
             let proof_len = att.proof.bytes.len();
             enforce_vk_max_proof_bytes("tally", &vk_rec, proof_len)?;
-            state_transaction.register_confidential_proof(proof_len)?;
+            state_transaction.check_confidential_proof(proof_len)?;
             let report = crate::zk_guardrails::verify_backend_with_timing_checked(
                 backend,
                 &att.proof,
                 Some(&vk_box),
                 &state_transaction.zk,
-            );
+            )
+            .map_err(|original| {
+                state_transaction.attempt_error_to_instruction_error(
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                )
+            })?;
             if !report.ok {
+                state_transaction.register_confidential_proof(proof_len)?;
                 return Err(InstructionExecutionError::InvariantViolation(
                     "invalid tally proof".into(),
                 ));
             }
-            let inputs = extract_vote_public_inputs(backend, &att.proof.bytes)?;
+            let inputs =
+                extract_verified_vote_public_inputs(state_transaction, backend, &att.proof.bytes)?;
             validate_open_verify_envelope_metadata("tally", backend, &inputs.envelope, &vk_rec)?;
             let expected_tally = tally_from_columns(&inputs.columns, expected_tally_len)?;
             if expected_tally != *self.tally() {
@@ -15839,84 +15950,126 @@ pub mod isi {
                 *self.manifest_root(),
                 binding,
             );
-            let key = verified_fee_sponsor_vault_allocation_state_key(
-                &program_id,
-                self.asset_definition_id(),
-                self.lease_id(),
-            )?;
-            let encoded = encode_verified_fee_sponsor_vault_allocation_state(&record)
-                .map_err(invalid_fee_sponsor_program)?;
-            for (existing_key, payload) in state_transaction.world.smart_contract_state.iter() {
-                if !existing_key
-                    .to_string()
-                    .starts_with(VERIFIED_FEE_SPONSOR_VAULT_ALLOCATION_STATE_KEY_PREFIX)
-                {
-                    continue;
-                }
-                let existing = decode_verified_fee_sponsor_vault_allocation_state(payload)
-                    .map_err(invalid_fee_sponsor_program)?;
-                if existing.lease_id == record.lease_id && existing != record {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        "fee sponsor vault spend lease id is already bound to another allocation"
-                            .into(),
-                    )
-                    .into());
-                }
-                if fee_sponsor_vault_allocation_conflicts_on_live_route(
-                    &existing,
-                    &record,
-                    verified_at_height,
-                ) {
-                    return Err(invalid_fee_sponsor_program(format!(
-                        "fee sponsor vault route already has an unexpired spend lease through height {}",
-                        existing.expires_at_height
-                    )));
-                }
+            apply_verified_fee_sponsor_vault_allocation(state_transaction, record)
+        }
+    }
+    /// Apply the independent ledger limits after the native verifier has produced its record.
+    ///
+    /// The sole production caller retains authority, frozen policy and proof verification above.
+    /// Reading capacity and scheduled activation here keeps the ledger checks observable with a
+    /// test-only faulty-verifier record, without replacing any production verifier result.
+    fn apply_verified_fee_sponsor_vault_allocation(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        record: VerifiedFeeSponsorVaultAllocation,
+    ) -> Result<(), Error> {
+        let verified_at_height = state_transaction.block_height();
+        if record.verified_at_height != verified_at_height {
+            return Err(invalid_fee_sponsor_program(
+                "verified fee sponsor vault allocation belongs to another execution height",
+            ));
+        }
+        let program_id = record.program_id.clone();
+        let program = state_transaction
+            .world
+            .fee_sponsor_programs
+            .get(&program_id)
+            .ok_or_else(|| {
+                invalid_fee_sponsor_program(
+                    "verified fee sponsor vault allocation references an unknown program",
+                )
+            })?;
+        let vault_key = iroha_data_model::nexus::FeeSponsorVaultKey {
+            program_id: program_id.clone(),
+            asset_definition_id: record.asset_definition_id.clone(),
+        };
+        let vault_balance = state_transaction
+            .world
+            .fee_sponsor_vaults
+            .get(&vault_key)
+            .ok_or_else(|| {
+                invalid_fee_sponsor_program(
+                    "verified fee sponsor vault allocation references an unfunded vault",
+                )
+            })?
+            .balance
+            .clone();
+        let key = verified_fee_sponsor_vault_allocation_state_key(
+            &program_id,
+            &record.asset_definition_id,
+            &record.lease_id,
+        )?;
+        let encoded = encode_verified_fee_sponsor_vault_allocation_state(&record)
+            .map_err(invalid_fee_sponsor_program)?;
+        for (existing_key, payload) in state_transaction.world.smart_contract_state.iter() {
+            if !existing_key
+                .to_string()
+                .starts_with(VERIFIED_FEE_SPONSOR_VAULT_ALLOCATION_STATE_KEY_PREFIX)
+            {
+                continue;
             }
-            if let Some(existing) = state_transaction.world.smart_contract_state.get(&key) {
-                let existing = decode_verified_fee_sponsor_vault_allocation_state(existing)
-                    .map_err(invalid_fee_sponsor_program)?;
-                if existing == record {
-                    return Ok(());
-                }
+            let existing = decode_verified_fee_sponsor_vault_allocation_state(payload)
+                .map_err(invalid_fee_sponsor_program)?;
+            if existing.lease_id == record.lease_id && existing != record {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "conflicting verified fee sponsor vault allocation already exists".into(),
+                    "fee sponsor vault spend lease id is already bound to another allocation"
+                        .into(),
                 )
                 .into());
             }
-            if let Some(activation) = program.scheduled_activation
-                && record.expires_at_height >= activation.activate_at_height
-            {
-                return Err(invalid_fee_sponsor_program(format!(
-                    "fee sponsor vault spend lease must expire before scheduled revision activation height {}",
-                    activation.activate_at_height
-                )));
-            }
-            let locked = locked_fee_sponsor_vault_capacity(
-                &state_transaction.world,
-                &program_id,
-                self.asset_definition_id(),
+            if fee_sponsor_vault_allocation_conflicts_on_live_route(
+                &existing,
+                &record,
                 verified_at_height,
-            )
-            .map_err(invalid_fee_sponsor_program)?;
-            let required = locked
-                .checked_add(self.verified_allocation())
-                .map_err(|_| {
-                    invalid_fee_sponsor_program(
-                        "verified fee sponsor vault allocation lock arithmetic overflow",
-                    )
-                })?;
-            if required > vault_balance {
+            ) {
                 return Err(invalid_fee_sponsor_program(format!(
-                    "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {vault_balance}"
+                    "fee sponsor vault route already has an unexpired spend lease through height {}",
+                    existing.expires_at_height
                 )));
             }
-            state_transaction
-                .world
-                .smart_contract_state
-                .insert(key, encoded);
-            Ok(())
         }
+        if let Some(existing) = state_transaction.world.smart_contract_state.get(&key) {
+            let existing = decode_verified_fee_sponsor_vault_allocation_state(existing)
+                .map_err(invalid_fee_sponsor_program)?;
+            if existing == record {
+                return Ok(());
+            }
+            return Err(InstructionExecutionError::InvariantViolation(
+                "conflicting verified fee sponsor vault allocation already exists".into(),
+            )
+            .into());
+        }
+        if let Some(activation) = program.scheduled_activation
+            && record.expires_at_height >= activation.activate_at_height
+        {
+            return Err(invalid_fee_sponsor_program(format!(
+                "fee sponsor vault spend lease must expire before scheduled revision activation height {}",
+                activation.activate_at_height
+            )));
+        }
+        let locked = locked_fee_sponsor_vault_capacity(
+            &state_transaction.world,
+            &program_id,
+            &record.asset_definition_id,
+            verified_at_height,
+        )
+        .map_err(invalid_fee_sponsor_program)?;
+        let required = locked
+            .checked_add(&record.verified_allocation)
+            .map_err(|_| {
+                invalid_fee_sponsor_program(
+                    "verified fee sponsor vault allocation lock arithmetic overflow",
+                )
+            })?;
+        if required > vault_balance {
+            return Err(invalid_fee_sponsor_program(format!(
+                "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {vault_balance}"
+            )));
+        }
+        state_transaction
+            .world
+            .smart_contract_state
+            .insert(key, encoded);
+        Ok(())
     }
     fn invalid_fee_sponsor_program(message: impl Into<String>) -> Error {
         InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
@@ -18475,11 +18628,20 @@ pub mod isi {
             let mut upgraded_executor = state_transaction.world.executor.clone();
             upgraded_executor
                 .migrate(raw_executor.clone(), state_transaction, authority)
-                .map_err(|migration_error| {
-                    InvalidParameterError::SmartContract(format!(
-                        "{:?}",
-                        eyre::eyre!(migration_error).wrap_err("Migration failed"),
-                    ))
+                .map_err(|migration_error| match migration_error {
+                    crate::executor::ExecutorMigrationError::LocalRefusalRetained => {
+                        InstructionExecutionError::InvariantViolation(
+                            "local executor migration did not complete".into(),
+                        )
+                    }
+                    crate::executor::ExecutorMigrationError::Rejected(error) => {
+                        InstructionExecutionError::InvalidParameter(
+                            InvalidParameterError::SmartContract(format!(
+                                "{:?}",
+                                eyre::eyre!(error).wrap_err("Migration failed"),
+                            )),
+                        )
+                    }
                 })?;
             *state_transaction.world.executor.get_mut() = upgraded_executor;
             state_transaction
@@ -22654,6 +22816,67 @@ AccountEvent::PermissionRemoved(change))
             }
         }
         impl<T: Execute> TestExecuteExt for T {}
+        #[test]
+        fn original_verify_proof_read_refusal_precedes_quota_events_and_proof_publication() {
+            let fixture = crate::zk::test_utils::native_confidential_fixture_envelope();
+            let backend = crate::zk::ZK_BACKEND_NATIVE_PIPA_R;
+            let proof = fixture.proof_box(backend);
+            let original_bytes = proof.bytes.clone();
+            let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
+                backend.into(),
+                proof,
+                VerifyingKeyId::new(backend, "uninstalled-but-framed-native-key"),
+            );
+            let instruction = iroha_data_model::isi::zk::VerifyProof::new(attachment);
+            let state = blank_test_state();
+            let mut block = state.block(first_test_block_header());
+            let limits =
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            {
+                let mut tx = block.transaction();
+                let events = tx.world.internal_event_buf.clone();
+                norito::with_decode_limits_scope(limits, || {
+                    instruction.clone().execute(&ALICE_ID, &mut tx)
+                })
+                .expect_err("actual model boundary returns unfinished placeholder");
+                assert!(tx.is_execution_deferred());
+                assert_eq!(tx.zk_confidential_ops_in_tx, 0);
+                assert_eq!(tx.zk_verify_calls_in_tx, 0);
+                assert_eq!(tx.zk_proof_bytes_in_tx, 0);
+                assert_eq!(tx.world.internal_event_buf, events);
+                assert!(tx.world.proofs.iter().next().is_none());
+                let owner = tx
+                    .take_execution_deferral()
+                    .expect("actual State retains original");
+                let original = owner
+                    .decode_refusal()
+                    .expect("same captured outer owner")
+                    .clone();
+                norito::with_decode_limits_scope(limits, || {
+                    assert_eq!(owner.decode_refusal(), Some(&original))
+                });
+                assert!(
+                    tx.is_execution_deferred(),
+                    "consuming the owner cannot allow publication"
+                );
+            }
+            let mut retry = block.transaction();
+            let rejection = instruction
+                .clone()
+                .execute(&ALICE_ID, &mut retry)
+                .expect_err("missing registry key is deterministic");
+            assert!(
+                !retry.is_execution_deferred(),
+                "same bytes can complete after local scope retirement"
+            );
+            assert!(
+                !rejection
+                    .to_string()
+                    .contains("local instruction read did not complete")
+            );
+            assert_eq!(instruction.attachment.proof.bytes, original_bytes);
+        }
+
         fn blank_test_state() -> State {
             State::new_for_testing(
                 World::default(),
@@ -23503,6 +23726,7 @@ AccountEvent::PermissionRemoved(change))
             )
         }
         include!("world_validation_fee_tests.rs");
+        include!("world_fee_sponsor_ledger_effect_tests.rs");
         include!("world_parliament_due_effect_tests.rs");
         include!("world_parliament_initial_sortition_tests.rs");
         include!("world_parliament_sortition_retry_tests.rs");
@@ -24071,7 +24295,7 @@ AccountEvent::PermissionRemoved(change))
             assert_ne!(first, delimiter_variant);
         });
         world_test!(extract_vote_public_inputs_rejects_invalid_payload {
-            let result = super::extract_vote_public_inputs("halo2/kzg", &[]);
+            let result = super::extract_vote_public_inputs("halo2/kzg", &[]).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") });
             assert!(result.is_err());
         });
         world_test!(governance_hex32_parser_accepts_only_the_exact_declared_grammar {
@@ -26153,7 +26377,7 @@ AccountEvent::PermissionRemoved(change))
                 LiveQueryStore::start_test(),
             );
             let mut block = state.block(first_test_block_header());
-            let transaction = block.transaction();
+            let mut transaction = block.transaction();
             let budget = transaction.execution_budget();
             let mut registration = crate::unit_test_support::release_registration(&budget);
             let original = budget.reserved_bytes();
@@ -26171,7 +26395,7 @@ AccountEvent::PermissionRemoved(change))
                 error,
                 InstructionExecutionError::InvariantViolation(_)
             ));
-            let retained = transaction.execution_deferral().unwrap();
+            let retained = transaction.take_execution_deferral().unwrap();
             let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
                 retained.allocation_refusal()
             else {
@@ -26203,7 +26427,7 @@ AccountEvent::PermissionRemoved(change))
                 .unwrap(),
                 code
             );
-            assert!(retry.execution_deferral().is_none());
+            assert!(!retry.is_execution_deferred());
             assert_eq!(budget.reserved_bytes(), original);
         }
 
@@ -26596,7 +26820,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     .expect("the exact signed manifest verifies");
             assert_eq!(provenance.signer, *key.public_key());
             assert_eq!(budget.reserved_bytes(), baseline);
-            assert!(transaction.execution_deferral().is_none());
+            assert!(!transaction.is_execution_deferred());
 
             let mut tampered = manifest.clone();
             tampered.features_bitmap = Some(manifest.features_bitmap.unwrap_or(0) ^ 1);
@@ -26606,7 +26830,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 format!("{error:?}"),
                 "manifest signature verification failed"
             );
-            assert!(transaction.execution_deferral().is_none());
+            assert!(!transaction.is_execution_deferred());
             assert_eq!(budget.reserved_bytes(), baseline);
         }
 
@@ -26632,7 +26856,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             for available in [0, counter_bytes] {
                 let state = blank_test_state();
                 let mut block = state.block(first_test_block_header());
-                let transaction = block.transaction();
+                let mut transaction = block.transaction();
                 let budget = transaction.execution_budget();
                 let mut registration = crate::unit_test_support::release_registration(&budget);
                 let baseline = budget.reserved_bytes();
@@ -26646,7 +26870,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     error,
                     InstructionExecutionError::InvariantViolation(_)
                 ));
-                let retained = transaction.execution_deferral().unwrap();
+                let retained = transaction.take_execution_deferral().unwrap();
                 let Some(iroha_allocation::AllocationRefusal::Capacity {
                     requested_bytes,
                     release,
@@ -26692,7 +26916,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 let retry = block.transaction();
                 super::ensure_manifest_signature(&manifest, &retry.world, &budget)
                     .expect("the same original manifest verifies after original credit is freed");
-                assert!(retry.execution_deferral().is_none());
+                assert!(!retry.is_execution_deferred());
                 assert_eq!(budget.reserved_bytes(), baseline);
             }
         }
@@ -26716,7 +26940,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             ] {
                 let state = blank_test_state();
                 let mut block = state.block(first_test_block_header());
-                let transaction = block.transaction();
+                let mut transaction = block.transaction();
                 let budget = transaction.execution_budget();
                 let baseline = budget.reserved_bytes();
                 let (result, refused) = refuse_one_layout_during(layout, || {
@@ -26730,7 +26954,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     result,
                     Err(InstructionExecutionError::InvariantViolation(_))
                 ));
-                let retained = transaction.execution_deferral().unwrap();
+                let retained = transaction.take_execution_deferral().unwrap();
                 assert_eq!(
                     retained.reason(),
                     ivm::error::ExecutionDeferral::AllocationUnavailable
@@ -26741,7 +26965,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 let retry = block.transaction();
                 super::ensure_manifest_signature(&manifest, &retry.world, &budget)
                     .expect("allocator refusal leaves the exact original manifest retryable");
-                assert!(retry.execution_deferral().is_none());
+                assert!(!retry.is_execution_deferred());
                 assert_eq!(budget.reserved_bytes(), baseline);
             }
         }
@@ -27481,7 +27705,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     tag, circuit, [1; 32], b"schema:voting:v1".to_vec(), vec![1, 2, 3],
                 );
                 let payload = norito::encode_canonical(&envelope).expect("canonical envelope");
-                assert!(extract_vote_public_inputs(backend, &payload).is_err());
+                assert!(extract_vote_public_inputs(backend, &payload).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") }).is_err());
                 assert!(!crate::zk::is_production_verify_backend_label(circuit));
             }
         });
@@ -27503,7 +27727,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 proof_bytes,
             );
             let payload = norito::encode_canonical(&envelope).expect("encode canonical envelope");
-            let parsed = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &payload)
+            let parsed = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &payload).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") })
                 .expect("extract inputs");
             assert_eq!(parsed.columns, columns);
             assert_eq!(parsed.envelope.backend, BackendTag::Stark);
@@ -27532,7 +27756,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             assert_ne!(alternate, canonical);
             norito::decode_from_bytes::<OpenVerifyEnvelope>(&alternate)
                 .expect("ordinary Norito accepts the advertised alternate layout");
-            let error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &alternate)
+            let error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &alternate).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") })
                 .err()
                 .expect("alternate-layout outer envelope must fail");
             assert_err!(format!("{error:?}"), "invalid OpenVerifyEnvelope payload", "unexpected alternate-layout rejection: {error:?}");
@@ -27563,7 +27787,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             let canonical_outer = norito::encode_canonical(&envelope)
                 .expect("encode canonical outer around alternate nested proof");
-            let error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &canonical_outer)
+            let error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &canonical_outer).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") })
                 .err()
                 .expect("alternate-layout nested STARK proof must fail");
             assert_err!(format!("{error:?}"), "invalid STARK open proof payload", "unexpected nested-layout rejection: {error:?}");
@@ -27578,11 +27802,11 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             let canonical =
                 norito::encode_canonical(&envelope).expect("encode canonical outer envelope");
-            let tag_error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &canonical)
+            let tag_error = extract_vote_public_inputs("stark/fri/poseidon-x7-goldilocks-6x64-v1", &canonical).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") })
                 .err()
                 .expect("wrong canonical backend tag must fail");
             assert_err!(format!("{tag_error:?}"), "unexpected OpenVerifyEnvelope backend tag", "wrong canonical tag was reported as a framing error: {tag_error:?}");
-            let registry_error = extract_vote_public_inputs("halo2/kzg", &canonical)
+            let registry_error = extract_vote_public_inputs("halo2/kzg", &canonical).map_err(|error| match error { crate::zk::VerificationAttemptError::Rejected(error) => error, crate::zk::VerificationAttemptError::Deferred(original) => panic!("unexpected local refusal: {original}") })
                 .err()
                 .expect("unsupported backend label must fail");
             assert_contains!(format!("{registry_error:?}"), "unsupported proof backends are not supported", "unsupported backend was reported as a payload error: {registry_error:?}");
@@ -27597,7 +27821,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             let bytes = norito::to_bytes(&envelope).expect("encode OpenVerifyEnvelope");
             let proof_box = ProofBox::new("stark/fri/poseidon-x7-goldilocks-6x64-v1".into(), bytes.clone());
-            let decoded = decode_open_verify_envelope(&proof_box).expect("decode");
+            let decoded = decode_open_verify_envelope(&proof_box).expect("envelope decode attempt must complete").expect("decode");
             assert_eq!(decoded.backend, BackendTag::Stark);
             assert_eq!(decoded.circuit_id, envelope.circuit_id);
             assert_eq!(decoded.public_inputs, envelope.public_inputs);
@@ -27631,7 +27855,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             ] {
                 let proof_box = ProofBox::new(backend.into(), bytes.clone());
                 assert!(
-                    decode_open_verify_envelope(&proof_box).is_none(),
+                    decode_open_verify_envelope(&proof_box).expect("envelope decode attempt must complete").is_none(),
                     "non-registry backend {backend} must not be decoded before validation"
                 );
             }
@@ -31678,7 +31902,8 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 crate::zk_stark::STARK_FRI_CONSENSUS_MIN_BLOWUP_LOG2,
                 crate::zk_stark::STARK_FRI_CONSENSUS_MIN_QUERIES,
             );
-            validate_soracloud_fhe_stark_verifying_key_payload(verifier_profile, &canonical_vk)
+            original_alice_state_transaction!(state, block, state_block, stx);
+            validate_soracloud_fhe_stark_verifying_key_payload(verifier_profile, &canonical_vk, &mut stx)
                 .expect("canonical Soracloud STARK verifying key must pass");
             let payload: crate::zk_stark::StarkFriVerifyingKeyV1 =
                 norito::decode_canonical(&canonical_vk.bytes)
@@ -31696,10 +31921,9 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let alternate_vk =
                 VerifyingKeyBox::new("stark/fri/poseidon-x7-goldilocks-6x64-v1".into(), alternate_bytes);
             let direct_error =
-                validate_soracloud_fhe_stark_verifying_key_payload(verifier_profile, &alternate_vk)
+                validate_soracloud_fhe_stark_verifying_key_payload(verifier_profile, &alternate_vk, &mut stx)
                     .expect_err("Soracloud validation must reject alternate-layout key bytes");
             assert_err!(format!("{direct_error:?}"), "invalid STARK payload", "unexpected Soracloud alternate-layout rejection: {direct_error:?}");
-            original_alice_state_transaction!(state, block, state_block, stx);
             grant_manage_verifying_keys(&mut stx);
             stx.apply();
             let mut stx = state_block.transaction_for_callback_testing();

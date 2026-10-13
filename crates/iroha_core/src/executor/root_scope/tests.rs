@@ -310,7 +310,7 @@ fn malformed_root_metadata_is_terminal_and_cannot_acquire_retry_authority() {
                 if reason == "instruction execution requires immutable root scope"
         ));
         assert!(tx.require_storage_admission().is_ok());
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
     }
 }
 
@@ -354,7 +354,7 @@ fn readonly_manifest_query_preserves_malformed_and_foreign_rejections() {
                 if message.contains("artifact access requires immutable root scope")
         ));
         assert!(tx.require_storage_admission().is_ok());
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
     }
 }
 
@@ -457,13 +457,13 @@ fn original_private_instruction_routing_refusal_latches_before_scope_verdict() {
         let mut tx = block.transaction();
         bind_scope(&mut tx, ds);
         assert!(ensure_private_instruction(&instruction, &mut tx, ds, 0).is_ok());
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
             || assert!(ensure_private_instruction(&instruction, &mut tx, ds, 0).is_err()),
         );
         assert_eq!(
-            tx.execution_deferral().unwrap().reason(),
+            tx.borrow_execution_deferral().unwrap().reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert_eq!(tx.world.smart_contract_state().get(&key), Some(&original));
@@ -471,5 +471,5 @@ fn original_private_instruction_routing_refusal_latches_before_scope_verdict() {
     let mut retry = block.transaction();
     bind_scope(&mut retry, ds);
     assert!(ensure_private_instruction(&instruction, &mut retry, ds, 0).is_ok());
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
 }

@@ -103,18 +103,20 @@ fn core_host_rejects_invalid_descriptor_before_envelope_creation() {
     };
     let descriptor_ptr = store_norito(&mut vm, PointerType::AxtDescriptor, &invalid);
     vm.set_register(10, descriptor_ptr);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_AXT_BEGIN, &mut vm),
         Err(VMError::PermissionDenied)
-    );
+    ));
     let reject = host
         .take_axt_reject_for_tests()
         .expect("descriptor refusal");
     assert_eq!(reject.reason, AxtRejectReason::Descriptor);
     assert!(!reject.detail.is_empty());
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
-        Err(VMError::PermissionDenied),
+    assert!(
+        matches!(
+            host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
+            Err(VMError::PermissionDenied)
+        ),
         "failed descriptor admission cannot create an envelope"
     );
 }
@@ -153,10 +155,10 @@ fn core_host_rejects_touch_denied_by_current_policy() {
     let manifest_ptr = store_norito(&mut vm, PointerType::NoritoBytes, &manifest);
     vm.set_register(10, dsid_ptr);
     vm.set_register(11, manifest_ptr);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_AXT_TOUCH, &mut vm),
         Err(VMError::PermissionDenied)
-    );
+    ));
     let reject = host.take_axt_reject_for_tests().expect("touch refusal");
     assert_eq!(reject.reason, AxtRejectReason::PolicyDenied);
     assert_eq!(reject.dataspace, Some(dsid));
@@ -180,9 +182,11 @@ fn core_host_requires_proof_before_completing_current_envelope() {
     vm.set_register(10, dsid_ptr);
     vm.set_register(11, manifest_ptr);
     assert!(host.syscall(syscalls::SYSCALL_AXT_TOUCH, &mut vm).unwrap() > 0);
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
-        Err(VMError::PermissionDenied),
+    assert!(
+        matches!(
+            host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
+            Err(VMError::PermissionDenied)
+        ),
         "touches without an authenticated finalized-source proof cannot complete"
     );
 }
@@ -197,9 +201,11 @@ fn malformed_anchored_spend_stage_cannot_complete_an_envelope() {
     let mut vm = IVM::try_new(1_000_000).expect("fixture VM allocation");
     let malformed = store_tlv_payload(&mut vm, PointerType::AxtAnchoredSpendV1, &[0xFF]);
     vm.set_register(10, malformed);
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm),
-        Err(VMError::PermissionDenied),
+    assert!(
+        matches!(
+            host.syscall(syscalls::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm),
+            Err(VMError::PermissionDenied)
+        ),
         "staging requires an active AXT descriptor"
     );
     begin(&mut host, &mut vm, &descriptor(dsid));
@@ -213,14 +219,18 @@ fn malformed_anchored_spend_stage_cannot_complete_an_envelope() {
     vm.set_register(11, manifest_ptr);
     assert!(host.syscall(syscalls::SYSCALL_AXT_TOUCH, &mut vm).unwrap() > 0);
     vm.set_register(10, malformed);
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm),
-        Err(VMError::NoritoInvalid),
+    assert!(
+        matches!(
+            host.syscall(syscalls::SYSCALL_AXT_STAGE_ANCHORED_SPEND, &mut vm),
+            Err(VMError::NoritoInvalid)
+        ),
         "malformed signed-spend bytes cannot enter the staged envelope"
     );
-    assert_eq!(
-        host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
-        Err(VMError::PermissionDenied),
+    assert!(
+        matches!(
+            host.syscall(syscalls::SYSCALL_AXT_COMMIT, &mut vm),
+            Err(VMError::PermissionDenied)
+        ),
         "failed staging cannot supply the missing signed spend or source proof"
     );
 }
@@ -229,8 +239,7 @@ fn malformed_anchored_spend_stage_cannot_complete_an_envelope() {
 fn retired_raw_handle_syscall_is_unassigned_in_core_host() {
     let mut vm = IVM::try_new(1_000_000).expect("fixture VM allocation");
     let mut host = CoreHost::new(authority());
-    assert_eq!(
-        host.syscall(0xB4, &mut vm),
-        Err(VMError::UnknownSyscall(0xB4))
+    assert!(
+        matches!(host.syscall(0xB4, &mut vm), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xB4))
     );
 }

@@ -373,9 +373,8 @@ impl FileLaneBlockStore {
                     return Err(Attempt::Deferred(reason));
                 }
                 Err(AdmissionAttemptError::Deferred(reason)) => {
-                    return Err(crate::execution_attempt::norito_decode_attempt_error(
+                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                         reason.into(),
-                        |error| io::Error::new(io::ErrorKind::InvalidData, error),
                     ));
                 }
             };

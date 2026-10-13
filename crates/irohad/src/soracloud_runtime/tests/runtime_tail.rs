@@ -96,7 +96,32 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
         VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::DemandOverflow);
     for (error, label) in [
         (active, "execution_deferred"),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::VerificationCancelled),
+            "execution_deferred",
+        ),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::NativeVerificationMemoryUnavailable),
+            "execution_deferred",
+        ),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::VerifierInitializationUnavailable),
+            "execution_deferred",
+        ),
         (allocation, "allocation_deferred"),
+        // Typed boundary control; actual allocator refusal is exercised by Core's
+        // existing global allocator in the native World-cut publication tests.
+        (
+            VMError::AllocatorDeferred(
+                iroha_allocation::AllocatorRefusal::try_from(
+                    iroha_allocation::ChargedBufferError::Allocator {
+                        requested_bytes: 73,
+                    },
+                )
+                .unwrap(),
+            ),
+            "allocator_deferred",
+        ),
     ] {
         assert_eq!(vm_error_label(&error), label);
         assert_eq!(
@@ -153,7 +178,7 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
         gas: 41,
         source: Box::new(VMError::Metered {
             gas: 19,
-            source: Box::new(direct.clone()),
+            source: Box::new(VMError::DecodeDeferred(original.clone())),
         }),
     };
     for error in [direct, nested] {
@@ -174,10 +199,12 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
             panic!("daemon inspection must preserve the original decoder owner");
         };
         assert_eq!(retained, &original);
-        assert_eq!(
-            error.split_metered(),
-            (None, VMError::DecodeDeferred(original.clone()))
-        );
+        let (gas, unmetered) = error.split_metered();
+        assert_eq!(gas, None);
+        let VMError::DecodeDeferred(retained) = unmetered else {
+            panic!("consuming split must move the original decoder owner");
+        };
+        assert_eq!(retained, original);
     }
     assert_eq!(
         norito::decode_canonical_for_admission::<Vec<u8>>(
@@ -186,6 +213,79 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
         )
         .unwrap(),
         vec![31_u8; 16],
+    );
+    Ok(())
+}
+
+#[test]
+fn vm_verification_deferral_moves_original_owner_and_refuses_mailbox_results() -> Result<()> {
+    // A real canonical read supplies the original shared owner; this test does not
+    // pretend that an MSM allocator failed or perform cryptographic verification.
+    let bytes = norito::encode_canonical(&vec![53_u8; 16]).unwrap();
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "update",
+        sample_mailbox_message(&bundle, "update", b"verification-retry".to_vec()),
+    );
+    for nested in [false, true] {
+        let original = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = original.clone();
+        let mut error = VMError::VerificationDeferred(
+            iroha_core_zk::VerificationRefusal::from_decode_refusal(original),
+        );
+        if nested {
+            error = VMError::Metered {
+                gas: 17,
+                source: Box::new(VMError::Metered {
+                    gas: 29,
+                    source: Box::new(error),
+                }),
+            };
+        }
+        assert_eq!(vm_error_label(&error), "verification_deferred");
+        assert_eq!(
+            vm_error_kind(&error),
+            SoracloudRuntimeExecutionErrorKind::Unavailable
+        );
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(error.metered_gas(), None);
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ivm::ExecutionDeferral::ActiveMemoryCapacity)
+        );
+        let refusal = ordered_mailbox_vm_failure(&request, &error)
+            .expect_err("unfinished verification cannot produce durable mailbox output");
+        assert_eq!(
+            refusal.kind,
+            SoracloudRuntimeExecutionErrorKind::Unavailable
+        );
+        let (gas, moved) = error.split_metered();
+        assert_eq!(gas, None);
+        let VMError::VerificationDeferred(owner) = moved else {
+            panic!("lost original verification cause");
+        };
+        assert_eq!(owner.decode_refusal(), Some(&expected));
+        assert_eq!(owner.into_decode_refusal().unwrap(), expected);
+    }
+    assert_eq!(
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len())
+        )
+        .unwrap(),
+        vec![53_u8; 16]
     );
     Ok(())
 }
@@ -204,10 +304,11 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
         SoraServiceHealthStatusV1::Degraded,
     );
     let mut commitments = Vec::new();
-    for (error, label) in [
-        (VMError::ReentrantCall, "reentrant_call"),
-        (VMError::CallDepthExceeded, "call_depth_exceeded"),
-    ] {
+    let cases: [(fn() -> VMError, &str); 2] = [
+        (|| VMError::ReentrantCall, "reentrant_call"),
+        (|| VMError::CallDepthExceeded, "call_depth_exceeded"),
+    ];
+    for (make_error, label) in cases {
         let expected = deterministic_mailbox_failure_result(
             &request.clone(),
             label,
@@ -219,7 +320,8 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
             "distinct canonical faults must not collapse into a coarse permission label"
         );
         commitments.push(expected.runtime_receipt.result_commitment);
-        let metered = VMError::metered(7, error.clone());
+        let error = make_error();
+        let metered = VMError::metered(7, make_error());
         assert_eq!(metered.metered_gas(), Some(7));
         for error in [error, metered] {
             assert_eq!(vm_error_label(&error), label);

@@ -59,10 +59,9 @@ fn release_of(error: PublicationError) -> crate::execution_attempt::ExecutionDef
     let PublicationError::Deferred(reason) = error else {
         panic!("parent-service worker must return its actual authority capacity refusal")
     };
-    let original = reason
-        .execution()
-        .expect("original execution refusal")
-        .clone();
+    let PublicationDeferral::Execution(original) = reason else {
+        panic!("original execution refusal")
+    };
     assert!(
         matches!(
             original.allocation_refusal(),
@@ -399,12 +398,10 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         unreachable!()
     };
     let mut cx = Context::from_waker(Waker::noop());
-    let mut diagnostic = None;
     for classified in [
         parent_history_error(ExecutionAttemptError::Deferred(original.clone().into())),
         parent_service_preparation_error(
             super::super::certified_chain::ParentServiceError::Deferred(original.clone().into()),
-            &mut diagnostic,
         ),
     ] {
         let PublicationError::Deferred(reason) = classified else {
@@ -414,10 +411,6 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         assert_eq!(reason.release_wait(), Some(release));
         assert!(registration.poll_wait(release, &mut cx).is_pending());
     }
-    assert_eq!(
-        diagnostic.as_ref().unwrap().allocation_refusal(),
-        Some(&original)
-    );
     for classified in [
         parent_history_error(ExecutionAttemptError::Deferred(
             ExecutionDeferral::LocalInvariantViolation.into(),
@@ -426,7 +419,6 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
             super::super::certified_chain::ParentServiceError::Deferred(
                 ExecutionDeferral::LocalInvariantViolation.into(),
             ),
-            &mut diagnostic,
         ),
         parent_history_error(ExecutionAttemptError::Rejected(
             QueryExecutionFail::Conversion("native parent contradicts retained execution".into()),
@@ -439,7 +431,7 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         )),
     ] {
         assert!(
-            matches!(classified, PublicationError::RecoveryRequired(_)),
+            classified.is_recovery_required(),
             "permanent parent custody failure requires recovery"
         );
     }
@@ -465,11 +457,8 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         ),
     ] {
         for classified in [
-            parent_service_preparation_error(
-                ParentServiceError::NativeSource(original.clone()),
-                &mut diagnostic,
-            ),
-            preparation::validation_failure(&BlockValidationError::NativeHistory(original.clone()))
+            parent_service_preparation_error(ParentServiceError::NativeSource(original.clone())),
+            preparation::validation_failure(BlockValidationError::NativeHistory(original.clone()))
                 .expect("native history has one shared classification"),
         ] {
             assert_eq!(
@@ -792,7 +781,7 @@ fn parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_pr
             ));
             assert!(
                 matches!(
-                    parent_service_preparation_error(error, &mut None),
+                    parent_service_preparation_error(error),
                     PublicationError::Retryable(_)
                 ),
                 "the original missing predecessor remains retryable"

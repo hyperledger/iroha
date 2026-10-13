@@ -143,7 +143,7 @@ fn math_helpers_min_max_abs_divceil_gcd_mean() {
         HALT_WORD,
     ]);
     vm.load_program(&prog).unwrap();
-    assert_eq!(vm.run(), Err(VMError::AssertionFailed));
+    assert!(matches!(vm.run(), Err(VMError::AssertionFailed)));
     assert_eq!(vm.register(3), 0xCAFE_BABE_DEAD_BEEF);
     // GCD(48, 18) = 6
     vm.set_register(1, 48);

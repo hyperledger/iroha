@@ -666,3 +666,248 @@ fn completed_cut_refusal_retains_exact_tail_rows_and_original_pool_until_deliver
     drop(capture);
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+/// Move one actual refusal through every shared owner boundary without allocating.
+fn transport_physical_cut(error: CutError) -> crate::sumeragi::driver::traits::PublicationDeferral {
+    use crate::sumeragi::driver::traits::PublicationDeferral;
+    let mut retained = None;
+    let allocations = crate::test_allocations::allocations_during(|| {
+        let CutError::Deferred(original) = error else {
+            panic!("physical refusal is unfinished")
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.allocator_refusal().is_some());
+        let error = ivm::VMError::metered(99, original.into_vm_error());
+        assert!(error.fault_kind().is_none());
+        assert!(matches!(&error, ivm::VMError::AllocatorDeferred(_)));
+        let artifact =
+            ivm::ContractArtifactError::preparation("actual World-cut allocation", error);
+        assert!(artifact.is_local_deferral());
+        let original =
+            ExecutionDeferred::try_from_vm_error(artifact.try_into_local_vm_error().unwrap())
+                .unwrap();
+        let artifact = ivm::ContractArtifactError::preparation(
+            "same retained World-cut cause",
+            original.into_vm_error(),
+        );
+        let original = ExecutionDeferred::try_from_vm_error(artifact.into_vm_error()).unwrap();
+        retained = Some(PublicationDeferral::Execution(original));
+    });
+    assert_eq!(
+        allocations, 0,
+        "moving a resource refusal cannot allocate its own storage"
+    );
+    let retained = retained.unwrap();
+    assert!(
+        retained.release_wait().is_none(),
+        "physical allocation supplies no pool wake"
+    );
+    assert!(retained.allocation_refusal().is_none());
+    retained
+}
+
+#[test]
+fn actual_journal_allocator_refusal_survives_transport_and_retries_unchanged_world() {
+    let world = World::new();
+    seed(&world, &[("app/physical", vec![1])]);
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let mut block = world.block();
+    block
+        .smart_contract_state
+        .insert(key("app/physical"), vec![2]);
+    // Warm the real field index and establish the unchanged journal's exact demand.
+    let successful = JournalCapture::capture(&block, false, &budget).unwrap();
+    let root = successful.root;
+    let entries = successful.entries;
+    let rows: Vec<_> = successful
+        .rows
+        .as_slice()
+        .iter()
+        .map(|r| (r.identity(), r.before, r.after))
+        .collect();
+    assert!(!rows.is_empty());
+    let layout = Layout::array::<JournalRow>(rows.len()).unwrap();
+    drop(successful);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        JournalCapture::capture(&block, false, &budget)
+    });
+    assert!(
+        denied,
+        "the actual journal backing reached the global allocator"
+    );
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("actual backing was refused"),
+    };
+    assert_eq!(
+        budget.reserved_bytes(),
+        0,
+        "failed backing refunds its original charge"
+    );
+    let owner = transport_physical_cut(error);
+    assert!(
+        matches!(owner.execution().unwrap().allocator_refusal().unwrap().buffer_error(), Some(ChargedBufferError::Allocator { requested_bytes }) if *requested_bytes == layout.size())
+    );
+    let retry = JournalCapture::capture(&block, false, &budget).unwrap();
+    assert_eq!((retry.root, retry.entries), (root, entries));
+    let retried: Vec<_> = retry
+        .rows
+        .as_slice()
+        .iter()
+        .map(|r| (r.identity(), r.before, r.after))
+        .collect();
+    assert_eq!(retried, rows);
+    drop(retry);
+    assert_eq!(budget.reserved_bytes(), 0);
+    // Retaining a physical failure does not pin or invent an allocation charge.
+    assert!(owner.execution().unwrap().allocator_refusal().is_some());
+}
+
+#[test]
+fn actual_completed_tail_allocator_refusal_retains_same_rows_and_retries_shell_only() {
+    let native_tip = tip();
+    let world = World::new();
+    seed(&world, &[("app/physical", vec![1])]);
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let mut block = world.block();
+    block
+        .smart_contract_state
+        .insert(key("app/physical"), vec![2]);
+    let original = JournalCapture::capture(&block, false, &budget).unwrap();
+    block
+        .smart_contract_state
+        .insert(key("app/physical"), vec![3]);
+    block.advance_state_accumulator(false).unwrap();
+    block.begin_freeze();
+    block.finish_freeze();
+    let before = (original.root, original.entries);
+    let baseline_bytes = budget.reserved_bytes();
+    let layout = ChargedShared::<CutCapsule>::allocation_layout();
+    let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        original.prepare_retained(&block, native_tip, 2, &budget)
+    });
+    assert!(denied, "actual final shared control reached the allocator");
+    let (pending, error) = match result {
+        Err(error) => error,
+        Ok(_) => panic!("actual shell was refused"),
+    };
+    let pending = pending.expect("completed native reconstruction survives physical refusal");
+    let identity = pending.identity_for_test();
+    assert_eq!((original.root, original.entries), before);
+    let owner = transport_physical_cut(error);
+    assert_eq!(
+        owner
+            .execution()
+            .unwrap()
+            .allocator_refusal()
+            .unwrap()
+            .shared_error(),
+        Some(&iroha_allocation::PrepaidSharedError::Allocator {
+            requested_bytes: layout.size()
+        })
+    );
+    assert!(pending.budget.same_pool(&budget));
+    let shared = match pending.try_share() {
+        Ok(shared) => shared,
+        Err(_) => panic!("unchanged completed original retries its shell"),
+    };
+    assert_eq!(
+        shared.identity_for_test(),
+        identity,
+        "no journal reread or reconstruction during shell retry"
+    );
+    assert_eq!(shared.changes().len(), 1);
+    assert_eq!(
+        shared.changes().next().unwrap().3,
+        Some(hash_value(&vec![2_u8]).unwrap())
+    );
+    assert_eq!(
+        shared.changes().next().unwrap().4,
+        Some(hash_value(&vec![3_u8]).unwrap())
+    );
+    drop(shared);
+    assert_eq!(budget.reserved_bytes(), baseline_bytes);
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn actual_from_charge_failures_keep_layout_and_separate_funding_through_vm() {
+    use iroha_allocation::{AllocatorRefusal, ChargedBufferFromChargeError, SharedFromChargeError};
+    let budget = AllocationBudget::new(4096);
+    let layout = Layout::array::<u64>(19).unwrap();
+    let charge = budget
+        .try_reserve(layout)
+        .unwrap()
+        .try_split(layout)
+        .unwrap();
+    let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        ChargedBuffer::<u64>::try_from_charge(19, charge)
+    });
+    assert!(denied);
+    let (charge, original) = match result {
+        Err(error) => error,
+        Ok(_) => panic!("actual backing refused"),
+    };
+    let owner = transport_physical_cut(CutError::Deferred(
+        AllocatorRefusal::try_from(original).unwrap().into(),
+    ));
+    assert_eq!(
+        owner
+            .execution()
+            .unwrap()
+            .allocator_refusal()
+            .unwrap()
+            .buffer_from_charge_error(),
+        Some(&ChargedBufferFromChargeError::Allocator { layout })
+    );
+    assert!(charge.belongs_to(&budget));
+    assert_eq!(charge.layout(), layout);
+    assert_eq!(budget.reserved_bytes(), layout.size());
+    let retry = match ChargedBuffer::<u64>::try_from_charge(19, charge) {
+        Ok(buffer) => buffer,
+        Err(_) => panic!("same charge retries"),
+    };
+    drop(retry);
+    assert_eq!(budget.reserved_bytes(), 0);
+    let layout = ChargedShared::<[u8; 19]>::allocation_layout();
+    let charge = budget
+        .try_reserve(layout)
+        .unwrap()
+        .try_split(layout)
+        .unwrap();
+    let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        ChargedShared::<[u8; 19]>::reserve_from_charge(charge)
+    });
+    assert!(denied);
+    let (charge, original) = match result {
+        Err(error) => error,
+        Ok(_) => panic!("actual control refused"),
+    };
+    let owner = transport_physical_cut(CutError::Deferred(
+        AllocatorRefusal::try_from(original).unwrap().into(),
+    ));
+    assert_eq!(
+        owner
+            .execution()
+            .unwrap()
+            .allocator_refusal()
+            .unwrap()
+            .shared_from_charge_error(),
+        Some(&SharedFromChargeError::Allocator { layout })
+    );
+    assert!(charge.belongs_to(&budget));
+    assert_eq!(charge.layout(), layout);
+    assert_eq!(budget.reserved_bytes(), layout.size());
+    let retry = match ChargedShared::<[u8; 19]>::reserve_from_charge(charge) {
+        Ok(shell) => shell,
+        Err(_) => panic!("same charge retries"),
+    };
+    drop(retry.initialize([7; 19]));
+    assert_eq!(budget.reserved_bytes(), 0);
+}

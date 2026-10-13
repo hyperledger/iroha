@@ -961,7 +961,8 @@ fn divergent_local_fee_settings_cannot_change_certified_history_or_gas() {
         let instructions = logs(2);
         let before = chain.state().view().pipeline().gas.clone();
         assert_eq!(before, iroha_config::parameters::actual::Gas::default());
-        let gas = crate::gas::meter_instructions(&instructions, &chain.state().view().zk().gas);
+        let gas = crate::gas::meter_instructions(&instructions, &chain.state().view().zk().gas)
+            .expect("gas quote must complete for this fixture");
         let transaction = chain.sign(&ALICE_KEYPAIR, instructions, 1);
         assert_eq!(chain.commit(vec![transaction]), vec![true]);
         let observation = (
@@ -1082,7 +1083,9 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
         ];
         let work = logs(1);
         let gas = crate::gas::meter_instructions(&change, &chain.state().view().zk().gas)
-            + crate::gas::meter_instructions(&work, &chain.state().view().zk().gas);
+            .expect("gas quote must complete for this fixture")
+            + crate::gas::meter_instructions(&work, &chain.state().view().zk().gas)
+                .expect("gas quote must complete for this fixture");
         assert!(gas > 0, "the regression must actually settle a fee");
         let change_tx = quoted(&chain, change, 1);
         let same_block = quoted(&chain, work.clone(), 2);

@@ -111,7 +111,7 @@ fn borrowed_state_operands_keep_quantity_conservation_and_owned_results_on_both_
         let mut default = DefaultHost::new();
         let (vm, outcome) = run(&program, &mut default);
         outcome.unwrap();
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         assert!(vm.remaining_gas() < 1_000_000);
         let mut host = CoreHost::new();
         let mut vm = IVM::new(1_000_000);
@@ -122,7 +122,7 @@ fn borrowed_state_operands_keep_quantity_conservation_and_owned_results_on_both_
             ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(8192, &budget).unwrap();
         vm.run_with_host_diagnostic_steps(&mut host, &mut steps)
             .unwrap();
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         for number in [
             syscalls::SYSCALL_STATE_GET,
             syscalls::SYSCALL_STATE_SET,
@@ -221,10 +221,10 @@ fn borrowed_heap_state_payload_is_copied_and_invalid_envelopes_cannot_mutate_it(
     let mut damaged = value_tlv.clone();
     *damaged.last_mut().unwrap() ^= 1;
     vm.memory.store_bytes(value_ptr, &damaged).unwrap();
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(host.state_bytes("Counter"), Some(value.clone()));
     // A well-formed envelope for a different declared state schema is also invalid.
     let name: Name = "wrong_schema".parse().unwrap();
@@ -237,16 +237,16 @@ fn borrowed_heap_state_payload_is_copied_and_invalid_envelopes_cannot_mutate_it(
     let wrong_ptr = vm.alloc_heap(wrong.len() as u64).unwrap();
     vm.memory.store_bytes(wrong_ptr, &wrong).unwrap();
     vm.set_register(11, wrong_ptr);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_STATE_SET, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(host.state_bytes("Counter"), Some(value.clone()));
     vm.set_register(10, Memory::STACK_START);
-    assert_eq!(
+    assert!(matches!(
         host.prepare_syscall(syscalls::SYSCALL_STATE_SET, &vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(host.state_bytes("Counter"), Some(value.clone()));
     drop(vm);
     assert_eq!(host.state_bytes("Counter"), Some(value));

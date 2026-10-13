@@ -4662,10 +4662,10 @@ mod tests_peer_json {
     }
     #[test]
     fn parse_peer_rejects_raw_and_missing_payload() {
-        assert_eq!(
+        assert!(matches!(
             parse_peer(br#"{"peer":"not-a-frame"}"#),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let missing =
             Json::from_str_norito(r#"{"not_peer":true}"#).expect("missing-peer Json value");
         let missing = encode_canonical_norito(&missing).expect("canonical missing-peer Json");
@@ -4703,10 +4703,10 @@ mod tests_axt_policy_snapshot {
             expiry_slot: None,
         };
 
-        assert_eq!(
+        assert!(matches!(
             host.validate_axt_proof(dsid, &proof),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
 
     #[test]
@@ -5137,7 +5137,10 @@ mod tests_governance_elections {
             ),
         };
         let res = host.handle_finalize_election(&fin);
-        assert_eq!(res, Ok(WsvHost::mutation_gas(0)));
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            WsvHost::mutation_gas(0)
+        );
         let election = host.wsv.elections.get("e-bind").unwrap();
         assert!(election.finalized);
         assert_eq!(election.tally, vec![4, 6]);
@@ -5288,7 +5291,10 @@ mod tests_governance_elections {
             let host = host_ref.downcast_mut::<WsvHost>().unwrap();
             host.handle_submit_ballot(&submit)
         };
-        assert_eq!(res, Ok(WsvHost::mutation_gas(0)));
+        assert_eq!(
+            (res).expect("expected successful fixture result"),
+            WsvHost::mutation_gas(0)
+        );
         {
             let host_ref = vm.host_mut_any().unwrap();
             let host = host_ref.downcast_ref::<WsvHost>().unwrap();
@@ -5593,9 +5599,11 @@ mod tests_null_decode {
         ] {
             vm.set_register(10, 0);
             vm.set_register(11, u64::from(kind as u16));
-            assert_eq!(
-                call_syscall(&mut vm, syscalls::SYSCALL_POINTER_FROM_NORITO),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    call_syscall(&mut vm, syscalls::SYSCALL_POINTER_FROM_NORITO),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "numeric {kind:?} cannot decode from null"
             );
             assert_eq!(vm.register(10), 0);
@@ -5668,8 +5676,9 @@ mod tests_null_decode {
         let quote = IVMHost::prepare_syscall(&host, syscalls::SYSCALL_CURRENT_TIME_MS, &vm)
             .expect("quote current time");
         assert_eq!(
-            IVMHost::syscall(&mut host, syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm),
-            Ok(WsvHost::sysvar_gas(0))
+            (IVMHost::syscall(&mut host, syscalls::SYSCALL_CURRENT_TIME_MS, &mut vm))
+                .expect("expected successful fixture result"),
+            WsvHost::sysvar_gas(0)
         );
         assert!(WsvHost::sysvar_gas(0) <= quote);
         assert_eq!(vm.register(10), 1_717_171_717_000);
@@ -6009,9 +6018,11 @@ mod tests_null_decode {
                 .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &payload))
                 .expect("allocate tally request");
             vm.set_register(10, request_ptr);
-            assert_eq!(
-                call_syscall(&mut vm, syscalls::SYSCALL_ZK_VOTE_GET_TALLY),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    call_syscall(&mut vm, syscalls::SYSCALL_ZK_VOTE_GET_TALLY),
+                    Err(VMError::NoritoInvalid)
+                ),
                 "invalid stored tally must fail closed"
             );
             assert_eq!(
@@ -6073,10 +6084,10 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &payload))
             .expect("allocate tally request");
         vm.set_register(10, request_ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_ZK_VOTE_GET_TALLY),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             vm.register(10),
             request_ptr,
@@ -6271,11 +6282,10 @@ mod tests_null_decode {
         let ambient_guard = norito::core::DecodeFlagsGuard::enter(alternate_flags);
         let ambient_probe = vec!["ambient".to_owned(), "layout".to_owned()];
         let ambient_before = norito::to_bytes(&ambient_probe).expect("encode ambient probe");
-        assert_eq!(
-            call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY),
-            Err(VMError::NotImplemented {
+        assert!(
+            matches!((&(call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY)), &(VMError::NotImplemented {
                 syscall: syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY,
-            })
+            })), (Err(VMError::NotImplemented { syscall: __actual_syscall }), VMError::NotImplemented { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall)
         );
         assert_eq!(
             norito::to_bytes(&ambient_probe).expect("re-encode ambient probe"),
@@ -6292,18 +6302,18 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &alternate_payload))
             .expect("alloc alternate-layout query");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::Json, &canonical_payload))
             .expect("alloc wrong pointer type");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let wrong_payload = encode_canonical_norito(&Json::from(norito::json::Value::Object(
             norito::json::Map::new(),
         )))
@@ -6312,18 +6322,18 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &wrong_payload))
             .expect("alloc wrong nominal payload");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &[0xFF]))
             .expect("alloc malformed query");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
     #[test]
     fn smartcontract_instruction_rejects_record_sccp_message_under_every_tag() {
@@ -6355,9 +6365,11 @@ mod tests_null_decode {
             u64::MAX,
         ] {
             vm.set_register(11, tag);
-            assert_eq!(
-                call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
-                Err(VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
+                    Err(VMError::PermissionDenied)
+                ),
                 "tag {tag} must not execute RecordSccpMessage"
             );
         }
@@ -6437,10 +6449,10 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &direct_payload))
             .expect("alloc direct instruction");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let alternate_payload = {
             let _alternate = norito::core::DecodeFlagsGuard::enter(alternate_flags);
             norito::to_bytes(&DMInstructionBox::from(instruction.clone()))
@@ -6451,18 +6463,18 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &alternate_payload))
             .expect("alloc alternate-layout instruction");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::Json, &boxed_payload))
             .expect("alloc wrong pointer type");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let wrong_payload = encode_canonical_norito(&Json::from(norito::json::Value::Object(
             norito::json::Map::new(),
         )))
@@ -6471,10 +6483,10 @@ mod tests_null_decode {
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &wrong_payload))
             .expect("alloc wrong payload type");
         vm.set_register(10, ptr);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let canonical_ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &boxed_payload))
             .expect("alloc canonical instruction for tag checks");
@@ -6482,9 +6494,11 @@ mod tests_null_decode {
         // Tag 2 was the retired contract-originated SCCP send; it is an unknown tag now.
         for tag in [0, 2, 99] {
             vm.set_register(11, tag);
-            assert_eq!(
-                call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
-                Err(VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
+                    Err(VMError::PermissionDenied)
+                ),
                 "tag {tag} must not authorize SubmitBallot"
             );
         }
@@ -6505,10 +6519,10 @@ mod tests_null_decode {
             .expect("alloc unsupported instruction");
         vm.set_register(10, ptr);
         vm.set_register(11, syscalls::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
-        assert_eq!(
+        assert!(matches!(
             call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
             Err(VMError::PermissionDenied)
-        );
+        ));
         assert_eq!(
             vm.host_mut_any()
                 .expect("host")
@@ -6560,8 +6574,9 @@ mod tests_null_decode {
         let mut host = WsvHost::new_with_subject(wsv, bob.clone());
         let mut vm = IVM::new(u64::MAX);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-            Ok(gas::G_FASTPQ_BATCH)
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::G_FASTPQ_BATCH
         );
         let alice_ptr = vm
             .alloc_input_tlv(&make_tlv(
@@ -6589,12 +6604,14 @@ mod tests_null_decode {
         let amount_ptr = vm.alloc_input_tlv(&amount_tlv).expect("alloc amount");
         vm.set_register(13, amount_ptr);
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm),
-            Ok(WsvHost::mutation_gas(0))
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm))
+                .expect("expected successful fixture result"),
+            WsvHost::mutation_gas(0)
         );
         assert_eq!(
-            host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm),
-            Ok(gas::G_FASTPQ_BATCH)
+            (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm))
+                .expect("expected successful fixture result"),
+            gas::G_FASTPQ_BATCH
         );
         let mut apply_wsv = MockWorldStateView::with_balances(&[
             ((alice.clone(), asset.clone()), Quantity::from(100_u64)),
@@ -6621,8 +6638,9 @@ mod tests_null_decode {
             .expect("alloc transfer batch");
         apply_vm.set_register(10, batch_ptr);
         assert_eq!(
-            apply_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut apply_vm),
-            Ok(WsvHost::mutation_batch_gas(2))
+            (apply_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut apply_vm))
+                .expect("expected successful fixture result"),
+            WsvHost::mutation_batch_gas(2)
         );
     }
     #[test]
@@ -6716,9 +6734,18 @@ mod tests_null_decode {
             vm.set_register(14, dataspace_ptr);
             call_syscall(&mut vm, syscalls::SYSCALL_TRANSFER_ASSET_SCOPED)
         }
-        assert_eq!(invoke(true, true, 10, 10), Err(VMError::PermissionDenied));
-        assert_eq!(invoke(false, false, 10, 10), Err(VMError::PermissionDenied));
-        assert_eq!(invoke(false, true, 11, 10), Err(VMError::PermissionDenied));
+        assert!(matches!(
+            invoke(true, true, 10, 10),
+            Err(VMError::PermissionDenied)
+        ));
+        assert!(matches!(
+            invoke(false, false, 10, 10),
+            Err(VMError::PermissionDenied)
+        ));
+        assert!(matches!(
+            invoke(false, true, 11, 10),
+            Err(VMError::PermissionDenied)
+        ));
         assert!(invoke(false, true, 10, 10).is_ok());
     }
     #[test]
@@ -6741,8 +6768,9 @@ mod tests_null_decode {
             .expect("decode full-width Int");
         let decoded = vm.validate_tlv(vm.register(10)).expect("Int output");
         assert_eq!(
-            crate::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, decoded.payload)),
-            Ok(value)
+            (crate::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, decoded.payload)))
+                .expect("expected successful fixture result"),
+            value
         );
     }
     #[test]
@@ -6768,13 +6796,15 @@ mod tests_null_decode {
         vm.set_register(10, encoded_ptr);
         vm.set_register(11, u64::from(PointerType::Int as u16));
         assert_eq!(
-            call_syscall_with_quote(&mut vm, syscalls::SYSCALL_POINTER_FROM_NORITO),
-            Ok(WsvHost::pointer_gas(int_envelope.len()))
+            (call_syscall_with_quote(&mut vm, syscalls::SYSCALL_POINTER_FROM_NORITO))
+                .expect("expected successful fixture result"),
+            WsvHost::pointer_gas(int_envelope.len())
         );
         let restored = vm.validate_tlv(vm.register(10)).expect("restored Int");
         assert_eq!(
-            crate::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, restored.payload)),
-            Ok(value)
+            (crate::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, restored.payload)))
+                .expect("expected successful fixture result"),
+            value
         );
         let base: Name = "orders".parse().expect("base name");
         let base_bytes = norito::to_bytes(&base).expect("encode base");
@@ -6874,9 +6904,11 @@ mod tests_null_decode {
         );
         vm.set_register(10, object_with_value_ptr);
         vm.set_register(11, key_name_ptr);
-        assert_eq!(
-            call_syscall_with_quote(&mut vm, syscalls::SYSCALL_JSON_GET_INT),
-            Err(VMError::DecodeError),
+        assert!(
+            matches!(
+                call_syscall_with_quote(&mut vm, syscalls::SYSCALL_JSON_GET_INT),
+                Err(VMError::DecodeError)
+            ),
             "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
         );
         let missing: Name = "missing".parse().expect("missing key");
@@ -6974,9 +7006,11 @@ mod tests_null_decode {
                 .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &payload))
                 .unwrap_or_else(|error| panic!("allocate {label} payload: {error:?}"));
             vm.set_register(10, pointer);
-            assert_eq!(
-                call_syscall(&mut vm, syscalls::SYSCALL_NAME_DECODE),
-                Err(VMError::DecodeError),
+            assert!(
+                matches!(
+                    call_syscall(&mut vm, syscalls::SYSCALL_NAME_DECODE),
+                    Err(VMError::DecodeError)
+                ),
                 "{label} must not be accepted as a first-release Name frame"
             );
             assert_eq!(vm.register(10), pointer);
@@ -7001,10 +7035,10 @@ mod tests_null_decode {
                 .alloc_input_tlv(&make_tlv(PointerType::Blob, payload))
                 .expect("allocate retired blob carrier");
             vm.set_register(10, ptr);
-            assert_eq!(
+            assert!(matches!(
                 call_syscall(&mut vm, syscalls::SYSCALL_JSON_DECODE),
                 Err(VMError::NoritoInvalid)
-            );
+            ));
             assert_eq!(vm.register(10), ptr);
         }
     }
@@ -7323,7 +7357,7 @@ mod tests_null_decode {
             .try_write_log_snapshot()
             .expect("allocate write-log snapshot");
         let error = vm.run().expect_err("bounded quote must be unaffordable");
-        assert_eq!(error, VMError::OutOfGas);
+        assert!(matches!(error, VMError::OutOfGas));
         assert_eq!(vm.register(10), name_pointer);
         assert_eq!(
             vm.memory
@@ -7423,10 +7457,10 @@ mod tests_null_decode {
         vm.set_register(10, negative_ptr);
         vm.set_register(11, key_ptr);
         // A present negative amount is malformed input, never an absent field.
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_JSON_GET_QUANTITY, &mut vm),
             Err(VMError::DecodeError)
-        );
+        ));
     }
     #[test]
     fn asset_amount_decoder_requires_canonical_amount_pointer() {
@@ -7445,14 +7479,20 @@ mod tests_null_decode {
             .alloc_input_tlv(&canonical_envelope)
             .expect("allocate canonical quantity");
         vm.set_register(12, canonical_ptr);
-        assert_eq!(host.decode_amount_reg(&vm, 12), Ok(canonical.clone()));
+        assert_eq!(
+            (host.decode_amount_reg(&vm, 12)).expect("expected successful fixture result"),
+            canonical.clone()
+        );
         let heap_ptr = vm
             .alloc_heap(u64::try_from(canonical_envelope.len()).expect("TLV length fits u64"))
             .expect("allocate canonical HEAP quantity");
         vm.store_bytes(heap_ptr, &canonical_envelope)
             .expect("store canonical HEAP quantity");
         vm.set_register(12, heap_ptr);
-        assert_eq!(host.decode_amount_reg(&vm, 12), Ok(canonical.clone()));
+        assert_eq!(
+            (host.decode_amount_reg(&vm, 12)).expect("expected successful fixture result"),
+            canonical.clone()
+        );
         for (label, pointer) in [
             (
                 "unallocated HEAP",
@@ -7464,9 +7504,8 @@ mod tests_null_decode {
             vm.store_bytes(pointer, &canonical_envelope)
                 .unwrap_or_else(|error| panic!("store {label} quantity: {error:?}"));
             vm.set_register(12, pointer);
-            assert_eq!(
-                host.decode_amount_reg(&vm, 12),
-                Err(VMError::NoritoInvalid),
+            assert!(
+                matches!(host.decode_amount_reg(&vm, 12), Err(VMError::NoritoInvalid)),
                 "{label} bytes must not acquire pointer provenance"
             );
         }
@@ -7477,14 +7516,20 @@ mod tests_null_decode {
             .alloc_input_tlv(&corrupted)
             .expect("allocate corrupted quantity envelope");
         vm.set_register(12, corrupted_ptr);
-        assert_eq!(host.decode_amount_reg(&vm, 12), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            host.decode_amount_reg(&vm, 12),
+            Err(VMError::NoritoInvalid)
+        ));
         let legacy_numeric = Numeric::new(125_u32, 2);
         let legacy_payload = norito::to_bytes(&legacy_numeric).expect("encode legacy Numeric");
         let legacy_ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &legacy_payload))
             .expect("allocate legacy Numeric pointer");
         vm.set_register(12, legacy_ptr);
-        assert_eq!(host.decode_amount_reg(&vm, 12), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            host.decode_amount_reg(&vm, 12),
+            Err(VMError::NoritoInvalid)
+        ));
         let wrong_schema_numeric = Numeric::new(1_250_u32, 3);
         let wrong_schema_ptr = vm
             .alloc_input_tlv(&make_tlv(
@@ -7493,7 +7538,10 @@ mod tests_null_decode {
             ))
             .expect("allocate Quantity-tagged Numeric payload");
         vm.set_register(12, wrong_schema_ptr);
-        assert_eq!(host.decode_amount_reg(&vm, 12), Err(VMError::DecodeError));
+        assert!(matches!(
+            host.decode_amount_reg(&vm, 12),
+            Err(VMError::DecodeError)
+        ));
     }
     #[test]
     fn state_count_quote_reserves_once_and_exact_execution_handles_large_prefix() {
@@ -7527,8 +7575,9 @@ mod tests_null_decode {
         vm.set_register(12, syscalls::STATE_SCAN_MAX_ITEMS_V1);
         let available = vm.remaining_gas();
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_STATE_COUNT, &vm),
-            Ok(available),
+            (host.prepare_syscall(syscalls::SYSCALL_STATE_COUNT, &vm))
+                .expect("expected successful fixture result"),
+            available,
             "state cardinality is scanned once inside the reserved call"
         );
         assert!(host.actual_access.read_keys.is_empty());
@@ -7598,8 +7647,9 @@ mod tests_null_decode {
             .expect("allocate malformed StatePath TLV");
         vm.set_register(10, pointer);
         assert_eq!(
-            host.prepare_syscall(syscalls::SYSCALL_STATE_COUNT, &vm),
-            Ok(vm.remaining_gas())
+            (host.prepare_syscall(syscalls::SYSCALL_STATE_COUNT, &vm))
+                .expect("expected successful fixture result"),
+            vm.remaining_gas()
         );
         let mut execution_host = host.clone();
         let error = execution_host
@@ -7762,10 +7812,10 @@ mod tests_core_asset_definition {
         let mut host = WsvHost::new_with_subject(MockWorldStateView::new(), owner);
         let mut vm = IVM::new(1_000_000);
         vm.set_register(10, 999);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_CORE_QUERY_GET, &mut vm),
             Err(VMError::DecodeError)
-        );
+        ));
         vm.set_register(10, CoreQueryEntityTagV1::Account.as_u64());
         assert!(
             host.syscall(syscalls::SYSCALL_CORE_QUERY_GET, &mut vm)
@@ -7779,10 +7829,10 @@ mod tests_core_asset_definition {
         .unwrap();
         vm.set_register(10, CoreQueryEntityTagV1::AssetDefinition.as_u64());
         vm.set_register(11, pointer);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_CORE_QUERY_GET, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert!(host.wsv.asset_definitions.is_empty());
     }
 }
@@ -7876,10 +7926,10 @@ mod tests_asset_registration_and_scope {
             (&b"\xff"[..], 0, 0),
         ] {
             let mut host = registering_host();
-            assert_eq!(
+            assert!(matches!(
                 register(&mut host, name, spec_word, mintable_word),
                 Err(VMError::DecodeError)
-            );
+            ));
             assert_eq!(host.wsv.asset_definition_registration(&asset()), None);
             assert!(decode_asset_registration(name, spec_word, mintable_word).is_err());
         }

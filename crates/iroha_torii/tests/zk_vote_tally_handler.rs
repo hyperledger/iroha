@@ -122,7 +122,8 @@ async fn vote_tally_handler_returns_finalized_tally() {
     )
     .expect("grant CanEnactGovernance");
     let report =
-        iroha_core_zk::verify_backend_with_timing(TALLY_FIXTURE_BACKEND, &proof_box, Some(&vk_box));
+        iroha_core_zk::verify_backend_with_timing(TALLY_FIXTURE_BACKEND, &proof_box, Some(&vk_box))
+            .expect("completed verification fixture");
     assert!(report.ok, "vote tally proof must verify: {report:?}");
     execute_tally_component(
         &mut stx,

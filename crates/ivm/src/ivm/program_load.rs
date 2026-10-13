@@ -117,7 +117,35 @@ mod tests {
     fn same_static_verdict(program: &[u8], valid: bool) {
         let admitted = IVM::validate_program(program);
         let loaded = IVM::new(100_000).load_program(program);
-        assert_eq!(admitted, loaded, "static and mutable loaders disagree");
+        // These fixtures cover completed header/instruction failures, never local owners.
+        let equivalent = match (&admitted, &loaded) {
+            (Ok(()), Ok(())) | (Err(VMError::InvalidMetadata), Err(VMError::InvalidMetadata)) => {
+                true
+            }
+            (Err(VMError::InvalidOpcode(a)), Err(VMError::InvalidOpcode(b))) => a == b,
+            (Err(VMError::UnknownSyscall(a)), Err(VMError::UnknownSyscall(b))) => a == b,
+            (
+                Err(VMError::GenericSyscallNotAllowed { syscall: a }),
+                Err(VMError::GenericSyscallNotAllowed { syscall: b }),
+            ) => a == b,
+            (
+                Err(VMError::MemoryAccessViolation { addr: a, perm: p }),
+                Err(VMError::MemoryAccessViolation { addr: b, perm: q }),
+            ) => a == b && p == q,
+            (
+                Err(VMError::UnsupportedProgramAbiVersion { version: a }),
+                Err(VMError::UnsupportedProgramAbiVersion { version: b }),
+            ) => a == b,
+            (
+                Err(VMError::UnsupportedProgramFeatureBits { bits: a }),
+                Err(VMError::UnsupportedProgramFeatureBits { bits: b }),
+            ) => a == b,
+            _ => false,
+        };
+        assert!(
+            equivalent,
+            "static and mutable loaders disagree: {admitted:?} != {loaded:?}"
+        );
         assert_eq!(admitted.is_ok(), valid);
     }
 
@@ -186,12 +214,12 @@ mod tests {
         let refused = crate::cache_memory::with_refused_shared_allocation_for_test(|| {
             IVM::validate_program(&contract)
         });
-        assert_eq!(
+        assert!(matches!(
             refused,
             Err(VMError::ExecutionDeferred(
-                crate::error::ExecutionDeferral::AllocationUnavailable,
+                crate::error::ExecutionDeferral::AllocationUnavailable
             ))
-        );
+        ));
         IVM::validate_program(&contract).unwrap();
     }
 }

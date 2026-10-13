@@ -193,7 +193,9 @@ pub(crate) fn finality_read_error(
     match error {
         FinalityReadError::Invalid(_) => invalid,
         FinalityReadError::DecodeResource(error) => decode_attempt_error(error, invalid),
-        original @ FinalityReadError::Genesis(_) => Error::FinalityRead(original),
+        original @ (FinalityReadError::Genesis(_)
+        | FinalityReadError::ScratchLimit(_)
+        | FinalityReadError::Allocator(_)) => Error::FinalityRead(original),
     }
 }
 

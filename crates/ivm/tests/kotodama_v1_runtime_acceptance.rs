@@ -161,28 +161,30 @@ fn propagation_materializes_the_enclosing_sum_layout_on_failure() {
     let result_vm = compile_and_run(result_source);
     let result_layout = ivm::sum::SumLayoutV1::try_new(1, 2).expect("Result layout");
     assert_eq!(
-        ivm::sum::read_words(
+        (ivm::sum::read_words(
             &result_vm,
             result_vm
                 .public_call_result_word(0)
                 .expect("completed return word"),
             result_layout
-        ),
-        Ok((false, vec![1])),
+        ))
+        .expect("expected successful fixture result"),
+        (false, vec![1]),
         "the returned error must occupy the wider enclosing Result allocation"
     );
     let option_source = include_str!("../fixtures/koto_v1/kotodama_v1_runtime_acceptance/008.ko");
     let option_vm = compile_and_run(option_source);
     let option_layout = ivm::sum::SumLayoutV1::option(2).expect("Option layout");
     assert_eq!(
-        ivm::sum::read_words(
+        (ivm::sum::read_words(
             &option_vm,
             option_vm
                 .public_call_result_word(0)
                 .expect("completed return word"),
             option_layout
-        ),
-        Ok((false, vec![])),
+        ))
+        .expect("expected successful fixture result"),
+        (false, vec![]),
         "the returned none must occupy the wider enclosing Option allocation"
     );
 }

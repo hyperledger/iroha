@@ -177,11 +177,21 @@ fn exact_core_key_allocator_refusal_retires_partial_graph_and_preserves_original
             }
         ))
     ));
+    let VerificationReadError::Deferred(refusal) = admission_error(3, error) else {
+        panic!("the original physical allocator refusal must remain deferred")
+    };
+    assert_eq!(
+        refusal.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(refusal.allocation_refusal().is_none());
     assert!(matches!(
-        admission_error(3, error),
-        VerificationReadError::Deferred(original)
-            if original.reason() == ivm::error::ExecutionDeferral::AllocationUnavailable
-                && original.allocation_refusal().is_none()
+        refusal
+            .allocator_refusal()
+            .and_then(|owner| owner.buffer_error()),
+        Some(ChargedBufferError::Allocator {
+            requested_bytes: 48
+        })
     ));
     assert_eq!(
         budget.reserved_bytes(),
@@ -302,7 +312,8 @@ fn native_authority_prepaid_custody_errors_require_recovery() {
         assert!(
             matches!(
                 classify_parent_service_deferral_for_test(classified),
-                PublicationError::RecoveryRequired(_)
+                PublicationError::RecoveryRefusal(original)
+                    if original.reason() == ExecutionDeferral::LocalInvariantViolation
             ),
             "native parent service must require recovery for prepaid custody violations"
         );
@@ -388,11 +399,12 @@ fn native_authority_admission_keeps_original_release_and_policy_refusals() {
             if original == AllocationRefusal::DemandOverflow {
                 // No release or larger configured pool can repair an overflowing demand.
                 let diagnostic = classified.to_string();
-                assert_eq!(
-                    classify_parent_service_deferral_for_test(classified),
-                    PublicationError::RecoveryRequired(diagnostic),
-                    "the actual parent-service boundary must retain terminal overflow"
-                );
+                let PublicationError::RecoveryRequired(returned) =
+                    classify_parent_service_deferral_for_test(classified)
+                else {
+                    panic!("the actual parent-service boundary must retain terminal overflow")
+                };
+                assert_eq!(returned, diagnostic);
                 continue;
             }
             let PublicationError::Deferred(returned) =
@@ -407,13 +419,13 @@ fn native_authority_admission_keeps_original_release_and_policy_refusals() {
 }
 
 #[test]
-fn native_authority_allocator_refusals_preserve_unavailability_without_pool_release() {
+fn native_authority_allocator_refusals_preserve_original_causes_without_pool_release() {
     use crate::sumeragi::{
         driver::traits::PublicationError, executor::classify_parent_service_deferral_for_test,
     };
     use ivm::error::ExecutionDeferral;
 
-    for error in [
+    for (index, error) in [
         CommitteeAdmissionError::Buffer(PrepaidBufferError::Allocation(
             ChargedBufferError::Allocator {
                 requested_bytes: 48,
@@ -424,7 +436,10 @@ fn native_authority_allocator_refusals_preserve_unavailability_without_pool_rele
                 layout: Layout::array::<u8>(49).unwrap(),
             },
         )),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let VerificationReadError::Deferred(classified) = admission_error(3, error) else {
             panic!("physical allocator refusal is local, never source rejection")
         };
@@ -433,13 +448,37 @@ fn native_authority_allocator_refusals_preserve_unavailability_without_pool_rele
             ExecutionDeferral::AllocationUnavailable
         );
         assert_eq!(classified.allocation_refusal(), None);
+        assert!(classified.allocator_refusal().is_some());
         let PublicationError::Deferred(returned) =
-            classify_parent_service_deferral_for_test(classified.clone())
+            classify_parent_service_deferral_for_test(classified)
         else {
             panic!("the actual parent-service boundary must retain allocator unavailability")
         };
-        assert_eq!(returned.execution(), Some(&classified));
         assert_eq!(returned.allocation_refusal(), None);
         assert_eq!(returned.release_wait(), None);
+        let execution = returned
+            .execution()
+            .expect("original execution refusal retained");
+        assert_eq!(execution.reason(), ExecutionDeferral::AllocationUnavailable);
+        let original = execution
+            .allocator_refusal()
+            .expect("original allocator cause retained across publication");
+        if index == 0 {
+            assert!(matches!(
+                original.buffer_error(),
+                Some(ChargedBufferError::Allocator {
+                    requested_bytes: 48
+                })
+            ));
+            assert!(original.buffer_from_charge_error().is_none());
+        } else {
+            assert_eq!(
+                original.buffer_from_charge_error(),
+                Some(&ChargedBufferFromChargeError::Allocator {
+                    layout: Layout::array::<u8>(49).unwrap(),
+                })
+            );
+            assert!(original.buffer_error().is_none());
+        }
     }
 }

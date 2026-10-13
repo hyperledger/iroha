@@ -53,10 +53,13 @@ fn host_codec_bytes_hash_gas_and_lengths_ignore_ambient_layout() {
             .expect("decode canonical Name under ambient layout"),
         name
     );
-    assert_eq!(
-        CoreHost::decode_name_payload(&alternate_name),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(CoreHost::decode_name_payload(&alternate_name)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     assert_eq!(
         decode_canonical_norito::<StatePath>(&canonical_path)
             .expect("decode canonical StatePath under ambient layout"),
@@ -389,10 +392,16 @@ fn contract_subject_sysvar_returns_bound_subject_and_fails_outside_contract_scop
             .expect("decode contract subject");
     assert_eq!(observed, subject);
     let mut host = local_contract_host(authority);
-    assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_SYSVAR_CONTRACT_SUBJECT, &mut vm),
-        Err(ivm::VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(host.syscall(ivm_sys::SYSCALL_SYSVAR_CONTRACT_SUBJECT, &mut vm)),
+            &(ivm::VMError::PermissionDenied)
+        ),
+        (
+            Err(ivm::VMError::PermissionDenied),
+            ivm::VMError::PermissionDenied
+        )
+    ));
 }
 fn build_fixture_account(id: &AccountId, authority: &AccountId) -> Account {
     Account::new(id.clone()).build(authority)
@@ -1209,7 +1218,13 @@ seiyaku GrantPolicy {
             vm.set_register(11, name_ptr);
             let result = host.syscall(syscall, &mut vm);
             if declaration != "Admin" {
-                assert_eq!(result, Err(ivm::VMError::PermissionDenied));
+                assert!(matches!(
+                    (&(result), &(ivm::VMError::PermissionDenied)),
+                    (
+                        Err(ivm::VMError::PermissionDenied),
+                        ivm::VMError::PermissionDenied
+                    )
+                ));
                 assert!(host.queued.is_empty());
                 continue;
             }

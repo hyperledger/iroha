@@ -233,7 +233,7 @@ fn invalid(executor: &mut StateExecutor, chain: &CertifiedTestChain, candidate: 
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(matches!(
         executor.execute(candidate, &hash, false),
-        Some(ExecOutcome::Invalid)
+        Ok(Some(ExecOutcome::Invalid))
     ));
     // The fixture chain's own tip never moves through this separate worker: a refusal leaves
     // the published State on exactly that predecessor.
@@ -422,7 +422,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
     assert!(
         matches!(
             executor(&unrequested).execute(&requested_nothing, &hash, false),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ),
         "without the unrequested witness the same ordinary body is valid"
     );
@@ -710,7 +710,7 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
                 &hash,
                 false
             ),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ),
         "without the unrequested witness the same body is valid at the governance slot"
     );

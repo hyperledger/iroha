@@ -398,7 +398,7 @@ pub use canonical_history::{
 };
 #[cfg(test)]
 pub(crate) use committed_transaction_context::seed_committed_transaction_context;
-pub use da_hydration::DaIndexHydrationError;
+pub use da_hydration::{DaIndexHydrationError, DaIndexHydrationFailure};
 pub use lane_authority::{LaneAuthorityCommittee, LaneAuthorityError, LaneAuthorityRoute};
 
 struct ResolvedLaneAuthorityInputs {
@@ -1662,7 +1662,7 @@ macro_rules! build_world_transaction_from_fields {
         // borrowing the entire prepaid owner through DerefMut.
         let fields = &mut **$state.fields.as_mut().expect("original World block fields");
         Box::new(WorldTransaction {
-            execution_deferral: std::cell::RefCell::new(None),
+            execution_deferral: std::cell::RefCell::default(),
             dataspace_catalog: fields.dataspace_catalog.clone(),
             quantity_mutation_observation: fastpq_quantity_capture::QuantityMutationObservation::default(),
             axt_last_authorization_identities: authorization_identities,
@@ -3353,7 +3353,7 @@ struct LaneGeometryCatalogPublicationFailure {
     rollback_safe: bool,
 }
 /// Errors surfaced when computing block inclusion/execution proofs.
-#[derive(Clone, Debug, ThisError)]
+#[derive(Debug, ThisError)]
 pub enum BlockProofError {
     /// Original local allocation or decoder refusal; retry retains its release source.
     #[error(transparent)]
@@ -6610,7 +6610,7 @@ impl WorldBlock<'_> {
 pub struct WorldTransaction<'block, 'world> {
     /// Sticky local refusal; model-owned instruction APIs cannot serialize this owner.
     pub(crate) execution_deferral:
-        std::cell::RefCell<Option<crate::execution_attempt::ExecutionDeferred>>,
+        std::cell::RefCell<crate::execution_attempt::ExecutionAttemptState>,
     /// Rollback-local observation for incomplete typed quantity capture.
     pub(crate) quantity_mutation_observation: fastpq_quantity_capture::QuantityMutationObservation,
     /// Consensus block clock for lazy calendar accounting.
@@ -12257,7 +12257,7 @@ pub struct State {
     /// Serializes initial DA hydration and every explicit rewind rebuild.
     da_index_hydration_fence: parking_lot::Mutex<()>,
     /// Cached outcome of the most recent serialized DA index rebuild.
-    da_indexes_hydrated: PublicationRwLock<Option<Result<(), DaIndexHydrationError>>>,
+    da_indexes_hydrated: PublicationRwLock<Option<Result<(), DaIndexHydrationFailure>>>,
     /// Runtime handle for the IVM to execute triggers.
     pub ivm: IVM,
     /// Reference to Kura subsystem.
@@ -24471,7 +24471,7 @@ impl WorldTransaction<'_, '_> {
     pub fn apply(mut self: Box<Self>) {
         // A locally incomplete World journal must remain disposable even when a
         // caller invokes its raw apply facade instead of StateTransaction::apply.
-        if self.execution_deferral.borrow().is_some() {
+        if self.execution_deferral.borrow().is_refused() {
             return;
         }
         // Keep exhaustive field coverage without moving the complete journal
@@ -27590,11 +27590,10 @@ impl State {
             commit_topology: Cell::new(Vec::new()),
             prev_commit_topology: Cell::new(Vec::new()),
             ivm: IVM::try_new(0).map_err(|error| {
-                crate::execution_attempt::ExecutionDeferred::from_vm_error(&error)
-                    .map_or_else(
-                        || MergeLedgerCommitError::VmInitialization(error),
-                        MergeLedgerCommitError::ExecutionDeferred,
-                    )
+                match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                    Ok(owner) => MergeLedgerCommitError::ExecutionDeferred(owner),
+                    Err(error) => MergeLedgerCommitError::VmInitialization(error),
+                }
             })?,
             kura,
             query_handle,
@@ -28409,9 +28408,7 @@ impl State {
         #[cfg(feature = "telemetry")]
         {
             let mut state = Self::try_new(
-                crate::state::AllocationBudget::new(
-                    iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-                ),
+                world.sccp_committee_generations.allocation_budget().clone(),
                 world,
                 kura,
                 query_handle,
@@ -28426,9 +28423,7 @@ impl State {
         {
             let _ = telemetry;
             let mut state = Self::try_new(
-                crate::state::AllocationBudget::new(
-                    iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-                ),
+                world.sccp_committee_generations.allocation_budget().clone(),
                 world,
                 kura,
                 query_handle,
@@ -35370,12 +35365,20 @@ pub(crate) fn sumeragi_npos_parameters_from_parameters(
     let Some(custom) = params.custom().get(&id) else {
         return Ok(None);
     };
-    let decoded = SumeragiNposParameters::from_custom_parameter(custom);
+    let decoded = norito::core::classify_decode_attempt(|| {
+        SumeragiNposParameters::from_custom_parameter(custom)
+            .map_err(norito::json::Error::into_core_error)
+    });
     if cfg!(all(test, sumeragi_core_mutation = "HC50")) && decoded.is_err() {
         return Ok(None);
     }
     decoded.map_err(|error| {
-        crate::execution_attempt::json_decode_attempt_error(error, |error| error.to_string())
+        crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+            match error.into_error() {
+                norito::Error::Json(original) => original.to_string(),
+                original => original.to_string(),
+            }
+        })
     })
 }
 /// Read the per-block gas limit from on-chain parameters, falling back to defaults on errors.
@@ -38895,6 +38898,9 @@ impl<'state> StateBlock<'state> {
 #[cfg(feature = "zk-preverify")]
 impl StateTransaction<'_, '_> {
     /// Pre-verify a proof under a simple budget using the per-block dedup cache.
+    ///
+    /// # Errors
+    /// Returns an original local verifier refusal without publishing a dedup key.
     pub fn preverify_proof(
         &mut self,
         proof: &iroha_data_model::proof::ProofBox,
@@ -38903,18 +38909,18 @@ impl StateTransaction<'_, '_> {
         vk_commitment: Option<[u8; 32]>,
         expected_vk_commitment: Option<[u8; 32]>,
         vk_active: bool,
-    ) -> crate::zk::PreverifyResult {
+    ) -> Result<crate::zk::PreverifyResult, crate::zk::VerificationRefusal> {
         // Stateless payload guards from configuration
         if proof.bytes.is_empty() {
-            return crate::zk::PreverifyResult::MalformedProof;
+            return Ok(crate::zk::PreverifyResult::MalformedProof);
         }
         if proof.bytes.len() > self.zk.preverify_max_bytes {
-            return crate::zk::PreverifyResult::ProofTooBig;
+            return Ok(crate::zk::PreverifyResult::ProofTooBig);
         }
         if self.zk.preverify_budget_bytes > 0
             && self.zk.preverify_budget_bytes < proof.bytes.len() as u64
         {
-            return crate::zk::PreverifyResult::PreverifyBudgetExceeded;
+            return Ok(crate::zk::PreverifyResult::PreverifyBudgetExceeded);
         }
         // Preserve the current backend, activity, budget, commitment and
         // canonical-envelope refusal order without publishing to the block
@@ -38930,9 +38936,9 @@ impl StateTransaction<'_, '_> {
             vk_commitment,
             expected_vk_commitment,
             vk_active,
-        );
+        )?;
         if preflight != crate::zk::PreverifyResult::Accepted {
-            return preflight;
+            return Ok(preflight);
         }
         if !cfg!(all(test, sumeragi_core_mutation = "HC146"))
             && crate::zk::production_verify_backend_tag(proof.backend.as_str())
@@ -38943,19 +38949,29 @@ impl StateTransaction<'_, '_> {
             // its schema/hash bindings. Also pin the bounded descriptor and
             // processed key to the compiled relation before dedup publication;
             // a consistently rehashed foreign key remains foreign.
-            let envelope: iroha_data_model::zk::OpenVerifyEnvelope =
-                match norito::decode_canonical(&proof.bytes) {
-                    Ok(envelope) => envelope,
-                    Err(_) => return crate::zk::PreverifyResult::MalformedProof,
-                };
-            if crate::zk::native_pipa_r::validate_key(
-                proof.backend.as_str(),
-                &envelope.circuit_id,
-                native_key,
-            )
-            .is_err()
+            let Some(envelope) = crate::zk::verification_attempt::completed_result(
+                crate::zk::verification_attempt::codec_attempt(
+                    || {
+                        norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
+                            &proof.bytes,
+                        )
+                    },
+                    |error| error,
+                ),
+            )?
+            else {
+                return Ok(crate::zk::PreverifyResult::MalformedProof);
+            };
+            if crate::zk::verification_attempt::completed_result(
+                crate::zk::native_pipa_r::validate_key(
+                    proof.backend.as_str(),
+                    &envelope.circuit_id,
+                    native_key,
+                ),
+            )?
+            .is_none()
             {
-                return crate::zk::PreverifyResult::VerifyingKeyMismatch;
+                return Ok(crate::zk::PreverifyResult::VerifyingKeyMismatch);
             }
         }
         // Accepted preflight establishes a nonzero matching commitment: the
@@ -38965,9 +38981,9 @@ impl StateTransaction<'_, '_> {
             .zk_dedup
             .check_and_insert_with_commitment(proof, vk_commitment.or(expected_vk_commitment))
         {
-            crate::zk::PreverifyResult::Accepted
+            Ok(crate::zk::PreverifyResult::Accepted)
         } else {
-            crate::zk::PreverifyResult::Duplicate
+            Ok(crate::zk::PreverifyResult::Duplicate)
         }
     }
 }
@@ -40437,8 +40453,11 @@ mod tiered_snapshot_diff_tests {
         )
         .into();
         assert_eq!(
-            crate::gas::meter_instruction(&instruction, &state.zk_snapshot().gas),
-            crate::gas::meter_instruction(&instruction, &running.zk_snapshot().gas) ^ 1,
+            crate::gas::meter_instruction(&instruction, &state.zk_snapshot().gas)
+                .expect("completed state gas fixture"),
+            crate::gas::meter_instruction(&instruction, &running.zk_snapshot().gas)
+                .expect("completed state gas fixture")
+                ^ 1,
             "each State meters with its own schedule"
         );
     }
@@ -41688,13 +41707,17 @@ impl StateTransaction<'_, '_> {
         self.pending_transfer_transcripts.len()
     }
     /// Internal helper to account confidential usage while enforcing quotas.
-    fn register_confidential_usage(
-        &mut self,
+    fn confidential_usage_after(
+        &self,
         proof_bytes: usize,
         verify_calls: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(u32, u32, u64), Error> {
         if verify_calls == 0 && proof_bytes == 0 {
-            return Ok(());
+            return Ok((
+                self.zk_confidential_ops_in_tx,
+                self.zk_verify_calls_in_tx,
+                self.zk_proof_bytes_in_tx,
+            ));
         }
         let cfg = &self.zk;
         if cfg.max_proof_size_bytes > 0
@@ -41778,9 +41801,22 @@ impl StateTransaction<'_, '_> {
                 ),
             ));
         }
-        self.zk_confidential_ops_in_tx = tx_ops_after;
-        self.zk_verify_calls_in_tx = tx_calls_after;
-        self.zk_proof_bytes_in_tx = tx_proof_bytes_after;
+        Ok((tx_ops_after, tx_calls_after, tx_proof_bytes_after))
+    }
+    /// Enforce the existing proof quota before verification without publishing counters.
+    pub(crate) fn check_confidential_proof(&self, proof_bytes: usize) -> Result<(), Error> {
+        self.confidential_usage_after(proof_bytes, 1).map(|_| ())
+    }
+    /// Publish completed proof work after validating the same quota arithmetic.
+    fn register_confidential_usage(
+        &mut self,
+        proof_bytes: usize,
+        verify_calls: u32,
+    ) -> Result<(), Error> {
+        let (ops, calls, bytes) = self.confidential_usage_after(proof_bytes, verify_calls)?;
+        self.zk_confidential_ops_in_tx = ops;
+        self.zk_verify_calls_in_tx = calls;
+        self.zk_proof_bytes_in_tx = bytes;
         Ok(())
     }
     /// Track additional confidential nullifiers consumed within the transaction.
@@ -42067,7 +42103,7 @@ impl StateTransaction<'_, '_> {
         ) || !self.callback_journal.allows_apply()
             || !self.contract_event_journal.allows_apply()
             || !self.execution_effects_allow_apply()
-            || self.world.execution_deferral.borrow().is_some()
+            || self.world.execution_deferral.borrow().is_refused()
             || self.canonical_runtime.touched_value().is_some()
             || !self.fastpq_source_quota.allows_apply()
             || !self.pending_transfer_transcripts.is_empty()
@@ -42129,7 +42165,7 @@ impl StateTransaction<'_, '_> {
             Some("transaction FASTPQ source preparation does not authorize application")
         } else if !self.execution_effects_allow_apply() {
             Some("transaction execution-effect owner does not authorize application")
-        } else if self.world.execution_deferral.borrow().is_some() {
+        } else if self.world.execution_deferral.borrow().is_refused() {
             Some("transaction execution was locally deferred")
         } else {
             None
@@ -43124,8 +43160,8 @@ impl StateTransaction<'_, '_> {
             drop(vm);
             Ok((artifacts, trigger_gas_used))
         })?;
+        let artifacts = artifacts.map_err(|error| self.attempt_error_to_validation_fail(error))?;
         self.last_tx_gas_used = self.last_tx_gas_used.saturating_add(trigger_gas_used);
-        let artifacts = artifacts?;
         crate::validation_fee::enforce_opaque_deferred_instruction_groups(
             &artifacts.queued_instructions_by_authority(),
             &artifacts.queued_instructions_with_authority(),
@@ -43194,12 +43230,9 @@ impl StateTransaction<'_, '_> {
                 )
             })
             .map_err(|error| {
-                if let Some(reason) =
-                    crate::execution_attempt::ExecutionDeferred::from_vm_error(&error)
-                {
-                    self.world.defer_execution(reason)
-                } else {
-                    crate::smartcontracts::ivm::program_admission_error(error)
+                match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                    Ok(reason) => self.world.defer_execution(reason),
+                    Err(error) => crate::smartcontracts::ivm::program_admission_error(error),
                 }
             })?;
             if summary.code_hash != code_hash || summary.program() != bytecode.as_ref() {
@@ -43290,7 +43323,14 @@ impl StateTransaction<'_, '_> {
                     self,
                     None,
                 )?;
-                let instruction_gas = crate::gas::meter_instructions(instructions, &self.zk.gas);
+                let instruction_gas = crate::gas::meter_instructions(instructions, &self.zk.gas)
+                    .map_err(|original| {
+                        self.attempt_error_to_validation_fail(
+                            crate::execution_attempt::ExecutionAttemptError::Deferred(
+                                original.into(),
+                            ),
+                        )
+                    })?;
                 self.charge_trigger_work_gas(instruction_gas, "native trigger instructions")?;
                 (
                     // Route trigger instructions through the executor so custom
@@ -43329,8 +43369,15 @@ impl StateTransaction<'_, '_> {
                     self,
                     None,
                 )?;
-                let explicit_gas =
-                    crate::gas::meter_instructions(&explicit_instructions, &self.zk.gas);
+                let explicit_gas = crate::gas::meter_instructions(
+                    &explicit_instructions,
+                    &self.zk.gas,
+                )
+                .map_err(|original| {
+                    self.attempt_error_to_validation_fail(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+                    )
+                })?;
                 let remaining_block_budget = if self.gas_limit_per_block == 0 {
                     u64::MAX
                 } else {
@@ -43651,8 +43698,9 @@ impl StateTransaction<'_, '_> {
                     return Err(error.into());
                 }
                 let artifacts = host.into_execution_artifacts(contract_runtime_context.clone());
+                let artifacts =
+                    artifacts.map_err(|error| self.attempt_error_to_validation_fail(error))?;
                 self.last_tx_gas_used = self.last_tx_gas_used.saturating_add(trigger_gas_used);
-                let artifacts = artifacts?;
                 let runtime_origin = contract_runtime_context.as_ref().map(|context| {
                     crate::validation_fee::OpaqueDeferredRuntimeOrigin::from_trigger_event(
                         context,
@@ -43954,9 +44002,10 @@ impl StateTransaction<'_, '_> {
                             // and return them as the step.
                             let artifacts =
                                 host.into_execution_artifacts(contract_runtime_context.clone());
+                            let artifacts = artifacts
+                                .map_err(|error| self.attempt_error_to_validation_fail(error))?;
                             self.last_tx_gas_used =
                                 self.last_tx_gas_used.saturating_add(trigger_gas_used);
-                            let artifacts = artifacts?;
                             let runtime_origin = contract_runtime_context.as_ref().map(|context| {
                                 crate::validation_fee::OpaqueDeferredRuntimeOrigin::from_trigger_event(
                                     context,
@@ -44494,3 +44543,6 @@ mod nexus_fee_receipt;
 mod direct_homes;
 pub(crate) use direct_homes::{direct_home_dataspace, validate_direct_home_transition};
 use direct_homes::{ensure_dataspace_classes_preserved, ensure_homed_dataspaces_keep_lanes};
+
+#[cfg(test)]
+mod telemetry_world_owner_tests;

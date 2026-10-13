@@ -37,11 +37,22 @@ fn with_da_rebuild_refunds<R>(
 }
 
 /// Errors surfaced while rebuilding DA indexes from the committed block log.
-#[derive(Clone, Debug, ThisError, PartialEq, Eq)]
+#[derive(Debug, ThisError)]
 pub enum DaIndexHydrationError {
     /// Original local capacity refusal; retry without publishing or caching an invalid verdict.
     #[error("DA history acquisition deferred: {0}")]
     Deferred(crate::execution_attempt::ExecutionDeferred),
+    /// Completed canonical reconstruction failure, safe to retain as a verdict.
+    #[error(transparent)]
+    Completed(#[from] DaIndexHydrationFailure),
+}
+
+/// A completed DA reconstruction verdict, excluding every local execution refusal.
+///
+/// The hydration marker retains only this type. Cloning a stored verdict cannot
+/// clone or reconstruct an unfinished decoder, allocator, or native verifier owner.
+#[derive(Debug, Clone, PartialEq, Eq, ThisError)]
+pub enum DaIndexHydrationFailure {
     /// A completed canonical storage read failed independently of local allocation capacity.
     #[error("DA block storage at height {height} is invalid: {reason}")]
     Storage {
@@ -85,6 +96,17 @@ pub enum DaIndexHydrationError {
     /// Confidential-compute receipt replay failed.
     #[error("DA confidential-compute hydration failed: {0}")]
     ConfidentialCompute(#[from] ConfidentialComputeError),
+}
+
+/// Retain only completed observations; unfinished attempts always move to their caller.
+fn completed_hydration_verdict(
+    result: &Result<(), DaIndexHydrationError>,
+) -> Option<Result<(), DaIndexHydrationFailure>> {
+    match result {
+        Ok(()) => Some(Ok(())),
+        Err(DaIndexHydrationError::Completed(failure)) => Some(Err(failure.clone())),
+        Err(DaIndexHydrationError::Deferred(_)) => None,
+    }
 }
 
 /// Complete DA query projection built locally from one committed WSV hash prefix.
@@ -186,7 +208,7 @@ impl State {
         {
             let guard = self.da_indexes_hydrated.read();
             if let Some(result) = guard.as_ref() {
-                return result.clone();
+                return result.clone().map_err(DaIndexHydrationError::Completed);
             }
         }
         // This owner is declared before all reader notices and physical guards,
@@ -196,7 +218,7 @@ impl State {
         let mut write_fence = self.state_write_lock.defer_notifications();
         let _hydration_guard = self.da_index_hydration_fence.lock();
         if let Some(result) = releases.hydrated.read().as_ref() {
-            return result.clone();
+            return result.clone().map_err(DaIndexHydrationError::Completed);
         }
         let _state_write_guard = write_fence.lock();
         with_da_rebuild_refunds(&mut refunds, || {
@@ -212,14 +234,9 @@ impl State {
             if let Err(err) = &result {
                 warn!(?err, "failed to hydrate DA indexes from Kura");
             }
-            // An unfinished local attempt must be retried after its original pool releases.
-            // Only completed results can become the persistent hydration verdict.
-            *releases.hydrated.write() =
-                if matches!(&result, Err(DaIndexHydrationError::Deferred(_))) {
-                    None
-                } else {
-                    Some(result.clone())
-                };
+            // Cache only completed verdicts; the original unfinished owner moves
+            // directly to the caller and cannot inhabit this marker's type.
+            *releases.hydrated.write() = completed_hydration_verdict(&result);
             result
         })
     }
@@ -261,14 +278,9 @@ impl State {
             if let Err(err) = &result {
                 warn!(?err, target_height, "failed to rewind DA indexes from Kura");
             }
-            // An unfinished local attempt must be retried after its original pool releases.
-            // Only completed results can become the persistent hydration verdict.
-            *releases.hydrated.write() =
-                if matches!(&result, Err(DaIndexHydrationError::Deferred(_))) {
-                    None
-                } else {
-                    Some(result.clone())
-                };
+            // Cache only completed verdicts; the original unfinished owner moves
+            // directly to the caller and cannot inhabit this marker's type.
+            *releases.hydrated.write() = completed_hydration_verdict(&result);
             result
         })
     }
@@ -340,7 +352,8 @@ impl State {
                     lane_config,
                     journal,
                     0,
-                )?;
+                )
+                .map_err(DaIndexHydrationFailure::ShardCursor)?;
             }
             return Ok(hydrated);
         }
@@ -358,28 +371,31 @@ impl State {
                         DaIndexHydrationError::Deferred(reason)
                     }
                     crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
-                        DaIndexHydrationError::Storage {
+                        DaIndexHydrationFailure::Storage {
                             height: height_u64,
                             reason: error.to_string(),
                         }
+                        .into()
                     }
                 })?
             else {
-                return Err(DaIndexHydrationError::MissingBlock { height: height_u64 });
+                return Err(DaIndexHydrationFailure::MissingBlock { height: height_u64 }.into());
             };
             let block_hash = block.hash();
             if block_hash != *expected_hash {
-                return Err(DaIndexHydrationError::BlockHashMismatch {
+                return Err(DaIndexHydrationFailure::BlockHashMismatch {
                     height: height_u64,
                     expected: *expected_hash,
                     actual: block_hash,
-                });
+                }
+                .into());
             }
             if block.header().height() != height_u64 {
-                return Err(DaIndexHydrationError::BlockHeightMismatch {
+                return Err(DaIndexHydrationFailure::BlockHeightMismatch {
                     expected: height_u64,
                     actual: block.header().height(),
-                });
+                }
+                .into());
             }
             if let Some(bundle) = block.as_ref().da_commitments() {
                 saw_da_commitments = true;
@@ -472,7 +488,7 @@ impl State {
                         ?err,
                         height, "failed to advance shard cursor index while hydrating from Kura"
                     );
-                    return Err(DaIndexHydrationError::ShardCursor(err));
+                    return Err(DaIndexHydrationFailure::ShardCursor(err).into());
                 }
                 if let Err(err) = self.advance_da_receipt_cursors_into(
                     &mut hydrated.receipt_cursors,
@@ -483,7 +499,7 @@ impl State {
                         ?err,
                         height, "failed to advance receipt cursor index while hydrating from Kura"
                     );
-                    return Err(DaIndexHydrationError::ReceiptCursor(err));
+                    return Err(DaIndexHydrationFailure::ReceiptCursor(err).into());
                 }
                 if let Err(err) = Self::record_confidential_compute_into(
                     &mut hydrated.confidential_compute,
@@ -496,7 +512,7 @@ impl State {
                         ?err,
                         height, "failed to hydrate confidential-compute receipts from Kura"
                     );
-                    return Err(DaIndexHydrationError::ConfidentialCompute(err));
+                    return Err(DaIndexHydrationFailure::ConfidentialCompute(err).into());
                 }
             }
             if let Some(bundle) = block.as_ref().da_pin_intents() {
@@ -516,7 +532,8 @@ impl State {
                     lane_config,
                     &journal,
                     replay_height,
-                )?;
+                )
+                .map_err(DaIndexHydrationFailure::ShardCursor)?;
             }
             for entry in journal.entries() {
                 if replay_height != 0 && entry.last_block_height > replay_height {

@@ -105,7 +105,7 @@ fn status_snapshot_failure(error: iroha_core::telemetry::StatusSnapshotError) ->
         StatusSnapshotError::MailboxUnavailable => StatusFailureReason::MailboxUnavailable,
         StatusSnapshotError::ActorClosed => StatusFailureReason::ActorClosed,
         StatusSnapshotError::DeadlineElapsed => StatusFailureReason::DeadlineElapsed,
-        StatusSnapshotError::StateBusy | StatusSnapshotError::Deferred(_) => {
+        StatusSnapshotError::StateBusy | StatusSnapshotError::HistoryReadDeferred(_) => {
             StatusFailureReason::StateBusy
         }
         StatusSnapshotError::StateUnavailable | StatusSnapshotError::HistoryRead(_) => {
@@ -223,7 +223,9 @@ mod status_failure_reason_tests {
             .expect_err("original capacity occupied");
         let cases = [
             (
-                StatusSnapshotError::Deferred(refusal.into()),
+                StatusSnapshotError::HistoryReadDeferred(
+                    iroha_core::execution_attempt::ExecutionDeferred::from(refusal).reason(),
+                ),
                 StatusFailureReason::StateBusy,
             ),
             (

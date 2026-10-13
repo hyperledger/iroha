@@ -210,13 +210,16 @@ fn pointer_abi_transfer_availability_packs_flags_and_preserves_reason() {
     invalid_vm.set_register(13, 0b100);
     invalid_vm.set_register(14, reason_ptr);
     let mut host = CoreHost::new(account);
-    assert_eq!(
-        host.syscall(
-            ivm_sys::SYSCALL_SET_ASSET_TRANSFER_AVAILABILITY,
-            &mut invalid_vm,
+    assert!(matches!(
+        (
+            &(host.syscall(
+                ivm_sys::SYSCALL_SET_ASSET_TRANSFER_AVAILABILITY,
+                &mut invalid_vm,
+            )),
+            &(ivm::VMError::DecodeError)
         ),
-        Err(ivm::VMError::DecodeError)
-    );
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
 }
 #[test]
 fn pointer_abi_daily_limit_preserves_some_and_none() {

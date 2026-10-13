@@ -190,10 +190,10 @@ fn production_schema_host_rejects_unknown_and_malformed_inputs_for_canonical_sys
     );
     vm.set_register(10, schema_ptr);
     vm.set_register(11, json_ptr);
-    assert_eq!(
+    assert!(matches!(
         host.syscall(syscalls::SYSCALL_SCHEMA_ENCODE, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(vm.register(10), schema_ptr);
     assert_eq!(vm.register(11), json_ptr);
     let order_name: Name = "Order".parse().expect("known schema name");
@@ -209,10 +209,10 @@ fn production_schema_host_rejects_unknown_and_malformed_inputs_for_canonical_sys
         let bytes_ptr = preload_input(&mut vm, 256, &make_tlv(PointerType::NoritoBytes, payload));
         vm.set_register(10, schema_ptr);
         vm.set_register(11, bytes_ptr);
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_SCHEMA_DECODE, &mut vm),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(vm.register(10), schema_ptr);
         assert_eq!(vm.register(11), bytes_ptr);
     }

@@ -273,6 +273,12 @@ pub enum FinalityError {
     /// Original checkpoint decoder fields; the caller owns retry and format-limit policy.
     #[error("native checkpoint decoder resource: {0}")]
     DecodeResource(#[source] norito::core::DecodeAttemptError),
+    /// Original finite portable availability scratch policy refusal, without a pool.
+    #[error("native availability scratch policy: {0}")]
+    ScratchLimit(#[source] iroha_allocation::AllocationRefusal),
+    /// Original bounded vector reservation failure before any finality verdict.
+    #[error("native canonical finality allocator: {0}")]
+    Allocator(#[source] iroha_allocation::AllocatorRefusal),
     /// A zero challenge permits replay.
     #[error("the attestation challenge must be nonzero")]
     ZeroChallenge,
@@ -321,6 +327,8 @@ impl From<iroha_data_model::sumeragi_finality::FinalityReadError> for FinalityEr
             FinalityReadError::Invalid(error) => Self::Native(error),
             FinalityReadError::Genesis(error) => Self::Genesis(error),
             FinalityReadError::DecodeResource(resource) => Self::DecodeResource(resource),
+            FinalityReadError::ScratchLimit(original) => Self::ScratchLimit(original),
+            FinalityReadError::Allocator(original) => Self::Allocator(original),
         }
     }
 }

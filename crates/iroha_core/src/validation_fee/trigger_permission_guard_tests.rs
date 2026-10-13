@@ -133,14 +133,14 @@ fn assert_trigger_delegation_decode_boundary(kind: TriggerDelegation, refuse: bo
                         .contains("local execution attempt did not complete")
                 );
                 assert_eq!(
-                    stx.execution_deferral().unwrap().reason(),
+                    stx.borrow_execution_deferral().unwrap().reason(),
                     ivm::error::ExecutionDeferral::ActiveMemoryCapacity
                 );
             } else {
                 assert!(
                     matches!(&error, InstructionExecutionError::InvariantViolation(message) if message.contains(permission.name.as_str()))
                 );
-                assert_eq!(stx.execution_deferral(), None);
+                assert!(!stx.is_execution_deferred());
             }
             assert_eq!(trigger_delegation_bytes(stx), before);
             assert!(stx.world.take_external_events().is_empty());
@@ -151,7 +151,7 @@ fn assert_trigger_delegation_decode_boundary(kind: TriggerDelegation, refuse: bo
                 let instruction =
                     trigger_delegation_instruction(kind, stx, owner, recipient, permission.clone());
                 instruction.execute(owner, stx).expect("exact original valid trigger permission retries after original capacity returns");
-                assert_eq!(stx.execution_deferral(), None);
+                assert!(!stx.is_execution_deferred());
                 assert_eq!(permission.payload(), &original_payload);
             });
         }
@@ -197,7 +197,7 @@ fn valid_external_trigger_permission_delegation_remains_allowed() {
                 instruction.execute(owner, stx).expect(
                     "valid external trigger permissions retain original delegation behavior",
                 );
-                assert_eq!(stx.execution_deferral(), None);
+                assert!(!stx.is_execution_deferred());
             });
         }
     }
@@ -218,7 +218,7 @@ fn unrelated_permission_name_never_decodes_trigger_payload() {
                 || instruction.execute(owner, stx),
             )
             .expect("unrelated names do not decode a trigger permission payload");
-            assert_eq!(stx.execution_deferral(), None);
+            assert!(!stx.is_execution_deferred());
         });
     }
 }
@@ -261,7 +261,7 @@ fn enacted_payout_trigger_still_rejects_exact_control_delegation() {
                     matches!(&error, InstructionExecutionError::InvariantViolation(message) if message.contains("forbids") && message.contains("trigger"))
                 );
                 assert_eq!(trigger_delegation_bytes(stx), before);
-                assert_eq!(stx.execution_deferral(), None);
+                assert!(!stx.is_execution_deferred());
                 assert!(stx.world.take_external_events().is_empty());
             }
         }

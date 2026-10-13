@@ -216,20 +216,22 @@ fn route_resolution_rejects_missing_default_dataspace() {
     let direct_err = router
         .try_route_with_view(&tx, &state.view())
         .expect_err("missing default dataspace must not fall back to the universal route");
-    assert_eq!(
-        direct_err,
-        RoutingResolveError::UnknownDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(direct_err),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: DataSpaceId::new(11),
-        }
+        }),
+        format_args!("same completed routing verdict"),
     );
     let helper_err =
         evaluate_policy_with_catalog(router.policy.as_ref(), &lane_catalog, &catalog, &tx)
             .expect_err("missing default dataspace must be rejected");
-    assert_eq!(
-        helper_err,
-        RoutingResolveError::UnknownDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(helper_err),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: DataSpaceId::new(11),
-        }
+        }),
+        format_args!("same completed routing verdict"),
     );
 }
 #[test]
@@ -314,16 +316,22 @@ fn dataspace_alias_target_with_world_resolves_active_sns_dataspace() {
     let view = world.view();
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(0)),
-        Ok(Some(expected))
+        (dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(0)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(expected))
     );
     assert_eq!(
-        dataspace_alias_target_with_world("missing", Some(&catalog), &view, Some(0)),
-        Ok(None)
+        (dataspace_alias_target_with_world("missing", Some(&catalog), &view, Some(0)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
     );
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&catalog), &view, None),
-        Ok(None)
+        (dataspace_alias_target_with_world("alpha", Some(&catalog), &view, None))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
     );
 }
 #[test]
@@ -334,12 +342,16 @@ fn dataspace_alias_target_with_world_rejects_inactive_sns_dataspace_at_ledger_ti
     let view = world.view();
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(9)),
-        Ok(Some(expected))
+        (dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(9)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(expected))
     );
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(10)),
-        Ok(None)
+        (dataspace_alias_target_with_world("alpha", Some(&catalog), &view, Some(10)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
     );
 }
 #[test]
@@ -363,18 +375,24 @@ fn dataspace_alias_target_with_world_fails_closed_on_active_static_conflict() {
                 && reason.contains(crate::sns::ALIAS_CATALOG_MAPPING_CONFLICT_CODE)
     ));
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&conflicting_catalog), &view, Some(10),),
-        Ok(Some(static_dataspace)),
+        (dataspace_alias_target_with_world("alpha", Some(&conflicting_catalog), &view, Some(10),))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(static_dataspace)),
         "an inactive SNS lease legitimately falls back to the static catalog"
     );
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&conflicting_catalog), &view, None,),
-        Ok(Some(static_dataspace)),
+        (dataspace_alias_target_with_world("alpha", Some(&conflicting_catalog), &view, None,))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(static_dataspace)),
         "routing without ledger time remains explicitly static-only"
     );
     assert_eq!(
-        dataspace_alias_target_with_world("alpha", Some(&matching_catalog), &view, Some(9),),
-        Ok(Some(dynamic_dataspace)),
+        (dataspace_alias_target_with_world("alpha", Some(&matching_catalog), &view, Some(9),))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(dynamic_dataspace)),
         "matching active SNS and static evidence resolves normally"
     );
 }
@@ -399,7 +417,12 @@ fn domain_alias_routing_propagates_malformed_dynamic_sns_record() {
         )))],
     );
 
-    assert_eq!(router.try_route_plan_without_state(&tx), Ok(None));
+    assert_eq!(
+        (router.try_route_plan_without_state(&tx))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
+    );
     let queue_error = router
         .try_route_plan_with_state(&tx, &state)
         .expect_err("queue routing must reject malformed authoritative SNS state");
@@ -411,7 +434,11 @@ fn domain_alias_routing_propagates_malformed_dynamic_sns_record() {
         state_view_ledger_time_ms(&view),
     )
     .expect_err("block routing must reject the same malformed SNS state");
-    assert_eq!(queue_error, block_error);
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(queue_error),
+        &(block_error),
+        format_args!("same completed routing verdict"),
+    );
     assert!(matches!(
         queue_error,
         RoutingResolveError::DataspaceAliasResolution { alias, reason }
@@ -439,7 +466,12 @@ fn domain_alias_routing_defers_without_state_and_matches_block_conflict() {
         )))],
     );
 
-    assert_eq!(router.try_route_plan_without_state(&tx), Ok(None));
+    assert_eq!(
+        (router.try_route_plan_without_state(&tx))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(None)
+    );
 
     let mut static_state = blank_state();
     install_router_nexus(&mut static_state, &router);
@@ -464,7 +496,11 @@ fn domain_alias_routing_defers_without_state_and_matches_block_conflict() {
         state_view_ledger_time_ms(&view),
     )
     .expect_err("block routing must reject the same disagreement");
-    assert_eq!(queue_error, block_error);
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(queue_error),
+        &(block_error),
+        format_args!("same completed routing verdict"),
+    );
     assert!(matches!(
         queue_error,
         RoutingResolveError::DataspaceAliasResolution { alias, reason }
@@ -511,11 +547,21 @@ fn evaluate_policy_with_catalog_and_world_at_rejects_dynamic_sns_outside_catalog
     let view = world.view();
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     // An active SNS alias resolves identity without admitting physical dataspace authority.
-    assert_eq!(
-        evaluate_policy_with_catalog_and_world_at(&policy, &lane_catalog, &catalog, &tx, &view, 9,),
-        Err(RoutingResolveError::UnknownDataspace {
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(evaluate_policy_with_catalog_and_world_at(
+            &policy,
+            &lane_catalog,
+            &catalog,
+            &tx,
+            &view,
+            9,
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: expected,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
     assert_eq!(
         evaluate_policy_with_catalog_and_world_at(
@@ -552,18 +598,21 @@ fn evaluate_policy_plan_with_catalog_and_world_at_rejects_dynamic_sns_outside_ca
     let view = world.view();
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     // An active SNS alias resolves identity without admitting physical dataspace authority.
-    assert_eq!(
-        evaluate_policy_plan_with_catalog_and_world_at(
+    crate::queue::router::assert_completed_routing_error_eq(
+        &(evaluate_policy_plan_with_catalog_and_world_at(
             &policy,
             &lane_catalog,
             &catalog,
             &tx,
             &view,
             9,
-        ),
-        Err(RoutingResolveError::UnknownDataspace {
+        ))
+        .as_ref()
+        .expect_err("expected completed routing rejection"),
+        &(RoutingResolveError::UnknownDataspace {
             dataspace_id: expected,
-        })
+        }),
+        format_args!("completed routing rejection"),
     );
     assert_eq!(
         evaluate_policy_plan_with_catalog_and_world_at(

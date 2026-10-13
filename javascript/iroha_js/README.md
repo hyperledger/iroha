@@ -109,14 +109,15 @@ transaction preflight caches only a successful, matching probe.
 
 Ordinary source-checkout unit tests can use a separate current Debug N-API
 producer. From the repository root, select the worktree's existing warm Cargo
-lane and an external artifact directory whose parent is owned mode `0700`:
+lane and a separate artifact directory under `target/qualification` whose
+parent is owned mode `0700`:
 
 ```bash
 python3.12 -I -S -B scripts/native_js_local_unit.py produce \
   --root "$PWD" --target-dir "$PWD/target/cargo-fast/<existing-lane>" \
-  --output /absolute/owner-only-directory/js-native \
+  --output "$PWD/target/qualification/js-native" \
   --config /absolute/local-native-tools.json --acknowledge-local-unit-recipe
-(cd javascript/iroha_js && IROHA_JS_NATIVE_DIR=/absolute/owner-only-directory/js-native \
+(cd javascript/iroha_js && IROHA_JS_NATIVE_DIR=/absolute/checkout/target/qualification/js-native \
   node ./scripts/run-test-profile.mjs unit)
 ```
 
@@ -124,8 +125,8 @@ The tool configuration has exactly `python`, `cargo`, `rustc`, `rustdoc`,
 `node`, `clang`, `ld`, `codesign`, `sdk` and `developer_dir` paths. Use the
 current canonical Python 3.12 and Node executables, stock Rust 1.93.1 tools,
 and the selected Xcode's macOS SDK, clang and Apple linker. The producer uses
-locked, offline Cargo with its native jobserver and incremental compilation;
-it creates no additional Cargo target. It retains the actual compiler JSON,
+locked, offline Cargo with one job, incremental compilation disabled and zero
+Debug symbols; it creates no additional Cargo target. It retains the actual compiler JSON,
 complete dep-info after Cargo's natural successful terminal, original source
 and native build inputs, exact tools, and independently copied emitted bytes.
 The real Node consumer checks the current ABI and required exports before the

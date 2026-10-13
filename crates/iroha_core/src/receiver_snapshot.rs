@@ -456,7 +456,7 @@ pub(crate) fn fee_evidence_block_proof_attempt_v1(
     ),
     crate::execution_attempt::ExecutionAttemptError<String>,
 > {
-    use crate::execution_attempt::{ExecutionAttemptError, norito_decode_attempt_error};
+    use crate::execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error};
     use iroha_data_model::{
         execution_witness::{FEE_EVIDENCE_RECORD_TAG_V1, FEE_EVIDENCE_WITNESS_KEY_V1},
         fee_evidence::{FeeEvidenceBlockProofV1, FeeEvidenceRecordV1, FeeEvidenceWitnessProofV1},
@@ -472,11 +472,12 @@ pub(crate) fn fee_evidence_block_proof_attempt_v1(
         }
         if entry.key.first() == Some(&FEE_EVIDENCE_RECORD_TAG_V1) {
             let record: FeeEvidenceRecordV1 =
-                norito::decode_canonical(&entry.value).map_err(|error| {
-                    norito_decode_attempt_error(error, |error| {
-                        format!("noncanonical native fee record: {error}")
-                    })
-                })?;
+                norito::core::classify_decode_attempt(|| norito::decode_canonical(&entry.value))
+                    .map_err(|error| {
+                        canonical_decode_attempt_error(error, |error| {
+                            format!("noncanonical native fee record: {error}")
+                        })
+                    })?;
             let mut expected_key = vec![FEE_EVIDENCE_RECORD_TAG_V1];
             expected_key.extend_from_slice(Hash::new(record.key.as_ref().as_bytes()).as_ref());
             if entry.key != expected_key {
@@ -504,12 +505,13 @@ pub(crate) fn fee_evidence_block_proof_attempt_v1(
         },
         records,
     };
-    let snapshot = proof
-        .verify_checked(root)
-        .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?
+    let snapshot = norito::core::classify_decode_attempt(|| proof.verify_checked(root))
+        .map_err(|error| canonical_decode_attempt_error(error, |error| error.to_string()))?
         .ok_or_else(|| "native fee corpus differs from the authenticated root/count".to_owned())?;
-    if norito::to_bytes(&proof)
-        .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?
+    // Capture any original scoped serializer refusal; this does not qualify physical
+    // allocation failure in the ordinary writer's still-infallible output growth.
+    if norito::core::classify_decode_attempt(|| norito::to_bytes(&proof))
+        .map_err(|error| canonical_decode_attempt_error(error, |error| error.to_string()))?
         .len()
         > iroha_data_model::fee_evidence::MAX_FEE_EVIDENCE_BLOCK_BYTES_V1
     {
@@ -930,7 +932,7 @@ mod native_fee_evidence_tests {
     }
     #[test]
     fn native_fee_snapshot_decode_refusal_retries_original_authenticated_bytes() {
-        use crate::execution_attempt::{ExecutionAttemptError, norito_decode_attempt_error};
+        use crate::execution_attempt::{ExecutionAttemptError, canonical_decode_attempt_error};
         use iroha_data_model::{
             execution_witness::FEE_EVIDENCE_WITNESS_KEY_V1, fee_evidence::FeeEvidenceSnapshotV1,
         };
@@ -948,13 +950,46 @@ mod native_fee_evidence_tests {
         let original = witness.clone();
         let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX);
         norito::with_decode_limits_scope(limits, || {
-            let original_error =
+            let original_error = norito::core::classify_decode_attempt(|| {
                 norito::decode_canonical::<FeeEvidenceSnapshotV1>(&witness.writes[0].value)
-                    .unwrap_err();
-            let expected = norito_decode_attempt_error(original_error, |error| error.to_string());
+            })
+            .unwrap_err();
+            let expected =
+                canonical_decode_attempt_error(original_error, |error| error.to_string());
             assert!(matches!(&expected, ExecutionAttemptError::Deferred(reason)
                 if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity));
-            assert_eq!(fee_evidence_block_proof_attempt_v1(&witness), Err(expected));
+            let ExecutionAttemptError::Deferred(expected) = expected else {
+                unreachable!()
+            };
+            let actual = fee_evidence_block_proof_attempt_v1(&witness).unwrap_err();
+            let ExecutionAttemptError::Deferred(actual) = actual else {
+                panic!("the original local failure cannot become rejection: {actual:?}");
+            };
+            assert_eq!(actual.reason(), expected.reason());
+            let actual_cause = actual
+                .decode_refusal()
+                .expect("actual snapshot decoder owner");
+            let expected_cause = expected
+                .decode_refusal()
+                .expect("actual direct decoder owner");
+            assert_eq!(actual_cause.kind(), expected_cause.kind());
+            assert_eq!(
+                actual_cause.resource_error(),
+                expected_cause.resource_error()
+            );
+            assert_ne!(
+                actual_cause, expected_cause,
+                "separate reads have distinct observer identities"
+            );
+            let original_observation = actual_cause.clone();
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+            assert!(actual.phase().is_none());
+            let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                actual.into_vm_error(),
+            )
+            .expect("same original owner returns through the consuming VM adapter");
+            assert_eq!(moved.decode_refusal(), Some(&original_observation));
         });
         assert_eq!(witness, original);
         let (proof, root, height) = fee_evidence_block_proof_attempt_v1(&witness).unwrap();

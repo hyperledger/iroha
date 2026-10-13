@@ -52,19 +52,31 @@ fn fuzz_envelope(envelope: &[u8]) {
         let canonical =
             ivm_abi::numeric_tlv::encode_int(&value).expect("decoded int must re-encode");
         assert_eq!(canonical, envelope);
-        assert_eq!(numeric_tlv::decode_int_bytes(&canonical), Ok(value));
+        assert_eq!(
+            (numeric_tlv::decode_int_bytes(&canonical))
+                .expect("expected successful fixture result"),
+            value
+        );
     }
     if let Ok(value) = numeric_tlv::decode_decimal_bytes(envelope) {
         let canonical =
             ivm_abi::numeric_tlv::encode_decimal(&value).expect("decoded decimal must re-encode");
         assert_eq!(canonical, envelope);
-        assert_eq!(numeric_tlv::decode_decimal_bytes(&canonical), Ok(value));
+        assert_eq!(
+            (numeric_tlv::decode_decimal_bytes(&canonical))
+                .expect("expected successful fixture result"),
+            value
+        );
     }
     if let Ok(value) = numeric_tlv::decode_quantity_bytes(envelope) {
         let canonical =
             ivm_abi::numeric_tlv::encode_quantity(&value).expect("decoded quantity must re-encode");
         assert_eq!(canonical, envelope);
-        assert_eq!(numeric_tlv::decode_quantity_bytes(&canonical), Ok(value));
+        assert_eq!(
+            (numeric_tlv::decode_quantity_bytes(&canonical))
+                .expect("expected successful fixture result"),
+            value
+        );
     }
 }
 fn fuzz_int_frame(frame: &[u8]) {
@@ -108,11 +120,15 @@ fn fuzz_valid_int(payload: &[u8]) {
         .encode_frame()
         .expect("valid int frame encodes");
     assert_eq!(
-        IntValueV1::decode_frame(&frame).map(IntValueV1::into_int),
-        Ok(value.clone())
+        (IntValueV1::decode_frame(&frame).map(IntValueV1::into_int))
+            .expect("expected successful fixture result"),
+        value.clone()
     );
     let envelope = ivm_abi::numeric_tlv::encode_int(&value).expect("valid int envelope encodes");
-    assert_eq!(numeric_tlv::decode_int_bytes(&envelope), Ok(value));
+    assert_eq!(
+        (numeric_tlv::decode_int_bytes(&envelope)).expect("expected successful fixture result"),
+        value
+    );
     exercise_envelope_corruptions(&envelope);
 }
 fn valid_decimal(payload: &[u8]) -> Numeric {
@@ -132,12 +148,16 @@ fn fuzz_valid_decimal(payload: &[u8]) {
         .encode_frame()
         .expect("valid decimal frame encodes");
     assert_eq!(
-        DecimalValueV1::decode_frame(&frame).map(DecimalValueV1::into_numeric),
-        Ok(value.clone())
+        (DecimalValueV1::decode_frame(&frame).map(DecimalValueV1::into_numeric))
+            .expect("expected successful fixture result"),
+        value.clone()
     );
     let envelope =
         ivm_abi::numeric_tlv::encode_decimal(&value).expect("valid decimal envelope encodes");
-    assert_eq!(numeric_tlv::decode_decimal_bytes(&envelope), Ok(value));
+    assert_eq!(
+        (numeric_tlv::decode_decimal_bytes(&envelope)).expect("expected successful fixture result"),
+        value
+    );
     exercise_envelope_corruptions(&envelope);
 }
 fn valid_quantity(payload: &[u8]) -> Quantity {
@@ -168,12 +188,17 @@ fn fuzz_valid_quantity(payload: &[u8]) {
         .encode_frame()
         .expect("valid quantity frame encodes");
     assert_eq!(
-        QuantityValueV1::decode_frame(&frame).map(QuantityValueV1::into_quantity),
-        Ok(value.clone())
+        (QuantityValueV1::decode_frame(&frame).map(QuantityValueV1::into_quantity))
+            .expect("expected successful fixture result"),
+        value.clone()
     );
     let envelope =
         ivm_abi::numeric_tlv::encode_quantity(&value).expect("valid quantity envelope encodes");
-    assert_eq!(numeric_tlv::decode_quantity_bytes(&envelope), Ok(value));
+    assert_eq!(
+        (numeric_tlv::decode_quantity_bytes(&envelope))
+            .expect("expected successful fixture result"),
+        value
+    );
     exercise_envelope_corruptions(&envelope);
 }
 fn exercise_envelope_corruptions(envelope: &[u8]) {
@@ -216,8 +241,14 @@ fn fuzz_decimal_arithmetic(payload: &[u8]) {
         "decimal multiplication must be commutative, including failure classification"
     );
     if let Ok(sum) = lhs.try_decimal_add(&rhs) {
-        assert_eq!(sum.try_decimal_sub(&rhs), Ok(lhs.clone()));
-        assert_eq!(sum.try_decimal_sub(&lhs), Ok(rhs.clone()));
+        assert_eq!(
+            (sum.try_decimal_sub(&rhs)).expect("expected successful fixture result"),
+            lhs.clone()
+        );
+        assert_eq!(
+            (sum.try_decimal_sub(&lhs)).expect("expected successful fixture result"),
+            rhs.clone()
+        );
     }
     if rhs.is_zero() {
         assert_eq!(
@@ -225,7 +256,10 @@ fn fuzz_decimal_arithmetic(payload: &[u8]) {
             Err(NumericOperationError::DivisionByZero)
         );
     } else if let Ok(quotient) = lhs.try_decimal_div_exact(&rhs) {
-        assert_eq!(quotient.try_decimal_mul(&rhs), Ok(lhs.clone()));
+        assert_eq!(
+            (quotient.try_decimal_mul(&rhs)).expect("expected successful fixture result"),
+            lhs.clone()
+        );
     }
     let output_scale = payload.first().map_or(0, |byte| u32::from(*byte % 29));
     let rounding_modes = [
@@ -241,12 +275,18 @@ fn fuzz_decimal_arithmetic(payload: &[u8]) {
     if !rhs.is_zero() {
         if let Ok(rounded) = lhs.try_decimal_div_round(&rhs, output_scale, mode) {
             assert!(rounded.scale() <= output_scale);
-            assert_eq!(rounded.canonicalize_decimal(), Ok(rounded.clone()));
+            assert_eq!(
+                (rounded.canonicalize_decimal()).expect("expected successful fixture result"),
+                rounded.clone()
+            );
         }
     }
     if let Ok(quantized) = lhs.try_quantize(output_scale, mode) {
         assert!(quantized.scale() <= output_scale.min(lhs.scale()));
-        assert_eq!(quantized.canonicalize_decimal(), Ok(quantized));
+        assert_eq!(
+            (quantized.canonicalize_decimal()).expect("expected successful fixture result"),
+            quantized
+        );
     }
     let lhs_quantity = valid_quantity(lhs_payload);
     let rhs_quantity = valid_quantity(rhs_payload);
@@ -255,7 +295,10 @@ fn fuzz_decimal_arithmetic(payload: &[u8]) {
         rhs_quantity.try_add(&lhs_quantity)
     );
     if let Ok(sum) = lhs_quantity.try_add(&rhs_quantity) {
-        assert_eq!(sum.try_sub(&rhs_quantity), Ok(lhs_quantity));
+        assert_eq!(
+            (sum.try_sub(&rhs_quantity)).expect("expected successful fixture result"),
+            lhs_quantity
+        );
     }
 }
 fn numeric_program(syscall: u32) -> Vec<u8> {
@@ -309,7 +352,7 @@ fn fuzz_staged_out_of_gas(payload: &[u8]) {
     let outcome = candidate.run();
     let consumed = budget - candidate.remaining_gas();
     if budget >= baseline_used {
-        assert_eq!(outcome, Ok(()));
+        assert!(matches!(outcome, Ok(())));
         assert_eq!(consumed, baseline_used);
         assert_eq!(result_int(&candidate), baseline_result);
         return;

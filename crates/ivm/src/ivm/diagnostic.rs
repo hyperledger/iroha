@@ -246,7 +246,9 @@ impl IVM {
             VMError::AmxBudgetExceeded { .. } => VmTrapKind::AmxBudgetExceeded,
             VMError::ExecutionDeferred(_)
             | VMError::AllocationDeferred(_)
-            | VMError::DecodeDeferred(_) => VmTrapKind::Other,
+            | VMError::AllocatorDeferred(_)
+            | VMError::DecodeDeferred(_)
+            | VMError::VerificationDeferred(_) => VmTrapKind::Other,
             VMError::Metered { .. } => unreachable!("as_unmetered peels metered wrappers"),
         }
     }

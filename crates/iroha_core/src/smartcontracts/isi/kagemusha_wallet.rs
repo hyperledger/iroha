@@ -65,12 +65,11 @@ pub(crate) fn execute_with_verifier(
         let scope = match crate::executor::root_scope::execution_root_scope(state) {
             Ok(scope) => scope,
             Err(_) => {
-                if let Some(original) = state.execution_deferral() {
-                    return Err(state
-                        .attempt_error_to_instruction_error(
-                            crate::execution_attempt::ExecutionAttemptError::Deferred(original),
-                        )
-                        .into());
+                if state.is_execution_deferred() {
+                    return Err(Error::InvariantViolation(
+                        "local KAGEMUSHA root read did not complete".into(),
+                    )
+                    .into());
                 }
                 return Err(Error::InvariantViolation(
                     "KAGEMUSHA Load requires the original Global root".into(),

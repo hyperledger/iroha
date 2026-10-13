@@ -26,14 +26,15 @@ fn decimal_i64_map_key_helper_is_not_part_of_abi_v1() {
     code.extend_from_slice(&encoding::wide::encode_halt().to_le_bytes());
     let mut admitted = IVM::new(u64::MAX);
     admitted.set_host(CoreHost::new());
-    assert_eq!(
-        admitted.load_program(&common::assemble(&code)),
-        Err(VMError::UnknownSyscall(unassigned)),
+    assert!(
+        matches!(admitted.load_program(&common::assemble(&code)), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (unassigned)),
         "metadata-bearing programs reject the unassigned number during admission"
     );
     let mut raw = IVM::new(u64::MAX);
     raw.set_host(CoreHost::new());
     raw.load_code(&code)
         .expect("load raw unassigned-syscall fixture");
-    assert_eq!(raw.run(), Err(VMError::UnknownSyscall(unassigned)));
+    assert!(
+        matches!(raw.run(), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (unassigned))
+    );
 }

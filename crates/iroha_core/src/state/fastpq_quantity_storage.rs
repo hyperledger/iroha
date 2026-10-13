@@ -333,7 +333,7 @@ mod tests {
             &mut plan,
         );
         assert!(definitions.write_supply(&id, Quantity::from(22_u32), &mut plan));
-        assert_eq!(plan.finish(), Ok(()));
+        assert!(matches!(plan.finish(), Ok(())));
         assert!(!balances.has_raw_write());
         assert!(!definitions.has_raw_write());
         assert_eq!(
@@ -370,7 +370,10 @@ mod tests {
             &Quantity::from(8_u32)
         );
         assert!(balances.has_raw_write());
-        assert_eq!(plan.finish(), Err(QuantityWritePlanError::Mismatch));
+        assert!(matches!(
+            plan.finish(),
+            Err(QuantityWritePlanError::Mismatch)
+        ));
         let mut definitions = Storage::<AssetDefinitionId, AssetDefinition>::default();
         definitions.insert(id.clone(), definition);
         let mut definition_block = definitions.block();
@@ -386,7 +389,10 @@ mod tests {
             &Quantity::from(23_u32)
         );
         assert!(definitions.has_raw_write());
-        assert_eq!(plan.finish(), Err(QuantityWritePlanError::Mismatch));
+        assert!(matches!(
+            plan.finish(),
+            Err(QuantityWritePlanError::Mismatch)
+        ));
     }
 
     #[test]
@@ -423,7 +429,7 @@ mod tests {
                 );
             };
         callback(&mut transaction, &mut plan);
-        assert_eq!(plan.finish(), Ok(()));
+        assert!(matches!(plan.finish(), Ok(())));
         assert!(
             transaction.has_raw_write(),
             "a completed port plan cannot clear the independent storage refusal"

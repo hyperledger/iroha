@@ -106,7 +106,6 @@ fn attestation_body_refusal_keeps_original_origin_after_scope_retirement() {
 
 #[inline(never)]
 fn check_retired_body_refusal(chain: &CertifiedTestChain) {
-    use crate::execution_attempt::ExecutionDeferred;
     use ivm::error::ExecutionDeferral;
     use norito::core::DecodeAttemptErrorKind;
 
@@ -131,10 +130,11 @@ fn check_retired_body_refusal(chain: &CertifiedTestChain) {
     // Equal diagnostic numbers from an unrelated owner cannot replace the captured origin.
     let unrelated = DecodeBudgetContext::new(limits(0));
     let mapped = unrelated.with(|| attestation_body_read_error(refused));
-    let expected = ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity);
     assert!(matches!(
         mapped,
-        AttestationBuildError::FinalityProof(ProofError::Deferred(local)) if local == expected
+        AttestationBuildError::FinalityProof(ProofError::Deferred(local))
+            if local.reason() == ExecutionDeferral::ActiveMemoryCapacity
+                && local.decode_refusal().is_some()
     ));
     assert_eq!(unrelated.consumed_allocated_bytes(), 0);
     assert_eq!(original, before);

@@ -483,10 +483,10 @@ fn loaded_executor_runtime_tracks_governed_heap_limit() {
             .checkout_runtime_for_gas_limit(GAS_LIMIT, SMALL_HEAP_LIMIT, &executor_test_budget())
             .expect("small heap runtime");
         assert_eq!(runtime.memory.heap_max_limit(), SMALL_HEAP_LIMIT);
-        assert_eq!(
+        assert!(matches!(
             runtime.memory.alloc(SMALL_HEAP_LIMIT + 8),
             Err(VMError::OutOfMemory)
-        );
+        ));
     }
     {
         let runtime = loaded
@@ -1356,7 +1356,11 @@ fn migrate_rejects_unauthorized_non_genesis_callers_before_loading_bytecode() {
     let error = executor
         .migrate(raw, &mut state_transaction, &ALICE_ID)
         .expect_err("direct migration must enforce executor-upgrade authority");
-    assert_eq!(error, VMError::PermissionDenied);
+    assert!(matches!(
+        error,
+        ExecutorMigrationError::Rejected(VMError::PermissionDenied)
+    ));
+    assert!(!state_transaction.is_execution_deferred());
     assert!(matches!(executor, super::Executor::Initial));
 }
 #[test]
@@ -2319,7 +2323,7 @@ fn native_account_grant_reader_preserves_refusal_and_exact_token_shape() {
     world
         .account_permissions
         .insert(ALICE_ID.clone(), BTreeSet::from([exact.clone()]));
-    assert_eq!(read(&world), Ok(true));
+    assert!(matches!(read(&world), Ok(true)));
     let refused = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(96, usize::MAX, usize::MAX, 0, 32),
         || read(&world),
@@ -2328,7 +2332,7 @@ fn native_account_grant_reader_preserves_refusal_and_exact_token_shape() {
         matches!(refused, Err(crate::execution_attempt::ExecutionAttemptError::Deferred(ref reason))
         if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
     );
-    assert_eq!(read(&world), Ok(true));
+    assert!(matches!(read(&world), Ok(true)));
     for invalid in [
         Permission::new("CanReadAccountData".into(), Json::new(())),
         Permission::new("CanReadAccountData".into(), Json::new(false)),
@@ -2346,14 +2350,13 @@ fn native_account_grant_reader_preserves_refusal_and_exact_token_shape() {
         world
             .account_permissions
             .insert(ALICE_ID.clone(), BTreeSet::from([invalid]));
-        assert_eq!(
-            read(&world),
-            Ok(false),
+        assert!(
+            matches!(read(&world), Ok(false)),
             "only the exact canonical target grant authorizes"
         );
     }
     assert!(remove_committed_storage_entry(&world.account_permissions, ALICE_ID.clone()).is_some());
-    assert_eq!(read(&world), Ok(false));
+    assert!(matches!(read(&world), Ok(false)));
     let role_id: RoleId = "original_account_reader".parse().unwrap();
     world.roles.insert(
         role_id.clone(),
@@ -2364,7 +2367,7 @@ fn native_account_grant_reader_preserves_refusal_and_exact_token_shape() {
         },
     );
     world.grant_role_for_tests(ALICE_ID.clone(), role_id.clone());
-    assert_eq!(read(&world), Ok(true));
+    assert!(matches!(read(&world), Ok(true)));
     let refused = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(96, usize::MAX, usize::MAX, 0, 32),
         || read(&world),
@@ -2380,9 +2383,8 @@ fn native_account_grant_reader_preserves_refusal_and_exact_token_shape() {
         )
         .is_some()
     );
-    assert_eq!(
-        read(&world),
-        Ok(false),
+    assert!(
+        matches!(read(&world), Ok(false)),
         "revoking the original role revokes its exact grant"
     );
 }
@@ -2417,5 +2419,76 @@ fn completion_permission_payload_requires_exact_nonzero_provider_scope() {
         }),
     ] {
         assert!(validate_initial_permission_payload_constraints(&malformed).is_err());
+    }
+}
+
+#[test]
+fn migration_and_upgrade_keep_one_original_refusal_until_state_terminal() {
+    for through_upgrade in [false, true] {
+        let raw = data_model_executor::Executor::new(IvmBytecode::from_compiled(
+            generate_migration_program(&Ok(initial_executor_data_model_fallback())),
+        ));
+        let state = State::new_with_chain(
+            World::new(),
+            Kura::blank_kura_for_testing(),
+            query::store::LiveQueryStore::start_test(),
+            ChainId::from("migration-owner"),
+        );
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let marker: iroha_model_base::state_path::StatePath =
+            "migration_original_owner_TESTDATA".parse().unwrap();
+        let mut tx = block.transaction();
+        tx.world
+            .smart_contract_state
+            .insert(marker.clone(), vec![31]);
+        let budget = tx.execution_budget();
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        let params = tx.world.parameters.get().executor();
+        let expected = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+            LoadedExecutor::load_runtime(&raw, params.fuel().get(), params.memory().get(), &budget)
+                .err()
+                .expect("actual original execution pool refuses runtime"),
+        )
+        .unwrap();
+        assert!(matches!(
+            expected.allocation_refusal(),
+            Some(iroha_allocation::AllocationRefusal::Capacity { .. })
+        ));
+        if through_upgrade {
+            super::Executor::Initial
+                .execute_instruction(
+                    &mut tx,
+                    &ALICE_ID,
+                    iroha_data_model::isi::Upgrade::new(raw).into(),
+                )
+                .expect_err("real Upgrade must stop");
+        } else {
+            let mut executor = super::Executor::Initial;
+            assert!(matches!(
+                executor.migrate(raw, &mut tx, &ALICE_ID),
+                Err(ExecutorMigrationError::LocalRefusalRetained)
+            ));
+            assert!(matches!(executor, super::Executor::Initial));
+        }
+        {
+            let retained = tx
+                .borrow_execution_deferral()
+                .expect("migration did not export then re-arm");
+            assert_eq!(retained.allocation_refusal(), expected.allocation_refusal());
+        }
+        let terminal = tx.ensure_execution_ready().unwrap_err();
+        assert_eq!(terminal.allocation_refusal(), expected.allocation_refusal());
+        assert!(tx.borrow_execution_deferral().is_none());
+        assert!(tx.is_execution_deferred());
+        assert_eq!(tx.last_tx_gas_used, 0);
+        drop(occupied);
+        tx.apply();
+        assert!(
+            block.world.smart_contract_state.get(&marker).is_none(),
+            "owner transfer cannot authorize failed migration writes"
+        );
+        assert!(matches!(&**block.world.executor, super::Executor::Initial));
     }
 }

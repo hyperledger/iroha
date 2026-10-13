@@ -25,5 +25,5 @@ fn vadd32_rejects_mismatched_lane_tags() {
         vm.registers.set_tag(register, private);
     }
 
-    assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
 }

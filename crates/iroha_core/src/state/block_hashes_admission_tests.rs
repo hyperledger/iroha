@@ -451,7 +451,7 @@ fn replacement_capacity_refusal_preserves_all_da_indexes_and_durable_journal() {
     ));
     assert_eq!(snapshot(), before);
     assert_eq!(std::fs::read(path).unwrap(), durable);
-    assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+    assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
     assert_eq!(state.block_hashes.view().last(), Some(&hash(1)));
     drop(occupied);
 }

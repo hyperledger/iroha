@@ -12,9 +12,10 @@ use iroha_plonk::{
     keys::{KeygenConfigV2, keygen_pk_v2, keygen_vk_with_binding_v2},
     pcs::ipa::PinnedParams,
     prover::{ProverConfig, ProverRandomness, Witness, create_proof_owned},
-    verifier::verify_full,
+    verification_attempt::NativeVerifierInitError,
+    verifier::{VerifyError, verify_full},
 };
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::{
     Scalar,
@@ -29,6 +30,73 @@ use crate::{
         KaigiUsageCircuitV1, KaigiUsageContextV1, KaigiUsagePublicInputsV1, compute_usage_v1,
     },
 };
+
+/// Typed native producer failure retaining the original arithmetic or verifier cause.
+#[derive(Debug)]
+pub enum NativeProverError {
+    /// Original verifier initialization failure.
+    Init(NativeVerifierInitError),
+    /// Original proving key construction failure.
+    Key(iroha_plonk::keys::KeyError),
+    /// Original witness or proof computation failure.
+    Prove(iroha_plonk::prover::ProverError),
+    /// Original self-verification failure, including local math refusal.
+    Verify(iroha_plonk::verifier::VerifyError),
+    /// Completed application input validation failure.
+    Input(String),
+    /// A completed compiled-material identity failure.
+    Invariant(&'static str),
+    /// A prior panic poisoned initialization; no prover was published.
+    CachePoisoned,
+}
+
+impl std::fmt::Display for NativeProverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Init(original) => write!(f, "Init: {original}"),
+            Self::Key(original) => write!(f, "Key: {original}"),
+            Self::Prove(original) => write!(f, "Prove: {original}"),
+            Self::Verify(original) => write!(f, "Verify: {original}"),
+            Self::Input(original) => write!(f, "Input: {original}"),
+            Self::Invariant(original) => write!(f, "Invariant: {original}"),
+            Self::CachePoisoned => f.write_str("native material initialization lock is poisoned"),
+        }
+    }
+}
+
+impl std::error::Error for NativeProverError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Init(original) => Some(original),
+            Self::Key(original) => Some(original),
+            Self::Prove(original) => Some(original),
+            Self::Verify(original) => Some(original),
+            Self::Input(_) => None,
+            Self::Invariant(_) => None,
+            Self::CachePoisoned => None,
+        }
+    }
+}
+
+// Only successful immutable material enters the cache. A failed attempt keeps
+// its typed cause and leaves a future call free to retry the same construction.
+// Serialize first construction so concurrent requests do not duplicate key graphs.
+fn cached_success<'a, T, E>(
+    cache: &'a OnceLock<T>,
+    gate: &Mutex<()>,
+    initialize: impl FnOnce() -> Result<T, E>,
+    poisoned: E,
+) -> Result<&'a T, E> {
+    if let Some(ready) = cache.get() {
+        return Ok(ready);
+    }
+    let _guard = gate.lock().map_err(|_| poisoned)?;
+    if let Some(ready) = cache.get() {
+        return Ok(ready);
+    }
+    let ready = initialize()?;
+    Ok(cache.get_or_init(|| ready))
+}
 
 /// One exact built-in Kaigi relation; no caller-selected circuit or domain size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,41 +131,50 @@ impl NativeRelationV1 {
     /// Immutable verifier material, initialized without a proving key.
     ///
     /// # Errors
-    /// Deterministic parameter/key construction failed.
-    pub fn verifier(self) -> Result<&'static NativeVerifierV1, String> {
-        static AUTHORIZATION: OnceLock<Result<NativeVerifierV1, String>> = OnceLock::new();
-        static USAGE: OnceLock<Result<NativeVerifierV1, String>> = OnceLock::new();
-        let cache = match self {
-            Self::Authorization => &AUTHORIZATION,
-            Self::Usage => &USAGE,
+    /// Parameter/key construction or local arithmetic admission failed; failed
+    /// initialization is never cached.
+    pub fn verifier(self) -> Result<&'static NativeVerifierV1, NativeVerifierInitError> {
+        static AUTHORIZATION: OnceLock<NativeVerifierV1> = OnceLock::new();
+        static AUTHORIZATION_GATE: Mutex<()> = Mutex::new(());
+        static USAGE: OnceLock<NativeVerifierV1> = OnceLock::new();
+        static USAGE_GATE: Mutex<()> = Mutex::new(());
+        let (cache, gate) = match self {
+            Self::Authorization => (&AUTHORIZATION, &AUTHORIZATION_GATE),
+            Self::Usage => (&USAGE, &USAGE_GATE),
         };
-        cache
-            .get_or_init(|| NativeVerifierV1::new(self))
-            .as_ref()
-            .map_err(Clone::clone)
+        cached_success(
+            cache,
+            gate,
+            || NativeVerifierV1::new(self),
+            NativeVerifierInitError::CachePoisoned,
+        )
     }
     /// Immutable proving material for this exact relation.
     ///
     /// # Errors
     /// Parameter/key construction failed or verifier/prover identities diverged.
-    pub fn prover(self) -> Result<&'static NativeProverV1, String> {
-        static AUTHORIZATION: OnceLock<Result<NativeProverV1, String>> = OnceLock::new();
-        static USAGE: OnceLock<Result<NativeProverV1, String>> = OnceLock::new();
-        let cache = match self {
-            Self::Authorization => &AUTHORIZATION,
-            Self::Usage => &USAGE,
+    pub fn prover(self) -> Result<&'static NativeProverV1, NativeProverError> {
+        static AUTHORIZATION: OnceLock<NativeProverV1> = OnceLock::new();
+        static AUTHORIZATION_GATE: Mutex<()> = Mutex::new(());
+        static USAGE: OnceLock<NativeProverV1> = OnceLock::new();
+        static USAGE_GATE: Mutex<()> = Mutex::new(());
+        let (cache, gate) = match self {
+            Self::Authorization => (&AUTHORIZATION, &AUTHORIZATION_GATE),
+            Self::Usage => (&USAGE, &USAGE_GATE),
         };
-        cache
-            .get_or_init(|| NativeProverV1::new(self))
-            .as_ref()
-            .map_err(Clone::clone)
+        cached_success(
+            cache,
+            gate,
+            || NativeProverV1::new(self),
+            NativeProverError::CachePoisoned,
+        )
     }
 }
 fn key_config() -> KeygenConfigV2 {
     KeygenConfigV2::pipa_r(vec![InstanceType::Field])
 }
-fn message(error: impl std::fmt::Display) -> String {
-    error.to_string()
+fn invalid_input(error: impl std::fmt::Display) -> NativeProverError {
+    NativeProverError::Input(error.to_string())
 }
 
 /// Complete verifier-only material for one fixed compiled Kaigi relation.
@@ -108,9 +185,9 @@ pub struct NativeVerifierV1 {
     vk: VerifyingKey<Eq>,
 }
 impl NativeVerifierV1 {
-    fn new(relation: NativeRelationV1) -> Result<Self, String> {
+    fn new(relation: NativeRelationV1) -> Result<Self, NativeVerifierInitError> {
         let k = relation.k();
-        let params = PinnedParams::<Eq>::derive(k).map_err(message)?;
+        let params = PinnedParams::<Eq>::derive(k).map_err(NativeVerifierInitError::Params)?;
         let (binding, vk) = match relation {
             NativeRelationV1::Authorization => keygen_vk_with_binding_v2(
                 &params,
@@ -121,7 +198,7 @@ impl NativeVerifierV1 {
                 keygen_vk_with_binding_v2(&params, &KaigiUsageCircuitV1::default(), &key_config())
             }
         }
-        .map_err(message)?;
+        .map_err(NativeVerifierInitError::Key)?;
         Ok(Self {
             relation,
             params,
@@ -146,18 +223,28 @@ impl NativeVerifierV1 {
     /// Verify canonical public scalars and the complete native opening proof.
     ///
     /// # Errors
-    /// Wrong arity/length, noncanonical scalar, or failed proof/IPA decision.
-    pub fn verify(&self, public_inputs: &[[u8; 32]], proof: &[u8]) -> Result<(), String> {
-        if public_inputs.len() != self.relation.instance_rows()
-            || proof.len() != self.proof_length()
-        {
-            return Err("wrong fixed Kaigi proof shape".into());
+    /// Wrong arity/length, noncanonical scalar, or the original native proof/IPA
+    /// error. Local arithmetic refusal is retained and is not an invalidity verdict.
+    pub fn verify(&self, public_inputs: &[[u8; 32]], proof: &[u8]) -> Result<(), VerifyError> {
+        if public_inputs.len() != self.relation.instance_rows() {
+            return Err(VerifyError::InstanceLength {
+                column: 0,
+                expected: self.relation.instance_rows(),
+                found: public_inputs.len(),
+            });
+        }
+        if proof.len() != self.proof_length() {
+            return Err(VerifyError::ProofLength {
+                expected: self.proof_length(),
+                actual: proof.len(),
+            });
         }
         let inputs = public_inputs
             .iter()
             .map(|bytes| {
-                Option::<Scalar>::from(Scalar::from_repr(*bytes))
-                    .ok_or_else(|| "noncanonical Kaigi public scalar".to_owned())
+                Option::<Scalar>::from(Scalar::from_repr(*bytes)).ok_or(VerifyError::Transcript(
+                    iroha_plonk::transcript::TranscriptError::NonCanonicalScalar,
+                ))
             })
             .collect::<Result<Vec<_>, _>>()?;
         verify_full(
@@ -168,7 +255,6 @@ impl NativeVerifierV1 {
             proof,
             MemoryBudget::DEFAULT,
         )
-        .map_err(message)
     }
 }
 
@@ -178,8 +264,8 @@ pub struct NativeProverV1 {
     key: ProvingKey<Eq>,
 }
 impl NativeProverV1 {
-    fn new(relation: NativeRelationV1) -> Result<Self, String> {
-        let verifier = relation.verifier()?;
+    fn new(relation: NativeRelationV1) -> Result<Self, NativeProverError> {
+        let verifier = relation.verifier().map_err(NativeProverError::Init)?;
         let key = match relation {
             NativeRelationV1::Authorization => keygen_pk_v2(
                 &verifier.params,
@@ -192,9 +278,11 @@ impl NativeProverV1 {
                 &key_config(),
             ),
         }
-        .map_err(message)?;
+        .map_err(NativeProverError::Key)?;
         if key.binding() != &verifier.binding || key.vk().to_bytes() != verifier.key_bytes() {
-            return Err("Kaigi proving/verifying key identity mismatch".into());
+            return Err(NativeProverError::Invariant(
+                "Kaigi proving/verifying key identity mismatch",
+            ));
         }
         Ok(Self { verifier, key })
     }
@@ -202,9 +290,9 @@ impl NativeProverV1 {
         &self,
         circuit: C,
         inputs: Vec<Scalar>,
-    ) -> Result<NativeProofV1, String> {
+    ) -> Result<NativeProofV1, NativeProverError> {
         let witness = Witness::from_circuit(&self.key, &circuit, std::slice::from_ref(&inputs))
-            .map_err(message)?;
+            .map_err(NativeProverError::Prove)?;
         drop(circuit);
         let proof = create_proof_owned(
             &self.verifier.params,
@@ -213,9 +301,11 @@ impl NativeProverV1 {
             ProverRandomness::hedged(),
             ProverConfig::default(),
         )
-        .map_err(message)?;
+        .map_err(NativeProverError::Prove)?;
         let public_inputs: Vec<_> = inputs.into_iter().map(|value| value.to_repr()).collect();
-        self.verifier.verify(&public_inputs, &proof)?;
+        self.verifier
+            .verify(&public_inputs, &proof)
+            .map_err(NativeProverError::Verify)?;
         Ok(NativeProofV1 {
             public_inputs,
             proof,
@@ -229,13 +319,13 @@ impl NativeProverV1 {
         &self,
         context: KaigiAuthorizationContextV1,
         witness: KaigiAuthorizationWitnessV1,
-    ) -> Result<NativeProofV1, String> {
+    ) -> Result<NativeProofV1, NativeProverError> {
         if self.verifier.relation != NativeRelationV1::Authorization {
-            return Err("wrong Kaigi proving relation".into());
+            return Err(NativeProverError::Invariant("wrong Kaigi proving relation"));
         }
-        let outputs = compute_authorization_v1(&context, &witness).map_err(message)?;
+        let outputs = compute_authorization_v1(&context, &witness).map_err(invalid_input)?;
         let inputs = KaigiAuthorizationPublicInputsV1 { context, outputs }.instance();
-        let circuit = KaigiAuthorizationCircuitV1::new(context, witness).map_err(message)?;
+        let circuit = KaigiAuthorizationCircuitV1::new(context, witness).map_err(invalid_input)?;
         self.prove(circuit, inputs.to_vec())
     }
     /// Prove the usage context and consume its owned host-opening secret.
@@ -246,13 +336,13 @@ impl NativeProverV1 {
         &self,
         context: KaigiUsageContextV1,
         witness: KaigiAuthorizationWitnessV1,
-    ) -> Result<NativeProofV1, String> {
+    ) -> Result<NativeProofV1, NativeProverError> {
         if self.verifier.relation != NativeRelationV1::Usage {
-            return Err("wrong Kaigi proving relation".into());
+            return Err(NativeProverError::Invariant("wrong Kaigi proving relation"));
         }
-        let outputs = compute_usage_v1(&context, &witness).map_err(message)?;
+        let outputs = compute_usage_v1(&context, &witness).map_err(invalid_input)?;
         let inputs = KaigiUsagePublicInputsV1 { context, outputs }.instance();
-        let circuit = KaigiUsageCircuitV1::new(context, witness).map_err(message)?;
+        let circuit = KaigiUsageCircuitV1::new(context, witness).map_err(invalid_input)?;
         self.prove(circuit, inputs.to_vec())
     }
 }
@@ -328,9 +418,27 @@ mod tests {
             }
             let mut noncanonical = public.clone();
             noncanonical[0] = [255; 32];
-            assert!(verifier.verify(&noncanonical, &proof).is_err());
-            assert!(verifier.verify(&public[1..], &proof).is_err());
-            assert!(verifier.verify(&public, &proof[1..]).is_err());
+            assert_eq!(
+                verifier.verify(&noncanonical, &proof),
+                Err(VerifyError::Transcript(
+                    iroha_plonk::transcript::TranscriptError::NonCanonicalScalar
+                ))
+            );
+            assert_eq!(
+                verifier.verify(&public[1..], &proof),
+                Err(VerifyError::InstanceLength {
+                    column: 0,
+                    expected: relation.instance_rows(),
+                    found: public.len() - 1
+                })
+            );
+            assert_eq!(
+                verifier.verify(&public, &proof[1..]),
+                Err(VerifyError::ProofLength {
+                    expected: verifier.proof_length(),
+                    actual: proof.len() - 1
+                })
+            );
             let mut trailing = proof.clone();
             trailing.push(0);
             assert!(verifier.verify(&public, &trailing).is_err());
@@ -358,5 +466,107 @@ mod tests {
         invalid.duration_ms = 0;
         assert!(usage_prover.prove_usage(invalid, secret()).is_err());
         assert_ne!(auth.verifier.key_bytes(), usage_prover.verifier.key_bytes());
+    }
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use super::*;
+
+    #[test]
+    fn original_math_refusal_does_not_poison_success_cache() {
+        let cache = OnceLock::<u8>::new();
+        let gate = Mutex::new(());
+        let refused = cached_success(
+            &cache,
+            &gate,
+            || {
+                MemoryBudget::new(0)
+                    .check(17)
+                    .map(|()| 7)
+                    .map_err(|original| {
+                        NativeVerifierInitError::Key(iroha_plonk::keys::KeyError::Msm(
+                            iroha_pasta::msm::MsmError::Budget(original),
+                        ))
+                    })
+            },
+            NativeVerifierInitError::CachePoisoned,
+        )
+        .unwrap_err();
+        assert!(matches!(refused, NativeVerifierInitError::Key(
+            iroha_plonk::keys::KeyError::Msm(iroha_pasta::msm::MsmError::Budget(original)))
+            if original.required == 17 && original.budget == 0));
+        assert!(cache.get().is_none());
+        let ready = cached_success(
+            &cache,
+            &gate,
+            || Ok(7),
+            NativeVerifierInitError::CachePoisoned,
+        )
+        .unwrap();
+        let again = cached_success(
+            &cache,
+            &gate,
+            || panic!("successful material must not be rebuilt"),
+            NativeVerifierInitError::CachePoisoned,
+        )
+        .unwrap();
+        assert_eq!(*ready, 7);
+        assert!(std::ptr::eq(ready, again));
+    }
+
+    #[test]
+    fn concurrent_initializers_publish_only_one_material_graph() {
+        use std::sync::{
+            Barrier,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let cache = OnceLock::<u8>::new();
+        let gate = Mutex::new(());
+        let barrier = Barrier::new(4);
+        let attempts = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    let material = cached_success(
+                        &cache,
+                        &gate,
+                        || {
+                            attempts.fetch_add(1, Ordering::SeqCst);
+                            Ok(9)
+                        },
+                        NativeVerifierInitError::CachePoisoned,
+                    )
+                    .unwrap();
+                    assert_eq!(*material, 9);
+                });
+            }
+        });
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn poisoned_initialization_gate_returns_typed_refusal_without_caching() {
+        let cache = OnceLock::<u8>::new();
+        let gate = Mutex::new(());
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _guard = gate.lock().unwrap();
+                panic!("deliberate initializer panic");
+            })
+            .is_err()
+        );
+        let result = cached_success(
+            &cache,
+            &gate,
+            || panic!("poisoned gate must refuse"),
+            NativeVerifierInitError::CachePoisoned,
+        );
+        assert!(matches!(
+            result,
+            Err(NativeVerifierInitError::CachePoisoned)
+        ));
+        assert!(cache.get().is_none());
     }
 }

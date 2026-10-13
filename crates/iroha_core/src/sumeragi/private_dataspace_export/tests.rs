@@ -215,12 +215,51 @@ fn original_private_export_refusal_preserves_read_owner_and_exact_custody_retry(
                 let ExportError::Deferred(reason) = error else {
                     panic!("an unfinished export read cannot reject custody: {error:?}");
                 };
-                assert_eq!(reason, original);
+                assert_eq!(reason.reason(), original.reason());
+                assert_eq!(reason.phase(), original.phase());
+                let actual_decode = reason.decode_refusal().expect("export decoder cause");
+                let original_decode = original
+                    .decode_refusal()
+                    .expect("independent source decoder cause");
+                assert_eq!(actual_decode.kind(), original_decode.kind());
+                assert_eq!(
+                    actual_decode.resource_error(),
+                    original_decode.resource_error()
+                );
+                assert_eq!(
+                    actual_decode.allocation_bytes(),
+                    original_decode.allocation_bytes()
+                );
+                assert_ne!(
+                    actual_decode, original_decode,
+                    "separate canonical read observers retain distinct original owners"
+                );
+                assert!(
+                    reason.verification_refusal().is_none()
+                        && original.verification_refusal().is_none()
+                );
                 assert!(
                     reason.allocation_refusal().is_none(),
                     "the decode counter has no release owner"
                 );
             }
+            let retained_decode = original
+                .decode_refusal()
+                .expect("original decoder cause")
+                .clone();
+            let retained_reason = original.reason();
+            let retained_phase = original.phase();
+            let mapped =
+                ExportError::from(ExecutionAttemptError::<ChainReadError>::Deferred(original));
+            let ExportError::Deferred(mapped) = mapped else {
+                panic!("single-source adapter must retain original refusal")
+            };
+            assert_eq!(mapped.reason(), retained_reason);
+            assert_eq!(mapped.phase(), retained_phase);
+            assert_eq!(mapped.decode_refusal(), Some(&retained_decode));
+            assert!(
+                mapped.allocation_refusal().is_none() && mapped.verification_refusal().is_none()
+            );
             assert_eq!(view.height(), 2);
         },
     );

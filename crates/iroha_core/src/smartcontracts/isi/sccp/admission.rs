@@ -119,7 +119,8 @@ impl SccpAdmissionKeysV1 {
 
 /// Admission rejection of a transaction that claims an SCCP exemption but fails
 /// pre-verification against committed state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The original unfinished attempt has one owner and is neither cloned nor compared.
+#[derive(Debug)]
 pub struct SccpAdmissionRejectV1 {
     /// Human-readable reason.
     pub reason: String,
@@ -183,10 +184,16 @@ impl SccpAdmissionRejectV1 {
                     return rejected;
                 }
             },
-            Attempt::Buffer(ChargedBufferError::Allocator { .. })
-            | Attempt::Output(Output::Buffer(ChargedBufferError::Allocator { .. }))
-            | Attempt::Control(PrepaidSharedError::Allocator { .. }) => {
-                ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+            Attempt::Buffer(original @ ChargedBufferError::Allocator { .. })
+            | Attempt::Output(Output::Buffer(original @ ChargedBufferError::Allocator { .. })) => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
+            }
+            Attempt::Control(original @ PrepaidSharedError::Allocator { .. }) => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
             }
             Attempt::Output(Output::Capacity(reason) | Output::Conflict(reason)) => {
                 return Self::new(reason);
@@ -699,6 +706,59 @@ mod tests {
         assert!(!SccpAdmissionRejectV1::new("unclassified admission refusal").source_data_rejected);
     }
 
+    #[test]
+    fn admission_moves_each_original_allocator_cause_through_the_vm_boundary() {
+        use iroha_allocation::{ChargedBufferError, PrepaidSharedError};
+        use iroha_sccp::light_client::{
+            prepared::SccpLcAttemptErrorV1 as Attempt,
+            state::admitted::SccpLcDeltaAdmissionErrorV1 as Output,
+        };
+
+        for (shared, error) in [
+            (
+                false,
+                Attempt::Buffer(ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                }),
+            ),
+            (
+                false,
+                Attempt::Output(Output::Buffer(ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                })),
+            ),
+            (
+                true,
+                Attempt::Control(PrepaidSharedError::Allocator {
+                    requested_bytes: 31,
+                }),
+            ),
+        ] {
+            let rejection = SccpAdmissionRejectV1::from_attempt(error);
+            assert!(!rejection.source_data_rejected);
+            let deferred = rejection.deferred.expect("original physical refusal");
+            assert!(deferred.allocation_refusal().is_none());
+            let ivm::VMError::AllocatorDeferred(original) = deferred.into_vm_error() else {
+                panic!("original physical allocator error must survive admission");
+            };
+            if shared {
+                assert_eq!(
+                    original.into_shared_error().unwrap(),
+                    PrepaidSharedError::Allocator {
+                        requested_bytes: 31
+                    }
+                );
+            } else {
+                assert!(matches!(
+                    original.into_buffer_error().unwrap(),
+                    ChargedBufferError::Allocator {
+                        requested_bytes: 31
+                    }
+                ));
+            }
+        }
+    }
+
     fn entry(seed: u8) -> HashOf<TransactionEntrypoint> {
         HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]))
     }
@@ -1078,19 +1138,19 @@ mod tests {
         let advance = signed(0x64, vec![keeper_advance(false).into()]);
         let ordinary = sample_signed_transaction();
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &advance),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &advance).unwrap(),
+            None,
             "nothing is exempt without SCCP"
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &backfill),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &backfill).unwrap(),
+            None,
             "a Backfill pays the ordinary fee"
         );
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &ordinary),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &ordinary).unwrap(),
+            None,
             "an unshaped transaction is never pre-verified"
         );
         assert!(
@@ -1104,7 +1164,10 @@ mod tests {
         let state = blank_state();
         let view = state.world_view();
         let transaction = sample_signed_transaction();
-        assert_eq!(classify(&view, &state.view(), 1, &transaction), Ok(None));
+        assert_eq!(
+            classify(&view, &state.view(), 1, &transaction).unwrap(),
+            None
+        );
         assert!(!allows_unregistered_authority(transaction.instructions()));
         assert!(block_exempt_cap_ok(&view, &[SccpExemptClassV1::SelfClaim]));
         assert_eq!(exempt_cap(&view), None);

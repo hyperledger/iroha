@@ -37,7 +37,7 @@ pub(crate) fn assert_clock_ahead_defers_original(
                 assert!(
                     matches!(
                         worker.execute(&block, hash, false),
-                        Some(ExecOutcome::Failed(reason)) if reason.contains("ClockAhead")
+                        Err(PublicationError::Retryable(reason)) if reason.contains("ClockAhead")
                     ),
                     "uncertified future block must defer before execution"
                 );
@@ -52,13 +52,13 @@ pub(crate) fn assert_clock_ahead_defers_original(
                 assert!(events.try_recv().is_err());
             }
             clock.set(boundary);
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+            let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
                 panic!("exact clock boundary must permit genuine execution of the same source")
             };
             // A valid original was already guarded; later clock regression does not erase it.
             clock.set(Duration::ZERO);
             assert_eq!(
-                worker.execute(&block, hash, false),
+                worker.execute(&block, hash, false).unwrap(),
                 Some(ExecOutcome::Valid(result))
             );
         },
@@ -84,10 +84,10 @@ fn certified_execution_skips_clock_guards() {
         let mut executor = StateExecutor::spawn(context.clone()).unwrap();
         assert!(matches!(
             executor.execute(&block, &qc.block_hash, false),
-            Some(ExecOutcome::Failed(reason)) if reason.contains("ClockAhead")
+            Err(PublicationError::Retryable(reason)) if reason.contains("ClockAhead")
         ));
         assert_eq!(
-            executor.execute(&block, &qc.block_hash, true),
+            executor.execute(&block, &qc.block_hash, true).unwrap(),
             Some(ExecOutcome::Valid(qc.result)),
             "the genuine certified re-proposal executes the exact same deterministic result"
         );
@@ -186,7 +186,7 @@ fn sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry(
             assert!(worker.live.is_none());
             for _ in 0..2 {
                 assert!(
-                    matches!(worker.execute(&block, hash, false), Some(ExecOutcome::Failed(reason)) if reason.contains("StaleDueWork"))
+                    matches!(worker.execute(&block, hash, false), Err(PublicationError::Retryable(reason)) if reason.contains("StaleDueWork"))
                 );
                 let retained = worker.finishing.as_ref().unwrap();
                 assert_eq!(std::ptr::from_ref(retained.overlay.as_ref()), overlay);
@@ -197,7 +197,7 @@ fn sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry(
                 assert!(!worker.results.contains_key(&hash));
             }
             assert!(events.try_recv().is_err());
-            let Some(ExecOutcome::Valid(certified_result)) = worker.execute(&block, hash, true)
+            let Ok(Some(ExecOutcome::Valid(certified_result))) = worker.execute(&block, hash, true)
             else {
                 panic!("a certified retry must finish the same original execution")
             };
@@ -210,10 +210,10 @@ fn sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry(
             assert_eq!(Some(certified_result), encoded_result);
             // The completed result is not a permanent exemption for later uncertified requests.
             assert!(
-                matches!(worker.execute(&block, hash, false), Some(ExecOutcome::Failed(reason)) if reason.contains("StaleDueWork"))
+                matches!(worker.execute(&block, hash, false), Err(PublicationError::Retryable(reason)) if reason.contains("StaleDueWork"))
             );
             assert_eq!(
-                worker.execute(&block, hash, true),
+                worker.execute(&block, hash, true).unwrap(),
                 Some(ExecOutcome::Valid(certified_result))
             );
         },
@@ -248,7 +248,7 @@ fn sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coord
             let block = chain.author_payload(header, bytes);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             clock.set(Duration::from_millis(due + lag));
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+            let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
                 panic!("genuine due candidate is valid at the exact CT5 boundary");
             };
             let guard = &worker.prepare_clock;
@@ -296,7 +296,7 @@ fn sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coord
                 "CT5 must resample the original clock at Prepare signing after Valid was delivered"
             );
             assert_eq!(
-                worker.execute(&block, hash, true),
+                worker.execute(&block, hash, true).unwrap(),
                 Some(ExecOutcome::Valid(result))
             );
             assert_eq!(

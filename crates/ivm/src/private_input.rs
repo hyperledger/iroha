@@ -273,10 +273,10 @@ mod tests {
             alternate, canonical,
             "fixture must exercise a non-canonical outer layout"
         );
-        assert_eq!(
+        assert!(matches!(
             decode_record(&alternate, PrivateInputKindV1::Quantity),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         let _ambient = norito::core::DecodeFlagsGuard::enter(alternate_flags);
         assert_eq!(
             encode_record(&record).expect("encode under alternate ambient layout"),
@@ -306,7 +306,10 @@ mod tests {
             oversized.payload.len() > MAX_INT_FRAME_BYTES_V1,
             "fixture must exercise the pre-serialization payload bound"
         );
-        assert_eq!(encode_record(&oversized), Err(VMError::NoritoInvalid));
+        assert!(matches!(
+            encode_record(&oversized),
+            Err(VMError::NoritoInvalid)
+        ));
     }
     #[test]
     fn commitment_preserves_the_full_compressed_point() {

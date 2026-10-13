@@ -116,7 +116,7 @@ fn replaced_terminal_snapshot_is_retained_then_erased_in_its_original_box() {
         });
         assert_eq!(recorder.end().unwrap().state.registers, [value; 256]);
         assert_eq!(recorder.end().unwrap().state.tags, [true; 256]);
-        assert_eq!(recorder.end().unwrap().outcome, Ok(()));
+        assert!(matches!(recorder.end().unwrap().outcome, Ok(())));
     }
     let base = (&raw const *recorder).cast::<u8>();
     let end = recorder.end().unwrap();
@@ -145,9 +145,8 @@ fn refused_step_completion_preserves_published_rows_and_original_credit() {
         .finish_step(first, state(33), DiagnosticStepOutcome::Completed)
         .unwrap();
     let expected = recorder.records()[0];
-    assert_eq!(
-        recorder.finish_step(stale, state(44), DiagnosticStepOutcome::Completed),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(recorder.finish_step(stale, state(44), DiagnosticStepOutcome::Completed), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             ExecutionDeferral::AllocationUnavailable
         ))
     );

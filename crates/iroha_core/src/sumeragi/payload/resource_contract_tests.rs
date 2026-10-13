@@ -178,7 +178,10 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
 
     // Height 2: the largest includable transaction.
     let largest = sized(&chain, &clock, INCLUDABLE, 1_500);
-    assert_eq!(admission(&chain, &largest), Ok(()));
+    assert_eq!(
+        (admission(&chain, &largest)).expect("completed fixture operation"),
+        ()
+    );
     let wire = chain
         .proposal(None, vec![largest.clone()])
         .resultless_proposal_wire_len()
@@ -216,7 +219,7 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
         &time,
     ));
     for transaction in &window {
-        assert_eq!(admission(&chain, transaction), Ok(()));
+        assert_eq!(admission(&chain, transaction).unwrap(), ());
         let accepted = AcceptedTransaction::accept_with_time_source(
             transaction.clone(),
             &chain.network_id(),
@@ -257,7 +260,7 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
         .map(|index| sized(&chain, &clock, INCLUDABLE, 3_500 + index))
         .collect::<Vec<_>>();
     for transaction in &oversized {
-        assert_eq!(admission(&chain, transaction), Ok(()));
+        assert_eq!(admission(&chain, transaction).unwrap(), ());
     }
     let wire = chain
         .proposal(None, oversized)
@@ -555,7 +558,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
         &at_cap_lane,
         &at_global,
     ] {
-        assert_eq!(admission(accepted), Ok(()));
+        assert_eq!(admission(accepted).unwrap(), ());
     }
 
     // Queue custody retains valid inputs even when the lane alone cannot carry them.

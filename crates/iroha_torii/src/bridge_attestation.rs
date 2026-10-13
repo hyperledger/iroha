@@ -507,17 +507,18 @@ mod tests {
             build_failure(BuildError::StatusHeightMismatch, 2),
             Reason::TipChanged
         );
-        for error in [
-            ProofError::Chain(ChainReadError::NotCommitted { height: 1 }),
-            ProofError::Chain(ChainReadError::MissingCertificate { height: 1 }),
-            ProofError::UnverifiedCommittee(1),
-        ] {
+        let completed: [fn() -> ProofError; 3] = [
+            || ProofError::Chain(ChainReadError::NotCommitted { height: 1 }),
+            || ProofError::Chain(ChainReadError::MissingCertificate { height: 1 }),
+            || ProofError::UnverifiedCommittee(1),
+        ];
+        for completed in completed {
             assert_eq!(
-                build_failure(BuildError::FinalityProof(error.clone()), 1),
+                build_failure(BuildError::FinalityProof(completed()), 1),
                 Reason::FinalityUnavailable
             );
             assert_eq!(
-                build_failure(BuildError::GenesisFinalityProof(error), 1),
+                build_failure(BuildError::GenesisFinalityProof(completed()), 1),
                 Reason::FinalityUnavailable
             );
         }

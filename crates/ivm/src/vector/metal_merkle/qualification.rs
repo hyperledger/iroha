@@ -114,8 +114,9 @@ fn required_metal_merkle_readback_rechecks_original_owner_after_completion() {
             assert_eq!(blocks, original_blocks);
             assert_eq!(expected_leaves, original_leaves);
             assert_eq!(
-                crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(&data, 32),
-                Ok(expected_root),
+                (crate::byte_merkle_tree::ByteMerkleTree::root_from_bytes_accel(&data, 32))
+                    .expect("expected successful fixture result"),
+                expected_root,
                 "original-input fallback remains canonical"
             );
             crate::set_acceleration_config(enabled);

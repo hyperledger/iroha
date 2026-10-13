@@ -62,7 +62,7 @@ fn paid_block(
         chain.sign(customer, instructions, time)
     });
     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
+    let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
         panic!("genuine paid original must execute");
     };
     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
@@ -523,7 +523,7 @@ fn original_paid_prepared_witness_survives_same_block_pruning_before_intent_comm
                     let block = publication_tests::proposal_with_transaction(chain, worker,
                         |chain, time| chain.sign(&customer, instructions, time));
                     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-                    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
+                    let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else { panic!("actual paid same-block Prepare originals must execute"); };
                     let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);
                     let live = worker.live.as_ref().unwrap();
                     let overlay = live.overlay.as_deref().unwrap();

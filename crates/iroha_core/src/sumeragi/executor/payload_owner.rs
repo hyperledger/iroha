@@ -1034,7 +1034,10 @@ mod tests {
             let PublicationError::Deferred(ref refusal) = failure else {
                 panic!("original certificate preparation must retain its capacity refusal");
             };
-            let original_refusal = refusal.clone();
+            let original_refusal = refusal
+                .allocation_refusal()
+                .expect("original State pool refusal")
+                .clone();
             let Some(AllocationRefusal::Capacity { release, .. }) = refusal.allocation_refusal()
             else {
                 panic!("the actual original State pool supplies the release observation");
@@ -1043,7 +1046,18 @@ mod tests {
             let context = &mut Context::from_waker(Waker::noop());
             assert_eq!(registration.poll_wait(&wait, context), Poll::Pending);
             scheduler.done(0, ExecDone::Prepared(Err(failure)));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             assert!(scheduler.next(0).is_none());
             assert_eq!(scheduler.wakeup(), u64::MAX);
             assert_eq!(retained_partial_pointer(worker), partial_pointer);
@@ -1081,7 +1095,18 @@ mod tests {
                 panic!("actual original-pool retirement permits the same committed head to retry");
             };
             assert!(Arc::ptr_eq(&original, &retry));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             // The independent pressure owner is deliberately still retained at
             // every retirement, identity and wake assertion above.
             drop(pressure);

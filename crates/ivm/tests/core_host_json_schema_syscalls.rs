@@ -231,7 +231,7 @@ fn json_decode_rejects_retired_blob_carrier() {
     );
     vm.set_register(10, p_blob);
     vm.load_program(&dec_prog).unwrap();
-    assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
     assert_eq!(vm.register(10), p_blob);
 }
 #[test]
@@ -273,9 +273,8 @@ fn json_get_blob_hex_rejects_noncanonical_and_malformed_spellings() {
         vm.set_register(10, p_json);
         vm.set_register(11, p_key);
         vm.load_program(&program).expect("load blob getter");
-        assert_eq!(
-            vm.run(),
-            Err(ivm::VMError::DecodeError),
+        assert!(
+            matches!(vm.run(), Err(ivm::VMError::DecodeError)),
             "`{invalid}` must not decode as canonical bytes or read as absent"
         );
     }
@@ -413,7 +412,7 @@ fn schema_unknown_and_malformed_inputs_fail_closed() {
         vm.set_register(10, p_schema);
         vm.set_register(11, p_bytes);
         vm.load_program(&dec).unwrap();
-        assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+        assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
         assert_eq!(vm.register(10), p_schema);
         assert_eq!(vm.register(11), p_bytes);
     }
@@ -436,7 +435,7 @@ fn schema_unknown_and_malformed_inputs_fail_closed() {
     vm.set_register(10, p_schema);
     vm.set_register(11, p_json);
     vm.load_program(&enc).unwrap();
-    assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
     assert_eq!(vm.register(10), p_schema);
     assert_eq!(vm.register(11), p_json);
 }
@@ -487,7 +486,7 @@ fn schema_info_resolves_only_explicit_families() {
         let program = common::assemble_syscalls(&[syscalls::SYSCALL_SCHEMA_INFO]);
         vm.set_register(10, p_schema);
         vm.load_program(&program).expect("load schema info program");
-        assert_eq!(vm.run(), Err(ivm::VMError::NoritoInvalid));
+        assert!(matches!(vm.run(), Err(ivm::VMError::NoritoInvalid)));
         assert_eq!(vm.register(10), p_schema);
     }
 }
@@ -858,5 +857,5 @@ fn json_get_account_id_rejects_noncanonical_contract_address_literal() {
     vm.load_program(&prog).unwrap();
     // A present field that is not a canonical AccountId literal traps instead
     // of reading as an absent field.
-    assert_eq!(vm.run(), Err(ivm::VMError::DecodeError));
+    assert!(matches!(vm.run(), Err(ivm::VMError::DecodeError)));
 }

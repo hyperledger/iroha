@@ -71,18 +71,29 @@ fn without_allocations<T>(operation: impl FnOnce() -> T) -> T {
 
 #[test]
 fn local_reasons_and_nested_metering_convert_without_allocating() {
-    for original in [
-        VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
-        VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
-        VMError::ExecutionDeferred(ExecutionDeferral::VerifierArtifactsUnavailable),
-        VMError::AllocationDeferred(AllocationRefusal::DemandOverflow),
-        VMError::AllocationDeferred(AllocationRefusal::ExceedsLimit {
-            requested_bytes: 9,
-            limit_bytes: 8,
-        }),
-    ] {
+    for fixture in 0..5 {
         for depth in 0..=2 {
-            let mut wrapped = original.clone();
+            let original = [
+                VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
+                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                VMError::ExecutionDeferred(ExecutionDeferral::VerifierArtifactsUnavailable),
+                VMError::AllocationDeferred(AllocationRefusal::DemandOverflow),
+                VMError::AllocationDeferred(AllocationRefusal::ExceedsLimit {
+                    requested_bytes: 9,
+                    limit_bytes: 8,
+                }),
+            ]
+            .into_iter()
+            .nth(fixture)
+            .unwrap();
+            let expected_reason = original.execution_deferral();
+            let expected_allocation = match &original {
+                VMError::AllocationDeferred(original) => Some(original.clone()),
+                VMError::ExecutionDeferred(_) => None,
+                _ => unreachable!("fixture consists of exact local variants"),
+            };
+            let expected_display = original.to_string();
+            let mut wrapped = original;
             for _ in 0..depth {
                 wrapped = VMError::Metered {
                     gas: 91,
@@ -94,10 +105,19 @@ fn local_reasons_and_nested_metering_convert_without_allocating() {
             });
             assert_eq!(
                 error.to_string(),
-                format!("contract preparation deferred during decoded instructions: {original}")
+                format!(
+                    "contract preparation deferred during decoded instructions: {expected_display}"
+                )
             );
             let converted = without_allocations(|| error.into_vm_error());
-            assert_eq!(converted, original);
+            assert_eq!(converted.execution_deferral(), expected_reason);
+            match (&converted, expected_allocation.as_ref()) {
+                (VMError::AllocationDeferred(actual), Some(expected)) => {
+                    assert_eq!(actual, expected)
+                }
+                (VMError::ExecutionDeferred(_), None) => {}
+                _ => panic!("conversion changed the exact local owner variant"),
+            }
             assert_eq!(converted.metered_gas(), None);
         }
     }
@@ -129,13 +149,13 @@ fn original_capacity_refusal_survives_unmetered_conversion_and_wakes_only_on_its
         gas: 123,
         source: Box::new(VMError::Metered {
             gas: 456,
-            source: Box::new(original.clone()),
+            source: Box::new(original),
         }),
     };
     let converted = without_allocations(|| {
         ContractArtifactError::preparation("prepared operations", wrapped).into_vm_error()
     });
-    assert_eq!(converted, original);
+    assert!(matches!(&converted, VMError::AllocationDeferred(actual) if actual == &refusal));
     assert_eq!(converted.metered_gas(), None);
     let VMError::AllocationDeferred(AllocationRefusal::Capacity { release, .. }) = converted else {
         panic!("must preserve the actual release owner");
@@ -172,5 +192,20 @@ fn exact_abi_hash_pair_conversion_does_not_require_a_box() {
     let error = without_allocations(|| {
         ContractArtifactError::abi_hash_mismatch(expected, actual).into_vm_error()
     });
-    assert_eq!(error, VMError::ArtifactAbiHashMismatch { expected, actual });
+    assert!(match (
+        &(error),
+        &(VMError::ArtifactAbiHashMismatch { expected, actual })
+    ) {
+        (
+            VMError::ArtifactAbiHashMismatch {
+                expected: actual_field_0,
+                actual: actual_field_1,
+            },
+            VMError::ArtifactAbiHashMismatch {
+                expected: expected_field_0,
+                actual: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }

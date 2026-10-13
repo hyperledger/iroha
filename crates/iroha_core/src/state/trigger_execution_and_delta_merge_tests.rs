@@ -915,19 +915,24 @@ fn generic_trigger_resolution_retains_original_allocation_refusal() {
     budget.set_limit_bytes(0);
     assert!(transaction.resolve_ivm_trigger_program(&blob_hash).is_err());
     let reason = transaction
-        .execution_deferral()
+        .borrow_execution_deferral()
         .expect("original local refusal");
     assert!(matches!(
         reason.allocation_refusal(),
         Some(AllocationRefusal::ExceedsLimit { limit_bytes: 0, .. })
     ));
+    let original_reason = reason.reason();
+    let original_allocation = reason.allocation_refusal().unwrap().clone();
+    drop(reason);
     assert_eq!(transaction.last_tx_gas_used, 0);
     budget.set_limit_bytes(original_limit);
     assert!(matches!(
         transaction.resolve_ivm_trigger_program(&blob_hash),
         Ok(Some(ResolvedIvmTriggerProgram::Generic(_)))
     ));
-    assert_eq!(transaction.execution_deferral(), Some(reason));
+    let retained = transaction.borrow_execution_deferral().unwrap();
+    assert_eq!(retained.reason(), original_reason);
+    assert_eq!(retained.allocation_refusal(), Some(&original_allocation));
 }
 
 #[test]

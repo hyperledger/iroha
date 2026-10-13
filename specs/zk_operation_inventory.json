@@ -399,7 +399,7 @@
    "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "symbol": "pub fn verify_authorization("},
    "core": {
     "path": "crates/iroha_core_zk/src/lib.rs",
-    "symbol": "pub fn verify_backend(backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>) -> bool {",
+    "symbol": "pub fn verify_backend( backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>, ) -> Result<bool, VerificationRefusal> {",
     "via": [
      {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
      {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn verify_backend_with_timing_guardrails("}
@@ -428,7 +428,7 @@
    "verifier": {"path": "crates/iroha_core/src/smartcontracts/isi/kaigi/privacy.rs", "symbol": "pub fn verify_usage_commitment("},
    "core": {
     "path": "crates/iroha_core_zk/src/lib.rs",
-    "symbol": "pub fn verify_backend(backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>) -> bool {",
+    "symbol": "pub fn verify_backend( backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>, ) -> Result<bool, VerificationRefusal> {",
     "via": [
      {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
      {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn verify_backend_with_timing_guardrails("}
@@ -9667,7 +9667,7 @@
  "admission_routes": {
   "note": "The route classes requirement REQ-061 names. `validity_inputs` names inputs of the route that are not transaction bytes: `source` says whether each is the committed ZK validity policy, node configuration or a Cargo feature. The runtime-validity census of task F.4 (`inventories.runtime_validity`) is the authority on that list; entries here point at it.",
   "generic_verification": {
-   "what": "`VerifyProof` and the purpose-bound verifier it shares with protocol handlers. The caller names the relation; the envelope's circuit selects only among compiled relations.",
+   "what": "`VerifyProof` and the purpose-bound verifier it shares with protocol handlers. The caller names the relation; the envelope's circuit selects only among compiled relations. Unfinished verification retains its original local refusal separately from a completed cryptographic verdict.",
    "operations": ["zk::VerifyProof"],
    "sites": [
     {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "impl Execute for zk::VerifyProof"},
@@ -9677,7 +9677,7 @@
     {"path": "crates/iroha_core_zk/src/verification.rs", "symbol": "pub fn verify_for_relation("},
     {
      "path": "crates/iroha_core_zk/src/lib.rs",
-     "symbol": "pub fn verify_backend(backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>) -> bool {"
+     "symbol": "pub fn verify_backend( backend: &str, proof: &ProofBox, vk: Option<&VerifyingKeyBox>, ) -> Result<bool, VerificationRefusal> {"
     }
    ],
    "validity_inputs": [
@@ -9758,11 +9758,11 @@
    ]
   },
   "preverification": {
-   "what": "Lightweight admission of signed-transaction proof attachments: backend label, verifying-key binding, bounded envelope parsing and per-block deduplication. Cryptographic verification is deferred to execution; a preverified attachment is not a verified proof.",
+   "what": "Lightweight admission of signed-transaction proof attachments: backend label, verifying-key binding, bounded envelope parsing and per-block deduplication. Cryptographic verification is deferred to execution; a preverified attachment is not a verified proof. The executor retains an original local preverification refusal in State before any completed attachment verdict is handled.",
    "sites": [
     {"path": "crates/iroha_core_zk/src/lib.rs", "symbol": "pub fn preverify_with_budget("},
     {"path": "crates/iroha_core/src/state.rs", "symbol": "pub fn preverify_proof("},
-    {"path": "crates/iroha_core/src/executor.rs", "symbol": "let res = state_transaction.preverify_proof("}
+    {"path": "crates/iroha_core/src/executor.rs", "symbol": "let res = state_transaction .preverify_proof("}
    ],
    "validity_inputs": [
     {
@@ -9800,7 +9800,7 @@
      "source": "cargo_feature",
      "site": {
       "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
-      "symbol": "#[cfg(feature = \"zk-stark\")] validate_soracloud_fhe_stark_verifying_key_payload(profile, vk)?;"
+      "symbol": "#[cfg(feature = \"zk-stark\")] validate_soracloud_fhe_stark_verifying_key_payload(profile, vk, state_transaction)?;"
      },
      "owner_task": "F.4",
      "references": [

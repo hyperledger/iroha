@@ -118,7 +118,7 @@ pub fn check_includable_transaction<W: WorldReadOnly>(
 }
 
 /// Why a payload could not be built or decoded.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PayloadError {
     /// No transaction can justify creating a block.
     #[error("block proposal must contain at least one transaction")]
@@ -161,54 +161,64 @@ pub enum PayloadError {
     SignatureCustodyInvariant(String),
 }
 
-fn staking_preparation_error(error: eyre::Report) -> PayloadError {
+fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
     if !cfg!(all(test, sumeragi_core_mutation = "HC49")) {
-        if let Some(refusal) = error.downcast_ref::<crate::state::EvidencePreparationError>() {
-            return PayloadError::StakingPreparation(refusal.clone());
-        }
-        if let Some(refusal) = error.downcast_ref::<crate::state::StateAdmissionError>() {
-            return PayloadError::StakingAdmission(refusal.clone());
-        }
-        if let Some(refusal) = error.downcast_ref::<crate::state::MergeLedgerCommitError>() {
-            use crate::state::{MergeLedgerCommitError, StateAdmissionError};
-            let admission = match refusal {
-                MergeLedgerCommitError::StateStorageAdmission(original) => {
-                    Some(StateAdmissionError::Storage(original.clone()))
-                }
-                MergeLedgerCommitError::BlockHashAdmission(original) => {
-                    Some(StateAdmissionError::History(original.clone()))
-                }
-                MergeLedgerCommitError::MembershipAdmission(original) => {
-                    Some(StateAdmissionError::Membership(original.clone()))
-                }
-                MergeLedgerCommitError::ExecutionDeferred(original) => {
-                    return PayloadError::RoutingDeferred(original.clone());
-                }
-                _ => None,
-            };
-            if let Some(original) = admission {
-                return PayloadError::StakingAdmission(original);
+        error = match error.downcast::<crate::state::EvidencePreparationError>() {
+            Ok(original) => return PayloadError::StakingPreparation(original),
+            Err(error) => error,
+        };
+        error = match error.downcast::<crate::state::StateAdmissionError>() {
+            Ok(original) => return PayloadError::StakingAdmission(original),
+            Err(error) => error,
+        };
+        error = match error.downcast::<crate::state::MergeLedgerCommitError>() {
+            Ok(original) => {
+                use crate::state::{MergeLedgerCommitError, StateAdmissionError};
+                return match original {
+                    MergeLedgerCommitError::StateStorageAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::Storage(original))
+                    }
+                    MergeLedgerCommitError::BlockHashAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::History(original))
+                    }
+                    MergeLedgerCommitError::MembershipAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::Membership(original))
+                    }
+                    MergeLedgerCommitError::ExecutionDeferred(original) => {
+                        PayloadError::RoutingDeferred(original)
+                    }
+                    other => PayloadError::Staking(other.to_string()),
+                };
             }
+            Err(error) => error,
+        };
+    }
+    use crate::execution_attempt::ExecutionAttemptError;
+    error = match error.downcast::<ExecutionAttemptError<String>>() {
+        Ok(ExecutionAttemptError::Deferred(original)) => {
+            return PayloadError::RoutingDeferred(original);
         }
-    }
-    if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-        error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<String>>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
-    if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-        error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<
-            iroha_data_model::isi::error::InstructionExecutionError,
-        >>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
-    if let Some(super::evidence::EvidenceAdmissionError::Policy(
-        crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
-    )) = error.downcast_ref::<super::evidence::EvidenceAdmissionError>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
+        Ok(ExecutionAttemptError::Rejected(reason)) => return PayloadError::Staking(reason),
+        Err(error) => error,
+    };
+    error = match error
+        .downcast::<ExecutionAttemptError<iroha_data_model::isi::error::InstructionExecutionError>>(
+        ) {
+        Ok(ExecutionAttemptError::Deferred(original)) => {
+            return PayloadError::RoutingDeferred(original);
+        }
+        Ok(ExecutionAttemptError::Rejected(reason)) => {
+            return PayloadError::Staking(reason.to_string());
+        }
+        Err(error) => error,
+    };
+    error = match error.downcast::<super::evidence::EvidenceAdmissionError>() {
+        Ok(super::evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(
+            original,
+        ))) => return PayloadError::RoutingDeferred(original),
+        Ok(other) => return PayloadError::Staking(other.to_string()),
+        Err(error) => error,
+    };
     PayloadError::Staking(error.to_string())
 }
 
@@ -926,31 +936,40 @@ mod tests {
         let chain = CertifiedTestChain::start(config).unwrap();
         let view = chain.state().view();
         let policy = view.world().sumeragi_npos_parameters().unwrap();
-        let error = norito::with_decode_limits_scope(
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-            || view.world().sumeragi_npos_parameters(),
-        )
-        .unwrap_err()
-        .map_rejection(|message| InstructionExecutionError::InvariantViolation(message.into()));
-        let ExecutionAttemptError::Deferred(expected) = &error else {
-            panic!("original decoder must refuse: {error:?}");
-        };
-        let expected = expected.clone();
-        let payload = staking_preparation_error(
-            eyre::Report::new(error.clone()).wrap_err("original staking preparation"),
-        );
-        assert!(
-            matches!(&payload, PayloadError::RoutingDeferred(actual) if actual == &expected),
-            "payload erased original policy refusal: {payload:?}"
-        );
-        let block = crate::block::BlockValidationError::from_npos_application_error(
-            eyre::Report::new(error).wrap_err("original staking preparation"),
-            "validation",
-        );
-        assert!(
-            matches!(&block, crate::block::BlockValidationError::ExecutionDeferred(actual) if actual == &expected),
-            "validation erased original policy refusal: {block:?}"
-        );
+        for boundary in ["payload", "block"] {
+            let error = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+                || view.world().sumeragi_npos_parameters(),
+            )
+            .unwrap_err()
+            .map_rejection(|message| InstructionExecutionError::InvariantViolation(message.into()));
+            let ExecutionAttemptError::Deferred(expected) = &error else {
+                panic!("original decoder must refuse: {error:?}");
+            };
+            let expected = expected
+                .decode_refusal()
+                .expect("genuine captured policy decoder")
+                .clone();
+            let report = eyre::Report::new(error).wrap_err("original staking preparation");
+            if boundary == "payload" {
+                let payload = staking_preparation_error(report);
+                assert!(
+                    matches!(&payload, PayloadError::RoutingDeferred(actual)
+                    if actual.decode_refusal() == Some(&expected)),
+                    "payload erased original policy refusal: {payload:?}"
+                );
+            } else {
+                let block = crate::block::BlockValidationError::from_npos_application_error(
+                    report,
+                    "validation",
+                );
+                assert!(
+                    matches!(&block, crate::block::BlockValidationError::ExecutionDeferred(actual)
+                    if actual.decode_refusal() == Some(&expected)),
+                    "validation erased original policy refusal: {block:?}"
+                );
+            }
+        }
         assert_eq!(view.world().sumeragi_npos_parameters().unwrap(), policy);
     }
 
@@ -1015,7 +1034,7 @@ mod tests {
             "the transport payload itself is nonempty"
         );
         assert!(matches!(decode(&bytes), Err(PayloadError::EmptyBlock)));
-        assert_eq!(encode(&block), Err(PayloadError::EmptyBlock));
+        assert!(matches!(encode(&block), Err(PayloadError::EmptyBlock)));
     }
 
     #[test]

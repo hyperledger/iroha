@@ -184,16 +184,22 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
     };
     let minimum_prefix = |include_root| {
         let (mut lower, mut upper) = (0, 65_536);
-        assert_eq!(prefix_fits(upper, include_root), Ok(true));
+        assert_eq!(
+            (prefix_fits(upper, include_root)).expect("completed fixture operation"),
+            true
+        );
         while lower < upper {
             let middle = lower + (upper - lower) / 2;
-            if prefix_fits(middle, include_root) == Ok(true) {
+            if matches!(prefix_fits(middle, include_root), Ok(true)) {
                 upper = middle;
             } else {
                 lower = middle + 1;
             }
         }
-        assert_eq!(prefix_fits(lower, include_root), Ok(true));
+        assert_eq!(
+            (prefix_fits(lower, include_root)).expect("completed fixture operation"),
+            true
+        );
         lower
     };
     let metadata_prefix = minimum_prefix(false);
@@ -296,7 +302,7 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
         );
         assert!(matches!(error, ValidationFail::InternalError(_)));
         assert_eq!(
-            attempt.execution_deferral().unwrap().reason(),
+            attempt.borrow_execution_deferral().unwrap().reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert_eq!(
@@ -317,7 +323,7 @@ fn original_claim_fee_admission_latches_refusal_before_debit_and_publication() {
     );
     let mut retry = block.transaction();
     validate_transaction_fee_admission(&mut retry, &transaction).unwrap();
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     assert_eq!(
         retry.world.assets().get(&payer).unwrap().as_ref(),
         &Quantity::from(100_u32)

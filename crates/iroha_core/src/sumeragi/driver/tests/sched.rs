@@ -519,7 +519,12 @@ impl Executor for Panicking {
         panic!("boom")
     }
 
-    fn execute(&mut self, _: &AvailableBody, _: &Hash32, _: bool) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        _: &AvailableBody,
+        _: &Hash32,
+        _: bool,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         panic!("boom")
     }
     fn discard(&mut self, _: u64, _: &[Hash32]) {}
@@ -563,7 +568,7 @@ fn executor_panics_become_local_failures() {
     );
     assert!(matches!(
         done,
-        ExecDone::Executed(Some(ExecOutcome::Failed(_)))
+        ExecDone::Executed(Err(PublicationError::RecoveryRequired(_)))
     ));
     let commit = std::sync::Arc::new(super::super::exec::Commit {
         qc: commit_qc(&b1, r1),
@@ -642,7 +647,7 @@ fn certified_execution_flag_reaches_the_application_without_inference() {
                     certified
                 },
             ),
-            ExecDone::Executed(Some(ExecOutcome::Valid(_)))
+            ExecDone::Executed(Ok(Some(ExecOutcome::Valid(_))))
         ));
     }
     assert_eq!(
@@ -678,7 +683,7 @@ impl Executor for Overlay {
         block: &AvailableBody,
         block_hash: &Hash32,
         certified: bool,
-    ) -> Option<ExecOutcome> {
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.certified_calls.push(certified);
         self.other("execute");
         self.inner.execute(block, block_hash, certified)

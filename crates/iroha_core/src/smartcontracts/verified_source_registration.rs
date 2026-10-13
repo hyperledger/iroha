@@ -156,12 +156,12 @@ fn finish_native_compilation(
     }
     let verified =
         ivm::verify_contract_artifact_with_memory_budget(&native.output.artifact, execution_owner)
-            .map_err(|error| {
-                error
-                    .local_vm_error()
-                    .and_then(|error| ExecutionDeferred::from_vm_error(&error))
-                    .map(ExecutionAttemptError::Deferred)
-                    .unwrap_or_else(|| RegistrationError::Artifact.into())
+            .map_err(|error| match error.try_into_local_vm_error() {
+                Ok(local) => match ExecutionDeferred::try_from_vm_error(local) {
+                    Ok(owner) => ExecutionAttemptError::Deferred(owner),
+                    Err(_) => RegistrationError::Artifact.into(),
+                },
+                Err(_) => RegistrationError::Artifact.into(),
             })?;
     if verified.code_hash != identity.artifact_id.code_hash
         || !manifest.same_signed_content(&verified.manifest)

@@ -25,7 +25,10 @@ async fn block_and_header_queries_fail_on_hash_only_history_gap() -> Result<()> 
             )
         )
     ));
-    assert_eq!(headers_error, blocks_error);
+    assert_eq!(
+        crate::execution_attempt::expect_completed_rejection(headers_error),
+        crate::execution_attempt::expect_completed_rejection(blocks_error)
+    );
     Ok(())
 }
 

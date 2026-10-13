@@ -229,29 +229,33 @@ mod tests {
         let base =
             allocate_words(&mut vm, layout, &[vec![1, 2], vec![3, 4]]).expect("allocate list");
         assert_eq!(base, Memory::HEAP_START);
-        assert_eq!(vm.load_u64(base), Ok(2));
+        assert!(matches!(vm.load_u64(base), Ok(2)));
         assert_eq!(
-            vm.load_u64(base + capacity_word_offset()),
-            Ok(u64::from(layout.capacity()))
+            (vm.load_u64(base + capacity_word_offset()))
+                .expect("expected successful fixture result"),
+            u64::from(layout.capacity())
         );
         assert_eq!(
-            read_words(&vm, base, layout),
-            Ok(vec![vec![1, 2], vec![3, 4]])
+            (read_words(&vm, base, layout)).expect("expected successful fixture result"),
+            vec![vec![1, 2], vec![3, 4]]
         );
     }
     #[test]
     fn allocation_rejects_capacity_and_element_width_before_mutating_vm() {
         let mut vm = IVM::new(0);
         let layout = ListLayoutV1::try_new(2, 2).expect("layout");
-        assert_eq!(
+        assert!(matches!(
             allocate_words(&mut vm, layout, &[vec![1], vec![2, 3]]),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             allocate_words(&mut vm, layout, &[vec![1, 2], vec![3, 4], vec![5, 6]]),
             Err(VMError::DecodeError)
+        ));
+        assert_eq!(
+            (allocate_words(&mut vm, layout, &[])).expect("expected successful fixture result"),
+            Memory::HEAP_START
         );
-        assert_eq!(allocate_words(&mut vm, layout, &[]), Ok(Memory::HEAP_START));
     }
     #[test]
     fn forged_headers_and_unowned_ranges_fail_closed() {
@@ -260,16 +264,25 @@ mod tests {
         let base = allocate_words(&mut vm, layout, &[vec![7]]).expect("list");
         vm.store_u64(base + capacity_word_offset(), 3)
             .expect("forge capacity");
-        assert_eq!(read_words(&vm, base, layout), Err(VMError::DecodeError));
+        assert!(matches!(
+            read_words(&vm, base, layout),
+            Err(VMError::DecodeError)
+        ));
         vm.store_u64(base + capacity_word_offset(), 2)
             .expect("restore capacity");
         vm.store_u64(base, 3).expect("forge length");
-        assert_eq!(read_words(&vm, base, layout), Err(VMError::DecodeError));
-        assert_eq!(
+        assert!(matches!(
+            read_words(&vm, base, layout),
+            Err(VMError::DecodeError)
+        ));
+        assert!(matches!(
             read_words(&vm, Memory::HEAP_START + 4096, layout),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(read_words(&vm, base + 1, layout), Err(VMError::DecodeError));
+        ));
+        assert!(matches!(
+            read_words(&vm, base + 1, layout),
+            Err(VMError::DecodeError)
+        ));
     }
     #[test]
     fn safe_list_operations_preserve_capacity_and_element_order() {
@@ -277,25 +290,48 @@ mod tests {
         let layout = ListLayoutV1::try_new(3, 2).expect("layout");
         let base =
             allocate_words(&mut vm, layout, &[vec![1, 2], vec![3, 4]]).expect("allocate list");
-        assert_eq!(len(&vm, base, layout), Ok(2));
-        assert_eq!(get_words(&vm, base, layout, 0), Ok(Some(vec![1, 2])));
-        assert_eq!(get_words(&vm, base, layout, 2), Ok(None));
-        assert_eq!(contains_words(&vm, base, layout, &[3, 4]), Ok(true));
-        assert_eq!(contains_words(&vm, base, layout, &[4, 3]), Ok(false));
-        assert_eq!(try_set_words(&mut vm, base, layout, 1, &[5, 6]), Ok(true));
-        assert_eq!(try_push_words(&mut vm, base, layout, &[7, 8]), Ok(true));
+        assert!(matches!(len(&vm, base, layout), Ok(2)));
         assert_eq!(
-            read_words(&vm, base, layout),
-            Ok(vec![vec![1, 2], vec![5, 6], vec![7, 8]])
-        );
-        assert_eq!(pop_words(&mut vm, base, layout), Ok(Some(vec![7, 8])));
-        assert_eq!(
-            read_words(&vm, base, layout),
-            Ok(vec![vec![1, 2], vec![5, 6]])
+            (get_words(&vm, base, layout, 0)).expect("expected successful fixture result"),
+            Some(vec![1, 2])
         );
         assert_eq!(
-            vm.load_u64(base + layout.slot_offset(2).expect("third slot")),
-            Ok(0),
+            (get_words(&vm, base, layout, 2)).expect("expected successful fixture result"),
+            None
+        );
+        assert!(matches!(
+            contains_words(&vm, base, layout, &[3, 4]),
+            Ok(true)
+        ));
+        assert!(matches!(
+            contains_words(&vm, base, layout, &[4, 3]),
+            Ok(false)
+        ));
+        assert!(matches!(
+            try_set_words(&mut vm, base, layout, 1, &[5, 6]),
+            Ok(true)
+        ));
+        assert!(matches!(
+            try_push_words(&mut vm, base, layout, &[7, 8]),
+            Ok(true)
+        ));
+        assert_eq!(
+            (read_words(&vm, base, layout)).expect("expected successful fixture result"),
+            vec![vec![1, 2], vec![5, 6], vec![7, 8]]
+        );
+        assert_eq!(
+            (pop_words(&mut vm, base, layout)).expect("expected successful fixture result"),
+            Some(vec![7, 8])
+        );
+        assert_eq!(
+            (read_words(&vm, base, layout)).expect("expected successful fixture result"),
+            vec![vec![1, 2], vec![5, 6]]
+        );
+        assert!(
+            matches!(
+                vm.load_u64(base + layout.slot_offset(2).expect("third slot")),
+                Ok(0)
+            ),
             "pop clears inactive storage"
         );
     }
@@ -311,14 +347,14 @@ mod tests {
             let before = (0..layout.allocation_bytes().expect("allocation bytes") / 8)
                 .map(|word| vm.load_u64(base + word * 8).expect("reserved word"))
                 .collect::<Vec<_>>();
-            assert_eq!(
+            assert!(matches!(
                 try_set_words(&mut vm, base, layout, capacity, &[999, 1000]),
                 Ok(false)
-            );
-            assert_eq!(
+            ));
+            assert!(matches!(
                 try_push_words(&mut vm, base, layout, &[999, 1000]),
                 Ok(false)
-            );
+            ));
             let after = (0..layout.allocation_bytes().expect("allocation bytes") / 8)
                 .map(|word| vm.load_u64(base + word * 8).expect("reserved word"))
                 .collect::<Vec<_>>();
@@ -354,24 +390,34 @@ mod tests {
                         })
                         .collect::<Vec<_>>();
                     let base = allocate_words(&mut vm, layout, &model).expect("allocate list");
-                    assert_eq!(read_words(&vm, base, layout), Ok(model.clone()));
-                    assert_eq!(len(&vm, base, layout), Ok(active_len));
+                    assert_eq!(
+                        (read_words(&vm, base, layout))
+                            .expect("expected successful fixture result"),
+                        model.clone()
+                    );
+                    assert_eq!(
+                        (len(&vm, base, layout)).expect("expected successful fixture result"),
+                        active_len
+                    );
                     for index in 0..active_len {
                         assert_eq!(
-                            get_words(&vm, base, layout, index),
-                            Ok(Some(
-                                model[usize::try_from(index).expect("bounded index")].clone()
-                            ))
+                            (get_words(&vm, base, layout, index))
+                                .expect("expected successful fixture result"),
+                            Some(model[usize::try_from(index).expect("bounded index")].clone())
                         );
                     }
-                    assert_eq!(get_words(&vm, base, layout, active_len), Ok(None));
+                    assert_eq!(
+                        (get_words(&vm, base, layout, active_len))
+                            .expect("expected successful fixture result"),
+                        None
+                    );
                     let width = usize::try_from(element_words).expect("bounded element width");
                     let replacement = vec![9_000 + active_len; width];
                     let before_failed_set = snapshot(&vm, base, layout);
-                    assert_eq!(
+                    assert!(matches!(
                         try_set_words(&mut vm, base, layout, active_len, &replacement,),
                         Ok(false)
-                    );
+                    ));
                     assert_eq!(
                         snapshot(&vm, base, layout),
                         before_failed_set,
@@ -379,7 +425,11 @@ mod tests {
                     );
                     if active_len == 0 {
                         let before_empty_pop = snapshot(&vm, base, layout);
-                        assert_eq!(pop_words(&mut vm, base, layout), Ok(None));
+                        assert_eq!(
+                            (pop_words(&mut vm, base, layout))
+                                .expect("expected successful fixture result"),
+                            None
+                        );
                         assert_eq!(
                             snapshot(&vm, base, layout),
                             before_empty_pop,
@@ -388,31 +438,46 @@ mod tests {
                     }
                     if active_len == capacity {
                         let before_failed_push = snapshot(&vm, base, layout);
-                        assert_eq!(
+                        assert!(matches!(
                             try_push_words(&mut vm, base, layout, &replacement),
                             Ok(false)
-                        );
+                        ));
                         assert_eq!(
                             snapshot(&vm, base, layout),
                             before_failed_push,
                             "failed push mutated capacity {capacity}, width {element_words}"
                         );
                     } else {
-                        assert_eq!(
+                        assert!(matches!(
                             try_push_words(&mut vm, base, layout, &replacement),
                             Ok(true)
-                        );
+                        ));
                         model.push(replacement.clone());
-                        assert_eq!(read_words(&vm, base, layout), Ok(model.clone()));
+                        assert_eq!(
+                            (read_words(&vm, base, layout))
+                                .expect("expected successful fixture result"),
+                            model.clone()
+                        );
                     }
                     if let Some(first) = model.first() {
-                        assert_eq!(contains_words(&vm, base, layout, first), Ok(true));
+                        assert!(matches!(contains_words(&vm, base, layout, first), Ok(true)));
                     }
                     let absent = vec![u64::MAX; width];
-                    assert_eq!(contains_words(&vm, base, layout, &absent), Ok(false));
+                    assert!(matches!(
+                        contains_words(&vm, base, layout, &absent),
+                        Ok(false)
+                    ));
                     let expected = model.pop();
-                    assert_eq!(pop_words(&mut vm, base, layout), Ok(expected));
-                    assert_eq!(read_words(&vm, base, layout), Ok(model));
+                    assert_eq!(
+                        (pop_words(&mut vm, base, layout))
+                            .expect("expected successful fixture result"),
+                        expected
+                    );
+                    assert_eq!(
+                        (read_words(&vm, base, layout))
+                            .expect("expected successful fixture result"),
+                        model
+                    );
                 }
             }
         }
@@ -423,14 +488,17 @@ mod tests {
         let layout = ListLayoutV1::try_new(2, 2).expect("layout");
         let base = allocate_words(&mut vm, layout, &[vec![1, 2]]).expect("allocate list");
         let before = read_words(&vm, base, layout).expect("read before");
-        assert_eq!(
+        assert!(matches!(
             try_set_words(&mut vm, base, layout, 0, &[9]),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             try_push_words(&mut vm, base, layout, &[9]),
             Err(VMError::DecodeError)
+        ));
+        assert_eq!(
+            (read_words(&vm, base, layout)).expect("expected successful fixture result"),
+            before
         );
-        assert_eq!(read_words(&vm, base, layout), Ok(before));
     }
 }

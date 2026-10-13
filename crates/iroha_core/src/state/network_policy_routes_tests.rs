@@ -898,7 +898,15 @@ fn original_routing_capture_refusal(allocation: Option<usize>) {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 32),
             || crate::sumeragi::lanes::routing::RoutingSnapshot::of(block).unwrap_err(),
         );
-        assert_eq!(snapshot_refusal, reason);
+        // The current JSON routing adapter carries a diagnostic-only refusal;
+        // it does not yet retain a canonical captured decoder scope.
+        assert_eq!(snapshot_refusal.reason(), reason.reason());
+        assert_eq!(snapshot_refusal.phase(), reason.phase());
+        for observed in [&snapshot_refusal, &reason] {
+            assert!(observed.allocation_refusal().is_none());
+            assert!(observed.decode_refusal().is_none());
+            assert!(observed.verification_refusal().is_none());
+        }
         drop(owner);
         let snapshot = crate::sumeragi::lanes::routing::RoutingSnapshot::of(block).unwrap();
         assert_eq!(snapshot.policy().unwrap().fixed[0].lane, LaneId::new(1));
