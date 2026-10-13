@@ -9243,6 +9243,8 @@ export interface RemoveSmartContractBytesTransactionInput {
 
 export interface SubmitTransactionAndWaitOptions
   extends TransactionStatusPollOptions {
+  /** Establish an event stream before submission to capture rejection details. */
+  captureRejection?: boolean;
   /** Optional assertion; it must equal the hash derived from the signed bytes. */
   hashHex?: string;
 }
@@ -9937,6 +9939,11 @@ export declare class TransactionStatusError extends Error {
   readonly hashHex: string;
   readonly status: string | null;
   readonly payload: ToriiPipelineTransactionStatus | null;
+  readonly blockHeight: ToriiU64 | null;
+  /** Set only by submitTransactionAndWait when it observed the rejection (captureRejection). */
+  readonly rejectionCode?: string | null;
+  /** Set only by submitTransactionAndWait when it observed the rejection (captureRejection). */
+  readonly rejectionReason?: string | null;
 }
 
 export declare class TransactionTimeoutError extends Error {
@@ -12042,6 +12049,8 @@ export function quoteAndSignTransaction(
   },
   options?: {
     canonicalAuth?: CanonicalRequestAuth;
+    /** Fee limit multiplier in basis points; defaults to 10000 (exact quote). */
+    feeLimitMarginBps?: number;
     signal?: AbortSignal;
   },
 ): Promise<

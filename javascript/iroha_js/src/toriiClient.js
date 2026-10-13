@@ -187,6 +187,7 @@ import { createToriiCollections } from "./query/collections.js";
 import { decodePage, decodePageText, stringifyRequestJson } from "./query/page.js";
 import { filterQueryText } from "./query/listQuery.js";
 import { decodeEventFrames } from "./toriiEventStream.js";
+import { observeTransactionRejection, readExplorerTransactionRejection } from "./transactionRejectionObserver.js";
 export { SorafsOrderbookSubmissionAmbiguousError };
 export {
   FilterSyntaxError,
@@ -1165,6 +1166,9 @@ export class TransactionStatusError extends Error {
     this.hashHex = hashHex;
     this.status = status;
     this.payload = payload;
+    this.blockHeight = payload?.status?.block_height ?? null;
+    // rejectionCode/rejectionReason are attached only by submitTransactionAndWait when it
+    // observed the rejection itself; status polling never surfaces retired rejection details.
   }
 }
 
@@ -5186,11 +5190,16 @@ export class ToriiClient {
    * `hashHex` is checked against it before anything is sent. Resubmission is
    * idempotent: HTTP 409 `already_committed` and `already_enqueued` rejections
    * of the same bytes continue with the finality wait. Rejected and Expired outcomes
-   * throw `TransactionStatusError` (the status route carries no rejection
-   * reason; subscribe to `streamEvents` for `rejection_code`).
+   * throw `TransactionStatusError`. With `captureRejection: true`, an SSE
+   * subscription is established before submission and supplies rejectionCode,
+   * rejectionReason and blockHeight when the rejection event is observed. A
+   * durable explorer record supplies its exact rejection message when available.
+   * Diagnostic failures leave details null; status polling remains the sole
+   * finality authority.
    * @param {ArrayBufferView | ArrayBuffer | Buffer} payload
    * @param {{
    *   hashHex?: string,
+   *   captureRejection?: boolean,
    *   intervalMs?: number,
    *   timeoutMs?: number | null,
    *   maxAttempts?: number | null,
@@ -5204,7 +5213,10 @@ export class ToriiClient {
       options,
       "submitTransactionAndWait options",
     );
-    const { hashHex, ...pollOptions } = record;
+    const { hashHex, captureRejection = false, ...pollOptions } = record;
+    if (typeof captureRejection !== "boolean") {
+      throw new TypeError("submitTransactionAndWait options.captureRejection must be boolean");
+    }
     ToriiClient._normalizeTransactionStatusPollOptions(
       pollOptions,
       "submitTransactionAndWait options",
@@ -5223,16 +5235,58 @@ export class ToriiClient {
         );
       }
     }
+    const observer = captureRejection
+      ? await observeTransactionRejection((signal, onOpen) => decodeEventFrames(
+        this._streamSse("/v1/events/sse", {
+          params: { filter: `tx_hash = "${transactionHash}"` },
+          signal,
+          onOpen,
+          canonicalAuth: this.#canonicalRequestAuth,
+        }),
+        "The transaction rejection stream",
+      ), transactionHash, pollOptions.signal)
+      : null;
     try {
-      await this.submitTransaction(payload, { signal: pollOptions.signal });
-    } catch (error) {
-      // The hash is derived from the exact signed bytes, so a node that already
-      // queued or committed this transaction only needs the finality wait.
-      if (!isIdempotentSubmissionRejection(error)) {
-        throw error;
+      try {
+        await this.submitTransaction(payload, { signal: pollOptions.signal });
+      } catch (error) {
+        // The exact signed bytes may already be queued or committed.
+        if (!isIdempotentSubmissionRejection(error)) throw error;
       }
+      return await this.waitForTransactionStatus(transactionHash, pollOptions);
+    } catch (error) {
+      if (observer && error instanceof TransactionStatusError && error.status === "Rejected") {
+        const details = await observer.read();
+        if (details) {
+          error.rejectionCode = details.rejectionCode;
+          error.rejectionReason = details.rejectionReason;
+          error.blockHeight ??= details.blockHeight;
+        }
+        try {
+          const timeout = AbortSignal.timeout(5_000);
+          const signal = pollOptions.signal ? AbortSignal.any([pollOptions.signal, timeout]) : timeout;
+          const durable = await readExplorerTransactionRejection(async () => {
+            const response = await this._request("GET", `/v1/explorer/transactions/${transactionHash}`, {
+              headers: JSON_ACCEPT_HEADERS, signal, canonicalAuth: this.#canonicalRequestAuth,
+            });
+            await this._expectStatus(response, [200], { signal });
+            return this._maybeBoundedJson(response, 64 * 1024, "transaction rejection detail", { signal });
+          }, transactionHash);
+          if (durable) {
+            error.rejectionReason = durable.rejectionReason;
+            error.blockHeight ??= durable.blockHeight;
+          }
+        } catch {
+          // A diagnostic read must not replace the authoritative rejection.
+        }
+        if (error.rejectionReason) {
+          error.message += `: ${error.rejectionCode ? `${error.rejectionCode}: ` : ""}${error.rejectionReason}`;
+        }
+      }
+      throw error;
+    } finally {
+      await observer?.close();
     }
-    return this.waitForTransactionStatus(transactionHash, pollOptions);
   }
 
   /** Canonical entrypoint hash of exact VersionedSignedTransaction V1 bytes. */
@@ -9819,6 +9873,7 @@ export class ToriiClient {
     return (async function* iterator() {
       const response = await self._request("GET", path, requestOptions);
       await self._expectStatus(response, [200]);
+      options.onOpen?.();
       const decoder = new TextDecoder("utf-8", {
         fatal: options.strictUtf8 === true,
       });

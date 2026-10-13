@@ -4,6 +4,13 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Added opt-in `captureRejection` for Node.js `submitTransactionAndWait`,
+  opening SSE before submission and attaching observed rejection code, reason
+  and block height to `TransactionStatusError`, enriched with the exact-hash
+  explorer rejection message, without weakening state finality.
+- Added `feeLimitMarginBps` to `quoteAndSignTransaction` for rounded-up
+  headroom using the same quote-limit conversion as external wallet signing.
+
 - Added settlement, conditional-escrow, repo and domain-lease helpers:
   `generateAssetDefinitionId`, `assetDefinitionIdFromSeed` (native
   `derive_from_components` rule), `newEscrowId`, `newSettlementId`,

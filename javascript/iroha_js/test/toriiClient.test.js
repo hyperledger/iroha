@@ -10527,6 +10527,68 @@ test("submitTransactionAndWait delegates to submitTransaction + waitForTransacti
   assert.equal(waitArgs.hashHex, finalHash, "an asserted hash that matches the bytes is accepted");
 });
 
+test("submitTransactionAndWait captures a rejection after opening the event subscription", async () => {
+  const finalHash = "55".repeat(32);
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async (url) => {
+      assert.equal(url, `${BASE_URL}/v1/explorer/transactions/${finalHash}`);
+      return createResponse({ status: 200, jsonData: {
+        hash: `hash:${finalHash.toUpperCase()}#2B05`,
+        status: "Rejected", block: 27,
+        rejection_reason: { message: "Validation failed: asset alias name segment must match the asset name" },
+      } });
+    },
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from(finalHash, "hex"),
+    }),
+  });
+  let opened = false;
+  let closeObserved = false;
+  let release;
+  const sent = new Promise((resolve) => { release = resolve; });
+  client._streamSse = async function* (path, options) {
+    assert.equal(path, "/v1/events/sse");
+    assert.equal(options.params.filter, `tx_hash = "${finalHash}"`);
+    opened = true;
+    options.onOpen();
+    try {
+      await sent;
+      // A mismatching event cannot supply another transaction's failure reason.
+      for (const hash of ["57".repeat(32), finalHash]) {
+        yield { event: null, data: { category: "Pipeline", event: "Transaction", hash,
+          status: "Rejected", rejection_code: "instruction_execution",
+          rejection_reason: "Instruction execution failed", block_height: 27 } };
+      }
+    } finally { closeObserved = true; }
+  };
+  client.submitTransaction = async () => { assert.equal(opened, true); release(); };
+  client.waitForTransactionStatus = async () => {
+    throw new TransactionStatusError(finalHash, "Rejected", {
+      hash: finalHash, status: { kind: "Rejected", block_height: 27 },
+    });
+  };
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: true }),
+    (error) => error instanceof TransactionStatusError && error.blockHeight === 27 &&
+      error.rejectionCode === "instruction_execution" &&
+      error.rejectionReason === "Validation failed: asset alias name segment must match the asset name");
+  assert.equal(closeObserved, true);
+});
+
+test("submitTransactionAndWait does not submit if a requested rejection subscription fails", async () => {
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async () => createResponse({ status: 200 }),
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from("55".repeat(32), "hex"),
+    }),
+  });
+  client._streamSse = async function* () { throw new Error("event route unavailable"); };
+  client.submitTransaction = async () => { assert.fail("must subscribe before submitting"); };
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: true }),
+    /event route unavailable/u);
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: "yes" }),
+    /captureRejection must be boolean/u);
+});
+
 test("submitTransactionAndWait treats already committed or enqueued resubmissions as idempotent", async () => {
   const finalHash = "59".repeat(32);
   const client = new ToriiClient(BASE_URL, {

@@ -608,8 +608,16 @@ line-separator characters as `\u{...}` and bounds the length.
 `ToriiClient.submitTransactionAndWait` treats an HTTP 409 `already_committed`
 or `already_enqueued` rejection of the same signed bytes as success of the
 submission step and continues with the finality wait, so resubmission is
-idempotent. Rejected outcomes throw `TransactionStatusError`; the status route
-carries no rejection reason (subscribe to `streamEvents` for it).
+idempotent. Rejected outcomes throw `TransactionStatusError` with the authoritative
+status payload and `blockHeight`. Use `{ captureRejection: true }` to establish
+an event subscription before submission and attach `rejectionCode` and
+`rejectionReason` to that error. Once state reports rejection, the helper also
+reads the bounded explorer transaction record, requires the exact requested
+hash and Rejected status, and prefers its full `rejection_reason.message` over
+the generic event text. Subscription failure prevents submission; a missing
+historical event leaves the code null and unavailable diagnostics can leave
+the reason null. Events and explorer details never replace global,
+state-resolved Applied finality.
 
 `discoverNetworkIdentity(torii)` reads `GET /v1/accounts/capabilities` and the
 genesis block `GET /v1/explorer/blocks/1` and returns
@@ -925,7 +933,9 @@ console.log(signed.quote.intent, signed.hash.toString("hex"));
 exact program/revision, and gas bound, and rejects any quote whose components,
 debit decision, or exact sponsor-capacity evidence is inconsistent. This check
 also runs for injected client implementations before the helper replaces only
-`fee_payment` and signs.
+`fee_payment` and signs. Pass `{ feeLimitMarginBps: 20000 }` for 2x fee
+headroom; the default 10000 preserves exact quoted limits. Only actual charges
+are debited.
 Contract/IVM drafts require a positive `gasLimit`. The metadata keys
 `fee_sponsor`, `gas_asset_id`, and `gas_limit` are retired and rejected, and a
 sponsor rejection never falls back to the authority.

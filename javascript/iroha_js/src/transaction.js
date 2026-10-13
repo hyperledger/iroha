@@ -1084,16 +1084,21 @@ export function signQuotedTransactionPayload(input) {
 
 /**
  * Guided fee flow: freeze one unsigned payload, quote it through Torii, replace
- * only the fee limits, and sign the exact result.
+ * only the fee limits, and sign the exact result. Optional `feeLimitMarginBps`
+ * scales every quoted maximum with upward rounding (10000 keeps exact limits).
  *
  * @param {ToriiClient} client
  * @param {object} input {@link buildTransactionPayload} fields plus private key material
- * @param {{canonicalAuth?: {accountId: string, privateKey: ArrayBufferView | ArrayBuffer | Buffer}, signal?: AbortSignal}} [options]
+ * @param {{canonicalAuth?: {accountId: string, privateKey: ArrayBufferView | ArrayBuffer | Buffer}, feeLimitMarginBps?: number, signal?: AbortSignal}} [options]
  * @returns {Promise<{signedTransaction: Buffer, hash: Buffer, draft: object, quote: object}>}
  */
 export async function quoteAndSignTransaction(client, input, options = {}) {
   if (!client || typeof client.quoteFees !== "function") {
     throw new TypeError("client must provide quoteFees(payload, options)");
+  }
+  const { feeLimitMarginBps = 10_000 } = options;
+  if (!Number.isSafeInteger(feeLimitMarginBps) || feeLimitMarginBps < 10_000) {
+    throw new RangeError("options.feeLimitMarginBps must be a safe integer >= 10000");
   }
   const {
     privateKey,
@@ -1116,7 +1121,7 @@ export async function quoteAndSignTransaction(client, input, options = {}) {
   const signed = signQuotedTransactionPayload.call(this, {
     networkId: draftInput.networkId,
     payload: draft,
-    quotedFeePayment: quote.intent,
+    quotedFeePayment: feePaymentFromQuote(quote, { marginBps: feeLimitMarginBps }),
     privateKey,
     privateKeyAlgorithm,
   });
