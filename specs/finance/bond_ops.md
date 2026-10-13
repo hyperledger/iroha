@@ -24,6 +24,8 @@ Source owners:
 | Execution, freeze, retention, query execution | `crates/iroha_core/src/smartcontracts/isi/bond.rs` |
 | Verified vault movements and redemption burn | `crates/iroha_core/src/smartcontracts/isi/asset.rs` |
 | Torii routes `GET /v1/bonds`, `GET /v1/bonds/{bond_id}` | `crates/iroha_torii/src/lib.rs` |
+| JS codec envelope and vault rendering | `crates/iroha_js_codec/src/bond_instructions.rs` |
+| JS SDK builders, schedule, validation, Torii reads, review | `javascript/iroha_js/src/bond.js`, `bondRecords.js`, `transactionReview.js` |
 
 ## 1. Data model
 
@@ -309,3 +311,105 @@ pin both bounds.
 - The definition owner can still change the bond definition's confidential
   policy or transfer its ownership; neither changes the record, but a
   shielded-only policy would block redemption burns.
+
+## 10. JavaScript SDK
+
+Owners: `crates/iroha_js_codec/src/bond_instructions.rs` (strict JSON
+envelope, vault rendering), `crates/iroha_js_host/src/settlement_lifecycle.rs`
+(N-API `bondVaultAccountId`), `javascript/iroha_js/src/bond.js` (builders,
+schedule, validation, payments), `src/bondRecords.js` (Torii record checks),
+`src/transactionReview.js` (review rows).
+
+### 10.1 Envelope
+
+Bond instructions use one closed JSON envelope that mirrors
+`BondInstructionBox`: `{"Bond": {<Variant>: <payload>}}` with exactly one of
+`Register`, `RecordCashflow`, `FundCashflow`, `ClaimCashflow`,
+`CloseCashflow`, `Call`, `DeclareDefault`. Each payload must equal the
+canonical model JSON of its leaf type: snake_case fields, canonical quantity
+strings (`"50"`, `"3.25"`, never `"50.0"`), JSON numbers for `u16`/`u32`/`u64`
+fields, lowercase 64-digit hex for `[u8; 32]` digests and explicit `null` for
+absent optional terms. Unknown, missing, renamed or extra fields, two
+variants, leaf envelopes (`{"RegisterBond": ...}`) and generic base64
+instruction literals are refused. Instruction archives and public frames
+decode back to the same envelope, so `noritoDecodeInstructionBoxArchive`,
+`noritoDecodeInstruction` and the transaction review render every bond field.
+The codec admits shape only; terms validation and every state check remain in
+Core.
+
+### 10.2 Builders and helpers
+
+Builders take camelCase options and return the envelope:
+`buildRegisterBondInstruction({ bondId, terms })`,
+`buildRecordBondCashflowInstruction({ bondId, index })`,
+`buildFundBondCashflowInstruction({ bondId, index, sourceAssetHoldingId })`
+(global, unscoped bucket only),
+`buildClaimBondCashflowInstruction({ bondId, index, holder })`,
+`buildCloseBondCashflowInstruction({ bondId, index })`,
+`buildCallBondInstruction({ bondId, callDateMs })` and
+`buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })`.
+Quantities are `KotodamaQuantity`, canonical decimal strings or bigint
+(JavaScript numbers are refused); integers are safe JavaScript integers,
+bigint or decimal strings; digests are 32 bytes or 64 hex digits.
+
+- `buildBondSchedule({ denomination, couponRateBps, couponFrequency,
+  issueDateMs, maturityDateMs, redemptionPriceBps, recordOffsetMs })` ports
+  `fixed_rate_bullet_schedule` (§1.2) with integer calendar arithmetic and
+  exact decimal arithmetic on bigint mantissas. It returns
+  `[{ index, kind, recordDateMs, paymentDateMs, amountPerUnit }]` and refuses
+  exactly what Core refuses, in the same order and with the same
+  `bond.invalid_terms: ...` messages (frequency, issue/maturity order,
+  irregular first period, the 400 cash-flow bound, non-terminating or
+  over-scale amounts).
+- `validateBondTerms(terms)` normalizes builder terms to canonical native
+  JSON and applies every `BondTerms::validate` rule (§1.1) in Core's order
+  with Core's messages. `buildRegisterBondInstruction` calls it and also
+  refuses a payment asset equal to the bond.
+- `bondHolderPayment({ units, amountPerUnit, paymentScale })` is
+  `holder_payment` (§1.3): `floor(units × amountPerUnit)` at `paymentScale`,
+  the exact product when `paymentScale` is `null`.
+- `bondVaultAccountId(bondId, networkPrefix)` calls the native
+  `bond_vault_account_id` derivation (§1.4) and renders the I105 literal for
+  the given prefix; the derivation itself is network independent.
+
+`javascript/iroha_js/test/fixtures/bond-v1-codec.json` is generated from the
+data model by `bond_instruction_tests.rs` (rerun the ignored
+`regenerate_bond_js_fixture` test to accept a change; a checked test requires
+equality with a fresh generation). It pins every envelope with its archive and
+frame bytes, vault accounts, schedule outputs and refusals, a verdict for each
+validation rule, rounded holder payments and a serviced `BondRecord`. The JS
+tests replay all of them.
+
+### 10.3 Torii reads and review
+
+`ToriiClient` and `ToriiBrowserClient` expose `listBonds()`
+(`GET /v1/bonds`) and `getBond(bondId)` (`GET /v1/bonds/{bond_id}`, `null` on
+404). Responses are parsed with lossless integers, checked to be bond records
+(lifecycle and status enums, snapshot and claimed shapes, contiguous cash-flow
+indices; `getBond` also requires the requested id) and returned as native
+snake_case JSON (prototype-free objects, as the lossless parser builds them).
+
+`reviewTransactionPayload` renders a `kind: "bond"` row for every variant.
+The cash-flow kind, dates, amount per unit and holder units are not carried
+by `RecordCashflow`, `FundCashflow`, `ClaimCashflow`, `CloseCashflow` or
+`DeclareDefault`, so the review accepts
+`expected.bonds: [{ record, paymentAssetScale? }]` (records from
+`getBond`). With a record the rows add the cash-flow kind, record and payment
+dates, amount per unit, status, the funding amount due and the vault, the
+holder's snapshot units and payment (rounded when the scale is supplied), the
+issuer as residual recipient, the call price, and the freeze (recording) or
+burn (claiming) effect of the redemption. Without it the rows show only the
+instruction's own fields.
+
+### 10.4 Choices relative to the design contract
+
+- Builder options and `buildBondSchedule` entries are camelCase, as across
+  the SDK, so a schedule feeds `terms.cashflows` directly; the envelopes keep
+  the native snake_case fields.
+- `bondVaultAccountId` takes an explicit network prefix because an I105
+  literal is network specific; the derivation is not.
+- The transaction review needs bond records to show cash-flow kinds, dates
+  and amounts (`expected.bonds`); the payload alone does not contain them.
+- `validateBondTerms` and `bondHolderPayment` are additional pure helpers so
+  applications can refuse invalid terms and show exact payments before
+  submission; `ToriiBrowserClient` gains the same two reads as `ToriiClient`.
