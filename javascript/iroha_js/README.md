@@ -491,15 +491,24 @@ Instruction builders:
   Oracle sequences are assigned 1..n in array order unless all are given.
 - `buildAttestEscrowConditionInstruction({ escrowId, conditionId, value, evidenceHash? })`
   and `buildExpireConditionalEscrowInstruction({ escrowId })`.
-- `buildSettleAtomicInstruction({ networkId, settlementId, movements, expiresAtHeight, metadata? })`
-  with movements `{ sourceAssetHoldingId, recipient, quantity }`. Movements are
-  sorted natively by `(AssetId, AccountId)`; count, duplicate and self-transfer
-  rules are enforced natively.
-- `buildRepoInitiateInstruction({ agreementId, initiator, counterparty, custodian?, cashLeg, collateralLeg, rateBps, maturityTimestampMs, governance: { haircutBps, marginFrequencySecs } })`
-  and `buildRepoReverseInstruction({ agreementId })`.
+- `buildSettleAtomicInstruction({ networkId, settlementId, movements, escrows?, expiresAtHeight, metadata? })`
+  with movements `{ sourceAssetHoldingId, recipient, quantity }` and escrow legs
+  `{ sourceAssetHoldingId, escrowId, beneficiary, amount, conditions, expiresAtMs, evidenceHashes? }`
+  (global-scope sources; the source owner opens and is refunded). Movements are
+  sorted natively by `(AssetId, AccountId)` and escrow legs by `EscrowId`
+  bytes; 0..=255 movements and 0..=16 escrow legs must total at least two legs,
+  and duplicate and self-transfer rules are enforced natively. The strict codec
+  never sorts; `canonicalSettleAtomicInstruction(instruction)` orders and
+  validates hand-built atomic settlement JSON the same way.
+- `buildRepoInitiateInstruction({ agreementId, initiator, counterparty, custodian?, cashLeg, collateralLeg, rateBps, maturityTimestampMs, governance: { haircutBps, marginFrequencySecs, allowEarlyRepayment } })`
+  and `buildRepoReverseInstruction({ agreementId })`. With
+  `allowEarlyRepayment` the initiator may reverse before maturity; the flag is
+  part of both consent hashes.
 
-Consent hashes are computed natively from the canonical instruction and are
-returned as the `intent_hash` literal of `CanExecuteSettlement`:
+Consent hashes are computed natively by the same `SettleAtomic::intent_hash`
+and `RepoIsi` intent methods Core checks, and are returned as the `intent_hash`
+literal of `CanExecuteSettlement`. Every foreign source owner, including the
+owner of a foreign escrow-leg source, consents to the whole intent:
 
 ```js
 import {

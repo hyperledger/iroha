@@ -16,6 +16,7 @@ import {
 } from "../src/instructionBuilders.js";
 import {
   buildSettleAtomicInstruction,
+  canonicalSettleAtomicInstruction,
   repoIntentHashes,
   settleAtomicIntentHash,
 } from "../src/settlementIntents.js";
@@ -302,12 +303,14 @@ test("atomic settlement is sorted natively and hashed exactly as consented", () 
   assert.deepEqual(forward, reversed);
   const payload = forward.Settlement.Atomic;
   assert.deepEqual(Object.keys(payload).sort(), [
+    "escrows",
     "expires_at_height",
     "metadata",
     "movements",
     "network_id",
     "settlement_id",
   ]);
+  assert.deepEqual(payload.escrows, []);
   assert.equal(payload.network_id, NETWORK_ID.toString());
   assert.equal(payload.expires_at_height, 5_000);
   assert.deepEqual(
@@ -373,7 +376,7 @@ test("repo lifecycle builders and consent hashes match the native agreement", ()
     collateralLeg: { assetDefinitionId: BOND, quantity: "11", metadata: { isin: "SI0031234567" } },
     rateBps: 325,
     maturityTimestampMs: 1_900_000_000_000,
-    governance: { haircutBps: 1_000, marginFrequencySecs: 0 },
+    governance: { haircutBps: 1_000, marginFrequencySecs: 0, allowEarlyRepayment: false },
   });
   assert.deepEqual(initiate, {
     Repo: {
@@ -390,7 +393,7 @@ test("repo lifecycle builders and consent hashes match the native agreement", ()
         },
         rate_bps: 325,
         maturity_timestamp_ms: 1_900_000_000_000,
-        governance: { haircut_bps: 1_000, margin_frequency_secs: 0 },
+        governance: { haircut_bps: 1_000, margin_frequency_secs: 0, allow_early_repayment: false },
       },
     },
   });
@@ -408,9 +411,28 @@ test("repo lifecycle builders and consent hashes match the native agreement", ()
     collateralLeg: { assetDefinitionId: BOND, quantity: "11" },
     rateBps: 325,
     maturityTimestampMs: 1_900_000_000_000,
-    governance: { haircutBps: 1_000, marginFrequencySecs: 86_400 },
+    governance: { haircutBps: 1_000, marginFrequencySecs: 86_400, allowEarlyRepayment: false },
   });
   assert.notEqual(repoIntentHashes(custodied).initiation, hashes.initiation);
+  const early = structuredClone(initiate);
+  early.Repo.Initiate.governance.allow_early_repayment = true;
+  roundtrip(early);
+  const earlyHashes = repoIntentHashes(early);
+  assert.notEqual(earlyHashes.initiation, hashes.initiation);
+  assert.notEqual(earlyHashes.maturity, hashes.maturity);
+  assert.throws(
+    () => buildRepoInitiateInstruction({
+      agreementId,
+      initiator: ISSUER,
+      counterparty: BUYER,
+      cashLeg: { assetDefinitionId: CASH, quantity: "1000" },
+      collateralLeg: { assetDefinitionId: BOND, quantity: "11" },
+      rateBps: 325,
+      maturityTimestampMs: 1_900_000_000_000,
+      governance: { haircutBps: 1_000, marginFrequencySecs: 0 },
+    }),
+    /allowEarlyRepayment/u,
+  );
 
   const reverse = buildRepoReverseInstruction({ agreementId });
   assert.deepEqual(reverse, { Repo: { Reverse: { agreement_id: agreementId } } });
@@ -425,10 +447,105 @@ test("repo lifecycle builders and consent hashes match the native agreement", ()
       collateralLeg: { assetDefinitionId: BOND, quantity: "11" },
       rateBps: 70_000,
       maturityTimestampMs: 1_900_000_000_000,
-      governance: { haircutBps: 1_000, marginFrequencySecs: 0 },
+      governance: { haircutBps: 1_000, marginFrequencySecs: 0, allowEarlyRepayment: false },
     }),
     /rateBps must not exceed 65535/u,
   );
+});
+
+test("atomic settlement escrow legs are normalized, ordered and bound into the intent", () => {
+  const INVESTOR_B = account(4);
+  const leg = (sourceAssetHoldingId, beneficiary, label, amount) => ({
+    sourceAssetHoldingId,
+    escrowId: newEscrowId(`bond-escrow:${label}`),
+    beneficiary,
+    amount,
+    conditions: [{ id: "coupon_paid", attestor: ORACLE, equals: true }],
+    expiresAtMs: 1_900_000_000_000,
+  });
+  // Two issuer-owned bond deliveries and four escrow legs (two foreign cash sources).
+  const options = {
+    networkId: NETWORK_ID,
+    settlementId: newSettlementId("bond-issue-escrow"),
+    movements: [
+      { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: BUYER, quantity: "10" },
+      { sourceAssetHoldingId: `${BOND}#${ISSUER}`, recipient: INVESTOR_B, quantity: "5" },
+    ],
+    escrows: [
+      leg(`${CASH}#${BUYER}`, ISSUER, "retention-buyer", "1000"),
+      leg(`${CASH}#${INVESTOR_B}`, ISSUER, "retention-b", "500"),
+      leg(`${BOND}#${ISSUER}`, BUYER, "coupon-buyer", "1"),
+      leg(`${CASH}#${ISSUER}`, INVESTOR_B, "refund-b", "25"),
+    ],
+    expiresAtHeight: 5_000,
+  };
+  const built = buildSettleAtomicInstruction(options);
+  const payload = built.Settlement.Atomic;
+  assert.equal(payload.escrows.length, 4);
+  const escrowIds = payload.escrows.map(({ escrow_id }) => escrow_id);
+  const escrowBytes = escrowIds.map((id) => Buffer.from(id.slice(5, 69), "hex"));
+  for (let index = 1; index < escrowBytes.length; index += 1) {
+    assert.ok(Buffer.compare(escrowBytes[index - 1], escrowBytes[index]) < 0, "escrows sorted by id bytes");
+  }
+  assert.deepEqual(payload.escrows.find(({ escrow_id }) => escrow_id === newEscrowId("bond-escrow:refund-b")), {
+    source: `${CASH}#${ISSUER}`,
+    escrow_id: newEscrowId("bond-escrow:refund-b"),
+    beneficiary: INVESTOR_B,
+    amount: "25",
+    conditions: [
+      {
+        kind: "Oracle",
+        value: {
+          id: "coupon_paid",
+          attestor: ORACLE,
+          predicate: { kind: "Equals", value: { kind: "Bool", value: true } },
+          sequence: 1,
+        },
+      },
+    ],
+    expires_at_ms: 1_900_000_000_000,
+    evidence_hashes: [],
+  });
+  roundtrip(built);
+  const intent = settleAtomicIntentHash(built);
+  const reordered = buildSettleAtomicInstruction({
+    ...options,
+    movements: [...options.movements].reverse(),
+    escrows: [...options.escrows].reverse(),
+  });
+  assert.deepEqual(reordered, built);
+  assert.equal(settleAtomicIntentHash(reordered), intent);
+
+  // The codec never sorts; the canonical helper restores the admitted order.
+  const shuffled = structuredClone(built);
+  shuffled.Settlement.Atomic.escrows.reverse();
+  shuffled.Settlement.Atomic.movements.reverse();
+  assert.throws(() => settleAtomicIntentHash(shuffled), /strictly increasing|escrow/u);
+  assert.deepEqual(canonicalSettleAtomicInstruction(shuffled), built);
+
+  const changed = structuredClone(built);
+  changed.Settlement.Atomic.escrows[0].amount = "999";
+  assert.notEqual(settleAtomicIntentHash(canonicalSettleAtomicInstruction(changed)), intent);
+
+  // Escrow legs alone can satisfy the two-leg minimum; a single leg cannot.
+  const escrowOnly = buildSettleAtomicInstruction({ ...options, movements: [], escrows: options.escrows.slice(0, 2) });
+  assert.equal(escrowOnly.Settlement.Atomic.movements.length, 0);
+  assert.throws(
+    () => buildSettleAtomicInstruction({ ...options, movements: [], escrows: options.escrows.slice(0, 1) }),
+    /two legs/u,
+  );
+  assert.throws(
+    () => buildSettleAtomicInstruction({
+      ...options,
+      escrows: [{ ...options.escrows[0], sourceAssetHoldingId: `${CASH}#${BUYER}#dataspace:7` }],
+    }),
+  );
+  roundtrip(buildGrantSettlementConsentInstruction({
+    grantee: ISSUER,
+    debitedAssetHoldingId: `${CASH}#${BUYER}`,
+    settlementId: payload.settlement_id,
+    intentHash: intent,
+  }));
 });
 
 test("every lifecycle instruction assembles into one native transaction payload", () => {

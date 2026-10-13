@@ -557,6 +557,7 @@ export {
 } from "./settlementIdentifiers.js";
 export {
   buildSettleAtomicInstruction,
+  canonicalSettleAtomicInstruction,
   settleAtomicIntentHash,
   repoIntentHashes,
 } from "./settlementIntents.js";

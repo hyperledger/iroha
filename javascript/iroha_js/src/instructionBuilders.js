@@ -5666,18 +5666,22 @@ export function buildExpireConditionalEscrowInstruction(options) {
 }
 
 /**
- * Normalize repo governance terms.
- * @param {{ haircutBps: number, marginFrequencySecs: number|bigint|string }} value
+ * Normalize repo governance terms; every term is part of both consent hashes.
+ * @param {{ haircutBps: number, marginFrequencySecs: number|bigint|string, allowEarlyRepayment: boolean }} value
  */
 function repoGovernance(value, name) {
   const source = assertPlainObject(value, name);
-  assertExactFields(source, ["haircutBps", "marginFrequencySecs"], name);
+  assertExactFields(source, ["haircutBps", "marginFrequencySecs", "allowEarlyRepayment"], name);
+  if (typeof source.allowEarlyRepayment !== "boolean") {
+    fail(V_CODE_INVALID_OBJECT, `${name}.allowEarlyRepayment${TEXT_MUST_BE_A}boolean`, `${name}.allowEarlyRepayment`);
+  }
   return {
     haircut_bps: asBoundedInteger(source.haircutBps, `${name}.haircutBps`, U16_MAX),
     margin_frequency_secs: asNonNegativeInteger(
       source.marginFrequencySecs,
       `${name}.marginFrequencySecs`,
     ),
+    allow_early_repayment: source.allowEarlyRepayment,
   };
 }
 
@@ -5713,7 +5717,8 @@ const REPO_INITIATE_FIELDS = new Set([
  * Before submission the counterparty grants the initiator `CanExecuteSettlement`
  * for its cash bucket with `repoIntentHashes(instruction).initiation`, and the
  * collateral holder (custodian, else counterparty) grants it for the collateral
- * bucket with `.maturity`; both use `settlementId = agreementId`.
+ * bucket with `.maturity`; both use `settlementId = agreementId`. With
+ * `governance.allowEarlyRepayment` the initiator may reverse before maturity.
  * @param {object} options
  * @returns {{Repo: {Initiate: object}}}
  */

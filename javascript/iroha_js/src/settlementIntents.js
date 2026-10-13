@@ -12,7 +12,11 @@
 
 import { AccountAddress } from "./address.js";
 import { assertCanonicalIrohaName } from "./instructionBuilderPrimitives.js";
-import { buildTransferAssetInstruction } from "./instructionBuilders.js";
+import {
+  buildOpenConditionalEscrowInstruction,
+  buildTransferAssetInstruction,
+} from "./instructionBuilders.js";
+import { normalizeAssetHoldingId } from "./normalizers.js";
 import { defaultNativeRuntime, resolveNativeRuntimeBinding } from "./nativeRuntime.js";
 import { NetworkId } from "./networkId.js";
 
@@ -20,10 +24,20 @@ const SETTLE_ATOMIC_FIELDS = new Set([
   "networkId",
   "settlementId",
   "movements",
+  "escrows",
   "expiresAtHeight",
   "metadata",
 ]);
 const MOVEMENT_FIELDS = ["sourceAssetHoldingId", "recipient", "quantity"];
+const ESCROW_LEG_FIELDS = new Set([
+  "sourceAssetHoldingId",
+  "escrowId",
+  "beneficiary",
+  "amount",
+  "conditions",
+  "expiresAtMs",
+  "evidenceHashes",
+]);
 
 function plainObject(value, context) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -95,7 +109,59 @@ function atomicAccounts(payload) {
   for (const movement of Array.isArray(payload.movements) ? payload.movements : []) {
     accounts.push(movement?.recipient, String(movement?.source ?? "").split("#")[1]);
   }
+  for (const escrow of Array.isArray(payload.escrows) ? payload.escrows : []) {
+    accounts.push(escrow?.beneficiary, String(escrow?.source ?? "").split("#")[1]);
+  }
   return accounts.filter((account) => typeof account === "string" && account.length > 0);
+}
+
+/**
+ * Normalize one escrow leg with the exact `OpenConditionalEscrow` field rules.
+ * The source must be a global-scope bucket; its owner opens the escrow and
+ * receives the refund on expiry.
+ */
+function escrowLeg(leg, path) {
+  const entry = plainObject(leg, path);
+  for (const key of Object.keys(entry)) {
+    if (!ESCROW_LEG_FIELDS.has(key)) throw new TypeError(`${path}.${key} is not supported`);
+  }
+  const source = normalizeAssetHoldingId(entry.sourceAssetHoldingId, `${path}.sourceAssetHoldingId`);
+  const { OpenConditionalEscrow: opened } = buildOpenConditionalEscrowInstruction({
+    escrowId: entry.escrowId,
+    assetDefinitionId: source.split("#")[0],
+    beneficiary: entry.beneficiary,
+    amount: entry.amount,
+    conditions: entry.conditions,
+    expiresAtMs: entry.expiresAtMs,
+    evidenceHashes: entry.evidenceHashes,
+  });
+  return {
+    source,
+    escrow_id: opened.escrow_id,
+    beneficiary: opened.beneficiary,
+    amount: opened.amount,
+    conditions: opened.conditions,
+    expires_at_ms: opened.expires_at_ms,
+    evidence_hashes: opened.evidence_hashes,
+  };
+}
+
+/**
+ * Sort a `Settlement::Atomic` instruction JSON into native canonical order.
+ *
+ * Movements are ordered by the native `(AssetId, AccountId)` ordering and
+ * escrow legs by `EscrowId` bytes; the strict codec never sorts, so this is the
+ * order it admits. All model rules (leg counts, duplicate keys, global escrow
+ * sources, positive amounts) are then validated natively.
+ * @param {{Settlement: {Atomic: object}}} instruction
+ * @returns {{Settlement: {Atomic: object}}}
+ */
+export function canonicalSettleAtomicInstruction(instruction) {
+  const context = "canonicalSettleAtomicInstruction.instruction";
+  const prefix = sharedNetworkPrefix(atomicAccounts(atomicPayload(instruction, context)), context);
+  return JSON.parse(
+    nativeBinding().canonicalSettleAtomicInstructionJson(JSON.stringify(instruction), prefix),
+  );
 }
 
 function nativeBinding() {
@@ -103,14 +169,16 @@ function nativeBinding() {
 }
 
 /**
- * Build a `Settlement::Atomic` instruction with movements in native canonical order.
+ * Build a `Settlement::Atomic` instruction with legs in native canonical order.
  *
- * Each movement is normalized exactly like a transfer leg and the movements are
- * then sorted by the native `(AssetId, AccountId)` ordering. Movement counts,
- * duplicate keys, positive quantities and self-transfers are enforced natively.
- * Every debited bucket owner grants the submitter `CanExecuteSettlement` with
- * {@link settleAtomicIntentHash} of the returned instruction.
- * @param {{ networkId: NetworkId | string, settlementId: string, movements: Array<{ sourceAssetHoldingId: string, recipient: string, quantity: import("./numericV1.js").KotodamaQuantity | string | bigint }>, expiresAtHeight: number | bigint | string, metadata?: object | null }} options
+ * Each movement is normalized exactly like a transfer leg and each escrow leg
+ * exactly like `OpenConditionalEscrow` (plus its global-scope source bucket);
+ * {@link canonicalSettleAtomicInstruction} then sorts and validates natively.
+ * Movements (0..=255) and escrow legs (0..=16) must total at least two legs.
+ * Every foreign source owner (movement or escrow) grants the submitter
+ * `CanExecuteSettlement` with {@link settleAtomicIntentHash} of the returned
+ * instruction; the submitter's own buckets need no consent.
+ * @param {{ networkId: NetworkId | string, settlementId: string, movements: Array<{ sourceAssetHoldingId: string, recipient: string, quantity: import("./numericV1.js").KotodamaQuantity | string | bigint }>, escrows?: Array<{ sourceAssetHoldingId: string, escrowId: string, beneficiary: string, amount: import("./numericV1.js").KotodamaQuantity | string | bigint, conditions: Array<object>, expiresAtMs: number | bigint | string, evidenceHashes?: string[] }>, expiresAtHeight: number | bigint | string, metadata?: object | null }} options
  * @returns {{Settlement: {Atomic: object}}}
  */
 export function buildSettleAtomicInstruction(options) {
@@ -121,6 +189,10 @@ export function buildSettleAtomicInstruction(options) {
   }
   if (!Array.isArray(source.movements)) {
     throw new TypeError(`${context}.movements must be an array`);
+  }
+  const escrowInput = source.escrows ?? [];
+  if (!Array.isArray(escrowInput)) {
+    throw new TypeError(`${context}.escrows must be an array`);
   }
   const movements = source.movements.map((movement, index) => {
     const path = `${context}.movements[${index}]`;
@@ -143,15 +215,13 @@ export function buildSettleAtomicInstruction(options) {
         network_id: networkIdLiteral(source.networkId, `${context}.networkId`),
         settlement_id: assertCanonicalIrohaName(source.settlementId, `${context}.settlementId`),
         movements,
+        escrows: escrowInput.map((leg, index) => escrowLeg(leg, `${context}.escrows[${index}]`)),
         expires_at_height: positiveSafeInteger(source.expiresAtHeight, `${context}.expiresAtHeight`),
         metadata: metadataObject(source.metadata, `${context}.metadata`),
       },
     },
   };
-  const prefix = sharedNetworkPrefix(atomicAccounts(instruction.Settlement.Atomic), context);
-  return JSON.parse(
-    nativeBinding().canonicalSettleAtomicInstructionJson(JSON.stringify(instruction), prefix),
-  );
+  return canonicalSettleAtomicInstruction(instruction);
 }
 
 /**

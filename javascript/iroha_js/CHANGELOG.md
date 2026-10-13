@@ -13,12 +13,12 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
   `buildOpenConditionalEscrowInstruction`,
   `buildAttestEscrowConditionInstruction`,
   `buildExpireConditionalEscrowInstruction`, `buildSettleAtomicInstruction`
-  (native movement ordering), `buildRepoInitiateInstruction` and
-  `buildRepoReverseInstruction`; native consent hashes
-  `settleAtomicIntentHash` and `repoIntentHashes`. The native codec admits the
-  strict `OpenConditionalEscrow`, `AttestEscrowCondition`,
-  `ExpireConditionalEscrow`, `Repo`, `EnsureAlias` and
-  `SetKeyValue.AssetDefinition` JSON envelopes.
+  (native movement and escrow-leg ordering, escrow legs bound into the intent),
+  `canonicalSettleAtomicInstruction`, `buildRepoInitiateInstruction` (with
+  `allowEarlyRepayment`) and `buildRepoReverseInstruction`; native consent
+  hashes `settleAtomicIntentHash` and `repoIntentHashes` (computed by the model
+  methods Core checks). The native codec also admits the strict `EnsureAlias`
+  and `SetKeyValue.AssetDefinition` JSON envelopes.
 - Added `ToriiClient.planAliasSetup` and `planDomainLease`, which plans a paid
   SNS domain lease and returns natively verified `EnsureAlias` instructions.
 - Added the Node.js `claimFaucet` V1 proof-of-work faucet flow; prepared

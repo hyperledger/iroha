@@ -13338,26 +13338,57 @@ export interface SettleAtomicMovementInput {
   quantity: QuantityInput;
 }
 
+/** One escrow leg opened from a global-scope bucket by the atomic settlement. */
+export interface SettleAtomicEscrowLegInput {
+  sourceAssetHoldingId: string;
+  escrowId: string;
+  beneficiary: string;
+  amount: QuantityInput;
+  conditions: ReadonlyArray<ConditionalEscrowConditionInput>;
+  expiresAtMs: NumericLike;
+  evidenceHashes?: ReadonlyArray<string> | null;
+}
+
+export interface SettleAtomicEscrowLegJson {
+  source: string;
+  escrow_id: string;
+  beneficiary: string;
+  amount: string;
+  conditions: ConditionalEscrowConditionJson[];
+  expires_at_ms: number;
+  evidence_hashes: string[];
+}
+
 export interface SettleAtomicInstruction {
   Settlement: {
     Atomic: {
       network_id: string;
       settlement_id: string;
       movements: Array<{ source: string; recipient: string; quantity: string }>;
+      escrows: SettleAtomicEscrowLegJson[];
       expires_at_height: number;
       metadata: Record<string, JsonValue>;
     };
   };
 }
 
-/** Build a `Settlement::Atomic` instruction with natively ordered movements. */
+/**
+ * Build a `Settlement::Atomic` instruction with natively ordered movements and
+ * escrow legs (0..=255 movements, 0..=16 escrows, at least two legs in total).
+ */
 export function buildSettleAtomicInstruction(options: {
   networkId: NetworkId | string;
   settlementId: string;
   movements: ReadonlyArray<SettleAtomicMovementInput>;
+  escrows?: ReadonlyArray<SettleAtomicEscrowLegInput> | null;
   expiresAtHeight: NumericLike;
   metadata?: Record<string, JsonValue> | null;
 }): SettleAtomicInstruction;
+
+/** Sort atomic settlement JSON into the native order the codec admits, and validate it. */
+export function canonicalSettleAtomicInstruction(
+  instruction: SettleAtomicInstruction,
+): SettleAtomicInstruction;
 
 /** Exact `CanExecuteSettlement.intent_hash` literal of a canonical atomic settlement. */
 export function settleAtomicIntentHash(instruction: SettleAtomicInstruction): string;
@@ -13365,6 +13396,8 @@ export function settleAtomicIntentHash(instruction: SettleAtomicInstruction): st
 export interface RepoGovernanceInput {
   haircutBps: number;
   marginFrequencySecs: NumericLike;
+  /** Lets the initiator reverse before maturity; part of both consent hashes. */
+  allowEarlyRepayment: boolean;
 }
 
 export interface RepoInitiateInstruction {
@@ -13382,7 +13415,11 @@ export interface RepoInitiateInstruction {
       };
       rate_bps: number;
       maturity_timestamp_ms: number;
-      governance: { haircut_bps: number; margin_frequency_secs: number };
+      governance: {
+        haircut_bps: number;
+        margin_frequency_secs: number;
+        allow_early_repayment: boolean;
+      };
     };
   };
 }
