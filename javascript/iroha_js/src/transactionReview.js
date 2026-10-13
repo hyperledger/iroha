@@ -18,6 +18,8 @@ import { NetworkId } from "./networkId.js";
 import { normalizeAccountId } from "./normalizers.js";
 import { defaultNativeRuntime, resolveNativeRuntimeBinding } from "./nativeRuntime.js";
 import { noritoDecodeInstruction } from "./norito.js";
+import { bondHolderPayment } from "./bond.js";
+import { normalizeBondRecord } from "./bondRecords.js";
 
 export const TRANSACTION_REVIEW_SCHEMA = "iroha.connect-transaction-review.v1";
 export const TRANSACTION_REVIEW_MAX_INSTRUCTIONS = 64;
@@ -65,8 +67,183 @@ function escrowLegFields(prefix, leg) {
   ];
 }
 
+function reviewDate(ms) {
+  const date = new Date(Number(ms));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : String(ms);
+}
+
+function bondCashflowSummary(terms) {
+  return `${terms.kind} ${terms.amount_per_unit} per unit; record ${reviewDate(terms.record_date_ms)}; pay ${reviewDate(terms.payment_date_ms)}`;
+}
+
+/**
+ * Normalize the optional bond review context: native records (for example from
+ * `ToriiClient.getBond`) with the payment asset's scale when known.
+ */
+function bondReviewContext(bonds) {
+  const context = new Map();
+  if (bonds === undefined || bonds === null) return context;
+  if (!Array.isArray(bonds)) {
+    throw new TypeError("expected.bonds must be an array of { record, paymentAssetScale? }");
+  }
+  bonds.forEach((entry, index) => {
+    const name = `expected.bonds[${index}]`;
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new TypeError(`${name} must be an object`);
+    }
+    const unknown = Object.keys(entry).filter((key) => key !== "record" && key !== "paymentAssetScale");
+    if (unknown.length > 0) throw new TypeError(`${name}.${unknown[0]} is not supported`);
+    const record = normalizeBondRecord(entry.record, `${name}.record`);
+    const scale = entry.paymentAssetScale;
+    if (scale !== undefined && scale !== null
+      && (!Number.isInteger(scale) || scale < 0 || scale > 28)) {
+      throw new TypeError(`${name}.paymentAssetScale must be an integer 0..=28, null or omitted`);
+    }
+    context.set(record.id, { record, paymentAssetScale: scale });
+  });
+  return context;
+}
+
+/** Describe one bond-kernel instruction, enriched by its record when supplied. */
+function describeBond(body, bonds) {
+  const [variant] = Object.keys(body);
+  const payload = body[variant] ?? {};
+  const known = bonds.get(payload.bond);
+  const record = known?.record;
+  const cashflow = Number.isInteger(payload.index)
+    ? record?.state?.cashflows?.[payload.index]
+    : undefined;
+  const flowTerms = cashflow?.terms;
+  const paymentAsset = record?.terms?.payment_asset;
+  const head = [field("bond", payload.bond)];
+  if (payload.index !== undefined) head.push(field("cash flow", `#${payload.index}`));
+  const flowFields = () => (flowTerms
+    ? [
+        field("cash flow kind", flowTerms.kind),
+        field("record date", reviewDate(flowTerms.record_date_ms)),
+        field("payment date", reviewDate(flowTerms.payment_date_ms)),
+        field("amount per unit", `${flowTerms.amount_per_unit} of ${paymentAsset}`),
+        field("status", cashflow.status),
+      ]
+    : [field("cash flow kind", record
+      ? "unknown (cash flow not in the supplied bond record)"
+      : "unknown (bond record not supplied)")]);
+  switch (variant) {
+    case "Register": {
+      const terms = payload.terms ?? {};
+      const ids = terms.identifiers ?? {};
+      const call = terms.call;
+      const schedule = Array.isArray(terms.cashflows) ? terms.cashflows : [];
+      return {
+        kind: "bond",
+        title: "Register bond",
+        fields: [
+          ...head,
+          field("issuer", terms.issuer),
+          field("paying agent", terms.paying_agent),
+          field("payment asset", terms.payment_asset),
+          field("denomination", `${terms.denomination} per unit`),
+          field("coupon", terms.coupon_frequency === 0
+            ? "zero coupon"
+            : `${terms.coupon_rate_bps} bps a year, ${terms.coupon_frequency} payment(s) a year`),
+          field("day count", terms.day_count),
+          field("issue date", reviewDate(terms.issue_date_ms)),
+          field("maturity date", reviewDate(terms.maturity_date_ms)),
+          field("redemption price (bps)", terms.redemption_price_bps),
+          field("call", call
+            ? `from ${reviewDate(call.first_call_date_ms)} at ${call.price_bps} bps, notice ${call.notice_ms} ms`
+            : "none"),
+          field("cash flows", schedule.length),
+          ...schedule.map((entry) => field(`cash flow #${entry.index}`, bondCashflowSummary(entry))),
+          field("ISIN", ids.isin ?? "none"),
+          field("CFI", ids.cfi ?? "none"),
+          field("issuer LEI", ids.issuer_lei ?? "none"),
+          field("BDT version", ids.bdt_version),
+          field("BDT document SHA-256", ids.bdt_document_sha256 ?? "none"),
+          field("terms SHA-256", terms.terms_sha256),
+        ],
+      };
+    }
+    case "RecordCashflow": {
+      const fields = [...head, ...flowFields()];
+      if (flowTerms?.kind === "Redemption") {
+        fields.push(field("effect", "recording the redemption freezes every transfer of the bond"));
+      }
+      return { kind: "bond", title: "Record bond cash flow", fields };
+    }
+    case "FundCashflow":
+      return {
+        kind: "bond",
+        title: "Fund bond cash flow",
+        fields: [
+          ...head,
+          field("from", payload.source),
+          field("to", record?.vault ?? "bond vault"),
+          field("amount", cashflow?.status === "Recorded"
+            ? `${cashflow.amount_due} of ${paymentAsset}`
+            : "the recorded amount due"),
+          ...flowFields(),
+        ],
+      };
+    case "ClaimCashflow": {
+      const units = cashflow?.snapshot?.[payload.holder];
+      let amount = "the holder's entitlement";
+      if (units !== undefined && flowTerms) {
+        amount = known.paymentAssetScale === undefined
+          ? `${bondHolderPayment({ units, amountPerUnit: flowTerms.amount_per_unit, paymentScale: null })} of ${paymentAsset} before rounding down to the payment asset scale`
+          : `${bondHolderPayment({ units, amountPerUnit: flowTerms.amount_per_unit, paymentScale: known.paymentAssetScale })} of ${paymentAsset}`;
+      }
+      const title = flowTerms?.kind === "Redemption"
+        ? "Claim bond redemption"
+        : flowTerms?.kind === "Coupon" ? "Claim bond coupon" : "Claim bond cash flow";
+      const fields = [
+        ...head,
+        field("holder", payload.holder),
+        field("destination", payload.holder),
+        field("units", units ?? "snapshot units"),
+        field("amount", amount),
+        ...flowFields(),
+      ];
+      if (flowTerms?.kind === "Redemption") {
+        fields.push(field("effect", `burns the holder's ${units ?? "snapshot"} units of the bond`));
+      }
+      return { kind: "bond", title, fields };
+    }
+    case "CloseCashflow":
+      return {
+        kind: "bond",
+        title: "Close bond cash flow",
+        fields: [
+          ...head,
+          field("residual to", record?.terms?.issuer ?? "the issuer"),
+          ...flowFields(),
+        ],
+      };
+    case "Call": {
+      const call = record?.terms?.call;
+      return {
+        kind: "bond",
+        title: "Call bond",
+        fields: [
+          ...head,
+          field("call date", reviewDate(payload.call_date_ms)),
+          field("call price (bps)", call ? call.price_bps : "per the registered call terms"),
+        ],
+      };
+    }
+    case "DeclareDefault":
+      return {
+        kind: "bond",
+        title: "Declare bond default",
+        fields: [...head, field("evidence SHA-256", payload.evidence_sha256), ...flowFields()],
+      };
+    default:
+      return { kind: "bond", title: `Bond ${sanitizeReviewText(variant ?? "instruction", 64)}`, fields: head };
+  }
+}
+
 /** Describe one decoded instruction JSON value. */
-function describeInstruction(instruction) {
+function describeInstruction(instruction, bonds) {
   const [key] = Object.keys(instruction ?? {});
   const body = instruction?.[key] ?? {};
   switch (key) {
@@ -173,6 +350,8 @@ function describeInstruction(instruction) {
       }
       return { kind: "repo", title: `Repo ${variant}`, fields: [field("agreement", terms.agreement_id)] };
     }
+    case "Bond":
+      return describeBond(body, bonds);
     default:
       break;
   }
@@ -198,7 +377,11 @@ function instructionFrames(executable, warnings) {
  * Fails closed when the payload is not canonical, its NetworkId or authority
  * differ from the expected session values, or it has more than 64 instructions.
  * @param {ArrayBufferView | ArrayBuffer | Buffer} payloadBytes
- * @param {{ networkId: NetworkId, authority: string }} expected
+ * Bond instructions are described from the payload alone; supplying
+ * `expected.bonds` (records from `ToriiClient.getBond`, each with the payment
+ * asset scale when known) adds the cash-flow kind, dates, amounts, units and
+ * the vault or issuer counterparty.
+ * @param {{ networkId: NetworkId, authority: string, bonds?: Array<{ record: object, paymentAssetScale?: number | null }> }} expected
  */
 export function reviewTransactionPayload(payloadBytes, expected) {
   const bytes = Buffer.from(
@@ -208,6 +391,7 @@ export function reviewTransactionPayload(payloadBytes, expected) {
     throw new TypeError("expected.networkId must be a NetworkId");
   }
   const authority = normalizeAccountId(expected.authority, "expected.authority");
+  const bonds = bondReviewContext(expected.bonds);
   const { chainDiscriminant } = AccountAddress.parseEncoded(authority);
   const native = resolveNativeRuntimeBinding(defaultNativeRuntime);
   const payload = JSON.parse(native.decodeTransactionPayloadJson(bytes, chainDiscriminant));
@@ -230,7 +414,7 @@ export function reviewTransactionPayload(payloadBytes, expected) {
       return { index: index + 1, kind: "undecoded", title: "Contract call", fields: [], json: null };
     }
     const decoded = noritoDecodeInstruction(Buffer.from(frame, "base64"), chainDiscriminant);
-    const description = describeInstruction(decoded);
+    const description = describeInstruction(decoded, bonds);
     return {
       index: index + 1,
       ...description,

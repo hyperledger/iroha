@@ -11,8 +11,9 @@ use iroha_data_model::{
     account::AccountId,
     asset::AssetId,
     bond::{
-        BondCallTerms, BondCashflowKind, BondDayCount, BondIdentifiers, BondScheduleRequest,
-        BondTerms, bond_vault_account_id, fixed_rate_bullet_schedule, holder_payment,
+        BondCallTerms, BondCashflowKind, BondCashflowStatus, BondDayCount, BondIdentifiers,
+        BondRecord, BondScheduleRequest, BondTerms, bond_vault_account_id,
+        fixed_rate_bullet_schedule, holder_payment, snapshot_amount_due,
     },
     isi::{
         bond::{
@@ -74,6 +75,10 @@ fn paying_agent() -> AccountId {
 
 fn holder() -> AccountId {
     account(0x21)
+}
+
+fn holder_b() -> AccountId {
+    account(0x22)
 }
 
 fn annual_request() -> BondScheduleRequest {
@@ -588,6 +593,33 @@ fn vault_vectors() -> Value {
     )
 }
 
+/// Annual bond with coupon 0 funded and coupon 1 recorded for two holders, as Torii serves it.
+fn serviced_record() -> BondRecord {
+    let mut record = BondRecord::registered(bond(), annual_terms(), q("1000"));
+    for (index, status) in [
+        (0_u16, BondCashflowStatus::Funded),
+        (1, BondCashflowStatus::Recorded),
+    ] {
+        let cashflow = record.cashflow_mut(index).expect("scheduled coupon");
+        cashflow.snapshot =
+            std::collections::BTreeMap::from([(holder(), q("3")), (holder_b(), q("997"))]);
+        cashflow.entitled_units = q("1000");
+        cashflow.amount_due = snapshot_amount_due(
+            &cashflow.snapshot,
+            &cashflow.terms.amount_per_unit,
+            NumericSpec::fractional(2),
+        )
+        .expect("amount due");
+        cashflow.recorded_at_ms = Some(cashflow.terms.record_date_ms + 60_000);
+        if status == BondCashflowStatus::Funded {
+            cashflow.funded = cashflow.amount_due.clone();
+            cashflow.funded_at_ms = Some(cashflow.terms.record_date_ms + 120_000);
+        }
+        cashflow.status = status;
+    }
+    record
+}
+
 /// Generate the complete shared fixture from the native data model.
 fn generate_fixture() -> Value {
     let _network = ChainDiscriminantGuard::enter(PREFIX);
@@ -602,6 +634,7 @@ fn generate_fixture() -> Value {
                 ("issuer", value(&issuer())),
                 ("paying_agent", value(&paying_agent())),
                 ("holder", value(&holder())),
+                ("holder_b", value(&holder_b())),
             ]),
         ),
         ("instructions", instruction_vectors()),
@@ -609,6 +642,7 @@ fn generate_fixture() -> Value {
         ("schedules", schedule_vectors()),
         ("terms_validation", validation_vectors()),
         ("holder_payments", holder_payment_vectors()),
+        ("record", value(&serviced_record())),
     ])
 }
 

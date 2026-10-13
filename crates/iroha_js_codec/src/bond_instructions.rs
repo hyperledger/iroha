@@ -5,7 +5,7 @@
 //! envelope mirrors that box with exactly one variant:
 //! `{"Bond": {"Register": RegisterBond}}`, `"RecordCashflow"`, `"FundCashflow"`,
 //! `"ClaimCashflow"`, `"CloseCashflow"`, `"Call"` or `"DeclareDefault"`. Each
-//! payload must be exactly its canonical model JSON (snake_case fields, canonical
+//! payload must be exactly its canonical model JSON (`snake_case` fields, canonical
 //! quantities, lowercase 32-byte hex digests), so the decoded instruction is the
 //! signed one. Terms validation stays with Core (`specs/finance/bond_ops.md`);
 //! this contract only admits the exact shape.

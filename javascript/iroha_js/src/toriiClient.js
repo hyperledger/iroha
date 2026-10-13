@@ -14,6 +14,7 @@ import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
 import { timingSafeEqual } from "node:crypto";
 import { JS_TYPE_BIGINT, JS_TYPE_FUNCTION, JS_TYPE_NUMBER, JS_TYPE_OBJECT, JS_TYPE_STRING, KAIGI_MAX_PARTICIPANTS_V1 } from "./commonLiterals.js";
 import { readAccountCapabilitiesResponseV1 } from "./accountCapabilities.js";
+import { normalizeBondRecord, normalizeBondRecordList } from "./bondRecords.js";
 import {
   resolveToriiClientConfig,
   extractConfidentialGasConfig,
@@ -2622,6 +2623,64 @@ export class ToriiClient {
       payload,
       "ram-lfe program policy list response",
     );
+  }
+
+  /**
+   * List every native bond record (`GET /v1/bonds`).
+   *
+   * Records are the authoritative native snake_case `BondRecord` JSON: terms with
+   * the materialised schedule, lifecycle, transfer freeze and per-cash-flow
+   * servicing state including record-date snapshots (`specs/finance/bond_ops.md`).
+   * @param {{signal?: AbortSignal}} [options]
+   * @returns {Promise<Array<Record<string, unknown>>>}
+   */
+  async listBonds(options = {}) {
+    const { signal, rest } = ToriiClient._normalizeOptionsWithSignal(options, "listBonds");
+    assertSupportedOptionKeys(rest, new Set([]), "listBonds options");
+    const response = await this._request("GET", "/v1/bonds", {
+      headers: JSON_ACCEPT_HEADERS,
+      signal,
+    });
+    await this._expectStatus(response, [200]);
+    const payload = await this._readBoundedLosslessIntegerJson(
+      response,
+      JSON_RESPONSE_MAX_BYTES,
+      "bond list response",
+      { signal },
+    );
+    return normalizeBondRecordList(payload, "bond list response");
+  }
+
+  /**
+   * Fetch one native bond record (`GET /v1/bonds/{bond_id}`); null when the bond
+   * is not registered (404).
+   * @param {string} bondId canonical Base58 asset-definition address of the bond
+   * @param {{signal?: AbortSignal}} [options]
+   * @returns {Promise<Record<string, unknown> | null>}
+   */
+  async getBond(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBond.bondId");
+    const { signal, rest } = ToriiClient._normalizeOptionsWithSignal(options, "getBond");
+    assertSupportedOptionKeys(rest, new Set([]), "getBond options");
+    const response = await this._request("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
+      headers: JSON_ACCEPT_HEADERS,
+      signal,
+    });
+    if (response.status === 404) {
+      return null;
+    }
+    await this._expectStatus(response, [200]);
+    const payload = await this._readBoundedLosslessIntegerJson(
+      response,
+      JSON_RESPONSE_MAX_BYTES,
+      "bond response",
+      { signal },
+    );
+    const record = normalizeBondRecord(payload, "bond response");
+    if (record.id !== bond) {
+      rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
+    }
+    return record;
   }
 
   /**

@@ -10215,6 +10215,10 @@ export declare class ToriiBrowserClient {
   /** Public capability advert (`GET /v1/node/capabilities`); no credentials are sent. */
   getNodeCapabilities(options?: { signal?: AbortSignal }): Promise<ToriiBrowserNodeCapabilities>;
   getAccountCapabilities(options?: { signal?: AbortSignal }): Promise<AccountCapabilitiesV1>;
+  /** Every native bond record (`GET /v1/bonds`). */
+  listBonds(options?: { signal?: AbortSignal }): Promise<BondRecordJson[]>;
+  /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
+  getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
   getContractDeploymentState(
     request: ToriiBrowserContractDeploymentStateRequest,
     options?: ToriiBrowserContractDeploymentStateOptions,
@@ -10569,6 +10573,10 @@ export declare class ToriiClient {
   listIdentifierPolicies(options?: {
     signal?: AbortSignal;
   }): Promise<IdentifierPolicyListResponse>;
+  /** Every native bond record (`GET /v1/bonds`): terms, schedule, lifecycle and servicing state. */
+  listBonds(options?: { signal?: AbortSignal }): Promise<BondRecordJson[]>;
+  /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
+  getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
   resolveIdentifier(
     options: IdentifierResolutionRequestOptions,
   ): Promise<IdentifierResolutionReceipt | null>;
@@ -13476,6 +13484,213 @@ export function repoIntentHashes(instruction: RepoInitiateInstruction): {
   maturity: string;
 };
 
+/** Maximum scheduled cash flows of registered bond terms. */
+export const BOND_MAX_CASHFLOWS: 400;
+/** Maximum investor holders in one record-date snapshot. */
+export const BOND_MAX_SNAPSHOT_HOLDERS: 4096;
+export const BOND_COUPON_FREQUENCIES: readonly [0, 1, 2, 4, 12];
+export const BOND_DAY_COUNTS: readonly ["ActActIcma", "Thirty360", "Act360", "Act365Fixed"];
+export const BOND_CASHFLOW_KINDS: readonly ["Coupon", "Redemption"];
+
+export type BondCouponFrequency = 0 | 1 | 2 | 4 | 12;
+export type BondDayCount = "ActActIcma" | "Thirty360" | "Act360" | "Act365Fixed";
+export type BondCashflowKind = "Coupon" | "Redemption";
+export type BondLifecycle = "Active" | "Called" | "Matured" | "Defaulted";
+export type BondCashflowStatus =
+  | "Scheduled"
+  | "Recorded"
+  | "Funded"
+  | "Closed"
+  | "Defaulted"
+  | "Cancelled";
+/** 32 bytes, or 64 hexadecimal digits (rendered lowercase). */
+export type BondDigestInput = string | Uint8Array;
+
+/** Inputs of the fixed-rate bullet schedule helper (`fixed_rate_bullet_schedule`). */
+export interface BondScheduleRequest {
+  /** Payment-asset amount per bond unit. */
+  denomination: QuantityInput;
+  /** Annual coupon rate in basis points; 0 for zero-coupon bonds. */
+  couponRateBps: number;
+  couponFrequency: BondCouponFrequency;
+  /** Unix milliseconds (UTC midnight recommended). */
+  issueDateMs: NumericLike;
+  maturityDateMs: NumericLike;
+  /** Redemption price in basis points of the denomination (10000 = par). */
+  redemptionPriceBps: number;
+  /** Record date = payment date minus this offset, clamped to the issue date. */
+  recordOffsetMs: NumericLike;
+}
+
+/** One scheduled cash flow (builder input and `buildBondSchedule` output). */
+export interface BondCashflowInput {
+  index: number;
+  kind: BondCashflowKind;
+  recordDateMs: NumericLike;
+  paymentDateMs: NumericLike;
+  /** Exact payment-asset amount per unit (canonical decimal string). */
+  amountPerUnit: QuantityInput;
+}
+
+export interface BondScheduleEntry extends BondCashflowInput {
+  recordDateMs: number;
+  paymentDateMs: number;
+  amountPerUnit: string;
+}
+
+export interface BondTermsInput {
+  /** Issuer: owns the bond definition and signs registration and calls. */
+  issuer: string;
+  /** Paying agent: records, funds, closes, declares defaults, may push claims. */
+  payingAgent: string;
+  paymentAsset: string;
+  denomination: QuantityInput;
+  couponRateBps: number;
+  couponFrequency: BondCouponFrequency;
+  dayCount: BondDayCount;
+  issueDateMs: NumericLike;
+  maturityDateMs: NumericLike;
+  redemptionPriceBps: number;
+  call?: { firstCallDateMs: NumericLike; priceBps: number; noticeMs: NumericLike } | null;
+  cashflows: ReadonlyArray<BondCashflowInput>;
+  identifiers: {
+    isin?: string | null;
+    cfi?: string | null;
+    issuerLei?: string | null;
+    bdtVersion: string;
+    bdtDocumentSha256?: BondDigestInput | null;
+  };
+  termsSha256: BondDigestInput;
+}
+
+export interface BondCashflowTermsJson {
+  index: number;
+  kind: BondCashflowKind;
+  record_date_ms: number;
+  payment_date_ms: number;
+  amount_per_unit: string;
+}
+
+/** Canonical native `BondTerms` JSON. */
+export interface BondTermsJson {
+  issuer: string;
+  paying_agent: string;
+  payment_asset: string;
+  denomination: string;
+  coupon_rate_bps: number;
+  coupon_frequency: number;
+  day_count: BondDayCount;
+  issue_date_ms: number;
+  maturity_date_ms: number;
+  redemption_price_bps: number;
+  call: { first_call_date_ms: number; price_bps: number; notice_ms: number } | null;
+  cashflows: BondCashflowTermsJson[];
+  identifiers: {
+    isin: string | null;
+    cfi: string | null;
+    issuer_lei: string | null;
+    bdt_version: string;
+    bdt_document_sha256: string | null;
+  };
+  terms_sha256: string;
+}
+
+/** Native `BondRecord` JSON served by Torii (`specs/finance/bond_ops.md`). */
+export interface BondRecordJson {
+  id: string;
+  vault: string;
+  terms: BondTermsJson;
+  state: {
+    lifecycle: BondLifecycle;
+    outstanding_units: string;
+    redeemed_units: string;
+    transfers_frozen: boolean;
+    cashflows: Array<{
+      terms: BondCashflowTermsJson;
+      status: BondCashflowStatus;
+      /** Entitled units per investor account at record time. */
+      snapshot: Record<string, string>;
+      entitled_units: string;
+      amount_due: string;
+      funded: string;
+      paid: string;
+      claimed: string[];
+      recorded_at_ms: number | null;
+      funded_at_ms: number | null;
+      closed_at_ms: number | null;
+      evidence_sha256: string | null;
+    }>;
+  };
+}
+
+/**
+ * Materialise a regular fixed-rate bullet schedule exactly as Core's
+ * `fixed_rate_bullet_schedule`: exact decimal amounts, end-of-month date
+ * stepping back from maturity; refuses irregular first periods and
+ * non-terminating coupons with Core's `bond.invalid_terms` message.
+ */
+export function buildBondSchedule(request: BondScheduleRequest): BondScheduleEntry[];
+
+/** Normalize terms and apply every `BondTerms::validate` rule; returns canonical native JSON. */
+export function validateBondTerms(terms: BondTermsInput): BondTermsJson;
+
+/** `floor(units × amountPerUnit)` at the payment scale (`null`: unconstrained, exact). */
+export function bondHolderPayment(input: {
+  units: QuantityInput;
+  amountPerUnit: QuantityInput;
+  paymentScale: number | null;
+}): string;
+
+/** Deterministic key-less vault account of a bond, rendered for `networkPrefix` (native). */
+export function bondVaultAccountId(bondId: string, networkPrefix: number): string;
+
+export interface RegisterBondInstruction {
+  Bond: { Register: { bond: string; terms: BondTermsJson } };
+}
+export interface BondCashflowInstructionJson {
+  bond: string;
+  index: number;
+}
+
+/** `Bond::Register` (issuer); terms validated; payment asset must differ from the bond. */
+export function buildRegisterBondInstruction(options: {
+  bondId: string;
+  terms: BondTermsInput;
+}): RegisterBondInstruction;
+/** `Bond::RecordCashflow` (paying agent, at or after the record date). */
+export function buildRecordBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+}): { Bond: { RecordCashflow: BondCashflowInstructionJson } };
+/** `Bond::FundCashflow` (paying agent or issuer) from its own global payment-asset balance. */
+export function buildFundBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+  sourceAssetHoldingId: string;
+}): { Bond: { FundCashflow: BondCashflowInstructionJson & { source: string } } };
+/** `Bond::ClaimCashflow` (holder or paying agent); pays the holder, a redemption also burns its units. */
+export function buildClaimBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+  holder: string;
+}): { Bond: { ClaimCashflow: BondCashflowInstructionJson & { holder: string } } };
+/** `Bond::CloseCashflow` (paying agent) once every snapshot holder claimed. */
+export function buildCloseBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+}): { Bond: { CloseCashflow: BondCashflowInstructionJson } };
+/** `Bond::Call` (issuer) at the payment date of a still scheduled coupon. */
+export function buildCallBondInstruction(options: {
+  bondId: string;
+  callDateMs: NumericLike;
+}): { Bond: { Call: { bond: string; call_date_ms: number } } };
+/** `Bond::DeclareDefault` (paying agent) after an unfunded payment date. */
+export function buildDeclareBondDefaultInstruction(options: {
+  bondId: string;
+  index: number;
+  evidenceSha256: BondDigestInput;
+}): { Bond: { DeclareDefault: BondCashflowInstructionJson & { evidence_sha256: string } } };
+
 /** Random canonical asset-definition id (UUIDv4 Base58 address). */
 export function generateAssetDefinitionId(): string;
 
@@ -13601,6 +13816,7 @@ export interface TransactionReviewInstruction {
     | "settlement"
     | "escrow"
     | "repo"
+    | "bond"
     | "unknown"
     | "undecoded";
   title: string;
@@ -13637,9 +13853,24 @@ export function sanitizeReviewText(value: unknown, maximum?: number): string;
  * Decode an unsigned payload natively and describe it for a signer; fails
  * closed on a NetworkId or authority mismatch or more than 64 instructions.
  */
+export interface BondReviewContext {
+  /** Native record, for example from `ToriiClient.getBond`. */
+  record: BondRecordJson;
+  /** Payment asset scale; `null` for an unconstrained asset; omit when unknown. */
+  paymentAssetScale?: number | null;
+}
+
+/**
+ * Bond rows are built from the payload alone; `bonds` adds each cash flow's
+ * kind, dates, amounts, units and the vault or issuer counterparty.
+ */
 export function reviewTransactionPayload(
   payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,
-  expected: { networkId: NetworkId; authority: string },
+  expected: {
+    networkId: NetworkId;
+    authority: string;
+    bonds?: ReadonlyArray<BondReviewContext> | null;
+  },
 ): TransactionReview;
 
 /** Claim testnet funds through the V1 proof-of-work faucet (Node.js). */

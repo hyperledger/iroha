@@ -565,6 +565,24 @@ export {
 export { planDomainLease, SNS_DOMAIN_SUFFIX_ID } from "./domainLease.js";
 export { claimFaucet, faucetPowChallenge, faucetPowDigest } from "./accountFaucet.js";
 export {
+  BOND_CASHFLOW_KINDS,
+  BOND_COUPON_FREQUENCIES,
+  BOND_DAY_COUNTS,
+  BOND_MAX_CASHFLOWS,
+  BOND_MAX_SNAPSHOT_HOLDERS,
+  bondHolderPayment,
+  bondVaultAccountId,
+  buildBondSchedule,
+  buildCallBondInstruction,
+  buildClaimBondCashflowInstruction,
+  buildCloseBondCashflowInstruction,
+  buildDeclareBondDefaultInstruction,
+  buildFundBondCashflowInstruction,
+  buildRecordBondCashflowInstruction,
+  buildRegisterBondInstruction,
+  validateBondTerms,
+} from "./bond.js";
+export {
   reviewTransactionPayload,
   sanitizeReviewText,
   TRANSACTION_REVIEW_MAX_INSTRUCTIONS,

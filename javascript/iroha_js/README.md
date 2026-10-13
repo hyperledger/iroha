@@ -542,6 +542,88 @@ consent for its cash bucket with `initiation`, and the collateral holder
 (custodian, else counterparty) grants consent for the collateral bucket with
 `maturity`; both use `settlementId = agreementId`.
 
+### Bond servicing
+
+The native bond-servicing kernel (`specs/finance/bond_ops.md`) keeps a typed
+`BondRecord` per bond (a scale-0 asset definition) and services every coupon,
+redemption, call and default with one closed instruction family. The builders
+return the strict `{ "Bond": { <Variant>: payload } }` envelopes the native
+codec admits (`BondInstructionBox`, wire id `iroha.bond`); payloads use the
+native snake_case fields, canonical decimal strings and lowercase hex digests.
+
+| Builder | Envelope | Signer |
+| --- | --- | --- |
+| `buildRegisterBondInstruction({ bondId, terms })` | `Bond.Register { bond, terms }` | issuer (owns the definition) |
+| `buildRecordBondCashflowInstruction({ bondId, index })` | `Bond.RecordCashflow { bond, index }` | paying agent |
+| `buildFundBondCashflowInstruction({ bondId, index, sourceAssetHoldingId })` | `Bond.FundCashflow { bond, index, source }` | paying agent or issuer |
+| `buildClaimBondCashflowInstruction({ bondId, index, holder })` | `Bond.ClaimCashflow { bond, index, holder }` | holder, or the paying agent pushing |
+| `buildCloseBondCashflowInstruction({ bondId, index })` | `Bond.CloseCashflow { bond, index }` | paying agent |
+| `buildCallBondInstruction({ bondId, callDateMs })` | `Bond.Call { bond, call_date_ms }` | issuer |
+| `buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` | `Bond.DeclareDefault { bond, index, evidence_sha256 }` | paying agent |
+
+`terms` is camelCase: `{ issuer, payingAgent, paymentAsset, denomination,
+couponRateBps, couponFrequency, dayCount, issueDateMs, maturityDateMs,
+redemptionPriceBps, call?: { firstCallDateMs, priceBps, noticeMs } | null,
+cashflows, identifiers: { isin?, cfi?, issuerLei?, bdtVersion,
+bdtDocumentSha256? }, termsSha256 }`. Quantities are `KotodamaQuantity`,
+canonical decimal strings or bigint; dates are Unix milliseconds; digests are
+32 bytes or 64 hex digits.
+
+`buildBondSchedule({ denomination, couponRateBps, couponFrequency, issueDateMs, maturityDateMs, redemptionPriceBps, recordOffsetMs })`
+materialises a regular fixed-rate bullet schedule exactly like Core's
+`fixed_rate_bullet_schedule`: coupon dates step back from maturity by
+`12 / couponFrequency` calendar months (end-of-month clamping) and must land on
+the issue date; the last coupon and the redemption share the maturity date;
+record dates are `payment - recordOffsetMs`, clamped to the issue date. Amounts
+are exact decimal strings computed on bigint mantissas, never floating point;
+a non-terminating coupon (6.50 % monthly on 50) is refused.
+`validateBondTerms(terms)` applies every state-independent
+`BondTerms::validate` rule in Core's order and returns the native terms JSON;
+both throw `ValidationError`s whose message is Core's exact
+`bond.invalid_terms: ...` rejection. `bondHolderPayment({ units, amountPerUnit, paymentScale })`
+is Core's per-holder payment, rounded down to the payment asset scale.
+`bondVaultAccountId(bondId, networkPrefix)` renders the key-less vault that
+holds funded payments (native derivation). Shared vectors generated from the
+Rust data model (`test/fixtures/bond-v1-codec.json`) pin all of these.
+
+```js
+import {
+  buildBondSchedule,
+  buildRegisterBondInstruction,
+  buildClaimBondCashflowInstruction,
+} from "@iroha/iroha-js";
+
+const economics = {
+  denomination: "50", couponRateBps: 650, couponFrequency: 1,
+  issueDateMs: Date.UTC(2026, 0, 15), maturityDateMs: Date.UTC(2029, 0, 15),
+  redemptionPriceBps: 10_000,
+};
+const terms = {
+  ...economics,
+  issuer, payingAgent, paymentAsset: eur, dayCount: "ActActIcma", call: null,
+  cashflows: buildBondSchedule({ ...economics, recordOffsetMs: 86_400_000 }),
+  identifiers: { isin: "SI0031234567", bdtVersion: "bdt-1.0" },
+  termsSha256, // SHA-256 of the legal terms document
+};
+// Issuer transaction: Register<AssetDefinition> (scale 0), Mint, then:
+const register = buildRegisterBondInstruction({ bondId: bond, terms });
+// After the paying agent recorded and funded coupon 0, at its payment date:
+const claim = buildClaimBondCashflowInstruction({ bondId: bond, index: 0, holder });
+```
+
+`ToriiClient.getBond(bondId)` (`GET /v1/bonds/{bond_id}`, null when not
+registered) and `ToriiClient.listBonds()` (`GET /v1/bonds`) return the native
+`BondRecord` JSON: `{ id, vault, terms, state: { lifecycle, outstanding_units,
+redeemed_units, transfers_frozen, cashflows } }`, each cash flow carrying its
+effective `terms`, `status`, record-date `snapshot`, `amount_due`, `funded`,
+`paid` and `claimed`. `ToriiBrowserClient` has the same two methods.
+
+`reviewTransactionPayload` renders a `bond` row for every bond instruction.
+Registration rows list the terms and every scheduled cash flow. Pass
+`bonds: [{ record, paymentAssetScale }]` (records from `getBond`) to add the
+cash-flow kind, dates, amount per unit, units, the rounded payment, the vault
+or issuer counterparty and the freeze or burn effect of redemption steps.
+
 ### Domain leases
 
 After genesis a domain is created only by a paid SNS domain lease.
@@ -598,8 +680,9 @@ unsigned payload natively for a signer and returns
 `{ schema: "iroha.connect-transaction-review.v1", networkId, authority, payloadHashHex, payloadByteLength, creationTimeMs, ttlMs, feePayment, metadata, instructions, warnings }`.
 Each instruction row is `{ index, kind, title, fields: [{ label, value }], json }`
 with dedicated rows for transfers, mints, burns, permission grants, atomic
-settlements (each movement and escrow leg), conditional-escrow instructions and
-repo initiations (including early repayment). It throws when the payload's
+settlements (each movement and escrow leg), conditional-escrow instructions,
+repo initiations (including early repayment) and every bond instruction (see
+Bond servicing; `expected.bonds` adds record context). It throws when the payload's
 NetworkId or authority differs from the session or the payload has more than
 `TRANSACTION_REVIEW_MAX_INSTRUCTIONS` (64) instructions. All rendered text goes
 through `sanitizeReviewText`, which escapes control, format (bidirectional) and

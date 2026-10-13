@@ -1,6 +1,7 @@
 {
   "accounts": {
     "holder": "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC",
+    "holder_b": "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L",
     "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
     "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW"
   },
@@ -243,6 +244,159 @@
   ],
   "network_prefix": 369,
   "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+  "record": {
+    "id": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+    "state": {
+      "cashflows": [
+        {
+          "amount_due": "3250",
+          "claimed": [],
+          "closed_at_ms": null,
+          "entitled_units": "1000",
+          "evidence_sha256": null,
+          "funded": "3250",
+          "funded_at_ms": 1799884920000,
+          "paid": "0",
+          "recorded_at_ms": 1799884860000,
+          "snapshot": {
+            "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC": "3",
+            "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L": "997"
+          },
+          "status": "Funded",
+          "terms": {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          }
+        },
+        {
+          "amount_due": "3250",
+          "claimed": [],
+          "closed_at_ms": null,
+          "entitled_units": "1000",
+          "evidence_sha256": null,
+          "funded": "0",
+          "funded_at_ms": null,
+          "paid": "0",
+          "recorded_at_ms": 1831420860000,
+          "snapshot": {
+            "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC": "3",
+            "testuﾛ1Prﾇuﾉﾉ4ﾒdﾛﾑｲﾄn5tﾆﾒrsR9ﾋ2Gｷ7gWeFzyﾁﾋﾁAHﾌTJQQ4L": "997"
+          },
+          "status": "Recorded",
+          "terms": {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          }
+        },
+        {
+          "amount_due": "0",
+          "claimed": [],
+          "closed_at_ms": null,
+          "entitled_units": "0",
+          "evidence_sha256": null,
+          "funded": "0",
+          "funded_at_ms": null,
+          "paid": "0",
+          "recorded_at_ms": null,
+          "snapshot": {},
+          "status": "Scheduled",
+          "terms": {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        },
+        {
+          "amount_due": "0",
+          "claimed": [],
+          "closed_at_ms": null,
+          "entitled_units": "0",
+          "evidence_sha256": null,
+          "funded": "0",
+          "funded_at_ms": null,
+          "paid": "0",
+          "recorded_at_ms": null,
+          "snapshot": {},
+          "status": "Scheduled",
+          "terms": {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        }
+      ],
+      "lifecycle": "Active",
+      "outstanding_units": "1000",
+      "redeemed_units": "0",
+      "transfers_frozen": false
+    },
+    "terms": {
+      "call": {
+        "first_call_date_ms": 1799971200000,
+        "notice_ms": 2592000000,
+        "price_bps": 10100
+      },
+      "cashflows": [
+        {
+          "amount_per_unit": "3.25",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1799884800000
+        },
+        {
+          "amount_per_unit": "3.25",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        },
+        {
+          "amount_per_unit": "3.25",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        },
+        {
+          "amount_per_unit": "50",
+          "index": 3,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "coupon_frequency": 1,
+      "coupon_rate_bps": 650,
+      "day_count": "ActActIcma",
+      "denomination": "50",
+      "identifiers": {
+        "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+        "bdt_version": "bdt-1.0",
+        "cfi": "DBFTFB",
+        "isin": "SI0031234567",
+        "issuer_lei": "5299000DI3047E2LIV03"
+      },
+      "issue_date_ms": 1768435200000,
+      "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+      "maturity_date_ms": 1863129600000,
+      "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+      "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+      "redemption_price_bps": 10000,
+      "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+    },
+    "vault": "testuﾛ1Nkﾐﾒｼヰﾈ4ｱｱｻﾎdﾜxsｶｲErL1ｹﾚcｦﾃnPｶｺsﾔﾜNaJﾅtT2BPWL"
+  },
   "schedules": [
     {
       "cashflows": [

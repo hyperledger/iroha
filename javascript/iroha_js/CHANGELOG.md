@@ -4,6 +4,17 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Added native bond servicing: `buildRegisterBondInstruction`,
+  `buildRecordBondCashflowInstruction`, `buildFundBondCashflowInstruction`,
+  `buildClaimBondCashflowInstruction`, `buildCloseBondCashflowInstruction`,
+  `buildCallBondInstruction` and `buildDeclareBondDefaultInstruction` (closed
+  `{"Bond": {...}}` envelopes of `BondInstructionBox`); the exact-decimal
+  fixed-rate bullet schedule helper `buildBondSchedule`, `validateBondTerms`
+  (Core's `BondTerms::validate` rules and messages), `bondHolderPayment` and
+  the native `bondVaultAccountId`; `getBond` and `listBonds` on `ToriiClient`
+  and `ToriiBrowserClient`; and bond rows in `reviewTransactionPayload`, with
+  optional `expected.bonds` record context. The native host exports
+  `bondVaultAccountId`. Shared vectors are generated from the Rust data model.
 - Added opt-in `captureRejection` for Node.js `submitTransactionAndWait`,
   opening SSE before submission and attaching observed rejection code, reason
   and block height to `TransactionStatusError`, enriched with the exact-hash

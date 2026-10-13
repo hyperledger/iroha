@@ -33,7 +33,8 @@ import {
   applyOperatorGetHeaders,
   requireOperatorSigningContext,
 } from "./operatorRequest.browser.js";
-import { ensureCanonicalAccountId } from "./normalizers.js";
+import { ensureCanonicalAccountId, normalizeAssetDefinitionId } from "./normalizers.js";
+import { normalizeBondRecord, normalizeBondRecordList } from "./bondRecords.js";
 import {
   SUMERAGI_LANES_TYPED_JSON_MAX_BYTES,
   SUMERAGI_STATUS_TYPED_JSON_MAX_BYTES,
@@ -2089,6 +2090,37 @@ export class ToriiBrowserClient {
         );
       },
     });
+  }
+
+  /** List every native bond record (`GET /v1/bonds`) as native snake_case JSON. */
+  async listBonds(options = {}) {
+    const opts = signalOnlyOptions(options, "listBonds options");
+    const payload = await this._json("GET", "/v1/bonds", {
+      signal: signalFrom(opts),
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond list response"),
+    });
+    return normalizeBondRecordList(payload, "bond list response");
+  }
+
+  /** Fetch one native bond record (`GET /v1/bonds/{bond_id}`); null when it is not registered. */
+  async getBond(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBond.bondId");
+    const opts = signalOnlyOptions(options, "getBond options");
+    let payload;
+    try {
+      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
+        signal: signalFrom(opts),
+        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond response"),
+      });
+    } catch (error) {
+      if (error instanceof ToriiHttpError && error.status === 404) return null;
+      throw error;
+    }
+    const record = normalizeBondRecord(payload, "bond response");
+    if (record.id !== bond) {
+      rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
+    }
+    return record;
   }
 
   /** Fetch one exact pipeline status by transaction hash. */

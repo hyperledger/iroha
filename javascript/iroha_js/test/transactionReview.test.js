@@ -1,8 +1,10 @@
 import { test as baseTest } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { ed25519 } from "@noble/curves/ed25519";
 
 import { AccountAddress } from "../src/address.js";
+import { buildClaimBondCashflowInstruction, buildFundBondCashflowInstruction, buildRecordBondCashflowInstruction } from "../src/bond.js";
 import {
   buildAttestEscrowConditionInstruction,
   buildGrantSettlementConsentInstruction,
@@ -246,5 +248,139 @@ test("reviewTransactionPayload fails closed on network, authority and size misma
   assert.throws(
     () => reviewTransactionPayload(overLimit.payloadBytes, { networkId: NETWORK_ID, authority: ISSUER }),
     /65 instructions; at most 64/u,
+  );
+});
+
+/** Rust-generated bond vectors (`iroha_js_codec` bond_instruction_tests.rs). */
+const BOND_FIXTURE = JSON.parse(
+  readFileSync(new URL("./fixtures/bond-v1-codec.json", import.meta.url), "utf8"),
+);
+
+test("reviewTransactionPayload renders every bond instruction, enriched by its record", () => {
+  const vectors = Object.fromEntries(BOND_FIXTURE.instructions.map(({ name, json }) => [name, json]));
+  const agent = BOND_FIXTURE.accounts.paying_agent;
+  const holder = BOND_FIXTURE.accounts.holder;
+  const bond = BOND_FIXTURE.bond;
+  const cash = BOND_FIXTURE.payment_asset;
+  const source = vectors.FundCashflow.Bond.FundCashflow.source;
+  const instructions = [
+    vectors.Register,
+    vectors.RecordCashflow,
+    vectors.FundCashflow,
+    buildFundBondCashflowInstruction({ bondId: bond, index: 1, sourceAssetHoldingId: source }),
+    vectors.ClaimCashflow,
+    vectors.CloseCashflow,
+    vectors.Call,
+    vectors.DeclareDefault,
+    buildRecordBondCashflowInstruction({ bondId: bond, index: 3 }),
+    buildClaimBondCashflowInstruction({ bondId: bond, index: 3, holder }),
+  ];
+  const draft = draftFor(instructions, { authority: agent });
+  const expected = { networkId: NETWORK_ID, authority: agent };
+
+  const plain = reviewTransactionPayload(draft.payloadBytes, expected);
+  assert.deepEqual(plain.instructions.map(({ kind }) => kind), instructions.map(() => "bond"));
+  assert.deepEqual(
+    plain.instructions.map(({ title }) => title),
+    [
+      "Register bond",
+      "Record bond cash flow",
+      "Fund bond cash flow",
+      "Fund bond cash flow",
+      "Claim bond cash flow",
+      "Close bond cash flow",
+      "Call bond",
+      "Declare bond default",
+      "Record bond cash flow",
+      "Claim bond cash flow",
+    ],
+  );
+  plain.instructions.forEach((row, index) => {
+    assert.deepEqual(JSON.parse(row.json), instructions[index]);
+  });
+  const register = fieldMap(plain.instructions[0]);
+  assert.equal(register.bond, bond);
+  assert.equal(register.issuer, BOND_FIXTURE.accounts.issuer);
+  assert.equal(register["paying agent"], agent);
+  assert.equal(register["payment asset"], cash);
+  assert.equal(register.denomination, "50 per unit");
+  assert.equal(register.coupon, "650 bps a year, 1 payment(s) a year");
+  assert.equal(register["day count"], "ActActIcma");
+  assert.equal(register["issue date"], "2026-01-15T00:00:00.000Z");
+  assert.equal(register["maturity date"], "2029-01-15T00:00:00.000Z");
+  assert.equal(register["redemption price (bps)"], "10000");
+  assert.equal(register.call, "from 2027-01-15T00:00:00.000Z at 10100 bps, notice 2592000000 ms");
+  assert.equal(register["cash flows"], "4");
+  assert.equal(
+    register["cash flow #0"],
+    "Coupon 3.25 per unit; record 2027-01-14T00:00:00.000Z; pay 2027-01-15T00:00:00.000Z",
+  );
+  assert.equal(
+    register["cash flow #3"],
+    "Redemption 50 per unit; record 2029-01-14T00:00:00.000Z; pay 2029-01-15T00:00:00.000Z",
+  );
+  assert.equal(register.ISIN, "SI0031234567");
+  assert.equal(register["issuer LEI"], "5299000DI3047E2LIV03");
+  assert.equal(register["terms SHA-256"], "09".repeat(32));
+  const plainClaim = fieldMap(plain.instructions[4]);
+  assert.equal(plainClaim.holder, holder);
+  assert.equal(plainClaim.destination, holder);
+  assert.equal(plainClaim.units, "snapshot units");
+  assert.equal(plainClaim["cash flow kind"], "unknown (bond record not supplied)");
+  assert.equal(fieldMap(plain.instructions[2]).to, "bond vault");
+  assert.equal(fieldMap(plain.instructions[6])["call date"], "2028-01-15T00:00:00.000Z");
+  assert.equal(fieldMap(plain.instructions[7])["evidence SHA-256"], "ab".repeat(32));
+
+  const record = structuredClone(BOND_FIXTURE.record);
+  const redemption = record.state.cashflows[3];
+  redemption.status = "Funded";
+  redemption.snapshot = { [holder]: "3" };
+  const enriched = reviewTransactionPayload(draft.payloadBytes, {
+    ...expected,
+    bonds: [{ record, paymentAssetScale: 2 }],
+  });
+  const [, recordRow, fundedRow, fundRow, claimRow, closeRow, callRow, defaultRow, recordRedemption, claimRedemption] =
+    enriched.instructions.map(fieldMap);
+  assert.equal(recordRow["cash flow kind"], "Coupon");
+  assert.equal(recordRow["record date"], "2027-01-14T00:00:00.000Z");
+  assert.equal(recordRow["payment date"], "2027-01-15T00:00:00.000Z");
+  assert.equal(recordRow["amount per unit"], `3.25 of ${cash}`);
+  assert.equal(fundedRow.amount, "the recorded amount due");
+  assert.equal(fundRow.to, BOND_FIXTURE.record.vault);
+  assert.equal(fundRow.from, source);
+  assert.equal(fundRow.amount, `${BOND_FIXTURE.record.state.cashflows[1].amount_due} of ${cash}`);
+  assert.equal(fundRow.status, "Recorded");
+  assert.equal(enriched.instructions[4].title, "Claim bond coupon");
+  assert.equal(claimRow.units, "3");
+  assert.equal(claimRow.amount, `9.75 of ${cash}`);
+  assert.equal(claimRow.status, "Funded");
+  assert.equal(closeRow["residual to"], BOND_FIXTURE.accounts.issuer);
+  assert.equal(callRow["call price (bps)"], "10100");
+  assert.equal(defaultRow["cash flow kind"], "Coupon");
+  assert.equal(recordRedemption["cash flow kind"], "Redemption");
+  assert.equal(recordRedemption.effect, "recording the redemption freezes every transfer of the bond");
+  assert.equal(enriched.instructions[9].title, "Claim bond redemption");
+  assert.equal(claimRedemption.amount, `150 of ${cash}`);
+  assert.equal(claimRedemption.effect, "burns the holder's 3 units of the bond");
+
+  const unrounded = reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record }] });
+  assert.equal(
+    fieldMap(unrounded.instructions[4]).amount,
+    `9.75 of ${cash} before rounding down to the payment asset scale`,
+  );
+  assert.throws(
+    () => reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: record }),
+    /expected.bonds must be an array/u,
+  );
+  assert.throws(
+    () => reviewTransactionPayload(draft.payloadBytes, {
+      ...expected,
+      bonds: [{ record, paymentAssetScale: 29 }],
+    }),
+    /paymentAssetScale/u,
+  );
+  assert.throws(
+    () => reviewTransactionPayload(draft.payloadBytes, { ...expected, bonds: [{ record: { id: bond } }] }),
+    /missing field/u,
   );
 });
