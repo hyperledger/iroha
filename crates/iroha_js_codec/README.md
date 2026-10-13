@@ -45,6 +45,18 @@ The repo lifecycle uses one closed `Repo` envelope mirroring the registered
 model JSON, so the parsed proposal keeps the consented initiation and maturity
 intent hashes; generic base64 instruction literals cannot bypass the envelope.
 
+The native bond-servicing kernel uses one closed `Bond` envelope mirroring the
+registered `BondInstructionBox` (`iroha.bond`): exactly one of `Register`,
+`RecordCashflow`, `FundCashflow`, `ClaimCashflow`, `CloseCashflow`, `Call` or
+`DeclareDefault`, each equal to its canonical model JSON (canonical quantities,
+lowercase 32-byte hex digests, explicit `null` for absent optional terms).
+Terms validation and every state check stay with Core
+(`specs/finance/bond_ops.md`). `bond_vault_account_literal` renders the
+key-less bond vault account for a caller-selected network prefix. The shared
+vectors in `javascript/iroha_js/test/fixtures/bond-v1-codec.json` are generated
+from the data model by `bond_instruction_tests.rs`; rerun its ignored
+`regenerate_bond_js_fixture` test to accept an intended change.
+
 Native conditional escrow instructions use closed `OpenConditionalEscrow`,
 `AttestEscrowCondition` and `ExpireConditionalEscrow` envelopes whose payloads
 must equal the canonical model JSON (including `evidence_hashes`). Atomic

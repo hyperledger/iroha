@@ -1,0 +1,2894 @@
+{
+  "accounts": {
+    "holder": "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC",
+    "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+    "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW"
+  },
+  "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+  "holder_payments": [
+    {
+      "amountPerUnit": "1.625",
+      "payment": "4.87",
+      "paymentScale": 2,
+      "units": "3"
+    },
+    {
+      "amountPerUnit": "1.625",
+      "payment": "4.875",
+      "paymentScale": null,
+      "units": "3"
+    },
+    {
+      "amountPerUnit": "1.625",
+      "payment": "1",
+      "paymentScale": 0,
+      "units": "1"
+    },
+    {
+      "amountPerUnit": "3.25",
+      "payment": "3250",
+      "paymentScale": 2,
+      "units": "1000"
+    },
+    {
+      "amountPerUnit": "0.0001",
+      "payment": "0",
+      "paymentScale": 2,
+      "units": "7"
+    },
+    {
+      "amountPerUnit": "50.5",
+      "payment": "6234567844.5",
+      "paymentScale": 6,
+      "units": "123456789"
+    },
+    {
+      "amountPerUnit": "0.003125",
+      "payment": "0.0062",
+      "paymentScale": 4,
+      "units": "2"
+    }
+  ],
+  "instructions": [
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64ac05a4020000000000004e5254300000a7cc396b4b626e170e7e898610704b77007c02000000000000e1d4ce159f11d1e40200000000f60420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017dd3044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100ba020000000000004ea993b4db8ad1ea020b0a69726f68612e626f6e64ac05a4020000000000004e5254300000a7cc396b4b626e170e7e898610704b77007c02000000000000e1d4ce159f11d1e40200000000f60420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017dd3044f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b0501000000320400000000048a020000010104000000000800b0f3be9b0100000800902dcbb101000004102700001901170800dca416a301000004742700000800c87e9a00000000a70104000000000000002702000004000000000800807e11a30100000800dca416a30100000c0602000000450104020000002702010004000000000800ac2f69aa010000080008566eaa0100000c06020000004501040200000027020200040000000008003407c6b10100000800902dcbb10100000c06020000004501040200000026020300040100000008003407c6b10100000800902dcbb10100000b05010000003204000000007e0f010d0c53493030333132333435363709010706444246544642170115143532393930303044493330343745324c4956303308076264742d312e3042014001070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107010701070107200909090909090909090909090909090909090909090909090909090909090909",
+      "json": {
+        "Bond": {
+          "Register": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "terms": {
+              "call": {
+                "first_call_date_ms": 1799971200000,
+                "notice_ms": 2592000000,
+                "price_bps": 10100
+              },
+              "cashflows": [
+                {
+                  "amount_per_unit": "3.25",
+                  "index": 0,
+                  "kind": "Coupon",
+                  "payment_date_ms": 1799971200000,
+                  "record_date_ms": 1799884800000
+                },
+                {
+                  "amount_per_unit": "3.25",
+                  "index": 1,
+                  "kind": "Coupon",
+                  "payment_date_ms": 1831507200000,
+                  "record_date_ms": 1831420800000
+                },
+                {
+                  "amount_per_unit": "3.25",
+                  "index": 2,
+                  "kind": "Coupon",
+                  "payment_date_ms": 1863129600000,
+                  "record_date_ms": 1863043200000
+                },
+                {
+                  "amount_per_unit": "50",
+                  "index": 3,
+                  "kind": "Redemption",
+                  "payment_date_ms": 1863129600000,
+                  "record_date_ms": 1863043200000
+                }
+              ],
+              "coupon_frequency": 1,
+              "coupon_rate_bps": 650,
+              "day_count": "ActActIcma",
+              "denomination": "50",
+              "identifiers": {
+                "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+                "bdt_version": "bdt-1.0",
+                "cfi": "DBFTFB",
+                "isin": "SI0031234567",
+                "issuer_lei": "5299000DI3047E2LIV03"
+              },
+              "issue_date_ms": 1768435200000,
+              "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+              "maturity_date_ms": 1863129600000,
+              "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+              "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+              "redemption_price_bps": 10000,
+              "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+            }
+          }
+        }
+      },
+      "name": "Register"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64ae03a6010000000000004e5254300000a7cc396b4b626e170e7e898610704b77007e01000000000000c07ac5203535a3860200000000f8022001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ad5024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb1010000041027000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100bc01000000000000aa09d4131ead39ef020b0a69726f68612e626f6e64ae03a6010000000000004e5254300000a7cc396b4b626e170e7e898610704b77007e01000000000000c07ac5203535a3860200000000f8022001f801cc01390159010c0199014c01e0019a0126013e01880168019f0174011ad5024f000000004a2100000000000000010001d0014a01b201320174012b01b401ab013a0113016801bd0146011501e401e601d00122014a01b7011a0101016b01af0185012001a3013201c90177018701374f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0b05010000006404000000000400000000010004030000000800b0f3be9b0100000800902dcbb1010000041027000001002f010000000000000026020000040100000008003407c6b10100000800902dcbb10100000b05010000006404000000001101000100010008076264742d312e300100200909090909090909090909090909090909090909090909090909090909090909",
+      "json": {
+        "Bond": {
+          "Register": {
+            "bond": "82twUfPiXfMVW7jB86bBpPKXTTou",
+            "terms": {
+              "call": null,
+              "cashflows": [
+                {
+                  "amount_per_unit": "100",
+                  "index": 0,
+                  "kind": "Redemption",
+                  "payment_date_ms": 1863129600000,
+                  "record_date_ms": 1863043200000
+                }
+              ],
+              "coupon_frequency": 0,
+              "coupon_rate_bps": 0,
+              "day_count": "Act365Fixed",
+              "denomination": "100",
+              "identifiers": {
+                "bdt_document_sha256": null,
+                "bdt_version": "bdt-1.0",
+                "cfi": null,
+                "isin": null,
+                "issuer_lei": null
+              },
+              "issue_date_ms": 1768435200000,
+              "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+              "maturity_date_ms": 1863129600000,
+              "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+              "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+              "redemption_price_bps": 10000,
+              "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+            }
+          }
+        }
+      },
+      "name": "RegisterZeroCoupon"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e645951000000000000004e5254300000a7cc396b4b626e170e7e898610704b770029000000000000009caf36fdfc10d9e502010000002420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db027811006600000000000000a4df1eea6aebc4d1020b0a69726f68612e626f6e645951000000000000004e5254300000a7cc396b4b626e170e7e898610704b770029000000000000009caf36fdfc10d9e502010000002420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000",
+      "json": {
+        "Bond": {
+          "RecordCashflow": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "index": 0
+          }
+        }
+      },
+      "name": "RecordCashflow"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64d101c9000000000000004e5254300000a7cc396b4b626e170e7e898610704b7700a100000000000000bddd08769821614102020000009b0120018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000764f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0400000000",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100df0000000000000068526e3f73809722020b0a69726f68612e626f6e64d101c9000000000000004e5254300000a7cc396b4b626e170e7e898610704b7700a100000000000000bddd08769821614102020000009b0120018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000764f000000004a2100000000000000010001200140014001e3016401c1010f012b01ec019c011f01e5010001a101cd014c0124017c018901d6015001a0011e01d701e8012c01ab01a801670187017c0121200185010a01810173019601b1014101ce01b901e001b2014901e201c501de015c0400000000",
+      "json": {
+        "Bond": {
+          "FundCashflow": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "index": 0,
+            "source": "6RMsAwCBqszBEdjdvhCs8LqpTSZr#testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW"
+          }
+        }
+      },
+      "name": "FundCashflow"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e64a901a1000000000000004e5254300000a7cc396b4b626e170e7e898610704b77007900000000000000fe6ea79dfed57e7302030000007420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d0200004f000000004a210000000000000001000188014b0188015701f401ea01a10161013c01610150014d01b3014d014b01ea01f301460151017a010e013101de013c01dd01d401d901b40120011d019d010b",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100b70000000000000005d4bf3881970476020b0a69726f68612e626f6e64a901a1000000000000004e5254300000a7cc396b4b626e170e7e898610704b77007900000000000000fe6ea79dfed57e7302030000007420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d0200004f000000004a210000000000000001000188014b0188015701f401ea01a10161013c01610150014d01b3014d014b01ea01f301460151017a010e013101de013c01dd01d401d901b40120011d019d010b",
+      "json": {
+        "Bond": {
+          "ClaimCashflow": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "holder": "testuﾛ1PYﾛ9ｵﾆﾘﾐ3Yf8wﾜｿﾋﾉajｼｱ6eﾑbHｱﾜｶBｳdUｺcヰｲnﾌNP21YC",
+            "index": 0
+          }
+        }
+      },
+      "name": "ClaimCashflow"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e645951000000000000004e5254300000a7cc396b4b626e170e7e898610704b77002900000000000000a44e77d453fdc69f02040000002420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db027811006600000000000000114ec35aaa3a20ba020b0a69726f68612e626f6e645951000000000000004e5254300000a7cc396b4b626e170e7e898610704b77002900000000000000a44e77d453fdc69f02040000002420018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d020000",
+      "json": {
+        "Bond": {
+          "CloseCashflow": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "index": 0
+          }
+        }
+      },
+      "name": "CloseCashflow"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e645f57000000000000004e5254300000a7cc396b4b626e170e7e898610704b77002f00000000000000e2301d0e32110c9102050000002a20018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d080008566eaa010000",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db027811006c00000000000000631ed13533bca172020b0a69726f68612e626f6e645f57000000000000004e5254300000a7cc396b4b626e170e7e898610704b77002f00000000000000e2301d0e32110c9102050000002a20018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d080008566eaa010000",
+      "json": {
+        "Bond": {
+          "Call": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "call_date_ms": 1831507200000
+          }
+        }
+      },
+      "name": "Call"
+    },
+    {
+      "archive_hex": "0b0a69726f68612e626f6e647a72000000000000004e5254300000a7cc396b4b626e170e7e898610704b77004a00000000000000a9c7ee19d9cb747b02060000004520018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d02010020abababababababababababababababababababababababababababababababab",
+      "frame_hex": "4e5254300000862a7d77075d4d23ff6c1261db02781100870000000000000080750b1715ae6d90020b0a69726f68612e626f6e647a72000000000000004e5254300000a7cc396b4b626e170e7e898610704b77004a00000000000000a9c7ee19d9cb747b02060000004520018c0164018f01990155012d01400162018a01cf019a01c0019501ec01e7017d02010020abababababababababababababababababababababababababababababababab",
+      "json": {
+        "Bond": {
+          "DeclareDefault": {
+            "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+            "evidence_sha256": "abababababababababababababababababababababababababababababababab",
+            "index": 1
+          }
+        }
+      },
+      "name": "DeclareDefault"
+    }
+  ],
+  "network_prefix": 369,
+  "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+  "schedules": [
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "3.25",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1799884800000
+        },
+        {
+          "amount_per_unit": "3.25",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        },
+        {
+          "amount_per_unit": "3.25",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        },
+        {
+          "amount_per_unit": "50",
+          "index": 3,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "name": "annual_650bps_par",
+      "request": {
+        "couponFrequency": 1,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "1.625",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1784073600000,
+          "record_date_ms": 1783987200000
+        },
+        {
+          "amount_per_unit": "1.625",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1799884800000
+        },
+        {
+          "amount_per_unit": "1.625",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1815609600000,
+          "record_date_ms": 1815523200000
+        },
+        {
+          "amount_per_unit": "1.625",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        },
+        {
+          "amount_per_unit": "1.625",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1847232000000,
+          "record_date_ms": 1847145600000
+        },
+        {
+          "amount_per_unit": "1.625",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        },
+        {
+          "amount_per_unit": "50.5",
+          "index": 6,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "name": "semiannual_650bps_premium_redemption",
+      "request": {
+        "couponFrequency": 2,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10100
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "12.5",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1776211200000,
+          "record_date_ms": 1776124800000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1784073600000,
+          "record_date_ms": 1783987200000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1792022400000,
+          "record_date_ms": 1791936000000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1799884800000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1807747200000,
+          "record_date_ms": 1807660800000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1815609600000,
+          "record_date_ms": 1815523200000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 6,
+          "kind": "Coupon",
+          "payment_date_ms": 1823558400000,
+          "record_date_ms": 1823472000000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 7,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 8,
+          "kind": "Coupon",
+          "payment_date_ms": 1839369600000,
+          "record_date_ms": 1839283200000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 9,
+          "kind": "Coupon",
+          "payment_date_ms": 1847232000000,
+          "record_date_ms": 1847145600000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 10,
+          "kind": "Coupon",
+          "payment_date_ms": 1855180800000,
+          "record_date_ms": 1855094400000
+        },
+        {
+          "amount_per_unit": "12.5",
+          "index": 11,
+          "kind": "Coupon",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        },
+        {
+          "amount_per_unit": "1000",
+          "index": 12,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "name": "quarterly_500bps_on_1000",
+      "request": {
+        "couponFrequency": 4,
+        "couponRateBps": 500,
+        "denomination": "1000",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "6",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1771113600000,
+          "record_date_ms": 1771027200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1773532800000,
+          "record_date_ms": 1773446400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1776211200000,
+          "record_date_ms": 1776124800000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1778803200000,
+          "record_date_ms": 1778716800000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1781481600000,
+          "record_date_ms": 1781395200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1784073600000,
+          "record_date_ms": 1783987200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 6,
+          "kind": "Coupon",
+          "payment_date_ms": 1786752000000,
+          "record_date_ms": 1786665600000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 7,
+          "kind": "Coupon",
+          "payment_date_ms": 1789430400000,
+          "record_date_ms": 1789344000000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 8,
+          "kind": "Coupon",
+          "payment_date_ms": 1792022400000,
+          "record_date_ms": 1791936000000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 9,
+          "kind": "Coupon",
+          "payment_date_ms": 1794700800000,
+          "record_date_ms": 1794614400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 10,
+          "kind": "Coupon",
+          "payment_date_ms": 1797292800000,
+          "record_date_ms": 1797206400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 11,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1799884800000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 12,
+          "kind": "Coupon",
+          "payment_date_ms": 1802649600000,
+          "record_date_ms": 1802563200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 13,
+          "kind": "Coupon",
+          "payment_date_ms": 1805068800000,
+          "record_date_ms": 1804982400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 14,
+          "kind": "Coupon",
+          "payment_date_ms": 1807747200000,
+          "record_date_ms": 1807660800000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 15,
+          "kind": "Coupon",
+          "payment_date_ms": 1810339200000,
+          "record_date_ms": 1810252800000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 16,
+          "kind": "Coupon",
+          "payment_date_ms": 1813017600000,
+          "record_date_ms": 1812931200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 17,
+          "kind": "Coupon",
+          "payment_date_ms": 1815609600000,
+          "record_date_ms": 1815523200000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 18,
+          "kind": "Coupon",
+          "payment_date_ms": 1818288000000,
+          "record_date_ms": 1818201600000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 19,
+          "kind": "Coupon",
+          "payment_date_ms": 1820966400000,
+          "record_date_ms": 1820880000000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 20,
+          "kind": "Coupon",
+          "payment_date_ms": 1823558400000,
+          "record_date_ms": 1823472000000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 21,
+          "kind": "Coupon",
+          "payment_date_ms": 1826236800000,
+          "record_date_ms": 1826150400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 22,
+          "kind": "Coupon",
+          "payment_date_ms": 1828828800000,
+          "record_date_ms": 1828742400000
+        },
+        {
+          "amount_per_unit": "6",
+          "index": 23,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        },
+        {
+          "amount_per_unit": "1200",
+          "index": 24,
+          "kind": "Redemption",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1831420800000
+        }
+      ],
+      "name": "monthly_600bps_on_1200",
+      "request": {
+        "couponFrequency": 12,
+        "couponRateBps": 600,
+        "denomination": "1200",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1831507200000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "100",
+          "index": 0,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "name": "zero_coupon",
+      "request": {
+        "couponFrequency": 0,
+        "couponRateBps": 0,
+        "denomination": "100",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "25",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1803772800000,
+          "record_date_ms": 1803168000000
+        },
+        {
+          "amount_per_unit": "25",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1819670400000,
+          "record_date_ms": 1819065600000
+        },
+        {
+          "amount_per_unit": "25",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1835395200000,
+          "record_date_ms": 1834790400000
+        },
+        {
+          "amount_per_unit": "25",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1851292800000,
+          "record_date_ms": 1850688000000
+        },
+        {
+          "amount_per_unit": "25",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1866931200000,
+          "record_date_ms": 1866326400000
+        },
+        {
+          "amount_per_unit": "25",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1882828800000,
+          "record_date_ms": 1882224000000
+        },
+        {
+          "amount_per_unit": "1000",
+          "index": 6,
+          "kind": "Redemption",
+          "payment_date_ms": 1882828800000,
+          "record_date_ms": 1882224000000
+        }
+      ],
+      "name": "semiannual_end_of_month",
+      "request": {
+        "couponFrequency": 2,
+        "couponRateBps": 500,
+        "denomination": "1000",
+        "issueDateMs": 1788134400000,
+        "maturityDateMs": 1882828800000,
+        "recordOffsetMs": 604800000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "1",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1776211200000,
+          "record_date_ms": 1768435200000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1784073600000,
+          "record_date_ms": 1773705600000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1792022400000,
+          "record_date_ms": 1781654400000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1799971200000,
+          "record_date_ms": 1789603200000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1807747200000,
+          "record_date_ms": 1797379200000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1815609600000,
+          "record_date_ms": 1805241600000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 6,
+          "kind": "Coupon",
+          "payment_date_ms": 1823558400000,
+          "record_date_ms": 1813190400000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 7,
+          "kind": "Coupon",
+          "payment_date_ms": 1831507200000,
+          "record_date_ms": 1821139200000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 8,
+          "kind": "Coupon",
+          "payment_date_ms": 1839369600000,
+          "record_date_ms": 1829001600000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 9,
+          "kind": "Coupon",
+          "payment_date_ms": 1847232000000,
+          "record_date_ms": 1836864000000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 10,
+          "kind": "Coupon",
+          "payment_date_ms": 1855180800000,
+          "record_date_ms": 1844812800000
+        },
+        {
+          "amount_per_unit": "1",
+          "index": 11,
+          "kind": "Coupon",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1852761600000
+        },
+        {
+          "amount_per_unit": "50",
+          "index": 12,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1852761600000
+        }
+      ],
+      "name": "record_offset_clamped_to_issue",
+      "request": {
+        "couponFrequency": 4,
+        "couponRateBps": 800,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 10368000000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "0.003125",
+          "index": 0,
+          "kind": "Coupon",
+          "payment_date_ms": 1784116800000,
+          "record_date_ms": 1784116800000
+        },
+        {
+          "amount_per_unit": "0.003125",
+          "index": 1,
+          "kind": "Coupon",
+          "payment_date_ms": 1800014400000,
+          "record_date_ms": 1800014400000
+        },
+        {
+          "amount_per_unit": "0.003125",
+          "index": 2,
+          "kind": "Coupon",
+          "payment_date_ms": 1815652800000,
+          "record_date_ms": 1815652800000
+        },
+        {
+          "amount_per_unit": "0.003125",
+          "index": 3,
+          "kind": "Coupon",
+          "payment_date_ms": 1831550400000,
+          "record_date_ms": 1831550400000
+        },
+        {
+          "amount_per_unit": "0.003125",
+          "index": 4,
+          "kind": "Coupon",
+          "payment_date_ms": 1847275200000,
+          "record_date_ms": 1847275200000
+        },
+        {
+          "amount_per_unit": "0.003125",
+          "index": 5,
+          "kind": "Coupon",
+          "payment_date_ms": 1863172800000,
+          "record_date_ms": 1863172800000
+        },
+        {
+          "amount_per_unit": "0.4975",
+          "index": 6,
+          "kind": "Redemption",
+          "payment_date_ms": 1863172800000,
+          "record_date_ms": 1863172800000
+        }
+      ],
+      "name": "fractional_denomination_noon",
+      "request": {
+        "couponFrequency": 2,
+        "couponRateBps": 125,
+        "denomination": "0.5",
+        "issueDateMs": 1768478400000,
+        "maturityDateMs": 1863172800000,
+        "recordOffsetMs": 0,
+        "redemptionPriceBps": 9950
+      }
+    },
+    {
+      "cashflows": [
+        {
+          "amount_per_unit": "50",
+          "index": 0,
+          "kind": "Redemption",
+          "payment_date_ms": 1863129600000,
+          "record_date_ms": 1863043200000
+        }
+      ],
+      "name": "rate_without_frequency_is_redemption_only",
+      "request": {
+        "couponFrequency": 0,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon amount 50 x 650bps / 12 is not an exact decimal: Exact quotient is a repeating decimal",
+      "name": "monthly_650bps_on_50_repeats",
+      "request": {
+        "couponFrequency": 12,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "error": "bond.invalid_terms: the first coupon period is irregular; materialise the schedule explicitly",
+      "name": "irregular_first_period",
+      "request": {
+        "couponFrequency": 1,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768521600000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "error": "bond.invalid_terms: issue date must precede maturity",
+      "name": "issue_not_before_maturity",
+      "request": {
+        "couponFrequency": 1,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1768435200000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon frequency must be 0, 1, 2, 4 or 12",
+      "name": "unsupported_frequency",
+      "request": {
+        "couponFrequency": 3,
+        "couponRateBps": 650,
+        "denomination": "50",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 1863129600000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    },
+    {
+      "error": "bond.invalid_terms: schedule exceeds the cash-flow limit",
+      "name": "monthly_400_coupons_exceed_limit",
+      "request": {
+        "couponFrequency": 12,
+        "couponRateBps": 600,
+        "denomination": "1200",
+        "issueDateMs": 1768435200000,
+        "maturityDateMs": 2820182400000,
+        "recordOffsetMs": 86400000,
+        "redemptionPriceBps": 10000
+      }
+    }
+  ],
+  "terms_validation": [
+    {
+      "error": null,
+      "name": "valid_annual",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": null,
+      "name": "valid_zero_coupon",
+      "terms": {
+        "call": null,
+        "cashflows": [
+          {
+            "amount_per_unit": "100",
+            "index": 0,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 0,
+        "coupon_rate_bps": 0,
+        "day_count": "Act365Fixed",
+        "denomination": "100",
+        "identifiers": {
+          "bdt_document_sha256": null,
+          "bdt_version": "bdt-1.0",
+          "cfi": null,
+          "isin": null,
+          "issuer_lei": null
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": null,
+      "name": "valid_without_call",
+      "terms": {
+        "call": null,
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: isin must be 1..=12 printable ASCII characters",
+      "name": "isin_too_long",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI00312345678",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: cfi must be 1..=6 printable ASCII characters",
+      "name": "cfi_empty",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: issuer_lei must be 1..=20 printable ASCII characters",
+      "name": "lei_not_printable",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299 000DI"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: issuer_lei must be 1..=20 printable ASCII characters",
+      "name": "lei_non_ascii",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299é"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: bdt_version must be 1..=32 printable ASCII characters",
+      "name": "bdt_version_too_long",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: denomination must be positive",
+      "name": "zero_denomination",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "0",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: redemption price must be positive",
+      "name": "zero_redemption_price",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 0,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon frequency must be 0, 1, 2, 4 or 12",
+      "name": "unsupported_frequency",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 3,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: a zero coupon rate requires frequency 0 and a positive rate requires a positive frequency",
+      "name": "zero_rate_with_frequency",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 0,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: a zero coupon rate requires frequency 0 and a positive rate requires a positive frequency",
+      "name": "rate_without_frequency",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 0,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: issue date must precede maturity",
+      "name": "issue_not_before_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1768435200000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: call price must be positive",
+      "name": "zero_call_price",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 0
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: first call date must lie strictly between issue and maturity",
+      "name": "call_on_issue_date",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1768435200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: first call date must lie strictly between issue and maturity",
+      "name": "call_on_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1863129600000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: redemption amount 0.0000000000000000000000001 x 3bps is not an exact decimal: Exact terminating quotient needs more than 28 fractional digits",
+      "name": "call_price_scale_overflow",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 3
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "0.0000000000000000000000001",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: schedule must contain 1..=400 cash flows",
+      "name": "empty_schedule",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: cash-flow indices must be contiguous from zero",
+      "name": "indices_not_contiguous",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: cash flow 0 record date follows its payment date",
+      "name": "record_after_payment",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799971200001
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: cash flow 0 lies outside [issue, maturity]",
+      "name": "record_before_issue",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1768435199999
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: cash flow 3 lies outside [issue, maturity]",
+      "name": "payment_after_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600001,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: exactly one redemption is allowed and it must be last",
+      "name": "redemption_not_last",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 1,
+            "kind": "Redemption",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: redemption payment date must equal maturity",
+      "name": "redemption_before_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863043200000,
+            "record_date_ms": 1862956800000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: redemption amount per unit must be 50",
+      "name": "wrong_redemption_amount",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "49",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: the schedule must end with its redemption",
+      "name": "schedule_without_redemption",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 3,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon 1 amount per unit must be 3.25",
+      "name": "wrong_coupon_amount",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.26",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: coupon amount 50 x 650bps / 12 is not an exact decimal: Exact quotient is a repeating decimal",
+      "name": "monthly_coupon_repeats",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 12,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: zero-coupon bonds cannot schedule coupons",
+      "name": "coupons_on_zero_coupon_bond",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 0,
+        "coupon_rate_bps": 0,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: payment dates must strictly increase",
+      "name": "payment_dates_repeat",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": "bond.invalid_terms: record dates must not decrease",
+      "name": "record_dates_decrease",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799971200000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1799884799999
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    },
+    {
+      "error": null,
+      "name": "valid_final_coupon_before_maturity",
+      "terms": {
+        "call": {
+          "first_call_date_ms": 1799971200000,
+          "notice_ms": 2592000000,
+          "price_bps": 10100
+        },
+        "cashflows": [
+          {
+            "amount_per_unit": "3.25",
+            "index": 0,
+            "kind": "Coupon",
+            "payment_date_ms": 1799971200000,
+            "record_date_ms": 1799884800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 1,
+            "kind": "Coupon",
+            "payment_date_ms": 1831507200000,
+            "record_date_ms": 1831420800000
+          },
+          {
+            "amount_per_unit": "3.25",
+            "index": 2,
+            "kind": "Coupon",
+            "payment_date_ms": 1863043200000,
+            "record_date_ms": 1862956800000
+          },
+          {
+            "amount_per_unit": "50",
+            "index": 3,
+            "kind": "Redemption",
+            "payment_date_ms": 1863129600000,
+            "record_date_ms": 1863043200000
+          }
+        ],
+        "coupon_frequency": 1,
+        "coupon_rate_bps": 650,
+        "day_count": "ActActIcma",
+        "denomination": "50",
+        "identifiers": {
+          "bdt_document_sha256": "0707070707070707070707070707070707070707070707070707070707070707",
+          "bdt_version": "bdt-1.0",
+          "cfi": "DBFTFB",
+          "isin": "SI0031234567",
+          "issuer_lei": "5299000DI3047E2LIV03"
+        },
+        "issue_date_ms": 1768435200000,
+        "issuer": "testuﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
+        "maturity_date_ms": 1863129600000,
+        "paying_agent": "testuﾛ1NﾛKﾅYRｺYﾇq8MﾇﾜﾏヰSPisヱ81EﾅｾVtﾀuHAtﾄｺ2cWqMLUMDW",
+        "payment_asset": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+        "redemption_price_bps": 10000,
+        "terms_sha256": "0909090909090909090909090909090909090909090909090909090909090909"
+      }
+    }
+  ],
+  "vaults": [
+    {
+      "account": "testuﾛ1Nkﾐﾒｼヰﾈ4ｱｱｻﾎdﾜxsｶｲErL1ｹﾚcｦﾃnPｶｺsﾔﾜNaJﾅtT2BPWL",
+      "bond": "6XJR4DDjp3W4kUVgwcbeWPMNMZ1g",
+      "public_key_hex": "0bc3fbf4ac8bf48e712ebc38b26e705f81dcb4d35b0ff5ba4ce47d4c0a0f913a"
+    },
+    {
+      "account": "testuﾛ1NﾀﾘﾑbdﾗgｷZz5zｲｸﾉvｾFﾇxヰﾈfﾚﾌqMfujﾎDﾇc2ﾄﾜFXSKA7K",
+      "bond": "82twUfPiXfMVW7jB86bBpPKXTTou",
+      "public_key_hex": "33b0663fcce6233d9e1816e4b27824693fe46d51112d7740b53140af95908f9b"
+    },
+    {
+      "account": "testuﾛ1Pwdﾏ5ﾓｷﾛ4dﾍﾃｽヱﾃﾘﾛHﾙｼ8ｶﾆヰT2ﾊﾔﾆｵｿヱｾMS3ｷWｱ3ELT8M",
+      "bond": "6RMsAwCBqszBEdjdvhCs8LqpTSZr",
+      "public_key_hex": "a6ef1338b2f96f5abf6b8c07782d48cf4bd9e0aeeed476327aeacac41555a071"
+    }
+  ],
+  "version": 1
+}

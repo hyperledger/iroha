@@ -1,4 +1,4 @@
-//! Native settlement, repo, alias-plan, faucet and external-signing helpers for JavaScript.
+//! Native settlement, repo, bond, alias-plan, faucet and external-signing helpers for JavaScript.
 //!
 //! Every function delegates ordering, hashing and admission to the shared Rust owners
 //! (`iroha_js_codec`, `iroha_data_model` and the `iroha` client crate). The JavaScript SDK
@@ -102,6 +102,16 @@ pub fn repo_intent_hashes_json(
         initiation: hash_literal(&hashes.initiation)?,
         maturity: hash_literal(&hashes.maturity)?,
     })
+}
+
+/// Render the deterministic key-less vault account of one registered bond.
+///
+/// `bond_id` is the canonical Base58 asset-definition address of the bond; the vault is
+/// the data model's `bond_vault_account_id`, rendered as I105 for `network_prefix`.
+#[napi(js_name = "bondVaultAccountId")]
+pub fn bond_vault_account_id(bond_id: String, network_prefix: f64) -> napi::Result<String> {
+    let prefix = iroha_js_codec::checked_network_prefix(network_prefix).map_err(codec_to_napi)?;
+    iroha_js_codec::bond_vault_account_literal(&bond_id, prefix).map_err(codec_to_napi)
 }
 
 /// Convert one planner-issued `(wire_id, framed_payload)` pair into strict instruction JSON.
@@ -250,6 +260,30 @@ mod tests {
     use super::*;
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::account::AccountId;
+
+    #[test]
+    fn bond_vault_account_matches_the_shared_bond_fixture() {
+        let fixture: json::Value = json::from_str(include_str!(
+            "../../../javascript/iroha_js/test/fixtures/bond-v1-codec.json"
+        ))
+        .expect("fixture JSON");
+        let prefix = fixture["network_prefix"].as_u64().expect("prefix");
+        #[allow(clippy::cast_precision_loss)]
+        let prefix = prefix as f64;
+        let vaults = fixture["vaults"].as_array().expect("vaults");
+        assert!(!vaults.is_empty());
+        for vault in vaults {
+            assert_eq!(
+                bond_vault_account_id(vault["bond"].as_str().expect("bond").to_owned(), prefix)
+                    .expect("vault"),
+                vault["account"].as_str().expect("account")
+            );
+        }
+        let bond = vaults[0]["bond"].as_str().expect("bond").to_owned();
+        assert!(bond_vault_account_id(format!("{bond} "), prefix).is_err());
+        assert!(bond_vault_account_id(bond.clone(), 65_536.0).is_err());
+        assert!(bond_vault_account_id(bond, 1.5).is_err());
+    }
 
     #[test]
     fn faucet_binding_matches_the_shared_prepared_transaction_fixture() {

@@ -5,6 +5,7 @@
 
 mod activation_instructions;
 mod alias_setup_instruction;
+mod bond_instructions;
 mod error;
 mod escrow_instructions;
 mod game_instructions;
@@ -20,6 +21,7 @@ mod settlement_intents;
 mod staking_instructions;
 mod verifying_key_instructions;
 pub use alias_setup_instruction::instruction_json_from_wire_pair;
+pub use bond_instructions::bond_vault_account_literal;
 pub use error::{CodecError, CodecErrorKind, CodecResult};
 pub use settlement_intents::{
     RepoIntentHashes, atomic_settlement_intent_hash, canonical_atomic_settlement_json,
@@ -1370,6 +1372,9 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
     if let Some(instruction) = repo_instructions::from_json(&value) {
         return instruction;
     }
+    if let Some(instruction) = bond_instructions::from_json(&value) {
+        return instruction;
+    }
     if let Some(instruction) = escrow_instructions::from_json(&value) {
         return instruction;
     }
@@ -1417,6 +1422,7 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
             || activation_instructions::is_activation_instruction(&instruction)
             || retail_daily_limit_instructions::is_retail_instruction(&instruction)
             || repo_instructions::is_repo_instruction(&instruction)
+            || bond_instructions::is_bond_instruction(&instruction)
             || escrow_instructions::is_conditional_escrow_instruction(&instruction)
             || game_instructions::is_game_instruction(&instruction)
             || verifying_key_instructions::is_verifying_key_instruction(&instruction)
@@ -3666,6 +3672,9 @@ pub fn instruction_to_json_value(instruction: &InstructionBox) -> CodecResult<js
         return value;
     }
     if let Some(value) = repo_instructions::to_json(instruction) {
+        return value;
+    }
+    if let Some(value) = bond_instructions::to_json(instruction) {
         return value;
     }
     if let Some(value) = escrow_instructions::to_json(instruction) {
