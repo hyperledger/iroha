@@ -1,5 +1,7 @@
 //! Public SCCP v1 reads on the client's reusable blocking runtime (`specs/sccp.md` §6).
 
+use crate::client::sccp::SccpFinalityAt;
+
 use super::{Client, RuntimeOwner};
 use crate::{
     Result,
@@ -7,10 +9,10 @@ use crate::{
 };
 use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteV1};
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1, SccpGenerationV1,
-    SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
-    SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRotationV1,
+    SccpCapabilitiesV1, SccpCertificateV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpGenerationV1, SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1,
+    SccpLcCheckpointCoverV1, SccpLightClientDetailV1, SccpMessageProofBundleV1,
+    SccpMessageStatusV1, SccpOutboundPageV1, SccpRecentMessagesV1, SccpRotationV1,
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
@@ -46,6 +48,14 @@ impl Client {
 }
 
 impl Sccp<'_> {
+    /// Read the original native finality certificate selected by `at`.
+    ///
+    /// # Errors
+    /// Preserves the asynchronous client's source and transport failures.
+    pub fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
+        self.runtime.block_on(self.inner.finality(at))?
+    }
+
     /// Read the Taira identity, parameters and light-client profiles.
     ///
     /// # Errors

@@ -26,7 +26,7 @@ fn receipt(
         successor: statement.successor,
         statement_digest: incoming_statement::digest(statement)?,
         proof_digest: proof,
-        capsule_digest: original.capsule_digest,
+        capsule_commitment: original.capsule_commitment,
         payment_digest: original.payment_digest,
     };
     let object = kagemusha_wallet_signed_object_digest_v1(

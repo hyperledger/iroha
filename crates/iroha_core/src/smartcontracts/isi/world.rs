@@ -8545,20 +8545,12 @@ pub mod isi {
                         "certified SCCP proposal belongs to a different exact NetworkId".into(),
                     ));
                 }
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
-                    track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
-                    certificate_id:
-                        *iroha_data_model::governance::types::GovernanceCertificateId::derive_v1(
-                            certificate,
-                        )
-                        .as_bytes(),
-                    effect_hash: certificate.effect_preimage_hash,
-                };
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(certificate)?;
                 #[cfg(all(test, sumeragi_core_mutation = "HC237"))]
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
-                    certificate_id: proposal_id,
-                    ..cause
-                };
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
+                    proposal_id,
+                    certificate.effect_preimage_hash,
+                );
                 crate::smartcontracts::isi::sccp::governance::enact(
                     state_transaction,
                     &payload.proposal,
@@ -18044,8 +18036,9 @@ pub mod isi {
                         ));
                     }
                 }
-                // Sumeragi chain parameters take effect at `h + 2` through the consensus
-                // schedule; the demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
+                // Scheduled chain parameters take effect at `h + 2`; clock drift belongs
+                // to the application State read from the committed parent (`h + 1`).
+                // The demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
                 crate::sumeragi::schedule::validate_parameter_change(
                     state_transaction.world.parameters.get().sumeragi(),
                     change,
@@ -18254,6 +18247,12 @@ pub mod isi {
                                         )),
                                     )
                                 })?;
+                                if super::sccp::params::exists(&*state_transaction.world) {
+                                    super::sccp::params::validate_epoch(
+                                        state_transaction.world.parameters.get().sumeragi().epoch_length_blocks.get(),
+                                        metadata.block_cadence_ms.get(),
+                                    ).map_err(|error| invalid_smart_contract_parameter(&error.to_string()))?;
+                                }
                                 let parameters = state_transaction.world.parameters.get_mut();
                                 let mut consensus = parameters.sumeragi().clone();
                                 consensus.block_cadence_ms = metadata.block_cadence_ms;
@@ -21045,6 +21044,106 @@ pub mod isi {
                 Some(GovernanceCertificateId::derive_v1(&fixture.certificate))
             );
             assert_eq!(event.at_height, PARLIAMENT_DUE_CERTIFICATE_HEIGHT);
+        }
+
+        #[test]
+        fn parliament_due_certificate_records_exact_native_control_cause() {
+            use crate::smartcontracts::isi::sccp::{store, test_support::sample_route};
+            use iroha_data_model::sccp::{
+                governance::{
+                    SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
+                    SccpSetDestinationPausedActionV1,
+                },
+                params::SccpParametersV1,
+            };
+            let state = blank_test_state();
+            let block = new_dummy_block_at_height(
+                NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).expect("due height"),
+            );
+            let mut state_block = state.block(block.as_ref().header());
+            let network = iroha_data_model::bridge::SccpNetworkV1::TonMainnet;
+            let fixture = {
+                let mut seed = state_block.transaction();
+                Register::account(Account::new(ALICE_ID.clone()))
+                    .execute(&ALICE_ID, &mut seed)
+                    .expect("proposer");
+                store::parameters::set(&mut seed, Some(SccpParametersV1::taira_default()));
+                store::routes::insert(&mut seed, network, sample_route(network)).expect("route");
+                let proposal = SccpGovernanceProposalV1 {
+                    network_id: *seed.network_id(),
+                    base_revisions: vec![
+                        (SccpGovernanceSubjectV1::RouteControl(network), 0).into(),
+                    ],
+                    actions: vec![SccpGovernanceActionV1::SetDestinationPaused(
+                        SccpSetDestinationPausedActionV1 {
+                            network,
+                            revision: 1,
+                            paused: true,
+                        },
+                    )],
+                };
+                let fixture = seed_due_parliament_certificate(
+                    &mut seed,
+                    ProposalKind::SccpRouteGovernance(SccpRouteGovernanceProposal {
+                        proposal: Box::new(proposal),
+                    }),
+                );
+                seed.apply();
+                fixture
+            };
+            let mut malformed = fixture.certificate.clone();
+            malformed.effect_preimage_hash = [0; 32];
+            crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(
+                &malformed,
+            ).expect_err("zero effect is not a native authority");
+            let mut execution = state_block.transaction();
+            assert_eq!(
+                execute_due_parliament_certificate_v1(
+                    fixture.governance_attempt_id,
+                    &mut execution
+                )
+                .expect("execute exact certificate"),
+                DueParliamentCertificateExecutionV1::Applied
+            );
+            let record = store::control_messages::get(&*execution.world, &(network, 1, 1))
+                .expect("native control");
+            assert_eq!(record.track, 1);
+            assert!(record.parliament_paused);
+            assert_eq!(record.fast_pause_until_ms, 0);
+            assert_eq!(
+                record.certificate_id,
+                *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes()
+            );
+            assert_ne!(record.certificate_id, fixture.proposal_id);
+            assert_eq!(record.effect_hash, fixture.certificate.effect_preimage_hash);
+            assert_eq!(record.height, PARLIAMENT_DUE_CERTIFICATE_HEIGHT);
+            assert_eq!(record.commitment_index, 0);
+            let revision = &store::routes::get(&*execution.world, &network)
+                .expect("route")
+                .revisions[&1];
+            assert_eq!(
+                record.leaf,
+                iroha_sccp::v1::control::control_leaf(
+                    execution.network_id().as_bytes(),
+                    network,
+                    &revision.destination_word,
+                    &iroha_sccp::v1::control::ControlLeafV1 {
+                        route_revision: 1,
+                        control_nonce: 1,
+                        track: 1,
+                        parliament_paused: 1,
+                        fast_pause_until_ms: 0,
+                        certificate_id: record.certificate_id,
+                        effect_hash: record.effect_hash,
+                    }
+                )
+                .expect("native control leaf")
+            );
+            assert_automatic_parliament_execution_event(
+                &execution,
+                &fixture,
+                gov::ParliamentAutomaticExecutionOutcomeV1::Enacted,
+            );
         }
 
         #[test]
@@ -28144,7 +28243,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let counterparty = AccountId::new(checked_keypair().public_key().clone());
             Register::account(new_account_in_domain(&counterparty))
                 .expect_execute(&ALICE_ID, &mut stx, "register settlement counterparty");
-            let settlement_id = "domain_receipt_guard".parse().expect("settlement id");
+            let settlement_id = iroha_data_model::isi::SettlementId::new(ALICE_ID.clone(), "domain_receipt_guard".parse().expect("settlement reference"));
             stx.world.settlement_receipts.insert(
                 settlement_id,
                 iroha_data_model::isi::SettlementReceipt {
@@ -28656,7 +28755,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             stx.world.insert_repo_agreement_entry(agreement);
             let settlement_id: iroha_data_model::isi::SettlementId =
-                "settleguard".parse().expect("settlement id");
+                iroha_data_model::isi::SettlementId::new(account_id.clone(), "settleguard".parse().expect("settlement reference"));
             let receipt = iroha_data_model::isi::SettlementReceipt {
                 authority: account_id.clone(),
                 metadata: Metadata::default(),
@@ -32010,6 +32109,35 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_execute(&ALICE_ID, &mut stx, "max clock drift is the mutable first-release Sumeragi parameter");
             let params = stx.world.parameters.get().sumeragi().clone();
             assert_eq!(params.max_clock_drift_ms(), 333);
+        });
+        world_test!(set_parameter_clock_drift_bound_rejects_excess_without_changing_state {
+            use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+            for height in [1, 2] {
+                let state = blank_state();
+                let block = new_dummy_block_at_height(NonZeroU64::new(height).unwrap());
+                let mut state_block = state.block(block.as_ref().header());
+                let mut stx = state_block.transaction();
+                SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(
+                    MAX_CLOCK_DRIFT_BOUND_MS,
+                )))
+                    .expect_execute(&ALICE_ID, &mut stx, "exact CT4 bound");
+                for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+                    SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(value)))
+                        .execute(&ALICE_ID, &mut stx)
+                        .expect_err("excess clock drift must fail before parameter mutation");
+                    assert_eq!(
+                        stx.world.parameters.get().sumeragi().max_clock_drift_ms(),
+                        MAX_CLOCK_DRIFT_BOUND_MS,
+                    );
+                }
+                // A speculative update does not replace the committed parent parameter.
+                drop(stx);
+                drop(state_block);
+                assert_eq!(
+                    state.view().world().parameters().sumeragi().max_clock_drift_ms(),
+                    iroha_data_model::parameter::system::SumeragiParameters::default().max_clock_drift_ms(),
+                );
+            }
         });
         world_test!(set_parameter_validates_sumeragi_chain_parameters_and_genesis_constants {
             // Genesis (height 1) accepts the demotion window and defers the §9.4 combination

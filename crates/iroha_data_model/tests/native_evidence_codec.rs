@@ -3,6 +3,7 @@
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::block::consensus::{
     Evidence, EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
+    RecordedEvidenceV1,
 };
 use iroha_data_model::consensus::NposConsensusEffects;
 use iroha_model_base::peer::PeerId;
@@ -34,7 +35,9 @@ fn native() -> NativeEvidence {
 fn record() -> EvidenceRecord {
     let key = KeyPair::try_from_seed(vec![7; 32], Algorithm::Ed25519).expect("fixture key");
     EvidenceRecord {
-        evidence: Evidence::from_native(&native()).expect("bounded original frame"),
+        evidence: RecordedEvidenceV1::Native(
+            Evidence::from_native(&native()).expect("bounded original frame"),
+        ),
         attribution: EvidenceAttribution {
             scope: iroha_data_model::block::consensus::EvidenceScope::Root,
             instance: [1; 32],
@@ -200,7 +203,9 @@ fn native_effects_require_parent_service_and_both_vectors_and_reject_retired_slo
     assert!(empty.is_empty());
     let effects = NposConsensusEffects {
         parent_service_commit_qc: None,
-        evidence_admissions: vec![record().evidence],
+        evidence_admissions: vec![
+            Evidence::from_native(&native()).expect("original native admission"),
+        ],
         penalty_actions: Vec::new(),
     };
     assert!(!effects.is_empty());
@@ -322,4 +327,38 @@ fn native_parent_service_original_is_required_nonempty_bundle_input() {
         iroha_crypto::HashOf::new(&effects),
         iroha_crypto::HashOf::new(&NposConsensusEffects::default())
     );
+}
+
+#[test]
+fn committed_record_rejects_the_unwrapped_native_evidence_layout() {
+    #[derive(Encode)]
+    struct UnwrappedRecord {
+        evidence: Evidence,
+        attribution: EvidenceAttribution,
+        recorded_at_height: u64,
+        recorded_at_view: u64,
+        recorded_at_ms: u64,
+        penalty_status: EvidencePenaltyStatus,
+    }
+    let current = record();
+    let RecordedEvidenceV1::Native(original) = current.evidence.clone() else {
+        panic!("native fixture")
+    };
+    assert_eq!(
+        original.decode_native().unwrap(),
+        Evidence::from_native(&native())
+            .unwrap()
+            .decode_native()
+            .unwrap()
+    );
+    let retired = UnwrappedRecord {
+        evidence: original,
+        attribution: current.attribution,
+        recorded_at_height: current.recorded_at_height,
+        recorded_at_view: current.recorded_at_view,
+        recorded_at_ms: current.recorded_at_ms,
+        penalty_status: current.penalty_status,
+    }
+    .encode();
+    assert!(EvidenceRecord::decode_all(&mut retired.as_slice()).is_err());
 }

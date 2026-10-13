@@ -238,7 +238,17 @@ LaneBatch { anchor_height: u64, anchor_hash: Hash, transactions: Vec<SignedTrans
 ```
 
 It is never empty (work-driven, `sumeragi.md` §6.10): the lane's payload builder answers `EMPTY`
-when the lane queue partition (§5) has nothing admissible.
+when the lane queue partition (§5) has nothing admissible. Future-only queued work instead
+returns a local clock retry, preserving the original queue entries so the driver timer can
+resume without unrelated network traffic.
+
+The lane's effective timestamp is
+`max(authenticated_anchor.creation_time_ms, max(tx.creation_time_ms + 1))`, using saturating
+arithmetic at the timestamp limit. It is derived from the original authenticated anchor and
+signed transaction bytes; no new wire field or result commitment is introduced. The proposer
+waits while that timestamp exceeds its injected local Unix clock, including after completed
+payload encoding and after a clock rewind. It retains the same original batch and funded
+encoding across this wait.
 
 ### 3.2 Admission execution (execute-before-vote for lanes)
 
@@ -266,7 +276,14 @@ A lane member executes a lane block `B` at lane height `x` as follows; `Valid(R)
 Admission is a pure function of the lane block, the lane's own chain (its previous anchor and the
 last `W` blocks with their anchors) and permanent facts of `G` (the anchor block's hash and time,
 and this lane's record fields, which never change once set),
-so every honest lane member computes the same `R_x` whenever it executes. Admission never reads
+so every honest lane member computes the same `R_x` whenever it executes. Before caching a
+fresh `Valid`, the lane executor applies `sumeragi.md` CT1: with `certified = false`, it returns
+local `Failed(ClockAhead)` while its effective timestamp exceeds the injected local Unix clock
+plus `record.params.max_clock_drift_ms`. That allowance is bounded by CT4 and pinned for the
+entire incarnation. It retains the original available body, one decoded batch and authenticated
+admission facts, and rejoins the anchor identity on retry. This timing refusal is never `Invalid`.
+A genuine certified re-proposal, CommitQC preparation and authenticated stored recovery bypass
+the local guard; they reproduce the same deterministic result. Pure admission never reads
 world state and never checks routing: routing is decided at merge (§4.3 step 3), where `G`'s
 state is the single authority, so a lane's result cannot depend on how recent a node's view of
 the lane set is.
@@ -426,8 +443,10 @@ against the parent block's): a stalled lane cannot hold transactions, and each r
 transaction is committed evidence of load the lane is not serving (§6.4). A transaction both
 rescued and carried by a lane executes once; the later carrier's copy is a duplicate. A rescue
 is packed within `G`'s own selection budget (`max_block_bytes(G)` less the proposer reserve). A
-lane whose payload limit is larger than `G`'s admits transactions above that budget; such a
-transaction is never rescued. It waits for its lane and expires if the lane does not carry it
+coherent committed policy requires the transaction cap plus the global proposer reserve to fit
+`G`'s payload limit, so every admitted transaction fits the full global selection budget. A
+smaller lane budget or the space remaining after other global proposal contents can defer a
+queued input; rescue carries it only when enough space remains
 (`specs/zk_resource_contract.json`, `stage_decisions`).
 
 ### 5.2 Queue partitions

@@ -87,7 +87,7 @@ fn parent_service_validation_retains_original_receipts_without_waking_its_own_re
             let epoch = crossbeam_epoch::pin();
             let (_probe, occupied, original_receipts) = occupy_at_real_authority(&budget);
             let error = worker
-                .run_execution(&block, hash)
+                .run_execution(&block, hash, false)
                 .expect_err("actual late authority admission refuses");
             assert!(
                 occupied.borrow().is_some(),
@@ -148,7 +148,7 @@ fn parent_service_validation_retains_original_receipts_without_waking_its_own_re
                 },
             );
             let result = worker
-                .run_execution(&block, hash)
+                .run_execution(&block, hash, false)
                 .unwrap()
                 .expect("same original proposal executes after genuine release");
             assert_eq!(block.payload().as_slice().as_ptr(), source);
@@ -307,7 +307,7 @@ fn parent_service_worker_cancellation_retires_the_same_original_partial_graph() 
             let epoch = crossbeam_epoch::pin();
             let baseline = budget.reserved_bytes();
             let (_probe, occupied, _original_receipts) = occupy_at_real_authority(&budget);
-            let original = release_of(worker.run_execution(&block, hash).unwrap_err());
+            let original = release_of(worker.run_execution(&block, hash, false).unwrap_err());
             let pointers = worker
                 .signature_decode
                 .as_ref()
@@ -333,7 +333,7 @@ fn parent_service_worker_cancellation_retires_the_same_original_partial_graph() 
             assert_eq!(budget.reserved_bytes(), baseline);
             drop(original);
             assert!(
-                worker.run_execution(&block, hash).unwrap().is_some(),
+                worker.run_execution(&block, hash, false).unwrap().is_some(),
                 "a fresh operation can execute the same still-authenticated source after cancellation"
             );
             drop(epoch);
@@ -511,7 +511,7 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             let mut registration = crate::unit_test_support::release_registration(&budget);
             let epoch = crossbeam_epoch::pin();
             let (_probe, occupied, _) = occupy_at_real_authority(&budget);
-            let original = release_of(worker.run_execution(&first, first_hash).unwrap_err());
+            let original = release_of(worker.run_execution(&first, first_hash, false).unwrap_err());
             let AllocationRefusal::Capacity { release, .. } =
                 original.allocation_refusal().unwrap()
             else {
@@ -519,7 +519,11 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             };
             let mut cx = Context::from_waker(Waker::noop());
             assert!(registration.poll_wait(release, &mut cx).is_pending());
-            let replacement = release_of(worker.run_execution(&second, second_hash).unwrap_err());
+            let replacement = release_of(
+                worker
+                    .run_execution(&second, second_hash, false)
+                    .unwrap_err(),
+            );
             assert!(
                 registration.poll_wait(release, &mut cx).is_ready(),
                 "explicit replacement retires the superseded receipt owner"
@@ -558,7 +562,11 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             // native authority boundary and inspect its completed original receipts.
             let (_replacement_probe, replacement_occupied, replacement_receipts) =
                 occupy_at_real_authority(&budget);
-            let replacement = release_of(worker.run_execution(&second, second_hash).unwrap_err());
+            let replacement = release_of(
+                worker
+                    .run_execution(&second, second_hash, false)
+                    .unwrap_err(),
+            );
             assert!(
                 replacement_occupied.borrow().is_some(),
                 "replacement rechecks its own complete native parent source"
@@ -588,7 +596,7 @@ fn parent_service_worker_replacement_retires_only_the_superseded_original_attemp
             );
             assert!(
                 worker
-                    .run_execution(&second, second_hash)
+                    .run_execution(&second, second_hash, false)
                     .unwrap()
                     .is_some()
             );
@@ -844,7 +852,8 @@ fn parent_service_validation_busy_view_retains_original_receipts_before_parent_l
             let mut registration = crate::unit_test_support::release_registration(&budget);
             let epoch = crossbeam_epoch::pin();
             let (_probe, occupied, _) = occupy_at_real_authority(&budget);
-            let _original_capacity = release_of(worker.run_execution(&block, hash).unwrap_err());
+            let _original_capacity =
+                release_of(worker.run_execution(&block, hash, false).unwrap_err());
             let pointers = worker
                 .signature_decode
                 .as_ref()
@@ -873,7 +882,7 @@ fn parent_service_validation_busy_view_retains_original_receipts_before_parent_l
                     })
                 });
                 let original = ready_rx.recv_timeout(Duration::from_secs(20)).unwrap();
-                let outcome = worker.run_execution(&block, hash);
+                let outcome = worker.run_execution(&block, hash, false);
                 release_tx.send(()).ok();
                 assert!(
                     holder.join().unwrap(),
@@ -905,7 +914,7 @@ fn parent_service_validation_busy_view_retains_original_receipts_before_parent_l
             assert!(!worker.results.contains_key(&hash));
             assert!(worker.context.staging.get(&hash).is_none());
             assert!(events.try_recv().is_err());
-            assert!(worker.run_execution(&block, hash).unwrap().is_some());
+            assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
             assert_eq!(worker.state.view().height(), 3);
             drop(epoch);
         },

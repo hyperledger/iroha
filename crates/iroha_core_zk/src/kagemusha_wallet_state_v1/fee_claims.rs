@@ -35,10 +35,10 @@ impl RetainedFeeClaim {
     /// # Errors
     /// A malformed, foreign or inconsistent Payment/Request pair.
     pub fn to_canonical_bytes(&self, scheme: &[u8; 32]) -> Result<Vec<u8>, Error> {
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            &self.payment,
-            scheme,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(&self.payment, scheme),
+            Error::Invalid("G1 validation"),
+        )?;
         let digests = valid(payment.digests())?;
         check_claim_original(
             self,
@@ -70,14 +70,19 @@ impl RetainedFeeClaim {
             return Err(Error::Invalid("fee beneficiary original bound"));
         }
         let beneficiary: iroha_data_model::account::AccountId =
-            archive::decode(beneficiary_original)
-                .map_err(|_| Error::Invalid("fee beneficiary canonical original"))?;
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            &self.payment,
-            scheme,
-        ))?;
-        let request: KagemushaWalletRequestV1 = archive::decode(&self.request)
-            .map_err(|_| Error::Invalid("fee Request canonical original"))?;
+            archive::decode(beneficiary_original).map_err(|error| match error {
+                Error::DecodeResource(_) => error,
+                _ => Error::Invalid("fee beneficiary canonical original"),
+            })?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(&self.payment, scheme),
+            Error::Invalid("G1 validation"),
+        )?;
+        let request: KagemushaWalletRequestV1 =
+            archive::decode(&self.request).map_err(|error| match error {
+                Error::DecodeResource(_) => error,
+                _ => Error::Invalid("fee Request canonical original"),
+            })?;
         let schedule = request
             .fee_schedule
             .schedule()
@@ -107,7 +112,10 @@ impl RetainedFeeClaim {
         // separately by read_fee_claim; malformed offered pairs never imply local custody loss.
         if value
             .to_canonical_bytes(scheme)
-            .map_err(|_| Error::Invalid("fee claim original bindings"))?
+            .map_err(|error| match error {
+                Error::DecodeResource(_) => error,
+                _ => Error::Invalid("fee claim original bindings"),
+            })?
             != bytes
         {
             return Err(Error::Invalid("fee claim canonical frame"));
@@ -176,10 +184,10 @@ fn check_claim_original(
     {
         return Err(Error::WitnessLost("earned fee originals size"));
     }
-    let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-        &original.payment,
-        scheme,
-    ))?;
+    let payment = read_model_original(
+        || KagemushaWalletPaymentV1::decode_canonical(&original.payment, scheme),
+        Error::Invalid("G1 validation"),
+    )?;
     let request: KagemushaWalletRequestV1 = archive::decode(&original.request)?;
     valid(request.validate())?;
     let identity = valid(payment.digests())?;
@@ -201,16 +209,16 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         step: &ReleasedStep,
     ) -> Result<(), Error> {
         if !matches!(
-            step.frozen.capsule.statement.effect,
+            step.frozen.capsule.body().statement.effect,
             KagemushaWalletEffectV1::Send { .. }
         ) {
             return Ok(());
         }
         let bytes = &step.retained.record.output;
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            bytes,
-            &self.scheme_id,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(bytes, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         let fee = payment.request.body.fee;
         if fee == 0 {
             return Ok(());
@@ -226,6 +234,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let request = step
             .frozen
             .capsule
+            .body()
             .retained_inputs
             .iter()
             .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
@@ -272,10 +281,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .get(&mut self.archive, &credit)?
             .ok_or(Error::WitnessLost("earned fee index"))?;
         let claim: FeeClaimEntry = archive::decode(&bytes)?;
-        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-            expected,
-            &self.scheme_id,
-        ))?;
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(expected, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         if valid(payment.digests())?.payment != claim.payment {
             return Err(Error::WitnessLost("fee claim source"));
         }

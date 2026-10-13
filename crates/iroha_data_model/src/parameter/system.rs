@@ -21,6 +21,29 @@ use std::sync::LazyLock;
 mod npos_json;
 pub use npos_json::{AdmittedSumeragiNposParameters, SumeragiNposJsonAdmissionError};
 pub mod resource_coherence;
+/// Largest committed clock-drift allowance in milliseconds (`specs/sumeragi.md` §4.5 CT4).
+pub const MAX_CLOCK_DRIFT_BOUND_MS: u64 = 60_000;
+
+/// A proposed clock-drift allowance exceeds the protocol bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("max_clock_drift_ms {actual_ms} exceeds the protocol bound {bound_ms}", bound_ms = MAX_CLOCK_DRIFT_BOUND_MS)]
+pub struct ClockDriftAboveBound {
+    /// Proposed allowance in milliseconds.
+    pub actual_ms: u64,
+}
+
+/// Check the committed clock-drift allowance without consulting a local clock.
+///
+/// # Errors
+/// Returns [`ClockDriftAboveBound`] when the allowance exceeds [`MAX_CLOCK_DRIFT_BOUND_MS`].
+pub const fn validate_max_clock_drift_ms(actual_ms: u64) -> Result<(), ClockDriftAboveBound> {
+    if actual_ms <= MAX_CLOCK_DRIFT_BOUND_MS || cfg!(all(test, sumeragi_model_mutation = "DM36")) {
+        Ok(())
+    } else {
+        Err(ClockDriftAboveBound { actual_ms })
+    }
+}
+
 /// Maximum governed IVM heap size in bytes for ABI V1.
 ///
 /// The ABI V1 address map reserves the half-open range `0x0010_0000..0x0020_0000` for the heap.
@@ -57,7 +80,9 @@ pub enum TransactionInclusionRoute {
     Global,
     /// Routed to a native lane. Its proposer selects the transaction within the lane's
     /// budget. The global proposer rescues a transaction of a stalled lane only within the
-    /// global budget: a larger one is carried by its lane's proposer or by none.
+    /// global budget. Complete committed policy makes the transaction cap fit that full
+    /// budget. Raw authoring inputs may describe a larger transaction which only the
+    /// lane's proposer could carry; that does not make the policy admissible.
     NativeLane {
         /// `max_block_bytes` pinned by the committed record of the routed lane.
         max_block_bytes: NonZeroU32,
@@ -438,11 +463,11 @@ mod model {
         // `SumeragiParameter` variant scheduled at `h + 2` like the other chain parameters.
         #[norito(default = "defaults::sumeragi::block_cadence_ms")]
         pub block_cadence_ms: NonZeroU64,
-        /// Maximal allowed random deviation from the nominal rate
+        /// Committed local clock-drift allowance, bounded by [`MAX_CLOCK_DRIFT_BOUND_MS`].
         ///
-        /// # Warning
-        ///
-        /// This value should be kept as low as possible to not affect soundness of the consensus
+        /// Unlike the lag-two `ChainParamsRecord` fields, this value belongs to the
+        /// application State. A clock guard for height `h` reads the committed parent
+        /// State: a change executed at `h` first governs height `h + 1`.
         #[norito(default = "defaults::sumeragi::max_clock_drift_ms")]
         pub max_clock_drift_ms: u64,
         /// Minimum lead time (blocks) between publishing a new consensus key and activation.
@@ -1245,11 +1270,7 @@ impl SumeragiParameters {
     pub fn max_clock_drift_ms(&self) -> u64 {
         self.max_clock_drift_ms
     }
-    /// Maximal allowed random deviation from the nominal rate
-    ///
-    /// # Warning
-    ///
-    /// This value should be kept as low as possible to not affect soundness of the consensus
+    /// Committed clock-drift allowance as a duration.
     pub fn max_clock_drift(&self) -> Duration {
         Duration::from_millis(self.max_clock_drift_ms)
     }
@@ -1867,10 +1888,16 @@ impl Parameters {
     /// derives the route itself and refuses a lane-zero transaction above the global budget
     /// whatever a lane would carry.
     ///
-    /// The bound is not a promise of inclusion. A transaction above the global budget is
-    /// carried by its lane's proposer only: the global rescue selects within the global
-    /// budget and skips it. If that lane stalls or closes, or the routing rules stop
-    /// sending the transaction there, it stays queued until it expires.
+    /// The bound is not a promise of inclusion. Complete committed policy requires the
+    /// transaction cap plus the reserve to fit both applicable global block caps. A smaller
+    /// lane budget or space already used in a global proposal can defer a valid input;
+    /// later global rescue carries it only when enough selection capacity remains.
+    ///
+    /// This selector also accepts raw authoring parameters before coherence validation.
+    /// For such unvalidated inputs, a transaction above the full global budget has no
+    /// global rescue: only its lane's proposer can carry it. If that lane stalls, closes
+    /// or loses the route, it stays queued until it expires. That raw selector result is
+    /// not evidence of an admissible committed policy.
     ///
     /// # Errors
     /// The transaction is larger than [`Self::max_includable_transaction_bytes`] on `route`.
@@ -2880,6 +2907,23 @@ mod tests {
     use iroha_primitives::json::Json;
     use norito::codec::{DecodeAll as _, Encode as _};
     use norito::json::{Number, Value};
+    #[test]
+    fn clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow() {
+        for value in [
+            0,
+            defaults::sumeragi::max_clock_drift_ms(),
+            MAX_CLOCK_DRIFT_BOUND_MS,
+        ] {
+            assert_eq!(validate_max_clock_drift_ms(value), Ok(()));
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            assert_eq!(
+                validate_max_clock_drift_ms(value),
+                Err(ClockDriftAboveBound { actual_ms: value })
+            );
+        }
+    }
+
     #[test]
     fn set_custom_parameter() {
         let mut params = Parameters::default();

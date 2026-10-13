@@ -154,18 +154,17 @@ impl KagemushaWalletAdvanceCapsuleV1 for KagemushaWalletRecoveryCapsuleV1 {
     }
 
     fn operation_id(&self) -> [u8; 32] {
-        self.operation_id
+        self.body().operation_id
     }
 
     fn head_marker_state(
         &self,
     ) -> Result<KagemushaWalletMarkerStateV1, KagemushaWalletProviderErrorV1> {
-        Self::head_marker_state(self)
-            .map_err(|_| KagemushaWalletProviderErrorV1::Invalid { field: "capsule" })
+        Ok(Self::head_marker_state(self))
     }
 
     fn predecessor_commitment(&self) -> KagemushaWalletStateCommitmentV1 {
-        self.statement.predecessor
+        self.body().statement.predecessor
     }
 
     fn bound_proof_digest(&self) -> Result<[u8; 32], KagemushaWalletProviderErrorV1> {
@@ -176,7 +175,7 @@ impl KagemushaWalletAdvanceCapsuleV1 for KagemushaWalletRecoveryCapsuleV1 {
     }
 
     fn bootstrap_enrollment_marker(&self) -> Option<[u8; 32]> {
-        match self.statement.effect {
+        match self.body().statement.effect {
             KagemushaWalletEffectV1::Bootstrap {
                 enrollment_marker, ..
             } => Some(enrollment_marker),
@@ -185,7 +184,7 @@ impl KagemushaWalletAdvanceCapsuleV1 for KagemushaWalletRecoveryCapsuleV1 {
     }
 
     fn capacity_class(&self) -> KagemushaWalletCapacityClassV1 {
-        if self.kind == KagemushaWalletOperationKindV1::ArchiveSent {
+        if self.body().kind == KagemushaWalletOperationKindV1::ArchiveSent {
             KagemushaWalletCapacityClassV1::Cleanup
         } else {
             KagemushaWalletCapacityClassV1::Growth
@@ -216,6 +215,16 @@ pub trait KagemushaWalletTransitionOwnerV1<C, R> {
         capsule: &C,
         capsule_digest: &[u8; 32],
     ) -> Result<Vec<u8>, KagemushaWalletProviderErrorV1>;
+
+    /// Authenticate a completion against the exact retained capsule before release.
+    ///
+    /// # Errors
+    /// Rejects a mismatched private custody hash, public commitment, signature or output.
+    fn require_completion(
+        &self,
+        capsule: &C,
+        record: &R,
+    ) -> Result<(), KagemushaWalletProviderErrorV1>;
 
     /// Completion record holding the receipt and the exact released output.
     ///
@@ -392,7 +401,7 @@ where
             KagemushaWalletSlotStatusV1::Enrollment(record)
             | KagemushaWalletSlotStatusV1::Released(record) => record,
             KagemushaWalletSlotStatusV1::Pending(record) => {
-                return self.advance_while_pending(slot, &record, request);
+                return self.advance_while_pending(slot, &record, owner, request);
             }
             KagemushaWalletSlotStatusV1::Terminal(_) => {
                 return Err(KagemushaWalletProviderErrorV1::Terminal);
@@ -415,6 +424,9 @@ where
         if let Some(outcome) =
             self.retained_outcome(slot, &current, &operation_id, &capsule_digest)?
         {
+            if let KagemushaWalletAdvanceOutcomeV1::Released { retained, .. } = &outcome {
+                owner.require_completion(&request.capsule, &retained.record)?;
+            }
             return Ok(outcome);
         }
         // "Nothing recorded" counts only while storage stayed available.
@@ -539,6 +551,7 @@ where
         &self,
         slot: &KagemushaWalletSlotIdV1,
         current: &KagemushaWalletMarkerRecordV1,
+        owner: &dyn KagemushaWalletTransitionOwnerV1<C, R>,
         request: &KagemushaWalletAdvanceRequestV1<C>,
     ) -> Result<KagemushaWalletAdvanceOutcomeV1<R>, KagemushaWalletProviderErrorV1> {
         let Some((_, head_op, head_capsule)) = current.head() else {
@@ -571,6 +584,9 @@ where
         if let Some(outcome) =
             self.older_outcome(slot, current, &request.operation_id, &capsule_digest)?
         {
+            if let KagemushaWalletAdvanceOutcomeV1::Released { retained, .. } = &outcome {
+                owner.require_completion(&request.capsule, &retained.record)?;
+            }
             return Ok(outcome);
         }
         // "Nothing recorded" counts only while storage stayed available.
@@ -957,6 +973,7 @@ where
         let existing =
             kagemusha_wallet_load_completion_v1::<F, R>(&self.store, slot, &expectation, &binding)?;
         let staged = if let Some(existing) = existing {
+            owner.require_completion(capsule, existing.value())?;
             self.with_ballast(true, || {
                 kagemusha_wallet_stage_completion_v1(
                     &self.store,
@@ -1003,6 +1020,8 @@ where
                 )
             })?
         };
+        // Stage may adopt a concurrently observed copy. Join that exact record too.
+        owner.require_completion(capsule, &staged.record)?;
         // A9.
         let released_record = record.release(
             staged.completion_digest,

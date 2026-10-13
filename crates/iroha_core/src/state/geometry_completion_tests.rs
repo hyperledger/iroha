@@ -92,6 +92,7 @@ fn finish_original(
         &activation_heights,
         lineage_root,
         baseline,
+        None,
     )
 }
 

@@ -7387,7 +7387,7 @@ pub struct EvidenceListQuery {
     pub limit: Option<usize>,
     /// Offset into the snapshot list (0..=10000). Default 0.
     pub offset: Option<usize>,
-    /// Optional filter by the sole first-release kind: `NativeSumeragiEvidence`.
+    /// Optional explicit closed kind: `NativeSumeragiEvidence` or `SccpForgeryEvidence`.
     pub kind: Option<String>,
 }
 ( Debug, Default, Clone, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize,)
@@ -7427,13 +7427,13 @@ fn parse_evidence_list_usize(value: &str, field: &'static str) -> Result<usize, 
     })
 }
 fn validate_evidence_list_kind(value: &str) -> Result<(), Error> {
-    if value == "NativeSumeragiEvidence" {
+    if matches!(value, "NativeSumeragiEvidence" | "SccpForgeryEvidence") {
         Ok(())
     } else {
         Err(Error::AppQueryValidation {
             code: "sumeragi_evidence_kind_invalid",
             message: format!(
-                "unsupported evidence kind `{value}`; expected NativeSumeragiEvidence"
+                "unsupported evidence kind `{value}`; expected NativeSumeragiEvidence or SccpForgeryEvidence"
             ),
         })
     }
@@ -7529,8 +7529,9 @@ mod evidence_list_query_contract_tests {
         };
         // Transport projection only; original history remains responsible for attribution.
         let mut record = iroha_data_model::block::consensus::EvidenceRecord {
-            evidence: Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(4), vote(5)))
-                .unwrap(),
+            evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(4), vote(5))).unwrap(),
+            ),
             attribution: EvidenceAttribution {
                 scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                 instance: [1; 32],
@@ -7550,8 +7551,18 @@ mod evidence_list_query_contract_tests {
             recorded_at_ms: 3000,
             penalty_status: EvidencePenaltyStatus::Pending,
         };
-        let frame = record.evidence.native.clone();
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        let frame = native.native.clone();
         let expected = evidence_to_json(&record).unwrap();
+        let mut wrong_scope = record.clone();
+        wrong_scope.attribution.scope =
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { generation: 7 };
+        assert!(evidence_to_json(&wrong_scope).is_err());
+
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
             || evidence_to_json(&record),
@@ -7563,15 +7574,173 @@ mod evidence_list_query_contract_tests {
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
             ))
         ));
-        assert_eq!(record.evidence.native, frame);
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        assert_eq!(native.native, frame);
         assert_eq!(evidence_to_json(&record).unwrap(), expected);
-        record.evidence.native[0] ^= 1;
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &mut record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        native.native[0] ^= 1;
         let error = evidence_to_json(&record).unwrap_err();
         assert!(matches!(
             error,
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
             ))
+        ));
+    }
+    // Syntax-only transport DATA: no signature or historical-authority acceptance is asserted.
+    fn sccp_data_record() -> iroha_data_model::block::consensus::EvidenceRecord {
+        use iroha_data_model::{
+            account::AccountId,
+            block::consensus::{
+                EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
+                EvidenceScope, RecordedEvidenceV1,
+            },
+            isi::sccp::SubmitSccpForgeryEvidenceV1,
+            sccp::native::{
+                SccpAnchorWitnessV1, SccpForgeryOffenderV1, SccpForgeryRecordV1, SccpForgeryRuleV1,
+            },
+        };
+        let key =
+            iroha_crypto::KeyPair::try_from_seed(vec![43; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap();
+        let peer =
+            iroha_crypto::KeyPair::try_from_seed(vec![44; 32], iroha_crypto::Algorithm::BlsNormal)
+                .unwrap();
+        EvidenceRecord {
+            evidence: RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
+                evidence: SubmitSccpForgeryEvidenceV1 {
+                    qc: [0xa1; 116],
+                    header: [0xb2; 221],
+                    aggregate_signature: [0xc3; 96],
+                    anchor: Some(SccpAnchorWitnessV1 {
+                        core_hash: [0; 32],
+                        result: [0; 32],
+                        path: [[7; 32]; 12],
+                    }),
+                },
+                rule: SccpForgeryRuleV1::E4,
+                generation: 7,
+                start_height: 23,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 0,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: AccountId::new(key.public_key().clone()),
+                    activation_height: 19,
+                }],
+            })),
+            attribution: EvidenceAttribution {
+                scope: EvidenceScope::SccpGeneration { generation: 7 },
+                instance: [1; 32],
+                height: 23,
+                epoch: 99,
+                context_id: [2; 32],
+                authority_generation: [3; 32],
+                offenders: vec![EvidenceOffender {
+                    signer: 0,
+                    peer_id: iroha_model_base::peer::PeerId::new(peer.public_key().clone()),
+                    lane_stake: None,
+                }],
+                safety_violation: false,
+            },
+            recorded_at_height: 42,
+            recorded_at_view: 5,
+            recorded_at_ms: 1234,
+            penalty_status: EvidencePenaltyStatus::Pending,
+        }
+    }
+    #[test]
+    fn sccp_projection_is_exact_data_and_never_native_scope_or_signature_admission() {
+        use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+        let mut record = sccp_data_record();
+        let value = evidence_to_json(&record).unwrap();
+        assert_eq!(value["kind"].as_str(), Some("SccpForgeryEvidence"));
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert_eq!(value["value"].as_object().unwrap().len(), 7);
+        let decoded: iroha_data_model::sccp::native::SccpForgeryRecordV1 =
+            norito::json::from_json(&norito::json::to_json(&value["value"]["record"]).unwrap())
+                .unwrap();
+        let RecordedEvidenceV1::SccpForgery(expected) = &record.evidence else {
+            panic!("SCCP DATA")
+        };
+        assert_eq!(&decoded, expected.as_ref());
+        assert_eq!(decoded.evidence.anchor.unwrap().result, [0; 32]);
+        assert_eq!(
+            value["value"]["attribution"]["scope"]["kind"].as_str(),
+            Some("sccp_generation")
+        );
+        assert_eq!(value["value"]["attribution"]["height"].as_u64(), Some(23));
+        assert_eq!(value["value"]["recorded_height"].as_u64(), Some(42));
+        for scope in [
+            EvidenceScope::Root,
+            EvidenceScope::SccpGeneration { generation: 8 },
+        ] {
+            record.attribution.scope = scope;
+            assert!(evidence_to_json(&record).is_err());
+        }
+        record.attribution.scope = EvidenceScope::SccpGeneration { generation: 7 };
+        record.attribution.height = 24;
+        assert!(evidence_to_json(&record).is_err());
+        // Projection alone does not insert or authenticate either retained evidence kind.
+    }
+    #[test]
+    fn evidence_kind_filter_selects_closed_material_without_native_fallback() {
+        use iroha_data_model::block::consensus::{Evidence, RecordedEvidenceV1};
+        // Deliberately malformed Native DATA: kind selection must not decode it.
+        let native = RecordedEvidenceV1::Native(Evidence { native: vec![0] });
+        let sccp = sccp_data_record().evidence;
+        let records = [&native, &sccp];
+        for (kind, expected) in [
+            (None, [true, true]),
+            (Some("NativeSumeragiEvidence"), [true, false]),
+            (Some("SccpForgeryEvidence"), [false, true]),
+        ] {
+            assert_eq!(
+                records.map(|record| evidence_matches_kind(record, kind)),
+                expected
+            );
+        }
+    }
+    #[test]
+    fn borrowed_sccp_projection_preserves_original_and_rejects_malformed_shape() {
+        use iroha_data_model::block::consensus::RecordedEvidenceV1;
+        use norito::codec::Encode as _;
+
+        let mut record = sccp_data_record();
+        let original = record.encode();
+        let expected = evidence_to_json(&record).unwrap();
+        let actual = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
+            || {
+                recorded_evidence_fields_to_json(
+                    &record.evidence,
+                    &record.attribution,
+                    record.recorded_at_height,
+                    record.recorded_at_view,
+                    record.recorded_at_ms,
+                    record.penalty_status,
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(record.encode(), original);
+        let RecordedEvidenceV1::SccpForgery(material) = &mut record.evidence else {
+            panic!("SCCP DATA")
+        };
+        material.offenders.clear();
+        assert!(matches!(
+            evidence_to_json(&record),
+            Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
+            )))
         ));
     }
     fn assert_safe_evidence_response_encoding_error(error: Error) {
@@ -7661,7 +7830,8 @@ mod evidence_list_query_contract_tests {
             Some("0"),
             Some("NativeSumeragiEvidence"),
         ))
-        .expect("the sole current evidence kind must be accepted");
+        .expect("the native evidence kind must be accepted");
+        EvidenceListQuery::try_from(raw_query(Some("1"), Some("0"), Some("SccpForgeryEvidence"))).expect("explicit SCCP DATA selection");
         for kind in [
             "SumeragiEquivocation",
             "DoublePrepare",
@@ -7745,16 +7915,22 @@ pub async fn handle_v1_sumeragi_evidence_list(
         .unwrap_or(SUMERAGI_EVIDENCE_LIST_DEFAULT_LIMIT as usize);
     let capacity = evidence_page_capacity(offset, limit)?;
     let world = state.world_view();
-    let iter = world.consensus_evidence().iter().map(|(_, record)| {
-        (
+    // Select the retained closed material before pagination. Projection does not
+    // authenticate SCCP evidence or enable its separate runtime admission path.
+    let iter = world
+        .consensus_evidence()
+        .iter()
+        .filter(|(_, record)| evidence_matches_kind(&record.evidence, q.kind.as_deref()))
+        .map(|(_, record)| {
             (
-                Reverse(record.recorded_at_height),
-                Reverse(record.recorded_at_view),
-                Reverse(record.recorded_at_ms),
-            ),
-            record,
-        )
-    });
+                (
+                    Reverse(record.recorded_at_height),
+                    Reverse(record.recorded_at_view),
+                    Reverse(record.recorded_at_ms),
+                ),
+                record,
+            )
+        });
     let (records, total) = collect_bounded_ranked_page(iter, offset, limit, capacity);
     let total = u64::try_from(total).map_err(|_| {
         conversion_error("Sumeragi evidence total is not representable as u64".to_owned())
@@ -7783,7 +7959,7 @@ pub async fn handle_v1_sumeragi_evidence_list(
     let items: Vec<norito::json::Value> = records
         .iter()
         .map(|record| {
-            evidence_fields_to_json(
+            recorded_evidence_fields_to_json(
                 &record.evidence,
                 &record.attribution,
                 record.recorded_at_height,
@@ -8964,9 +9140,21 @@ fn evidence_penalty_status_to_json(status: EvidencePenaltyStatus) -> Value {
     lifecycle.insert("details".into(), details);
     Value::Object(lifecycle)
 }
+fn evidence_matches_kind(
+    evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
+    kind: Option<&str>,
+) -> bool {
+    use iroha_data_model::block::consensus::RecordedEvidenceV1;
+    match kind {
+        None => true,
+        Some("NativeSumeragiEvidence") => matches!(evidence, RecordedEvidenceV1::Native(_)),
+        Some("SccpForgeryEvidence") => matches!(evidence, RecordedEvidenceV1::SccpForgery(_)),
+        Some(_) => unreachable!("kind validated before state acquisition"),
+    }
+}
 #[cfg(test)]
 fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) -> Result<Value> {
-    evidence_fields_to_json(
+    recorded_evidence_fields_to_json(
         &rec.evidence,
         &rec.attribution,
         rec.recorded_at_height,
@@ -8974,6 +9162,52 @@ fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) ->
         rec.recorded_at_ms,
         rec.penalty_status,
     )
+}
+fn recorded_evidence_fields_to_json(
+    evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
+    attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
+    recorded_at_height: u64,
+    recorded_at_view: u64,
+    recorded_at_ms: u64,
+    penalty_status: EvidencePenaltyStatus,
+) -> Result<Value> {
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    match evidence {
+        RecordedEvidenceV1::Native(evidence) => evidence_fields_to_json(
+            evidence,
+            attribution,
+            recorded_at_height,
+            recorded_at_view,
+            recorded_at_ms,
+            penalty_status,
+        ),
+        RecordedEvidenceV1::SccpForgery(record) => {
+            // Borrow the exact retained DATA. Shape/scope checks are not signature,
+            // historical authority, offence deduplication or penalty admission.
+            record
+                .validate_shape()
+                .map_err(|error| conversion_error(error.to_string()))?;
+            if attribution.scope
+                != (EvidenceScope::SccpGeneration {
+                    generation: record.generation,
+                })
+                || attribution.height != record.start_height
+            {
+                return Err(conversion_error("SCCP record and scope disagree".into()));
+            }
+            Ok(norito::json!({
+                "kind": "SccpForgeryEvidence",
+                "value": {
+                    "record": record, "attribution": attribution,
+                    "recorded_height": recorded_at_height,
+                    "recorded_view": recorded_at_view,
+                    "recorded_ms": recorded_at_ms,
+                    "consensus_admitted_height": recorded_at_height,
+                    "penalty_status": (evidence_penalty_status_to_json(penalty_status))
+                }
+            }))
+        }
+    }
 }
 fn evidence_fields_to_json(
     evidence: &iroha_data_model::block::consensus::Evidence,
@@ -8984,6 +9218,14 @@ fn evidence_fields_to_json(
     penalty_status: EvidencePenaltyStatus,
 ) -> Result<Value> {
     use iroha_sumeragi::message::Evidence as NativeEvidence;
+    if matches!(
+        attribution.scope,
+        iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
+    ) {
+        return Err(conversion_error(
+            "native evidence has an SCCP generation scope".into(),
+        ));
+    }
     let native = evidence.decode_native().map_err(|error| match error {
         iroha_sumeragi::message::CodecError::Resource(_) => {
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
@@ -9009,7 +9251,8 @@ fn evidence_fields_to_json(
         })
         .collect::<Vec<_>>();
     Ok(norito::json!({
-        "kind": "NativeSumeragiEvidence", "class": class,
+        "kind": "NativeSumeragiEvidence", "value": {
+        "scope": (&attribution.scope), "class": class,
         "instance": (hex::encode(attribution.instance)), "height": (attribution.height),
         "epoch": (attribution.epoch), "context_id": (hex::encode(attribution.context_id)),
         "authority_generation": (hex::encode(attribution.authority_generation)),
@@ -9018,6 +9261,7 @@ fn evidence_fields_to_json(
         "recorded_height": (recorded_at_height), "recorded_view": (recorded_at_view),
         "recorded_ms": (recorded_at_ms), "consensus_admitted_height": (recorded_at_height),
         "penalty_status": (evidence_penalty_status_to_json(penalty_status))
+        }
     }))
 }
 fn reject_direct_multisig_signing(

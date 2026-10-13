@@ -519,7 +519,7 @@ impl Executor for Panicking {
         panic!("boom")
     }
 
-    fn execute(&mut self, _: &AvailableBody, _: &Hash32) -> Option<ExecOutcome> {
+    fn execute(&mut self, _: &AvailableBody, _: &Hash32, _: bool) -> Option<ExecOutcome> {
         panic!("boom")
     }
     fn discard(&mut self, _: u64, _: &[Hash32]) {}
@@ -605,6 +605,7 @@ struct Overlay {
     prepared: Option<Hash32>,
     fail_commits: u32,
     calls: Vec<&'static str>,
+    certified_calls: Vec<bool>,
 }
 
 impl Overlay {
@@ -614,6 +615,7 @@ impl Overlay {
             prepared: None,
             fail_commits: 0,
             calls: Vec::new(),
+            certified_calls: Vec::new(),
         }
     }
 
@@ -621,6 +623,33 @@ impl Overlay {
         self.prepared = None;
         self.calls.push(call);
     }
+}
+
+#[test]
+fn certified_execution_flag_reaches_the_application_without_inference() {
+    let mut executor = Overlay::new();
+    let blocks = FakeBlocks::default();
+    let (block, block_hash, _) = child(1, (G, RG), 1);
+    let block = std::sync::Arc::new(block);
+    for certified in [false, true, false, true] {
+        assert!(matches!(
+            run_exec(
+                &mut executor,
+                &blocks,
+                ExecOp::Execute {
+                    block: block.clone(),
+                    block_hash,
+                    certified
+                },
+            ),
+            ExecDone::Executed(Some(ExecOutcome::Valid(_)))
+        ));
+    }
+    assert_eq!(
+        executor.certified_calls,
+        [false, true, false, true],
+        "certified Execute flag reaches the application unchanged"
+    );
 }
 
 impl Executor for Overlay {
@@ -644,9 +673,15 @@ impl Executor for Overlay {
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+        certified: bool,
+    ) -> Option<ExecOutcome> {
+        self.certified_calls.push(certified);
         self.other("execute");
-        self.inner.execute(block, block_hash)
+        self.inner.execute(block, block_hash, certified)
     }
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
         self.other("discard");

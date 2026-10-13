@@ -2846,6 +2846,32 @@ pub struct TonMcHeaderV1 {
     pub(crate) new_state_hash: Option<H256>,
 }
 
+impl TonMcHeaderV1 {
+    /// Generation time in seconds, decoded from the header opened against its exact block root.
+    /// The caller independently authenticates/selects that root; opening a header alone does
+    /// not establish chain finality.
+    #[must_use]
+    pub const fn generation_time_seconds(&self) -> u32 {
+        self.gen_utime
+    }
+}
+
+/// Read the generation time of the exact selected masterchain block from its rooted header.
+///
+/// This authenticates the time against `block_id.root_hash`, not the network's choice of
+/// root. Callers must independently select the destination-chain observation; a valid
+/// header proof alone does not establish native TON finality.
+///
+/// # Errors
+/// Returns the existing typed header/resource/network refusal without replacing it by a clock.
+pub fn ton_masterchain_generation_time_seconds(
+    block_id: TonBlockIdExtV1,
+    header_proof: &[u8],
+) -> Result<u32, TonNativeSourceError> {
+    ton_open_masterchain_block(block_id, header_proof, None)
+        .map(|(header, _)| header.generation_time_seconds())
+}
+
 /// Validator epoch read from a key block's state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TonEpochConfigV1 {

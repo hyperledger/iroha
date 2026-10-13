@@ -24,10 +24,10 @@ fn point() -> SccpLcPointV1 {
     }
 }
 
-/// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
-/// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 24] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+/// Codec index of every first-release variant, in declaration order.
+const CODEC_INDICES: [u32; 29] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -271,6 +271,54 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "fast_pause_lapsed",
         ),
+        (
+            SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
+                evidence_id: [8; 32],
+                generation: 7,
+                height: 123,
+                rule: SccpForgeryRuleV1::E4,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 2,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: account(7),
+                    activation_height: 11,
+                }],
+            }),
+            "forgery_evidence_recorded",
+        ),
+        (
+            SccpEvent::ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1 {
+                generation: 7,
+                signer: 1,
+            }),
+            "forgery_offender_unslashable",
+        ),
+        (
+            SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 7,
+                generation: 8,
+            }),
+            "revision_forgery_held",
+        ),
+        (
+            SccpEvent::RevisionForgeryReleased(SccpRevisionForgeryReleasedV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 9,
+            }),
+            "revision_forgery_released",
+        ),
+        (
+            SccpEvent::RevisionQuarantined(SccpRevisionQuarantinedV1 {
+                network: TON,
+                revision: 3,
+                certificate_id: [9; 32],
+                since_height: 45,
+            }),
+            "revision_quarantined",
+        ),
     ]
 }
 
@@ -295,14 +343,17 @@ fn every_event_roundtrips_with_a_snake_case_tag() {
 }
 
 #[test]
-fn codec_indices_are_explicit_and_skip_the_retired_ones() {
+fn codec_indices_are_explicit_and_contiguous() {
     let events = every_event();
     assert_eq!(events.len(), CODEC_INDICES.len());
     for ((event, _), index) in events.into_iter().zip(CODEC_INDICES) {
         assert!(event.encode().starts_with(&index.encode()), "{event:?}");
     }
     assert!(CODEC_INDICES.is_sorted());
-    assert!(CODEC_INDICES.iter().all(|index| !(2..=9).contains(index)));
+    assert_eq!(
+        CODEC_INDICES,
+        core::array::from_fn(|index| u32::try_from(index).expect("event fixture index fits u32"))
+    );
 }
 
 #[test]
@@ -311,7 +362,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([32, u32::MAX]) {
+    for index in [29_u32, u32::MAX] {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);

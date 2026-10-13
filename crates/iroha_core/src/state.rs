@@ -341,6 +341,7 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+mod sccp_forgery_entrypoint;
 /// Original local owners and completed errors from witness capture.
 pub use exec_witness_capture::WitnessCaptureError;
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -368,7 +369,6 @@ mod fastpq_rejection_tail;
 mod fastpq_source_quota_tests;
 pub(crate) mod native_maintenance;
 mod prepared_transfer_transcript;
-mod replay_outputs;
 pub use fastpq_source_inventory::FastpqSourceInventoryV1;
 mod lane_authority;
 mod native_execution_projection;
@@ -443,7 +443,7 @@ mod checked_keypair_tests {
         }
     }
 }
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 use crate::beacon::{
     GlobalThresholdBeaconError, ValidatedGlobalThresholdBeaconSessionV1,
     verify_finalized_global_threshold_beacon_pulse_v1,
@@ -1413,6 +1413,8 @@ macro_rules! with_world_overlay_fields {
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
+            sccp_forgery_offences,
+            sccp_forgery_max_generation,
             sccp_destination_pending_generations,
             sccp_committee_current,
             sccp_liability_clock,
@@ -1510,11 +1512,18 @@ mod world_attached_publication_tests;
 #[macro_use]
 mod world_acquisition;
 pub(crate) mod scalar_cell_custody;
+pub(crate) mod sccp_forgery_custody;
 #[cfg(test)]
 use scalar_cell_custody::ScalarCellFixtureBlock;
 
 // Execution-pool cells reserve their original capacity; other fields start empty.
 macro_rules! initial_world_field {
+    (sccp_forgery_offences, $execution:ident) => {
+        sccp_forgery_custody::OffenceStorage::try_new_admitted($execution.clone())?
+    };
+    (sccp_forgery_max_generation, $execution:ident) => {
+        sccp_forgery_custody::initialize_max(None, None, $execution)?
+    };
     (sccp_committee_generations, $execution:ident) => {
         CommitteeStorage::try_new_admitted($execution.clone())?
     };
@@ -1574,6 +1583,9 @@ impl Default for WorldData {
 
 // Quantity storages wrap their child checkpoints; other fields open ordinary ones.
 macro_rules! world_field_transaction {
+    ($field:expr, sccp_forgery_offences) => {
+        $field.try_transaction_admitted()?
+    };
     ($field:expr, sccp_committee_generations) => {
         $field.try_transaction_admitted()?
     };
@@ -4662,6 +4674,12 @@ pub struct WorldData {
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     #[norito(skip)]
     pub(crate) sccp_anchor_chunks: AnchorStorage,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    #[norito(skip)]
+    pub(crate) sccp_forgery_offences: sccp_forgery_custody::OffenceStorage,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    #[norito(skip)]
+    pub(crate) sccp_forgery_max_generation: Cell<Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -5680,6 +5698,18 @@ pub struct WorldBlockFields<'world> {
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageField<'world, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    #[norito(skip)]
+    pub(crate) sccp_forgery_offences: StorageField<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    #[norito(skip)]
+    pub(crate) sccp_forgery_max_generation:
+        CellField<'world, Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -6380,19 +6410,31 @@ impl WorldBlock<'_> {
     /// (`specs/sccp.md` §4.5, `crate::smartcontracts::isi::sccp::witness`).
     pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
+        self.write_sccp_execution_delta(&mut out)
+            .expect("canonical SCCP write set always encodes");
+        out
+    }
+
+    /// Stream the exact canonical SCCP delta without allocating an intermediate byte graph.
+    /// The caller owns and admits its output; field order and fixed bare Norito remain unchanged.
+    pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(
+        &self,
+        out: &mut W,
+    ) -> Result<(), norito::Error> {
         macro_rules! storage {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_storage_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::storage(out, stringify!($field), &self.$field)?;)*
             };
         }
         macro_rules! cell {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_cell_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::cell(out, stringify!($field), &self.$field)?;)*
             };
         }
         cell!(
             sccp_parameters,
             sccp_reset_nonce,
+            sccp_forgery_max_generation,
             sccp_history,
             sccp_committee_current,
             sccp_liability_clock,
@@ -6401,6 +6443,7 @@ impl WorldBlock<'_> {
             sccp_pause_panel,
         );
         storage!(
+            sccp_forgery_offences,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
@@ -6423,7 +6466,7 @@ impl WorldBlock<'_> {
             sccp_light_client_stride_index,
             sccp_light_client_profiles,
         );
-        out
+        Ok(())
     }
 }
 /// Aggregated changes and original rollback journals for one transaction.
@@ -7305,6 +7348,16 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageTransaction<'block, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageTransaction<
+        'block,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation:
+        CellTransaction<'block, 'world, Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageTransaction<'block, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
@@ -9130,6 +9183,15 @@ pub struct WorldView<'world> {
         CellView<'world, crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors>,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageView<'world, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageView<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation: CellView<'world, Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageView<'world, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
@@ -13858,6 +13920,8 @@ pub struct StateTransaction<'block, 'state> {
     pub last_tx_gas_used: u64,
     /// Actual admitted direct-body fee basis, owned independently from rollbackable business effects.
     pub(crate) execution_fee_meter: Option<crate::executor::ExecutionFeeMeter>,
+    /// Original finite record-preparation pool; protocol reads use the acquired MV parent.
+    sccp_evidence_budget: &'state iroha_allocation::AllocationBudget,
     /// Authority of the fee-exempt SCCP self-claim this signed body executes, set by the
     /// executor before the body runs: only such a claim makes the self-claim fee due on its
     /// inbound message (`specs/sccp.md` §4.12.4).
@@ -13889,6 +13953,10 @@ pub struct StateTransaction<'block, 'state> {
         Option<kagemusha_load_entrypoint::KagemushaLoadEntrypointBindingV1>,
     /// Currently executing direct instruction ordinal; nested frames receive no Load authority.
     pub(crate) current_direct_kagemusha_load_instruction_index: Option<usize>,
+    /// Fixed-size original native forgery source; admission and direct execution are required.
+    sccp_forgery_entrypoint_binding: Option<sccp_forgery_entrypoint::SccpForgeryEntrypointBinding>,
+    /// One-shot direct native frame; contracts and callbacks cannot inherit this marker.
+    pub(crate) current_direct_sccp_forgery: bool,
     /// Storage-only ordinal of a directly signed AMX instruction; grants no authority.
     pub(crate) current_direct_amx_instruction_index: Option<usize>,
     /// Borrow of the actual native Worker attempt, confined to this transaction.
@@ -14435,7 +14503,7 @@ pub(crate) fn consensus_key_pop_for_public_key(
     })
 }
 /// Resolve every lane id currently associated with the provided validator peers.
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 pub(crate) fn validator_lane_ids_for_peers<I, P>(
     snapshot: &impl WorldReadOnly,
     peers: I,
@@ -14479,7 +14547,7 @@ pub(crate) fn public_lane_stake_share_matches_key(
     key.0 == share.lane_id && key.1 == share.validator && key.2 == share.staker
 }
 /// Resolve every lane id currently associated with a single validator peer.
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 pub(crate) fn validator_lane_ids_for_peer(
     snapshot: &impl WorldReadOnly,
     peer: &PeerId,
@@ -20921,6 +20989,10 @@ macro_rules! world_ro_accessors {
             cell_ref sccp_parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>;
             /// Genesis reset nonce of this Taira identity (§4.18).
             cell_ref sccp_reset_nonce: Option<[u8; 32]>;
+            /// Permanent exact-once forgery offences (§4.9).
+            storage sccp_forgery_offences: sccp_forgery_custody::OffenceKey => [u8; 32];
+            /// Highest recorded forgery generation (§4.10).
+            cell_ref sccp_forgery_max_generation: Option<u64>;
             /// Immutable committee trust and liability records (§4.2).
             storage sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration;
             /// Current committee generation; zero before initialization.
@@ -23966,7 +24038,7 @@ impl WorldTransaction<'_, '_> {
             .remove(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY);
         Ok(())
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     /// Verify and atomically append a pulse for component fixtures.
     /// Production pulses enter only through the native pristine source capture.
     ///
@@ -24445,6 +24517,8 @@ impl WorldTransaction<'_, '_> {
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
             sccp_committee_current: _,
+            sccp_forgery_offences: _,
+            sccp_forgery_max_generation: _,
             sccp_destination_pending_generations: _,
             sccp_liability_clock: _,
             sccp_degraded_run: _,
@@ -24759,6 +24833,8 @@ impl WorldTransaction<'_, '_> {
         self.sccp_reset_nonce.apply();
         self.sccp_committee_generations.apply();
         self.sccp_committee_current.apply();
+        self.sccp_forgery_offences.apply();
+        self.sccp_forgery_max_generation.apply();
         self.sccp_destination_pending_generations.apply();
         self.sccp_liability_clock.apply();
         self.sccp_degraded_run.apply();
@@ -32991,7 +33067,7 @@ impl State {
             updated_lineage_root: lane_incarnation_lineage_root(&self.network_id, current_lineage),
             transition_height,
         };
-        self.resume_lane_geometry_publication(&request, replaced_lane_ids, Some(releases))
+        self.resume_lane_geometry_publication(&request, replaced_lane_ids, Some(releases), None)
     }
     fn preflight_lane_geometry_updates(
         &self,
@@ -33037,6 +33113,7 @@ impl State {
             activation_heights,
             lane_incarnation_lineage_root(&self.network_id, lineage),
             configured_baseline,
+            None,
         )
     }
     fn rollback_lane_geometry_updates(
@@ -33061,68 +33138,26 @@ impl State {
             releases,
         )
     }
-    fn apply_committed_autoscale_lane_geometry(
-        &self,
-        pending: &PendingAutoscaleLaneLifecycle,
+    /// Validate the exact committed transition before acquiring its effect indexes.
+    /// The caller retains the original commit/lifecycle fences until application.
+    fn prepare_committed_autoscale_lane_geometry<'pending>(
+        &'pending self,
+        pending: &'pending PendingAutoscaleLaneLifecycle,
         block_height: u64,
         block_header_hash: HashOf<BlockHeader>,
         releases: &mut LaneLifecycleReleases<'_>,
-    ) -> Result<(), LaneLifecycleError> {
+    ) -> Result<PreparedCommittedLaneGeometry<'pending>, LaneLifecycleError> {
         self.preflight_committed_autoscale_lane_geometry(
             pending,
             block_height,
             block_header_hash,
             releases,
         )?;
-        let update = &pending.catalog_update;
-        if !pending.transition.requires_geometry() {
-            return Ok(());
-        }
-        self.apply_lane_geometry_updates(
-            &update.previous_lane_config,
-            &update.updated_lane_config,
-            &update.previous_lane_incarnations,
-            &update.updated_lane_incarnations,
-            &update.previous_lane_incarnation_activation_heights,
-            &update.updated_lane_incarnation_activation_heights,
-            &update.previous_lane_incarnation_lineage,
-            &update.updated_lane_incarnation_lineage,
-            &update.replaced_lane_ids,
+        Ok(PreparedCommittedLaneGeometry {
+            state: self,
+            pending,
             block_height,
-            releases,
-        )?;
-        if let Err(failure) = self.mark_lane_geometry_catalog_published(
-            &update.updated_lane_config,
-            &update.updated_lane_incarnations,
-            &update.updated_lane_incarnation_activation_heights,
-            &update.updated_lane_incarnation_lineage,
-            None,
-        ) {
-            let LaneGeometryCatalogPublicationFailure {
-                error,
-                rollback_safe,
-            } = failure;
-            if !rollback_safe {
-                return Err(error);
-            }
-            self.rollback_lane_geometry_updates(
-                &update.previous_lane_config,
-                &update.updated_lane_config,
-                &update.previous_lane_incarnations,
-                &update.previous_lane_incarnation_activation_heights,
-                &update.previous_lane_incarnation_lineage,
-                &update.replaced_lane_ids,
-                block_height,
-                releases,
-            )
-            .map_err(|rollback| {
-                LaneLifecycleError::Storage(format!(
-                    "{error}; lane geometry rollback also failed: {rollback}"
-                ))
-            })?;
-            return Err(error);
-        }
-        Ok(())
+        })
     }
     fn preflight_committed_autoscale_lane_geometry(
         &self,
@@ -33208,7 +33243,14 @@ impl State {
             }
             prospective_nexus.dataspace_catalog = runtime_catalog_transition_dataspaces(
                 &nexus,
-                releases.manifests.read().as_ref(),
+                releases
+                    .manifests
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
+                    .as_ref(),
                 &self.world.view_retaining(&mut releases.world),
                 runtime,
                 &pending.plan,
@@ -33241,7 +33283,11 @@ impl State {
             Arc::new(
                 releases
                     .manifests
-                    .read()
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
                     .with_runtime_additions(
                         &runtime.manifests,
                         &expected_update.updated_catalog,
@@ -33252,7 +33298,14 @@ impl State {
             )
         } else {
             rebind_lane_manifests_for_lifecycle(
-                releases.manifests.read().as_ref(),
+                releases
+                    .manifests
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
+                    .as_ref(),
                 &expected_update.updated_catalog,
                 &nexus.governance,
             )?
@@ -37781,6 +37834,7 @@ impl<'state> StateBlock<'state> {
             original_fastpq_invocation_source: None,
             last_tx_gas_used: 0,
             execution_fee_meter: None,
+            sccp_evidence_budget: fields.state_ref.evidence_preparation_budget(),
             sccp_exempt_self_claim: None,
             execution_effects: crate::executor::ExecutionEffects::default(),
             bridge_receipt_proofs_available_in_tx: BTreeSet::new(),
@@ -37794,6 +37848,8 @@ impl<'state> StateBlock<'state> {
             current_tx_hash: None,
             governance_ballot_entrypoint_binding: None,
             kagemusha_load_entrypoint_binding: None,
+            sccp_forgery_entrypoint_binding: None,
+            current_direct_sccp_forgery: false,
             current_direct_kagemusha_load_instruction_index: None,
             current_direct_amx_instruction_index: None,
             native_amx_leg_execution: None,
@@ -41591,6 +41647,12 @@ impl StateTransaction<'_, '_> {
         world.apply();
         block_fastpq_quantity_candidate.apply(pending_fastpq_quantity_candidate);
     }
+    /// Original finite record-preparation pool of this transaction's immutable parent.
+    /// This borrow neither replaces the pool nor acquires a new State observation.
+    pub(crate) fn sccp_evidence_preparation_budget(&self) -> &iroha_allocation::AllocationBudget {
+        self.sccp_evidence_budget
+    }
+
     /// Authorize only the block-start sweep's pre-admitted retained obligations.
     fn authorize_fastpq_governance_source_scope(&mut self) {
         self.fastpq_source_quota.authorize_governance_purposes();
@@ -43624,6 +43686,7 @@ pub(crate) mod contract_subject_restore;
 mod contract_subject_validation;
 mod ownership_index_restore;
 mod proof_status_restore;
+mod sccp_delta;
 pub(crate) mod sccp_snapshot_state;
 pub use sccp_snapshot_state::SccpRestoreError;
 pub(crate) mod snapshot_service_state;

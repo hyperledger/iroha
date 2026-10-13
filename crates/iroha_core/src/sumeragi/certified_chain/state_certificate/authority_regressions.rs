@@ -132,6 +132,9 @@ fn original_parent_service_context_retains_signed_dataspace_scope() {
 
 #[test]
 fn original_native_successor_authority_retains_its_actual_source_pool() {
+    // Pin before fixture publication so its retired State generations cannot be
+    // refunded by another test while this original pool is measured or exhausted.
+    let epoch = crossbeam_epoch::pin();
     let chain = chain(SumeragiRootScope::Global);
     let parent = chain.committed(2);
     let current = chain.committed(3);
@@ -144,7 +147,6 @@ fn original_native_successor_authority_retains_its_actual_source_pool() {
     let view = chain.state().view();
     let reader = CertifiedChain::new(&view).unwrap();
     let budget = view.execution_budget();
-    let epoch = crossbeam_epoch::pin();
     let baseline = budget.reserved_bytes();
     let authority = reader
         .executed_successor_authority(&parent, &current)
@@ -201,6 +203,9 @@ fn original_native_authority_capacity_refusal_waits_for_its_own_release_then_ret
         task::{Context, Waker},
     };
 
+    // Pin before fixture publication so its retired State generations cannot be
+    // refunded by another test while this original pool is measured or exhausted.
+    let epoch = crossbeam_epoch::pin();
     let chain = chain(SumeragiRootScope::Global);
     let parent = chain.committed(2);
     let current = chain.committed(3);
@@ -208,7 +213,6 @@ fn original_native_authority_capacity_refusal_waits_for_its_own_release_then_ret
     let view = chain.state().view();
     let reader = CertifiedChain::new(&view).unwrap();
     let budget = view.execution_budget();
-    let epoch = crossbeam_epoch::pin();
     let baseline = budget.reserved_bytes();
     let waiter_bytes = ReleaseRegistration::allocation_layout().size();
     let mut reservation = budget.try_reserve_bytes(waiter_bytes).unwrap();

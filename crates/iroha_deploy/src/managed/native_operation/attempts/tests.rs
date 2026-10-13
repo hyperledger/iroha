@@ -466,7 +466,11 @@ fn live_unsigned_prefix_keeps_its_original_terms_and_request_under_a_current_epo
             |attempt, _, _| Ok(fixture.retain(attempt)),
             |terms, _| {
                 entered.set(true);
-                assert!(terms == &fixture.terms);
+                assert!(*terms == fixture.terms);
+                assert!(
+                    terms.into_first().is_none(),
+                    "retained zero/request-only prefixes use the ordinary source"
+                );
                 Ok(Observation::ordinary())
             },
             |_| Ok(true),
@@ -697,7 +701,11 @@ fn expired_missing_or_request_only_prefix_requires_a_live_epoch_and_preserves_it
                     .map_err(|_| invalid("canonical retirement refused"))
             },
             |attempt, _, _| Ok(fixture.retain(attempt)),
-            |_, _| {
+            |prerequisite, _| {
+                assert!(
+                    prerequisite.into_first().is_none(),
+                    "replacement must acquire its ordinary fresh proof"
+                );
                 let checkpoint = native.observe(&fixture.authority);
                 assert_eq!(checkpoint.verified_tip().unwrap().height(), 2);
                 let current = native
@@ -1803,3 +1811,6 @@ pub(super) fn operation_record_work<T>(read: impl FnOnce() -> T) -> (T, [usize; 
         ],
     )
 }
+
+#[path = "first_reservation_tests.rs"]
+mod first_reservation_tests;

@@ -128,12 +128,12 @@ fn preparation_refusal_is_fee_free_but_admitted_business_failure_charges_actual_
 #[test]
 fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
     let root: InstructionBox = ExecuteTrigger::new("network_callback".parse().unwrap()).into();
-    let direct_gas =
-        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS);
     let state = fixture_with_policy(65_536, Some(512), None, |policy| {
         policy.overlay_max_instructions = 1;
         policy.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
     });
+    let direct_gas =
+        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS);
     let source = carrier(
         &state,
         vec![input(
@@ -168,8 +168,8 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
     use ivm::{encoding::wide, instruction::wide as opcode, pointer_abi::PointerType};
     let id: TriggerId = "generic_effect_callback".parse().unwrap();
     let instruction: InstructionBox = ExecuteTrigger::new(id.clone()).into();
-    // Both executions sign the same policy into genesis. The selected signed root
-    // may spend one VM cycle; the five-opcode callback keeps its own trigger scope.
+    // Both executions have the same committed policy. The selected signed root may
+    // spend one VM cycle; the five-opcode callback keeps its own trigger scope.
     let state = fixture_with_policy(65_536, None, None, |policy| {
         policy.quarantine_max_txs_per_block = 1;
         policy.quarantine_tx_max_cycles = 1;
@@ -502,5 +502,73 @@ fn unwinding_before_root_close_cannot_publish_already_staged_effects() {
     assert!(matches!(
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
+    ));
+}
+
+#[test]
+fn failing_forgery_invalidates_carrier_without_rejection_fee_or_partial_record() {
+    use crate::smartcontracts::isi::sccp::store;
+    use iroha_data_model::{
+        isi::sccp::SubmitSccpForgeryEvidenceV1, sccp::params::SccpParametersV1,
+    };
+    let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
+    let asset = AssetDefinitionId::parse_address_literal(
+        &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
+    )
+    .unwrap();
+    let state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
+    {
+        let (mut setup, _recording) = output_fixture_setup(&state);
+        let mut tx = setup.transaction_for_callback_testing();
+        store::parameters::set(&mut tx, Some(SccpParametersV1::taira_default()));
+        tx.apply();
+        setup.commit_world_overlay_for_testing().unwrap();
+    }
+    // Shaped eligible DATA, deliberately invalid as a native certificate.
+    // This tests actual R-EX propagation; it cannot authenticate evidence or a generation.
+    let data = SubmitSccpForgeryEvidenceV1 {
+        qc: [0; 116],
+        header: [0; 221],
+        aggregate_signature: [0; 96],
+        anchor: None,
+    };
+    let signed = input(
+        &state,
+        vec![data.into()],
+        FeePaymentIntent::authority(
+            vec![FeeChargeLimit::new(
+                FeeChargeKind::Nexus,
+                asset.clone(),
+                Quantity::from(1_u32),
+            )],
+            None,
+        ),
+        false,
+    );
+    let source = carrier(&state, vec![signed]);
+    let (mut block, _recording) = recorded_network_block(&state, &source);
+    let fragments = block.committed_fragment_count();
+    let records = block.world.consensus_evidence().len();
+    let error = execute(&mut block, &source).unwrap_err();
+    assert!(
+        matches!(error,ExecutionOutputAttemptError::Owner(ref reason) if reason.contains("R-EX")),
+        "{error:?}"
+    );
+    assert_eq!(
+        block
+            .world
+            .assets()
+            .get(&AssetId::of(asset, ALICE_ID.clone()))
+            .unwrap()
+            .0,
+        Quantity::from(10_u32)
+    );
+    assert!(block.world.sccp_forgery_offences.is_empty());
+    assert_eq!(*block.world.sccp_forgery_max_generation.get(), None);
+    assert_eq!(block.world.consensus_evidence().len(), records);
+    assert_eq!(block.committed_fragment_count(), fragments);
+    assert!(matches!(
+        block.execution_output_plan,
+        Some(ExecutionOutputPlanState::Poisoned)
     ));
 }

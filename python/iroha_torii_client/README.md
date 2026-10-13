@@ -165,11 +165,16 @@ these observations do not confer finality.
 
 Committed Sumeragi evidence is exposed through the authenticated
 `list_sumeragi_evidence()` and `get_sumeragi_evidence_count()` reads. The
-first-release JSON contract accepts only `NativeSumeragiEvidence` records,
-requires a non-null consensus admission height, and models the penalty state
-as the closed `pending`, `applied`, or `cancelled` union. Missing, extra, and
-retired fields fail closed. Both evidence responses require JSON media types;
-count is streamed under a 1 KiB client-side ceiling and list under 1 MiB.
+first-release JSON contract uses the closed `{kind, value}` envelope for
+`NativeSumeragiEvidence` and `SccpForgeryEvidence`. Read each typed payload through
+`item.value`. Native records retain their root or lane scope; SCCP records retain
+the exact submitted certificate bytes, optional anchor, generation liability and
+attribution. Both require a non-null consensus admission height and the closed
+`pending` or `applied` penalty state. Parsing this DATA grants no signature or
+historical-state authority. Missing, extra, retired flat fields and response kinds
+that differ from the requested filter fail closed. Both evidence responses require
+JSON media types; count is streamed under a 1 KiB client-side ceiling and list
+under 1 MiB.
 
 Use `get_status_snapshot()` for `/status`. That route remains a distinct
 operational-health surface; its queue and historical lane telemetry must not be

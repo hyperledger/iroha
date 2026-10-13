@@ -1,12 +1,13 @@
-//! Native ports of the vendored golden circuits
-//! (`vendor/halo2-axiom/tests/golden_proof_bytes.rs`): the sigma-shaped and
-//! the wide circuit, written against the `iroha_plonk` frontend.
+//! Native ports of historical golden circuits captured before prover retirement
+//! (originally `vendor/halo2-axiom/tests/golden_proof_bytes.rs`): the sigma-shaped
+//! and wide circuit, written against the `iroha_plonk` frontend.
 //!
 //! They check that the frontend expresses the golden shapes (degree and
 //! permutation width), that the constraint checker accepts the honest
 //! witnesses and rejects tampered ones, and that their descriptors are
-//! deterministic. The byte-level comparison with the vendored keys and proofs
-//! belongs to `iroha_plonk_oracle`.
+//! deterministic. The native unit suite `src/captured_goldens.rs` freshly
+//! rebuilds circuits and compares keys and proof bytes with the retained corpus;
+//! the deleted `iroha_plonk_oracle` is no longer a live comparison dependency.
 
 use ff::{Field, PrimeField};
 use iroha_pasta::{Fp, Fq, PastaField};

@@ -14,6 +14,23 @@ fn chain() -> CertifiedTestChain {
     chain.commit_at(3_000, Vec::new());
     chain
 }
+
+#[test]
+fn terminal_result_scope_comes_from_the_signed_root() {
+    let chain = chain();
+    let view = chain.state().view();
+    let context = decoder(&view.execution_budget());
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+            terminal.committed().root_scope()
+        ),
+        CertifiedResultScope::TairaGlobal
+    );
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
 fn decoder(budget: &AllocationBudget) -> norito::core::DecodeBudgetContext {
     norito::core::DecodeBudgetContext::try_new_owned(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),

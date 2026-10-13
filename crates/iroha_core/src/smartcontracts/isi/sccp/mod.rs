@@ -1,4 +1,4 @@
-//! SCCP v1 core: state access, the block hook, admission and the seven v1 instructions
+//! SCCP v1 core: state access, the block hook, admission and the eight v1 instructions
 //! (`specs/sccp.md` §4).
 //!
 //! The [`Execute`] implementations below delegate each v1 instruction to exactly one entry
@@ -20,12 +20,14 @@
 pub mod admission;
 pub mod anchor_record;
 pub mod anchor_storage;
+pub mod anchors;
 pub mod commitment;
 pub mod committee_storage;
 pub mod controls;
 pub(crate) mod eligibility;
 pub mod escrow;
 pub mod fees;
+pub mod forgery;
 pub mod generation_record;
 pub(super) mod generations;
 pub mod governance;
@@ -35,7 +37,9 @@ pub mod hook;
 pub mod inbound;
 pub mod init;
 pub mod leaves;
+pub(crate) mod liability;
 pub mod light_clients;
+pub(crate) mod original_read;
 pub mod outbound;
 pub mod params;
 pub mod parliament_iface;
@@ -64,13 +68,13 @@ use iroha_data_model::{
         error::InstructionExecutionError as Error,
         sccp::{
             AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
-            SubmitSccpOutboundVoidV1,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
+            SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
         },
     },
 };
 
-/// Return whether `instruction` is one of the seven SCCP v1 instructions.
+/// Return whether `instruction` is one of the eight SCCP v1 instructions.
 ///
 /// Every SCCP instruction routes to the universal dataspace (§4.19) and is admitted by the
 /// Initial executor because core enforces every SCCP rule.
@@ -81,6 +85,7 @@ pub fn is_sccp_instruction(instruction: &dyn Instruction) -> bool {
         || any.is::<RecordSccpMessage>()
         || any.is::<SubmitSccpInboundMessageV1>()
         || any.is::<SettleSccpV1>()
+        || any.is::<SubmitSccpForgeryEvidenceV1>()
         || any.is::<SubmitSccpOutboundVoidV1>()
         || any.is::<AdvanceSccpLightClientV1>()
         || any.is::<ReportSccpLightClientEquivocationV1>()
@@ -121,7 +126,7 @@ mod tests {
 
     #[test]
     fn every_v1_instruction_is_recognized_and_nothing_else_is() {
-        assert_eq!(SampleInstructions::all().len(), 7);
+        assert_eq!(SampleInstructions::all().len(), 8);
         for instruction in SampleInstructions::all() {
             assert!(is_sccp_instruction(&*instruction), "{instruction:?}");
         }
@@ -154,3 +159,19 @@ mod tests {
         }
     }
 }
+
+// Execution is one-shot and cannot be authorized by an IVM or callback instruction.
+impl Execute for SubmitSccpForgeryEvidenceV1 {
+    fn execute(
+        self,
+        _authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        state_transaction.consume_direct_sccp_forgery(&self)?;
+        forgery::execute_forgery(&self, state_transaction)
+            .map_err(|error| error.into_instruction_error(state_transaction))
+    }
+}
+
+#[cfg(test)]
+mod parameter_mutation_tests;

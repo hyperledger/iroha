@@ -1384,9 +1384,13 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     use crate::state::WorldReadOnly as _;
     use mv::storage::StorageReadOnly as _;
     let world = restored.world.view();
+    assert_eq!(world.sccp_committee_generations().len(), 2);
+    assert_eq!(world.sccp_anchor_chunks().len(), 2);
+    assert_eq!(world.sccp_anchor_open().as_slice().len(), 1);
+    assert_eq!(world.sccp_block_leaves().len(), 2);
+    assert_eq!(*world.sccp_committee_current(), 2);
     assert_eq!(world.sccp_block_commitments().len(), 2);
     assert_eq!(world.sccp_history_leaves().len(), 2);
-    assert_eq!(world.sccp_block_leaves().len(), 2);
     assert_eq!(*world.sccp_reset_nonce(), Some([3; 32]));
     assert!(world.sccp_parameters().is_some());
 }

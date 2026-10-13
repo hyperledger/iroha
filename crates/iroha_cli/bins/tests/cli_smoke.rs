@@ -18,9 +18,7 @@ use blake3::hash;
 use iroha::{
     account_address::{encode_account_id_to_canonical_hex, encode_account_id_to_i105},
     data_model::isi::{
-        InstructionBox, TransferBox,
-        repo::RepoInstructionBox,
-        settlement::{SettlementAtomicity, SettlementInstructionBox},
+        InstructionBox, TransferBox, repo::RepoInstructionBox, settlement::SettlementInstructionBox,
     },
 };
 use iroha_crypto::{Algorithm, Hash as CryptoHash, KeyPair, Sm2PrivateKey};
@@ -3512,11 +3510,31 @@ fn repo_unwind_emits_instruction_payload() {
     }
 }
 #[test]
+fn settlement_rejects_an_unscoped_business_reference() {
+    let output = command()
+        .args([
+            "app",
+            "settlement",
+            "dvp",
+            "--settlement-id",
+            "unscoped_reference",
+        ])
+        .output()
+        .expect("run settlement argument parser");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid value 'unscoped_reference'"),
+        "the settlement identity parser must reject the bare reference: {stderr}"
+    );
+}
+#[test]
 fn settlement_dvp_emits_instruction_payload() {
     use torii_mock_support::{TempDir, write_client_config};
     let temp_dir = TempDir::new("settlement_dvp").expect("temp dir");
     let config_path = temp_dir.path().join("client.toml");
     write_client_config(&config_path, "http://localhost").expect("write config");
+    let settlement_id = format!("trade_dvp${}", alice_account_literal());
     let output = command()
         .arg("--config")
         .arg(&config_path)
@@ -3526,7 +3544,7 @@ fn settlement_dvp_emits_instruction_payload() {
             "settlement",
             "dvp",
             "--settlement-id",
-            "trade_dvp",
+            &settlement_id,
             "--delivery-asset",
             "4fEiy2n5VMFVfi6BzDJge519zAzg",
             "--delivery-quantity",
@@ -3563,7 +3581,11 @@ fn settlement_dvp_emits_instruction_payload() {
         SettlementInstructionBox::Dvp(isi) => {
             let expected_delivery_from = parse_account_literal(alice_account_literal());
             let expected_payment_from = parse_account_literal(bob_account_literal());
-            assert_eq!(isi.settlement_id().to_string(), "trade_dvp");
+            assert_eq!(isi.settlement_id().to_string(), settlement_id);
+            assert_eq!(
+                isi.settlement_id().owner(),
+                &parse_account_literal(alice_account_literal())
+            );
             assert_eq!(isi.delivery_leg().from(), &expected_delivery_from);
             assert_eq!(isi.payment_leg().from(), &expected_payment_from);
         }
@@ -3576,6 +3598,7 @@ fn settlement_pvp_emits_instruction_payload() {
     let temp_dir = TempDir::new("settlement_pvp").expect("temp dir");
     let config_path = temp_dir.path().join("client.toml");
     write_client_config(&config_path, "http://localhost").expect("write config");
+    let settlement_id = format!("trade_pvp${}", alice_account_literal());
     let output = command()
         .arg("--config")
         .arg(&config_path)
@@ -3585,7 +3608,7 @@ fn settlement_pvp_emits_instruction_payload() {
             "settlement",
             "pvp",
             "--settlement-id",
-            "trade_pvp",
+            &settlement_id,
             "--primary-asset",
             "7EAD8EFYUx1aVKZPUU1fyKvr8dF1",
             "--primary-quantity",
@@ -3618,7 +3641,11 @@ fn settlement_pvp_emits_instruction_payload() {
         SettlementInstructionBox::Pvp(isi) => {
             let expected_primary_from = parse_account_literal(alice_account_literal());
             let expected_counter_from = parse_account_literal(bob_account_literal());
-            assert_eq!(isi.settlement_id().to_string(), "trade_pvp");
+            assert_eq!(isi.settlement_id().to_string(), settlement_id);
+            assert_eq!(
+                isi.settlement_id().owner(),
+                &parse_account_literal(alice_account_literal())
+            );
             assert_eq!(isi.primary_leg().from(), &expected_primary_from);
             assert_eq!(isi.counter_leg().from(), &expected_counter_from);
         }
@@ -3626,71 +3653,60 @@ fn settlement_pvp_emits_instruction_payload() {
     }
 }
 #[test]
-fn settlement_accepts_commit_atomicity() {
+fn settlement_rejects_retired_partial_atomicity() {
     use torii_mock_support::{TempDir, write_client_config};
     let temp_dir = TempDir::new("settlement_atomicity").expect("temp dir");
     let config_path = temp_dir.path().join("client.toml");
     let iso_path = temp_dir.path().join("dvp_preview.xml");
     write_client_config(&config_path, "http://localhost").expect("write config");
-    let output = command()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("--emit-instructions")
-        .args([
-            "app",
-            "settlement",
-            "dvp",
-            "--settlement-id",
-            "trade_dvp",
-            "--delivery-asset",
-            "4fEiy2n5VMFVfi6BzDJge519zAzg",
-            "--delivery-quantity",
-            "10",
-            "--delivery-from",
-            alice_account_literal(),
-            "--delivery-to",
-            bob_account_literal(),
-            "--payment-asset",
-            "7EAD8EFYUx1aVKZPUU1fyKvr8dF1",
-            "--payment-quantity",
-            "1000",
-            "--payment-from",
-            bob_account_literal(),
-            "--payment-to",
-            alice_account_literal(),
-            "--delivery-instrument-id",
-            "US0378331005",
-            "--atomicity",
-            "commit-first-leg",
-            "--iso-xml-out",
-            iso_path.to_str().expect("utf8 path"),
-        ])
-        .output()
-        .expect("failed to execute iroha settlement dvp with atomicity flag");
-    assert!(
-        output.status.success(),
-        "expected commit-first-leg atomicity to succeed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let instructions = parse_instruction_stdout(&stdout);
-    assert_eq!(instructions.len(), 1, "expected a single instruction");
-    let settlement = settlement_instruction(&instructions[0]);
-    let plan = match settlement {
-        SettlementInstructionBox::Dvp(isi) => *isi.plan(),
-        other => panic!("unexpected instruction variant: {other:?}"),
-    };
-    assert_eq!(
-        plan.atomicity(),
-        SettlementAtomicity::CommitFirstLeg,
-        "unexpected atomicity payload: {:?}",
-        plan.atomicity()
-    );
-    let iso_xml = fs::read_to_string(&iso_path).expect("read iso preview");
-    assert!(
-        iso_xml.contains("COMMIT_FIRST_LEG"),
-        "ISO preview should reflect atomicity"
-    );
+    let settlement_id = format!("trade_dvp${}", alice_account_literal());
+    for atomicity in ["commit-first-leg", "commit-second-leg"] {
+        let output = command()
+            .arg("--config")
+            .arg(&config_path)
+            .arg("--emit-instructions")
+            .args([
+                "app",
+                "settlement",
+                "dvp",
+                "--settlement-id",
+                &settlement_id,
+                "--delivery-asset",
+                "4fEiy2n5VMFVfi6BzDJge519zAzg",
+                "--delivery-quantity",
+                "10",
+                "--delivery-from",
+                alice_account_literal(),
+                "--delivery-to",
+                bob_account_literal(),
+                "--payment-asset",
+                "7EAD8EFYUx1aVKZPUU1fyKvr8dF1",
+                "--payment-quantity",
+                "1000",
+                "--payment-from",
+                bob_account_literal(),
+                "--payment-to",
+                alice_account_literal(),
+                "--delivery-instrument-id",
+                "US0378331005",
+                "--atomicity",
+                atomicity,
+                "--iso-xml-out",
+                iso_path.to_str().expect("utf8 path"),
+            ])
+            .output()
+            .expect("failed to execute iroha settlement dvp with atomicity flag");
+        assert!(
+            !output.status.success(),
+            "retired atomicity must fail CLI parsing"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("invalid value"));
+        assert!(
+            output.stdout.is_empty(),
+            "invalid input must emit no instruction"
+        );
+        assert!(!iso_path.exists(), "invalid input must emit no ISO preview");
+    }
 }
 #[test]
 fn query_help_documents_stdin_flow() {

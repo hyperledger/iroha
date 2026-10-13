@@ -318,7 +318,7 @@ fn active_producers_preserve_original_results_charges_and_positive_refusals() {
     );
     // Encoding validates an already decoded DTO using inline epoch entries. It must
     // retain all validation and bytes without charging the unrelated decoder counter.
-    for cap in [0, 1, TEST_ALLOCATION_CEILING] {
+    for cap in [0, 1, 2, TEST_ALLOCATION_CEILING] {
         let expected = under_caller(cap, || independent_encoding(&checkpoint));
         assert_eq!(expected.0.as_ref().unwrap(), &original);
         assert_eq!(expected.1, 0);

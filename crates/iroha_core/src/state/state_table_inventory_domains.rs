@@ -56,6 +56,16 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Record,
+        reason: "Root of one canonical ordered native BLS committee key list. It identifies the committee retained in a generation and bound by finality X; it is not a digest over the generation table or a substitute for authenticated schedule authority",
+        literals: &[r"SCCP/COMMITTEE/V1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact magic of the fixed-width native finality header X. It selects the sole header layout; X is bound by the certified result, but this literal itself is not a State hash domain",
+        literals: &[r"SCCP/FINALITY/V1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
         reason: "SCCP fast-pause effect binds its network identity, external network and head; certificate identity binds the exact certificate content. These are record identities, not a commitment over the complete State",
         literals: &[
             r"iroha.sccp.fast_pause.certificate.id.v1",
@@ -107,6 +117,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::Name,
         reason: "Exact RegisterDataspaceAssetDefinition instruction wire identifier, used both by the instruction and the built-in dispatch registry; it names one instruction layout and computes no digest",
         literals: &[r"iroha.asset_definition.dataspace.register.v1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "Exact Keepalive instruction wire identifier in the built-in dispatch registry; it names one instruction layout and computes no digest",
+        literals: &[r"iroha.chain.keepalive.v1"],
     },
     OtherDomains {
         usage: Use::Name,
@@ -207,8 +222,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::ResultBinding,
         reason: "Domain tags of the execution result R, of the certified block identity and of lane results: they bind the listed roots and the fields of the listed protocol carriers, and commit no State content of their own",
         literals: &[
-            r"SCCP/COMMITTEE/V1",
-            r"SCCP/FINALITY/V1",
             r"iroha/sumeragi/certified-block/v1",
             r"iroha/sumeragi/lane/result/v1",
             r"iroha/sumeragi/result-body/v1",
@@ -846,7 +859,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         reason: "KAGEMUSHA wallet-wire domain prefix and wallet advance provider-contract identity: these name or hash one application record or message",
         literals: &[
             r"iroha:kagemusha:wallet:v1:",
-            r"kagemusha-advance-journal-marker-v1",
+            r"kagemusha-advance-pedersen-capsule-v1",
         ],
     },
     OtherDomains {

@@ -3,7 +3,10 @@ use super::*;
 use crate::{
     kura::Kura,
     query::store::LiveQueryStore,
-    smartcontracts::triggers::specialized::{SpecializedAction, SpecializedTrigger},
+    smartcontracts::triggers::{
+        set::{CheckedActions, action_source_work},
+        specialized::{SpecializedAction, SpecializedTrigger},
+    },
     state::{
         State, World,
         authority_registry::complete::table_capture::frozen::capture_original_table_once,
@@ -74,25 +77,14 @@ fn equal(actual: &CanonicalTablePairedSnapshot, expected: &CanonicalTablePairedS
 }
 fn committed(state: &State, table: ActionTable) -> CanonicalTablePairedSnapshot {
     let pool = state.ivm_execution_budget();
-    match table {
-        ActionTable::Data => state
-            .world
-            .triggers
-            .capture_data_authority_table(limits(), &pool),
-        ActionTable::Pipeline => state
-            .world
-            .triggers
-            .capture_pipeline_authority_table(limits(), &pool),
-        ActionTable::Time => state
-            .world
-            .triggers
-            .capture_time_authority_table(limits(), &pool),
-        ActionTable::ByCall => state
-            .world
-            .triggers
-            .capture_by_call_authority_table(limits(), &pool),
-    }
-    .unwrap()
+    let mut checked =
+        CheckedActions::capture(&state.world.triggers, action_source_work(limits()), &pool)
+            .unwrap();
+    let outcome = checked.encode(table, limits());
+    let current = checked.matches_current();
+    drop(checked);
+    assert!(current.expect("original action source identities"));
+    outcome.unwrap()
 }
 #[test]
 fn ordinary_and_replace_empty_actions_match_all_four_original_committed_frames() {

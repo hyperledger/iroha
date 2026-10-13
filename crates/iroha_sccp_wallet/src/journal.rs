@@ -87,7 +87,7 @@ pub enum SccpFlowKindV1 {
     /// Void and refund of an outbound transfer (§7.3).
     #[norito(rename = "refund")]
     Refund,
-    /// Destination committee rotation (§7.4).
+    /// Destination native committee synchronization (§7.4).
     #[norito(rename = "committee_sync")]
     CommitteeSync,
     /// Destination control relay (§7.4).

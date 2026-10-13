@@ -546,6 +546,10 @@ pub fn validate_policy(policy: &SumeragiLanePolicy) -> Result<(), String> {
 }
 
 fn validate_lane_params(params: &SumeragiParameters) -> Result<(), String> {
+    // The application drift is absent from ChainParamsRecord, but remains committed
+    // and pinned for the entire lane incarnation alongside those consensus parameters.
+    iroha_data_model::parameter::system::validate_max_clock_drift_ms(params.max_clock_drift_ms)
+        .map_err(|error| format!("lane parameters: {error}"))?;
     ChainParamsRecord::from_parameters(params)
         .validate()
         .map_err(|error| format!("lane parameters: {error}"))
@@ -753,6 +757,26 @@ mod tests {
             apply_merges(&mut empty, &input, 5),
             Err(LaneStepError::MissingLane(lane))
         );
+    }
+
+    #[test]
+    fn lane_policy_clock_drift_bound_applies_to_the_pinned_incarnation() {
+        use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+
+        let mut policy = policy();
+        for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
+            policy.lane_params.max_clock_drift_ms = value;
+            assert_eq!(validate_policy(&policy), Ok(()));
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            policy.lane_params.max_clock_drift_ms = value;
+            assert!(
+                validate_policy(&policy)
+                    .unwrap_err()
+                    .contains("exceeds the protocol bound"),
+                "lane policy must reject an unbounded committed clock allowance"
+            );
+        }
     }
 
     #[test]

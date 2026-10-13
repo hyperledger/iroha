@@ -65,3 +65,159 @@ pub type CommitteeStorage = mv::storage::Storage<u64, RetainedSccpGeneration, Co
 #[cfg(test)]
 #[path = "committee_storage/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+use iroha_allocation::AllocationBudget;
+#[cfg(test)]
+use iroha_data_model::sccp::generation::SccpCommitteeGenerationV1;
+
+/// Fixture-only malformed record construction preserves snapshot rejection tests.
+/// It uses the actual map's pool and is absent from production builds.
+#[cfg(test)]
+pub(crate) trait CommitteeFixtureStorage {
+    fn insert(
+        &mut self,
+        key: u64,
+        record: SccpCommitteeGenerationV1,
+    ) -> Option<RetainedSccpGeneration>;
+    fn remove(&mut self, key: u64) -> Option<RetainedSccpGeneration>;
+}
+#[cfg(test)]
+fn fixture(
+    record: &SccpCommitteeGenerationV1,
+    budget: &AllocationBudget,
+) -> RetainedSccpGeneration {
+    use norito::codec::Encode as _;
+    RetainedSccpGeneration::decode_snapshot_hex_for_fixture(&hex::encode(record.encode()), budget)
+        .unwrap()
+}
+#[cfg(test)]
+impl CommitteeFixtureStorage for CommitteeStorage {
+    fn insert(
+        &mut self,
+        key: u64,
+        record: SccpCommitteeGenerationV1,
+    ) -> Option<RetainedSccpGeneration> {
+        let owner = fixture(&record, self.allocation_budget());
+        self.try_with_admitted_block(|block| {
+            block.try_insert_admitted(key, owner).map_err(|(_, e)| e)
+        })
+        .unwrap()
+    }
+    fn remove(&mut self, key: u64) -> Option<RetainedSccpGeneration> {
+        self.try_with_admitted_block(|block| block.try_remove_admitted(key).map_err(|(_, e)| e))
+            .unwrap()
+    }
+}
+#[cfg(test)]
+impl CommitteeFixtureStorage
+    for mv::storage::Block<'_, u64, RetainedSccpGeneration, CommitteeStorageMode>
+{
+    fn insert(
+        &mut self,
+        key: u64,
+        record: SccpCommitteeGenerationV1,
+    ) -> Option<RetainedSccpGeneration> {
+        let owner = fixture(&record, self.allocation_budget());
+        self.try_insert_admitted(key, owner)
+            .map_err(|(_, e)| e)
+            .unwrap()
+    }
+    fn remove(&mut self, key: u64) -> Option<RetainedSccpGeneration> {
+        self.try_remove_admitted(key).map_err(|(_, e)| e).unwrap()
+    }
+}
+
+/// Test-only acquisition of this exact generation map's admitted writer pair.
+/// The returned block retains the original pool's refund scope until both locks release.
+#[cfg(test)]
+pub(crate) trait CommitteeFixtureBlock {
+    /// Acquire the ordinary current/undo writers without acquiring other World fields.
+    fn block(&self) -> mv::storage::Block<'_, u64, RetainedSccpGeneration, CommitteeStorageMode>;
+}
+#[cfg(test)]
+impl CommitteeFixtureBlock for CommitteeStorage {
+    fn block(&self) -> mv::storage::Block<'_, u64, RetainedSccpGeneration, CommitteeStorageMode> {
+        let scope = self
+            .allocation_budget()
+            .try_owned_refund_scope()
+            .expect("fixture generation original refund scope");
+        let mut slot = self
+            .try_block_acquisition_owned(&scope)
+            .expect("fixture generation original pool");
+        slot.try_initialize(mv::BlockMode::Ordinary)
+            .expect("fixture generation original current/undo writers");
+        slot.into_block()
+    }
+}
+
+/// Test-only ordinary publication of this exact admitted generation writer pair.
+#[cfg(test)]
+pub(crate) trait CommitteeFixtureCommit {
+    /// Prepare and install the original pair before releasing its refund scope.
+    fn commit(self);
+}
+#[cfg(test)]
+impl CommitteeFixtureCommit
+    for mv::storage::Block<'_, u64, RetainedSccpGeneration, CommitteeStorageMode>
+{
+    fn commit(self) {
+        use mv::BlockPublication as _;
+
+        let mut publication = self.publication_slot();
+        publication.prepare_publication();
+        publication.publish_prepared();
+    }
+}
+
+#[cfg(test)]
+impl CommitteeFixtureStorage
+    for mv::storage::Transaction<'_, u64, RetainedSccpGeneration, CommitteeStorageMode>
+{
+    fn insert(
+        &mut self,
+        key: u64,
+        record: SccpCommitteeGenerationV1,
+    ) -> Option<RetainedSccpGeneration> {
+        let owner = fixture(&record, self.allocation_budget());
+        self.try_insert_admitted(key, owner)
+            .map_err(|(_, e)| e)
+            .unwrap()
+    }
+    fn remove(&mut self, key: u64) -> Option<RetainedSccpGeneration> {
+        self.try_remove_admitted(key).map_err(|(_, e)| e).unwrap()
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn fixture_transaction_keeps_original_pool_and_ordinary_apply_rollback() {
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+
+    let budget = AllocationBudget::new(1 << 20);
+    let storage = CommitteeStorage::try_new_admitted(budget.clone()).unwrap();
+    let record = sample_generation(1);
+    let mut block = storage.block();
+    {
+        let mut transaction = block.try_transaction_admitted().unwrap();
+        assert!(transaction.insert(1, record.clone()).is_none());
+        let retained = transaction.get(&1).unwrap();
+        assert!(retained.belongs_to(&budget));
+        assert_eq!(&**retained, &record);
+        transaction.apply();
+    }
+    {
+        let mut transaction = block.try_transaction_admitted().unwrap();
+        let removed = transaction.remove(1).unwrap();
+        assert!(removed.belongs_to(&budget));
+        assert_eq!(&*removed, &record);
+        assert!(transaction.get(&1).is_none());
+        // Abandon the child: its original parent roots must survive unchanged.
+    }
+    assert_eq!(block.get(&1).map(|retained| &**retained), Some(&record));
+    block.commit();
+    assert_eq!(
+        storage.view().get(&1).map(|retained| &**retained),
+        Some(&record)
+    );
+}

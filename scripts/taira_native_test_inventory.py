@@ -75,6 +75,9 @@ NATIVE_CORE_TEST_OWNERS = (
         'restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_without_reread',
         'restarted_paid_intent_rejects_substituted_authority_carrier_and_execution_claims',
         'restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery',
+        'native_amx_decision_delivery_after_restart_settles_exact_registered_child_at_final_tip',
+        'native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction',
+        'native_amx_decision_delivery_rejects_absent_begin_wrong_participant_and_foreign_root',
     )),
     ('native persisted AMX original proof custody', 'sumeragi/amx/mod.rs', 'sumeragi/amx/proof_tests.rs', 'proof_tests', 'sumeragi::amx::proof_tests', (
         'persisted_amx_records_survive_deadline_pruning_and_certified_replay',
@@ -131,6 +134,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'cancellation_stays_final_when_the_identical_context_and_request_return',
         'lane_sized_peer_inputs_above_global_bound_keep_independent_progress',
         'cancelling_and_dropping_scheduler_unlinks_all_waiters_before_original_refunds',
+        'clock_ahead_payload_retries_without_another_queue_notification',
     )),
     ('native committed-head release retries', 'sumeragi/driver/exec.rs', 'sumeragi/driver/source_retry_tests.rs', 'source_retry_tests', 'sumeragi::driver::exec::source_retry_tests', (
         'committed_head_waits_for_original_release_across_prepare_append_and_commit',
@@ -279,6 +283,8 @@ NATIVE_CORE_TEST_OWNERS = (
         'immutable_preparation_allocator_refusal_never_invents_a_release',
         'immutable_preparation_short_prepaid_parent_requires_recovery_without_losing_custody',
         'producer_payload_errors_keep_original_release_and_terminal_classification',
+        'sccp_evidence_publication_preserves_all_original_preparation_categories',
+        'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (
         'state_publication_lock_refusals_reach_scheduler_with_original_execution_and_release',
@@ -345,6 +351,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'result_pulses_require_exact_height_network_session_and_parent_bindings',
         'pinned_restoration_reuses_full_boundary_verification_and_one_authority_cursor',
         'historical_pulse_requires_signed_header_bytes_and_complete_native_context',
+        'npos_epoch_schedule_uses_committed_epoch_length',
     )),
     ('native certified prefix authority', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/prefix_tests.rs', 'prefix_tests', 'sumeragi::certified_chain::tests::prefix_tests', (
         'streamed_prefix_emits_genesis_execution_anchor_only_after_real_successor',
@@ -469,12 +476,14 @@ NATIVE_CORE_TEST_OWNERS = (
         'restored_schedule_keeps_original_generation_and_full_epoch_graph',
         'genesis_outcome_cannot_supply_an_arbitrary_epoch_or_boundary',
         'sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization',
+        'clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes',
     )),
     ('native executed genesis registration', 'sumeragi/schedule/execution.rs', 'sumeragi/schedule/execution_tests.rs', 'tests', 'sumeragi::schedule::execution::tests', (
         'executed_genesis_must_retain_every_exact_signed_registration',
         'executed_genesis_rejects_an_extra_voting_registration',
         'executed_genesis_fee_scope_decode_refusal_defers_and_retries_same_authority',
         'boundary_capture_attempts_retain_capacity_release_and_deterministic_errors',
+        'executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state',
     )),
     ('native driver persistence', 'sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/file_stores.rs', 'file_stores', 'sumeragi::driver::tests::file_stores', (
         'file_stores_survive_disk_errors',
@@ -509,6 +518,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'control_worker_unwind_requires_recovery_and_cannot_invent_empty',
         'due_control_build_progresses_under_replenished_drive_and_partial_ingress',
         'execution_certification_survives_parking',
+        'certified_execution_flag_reaches_the_application_without_inference',
     )),
     ('native driver kernel', 'sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/kernel.rs', 'kernel', 'sumeragi::driver::tests::kernel', (
         'kernel_refuses_unfunded_waiter_before_constructing_consensus',
@@ -572,6 +582,7 @@ NATIVE_CORE_TEST_OWNERS = (
     )),
     ('native canonical prepared intent framing and row identity', 'query/native_context_archive.rs', 'query/native_context_archive/prepared_intents.rs', 'prepared_intents', 'query::native_context_archive::prepared_intents::tests', (
         'borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime',
+        'borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent',
         'original_prepared_key_selection_refuses_malformed_and_preserves_transaction',
         'borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality',
         'sole_intent_decoder_borrows_original_charged_ranges_and_refuses_framing_or_cumulative_limits',

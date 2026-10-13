@@ -166,7 +166,7 @@ fn parent() -> Parent {
                 .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
                 ))
-                .expect("fixture global root scope");
+                .expect("fixture global metadata");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -644,10 +644,7 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
     );
     let admits = |instructions: Vec<InstructionBox>| {
         let transaction = signed(&ed25519(KEEPER), instructions);
-        let sccp = admission::allows_unregistered_authority(
-            transaction.instructions(),
-            transaction.authority(),
-        );
+        let sccp = admission::allows_unregistered_authority(transaction.instructions());
         // The SCCP rule is the only one that can admit these shapes.
         assert_eq!(
             crate::tx::allows_unregistered_authority(

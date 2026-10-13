@@ -1855,6 +1855,16 @@ fn check_frame_limit(config: &DriverConfig, start: &DriverStart) -> Result<(), D
     Ok(())
 }
 
+/// Exercise the actual append completion boundary with an original prepared fixture frame.
+#[cfg(test)]
+pub(crate) fn run_original_append_for_test<E: Executor, K: BlockStore + ?Sized>(
+    executor: &mut E,
+    blocks: &K,
+    commit: Arc<exec::Commit>,
+) -> ExecDone {
+    run_exec(executor, blocks, ExecOp::Append(commit))
+}
+
 /// Run one executor operation (the executor thread); a panic of the executor or of the block
 /// store becomes a local failure. Publication unwind requires recovery because the original
 /// owner may be consumed or visible; ordinary execution and idempotent append remain retryable.
@@ -1865,18 +1875,19 @@ fn run_exec<E: Executor, K: BlockStore + ?Sized>(
 ) -> ExecDone {
     let failed = |what: &str| format!("executor panicked in {what}");
     match op {
-        // TODO: SC17 / spec §4.5: pass this flag into the production executor when CT1/CT5
-        // wall-clock guards land. The current executor has no such guards; the scheduler
-        // and conformance host retain the core's flag without inferring it from local state.
         ExecOp::Execute {
             block,
             block_hash,
-            certified: _,
+            certified,
         } => ExecDone::Executed(
-            catch_unwind(AssertUnwindSafe(|| executor.execute(&block, &block_hash)))
-                .unwrap_or_else(|_| {
-                    Some(iroha_sumeragi::api::ExecOutcome::Failed(failed("execute")))
-                }),
+            catch_unwind(AssertUnwindSafe(|| {
+                executor.execute(
+                    &block,
+                    &block_hash,
+                    certified && !cfg!(all(test, sumeragi_core_mutation = "HC258")),
+                )
+            }))
+            .unwrap_or_else(|_| Some(iroha_sumeragi::api::ExecOutcome::Failed(failed("execute")))),
         ),
         ExecOp::Discard { height, keep } => {
             let _ = catch_unwind(AssertUnwindSafe(|| executor.discard(height, &keep)));
@@ -1901,14 +1912,26 @@ fn run_exec<E: Executor, K: BlockStore + ?Sized>(
                 Err(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) => {
                     ExecDone::Appended {
                         durable: false,
-                        deferred: Some(reason),
+                        deferred: Some(reason.into()),
                     }
                 }
                 Err(crate::execution_attempt::ExecutionAttemptError::Rejected(error)) => {
                     iroha_logger::warn!(%error, "sumeragi block store append failed; retrying");
+                    let deferred = if cfg!(all(test, sumeragi_core_mutation = "HC275")) {
+                        None
+                    } else {
+                        error.get_ref().and_then(|cause| {
+                            match cause.downcast_ref::<crate::state::StateViewError>() {
+                                Some(crate::state::StateViewError::Busy(wait)) => {
+                                    Some(traits::PublicationDeferral::StateViewBusy(wait.clone()))
+                                }
+                                _ => None,
+                            }
+                        })
+                    };
                     ExecDone::Appended {
                         durable: false,
-                        deferred: None,
+                        deferred,
                     }
                 }
             }

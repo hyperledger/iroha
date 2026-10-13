@@ -107,7 +107,7 @@ fn release(
 ) -> ReleasedStep {
     let proof_digest =
         kagemusha_wallet_proof_digest_v1(Operation::Bootstrap, None, &sigma).unwrap();
-    let capsule = KagemushaWalletRecoveryCapsuleV1 {
+    let body = iroha_data_model::kagemusha::KagemushaWalletRecoveryBodyV1 {
         version: 1,
         scheme_id: statement.scheme_id,
         wallet_id: state.core.wallet_id,
@@ -128,12 +128,18 @@ fn release(
         )
         .unwrap(),
     };
+    let capsule = body
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
+
     let signer = KagemushaWalletReceiptSignerV1::from_credential(&credential).unwrap();
     let body = KagemushaWalletReceiptBodyV1::derive(
         &signer,
         &statement,
         &proof_digest,
-        capsule.capsule_digest().unwrap(),
+        capsule.receipt_commitment(),
         [0; 32],
     )
     .unwrap();
@@ -141,7 +147,7 @@ fn release(
         &credential,
         &statement,
         &proof_digest,
-        body.capsule_digest,
+        body.capsule_commitment,
         [0; 32],
         sign(payment, &body.signing_message()),
     )
@@ -149,7 +155,7 @@ fn release(
     let package = KagemushaWalletPackageV1::new(
         statement,
         KagemushaWalletLineageSlotV1::None,
-        capsule.step_proof.clone(),
+        capsule.body().step_proof.clone(),
         receipt,
     );
     let output = norito::encode_canonical(&package).unwrap();
@@ -158,8 +164,8 @@ fn release(
     ReleasedStep {
         retained: Retained {
             selected_generation: 1,
-            operation_id: capsule.operation_id,
-            capsule_digest: capsule.capsule_digest().unwrap(),
+            operation_id: capsule.body().operation_id,
+            capsule_digest: capsule.custody_digest(),
             completion_digest: record.completion_digest().unwrap(),
             frame: record.to_canonical_bytes().unwrap(),
             record,
@@ -491,16 +497,16 @@ fn installed_public_refresh_proves_all_five_updates_and_rejects_resigned_bad_sig
             .freeze_refresh(&next, &step, proof.clone(), MemoryBudget::DEFAULT)
             .unwrap();
         assert_eq!(frozen.credential, source.successor);
-        assert_eq!(frozen.capsule.successor_state, *step.state());
-        assert_eq!(frozen.capsule.statement, *step.statement());
+        assert_eq!(frozen.capsule.body().successor_state, *step.state());
+        assert_eq!(frozen.capsule.body().statement, *step.statement());
         assert_eq!(
-            frozen.capsule.predecessor_capsule_digest,
+            frozen.capsule.body().predecessor_capsule_digest,
             released.retained.capsule_digest
         );
-        assert_eq!(frozen.capsule.retained_inputs, step.originals().0);
-        assert_eq!(frozen.capsule.map_openings, step.originals().1);
-        assert_eq!(frozen.capsule.step_proof, proof);
-        assert!(frozen.capsule.predecessor_lineage().is_none());
+        assert_eq!(frozen.capsule.body().retained_inputs, step.originals().0);
+        assert_eq!(frozen.capsule.body().map_openings, step.originals().1);
+        assert_eq!(frozen.capsule.body().step_proof, proof);
+        assert!(frozen.capsule.body().predecessor_lineage().is_none());
         let mut invalid = proof.clone();
         invalid.bytes[32] ^= 1;
         assert!(
@@ -553,7 +559,7 @@ fn installed_public_refresh_proves_all_five_updates_and_rejects_resigned_bad_sig
                 )
                 .is_err()
         );
-        let mut sigma = released.frozen.capsule.step_proof.clone();
+        let mut sigma = released.frozen.capsule.body().step_proof.clone();
         sigma.bytes[32] ^= 1;
         let resigned = release(credential, state, statement, sigma, &payment);
         assert!(

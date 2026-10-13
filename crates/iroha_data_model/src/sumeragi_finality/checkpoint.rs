@@ -99,6 +99,8 @@ impl SumeragiFinalityCheckpoint {
     /// the original consensus-visible committed execution, including the complete schedule,
     /// result, beacon and executed-wire commitment. Offered proofs cannot provide that source.
     /// The supplied tip may be historical; no current time or live effect is granted.
+    /// `scope` must come from the caller's independently selected authenticated root. It is
+    /// used only to check these DATA and does not install authority into this checkpoint.
     ///
     /// # Errors
     /// Refuses empty/excessive/discontinuous witnesses, foreign roots or invalid framing.

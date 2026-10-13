@@ -34,7 +34,10 @@ use std::{
 
 #[path = "operations_preparation.rs"]
 mod preparation;
-pub use preparation::{NativePreparationPhase, RetiredNativeRequest, VerifiedNativePreparation};
+pub use preparation::{
+    CustodyPreparationReader, NativePreparationPhase, RetiredNativeRequest,
+    VerifiedNativePreparation,
+};
 
 #[path = "operations_amx_registration.rs"]
 mod amx_registration;

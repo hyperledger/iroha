@@ -19,6 +19,8 @@ pub(crate) trait EligibilityRead {
     fn route(&self, network: SccpNetworkV1) -> Option<&SccpRouteV1>;
     /// Original record, before any block-start or transaction effects.
     fn inbound(&self, message: &[u8; 32]) -> Option<&SccpInboundRecordV1>;
+    /// Highest native forgery generation in the same original observation.
+    fn forgery_max_generation(&self) -> Option<u64>;
     /// Original retained pause; no DTO clone or replacement credit is introduced.
     fn pause(&self, network: SccpNetworkV1) -> Option<&RetainedSccpFastPause>;
 }
@@ -40,6 +42,9 @@ impl<W: WorldReadOnly + ?Sized> EligibilityRead for Current<'_, W> {
     }
     fn inbound(&self, message: &[u8; 32]) -> Option<&SccpInboundRecordV1> {
         store::inbound_messages::get(self.0, message)
+    }
+    fn forgery_max_generation(&self) -> Option<u64> {
+        store::forgery_max_generation(self.0)
     }
     fn pause(&self, network: SccpNetworkV1) -> Option<&RetainedSccpFastPause> {
         store::fast_pauses::get(self.0, &network)
@@ -75,6 +80,9 @@ macro_rules! parent_read {
                 }
                 self.0.sccp_inbound_messages.get_before_block(message)
             }
+            fn forgery_max_generation(&self) -> Option<u64> {
+                *self.0.sccp_forgery_max_generation.get_before_block()
+            }
             fn pause(&self, network: SccpNetworkV1) -> Option<&RetainedSccpFastPause> {
                 if cfg!(all(test, sumeragi_core_mutation = "HC243")) {
                     return self.0.sccp_fast_pauses.get(&network);
@@ -104,5 +112,10 @@ pub(crate) fn inbound_may_progress(
         source.pause(record.network),
         committed_time_ms,
     ) && record.status.is_pending()
-        && revision.is_some_and(|r| r.activation.settles() && r.liability >= amount)
+        && revision.is_some_and(|r| {
+            r.activation.settles()
+                && r.liability >= amount
+                && !r.forgery_held(source.forgery_max_generation())
+                && r.quarantine.is_none()
+        })
 }

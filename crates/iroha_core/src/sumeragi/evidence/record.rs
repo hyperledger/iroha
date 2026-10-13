@@ -10,7 +10,7 @@ use std::{fmt, mem::ManuallyDrop, ops::Deref};
 
 use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer, ChargedShared};
 use iroha_data_model::block::consensus::{
-    Evidence, EvidenceAttribution, EvidencePenaltyStatus, EvidenceRecord,
+    Evidence, EvidenceAttribution, EvidencePenaltyStatus, EvidenceRecord, RecordedEvidenceV1,
 };
 use norito::{
     core::{Encoder, SerializePayload},
@@ -24,15 +24,54 @@ use crate::{
 /// Canonical immutable fields, exposed only through an original charged body borrow.
 #[derive(Debug, PartialEq, Eq)]
 pub struct EvidenceRecordBodyFields {
-    /// Original canonical proof bytes; a borrowed clone is a separate diagnostic graph.
-    pub evidence: Evidence,
+    /// Closed canonical material. Native and SCCP ownership never substitute for one another.
+    pub evidence: RecordedEvidenceV1,
     /// Canonical offender attribution; runtime authentication remains independent.
     pub attribution: EvidenceAttribution,
+}
+
+impl EvidenceRecordBodyFields {
+    /// Borrow only native material; SCCP is never decoded through the native verifier.
+    pub fn native_evidence(&self) -> Option<&Evidence> {
+        match &self.evidence {
+            RecordedEvidenceV1::Native(e) => Some(e),
+            RecordedEvidenceV1::SccpForgery(_) => None,
+        }
+    }
+}
+
+#[path = "sccp_record.rs"]
+mod sccp_record;
+use sccp_record::SccpRecordBody;
+pub(crate) use sccp_record::{PreparedSccpRecord, prepare_claim as prepare_sccp_claim};
+
+#[derive(Clone)]
+enum RecordOwner {
+    Native(ChargedShared<EvidenceRecordBody>),
+    Sccp(ChargedShared<SccpRecordBody>),
+}
+impl RecordOwner {
+    fn canonical(&self) -> &EvidenceRecordBodyFields {
+        match self {
+            Self::Native(b) => b.canonical(),
+            Self::Sccp(b) => b.canonical(),
+        }
+    }
+    #[cfg(all(test, sumeragi_core_mutation = "HC181"))]
+    fn budget(&self) -> &AllocationBudget {
+        match self {
+            Self::Native(b) => &b.budget,
+            Self::Sccp(b) => b.budget(),
+        }
+    }
 }
 
 /// Snapshot syntax and exact local funding refusal remain distinct at the State owner.
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceRecordRestoreError {
+    /// Native fixture/admission paths cannot accept SCCP material; runtime SCCP restore is still disabled.
+    #[error("SCCP forgery evidence restoration/admission is not implemented")]
+    UnsupportedSccp,
     /// Original canonical JSON, key or native-proof failure.
     #[error(transparent)]
     Json(json::Error),
@@ -83,7 +122,7 @@ pub(in crate::sumeragi) struct EvidenceRecordBody {
     fields: ManuallyDrop<iroha_allocation::RetainedPayload<EvidenceRecordBodyFields>>,
     proof_charge: ManuallyDrop<AllocationCharge>,
     // Test-only mutation owns the same finite original pool; it never creates a namespace.
-    #[cfg(test)]
+    #[cfg(all(test, sumeragi_core_mutation = "HC181"))]
     budget: AllocationBudget,
 }
 impl EvidenceRecordBody {
@@ -126,7 +165,7 @@ impl EvidenceRecordBody {
         shell.initialize(Self {
             fields: ManuallyDrop::new(fields),
             proof_charge,
-            #[cfg(test)]
+            #[cfg(all(test, sumeragi_core_mutation = "HC181"))]
             budget: budget.clone(),
         })
     }
@@ -168,7 +207,7 @@ impl Drop for EvidenceRecordBody {
 /// claims enter through the explicit original-pool parser and are reauthenticated by the
 /// existing native-history verifier before State use. Encoding retains the canonical DTO.
 pub struct RetainedEvidenceRecord {
-    body: ChargedShared<EvidenceRecordBody>,
+    body: RecordOwner,
     /// Original carrier height.
     pub recorded_at_height: u64,
     /// Original carrier view.
@@ -186,7 +225,7 @@ impl RetainedEvidenceRecord {
         timestamp: u64,
     ) -> Self {
         Self {
-            body,
+            body: RecordOwner::Native(body),
             recorded_at_height: height,
             recorded_at_view: view,
             recorded_at_ms: timestamp,
@@ -205,6 +244,30 @@ impl RetainedEvidenceRecord {
             penalty_status: self.penalty_status,
         }
     }
+    /// Recompute the SCCP evidence identity from its exact closed original bytes.
+    /// This checks an identity only; the caller still needs execution/history authority.
+    pub fn sccp_evidence_id(&self) -> Option<[u8; 32]> {
+        use iroha_data_model::sumeragi_finality::certified_result::{
+            SccpFinalityHeaderV1, outer_result,
+        };
+        use iroha_sccp::v1::{
+            evidence::forgery_evidence_id,
+            finality::{QcFixedV1, commit_message, commit_preimage},
+        };
+        let RecordedEvidenceV1::SccpForgery(record) = &self.evidence else {
+            return None;
+        };
+        let x = SccpFinalityHeaderV1::parse(&record.evidence.header).ok()?;
+        let qc = QcFixedV1::parse(&record.evidence.qc).ok()?;
+        let result = outer_result(&x, &qc.result_body);
+        let message = commit_message(&commit_preimage(
+            &self.attribution.instance,
+            &qc,
+            x.height(),
+            &result.0,
+        ));
+        Some(forgery_evidence_id(record.generation, &message, qc.signers))
+    }
     /// Fund an explicitly synthetic test claim; no native authority is manufactured.
     /// Existing malformed-record tests intentionally require invalid proof/attribution claims.
     ///
@@ -215,9 +278,20 @@ impl RetainedEvidenceRecord {
         record: EvidenceRecord,
         budget: &AllocationBudget,
     ) -> Result<Self, EvidenceRecordRestoreError> {
-        let mut frame = ChargedBuffer::new(record.evidence.native_frame().len(), budget)?;
+        // This fixture helper remains Native-only. SCCP structural codec tests use the
+        // distinct funded decoder; neither creates execution authority.
+        let RecordedEvidenceV1::Native(evidence) = record.evidence else {
+            return Err(EvidenceRecordRestoreError::UnsupportedSccp);
+        };
+        if matches!(
+            record.attribution.scope,
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
+        ) {
+            return Err(EvidenceRecordRestoreError::UnsupportedSccp);
+        }
+        let mut frame = ChargedBuffer::new(evidence.native_frame().len(), budget)?;
         frame
-            .append(record.evidence.native_frame())
+            .append(evidence.native_frame())
             .map_err(|_| EvidencePreparationError::Invariant)?;
         let text = json::to_json(&record.attribution)?;
         let mut parser = Parser::new(&text);
@@ -249,31 +323,46 @@ impl RetainedEvidenceRecord {
     }
     #[cfg(test)]
     pub(crate) fn shares_body(&self, other: &Self) -> bool {
-        ChargedShared::ptr_eq(&self.body, &other.body)
+        match (&self.body, &other.body) {
+            (RecordOwner::Native(a), RecordOwner::Native(b)) => ChargedShared::ptr_eq(a, b),
+            (RecordOwner::Sccp(a), RecordOwner::Sccp(b)) => ChargedShared::ptr_eq(a, b),
+            _ => false,
+        }
     }
     #[cfg(test)]
     pub(crate) fn body_belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.body.budget.same_pool(budget)
-            && self.body.belongs_to(budget)
-            && self.body.attribution_belongs_to(budget)
+        match &self.body {
+            RecordOwner::Native(b) => b.belongs_to(budget) && b.attribution_belongs_to(budget),
+            RecordOwner::Sccp(b) => b.belongs_to(budget) && b.graph_belongs_to(budget),
+        }
     }
     #[cfg(test)]
     pub(crate) fn proof_belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.body.proof_belongs_to(budget)
+        match &self.body {
+            RecordOwner::Native(b) => b.proof_belongs_to(budget),
+            RecordOwner::Sccp(_) => false,
+        }
     }
-    // Actual bytes in the requested original namespace. A same-pool restored record
-    // includes its proof exactly once; live admission normally uses a separate pool.
     #[cfg(test)]
     pub(crate) fn allocation_bytes_in(&self, budget: &AllocationBudget) -> Option<usize> {
-        let mut bytes = if self.body_belongs_to(budget) {
-            self.body.execution_allocation_bytes()?
-        } else {
-            0
-        };
-        if self.proof_belongs_to(budget) {
-            bytes = bytes.checked_add(self.body.proof_charge.layout().size())?;
+        match &self.body {
+            RecordOwner::Native(b) => {
+                let mut bytes = if self.body_belongs_to(budget) {
+                    b.execution_allocation_bytes()?
+                } else {
+                    0
+                };
+                if self.proof_belongs_to(budget) {
+                    bytes = bytes.checked_add(b.proof_charge.layout().size())?;
+                }
+                Some(bytes)
+            }
+            RecordOwner::Sccp(b) => Some(if self.body_belongs_to(budget) {
+                b.allocation_bytes()?
+            } else {
+                0
+            }),
         }
-        Some(bytes)
     }
 }
 impl Clone for RetainedEvidenceRecord {
@@ -282,8 +371,16 @@ impl Clone for RetainedEvidenceRecord {
         {
             // Deliberately restore the old COW recopy bug under the actual original
             // finite pool. Canonical values stay equal; physical original custody does not.
-            Self::from_fixture(self.canonical_projection(), &self.body.budget)
-                .expect("the named original record control admits its finite fixture")
+            match &self.body {
+                RecordOwner::Native(_) => {
+                    Self::from_fixture(self.canonical_projection(), self.body.budget())
+                        .expect("the named original record control admits its finite fixture")
+                }
+                RecordOwner::Sccp(_) => {
+                    sccp_record::decode_json(&json::to_json(self).unwrap(), self.body.budget())
+                        .expect("the named SCCP record control admits its finite fixture")
+                }
+            }
         }
         #[cfg(not(all(test, sumeragi_core_mutation = "HC181")))]
         {
@@ -342,7 +439,7 @@ impl norito::NoritoSchema for RetainedEvidenceRecord {
 }
 #[derive(norito::SerializePayload, norito::json::JsonSerialize)]
 struct RecordView<'a> {
-    evidence: norito::core::PayloadRef<'a, Evidence>,
+    evidence: norito::core::PayloadRef<'a, RecordedEvidenceV1>,
     attribution: norito::core::PayloadRef<'a, EvidenceAttribution>,
     recorded_at_height: u64,
     recorded_at_view: u64,
@@ -379,7 +476,7 @@ fn duplicate(field: &str) -> EvidenceRecordRestoreError {
     json::Error::duplicate_field(field).into()
 }
 
-fn parse_proof(
+fn parse_native_proof(
     parser: &mut Parser<'_>,
     budget: &AllocationBudget,
 ) -> Result<ChargedBuffer<u8>, EvidenceRecordRestoreError> {
@@ -413,11 +510,59 @@ fn parse_proof(
     required(native, "native")
 }
 
+// Match the closed model envelope, retaining its original content slice without an
+// intermediate value graph. Envelope order/error precedence follows the derived enum;
+// only the Native payload enters the existing original-pool proof parser.
+fn parse_proof(
+    parser: &mut Parser<'_>,
+    budget: &AllocationBudget,
+) -> Result<ChargedBuffer<u8>, EvidenceRecordRestoreError> {
+    let mut object = MapVisitor::new(parser)?;
+    let mut kind = None;
+    let mut content = None;
+    while let Some(key) = object.next_key()? {
+        match key.as_str() {
+            "kind" => {
+                if kind.is_some() {
+                    return Err(duplicate("kind"));
+                }
+                kind = Some(object.parse_value::<String>()?);
+            }
+            "value" => {
+                if content.is_some() {
+                    return Err(duplicate("value"));
+                }
+                content = Some(object.parse_value_with_parser(|parser| parser.raw_value_slice())?);
+            }
+            other => return Err(json::Error::unknown_field(other).into()),
+        }
+    }
+    object.finish()?;
+    let kind = kind.ok_or_else(|| json::Error::Message("missing `kind` field".into()))?;
+    let content = required(content, "value")?;
+    match kind.as_str() {
+        "native" => {
+            let mut parser = Parser::new(content);
+            let proof = parse_native_proof(&mut parser, budget)?;
+            parser.skip_ws();
+            if !parser.eof() {
+                return Err(json::Error::Message(
+                    "unexpected trailing data for variant `native`".into(),
+                )
+                .into());
+            }
+            Ok(proof)
+        }
+        "sccp_forgery" => Err(EvidenceRecordRestoreError::UnsupportedSccp),
+        _ => Err(json::Error::Message("unknown JSON enum variant".into()).into()),
+    }
+}
+
 /// Parse one original canonical record claim, funding every retained field before its copy.
 /// Each proof or attribution field is validated when encountered, in the same JSON field
 /// order as the canonical DTO. The immutable claim grants no execution authority; history
 /// restoration remains mandatory.
-pub(crate) fn parse_record(
+fn parse_native_record(
     parser: &mut Parser<'_>,
     budget: &AllocationBudget,
 ) -> Result<RetainedEvidenceRecord, EvidenceRecordRestoreError> {
@@ -498,6 +643,22 @@ pub(crate) fn parse_record(
     let mut record = RetainedEvidenceRecord::from_body(body, height, view, timestamp);
     record.penalty_status = status;
     Ok(record)
+}
+
+/// Read the closed discriminator first; a branch's decoder is never a fallback.
+pub(crate) fn parse_record(
+    parser: &mut Parser<'_>,
+    budget: &AllocationBudget,
+) -> Result<RetainedEvidenceRecord, EvidenceRecordRestoreError> {
+    let raw = parser.raw_value_slice()?;
+    let kind = sccp_record::material_kind(raw, budget)?;
+    match kind {
+        sccp_record::MaterialKind::Native => {
+            let mut p = Parser::new(raw);
+            parse_native_record(&mut p, budget)
+        }
+        sccp_record::MaterialKind::SccpForgery => sccp_record::decode_json(raw, budget),
+    }
 }
 
 fn parse_values(
@@ -604,3 +765,9 @@ pub(crate) fn restore_storage(
 
 #[cfg(test)]
 mod tests;
+
+/// Structurally valid SCCP DATA for ownership tests; its all-zero signature is invalid.
+#[cfg(test)]
+pub(crate) fn sccp_storage_claim_for_testing() -> EvidenceRecord {
+    sccp_record::fixture_record()
+}

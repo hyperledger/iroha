@@ -165,6 +165,13 @@ fn actual_three_phase_seal_keeps_proposal_and_exact_wire_and_blocks_publication(
     let signatures = source.signatures().cloned().collect::<Vec<_>>();
     let (mut block, _recording) = recorded_network_block(&state, &source);
     run(&mut block, &source);
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
+    let expected_x = iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+        *block.network_id().as_bytes(),
+        header.height().get(),
+        header.creation_time_ms,
+    )
+    .unwrap();
     let rows = retained(&block).rows.clone();
     assert_eq!(rows.len(), 3);
     assert!(matches!(
@@ -177,6 +184,10 @@ fn actual_three_phase_seal_keeps_proposal_and_exact_wire_and_blocks_publication(
     ));
     block.seal_execution_outputs(&mut source, metadata).unwrap();
     assert_eq!(source.header(), header);
+    assert_eq!(
+        block.sealed_sccp_finality_header(&source).unwrap(),
+        expected_x
+    );
     assert_eq!(source.signatures().cloned().collect::<Vec<_>>(), signatures);
     assert_eq!(source.execution_outputs(), rows);
     assert_eq!(
@@ -188,7 +199,7 @@ fn actual_three_phase_seal_keeps_proposal_and_exact_wire_and_blocks_publication(
         3
     );
     block.verify_execution_output_seal(&source).unwrap();
-    let original_x = block.sccp_finality_header().unwrap();
+    let original_x = block.sealed_sccp_finality_header(&source).unwrap();
     assert_eq!(original_x.network_id(), *block.network_id().as_bytes());
     assert_eq!(original_x.height(), source.header().height().get());
     assert_eq!(original_x.timestamp_ms(), source.header().creation_time_ms);
@@ -210,7 +221,7 @@ fn foreign_finality_header_cannot_replace_original_output_coordinates() {
     for changed in 0..3 {
         let (state, mut source) = seal_fixture();
         let (mut block, _recording) = recorded_network_block(&state, &source);
-        assert!(block.sccp_finality_header().is_err());
+        assert!(block.sealed_sccp_finality_header(&source).is_err());
         run(&mut block, &source);
         let result = block.seal_execution_outputs(&mut source, |state, source, routes| {
             let mut exact = metadata(state, source, routes)?;
@@ -232,7 +243,7 @@ fn foreign_finality_header_cannot_replace_original_output_coordinates() {
         assert!(
             matches!(result, Err(ExecutionOutputSealError::Owner(reason)) if reason.contains("SCCP finality header"))
         );
-        assert!(block.sccp_finality_header().is_err());
+        assert!(block.sealed_sccp_finality_header(&source).is_err());
         assert!(!source.has_results());
         assert!(matches!(
             block.execution_output_plan,
@@ -404,6 +415,7 @@ fn changed_signature_invalidates_exact_attachment_without_changing_proposal() {
         .unwrap();
     assert_eq!(source.hash(), proposal);
     assert!(block.verify_execution_output_seal(&source).is_err());
+    assert!(block.sealed_sccp_finality_header(&source).is_err());
 }
 
 #[test]
@@ -535,39 +547,4 @@ fn sccp_header_requires_original_completed_seal_and_rejects_later_world_changes(
     );
     *block.world.sccp_degraded_run.get_mut() = 1;
     assert!(block.sealed_sccp_finality_header(&source).is_err());
-}
-
-#[test]
-fn substituted_sccp_header_identity_poisoned_before_attachment() {
-    use iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1;
-    for changed in 0..3 {
-        let (state, mut source) = seal_fixture();
-        let (mut block, _recording) = recorded_network_block(&state, &source);
-        run(&mut block, &source);
-        let result = block.seal_execution_outputs(&mut source, |state, source, routes| {
-            let mut result = metadata(state, source, routes)?;
-            let mut network = *state.network_id.as_bytes();
-            let mut height = source.header().height().get();
-            let mut timestamp = source.header().creation_time_ms;
-            match changed {
-                0 => network[0] ^= 1,
-                1 => height += 1,
-                2 => timestamp += 1,
-                _ => unreachable!(),
-            }
-            result.sccp_finality_header =
-                SccpFinalityHeaderV1::inactive(network, height, timestamp).unwrap();
-            Ok::<_, String>(result)
-        });
-        assert!(
-            matches!(result, Err(ExecutionOutputSealError::Owner(ref error))
-            if error.contains("SCCP finality header"))
-        );
-        assert!(!source.has_results());
-        assert!(block.sealed_sccp_finality_header(&source).is_err());
-        assert!(matches!(
-            block.execution_output_plan,
-            Some(ExecutionOutputPlanState::Poisoned)
-        ));
-    }
 }

@@ -269,9 +269,9 @@ fn decode_query_response(resp: &http::Response<Vec<u8>>) -> QueryResult<QueryRes
     }
 }
 /// Decode the public Torii failure contract without inventing query-store state.
-/// Only an explicit asset-absence code with its typed identity proves a missing
-/// asset. Typed asset-absence details require that code and HTTP 404. Generic
-/// status codes and diagnostics never establish query-store state.
+/// Only a named absence code with its typed selector reports query absence.
+/// Typed absence details require the matching code and HTTP 404. This observation
+/// does not prove non-execution; generic status codes and diagnostics establish no state.
 fn decode_query_failure(response: &http::Response<Vec<u8>>) -> QueryError {
     const MAX_ERROR_BYTES: usize = 64 * 1024;
     let protocol_error = |reason: &str| {
@@ -307,6 +307,27 @@ fn decode_query_failure(response: &http::Response<Vec<u8>>) -> QueryError {
         .details
         .as_ref()
         .and_then(|details| details.query_asset_not_found.as_ref());
+    let missing_settlement = envelope
+        .details
+        .as_ref()
+        .and_then(|details| details.query_settlement_receipt_not_found.as_ref());
+    if missing_asset.is_some() && missing_settlement.is_some() {
+        return protocol_error("carries ambiguous query absence selectors");
+    }
+    if envelope.code() == "query_settlement_receipt_not_found" {
+        if response.status() != StatusCode::NOT_FOUND {
+            return protocol_error("claims settlement receipt absence without HTTP 404");
+        }
+        let Some(settlement_id) = missing_settlement else {
+            return protocol_error("claims settlement receipt absence without its typed identity");
+        };
+        return QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
+            crate::data_model::query::error::FindError::SettlementReceipt(settlement_id.clone()),
+        )));
+    }
+    if missing_settlement.is_some() {
+        return protocol_error("carries settlement receipt absence details without its named code");
+    }
     if envelope.code() == "query_asset_not_found" {
         if response.status() != StatusCode::NOT_FOUND {
             return protocol_error("claims asset absence without HTTP 404");
@@ -924,6 +945,107 @@ mod query_errors_handling {
             assert!(message.contains("404") && message.contains(envelope.code()));
             assert!(message.contains(envelope.message()));
             assert!(!message.contains("live query store"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn query_error_envelope_preserves_exact_settlement_receipt_absence() -> Result<()> {
+        use iroha_data_model::{isi::SettlementId, query::error::FindError};
+        use iroha_torii_shared::ErrorDetails;
+
+        let id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "missing-payment".parse()?,
+        );
+        let envelope = ErrorEnvelope::new("query_settlement_receipt_not_found", "absent")
+            .with_details(ErrorDetails {
+                query_settlement_receipt_not_found: Some(id.clone()),
+                ..Default::default()
+            });
+        for (media_type, body) in [
+            (APPLICATION_NORITO, norito::encode_canonical(&envelope)?),
+            ("application/json", json::to_vec(&envelope)?),
+        ] {
+            let response = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(CONTENT_TYPE, media_type)
+                .body(body)?;
+            assert!(matches!(decode_query_response(&response),
+                Err(QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
+                    FindError::SettlementReceipt(missing),
+                )))) if missing == id
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn query_error_envelope_rejects_unbound_settlement_receipt_absence() -> Result<()> {
+        use iroha_data_model::{asset::AssetId, isi::SettlementId};
+        use iroha_torii_shared::ErrorDetails;
+
+        let id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "missing-payment".parse()?,
+        );
+        let details = ErrorDetails {
+            query_settlement_receipt_not_found: Some(id),
+            ..Default::default()
+        };
+        let mut ambiguous = details.clone();
+        ambiguous.query_asset_not_found = Some(AssetId::new(
+            "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse()?,
+            iroha_test_samples::ALICE_ID.clone(),
+        ));
+        for (status, envelope) in [
+            (
+                StatusCode::NOT_FOUND,
+                ErrorEnvelope::new("query_settlement_receipt_not_found", "missing selector"),
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                ErrorEnvelope::new("query_validation_failed", "absent")
+                    .with_details(details.clone()),
+            ),
+            (
+                StatusCode::FORBIDDEN,
+                ErrorEnvelope::new("query_settlement_receipt_not_found", "denied")
+                    .with_details(details.clone()),
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorEnvelope::new("query_settlement_receipt_not_found", "failed")
+                    .with_details(details.clone()),
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                ErrorEnvelope::new("query_asset_not_found", "wrong identity").with_details(details),
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                ErrorEnvelope::new("query_settlement_receipt_not_found", "ambiguous")
+                    .with_details(ambiguous.clone()),
+            ),
+            (
+                StatusCode::NOT_FOUND,
+                ErrorEnvelope::new("query_asset_not_found", "ambiguous").with_details(ambiguous),
+            ),
+        ] {
+            for (media_type, body) in [
+                (APPLICATION_NORITO, norito::encode_canonical(&envelope)?),
+                ("application/json", json::to_vec(&envelope)?),
+            ] {
+                let response = Response::builder()
+                    .status(status)
+                    .header(CONTENT_TYPE, media_type)
+                    .body(body)?;
+                assert!(
+                    matches!(decode_query_response(&response), Err(QueryError::Other(_))),
+                    "{status} {} {media_type}",
+                    envelope.code()
+                );
+            }
         }
         Ok(())
     }

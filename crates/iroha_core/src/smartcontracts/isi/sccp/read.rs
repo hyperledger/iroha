@@ -6,30 +6,21 @@
 //! detail, history paths) live in [`views`]; history paths go through the validated `O(log n)`
 //! node cache of `history`.
 //!
-//! The certificate projection borrows an authenticated native Global receipt and preserves
-//! its original finality header, result-body digest, Sumeragi `CommitQC` and historical keys
-//! under the caller's original allocation pool. The message producer joins that original
-//! receipt to payload, block and history paths with one complete request admission. Durable
-//! history nodes retain their separate original cache pool; no process-global cache exists.
-//!
-//! TODO(TT-A2): close request-funded native receipt acquisition before connecting message
-//! HTTP selectors to these producers. Current control records retain the exact authenticated
-//! effect cause; record presence alone is never proof authority.
+//! Native proof queries acquire compact original Global receipts through the caller's
+//! request-funded source reader and preserve the original finality header, result-body
+//! digest, Sumeragi `CommitQC` and historical keys. Message and control proofs bind their
+//! recorded inputs to that receipt's block and history commitments under one retained
+//! response admission. Control causes retain the exact governance certificate and effect;
+//! record presence alone is never proof authority. Durable history nodes retain their
+//! separate original cache pool; no process-global cache exists.
 
-mod certificate;
 mod committee;
-mod control;
 mod history;
-mod membership;
-mod message;
+pub mod native;
 mod views;
 
-pub use certificate::{RetainedSccpCertificate, SccpCertificateReadError, certificate_from_native};
 pub use committee::{RetainedSccpGenerationView, committee, current_committee};
-pub use control::{RetainedSccpControlProof, control_proof_from_native};
 pub use history::funded::{RetainedSccpHistoryPath, SccpHistoryNodeCache, SccpHistoryReadError};
-pub use membership::SccpProofReadError;
-pub use message::{RetainedSccpMessageProof, message_proof_from_native};
 pub use views::*;
 
 use super::{light_clients, store};

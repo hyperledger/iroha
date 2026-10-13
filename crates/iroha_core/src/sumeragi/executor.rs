@@ -142,6 +142,9 @@ const PAYLOAD_OVERHEAD: usize =
 pub struct ExecutorContext {
     /// The node's state.
     pub state: Arc<State>,
+    /// Local Unix clock for proposal pacing and uncertified execution deferral only.
+    /// Certified execution, apply and replay never use it for a deterministic verdict.
+    pub time_source: iroha_primitives::time::TimeSource,
     /// Mandatory original-pool archive of complete context values from each native execution.
     pub native_context_archive: Arc<NativeContextArchive>,
     /// The transaction queue (peeked by the builder, cleaned after apply); `None` until the
@@ -328,7 +331,12 @@ enum Request {
     InspectPending(Hash32, PendingInspection),
     #[cfg(any(test, feature = "iroha-core-tests"))]
     InspectPrepared(Hash32, PreparedInspection),
-    Execute(AvailableBody, Hash32, mpsc::SyncSender<Option<ExecOutcome>>),
+    Execute(
+        AvailableBody,
+        Hash32,
+        bool,
+        mpsc::SyncSender<Option<ExecOutcome>>,
+    ),
     Discard(u64, Vec<Hash32>),
     Prepare(
         AvailableBody,
@@ -609,11 +617,16 @@ impl StateExecutor {
 }
 
 impl Executor for StateExecutor {
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+        certified: bool,
+    ) -> Option<ExecOutcome> {
         let outcome = match require_body_admission(block, &self.execution_budget) {
             Err(error) => Some(ExecOutcome::Failed(error.to_string())),
             Ok(()) => self
-                .call(|reply| Request::Execute(block.clone(), *block_hash, reply))
+                .call(|reply| Request::Execute(block.clone(), *block_hash, certified, reply))
                 .unwrap_or_else(|| Some(ExecOutcome::Failed("executor thread stopped".into()))),
         };
         iroha_logger::debug!(
@@ -1221,8 +1234,8 @@ impl<'s> Worker<'s> {
                     });
                 inspect(original);
             }
-            Request::Execute(block, block_hash, reply) => {
-                let _ = reply.send(self.execute(&block, block_hash));
+            Request::Execute(block, block_hash, certified, reply) => {
+                let _ = reply.send(self.execute(&block, block_hash, certified));
             }
             Request::Discard(height, keep) => self.discard(height, &keep),
             Request::Prepare(block, qc, origin, reply) => {
@@ -1348,7 +1361,12 @@ impl<'s> Worker<'s> {
 
     /// Answer an `Execute` (O4): the live overlay or a remembered verdict, `None` while the
     /// parent is not applied, otherwise a fresh execution.
-    fn execute(&mut self, block: &AvailableBody, block_hash: Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: Hash32,
+        certified: bool,
+    ) -> Option<ExecOutcome> {
         if self.pending_commit.is_some() {
             return None;
         }
@@ -1394,7 +1412,7 @@ impl<'s> Worker<'s> {
             );
             return None;
         }
-        let outcome = execution_report(self.run_execution(block, block_hash));
+        let outcome = execution_report(self.run_execution(block, block_hash, certified));
         if !matches!(outcome, ExecOutcome::Valid(_) | ExecOutcome::Failed(_)) {
             self.remember(block.source().clone(), block_hash, outcome.clone());
         }
@@ -1432,8 +1450,10 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
     ) -> Result<Option<Hash32>, PublicationError> {
-        let outcome = self.run_execution_with_encoder(block, block_hash, encode_result_preimage);
+        let outcome =
+            self.run_execution_with_encoder(block, block_hash, certified, encode_result_preimage);
         if let Err(PublicationError::RecoveryRequired(reason)) = &outcome {
             self.recovery = Some(reason.clone());
         }
@@ -1444,6 +1464,7 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
         encode: impl FnOnce(
             &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
@@ -1452,7 +1473,7 @@ impl<'s> Worker<'s> {
             super::commitment::ResultPreimageError,
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
-        let outcome = self.run_execution_with_finisher(block, block_hash, |worker| {
+        let outcome = self.run_execution_with_finisher(block, block_hash, certified, |worker| {
             worker.finish_execution_with_encoder(encode)
         });
         if matches!(outcome, Ok(None)) {
@@ -1467,6 +1488,7 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
         finish: impl FnOnce(&mut Self) -> Result<Option<Hash32>, PublicationError>,
     ) -> Result<Option<Hash32>, PublicationError> {
         self.retire_completed_payload(block.header().height);
@@ -1625,6 +1647,25 @@ impl<'s> Worker<'s> {
                 &"the payload's height or view differs from the header",
             );
         }
+        // CT1 is a local refusal before effects, not deterministic invalidity. The original
+        // decoded source remains available for retry after the clock advances or a genuine
+        // PrepareQC authorizes certified execution. Read the committed parent allowance,
+        // never a parameter instruction from the candidate being guarded.
+        if height > 1
+            && !certified
+            && !cfg!(all(test, sumeragi_core_mutation = "HC257"))
+            && iroha_block
+                .header()
+                .creation_time()
+                .saturating_sub(self.context.time_source.now())
+                > original_view
+                    .world()
+                    .parameters()
+                    .sumeragi()
+                    .max_clock_drift()
+        {
+            return Err(PublicationError::Retryable("ClockAhead".into()));
+        }
         if height > 2 {
             let prepared = self
                 .signature_decode
@@ -1742,7 +1783,7 @@ impl<'s> Worker<'s> {
             None
         };
         let validated = catch_unwind(AssertUnwindSafe(|| {
-            ValidBlock::validate_sumeragi_block_with_amx(
+            ValidBlock::validate_sumeragi_block(
                 iroha_block,
                 &topology,
                 genesis_account,
@@ -2285,7 +2326,7 @@ impl<'s> Worker<'s> {
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
         self.prepare_with_operations(block, qc, origin, encode, |worker, block, hash| {
-            worker.run_execution(block, hash)
+            worker.run_execution(block, hash, true)
         })
     }
 
@@ -3086,18 +3127,25 @@ impl<'s> Worker<'s> {
         let selection: Option<crate::queue::PendingPayloadSelection> =
             queue.begin_pending_payload_selection(self.state, original_generation);
         let mut selected = match payload::select(
-            self.state,
+            &current_view,
             queue,
             max_bytes.saturating_sub(PAYLOAD_OVERHEAD),
-            merges.transactions,
+            &merges,
+            self.context.time_source.now(),
         ) {
             Ok(selected) => {
                 self.routing_refusal = None;
                 selected
             }
-            Err(reason) => {
+            Err(payload::PayloadError::RoutingDeferred(reason)) => {
                 self.routing_refusal = Some(reason.clone());
                 return Err(preparation::producer_deferral(reason.into()));
+            }
+            Err(error) => {
+                let publication = preparation::payload_failure(&error)
+                    .unwrap_or_else(|| PublicationError::Retryable(error.to_string()));
+                self.payload_refusal = Some(error);
+                return Err(publication);
             }
         };
         iroha_logger::debug!(
@@ -3138,6 +3186,22 @@ impl<'s> Worker<'s> {
             cadence: Duration::from_millis(scheduled.params.block_time_ms),
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
+            if let Err(error) = payload::recheck_sccp_forgery_for_proposal(
+                &current_view,
+                assembly,
+                &mut selected,
+                &merges,
+            ) {
+                let publication = preparation::payload_failure(&error)
+                    .unwrap_or_else(|| PublicationError::Retryable(error.to_string()));
+                self.payload_refusal = Some(error);
+                return Err(publication);
+            }
+            if selected.is_empty() && merges.merges.is_empty() {
+                // A queued claim can become genuine or duplicate as the tip advances.
+                // Its removal never authorizes an empty proposal or a pulse signature.
+                return Ok(None);
+            }
             // Every selected Queue input retains its original admission receipt,
             // including mixed sources. Lane-bearing completion retains this same
             // source and rechecks its actual ranges and original lease on every lend.
@@ -3229,6 +3293,18 @@ impl<'s> Worker<'s> {
     }
 
     fn finish_payload_build(&mut self) -> Result<Option<PayloadBytes>, PublicationError> {
+        let creation_time = self
+            .payload_build
+            .as_ref()
+            .ok_or_else(|| PublicationError::RecoveryRequired("payload source disappeared".into()))?
+            .job
+            .source()
+            .block
+            .header()
+            .creation_time();
+        // This checks the original assembled header, including parent cadence and lane
+        // floors. Keep its source and Queue custody while the driver's timed retry waits.
+        payload_owner::check_proposer_clock(creation_time, self.context.time_source.now())?;
         let GlobalPayloadBuild {
             scope,
             mut job,
@@ -3305,6 +3381,10 @@ impl<'s> Worker<'s> {
             }
             return match result {
                 Ok(payload) => {
+                    payload_owner::check_proposer_clock(
+                        creation_time,
+                        self.context.time_source.now(),
+                    )?;
                     iroha_logger::debug!(
                         height = scope.height,
                         view = scope.view,
@@ -3334,7 +3414,13 @@ impl<'s> Worker<'s> {
                     bytes = payload.as_slice().len(),
                     "sumeragi: original funded payload build completed"
                 );
-                self.retain_completed_payload(scope, source.pending_inputs, &payload);
+                self.retain_completed_payload(
+                    scope,
+                    source.pending_inputs,
+                    &payload,
+                    creation_time,
+                );
+                payload_owner::check_proposer_clock(creation_time, self.context.time_source.now())?;
                 Ok(Some(payload))
             }
             Err((job, error)) => {
@@ -3509,7 +3595,7 @@ mod tests {
             let block = chain.author_payload(header, zero_transaction_wire);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Some(ExecOutcome::Invalid)
             ));
             assert_eq!(
@@ -3654,6 +3740,9 @@ mod archive_tests;
 #[cfg(test)]
 #[path = "executor_publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+pub(crate) mod clock_tests;
 
 #[cfg(test)]
 mod native_execution_authorization_tests {

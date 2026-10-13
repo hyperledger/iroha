@@ -1,5 +1,6 @@
 //! Transaction-bound ordinary finality custody, independent of the wallet's global tip.
 use super::*;
+use crate::kagemusha_wallet_state_v1::finality_read_error;
 use iroha_data_model::sumeragi_finality::{SumeragiFinalityCheckpoint, SumeragiFinalityProof};
 const SESSION_MAX: usize = MAX_FINALITY_CHECKPOINT_BYTES + 1024;
 
@@ -21,14 +22,21 @@ impl Session {
         if self.transaction != *transaction || self.original_digest != *original_digest {
             return Err(Error::OperationConflict);
         }
-        let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&self.checkpoint)
-            .map_err(|_| Error::WitnessLost("Unload cursor checkpoint"))?;
+        let checkpoint =
+            SumeragiFinalityCheckpoint::decode_canonical(&self.checkpoint).map_err(|error| {
+                finality_read_error(error, Error::WitnessLost("Unload cursor checkpoint"))
+            })?;
         let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &genesis.initial_epoch().network_id,
             &genesis.chain_id(),
         )
-        .map_err(|_| Error::WitnessLost("Unload cursor checkpoint verification"))?;
+        .map_err(|error| {
+            finality_read_error(
+                error,
+                Error::WitnessLost("Unload cursor checkpoint verification"),
+            )
+        })?;
         if verifier.initial_epoch() != genesis.initial_epoch()
             || verifier.instance() != genesis.instance()
         {
@@ -46,7 +54,9 @@ fn next_checkpoint(
         if candidate.height() == previous.height() {
             verifier
                 .verify_retained_decision(candidate)
-                .map_err(|_| Error::Proof("Unload cursor retry decision"))?;
+                .map_err(|error| {
+                    finality_read_error(error, Error::Proof("Unload cursor retry decision"))
+                })?;
             return Ok((previous.clone(), false));
         }
         if previous.height().checked_add(1) != Some(candidate.height()) {
@@ -55,14 +65,28 @@ fn next_checkpoint(
     } else if candidate.height() != 1 {
         return Err(Error::Invalid("Unload cursor requires genesis"));
     }
-    if previous.is_some() || verifier.verify_retained_decision(candidate).is_err() {
-        verifier
-            .verify(candidate)
-            .map_err(|_| Error::Proof("Unload cursor continuity"))?;
+    let needs_contiguous_verification = if previous.is_some() {
+        true
+    } else {
+        match verifier.verify_retained_decision(candidate) {
+            Ok(_) => false,
+            Err(iroha_data_model::sumeragi_finality::FinalityReadError::Invalid(_)) => true,
+            Err(original) => {
+                return Err(finality_read_error(
+                    original,
+                    Error::Proof("Unload cursor initial decision"),
+                ));
+            }
+        }
+    };
+    if needs_contiguous_verification {
+        verifier.verify(candidate).map_err(|error| {
+            finality_read_error(error, Error::Proof("Unload cursor continuity"))
+        })?;
     }
     let checkpoint = verifier
         .export_checkpoint(candidate)
-        .map_err(|_| Error::Proof("Unload cursor checkpoint"))?;
+        .map_err(|error| finality_read_error(error, Error::Proof("Unload cursor checkpoint")))?;
     Ok((checkpoint, true))
 }
 
@@ -91,10 +115,12 @@ impl UnloadInclusion<'_> {
             &genesis.initial_epoch().network_id,
             &genesis.chain_id(),
         )
-        .map_err(|_| Error::Proof("Unload selected prefix"))?;
+        .map_err(|error| finality_read_error(error, Error::Proof("Unload selected prefix")))?;
         let verified = verifier
             .verify_retained_decision(checkpoint.tip())
-            .map_err(|_| Error::Proof("Unload selected native decision"))?;
+            .map_err(|error| {
+                finality_read_error(error, Error::Proof("Unload selected native decision"))
+            })?;
         if !contains_successful_unload(
             &verified,
             &genesis.initial_epoch().network_id,
@@ -131,10 +157,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         {
             return Err(Error::Invalid("Unload cursor input bound"));
         }
-        let claim = valid(KagemushaWalletUnloadClaimV1::decode_canonical(
-            original,
-            &self.scheme_id,
-        ))?;
+        let claim = read_model_original(
+            || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         if claim.credential.body.wallet_id != self.wallet_id
             || claim.credential.body.account_digest != self.proofs.enrollment.body.account_digest
         {
@@ -235,10 +261,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let (checkpoint, changed) = next_checkpoint(verifier, previous.as_ref(), &candidate)?;
         // The HTTP locator may be later than the actual transaction. Retain inclusion
         // atomically with this prefix so a later cursor can never discard its evidence.
-        let claim = valid(KagemushaWalletUnloadClaimV1::decode_canonical(
-            original,
-            &self.scheme_id,
-        ))?;
+        let claim = read_model_original(
+            || KagemushaWalletUnloadClaimV1::decode_canonical(original, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
         let confirmed = UnloadInclusion {
             scheme: self.scheme_id,
             account: &claim.account,
@@ -293,6 +319,105 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 mod tests {
     use super::*;
     use iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+
+    #[test]
+    fn selected_unload_decision_preserves_actual_read_refusal_and_exact_retry() {
+        // Actual native BLS decisions; this is a read/refusal control, not a ledger
+        // Unload execution fixture. The public settlement continuations cover inclusion.
+        let mut native = NativeFinalityFixture::start("selected-unload-decision-refusal");
+        let block = native.block_with_submitted_work(native.next_header());
+        native.certify(block);
+        let verifier = native.verifier();
+        let checkpoint = native.checkpoint();
+        let tip = checkpoint.tip();
+        let original = norito::encode_canonical(tip).unwrap();
+        let expected = selected_unload_decision(&verifier, tip).unwrap();
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let refused = norito::with_decode_limits_scope(limits, || {
+                selected_unload_decision(&verifier, tip)
+            });
+            assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            assert_eq!(norito::encode_canonical(tip).unwrap(), original);
+            assert_eq!(
+                selected_unload_decision(&verifier, tip)
+                    .unwrap()
+                    .block()
+                    .hash(),
+                expected.block().hash()
+            );
+        }
+        let mut malformed = tip.clone();
+        malformed.block_wire = vec![0];
+        assert!(matches!(
+            selected_unload_decision(&verifier, &malformed),
+            Err(Error::Proof("Unload selected native decision"))
+        ));
+        assert_eq!(
+            selected_unload_decision(&verifier, tip)
+                .unwrap()
+                .block()
+                .hash(),
+            expected.block().hash()
+        );
+    }
+
+    #[test]
+    fn unload_cursor_read_refusal_keeps_exact_checkpoint_for_retry() {
+        let native = NativeFinalityFixture::start("unload-cursor-read-refusal");
+        let genesis = native.verifier();
+        let session = Session {
+            transaction: [1; 32],
+            original_digest: [2; 32],
+            checkpoint: native.checkpoint().encode_canonical().unwrap(),
+        };
+        let original = session.checkpoint.clone();
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            session.restore(&genesis, &[1; 32], &[2; 32])
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        assert_eq!(session.checkpoint, original);
+        let (_, checkpoint) = session.restore(&genesis, &[1; 32], &[2; 32]).unwrap();
+        assert_eq!(checkpoint.encode_canonical().unwrap(), original);
+        let broken = Session {
+            checkpoint: vec![0],
+            ..session
+        };
+        assert!(matches!(
+            broken.restore(&genesis, &[1; 32], &[2; 32]),
+            Err(Error::WitnessLost(_))
+        ));
+    }
+
+    #[test]
+    fn unload_checkpoint_initial_and_retry_refusals_do_not_become_proof_verdicts() {
+        let native = NativeFinalityFixture::start("unload-checkpoint-refusal");
+        let genesis = native.verifier();
+        let candidate = native.genesis_proof();
+        let original = norito::encode_canonical(candidate).unwrap();
+        let (checkpoint, changed) = next_checkpoint(genesis.clone(), None, candidate).unwrap();
+        assert!(changed);
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        for previous in [None, Some(&checkpoint)] {
+            let refused = norito::with_decode_limits_scope(limits, || {
+                next_checkpoint(genesis.clone(), previous, candidate)
+            });
+            assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            assert_eq!(norito::encode_canonical(candidate).unwrap(), original);
+            let (retried, changed) = next_checkpoint(genesis.clone(), previous, candidate).unwrap();
+            assert_eq!(changed, previous.is_none());
+            assert_eq!(
+                retried.encode_canonical().unwrap(),
+                checkpoint.encode_canonical().unwrap()
+            );
+        }
+    }
 
     #[test]
     fn unload_settlement_read_distinguishes_absence_from_corrupt_or_foreign_confirmation() {
@@ -411,6 +536,14 @@ mod tests {
         };
         let mut archive = MemoryArchive::new();
         let mut confirmations = index::IndexRoot::default();
+        let unchanged = confirmations;
+        let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+        let refused = norito::with_decode_limits_scope(limits, || {
+            inclusion.retain(&mut archive, &mut confirmations, &genesis, &two)
+        });
+        assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        assert_eq!(confirmations, unchanged);
         assert!(
             inclusion
                 .retain(&mut archive, &mut confirmations, &genesis, &two)

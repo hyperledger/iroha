@@ -240,3 +240,44 @@ fn inspection_and_projection_do_not_clone_source_values() {
     derived.block_and_revert().commit();
     assert_eq!(values(&derived.view()), vec![(1, 10), (3, 30)]);
 }
+
+#[test]
+fn transaction_prior_iteration_includes_siblings_and_replacement_baseline() {
+    let storage: Storage<u64, u64> = [(1, 10), (3, 30), (5, 50)].into_iter().collect();
+    let expected = vec![(1, 10), (3, 30), (5, 50)];
+    {
+        let mut block = storage.block();
+        let mut first = block.transaction();
+        first.remove(1);
+        first.insert(2, 20);
+        first.insert(3, 31);
+        first.apply();
+        let mut second = block.transaction();
+        second.insert(3, 32);
+        second.remove(5);
+        second.insert(6, 60);
+        assert_eq!(
+            second
+                .iter_before_block()
+                .map(|(k, v)| (*k, *v))
+                .collect::<Vec<_>>(),
+            expected,
+        );
+        second.apply();
+        block.commit();
+    }
+    let mut replacement = storage.block_and_revert();
+    let mut tx = replacement.transaction();
+    tx.insert(1, 11);
+    tx.insert(2, 20);
+    tx.remove(3);
+    assert_eq!(
+        tx.iter_before_block()
+            .map(|(k, v)| (*k, *v))
+            .collect::<Vec<_>>(),
+        expected,
+    );
+    drop(tx);
+    drop(replacement);
+    assert_eq!(values(&storage.view()), vec![(2, 20), (3, 32), (6, 60)]);
+}

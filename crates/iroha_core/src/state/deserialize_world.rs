@@ -9164,6 +9164,14 @@ fn decode_world_fields(
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
         sccp_reset_nonce: Cell::default(),
+        sccp_forgery_offences: sccp_forgery_custody::OffenceStorage::try_new_admitted(
+            execution_budget.clone(),
+        )?,
+        sccp_forgery_max_generation: sccp_forgery_custody::initialize_max(
+            None,
+            None,
+            execution_budget,
+        )?,
         sccp_committee_generations: initial_world_field!(
             sccp_committee_generations,
             execution_budget
@@ -10014,11 +10022,8 @@ fn build_state(
         *state.lane_manifests.get_mut() = projection.manifests;
         *state.lane_privacy_registry.get_mut() = projection.privacy;
     }
-    crate::sumeragi::evidence::validate_persisted_records(&state).map_err(|error| {
-        MergeLedgerCommitError::ExecutionStatePublication(format!(
-            "restored native evidence is invalid: {error}"
-        ))
-    })?;
+    crate::sumeragi::evidence::validate_persisted_records(&state)
+        .map_err(crate::sumeragi::evidence::restoration_failure)?;
     crate::validation_fee::validate_persisted_policy_registry_runtime_v1(
         &state.view(),
         restored_height,

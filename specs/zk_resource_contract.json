@@ -35,10 +35,10 @@
     "what": "How the stages decide on the size of one transaction, from committed parameters only.",
     "sdk": "Parameters::check_signed_transaction_bytes(bytes, route): at most min(max_tx_bytes, the largest selection budget on the route). TransactionInclusionRoute::Global is max_block_bytes - 65,536 and is sufficient on every route; NativeLane { max_block_bytes } adds that lane's max_block_bytes - 64 and holds only for a transaction the committed routing rules send to that lane.",
     "torii": "AcceptedTransaction admission: at most max_tx_bytes; then the queue.",
-    "queue": "Queue::prepare_checked_for_enqueue: the bound of the transaction's route at the admission height. A transaction routed to lane zero has the global budget; one routed to a native lane also has the budget of that lane's committed record (the payload limit its proposer builds within, pinned when the lane was created). Above it the transaction is refused as UnsupportedTransactionAdmission with the actual and permitted bytes. An unreadable committed policy or route defers the assessment (Error::Deferred) and takes no custody.",
+    "queue": "Queue::prepare_checked_for_enqueue checks the committed transaction cap and the largest available proposer budget on the selected route at the admission height. Complete coherent policies make that byte bound max_tx_bytes for every route. An unreadable committed policy or route defers assessment (Error::Deferred) and takes no custody. Smaller lane or residual global selection budgets affect packing, not this admission cap.",
     "proposer": "payload::select: at most min(max_transactions, FASTPQ Network input cap) own transactions within max_block_bytes - 65,536, including the rescue of an input whose lane has stalled; the lane builder selects within the lane's max_block_bytes - 64 and compares the encoded batch with the lane's max_block_bytes; then the assembled proposal wire within max_block_bytes.",
-    "follower": "Signed header payload_len <= max_block_bytes and every transaction <= max_tx_bytes. The follower accepts every block an honest proposer builds. The proposer's reserve is packing policy, not a validity rule: a block around a transaction inside the reserve window is valid if built.",
-    "agreement": "Where transaction_cap_fits_block_payload holds, every stage accepts exactly the transactions of at most max_tx_bytes. Where it does not (today's defaults), admission is stricter than block validity by the reserve, so nothing admitted is larger than the selection budget of a proposer on its route at the admission height. That is not a promise of inclusion for a lane-routed transaction above the global budget: only its lane's proposer can carry it. The global rescue selects within the global budget and skips it, so if the lane stalls or closes, or the routing rules stop sending the transaction to that lane, it stays queued until it expires."
+    "follower": "Signed header payload_len <= max_block_bytes and every transaction <= max_tx_bytes. The follower accepts every block an honest proposer builds. The proposer reserve is an aggregate packing rule, not an additional validity limit: individually cap-valid transactions may exceed the selection budget in aggregate if their complete block still fits the actual payload cap.",
+    "agreement": "Complete committed policies enforce transaction_cap_fits_block_payload at both applicable successor heights, including the selected defaults. Thus byte admission on every route is bounded by max_tx_bytes, which the full global selection budget can carry. A smaller native lane budget or a partially consumed global proposal budget can defer a valid queued input. Global rescue still checks its available selection budget after the lane stalls; later capacity can carry the input. Raw authoring selector tests exercise incoherent inputs before policy validation and do not establish an admissible chain."
   },
   "stage_tests": [
     {
@@ -95,7 +95,8 @@
       "open": {
         "owner": "V.2",
         "summary": "No test submits an exact-limit and a one-over transaction through the HTTP handler; that case and the four-peer case belong to V.2."
-      }
+      },
+      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
     },
     {
       "stage": "queue",
@@ -125,7 +126,8 @@
           "path": "crates/iroha_core/src/tx.rs",
           "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
         }
-      ]
+      ],
+      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
     },
     {
       "stage": "vm",
@@ -147,7 +149,7 @@
     },
     {
       "stage": "proposer",
-      "claim": "The leader proposes a payload of exactly the limit. The real global build and the real lane build carry a transaction of exactly the budget queue admission grants and skip one byte over; the lane builder proposes a batch whose encoded length is exactly its payload limit and trims the batch one byte below it; the proposer selects at most the FASTPQ Network input cap of transactions; the global rescue of a stalled lane carries an input only within the global budget.",
+      "claim": "The leader proposes a payload of exactly the limit. Actual global and lane selection obey their available byte budgets, carrying the exact bound and skipping one byte over. Coherent committed policy makes the transaction cap fit the full global budget; a smaller lane or residual global budget can still defer a valid queued transaction. The lane builder checks actual framed batch size, the global proposer enforces the FASTPQ Network input count, and stalled-lane rescue obeys remaining capacity.",
       "tests": [
         {
           "path": "crates/iroha_sumeragi/src/machine/tests/handlers.rs",
@@ -197,7 +199,8 @@
           "path": "crates/iroha_core/src/sumeragi/payload.rs",
           "contains": "if next > max_bytes {"
         }
-      ]
+      ],
+      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
     },
     {
       "stage": "block",
@@ -267,7 +270,8 @@
           "path": "crates/iroha_core/src/queue/resource_contract_tests.rs",
           "name": "default_limits_admit_and_select_the_largest_includable_transaction"
         }
-      ]
+      ],
+      "test_note": "Queue resource-contract helpers that directly author World parameters exercise raw pre-validation bound geometry and consumer/error paths; they do not authenticate complete successor coherence. The payload resource-contract tests separately execute signed coherent genesis and real follower, routing, queue and proposer paths."
     },
     {
       "stage": "storage",
@@ -1010,7 +1014,7 @@
     {
       "id": "block.lane_batch_framing_reserve_bytes",
       "group": "block",
-      "what": "Lane-payload bytes a lane proposer keeps free for the framing of its batch. Queue admission grants a transaction routed to a native lane that lane's committed max_block_bytes less this reserve.",
+      "what": "Lane-payload bytes a lane proposer keeps free for batch framing. Its selection budget is the committed lane max_block_bytes less this reserve. Queue admission uses the transaction cap and the larger global/lane budget; coherent global policy can admit an input larger than this particular lane can select, for later global rescue.",
       "unit": "bytes",
       "value": 64,
       "source": "constant",
@@ -1648,7 +1652,7 @@
     {
       "id": "block.max_evidence_admission_bytes",
       "group": "block",
-      "what": "Aggregate canonical evidence proof bytes one block admits: one maximum evidence frame.",
+      "what": "Aggregate canonical native evidence proof bytes one block admits: one maximum evidence frame.",
       "unit": "bytes",
       "value": 4194304,
       "source": "constant",
@@ -1669,7 +1673,7 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/evidence.rs",
-          "contains": "if evidence_encoded_len(&record.evidence) > MAX_EVIDENCE_ADMISSION_BYTES {"
+          "contains": "if evidence_encoded_len(proof) > MAX_EVIDENCE_ADMISSION_BYTES {"
         }
       ],
       "refs": {
@@ -4150,7 +4154,7 @@
         {
           "stage": "rs16",
           "path": "crates/iroha_sumeragi/src/pacemaker.rs",
-          "contains": "if u64::from(config.params.max_block_bytes) > config.epoch.da_layout.max_payload_size_bytes {"
+          "contains": "if u64::from(params.max_block_bytes) > epoch.da_layout.max_payload_size_bytes {"
         }
       ],
       "tests": [
@@ -5850,7 +5854,12 @@
           "stage": "vm",
           "path": "crates/irohad/src/main.rs",
           "contains": "iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);",
-          "count": 3
+          "count": 2
+        },
+        {
+          "stage": "vm",
+          "path": "crates/irohad/src/startup_preparation.rs",
+          "contains": "iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);"
         }
       ],
       "tests": [
@@ -10777,7 +10786,8 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs",
-          "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES"
+          "contains": "|| offered.len() > iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES",
+          "count": 2
         }
       ],
       "tests": [
@@ -11156,6 +11166,92 @@
         {
           "path": "crates/iroha_core/src/queue/resource_contract_tests.rs",
           "name": "queue_admission_and_proposer_selection_share_the_includable_bound"
+        },
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "transaction_exact_and_one_above_every_representative_boundary"
+        },
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "raising_block_cap_at_lag_two_cannot_authorize_a_transaction_one_block_early"
+        },
+        {
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "name": "second_successor_checks_its_own_block_cap"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "original_successor_slots_control_final_candidates_and_restores"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "atomic_governance_transaction_checks_final_policy_in_either_instruction_order"
+        },
+        {
+          "path": "crates/iroha_core/src/resource_coherence/tests.rs",
+          "name": "internal_pipeline_candidate_rolls_back_incoherent_policy_before_publication"
+        }
+      ],
+      "enforcement": [
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "if required_block_bytes > u64::from(max_block_bytes) { return Err(ResourceCoherenceError::TransactionExceedsBlock {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "validate_transaction_block_limits(max_transaction_bytes, max_block_bytes)?;"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "for (effective_height, cap) in [ (next, next_max_block_bytes), (after_next, after_next_max_block_bytes), ] {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "contains": "validate_privacy_chain_limits(max_transaction_bytes, cap, limits).map_err(|error| {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/resource_coherence.rs",
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), next_cap, after_next_cap, world.privacy_consensus_policy(), )?;"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/resource_coherence.rs",
+          "contains": "validate_successor_resource_limits( committed_height, parameters.transaction().max_tx_bytes(), next, after_next, world.privacy_consensus_policy(), )?;"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "crate::resource_coherence::validate_final_policy( &state_transaction.world, state_transaction.block_height(), )"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/state/output_internal.rs",
+          "contains": "crate::resource_coherence::validate_final_policy(&tx.world, height)"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/sumeragi/schedule/execution.rs",
+          "contains": "crate::resource_coherence::validate_final_policy(&self.world, source.height)"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/sumeragi/schedule/execution.rs",
+          "contains": "crate::resource_coherence::validate_final_policy(world, 1)"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/state/deserialize_core.rs",
+          "contains": "crate::resource_coherence::validate_restored_policy(&world.view(), committed_height)"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_core/src/state/deserialize_core.rs",
+          "contains": "crate::resource_coherence::validate_restored_policy(&previous_world, previous_height)"
         }
       ]
     },
@@ -13662,6 +13758,21 @@
         "tree": "crates/iroha_core_zk/src",
         "kind": "const",
         "comparisons": true
+      },
+      {
+        "path": "crates/iroha_sccp/src/v1/constants.rs",
+        "kind": "const",
+        "matching": "^MAX_(BLOCK_LEAVES|PAYLOAD_BYTES)$",
+        "why": "Keep the two already inventoried canonical SCCP shapes under their exact source owner even when a compared consumer defines same-named private constants. Existing broader comparison and import scans remain intact."
+      },
+      {
+        "path": "crates/iroha_config/src/parameters/defaults.rs",
+        "kind": "const",
+        "module": [
+          "pub mod snapshot {"
+        ],
+        "matching": "^MAX_PAYLOAD_BYTES$",
+        "why": "Keep the already inventoried authenticated snapshot payload default under its exact module owner, independent of unrelated same-name SCCP imports. Other configuration modules retain their complete scopes."
       }
     ],
     "excluded": [
@@ -18181,8 +18292,17 @@
         ]
       },
       {
-        "reason": "AMX cross-dataspace transactions: participant, leg-byte, deadline-window, pending and dataspace bounds, and the header and CommitQC ceilings of an AMX proof. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
+        "reason": "AMX cross-dataspace transactions: participant, leg-byte, deadline-window, pending and dataspace bounds, and the header and CommitQC ceilings of an AMX proof. Retained decision contexts bound committed participant State, not one transaction: at most MAX_AMX_PENDING unresolved Yes obligations each need MAX_AMX_DEADLINE_WINDOW + 2 distinct height intervals, authenticated through sequential handoffs and reclaimed after settlement. The native retained graph admits their complete original allocation before publication. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached.",
         "files": [
+          {
+            "path": "crates/iroha_data_model/src/sumeragi_amx/participant.rs",
+            "symbols": [
+              "MAX_DECISION_CONTEXTS"
+            ],
+            "exprs": {
+              "MAX_DECISION_CONTEXTS": "MAX_AMX_PENDING as u64 * (MAX_AMX_DEADLINE_WINDOW + 2)"
+            }
+          },
           {
             "path": "crates/iroha_data_model/src/sumeragi_amx/proof.rs",
             "symbols": [
@@ -20275,7 +20395,7 @@
               "ATOMIC_SETTLEMENT_MIN_MOVEMENTS"
             ],
             "exprs": {
-              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS": "2"
+              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS": "1"
             }
           },
           {
@@ -23736,6 +23856,79 @@
         ],
         "exprs": {
           "MAX_PAYLOAD_BYTES": "nonzero!(1_073_741_824_usize)"
+        },
+        "module": [
+          "pub mod snapshot {"
+        ]
+      },
+      {
+        "path": "crates/iroha_data_model/src/parameter/system.rs",
+        "reason": "Committed maximum clock-drift policy: a consensus timestamp window capped at 60,000 ms by validate_max_clock_drift_ms, with exact/one-over and u64::MAX rejection tests. It is a time-validity rule, not a byte, count or cryptographic-work ceiling; this classification does not make it node-local or optional.",
+        "symbols": [
+          "MAX_CLOCK_DRIFT_BOUND_MS"
+        ],
+        "exprs": {
+          "MAX_CLOCK_DRIFT_BOUND_MS": "60_000"
+        }
+      },
+      {
+        "path": "crates/iroha_core/src/queue/forgery_ingress.rs",
+        "reason": "Original Queue-local SCCP forgery denial-of-service admission: one charged LRU of 4096 triples and an 8/s token bucket with burst 32, using monotonic elapsed time. A full LRU evicts one oldest triple; Seen/RateLimited are local throttling and do not enter committed evidence or affect execution validity. Scratch/cache backing remains admitted to the original State allocation pool. Exact burst/refill, eviction, concurrency and original-pool refusal tests independently exercise these limits.",
+        "symbols": [
+          "CACHE_CAPACITY",
+          "TOKEN_NS",
+          "BURST_NS"
+        ],
+        "exprs": {
+          "CACHE_CAPACITY": "4_096",
+          "TOKEN_NS": "125_000_000",
+          "BURST_NS": "32 * TOKEN_NS"
+        }
+      },
+      {
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "reason": "Native SCCP DATA route geometry: at most 16 outgoing transitions per response; at most 31 canonical BLS committee keys, 512 transfer/control leaves and 4096 payload bytes. The latter fixed shapes match the current SCCP protocol and are independently checked by the canonical producer/verifier; the route caps response work and pre-admits its original-pool allocations. This read-only projection is not authority and does not replace destination verification or generic transaction/frame ceilings.",
+        "symbols": [
+          "MAX_NATIVE_ROTATIONS",
+          "MAX_KEYS",
+          "MAX_BLOCK_LEAVES",
+          "MAX_PAYLOAD_BYTES"
+        ],
+        "exprs": {
+          "MAX_NATIVE_ROTATIONS": "16",
+          "MAX_KEYS": "31",
+          "MAX_BLOCK_LEAVES": "512",
+          "MAX_PAYLOAD_BYTES": "4096"
+        }
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/full_catalog/mask_boundary.rs",
+        "reason": "Private sparse-polynomial fixture work bound for the full-catalog mask identity tests. compiler.rs declares full_catalog only under cfg(test); its mask_boundary child is not part of a production node or verifier. The 100,000-term ceiling and tenfold multiplication precheck fail this engineering assertion rather than accepting partial algebra. They establish no runtime validity or recursive-security claim.",
+        "symbols": [
+          "MAX_TERMS"
+        ],
+        "exprs": {
+          "MAX_TERMS": "100_000"
+        }
+      },
+      {
+        "path": "crates/iroha_sccp/src/v1/constants.rs",
+        "reason": "TON transfer amount numeric domain: amounts involving TON must be strictly below 2^96, with exact-bound rejection and bound-minus-one acceptance in the canonical payload tests. This is a product amount-validity rule, not a number of bytes, records, or verifier-work ceiling.",
+        "symbols": [
+          "TON_AMOUNT_BOUND"
+        ],
+        "exprs": {
+          "TON_AMOUNT_BOUND": "1 << 96"
+        }
+      },
+      {
+        "path": "crates/iroha_sccp/src/v1/evidence.rs",
+        "reason": "Native SCCP fixed anchor geometry: one completed chunk contains exactly 4096 parent records and has a 12-level path. The evidence verifier uses this for canonical height/chunk coordinates, not a configurable proof-size ceiling or replacement for original-pool admission. The same current model shape is SCCP_ANCHOR_CHUNK_SIZE_V1.",
+        "symbols": [
+          "SCCP_ANCHOR_CHUNK"
+        ],
+        "exprs": {
+          "SCCP_ANCHOR_CHUNK": "4096"
         }
       }
     ],
@@ -24047,6 +24240,70 @@
               "sites": {
                 "self.height < 2": 1
               }
+            },
+            {
+              "path": "crates/iroha_torii/src/sccp/native.rs",
+              "sites": {
+                "h.get() >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_context_archive/prepared_intents.rs",
+              "sites": {
+                "entry.begun_at < 2": 1,
+                "begin >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_decisions.rs",
+              "sites": {
+                "begin_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/query/native_receipts/amx_discovery.rs",
+              "sites": {
+                "height >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "h < 3": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+              "sites": {
+                "(2..=source.height).contains(&height)": 1,
+                "source.height < 2": 1,
+                "(2..=source.height).contains(&end.end_height)": 1,
+                "(2..=source.height).contains(&record.height)": 2
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_attempt.rs",
+              "sites": {
+                "parent_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/evidence/restoration.rs",
+              "sites": {
+                "tip.height() >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/sumeragi/executor.rs",
+              "sites": {
+                "height > 2": 3
+              }
             }
           ]
         },
@@ -24096,7 +24353,7 @@
               "path": "crates/iroha_core/src/state/native_execution_evidence.rs",
               "sites": {
                 "limits.max_carriers < 2": 1,
-                "self.carriers.len() < 2": 2
+                "self.authenticated_carriers < 2": 1
               }
             },
             {
@@ -26510,7 +26767,7 @@
             {
               "path": "crates/iroha_core/src/kura/history_checkpoints/finite.rs",
               "sites": {
-                "(slots / 2).min(RECENT_CAPACITY)": 3
+                "(slots / 2).min(RECENT_CAPACITY)": 2
               }
             },
             {
@@ -26565,6 +26822,40 @@
               "path": "crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs",
               "sites": {
                 ".map(|(id, ())| *id) .take(64)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Canonical SCCP archive parsing and Merkle arithmetic: each delta entry needs at least an eight-byte key-length prefix plus its one-byte presence tag; each anchor record needs at least its eight-byte length prefix. These comparisons reject impossible counts before iteration/allocation and never grant authority to parsed data. The binary-tree comparison selects an existing right sibling rather than bounding accepted input; the separately pinned 512-leaf maximum remains enforced.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration/delta.rs",
+              "sites": {
+                "n > bytes.len() / 9": 2
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "count > bytes.len() / 8": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+              "sites": {
+                "2 * i + 1 < count": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "SCCP restored open anchor chunk must contain fewer than the fixed 4096 records of a completed chunk; completed chunks use their separate immutable authenticated owner. The canonical decoder admits exact backing from the original pool and rejects malformed/trailing records. This is the same product geometry as SCCP_ANCHOR_CHUNK_SIZE_V1, not a lowered generic byte/work limit or proof of restored authority.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs",
+              "sites": {
+                "count >= 4096": 1
               }
             }
           ]

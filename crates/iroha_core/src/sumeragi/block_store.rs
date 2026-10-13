@@ -119,7 +119,7 @@ pub(crate) fn decode_certificate(
     ))
 }
 
-/// Kura and the independent authority and allocation owners for one global instance.
+/// Kura and the independent authority and allocation owners for one native root instance.
 pub struct KuraBlockStore {
     kura: Arc<Kura>,
     hasher: SharedCrypto,
@@ -133,6 +133,8 @@ pub struct KuraBlockStore {
 }
 impl KuraBlockStore {
     /// Bind Kura to the original State pool and its independently authenticated schedule.
+    /// `root_scope` must come from that same root's opaque execution tip or original signed
+    /// genesis authority; result bytes never select their own scope.
     #[must_use]
     pub fn new(
         kura: Arc<Kura>,

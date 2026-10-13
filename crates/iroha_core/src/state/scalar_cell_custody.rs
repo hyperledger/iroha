@@ -41,7 +41,7 @@ pub(crate) fn fixture(value: u64) -> Cell<u64, AllocationCharge> {
 }
 
 #[cfg(test)]
-pub(super) trait ScalarCellFixtureBlock {
+pub(crate) trait ScalarCellFixtureBlock {
     fn block(&self) -> mv::cell::Block<'_, u64, AllocationCharge>;
 }
 #[cfg(test)]

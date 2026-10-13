@@ -1930,10 +1930,7 @@ def record_gas(output: str, complete: bool) -> Dict[str, Dict[str, int]]:
     GAS_CURRENT_FILE.write_text(render_gas_report(rows), encoding="utf-8")
     print(f"wrote {GAS_CURRENT_FILE.name} ({len(rows)} measured steps)")
     if not GAS_BASELINE_FILE.is_file():
-        # TODO: WP-TON (map step T10): record `gas-baseline.json` from the first
-        # measured run of the complete suite, then make a missing baseline an error.
-        print(f"{GAS_BASELINE_FILE.name} is not recorded yet: the 1.1 x gas comparison did not run")
-        return rows
+        raise TonBuilderError(f"{GAS_BASELINE_FILE.name} is missing: gas qualification requires the recorded baseline")
     problems = compare_gas(rows, load_gas_report(GAS_BASELINE_FILE), complete)
     if problems:
         raise TonBuilderError("gas check failed:\n" + "\n".join(problems))

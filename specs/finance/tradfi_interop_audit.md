@@ -247,7 +247,11 @@ does not claim direct live SWIFT, Fedwire, SEPA, or CSD network connectivity.
   belong to the original counterparty, while `camt.056` belongs to the
   originator. Missing or cross-profile evidence fails closed, in-flight
   originals are not mutated, and rejected originals are terminal. A settling
-  `pacs.002` additionally requires exact committed-transaction evidence.
+  `pacs.002` additionally requires authenticated successful execution of the exact
+  original transaction through the canonical outcome resolver also used by
+  reconciliation. A rejected transaction's inclusion is insufficient; absent or
+  conflicting canonical evidence refuses before reserving the notification identity,
+  allowing the same notification to resume after evidence becomes available.
   Settled payments accept only an explicit `pacs.004` return while retaining
   the original transaction hash and settlement evidence; other stale
   transitions remain ignored. Direct status mutators enforce the same terminal

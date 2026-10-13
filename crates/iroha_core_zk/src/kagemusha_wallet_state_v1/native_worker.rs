@@ -75,6 +75,8 @@ fn proof<T, E: crate::kagemusha_wallet_proofs_v1::NativeProofError>(
     result.map_err(|error| {
         if error.is_cancelled() {
             Error::Cancelled
+        } else if let Some(original) = error.into_read_refusal() {
+            Error::DecodeResource(original)
         } else {
             Error::Proof("native fold source or proof")
         }
@@ -305,6 +307,82 @@ impl NativeFoldWorkerV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_native_checkpoint_family_keeps_original_refusal_and_semantic_verdicts() {
+        let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        macro_rules! check {
+            ($ty:ty) => {{
+                let captured = norito::with_decode_limits_scope(limits, || {
+                    norito::decode_canonical_for_admission::<Vec<u8>>(
+                        &bytes, norito::canonical_decode_limits(bytes.len()),
+                    )
+                }).unwrap_err();
+                let expected = captured.local_refusal().unwrap();
+                let native = <$ty>::from(captured);
+                assert!(!native.is_cancelled());
+                assert!(std::error::Error::source(&native).is_some());
+                let copy = native.clone();
+                for original in [native, copy] {
+                    assert!(matches!(proof::<(), _>(Err(original)),
+                        Err(Error::DecodeResource(original)) if original == expected));
+                }
+                // The same numeric ceiling supplied as this decoder's protocol
+                // limit is invalid input, not an enclosing admission refusal.
+                let protocol = norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes, limits,
+                ).unwrap_err();
+                assert_eq!(<$ty>::from(protocol), <$ty>::Input);
+                // Replaying a retired observer cannot originate a new refusal.
+                let replay = norito::core::classify_decode_attempt(|| {
+                    Err::<(), _>(expected.into_error())
+                }).unwrap_err();
+                assert_eq!(<$ty>::from(replay), <$ty>::Input);
+                assert!(matches!(proof::<(), _>(Err(<$ty>::Cancelled)), Err(Error::Cancelled)));
+                for invalid in [<$ty>::Input, <$ty>::Artifact, <$ty>::Proof, <$ty>::Prover] {
+                    assert!(matches!(proof::<(), _>(Err(invalid)),
+                        Err(Error::Proof("native fold source or proof"))));
+                }
+            }};
+        }
+        check!(bootstrap::Error);
+        check!(load::Error);
+        check!(send::Error);
+        check!(receive::Error);
+        check!(archive::Error);
+        check!(consuming::Error);
+        check!(refresh::Error);
+    }
+
+    #[test]
+    fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {
+        let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let captured = norito::with_decode_limits_scope(limits, || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = captured.clone();
+        let error = proof::<(), _>(Err(
+            crate::kagemusha_wallet_proofs_v1::Error::DecodeResource(captured),
+        ))
+        .unwrap_err();
+        assert!(matches!(error, Error::DecodeResource(original) if original == expected));
+        assert!(matches!(
+            proof::<(), _>(Err(crate::kagemusha_wallet_proofs_v1::Error::Cancelled)),
+            Err(Error::Cancelled)
+        ));
+        assert!(matches!(
+            proof::<(), _>(Err(crate::kagemusha_wallet_proofs_v1::Error::Authority)),
+            Err(Error::Proof("native fold source or proof"))
+        ));
+    }
 
     #[test]
     fn salt_failures_preserve_unavailable_and_cancellation() {

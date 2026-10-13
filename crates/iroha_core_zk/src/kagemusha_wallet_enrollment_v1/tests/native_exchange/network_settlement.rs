@@ -137,7 +137,7 @@ fn observed_network_inventory_rejects_missing_duplicate_extra_and_invented_heigh
 #[ignore = "requires same retained C custody plus actual four-validator settlement originals from the genuine A→B→C campaign"]
 fn actual_c_confirms_network_unload_after_process_restart() {
     let output = fresh_output("KAGEMUSHA_NATIVE_NETWORK_CONFIRMATION_OUTPUT");
-    let sources = Sources::admit(&output.join("source-admission"));
+    let sources = Sources::requalify(&output.join("source-admission"));
     let setup = LedgerSetup::read(&sources);
     let f = sources.fixture(&setup, 2);
     let exchange_path = selected_path("KAGEMUSHA_NATIVE_EXCHANGE_RESULT");
@@ -275,6 +275,41 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         UnloadFinalityProgressV1::NotStarted
     );
     assert!(c.confirm_ledger_unload(transaction, &claim).is_err());
+    let exact_claim = claim.clone();
+    let exact_instruction = c.ledger_instruction(2, &claim).unwrap();
+    assert_eq!(exact_instruction, instruction);
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        let refused = norito::with_decode_limits_scope(limits, || {
+            c.unload_finality_progress(transaction, &claim)
+        });
+        assert!(
+            matches!(refused, Err(state::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
+        );
+        let refused = norito::with_decode_limits_scope(limits, || c.ledger_instruction(2, &claim));
+        assert!(
+            matches!(refused, Err(state::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
+        );
+        let refused = norito::with_decode_limits_scope(limits, || {
+            c.confirm_ledger_unload(transaction, &claim)
+        });
+        assert!(
+            matches!(refused, Err(state::Error::DecodeResource(ref cause))
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
+        );
+        assert_eq!(c.ledger_instruction(2, &claim).unwrap(), exact_instruction);
+        assert_eq!(
+            c.unload_finality_progress(transaction, &claim).unwrap(),
+            UnloadFinalityProgressV1::NotStarted
+        );
+        assert_eq!(c.snapshot().unwrap(), before);
+        assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
+        assert_eq!(claim, exact_claim);
+    }
     let mut independent = (*sources.genesis).clone();
     for height in 1..=through {
         let bytes = original(
@@ -289,6 +324,26 @@ fn actual_c_confirms_network_unload_after_process_restart() {
         if height == settled_height {
             assert_eq!(proof.block_wire, block);
             assert_eq!(*verified.block().hash().as_ref(), expected.block_hash);
+        }
+        let previous = c.unload_finality_progress(transaction, &claim).unwrap();
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let refused = norito::with_decode_limits_scope(limits, || {
+                c.ingest_unload_finality(transaction, &claim, &bytes)
+            });
+            assert!(
+                matches!(refused, Err(state::Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
+            );
+            assert_eq!(
+                c.unload_finality_progress(transaction, &claim).unwrap(),
+                previous
+            );
+            assert_eq!(c.snapshot().unwrap(), before);
+            assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
+            assert_eq!(claim, exact_claim);
         }
         let progress = c
             .ingest_unload_finality(transaction, &claim, &bytes)

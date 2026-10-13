@@ -30716,3 +30716,12 @@ mod lifecycle_index_release_tests;
 #[cfg(unix)]
 #[path = "geometry_completion_tests.rs"]
 mod geometry_completion_tests;
+
+#[path = "publication_effect_lifecycle_tests.rs"]
+mod publication_effect_lifecycle_tests;
+
+#[path = "publication_effect_manifest_tests.rs"]
+mod publication_effect_manifest_tests;
+
+#[path = "publication_effect_kura_tests.rs"]
+mod publication_effect_kura_tests;

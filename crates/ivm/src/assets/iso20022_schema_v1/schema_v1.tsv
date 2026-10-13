@@ -294,7 +294,7 @@ field	SESE023	DlvrgSttlmPties/Acct	required	none	text	-	-
 field	SESE023	RcvgSttlmPties/Pty/Bic	required	none	identifier:bic	-	-
 field	SESE023	RcvgSttlmPties/Acct	required	none	text	-	-
 field	SESE023	Plan/ExecutionOrder	required	none	enum	DELIVERY_THEN_PAYMENT|PAYMENT_THEN_DELIVERY	-
-field	SESE023	Plan/Atomicity	required	none	enum	ALL_OR_NOTHING|COMMIT_FIRST_LEG|COMMIT_SECOND_LEG	-
+field	SESE023	Plan/Atomicity	required	none	enum	ALL_OR_NOTHING	-
 field	SESE023	SctiesLeg/Metadata	optional	none	text	-	-
 field	SESE023	CashLeg/Metadata	optional	none	text	-	-
 alias	SESE023	Document/SctiesSttlmTxInstr/TxId	-	-	-	-	TxId
@@ -362,7 +362,7 @@ field	SESE025	DlvrgSttlmPties/Acct	optional	none	text	-	-
 field	SESE025	RcvgSttlmPties/Pty/Bic	optional	none	identifier:bic	-	-
 field	SESE025	RcvgSttlmPties/Acct	optional	none	text	-	-
 field	SESE025	Plan/ExecutionOrder	required	none	enum	DELIVERY_THEN_PAYMENT|PAYMENT_THEN_DELIVERY	-
-field	SESE025	Plan/Atomicity	required	none	enum	ALL_OR_NOTHING|COMMIT_FIRST_LEG|COMMIT_SECOND_LEG	-
+field	SESE025	Plan/Atomicity	required	none	enum	ALL_OR_NOTHING	-
 field	SESE025	RsnCd	optional	none	text	-	-
 field	SESE025	AddtlInf	optional	none	text	-	-
 alias	SESE025	Document/SctiesSttlmTxConf/TxId	-	-	-	-	TxId

@@ -521,6 +521,13 @@ impl<'a> CanonicalHistorySource<'a> {
         let invalid = |message: String| {
             ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message))
         };
+        let scope = self
+            .tip
+            .as_ref()
+            .ok_or_else(|| {
+                invalid("canonical history lacks its authenticated native root scope".into())
+            })?
+            .root_scope();
         let mut expected_iroha = start.iroha;
         let mut expected_core = start.core;
         let mut expected_result = start.result;
@@ -561,9 +568,7 @@ impl<'a> CanonicalHistorySource<'a> {
             let receipt = crate::sumeragi::certified_chain::AdmittedCommittedBlock::read(
                 block,
                 source_height,
-                self.tip
-                    .ok_or_else(|| invalid("native execution scope is unavailable".into()))?
-                    .root_scope(),
+                scope,
                 &mut validation,
                 &self.budget,
             )

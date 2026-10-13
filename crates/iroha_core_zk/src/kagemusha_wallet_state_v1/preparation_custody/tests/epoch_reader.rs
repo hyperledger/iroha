@@ -64,7 +64,7 @@ fn sealed_epoch_index_restores_verified_authority_for_current_and_older_receipts
     })
     .unwrap_err();
     assert!(matches!(refused, Error::DecodeResource(ref cause)
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(custody.epochs, root);
     assert_eq!(
         custody

@@ -591,6 +591,17 @@ fn runtime_catalog_startup_reconstructs_manifest_without_files_and_preserves_pol
         let malformed_world = norito::json::to_json(&state.world).unwrap();
         let retained_owner = norito::json::to_json(&state.canonical_runtime).unwrap();
         assert!(state.nexus_with_committed_catalog(configured).is_err());
+        let malformed_lane = state
+            .lane_manifests_with_committed_catalog(&baseline_registry, &restored)
+            .expect_err("malformed protected catalog must reject startup manifests");
+        assert!(
+            matches!(
+                &malformed_lane,
+                LaneLifecycleError::RuntimeCatalog(reason)
+                    if reason.starts_with("Nexus runtime catalog codec:")
+            ),
+            "expected the protected parameter codec refusal: {malformed_lane:?}"
+        );
         assert_eq!(
             norito::json::to_json(&state.world).unwrap(),
             malformed_world

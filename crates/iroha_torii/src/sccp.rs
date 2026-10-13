@@ -8,21 +8,24 @@
 //! final message states) carry a strong `ETag` over the selected representation and answer a
 //! matching `If-None-Match` with `304`.
 //!
-//! Each handler is a thin extractor over a `*_response` function of a state view, so the
-//! seeded-state tests exercise exactly what the routes serve.
+//! Metadata projections use one state view. Committee and proof routes acquire an
+//! authenticated committed observation and retain the original funded graphs.
 //!
-//! TODO: complete the §6 committee, evidence and governance views alongside the native
-//! finality producer. Retired attestation and roster routes are not mounted.
-//! TODO(TT-A2): known message/control proof requests currently return explicit 503
-//! `sccp_proof_unavailable` until request-funded original native receipt acquisition and the
-//! current control-record producer are integrated. Record existence alone cannot authorize a proof or a cache validator.
+//! TODO: complete the §6 evidence and governance views.
+//! Native routes retain their request
+//! allocation, deadline and cancellation ownership through response publication.
+
+pub(crate) mod native;
+pub(crate) use native::{
+    handler_committee, handler_control_proof, handler_current_committee, handler_finality,
+    handler_message_proof, handler_rotations,
+};
 
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse as _, Response},
 };
-use iroha_core::smartcontracts::isi::sccp::read::api::SccpProofHeightV1;
 use iroha_core::{
     smartcontracts::isi::sccp::{
         read::{
@@ -40,15 +43,6 @@ use norito::json::{Map, Value};
 // they are extracted without scalar coercion (`NoritoStringQuery`): a coercing extractor would
 // turn `?from_nonce=1` into a JSON number that an `Option<String>` field refuses.
 use crate::{JsonBody, NoritoStringQuery, SharedAppState, utils::extractors::ExtractAccept};
-
-/// `?at=record|latest|<height>` of the proof routes (default `record`).
-#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub(crate) struct ProofQuery {
-    /// Committed certificate height covering the leaf.
-    #[norito(default)]
-    pub at: Option<String>,
-}
 
 /// `?direction=outbound|inbound&network=&before=&limit=` of the recent-messages route.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
@@ -95,18 +89,6 @@ pub(crate) struct CoveringQuery {
     /// Source height to anchor (required).
     #[norito(default)]
     pub covering: Option<String>,
-}
-
-/// Bounded native committee catch-up page; values stay textual until explicit validation.
-#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub(crate) struct RotationsQuery {
-    /// Last independently authenticated generation.
-    #[norito(default)]
-    pub after_generation: Option<String>,
-    /// Number of ending-generation certificates, at most sixteen.
-    #[norito(default)]
-    pub limit: Option<String>,
 }
 
 /// `?size=S` of the history route.
@@ -253,21 +235,6 @@ fn parse_network(text: &str) -> Result<SccpNetworkV1, Response> {
         })
 }
 
-fn parse_choice(query: &ProofQuery) -> Result<SccpProofHeightV1, Response> {
-    query
-        .at
-        .as_deref()
-        .map_or(Ok(SccpProofHeightV1::Record), |text| {
-            text.parse().map_err(|_| {
-                error(
-                    StatusCode::BAD_REQUEST,
-                    "sccp_invalid_query",
-                    "at must be `record`, `latest` or a positive decimal height",
-                )
-            })
-        })
-}
-
 fn parse_direction(text: Option<&str>) -> Result<SccpDirectionV1, Response> {
     text.map_or(Ok(SccpDirectionV1::Outbound), |text| {
         SccpDirectionV1::parse(text).ok_or_else(|| {
@@ -298,6 +265,7 @@ pub(crate) fn capabilities_response(
 }
 
 /// Current or explicit generation over one immutable view, with original graph custody.
+#[cfg(test)]
 pub(crate) fn committee_response(
     view: &(impl StateReadOnly + ?Sized),
     generation: Option<u64>,
@@ -308,45 +276,6 @@ pub(crate) fn committee_response(
         |generation| read::committee(view.world(), generation),
     );
     respond_result(accept, result)
-}
-
-/// Validate a native rotation request without substituting World records for certificates.
-pub(crate) fn rotations_response(
-    view: &(impl StateReadOnly + ?Sized),
-    query: &RotationsQuery,
-) -> Response {
-    let after = match parse_number(query.after_generation.as_deref(), 0_u64) {
-        Ok(value) if value > 0 => value,
-        Ok(_) => {
-            return error(
-                StatusCode::BAD_REQUEST,
-                "sccp_invalid_query",
-                "after_generation must be positive",
-            );
-        }
-        Err(response) => return response,
-    };
-    let maximum = iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL;
-    let limit = match parse_number(query.limit.as_deref(), maximum) {
-        Ok(value) if (1..=maximum).contains(&value) => value,
-        Ok(_) => {
-            return error(
-                StatusCode::BAD_REQUEST,
-                "sccp_invalid_query",
-                "limit must be between 1 and 16",
-            );
-        }
-        Err(response) => return response,
-    };
-    // TODO(TT-A2): detach the original funded native rotation archive request and retain
-    // its certified source/read/retry owners before assembling up to `limit` responses.
-    // Neither a retained generation record nor its end fields authorize a certificate.
-    let _ = (view, after, limit);
-    error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "sccp_rotation_unavailable",
-        "native rotation archive is unavailable",
-    )
 }
 
 /// `GET /v1/sccp/messages/{message_id}` over `view`; final states carry an `ETag`.
@@ -440,60 +369,6 @@ pub(crate) fn controls_response(
         accept,
         read::controls_page(view.world(), network, revision, after_nonce, limit),
     )
-}
-
-/// Explicit implementation unavailability; no record, cache header or requested representation
-/// can substitute for an authenticated certificate and verified membership paths.
-fn proof_unavailable() -> Response {
-    error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "sccp_proof_unavailable",
-        "request-funded native SCCP proof acquisition is unavailable",
-    )
-}
-
-/// `GET /v1/sccp/messages/{message_id}/proof` over `view`.
-///
-/// TODO(TT-A2): connect the Core native message producer after request-funded receipt
-/// acquisition is complete. Only an authenticated completed bundle may receive an ETag.
-pub(crate) fn message_proof_response(
-    view: &(impl StateReadOnly + ?Sized),
-    message_id: &str,
-    query: &ProofQuery,
-    _accept: Option<&ExtractAccept>,
-    _headers: &HeaderMap,
-) -> Response {
-    let (message_id, _choice) = match (parse_word(message_id), parse_choice(query)) {
-        (Ok(id), Ok(choice)) => (id, choice),
-        (Err(response), _) | (_, Err(response)) => return response,
-    };
-    if !store::outbound_messages::contains(view.world(), &message_id) {
-        return read_error(&SccpReadError::NotFound("outbound message".into()));
-    }
-    // Existence proves neither native finality nor retention of every required proof fact.
-    // Do not misreport this missing implementation as a pruned certificate or a missing record.
-    proof_unavailable()
-}
-
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof` over `view`.
-///
-/// TODO(TT-A2): connect the current Core control producer after request-funded native
-/// acquisition, source joining and encoded response custody are complete.
-pub(crate) fn control_proof_response(
-    view: &(impl StateReadOnly + ?Sized),
-    (network, revision, control_nonce): (&str, u32, u64),
-    query: &ProofQuery,
-    _accept: Option<&ExtractAccept>,
-    _headers: &HeaderMap,
-) -> Response {
-    let (network, _choice) = match (parse_network(network), parse_choice(query)) {
-        (Ok(network), Ok(choice)) => (network, choice),
-        (Err(response), _) | (_, Err(response)) => return response,
-    };
-    if !store::control_messages::contains(view.world(), &(network, revision, control_nonce)) {
-        return read_error(&SccpReadError::NotFound("control message".into()));
-    }
-    proof_unavailable()
 }
 
 fn history_read_error(failure: read::SccpHistoryReadError) -> Response {
@@ -687,34 +562,6 @@ pub(crate) async fn handler_capabilities(
     capabilities_response(&app.state.view(), accept.as_ref())
 }
 
-/// `GET /v1/sccp/committees/current`: retain the original committed generation graph.
-pub(crate) async fn handler_current_committee(
-    State(app): State<SharedAppState>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    committee_response(&app.state.view(), None, accept.as_ref())
-}
-
-/// `GET /v1/sccp/committees/{generation}`: positive generation, with live liability.
-pub(crate) async fn handler_committee(
-    State(app): State<SharedAppState>,
-    Path(generation): Path<String>,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    match parse_number(Some(&generation), 0_u64) {
-        Ok(generation) => committee_response(&app.state.view(), Some(generation), accept.as_ref()),
-        Err(response) => response,
-    }
-}
-
-/// `GET /v1/sccp/committees/rotations`: native certificate catch-up only.
-pub(crate) async fn handler_rotations(
-    State(app): State<SharedAppState>,
-    NoritoStringQuery(query): NoritoStringQuery<RotationsQuery>,
-) -> Response {
-    rotations_response(&app.state.view(), &query)
-}
-
 /// `GET /v1/sccp/registry`: every route with its escrow, stranded balance and revisions.
 pub(crate) async fn handler_registry(
     State(app): State<SharedAppState>,
@@ -777,40 +624,6 @@ pub(crate) async fn handler_controls(
         revision,
         &query,
         accept.as_ref(),
-    )
-}
-
-/// `GET /v1/sccp/messages/{message_id}/proof?at=`.
-pub(crate) async fn handler_message_proof(
-    State(app): State<SharedAppState>,
-    Path(message_id): Path<String>,
-    NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
-    headers: HeaderMap,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    message_proof_response(
-        &app.state.view(),
-        &message_id,
-        &query,
-        accept.as_ref(),
-        &headers,
-    )
-}
-
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof?at=`.
-pub(crate) async fn handler_control_proof(
-    State(app): State<SharedAppState>,
-    Path((network, revision, control_nonce)): Path<(String, u32, u64)>,
-    NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
-    headers: HeaderMap,
-    accept: Option<ExtractAccept>,
-) -> Response {
-    control_proof_response(
-        &app.state.view(),
-        (&network, revision, control_nonce),
-        &query,
-        accept.as_ref(),
-        &headers,
     )
 }
 

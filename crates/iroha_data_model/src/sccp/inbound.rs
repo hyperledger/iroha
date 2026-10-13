@@ -10,7 +10,7 @@ use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, bridge::SccpNetworkV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
-/// Largest source proof (8 MiB), equal to the protocol-default per-proof byte limit of the committed ZK validity policy (`sccp` section).
+/// Largest source proof (8 MiB), equal to the protocol-default per-proof byte limit of the committed `sccp` ZK validity policy.
 pub const SCCP_SOURCE_PROOF_MAX_BYTES_V1: usize = 8 * 1024 * 1024;
 
 /// Opaque inbound or void proof (`SccpSourceProofV1` frame), `1..=8 MiB`.
@@ -103,7 +103,7 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 0)]
     #[norito(rename = "disabled")]
     Disabled,
-    /// The revision is neither `Bidirectional` nor `InboundOnly` (`Staged`, `Paused` or `Retired`).
+    /// The revision is neither `Bidirectional` nor `InboundOnly` (it is `Paused`).
     #[codec(index = 1)]
     #[norito(rename = "revision_not_settleable")]
     RevisionNotSettleable,
@@ -125,7 +125,7 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 5)]
     #[norito(rename = "block_leaves_full")]
     BlockLeavesFull,
-    /// The otherwise settleable revision is held on Taira (§4.14.2).
+    /// A forgery hold, quarantine or authenticated fast pause prevents settlement.
     #[codec(index = 6)]
     #[norito(rename = "held")]
     Held,
@@ -336,6 +336,32 @@ mod tests {
         assert_rejects_unknown_field(&record(statuses()[0]), &[]);
         assert_rejects_unknown_field(&record(statuses()[0]), &["source_locator"]);
         assert_rejects_unknown_field(&SccpSourceProofBytesV1::new(vec![1]).expect("bounded"), &[]);
+    }
+
+    #[test]
+    fn held_is_a_distinct_canonical_pending_reason() {
+        let held = SccpPendingReasonV1::Held;
+        let encoded_json = norito::json::to_json(&held).unwrap();
+        let value: norito::json::Value = norito::json::from_json(&encoded_json).unwrap();
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some("held")
+        );
+        let encoded = held.encode();
+        assert_eq!(
+            SccpPendingReasonV1::decode_all(&mut encoded.as_slice()).unwrap(),
+            held
+        );
+        for previous in REASONS.into_iter().filter(|reason| *reason != held) {
+            assert_ne!(previous.encode(), encoded);
+        }
+        let mut trailing = encoded;
+        trailing.push(0);
+        assert!(SccpPendingReasonV1::decode_all(&mut trailing.as_slice()).is_err());
+        assert!(
+            norito::json::from_json::<SccpPendingReasonV1>("{\"reason\":\"held\",\"unknown\":0}")
+                .is_err()
+        );
     }
 
     #[test]

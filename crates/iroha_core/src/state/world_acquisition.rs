@@ -136,6 +136,11 @@ macro_rules! install_frozen_world_field {
             .sccp_committee_generations
             .install_frozen_publication_owned(&$target.sccp_committee_generations, $scope)
     };
+    ($fields:ident, $target:ident, $scope:expr, sccp_forgery_offences) => {
+        $fields
+            .sccp_forgery_offences
+            .install_frozen_publication_owned(&$target.sccp_forgery_offences, $scope)
+    };
     ($fields:ident, $target:ident, $scope:expr, $field:ident) => {
         $fields.$field.install_frozen_publication(&$target.$field)
     };

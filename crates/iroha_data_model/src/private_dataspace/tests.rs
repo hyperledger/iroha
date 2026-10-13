@@ -295,3 +295,145 @@ fn authenticated_anchor_state_json_roundtrip_and_restore_invariants() {
         assert_eq!(malformed, before);
     }
 }
+
+#[test]
+fn private_anchor_rejects_bare_body_and_active_x_without_advancing() {
+    use crate::sumeragi_finality::certified_result::FLAG_ACTIVE;
+    use crate::sumeragi_finality::{SccpFinalityHeaderV1, context_committee_root};
+    let (mut fixture, registration) = fixture();
+    let anchor = next(&mut fixture, &registration);
+    let mut state =
+        PrivateDataspaceAnchorState::from_authorized_registration(registration).unwrap();
+    let retained = state.clone();
+    let result = CertifiedResultV1::decode(
+        &anchor.certificate.result_preimage,
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    let mut bare = anchor.clone();
+    bare.certificate.result_preimage = result.commitment().preimage().unwrap();
+    assert!(matches!(
+        bare.public_parts(),
+        Err(PrivateDataspaceAnchorError::Invalid(_))
+    ));
+    assert!(state.apply(&bare).is_err());
+    let mut fields = result.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&result.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        result.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut wrong_scope = anchor.clone();
+    wrong_scope.certificate.result_preimage = active.preimage().unwrap();
+    assert!(matches!(
+        wrong_scope.public_parts(),
+        Err(PrivateDataspaceAnchorError::Invalid(_))
+    ));
+    assert!(
+        PrivateDataspaceAnchor::decode(&norito::encode_canonical(&wrong_scope).unwrap()).is_err()
+    );
+    assert!(state.apply(&wrong_scope).is_err());
+    assert_eq!(state, retained);
+    assert_eq!(
+        state.apply(&anchor).unwrap(),
+        PrivateDataspaceAnchorOutcome::Advanced
+    );
+}
+
+#[test]
+fn private_anchor_local_decoder_refusal_preserves_original_and_retries() {
+    let (mut fixture, registration) = fixture();
+    let anchor = next(&mut fixture, &registration);
+    let original = anchor.clone();
+    let mut state =
+        PrivateDataspaceAnchorState::from_authorized_registration(registration).unwrap();
+    let retained = state.clone();
+    let limit =
+        norito::DecodeLimits::new(96, MAX_PRIVATE_DATASPACE_ANCHOR_BYTES, usize::MAX, 0, 32);
+    let error = norito::with_decode_limits_scope(limit, || state.apply(&anchor)).unwrap_err();
+    assert!(
+        matches!(error, PrivateDataspaceAnchorError::Resource(_)),
+        "{error:?}"
+    );
+    assert_eq!(state, retained);
+    assert_eq!(anchor, original);
+    let bytes = norito::encode_canonical(&anchor).unwrap();
+    let error = norito::with_decode_limits_scope(limit, || PrivateDataspaceAnchor::decode(&bytes))
+        .unwrap_err();
+    assert!(
+        matches!(error, PrivateDataspaceAnchorError::Resource(_)),
+        "{error:?}"
+    );
+    assert_eq!(PrivateDataspaceAnchor::decode(&bytes).unwrap(), original);
+    assert_eq!(
+        state.apply(&anchor).unwrap(),
+        PrivateDataspaceAnchorOutcome::Advanced
+    );
+}
+
+#[test]
+fn private_anchor_resource_mapping_preserves_nested_and_intrinsic_categories() {
+    use crate::sumeragi_finality::{CertifiedResultError, CommitmentError};
+    let allocation = || {
+        norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 221 })
+        })
+        .unwrap_err()
+    };
+    for route in 0..2 {
+        let original = allocation();
+        let expected = original.local_refusal().unwrap();
+        let converted = if route == 0 {
+            certified_failure(CertifiedResultError::Body(CommitmentError::Resource(
+                original,
+            )))
+        } else {
+            amx_failure(crate::sumeragi_amx::AmxError::Resource(original))
+        };
+        let PrivateDataspaceAnchorError::Resource(retained) = converted else {
+            panic!("original refusal must retain its category");
+        };
+        assert_eq!(retained.local_refusal(), Some(expected));
+    }
+    assert!(matches!(
+        codec_failure(allocation()),
+        PrivateDataspaceAnchorError::Resource(_)
+    ));
+    assert!(matches!(
+        certified_failure(CertifiedResultError::ActiveOutsideGlobal),
+        PrivateDataspaceAnchorError::Invalid(_)
+    ));
+    for cause in [
+        norito::Error::InvalidMagic,
+        norito::Error::SequenceLengthExceeded {
+            length: 97,
+            limit: 96,
+        },
+    ] {
+        let error = norito::core::classify_decode_attempt(|| Err::<(), _>(cause)).unwrap_err();
+        assert!(matches!(
+            codec_failure(error),
+            PrivateDataspaceAnchorError::Invalid(_)
+        ));
+    }
+    // An enclosing owner does not turn an intrinsic protocol limit into local refusal.
+    let limits = |bytes| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64);
+    for enclosing in [8, 16] {
+        let error = norito::with_decode_limits_scope(limits(enclosing), || {
+            norito::core::classify_decode_attempt(|| {
+                norito::with_decode_limits_scope(limits(8), || {
+                    norito::core::reserve_decode_allocation(9)
+                })
+            })
+        })
+        .unwrap_err();
+        assert!(matches!(
+            codec_failure(error),
+            PrivateDataspaceAnchorError::Invalid(_)
+        ));
+    }
+}

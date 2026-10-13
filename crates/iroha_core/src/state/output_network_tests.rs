@@ -66,6 +66,11 @@ fn fixture_with_policy(
         &expected_policy,
         "the signed genesis must commit the exact tested execution limits"
     );
+    assert_eq!(
+        crate::pipeline_validity_policy::committed(state.view().world.parameters.get()).unwrap(),
+        Some(expected_policy),
+        "the exact policy must be present in signed State, including protocol-default values"
+    );
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();

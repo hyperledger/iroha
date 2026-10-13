@@ -635,3 +635,6 @@ pub(in crate::managed) fn policy(authority: &ServiceAuthority) -> ReserveAuthori
 #[cfg(test)]
 #[path = "native_fixture/proof_reader_tests.rs"]
 mod proof_reader_tests;
+
+#[path = "native_fixture/signed_recovery_http.rs"]
+pub(in crate::managed) mod signed_recovery_http;

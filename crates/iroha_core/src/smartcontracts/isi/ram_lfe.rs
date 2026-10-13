@@ -328,56 +328,9 @@ fn expected_associated_data_hash(program_policy: &RamLfeProgramPolicy) -> Result
             )
         })
 }
-/// Shared fixtures that submit adversarial proof inputs to production admission.
-#[cfg(test)]
-pub(super) mod proof_test_support {
-    use super::*;
-    use iroha_crypto::{Algorithm, KeyPair, PolicyCommitment, RamLfeProofVerifierMetadata};
-    use iroha_data_model::{
-        account::AccountId, proof::ProofBox, ram_lfe::RamLfeExecutionReceiptPayload,
-    };
-
-    /// Submit the original adversarial proof and metadata to actual policy and receipt admission.
-    pub(in crate::smartcontracts::isi) fn validate_proof_receipt(
-        proof: &ProofBox,
-        execution: &RamLfeExecutionReceiptPayload,
-        verifier: &RamLfeProofVerifierMetadata,
-        guardrails: crate::zk::ZkVerifyGuardrails,
-    ) -> Result<(), String> {
-        let resolver = KeyPair::try_from_seed(vec![0x72; 32], Algorithm::Ed25519)
-            .expect("deterministic proof-refusal fixture key");
-        let policy = RamLfeProgramPolicy::new(
-            execution.program_id.clone(),
-            AccountId::new(resolver.public_key().clone()),
-            execution.backend,
-            execution.verification_mode,
-            PolicyCommitment {
-                backend: execution.backend,
-                policy_hash: Hash::new(b"unavailable-execution-relation-policy"),
-                // Deliberately incomplete public parameters retain every supplied verifier
-                // field. Proof-mode admission must refuse before attempting to parse them.
-                public_parameters: norito::encode_canonical(verifier)
-                    .expect("encode adversarial verifier metadata"),
-            },
-            resolver.public_key().clone(),
-        );
-        let policy_error = validate_program_policy(&policy)
-            .expect_err("proof mode must fail actual program-policy admission");
-        assert!(
-            policy_error
-                .to_string()
-                .contains(PROOF_RELATION_UNAVAILABLE)
-        );
-        let receipt = RamLfeExecutionReceipt {
-            payload: execution.clone(),
-            attestation: RamLfeReceiptAttestation::Proof(proof.clone()),
-        };
-        validate_execution_receipt_at(&receipt, &policy, execution.executed_at_ms, guardrails)
-    }
-}
 #[cfg(test)]
 mod tests {
-    use super::{proof_test_support::validate_proof_receipt, *};
+    use super::*;
     use iroha_crypto::{Algorithm, KeyPair, PolicyCommitment, RamLfeProofVerifierMetadata};
     use iroha_data_model::{
         account::AccountId,
@@ -553,6 +506,43 @@ mod tests {
             expires_at_ms: None,
         }
     }
+    /// Submit the original adversarial proof and metadata to actual policy and receipt admission.
+    fn validate_proof_receipt(
+        proof: &ProofBox,
+        execution: &RamLfeExecutionReceiptPayload,
+        verifier: &RamLfeProofVerifierMetadata,
+        guardrails: crate::zk::ZkVerifyGuardrails,
+    ) -> Result<(), String> {
+        let resolver = KeyPair::try_from_seed(vec![0x72; 32], Algorithm::Ed25519)
+            .expect("deterministic proof-refusal fixture key");
+        let policy = RamLfeProgramPolicy::new(
+            execution.program_id.clone(),
+            AccountId::new(resolver.public_key().clone()),
+            execution.backend,
+            execution.verification_mode,
+            PolicyCommitment {
+                backend: execution.backend,
+                policy_hash: Hash::new(b"unavailable-execution-relation-policy"),
+                // Deliberately incomplete public parameters retain every supplied verifier
+                // field. Proof-mode admission must refuse before attempting to parse them.
+                public_parameters: norito::encode_canonical(verifier)
+                    .expect("encode adversarial verifier metadata"),
+            },
+            resolver.public_key().clone(),
+        );
+        let policy_error = validate_program_policy(&policy)
+            .expect_err("proof mode must fail actual program-policy admission");
+        assert!(
+            policy_error
+                .to_string()
+                .contains(PROOF_RELATION_UNAVAILABLE)
+        );
+        let receipt = RamLfeExecutionReceipt {
+            payload: execution.clone(),
+            attestation: RamLfeReceiptAttestation::Proof(proof.clone()),
+        };
+        validate_execution_receipt_at(&receipt, &policy, execution.executed_at_ms, guardrails)
+    }
     fn sample_proof_verifier() -> RamLfeProofVerifierMetadata {
         RamLfeProofVerifierMetadata {
             proof_backend: crate::zk::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
@@ -594,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_execution_relation_rejects_before_reading_proof_or_key() {
+    fn unavailable_execution_relation_rejects_before_reading_proof_or_envelope_metadata() {
         let proof = ProofBox::new(String::new(), vec![0xff]);
         let verifier = RamLfeProofVerifierMetadata {
             proof_backend: String::new(),
@@ -608,6 +598,16 @@ mod tests {
                 &sample_proof_payload(),
                 &verifier,
                 test_guardrails()
+            ),
+            Err(PROOF_RELATION_UNAVAILABLE.to_owned()),
+        );
+        let malformed_envelope = sample_proof_box(&verifier, |_| {});
+        assert_eq!(
+            validate_proof_receipt(
+                &malformed_envelope,
+                &sample_proof_payload(),
+                &verifier,
+                test_guardrails(),
             ),
             Err(PROOF_RELATION_UNAVAILABLE.to_owned()),
         );

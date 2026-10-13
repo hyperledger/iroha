@@ -43,7 +43,14 @@ fn generated_preparation_retains_one_original_without_http_or_bootstrap_executio
                 .to_vec()
         })
         .collect();
-    let first = prepare(&prepared, &budget()).unwrap();
+    let (first, captures) = crate::localnet::service_authorities::count_profile_validations(|| {
+        prepare(&prepared, &budget())
+    });
+    let first = first.unwrap();
+    assert_eq!(
+        captures, 1,
+        "one actual cold capture feeds both typed owners"
+    );
     let original = iroha_fs::read_private(
         &root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
         512 * 1024,
@@ -54,7 +61,15 @@ fn generated_preparation_retains_one_original_without_http_or_bootstrap_executio
         "sole renderer lock must be retained"
     );
     drop(first);
-    let second = prepare(&prepared, &budget()).unwrap();
+    let (second, captures) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            prepare(&prepared, &budget())
+        });
+    let second = second.unwrap();
+    assert_eq!(
+        captures, 1,
+        "a later startup still captures its source freshly"
+    );
     assert_eq!(
         iroha_fs::read_private(
             &root.join("runtime/service-operations/network/service-bootstrap/initial/original.nrt"),
@@ -357,3 +372,6 @@ fn later_and_equal_height_transactions_do_not_replace_any_original_receipt() {
     assert!(require_original_transactions(&[original; 33], &[original]).is_err());
     assert!(require_original_transactions(&[original], &[original; 33]).is_err());
 }
+
+#[path = "bootstrap_handoff_tests.rs"]
+mod bootstrap_handoff_tests;

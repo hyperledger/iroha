@@ -300,7 +300,8 @@ impl AmxRecordProofV1 {
     /// produced (the complete execution witness writes, including mandatory context writes).
     /// The resulting path must match the ordinary-write root in the canonical result preimage.
     /// This checks the supplied write set; the receiving foreign-instance tracker still
-    /// authenticates the certificate and its binding to that preimage.
+    /// authenticates the certificate and its binding to that preimage. The producer
+    /// supplies its selected root `scope`; the result header cannot select authority.
     ///
     /// # Errors
     /// The result preimage is malformed or exceeds its bound, the record is not written in

@@ -48,6 +48,8 @@ use std::{
 };
 use tempfile::{TempDir, tempdir, tempdir_in};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+#[path = "norito_rpc/settlement_sources.rs"]
+mod settlement_sources;
 const CANONICAL_FIXTURE_DIRECTORY: &str = "fixtures/norito_rpc";
 const LOCAL_INTEGRATION_PARENT: &str = "target/norito-rpc-local";
 const CANONICAL_PAYLOADS: &str = "fixtures/norito_rpc/transaction_payloads.json";
@@ -957,6 +959,16 @@ const SEMANTIC_INSTRUCTION_SOURCES: &[SemanticInstructionSource] = &[
         slot: InstructionSourceSlot::Instructions(0),
         wire_name: "iroha.register",
     },
+    SemanticInstructionSource {
+        fixture_name: "settlement_dvp_atomic",
+        slot: InstructionSourceSlot::Instructions(0),
+        wire_name: "iroha.settlement",
+    },
+    SemanticInstructionSource {
+        fixture_name: "settlement_pvp_net",
+        slot: InstructionSourceSlot::Instructions(0),
+        wire_name: "iroha.settlement",
+    },
 ];
 struct Fixture {
     name: String,
@@ -1521,6 +1533,9 @@ fn build_fixture_instruction(
                 Ok(semantic_register_asset_definition()?.into())
             }
             "register_peer_with_pop_demo" => Ok(semantic_register_peer_with_pop()?.into()),
+            "settlement_dvp_atomic" | "settlement_pvp_net" => {
+                Ok(settlement_sources::instruction(source.fixture_name)?.into())
+            }
             _ => bail!("fixture '{fixture_name}' has no semantic instruction constructor"),
         };
     }
@@ -3521,6 +3536,16 @@ mod tests {
                     fixture_name: "register_peer_with_pop_demo",
                     slot: InstructionSourceSlot::Instructions(0),
                     wire_name: "iroha.register",
+                },
+                SemanticInstructionSource {
+                    fixture_name: "settlement_dvp_atomic",
+                    slot: InstructionSourceSlot::Instructions(0),
+                    wire_name: "iroha.settlement",
+                },
+                SemanticInstructionSource {
+                    fixture_name: "settlement_pvp_net",
+                    slot: InstructionSourceSlot::Instructions(0),
+                    wire_name: "iroha.settlement",
                 },
             ]
         );

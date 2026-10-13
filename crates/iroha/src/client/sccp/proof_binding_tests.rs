@@ -338,3 +338,36 @@ fn blocking_proof_reads_reject_zero_height_before_dispatch() {
     assert!(requests.lock().unwrap().is_empty());
     assert_eq!(completed.load(Ordering::SeqCst), 0);
 }
+
+#[test]
+fn finality_height_is_bound_through_async_and_blocking_transport() {
+    let offered = certificate(10);
+    let (client, requests, _) = attach(norito::json::to_vec(&offered).unwrap());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let blocking = blocking::Client::from_client(client.clone()).unwrap();
+    for (at, mismatch) in [
+        (SccpFinalityAt::Latest, None),
+        (SccpFinalityAt::Height(NonZeroU64::new(10).unwrap()), None),
+        (
+            SccpFinalityAt::Height(NonZeroU64::new(11).unwrap()),
+            Some("height"),
+        ),
+    ] {
+        assert_response(
+            runtime.block_on(client.sccp().finality(at)),
+            &offered,
+            sccp::FINALITY.stable_route_id(),
+            mismatch,
+        );
+        assert_response(
+            blocking.sccp().finality(at),
+            &offered,
+            sccp::FINALITY.stable_route_id(),
+            mismatch,
+        );
+    }
+    assert_eq!(requests.lock().unwrap().len(), 6);
+}

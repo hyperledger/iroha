@@ -46,7 +46,7 @@ use iroha_kagemusha_proof::{
             },
         },
         results::ReceiveResultClaims,
-        schedule::OperationTask,
+        schedule::{OperationTask, compiled::OperationSchedule},
         split::{SplitPlan, WCircuit, WKey, close_first, close_stage, resume_context},
         verify_predecessor, verify_q,
     },
@@ -386,7 +386,6 @@ fn source_with_correction(
     correction: Option<EqAffine>,
     incoming_sigma_valid: bool,
 ) -> Source {
-    use OperationTask::*;
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let before = predecessor.state;
     let objects_valid = payer.is_some();
@@ -547,41 +546,11 @@ fn source_with_correction(
         "RECEIVE_INGESTION {capacity:?} omega_capacity={omega_capacity} sigma_capacity={sigma_capacity}"
     );
     let specs = ReceiveStagePlan::context_specs(variant, omega_capacity, sigma_capacity).unwrap();
-    let context = ContextPlan::with_schedule(
-        operation,
-        vec![
-            vec![],
-            vec![0],
-            vec![],
-            vec![],
-            vec![],
-            vec![1],
-            vec![2],
-            vec![],
-            vec![],
-            vec![],
-        ],
-        Some(0),
-        specs.clone(),
-    )
-    .unwrap()
-    .with_operation_tasks(vec![
-        vec![
-            ReceiveOwnProof,
-            ReceiveConsumedEffects,
-            ReceiveCreditEffects,
-        ],
-        vec![],
-        vec![ReceiveProofs],
-        vec![ReceiveProofDigest],
-        vec![ReceiveObjects],
-        vec![ReceiveAuthorization],
-        vec![],
-        vec![ReceiveSignatures],
-        vec![ReceiveNonmembership, ReceiveBlacklist],
-        vec![ReceiveEffects],
-    ])
-    .unwrap();
+    // Use the native variant's fixed owners: renewed Receive moves the credit
+    // map owner to A8 so the larger signature context still fits k16.
+    let context = OperationSchedule::for_variant(variant)
+        .bind(operation, specs.clone())
+        .unwrap();
     let plan = ReceiveStagePlan::new(context, policy).unwrap();
     let objects = [
         request.clone(),

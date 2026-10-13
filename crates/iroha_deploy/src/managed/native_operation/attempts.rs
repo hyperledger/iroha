@@ -18,9 +18,13 @@ use iroha_wallet::operations::{
 };
 use std::ffi::OsStr;
 
+#[path = "attempts/generated_read_phase.rs"]
+mod generated_read_phase;
 #[path = "attempts/selection.rs"]
 mod selection;
-pub(in crate::managed) use selection::{generated, initial};
+pub(in crate::managed) use selection::{
+    FirstReservation, GeneratedPrerequisite, generated, generated_native, initial,
+};
 #[path = "attempts/closure.rs"]
 mod closure;
 #[path = "attempts/parser_pass.rs"]
@@ -287,18 +291,44 @@ impl Attempt {
 
 /// Read-only bounded metadata. No arbitrary filename can select a native head or grant signing.
 pub(in crate::managed) struct History {
+    records: HistoryRecordsOwner,
+    scope: HistoryScope,
+}
+
+// The sole parser creates Owned records. Only a successfully verified terminal closure can
+// promote them to shared ownership; fresh scope evidence is never part of that allocation.
+enum HistoryRecordsOwner {
+    Owned(HistoryRecords),
+    Retained(std::sync::Arc<HistoryRecords>),
+}
+
+/// Immutable parsed local records and their original native owners, without head authority.
+pub(in crate::managed) struct HistoryRecords {
     operation: PrivateDirectory,
     dispatch: Option<Dispatch>,
     root: Option<PrivateDirectory>,
     attempts: Vec<Attempt>,
     empty_tail: bool,
-    scope: HistoryScope,
     closing: Option<ClosurePlan>,
     closed: Option<ClosureRecord>,
     cumulative_reserved: usize,
     purpose: Purpose,
     semantic: [u8; 32],
 }
+
+impl std::ops::Deref for History {
+    type Target = HistoryRecords;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.records {
+            HistoryRecordsOwner::Owned(records) => records,
+            HistoryRecordsOwner::Retained(records) => records,
+        }
+    }
+}
+
+#[path = "attempts/published_records.rs"]
+mod published_records;
 
 /// Typed native intent plus its one selected paid attempt. This is an in-memory view, not a
 /// second serialized layout or a constructor for authenticated transaction history.
@@ -684,17 +714,19 @@ impl History {
                 }
                 let empty_tail = dispatch.is_some();
                 let value = Self {
-                    operation: retained_operation,
-                    dispatch,
-                    root: None,
-                    attempts: Vec::new(),
-                    empty_tail,
+                    records: HistoryRecordsOwner::Owned(HistoryRecords {
+                        operation: retained_operation,
+                        dispatch,
+                        root: None,
+                        attempts: Vec::new(),
+                        empty_tail,
+                        closing,
+                        closed,
+                        cumulative_reserved,
+                        purpose,
+                        semantic,
+                    }),
                     scope: scope.retained_copy(),
-                    closing,
-                    closed,
-                    cumulative_reserved,
-                    purpose,
-                    semantic,
                 };
                 value.validate_closure_records()?;
                 return Ok(value);
@@ -925,17 +957,19 @@ impl History {
         }
         operation.revalidate()?;
         let value = Self {
-            operation: retained_operation,
-            dispatch,
-            root: Some(root),
-            attempts,
-            empty_tail,
+            records: HistoryRecordsOwner::Owned(HistoryRecords {
+                operation: retained_operation,
+                dispatch,
+                root: Some(root),
+                attempts,
+                empty_tail,
+                closing,
+                closed,
+                cumulative_reserved,
+                purpose,
+                semantic,
+            }),
             scope: scope.retained_copy(),
-            closing,
-            closed,
-            cumulative_reserved,
-            purpose,
-            semantic,
         };
         value.validate_closure_records()?;
         Ok(value)
@@ -968,11 +1002,22 @@ impl History {
     }
     fn verify_wallets_inner(
         &self,
-        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
         closing: Option<&ClosurePlan>,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
-        self.require_current_with_pass(pass)?;
+        self.verify_wallets_inner_after_current(inspect, closing, pass, None)
+    }
+    fn verify_wallets_inner_after_current(
+        &self,
+        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        closing: Option<&ClosurePlan>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+        current: Option<parser_pass::CurrentReadAdmission<'_, '_, '_>>,
+    ) -> Result<()> {
+        if !current.is_some_and(|current| current.covers(self, pass)) {
+            self.require_current_with_pass(pass)?;
+        }
         if closing != self.closing.as_ref() {
             return Err(invalid("wallet verifier has another unsigned closing plan"));
         }
@@ -1086,8 +1131,14 @@ impl History {
             None => self.require_current(),
         }
     }
-    pub(in crate::managed) fn close_parser_read(&self) -> Result<()> {
-        self.require_current()
+    pub(in crate::managed) fn close_parser_read(
+        &self,
+        pass: &EnrollmentReadPass<'_>,
+    ) -> Result<()> {
+        match pass.snapshot() {
+            Some(snapshot) => retained_graph::validate_in_snapshot(self, snapshot),
+            None => self.require_current(),
+        }
     }
 
     // The parser already owns predecessor coverage and its separate full-graph exit. This

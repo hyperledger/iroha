@@ -14,12 +14,14 @@
 //! attempt creation and enactment.
 
 use super::{
-    deployment::{SccpCommitteePinV1, SccpDeploymentV1},
+    deployment::SccpCommitteePinV1,
+    deployment::SccpDeploymentV1,
     light_client::{
         SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcBootstrapV1,
         SccpLcCheckpointDataV1, SccpLcInitExpectationV1, SccpLightClientParamsError,
         SccpLightClientParamsV1,
     },
+    native::SccpNativeDataError,
     params::{SccpParametersError, SccpParametersV1},
 };
 use crate::{
@@ -87,8 +89,8 @@ pub enum SccpGovernanceSubjectV1 {
 
 /// `RegisterRoute`: stage a new revision bound to one destination deployment.
 ///
-/// The required pin is checked against authenticated retained generations at enactment.
-/// Static checks validate only its shape; Core keeps registration fail-closed until P0–P5 are complete.
+/// The pin is mandatory DATA. Core must authenticate it against retained generations, every
+/// intervening deadline, resolved membership and the destination deployment (§4.14.3 P0–P5).
 #[derive(
     Debug,
     Clone,
@@ -116,7 +118,7 @@ pub struct SccpRegisterRouteActionV1 {
     pub revision: u32,
     /// Deployed destination contract.
     pub deployment: SccpDeploymentV1,
-    /// Immutable committee pin of the deployed destination; authenticated at enactment.
+    /// Required native committee installed by the actual destination deployment.
     pub initial_committee: SccpCommitteePinV1,
     /// Supply cap in Taira units (equal to token units); equals the contract cap.
     #[norito(json = "crate::json_helpers::u128_string")]
@@ -604,12 +606,6 @@ pub enum SccpGovernanceStaticError {
         /// Index of the offending action.
         action: usize,
     },
-    /// `RegisterRoute` carries a zero generation, root, start height or trust deadline.
-    #[error("action {action} registers a malformed initial_committee")]
-    InvalidInitialCommittee {
-        /// Index of the offending action.
-        action: usize,
-    },
     /// A TON `RegisterRoute` carries `max_wrapped_supply ≥ 2^96`.
     #[error("action {action} registers a TON max_wrapped_supply of 2^96 or more")]
     TonMaxWrappedSupplyTooLarge {
@@ -621,6 +617,14 @@ pub enum SccpGovernanceStaticError {
     DeploymentNetworkMismatch {
         /// Index of the offending action.
         action: usize,
+    },
+    /// `RegisterRoute` carries a malformed native committee pin.
+    #[error("action {action} has an invalid native committee pin: {error}")]
+    InvalidCommitteePin {
+        /// Index of the offending action.
+        action: usize,
+        /// Violated state-independent pin rule.
+        error: SccpNativeDataError,
     },
     /// Two `RegisterRoute` actions of the proposal share a destination word.
     #[error("action {action} repeats the destination word registered by action {first}")]
@@ -777,13 +781,11 @@ impl SccpGovernanceActionV1 {
             Self::RegisterRoute(action) => {
                 let pin = action.initial_committee;
                 if pin.generation > maximum {
-                    Some("SCCP initial_committee.generation exceeds the exact JSON integer maximum")
+                    Some("initial_committee.generation exceeds the exact JSON u64 bound")
                 } else if pin.start_height > maximum {
-                    Some(
-                        "SCCP initial_committee.start_height exceeds the exact JSON integer maximum",
-                    )
+                    Some("initial_committee.start_height exceeds the exact JSON u64 bound")
                 } else if pin.until_ms > maximum {
-                    Some("SCCP initial_committee.until_ms exceeds the exact JSON integer maximum")
+                    Some("initial_committee.until_ms exceeds the exact JSON u64 bound")
                 } else {
                     None
                 }
@@ -817,9 +819,13 @@ impl SccpGovernanceActionV1 {
         match self {
             Self::RegisterRoute(register) => {
                 nonzero(register.revision)?;
-                if !register.initial_committee.is_well_formed() {
-                    return Err(SccpGovernanceStaticError::InvalidInitialCommittee { action });
-                }
+                register
+                    .initial_committee
+                    .validate_shape()
+                    .map_err(|error| SccpGovernanceStaticError::InvalidCommitteePin {
+                        action,
+                        error,
+                    })?;
                 if register.max_wrapped_supply == 0 {
                     return Err(SccpGovernanceStaticError::ZeroMaxWrappedSupply { action });
                 }

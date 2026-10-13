@@ -125,10 +125,40 @@ impl JsonObjectKeyOwned for crate::nft::NftId {
 
 impl_name_object_key!(crate::role::RoleId, crate::role::RoleId::new);
 impl_name_object_key!(crate::trigger::TriggerId, crate::trigger::TriggerId::new);
-impl_name_object_key!(
-    crate::isi::settlement::SettlementId,
-    crate::isi::settlement::SettlementId::new
-);
+impl JsonObjectKey for crate::isi::settlement::SettlementId {
+    fn visit_json_key_text<E>(
+        &self,
+        mut visitor: impl FnMut(&str) -> Result<(), E>,
+    ) -> Result<(), E> {
+        JsonObjectKey::visit_json_key_text(self.reference(), &mut visitor)?;
+        visitor("$")?;
+        JsonObjectKey::visit_json_key_text(self.owner(), visitor)
+    }
+
+    fn visit_json_key_text_checked(
+        &self,
+        mut visitor: impl FnMut(&str) -> Result<(), json::BoundedJsonError>,
+    ) -> Result<(), json::BoundedJsonError> {
+        JsonObjectKey::visit_json_key_text_checked(self.reference(), &mut visitor)?;
+        visitor("$")?;
+        JsonObjectKey::visit_json_key_text_checked(self.owner(), visitor)
+    }
+}
+impl JsonObjectKeyOwned for crate::isi::settlement::SettlementId {
+    fn from_json_key_text(key: &str) -> Result<Self, json::Error> {
+        let (reference, owner) = key.split_once('$').ok_or_else(|| {
+            json::Error::Message("settlement id must use `reference$canonical_account`".into())
+        })?;
+        if reference.is_empty() || owner.is_empty() || owner.contains('$') {
+            return Err(json::Error::Message(
+                "settlement id must use `reference$canonical_account`".into(),
+            ));
+        }
+        let reference = <Name as JsonObjectKeyOwned>::from_json_key_text(reference)?;
+        let owner = <crate::account::AccountId as JsonObjectKeyOwned>::from_json_key_text(owner)?;
+        Ok(Self::new(owner, reference))
+    }
+}
 impl_name_object_key!(crate::oracle::FeedId, crate::oracle::FeedId);
 
 impl_display_object_key!(crate::proof::ProofId);

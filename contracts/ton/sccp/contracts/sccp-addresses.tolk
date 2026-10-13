@@ -34,6 +34,7 @@ fun sccpBucketDeployment(minter: address, index: int, bucketCode: cell): AutoDep
 }
 
 /// Address of bucket `index` (nonces `index·512 .. index·512 + 511`).
+@inline_ref
 fun sccpBucketAddress(minter: address, index: int, bucketCode: cell): address {
     return sccpBucketDeployment(minter, index, bucketCode).calculateAddress();
 }

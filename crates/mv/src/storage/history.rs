@@ -62,10 +62,7 @@ impl<'storage, K: Key, V: Value, M: StorageMode<K, V>> History<'storage, K, V, M
     /// The iterator merges unchanged current entries with retained prior values;
     /// prior-absence tombstones suppress keys inserted by the latest block.
     pub fn iter_before_block(&self) -> impl Iterator<Item = (&K, &V)> {
-        BeforeBlockIter {
-            current: self.current.iter().peekable(),
-            revert: self.revert.iter().peekable(),
-        }
+        before_block_iter(self.current.iter(), self.revert.iter())
     }
 }
 
@@ -95,6 +92,17 @@ impl<K: Key, V: Value> History<'_, K, V> {
             revert,
             blocks,
         }
+    }
+}
+
+/// Merge exact current and undo roots without allocating or cloning retained values.
+pub(super) fn before_block_iter<'a, K: Key, V: Value, C>(
+    current: Iter<'a, K, V, C>,
+    revert: Iter<'a, K, Option<V>, C>,
+) -> impl Iterator<Item = (&'a K, &'a V)> {
+    BeforeBlockIter {
+        current: current.peekable(),
+        revert: revert.peekable(),
     }
 }
 

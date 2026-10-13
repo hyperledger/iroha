@@ -4582,38 +4582,9 @@ pub(crate) mod valid {
         /// The source is verified before certified lane merges expand its execution inputs.
         /// Transaction validation, deterministic execution and original State generation checks
         /// remain mandatory; the native consensus certificate owns block authentication.
+        /// AMX legs and parent services borrow only the original Worker's completed owners.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn validate_sumeragi_block<'state>(
-            block: SignedBlock,
-            topology: &Topology,
-            genesis_account: &AccountId,
-            block_cadence: Duration,
-            consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
-            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
-            expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
-            native_header: &iroha_sumeragi::message::BlockHeader,
-            native_payload: &[u8],
-            state: &'state State,
-        ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
-            Self::validate_sumeragi_block_with_amx(
-                block,
-                topology,
-                genesis_account,
-                block_cadence,
-                consensus_mode,
-                root_scope,
-                expansion,
-                native_header,
-                native_payload,
-                state,
-                None,
-                None,
-            )
-        }
-
-        /// The same validator borrowing only the original Worker's completed leg owners.
-        #[allow(clippy::too_many_arguments)]
-        pub(crate) fn validate_sumeragi_block_with_amx<'state>(
             block: SignedBlock,
             topology: &Topology,
             genesis_account: &AccountId,

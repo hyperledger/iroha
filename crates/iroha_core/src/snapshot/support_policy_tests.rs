@@ -830,7 +830,7 @@ fn staged_and_committed_wsv_hashes_commit_consensus_evidence() {
         evidence_key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence,
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
                 attribution,
                 recorded_at_height: 2,
                 recorded_at_view: 0,
@@ -946,7 +946,9 @@ async fn staged_snapshot_wsv_hash_commits_consensus_evidence() {
                 key,
                 crate::state::RetainedEvidenceRecord::from_fixture(
                     EvidenceRecord {
-                        evidence,
+                        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                            evidence,
+                        ),
                         attribution,
                         recorded_at_height: 1,
                         recorded_at_view: 0,

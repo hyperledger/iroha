@@ -57,6 +57,9 @@ use super::{
 };
 use body_history::{BodyHistory, SigningTurn};
 use journal::{Action, Original};
+#[path = "stream_token_custody/initial_admission.rs"]
+mod initial_admission;
+use initial_admission::InitialAdmission;
 #[path = "stream_token_custody/enrollment.rs"]
 mod enrollment;
 #[path = "stream_token_custody/renewal.rs"]
@@ -241,7 +244,7 @@ impl ManagedStreamTokenCustody {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("configure")?;
-        let original = self.select_configuration(&directory, policy, options.deadline)?;
+        let (original, _) = self.select_configuration(&directory, policy, options.deadline)?;
         journal::explicit(
             &directory,
             &original,
@@ -252,19 +255,32 @@ impl ManagedStreamTokenCustody {
         )?;
         self.advance_configure(options.deadline)
     }
-    fn select_configuration(
+    fn select_configuration<'a>(
         &mut self,
-        directory: &PrivateDirectory,
+        directory: &'a PrivateDirectory,
         policy: &SignerCustodyPolicyV1,
         deadline: Instant,
-    ) -> Result<Original> {
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        self.select_configuration_using(directory, policy, deadline, Self::observe)
+    }
+    fn select_configuration_using<'a>(
+        &mut self,
+        directory: &'a PrivateDirectory,
+        policy: &SignerCustodyPolicyV1,
+        deadline: Instant,
+        observe: impl FnOnce(
+            &mut Self,
+            &SignerCustodyBindingV1,
+            Instant,
+        ) -> Result<(FinalityVerifier, VerifiedStreamTokenCustodyStateV1)>,
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_configuration(policy)?;
             self.validate_original(&original, CustodyPurpose::Configure)?;
-            return Ok(original);
+            return Ok((original, None));
         }
         require_empty(directory)?;
-        let (verifier, current) = self.observe(&policy.binding, deadline)?;
+        let (verifier, current) = observe(self, &policy.binding, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial custody configuration already exists"));
         }
@@ -274,8 +290,9 @@ impl ManagedStreamTokenCustody {
             checkpoint: checkpoint_bytes(&verifier)?,
         };
         self.validate_original(&original, CustodyPurpose::Configure)?;
-        journal::publish_intent(directory, &original)?;
-        Ok(original)
+        let admission = journal::publish_intent(directory, &original)?
+            .map(|published| InitialAdmission::new(published, verifier, current));
+        Ok((original, admission))
     }
 
     /// Retain an independently attested first body after exact native Configure inclusion.
@@ -390,13 +407,14 @@ impl ManagedStreamTokenCustody {
         }
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("configure")?;
-        let original = self.select_configuration(&directory, policy, deadline)?;
+        let (original, admission) = self.select_configuration(&directory, policy, deadline)?;
         self.select_generated_attempt(
             &directory,
             &original,
             &HistoryScope::FixedBody,
             authorization,
             deadline,
+            admission,
         )?;
         self.advance(
             CustodyPurpose::Configure,
@@ -471,7 +489,7 @@ impl ManagedStreamTokenCustody {
         };
         authorization.validate(&self.authority, purpose, deadline)?;
         let (directory, original, scope) = history.dispatch()?;
-        self.select_generated_attempt(directory, original, scope, authorization, deadline)?;
+        self.select_generated_attempt(directory, original, scope, authorization, deadline, None)?;
         let selected = history.into_reparsed_selected(self)?;
         self.advance_selected(
             CustodyPurpose::InitialEnroll,
@@ -488,6 +506,7 @@ impl ManagedStreamTokenCustody {
         scope: &HistoryScope,
         authorization: &dyn DispatchAuthorization,
         deadline: Instant,
+        mut admission: Option<InitialAdmission<'_>>,
     ) -> Result<()> {
         let purpose = original.dispatch_purpose()?;
         let account = self.wallet()?;
@@ -496,7 +515,8 @@ impl ManagedStreamTokenCustody {
             Action::Enroll { validity, .. } => Some(validity.expires_at_unix_ms),
         };
         let account = authorization.bind_account(account)?;
-        attempts::generated(
+        let inspection = body_history::NativeClosureInspector::new(original, &account, deadline);
+        attempts::generated_native(
             directory,
             purpose,
             original.digest()?,
@@ -504,6 +524,7 @@ impl ManagedStreamTokenCustody {
             authorization,
             deadline,
             body_expiry,
+            &inspection,
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
@@ -519,7 +540,9 @@ impl ManagedStreamTokenCustody {
                     .request(attempt.terms(), observation, deadline)?
                     .retain(&account, &attempt.wallet_path())
             },
-            |_, deadline| self.fresh_original_predecessor(original, deadline),
+            |prerequisite, deadline| {
+                self.initial_prerequisite(original, &mut admission, prerequisite, deadline)
+            },
             |attempt| match &original.action {
                 Action::Configure(_) => Ok(true),
                 Action::Enroll { validity, .. } => {
@@ -885,7 +908,39 @@ impl ManagedStreamTokenCustody {
         deadline: Instant,
         mode: Mode<'_>,
         observe_current: bool,
+        validation: Option<&mut EpochValidationScope>,
+    ) -> Result<ManagedCustodyProgress> {
+        self.advance_selected_with_preflight(
+            purpose,
+            original,
+            deadline,
+            mode,
+            observe_current,
+            validation,
+            |owner, binding, deadline| {
+                let observed = owner.authority.observe_finality(deadline)?;
+                let current = owner.read_current(binding, &observed, deadline).ok();
+                Ok((observed, current))
+            },
+        )
+    }
+
+    // One native acquisition seam, shared by production and genuine component mutation tests.
+    // The current predicate, wallets, fees, signing and dispatch remain below this boundary.
+    fn advance_selected_with_preflight(
+        &mut self,
+        purpose: CustodyPurpose,
+        original: Selected<Original>,
+        deadline: Instant,
+        mode: Mode<'_>,
+        observe_current: bool,
         mut validation: Option<&mut EpochValidationScope>,
+        preflight: impl FnOnce(
+            &mut Self,
+            &SignerCustodyBindingV1,
+            Instant,
+        )
+            -> Result<(FinalityVerifier, Option<VerifiedStreamTokenCustodyStateV1>)>,
     ) -> Result<ManagedCustodyProgress> {
         let directory = original.directory();
         self.validate_original_with_imports(
@@ -988,10 +1043,14 @@ impl ManagedStreamTokenCustody {
                 current,
             });
         }
-        let observed = self.authority.observe_finality(deadline)?;
-        let current = self
-            .read_current(&original.selection.binding, &observed, deadline)
-            .ok();
+        // Read-only signed recovery has no preparation or dispatch effect for this predecessor
+        // preflight to authorize. Its fresh post-resume carrier and current proofs stay separate.
+        let (_preflight_observation, current) = if mode.submits() {
+            let (observed, current) = preflight(self, &original.selection.binding, deadline)?;
+            (Some(observed), current)
+        } else {
+            (None, None)
+        };
         let unchanged = current.as_ref().is_some_and(|state| {
             matches_predecessor(
                 &original.selection,
@@ -1350,3 +1409,7 @@ mod borrowed_tip_tests;
 #[cfg(test)]
 #[path = "stream_token_custody/enrollment_inventory_tests.rs"]
 mod enrollment_inventory_tests;
+
+#[cfg(test)]
+#[path = "stream_token_custody/initial_admission_tests.rs"]
+mod initial_admission_tests;

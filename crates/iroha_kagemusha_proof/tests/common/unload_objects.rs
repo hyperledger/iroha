@@ -17,6 +17,7 @@ use iroha_plonk_gadgets::{bytes::p_bytes_native, statement::STATEMENT_DOMAIN};
 
 pub fn transition(
     before: &StateWitness,
+    load_receipt: Option<&[u8; 282]>,
     retiring: bool,
 ) -> (ConsumingWitness, Option<IndexedInsert<Fp>>) {
     let mut after = BootstrapWitness {
@@ -57,15 +58,33 @@ pub fn transition(
         after.statement[18] = ordinal;
         after.statement[19] = amount;
         // Zero online fees are the default; there is no quote to authenticate.
-        let (initial, _, _) = bootstrap_objects::enrollment();
-        let (loaded, _, ordinary) = load_objects::funded(&initial);
+        // The compact predecessor has exactly one Load. Its original receipt was
+        // admitted by native BLS/event verification and then bound by the actual
+        // Load proof; reconstructing this map is not another finality check.
+        let receipt = load_receipt.expect("Unload requires its authenticated Load original");
+        assert_eq!(&receipt[..2], &1_u16.to_le_bytes());
+        for (offset, field) in [(2, core::SCHEME), (34, core::ASSET), (66, core::WALLET)] {
+            assert_eq!(
+                &receipt[offset..offset + 32],
+                bootstrap_objects::id(before.core[field], before.core[field + 1])
+            );
+        }
+        let word = |offset| {
+            Fp::from_u128(u128::from_le_bytes(
+                receipt[offset..offset + 16].try_into().unwrap(),
+            ))
+        };
+        let load_ordinal = word(130);
+        let load_amount = word(146);
+        assert_eq!(load_ordinal, Fp::ZERO, "exact first-Load fixture");
+        assert_eq!(before.core[core::NEXT_LOAD], load_ordinal + Fp::ONE);
+        let ordinary = load_objects::OrdinaryReceipt { bytes: *receipt };
         let mut tree = IndexedTree::new();
         tree.insert(
-            Fp::from(2).pow_vartime([128]),
-            hash_with_domain(LOAD_DOMAIN, &[Fp::ZERO, ordinary.digest(), Fp::from(100)]),
+            Fp::from(2).pow_vartime([128]) + load_ordinal,
+            hash_with_domain(LOAD_DOMAIN, &[load_ordinal, ordinary.digest(), load_amount]),
         )
         .unwrap();
-        assert_eq!(tree.root(), loaded.successor.core[core::LOAD_REDEEM_ROOT]);
         assert_eq!(tree.root(), before.core[core::LOAD_REDEEM_ROOT]);
         let insert = tree
             .insert(

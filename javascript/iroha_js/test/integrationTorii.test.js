@@ -5213,7 +5213,16 @@ function assertEvidenceU64(value, label) {
   assert.ok(integer >= 0n && integer <= 0xffffffffffffffffn, `${label} must be a u64`);
 }
 
-function assertEvidenceRecord(entry) {
+function assertEvidenceRecord(envelope) {
+  assert.ok(envelope && typeof envelope === "object", "evidence envelope must be an object");
+  assert.deepEqual(Object.keys(envelope).sort(), ["kind", "value"]);
+  assert.ok(["NativeSumeragiEvidence", "SccpForgeryEvidence"].includes(envelope.kind));
+  if (envelope.kind === "SccpForgeryEvidence") {
+    assertSccpEvidenceRecord(envelope.value);
+    return;
+  }
+  assert.equal(envelope.kind, "NativeSumeragiEvidence");
+  const entry = envelope.value;
   assert.ok(entry && typeof entry === "object", "evidence entry must be an object");
   assert.deepEqual(Object.keys(entry).sort(), [
     "authority_generation",
@@ -5223,7 +5232,6 @@ function assertEvidenceRecord(entry) {
     "epoch",
     "height",
     "instance",
-    "kind",
     "native_frame_hash",
     "offenders",
     "penalty_status",
@@ -5231,8 +5239,25 @@ function assertEvidenceRecord(entry) {
     "recorded_ms",
     "recorded_view",
     "safety_violation",
+    "scope",
   ]);
-  assert.equal(entry.kind, "NativeSumeragiEvidence");
+  assert.deepEqual(Object.keys(entry.scope).sort(), ["kind", "value"]);
+  assert.ok(["root", "lane"].includes(entry.scope.kind));
+  if (entry.scope.kind === "root") {
+    assert.equal(entry.scope.value, null);
+  } else {
+    assert.deepEqual(Object.keys(entry.scope.value).sort(), [
+      "admission_parent_core_hash", "admission_parent_hash", "admission_parent_height",
+      "admission_parent_result", "created_at", "incarnation", "lane",
+    ]);
+    assert.ok(Number.isInteger(entry.scope.value.lane) && entry.scope.value.lane >= 0 && entry.scope.value.lane <= 0xffffffff);
+    for (const field of ["incarnation", "admission_parent_core_hash", "admission_parent_result"]) {
+      assert.match(entry.scope.value[field], /^[0-9A-Fa-f]{64}$/u);
+    }
+    assert.match(entry.scope.value.admission_parent_hash, /^hash:[0-9A-F]{64}#[0-9A-F]{4}$/u);
+    assertEvidenceU64(entry.scope.value.created_at, "lane created_at");
+    assertEvidenceU64(entry.scope.value.admission_parent_height, "lane admission_parent_height");
+  }
   assert.ok(["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"].includes(entry.class));
   assertEvidenceU64(entry.height, "native evidence height");
   assertEvidenceU64(entry.epoch, "native evidence epoch");
@@ -5276,5 +5301,72 @@ function assertEvidenceRecord(entry) {
       entry.penalty_status.details.height,
       "evidence penalty height",
     );
+  }
+}
+
+
+function assertSccpEvidenceRecord(entry) {
+  assert.deepEqual(Object.keys(entry).sort(), [
+    "attribution", "consensus_admitted_height", "penalty_status", "record",
+    "recorded_height", "recorded_ms", "recorded_view",
+  ]);
+  const { record, attribution } = entry;
+  assert.deepEqual(Object.keys(record).sort(), ["evidence", "generation", "offenders", "rule", "start_height"]);
+  assert.deepEqual(Object.keys(record.evidence).sort(), ["aggregate_signature", "anchor", "header", "qc"]);
+  assert.match(record.evidence.qc, /^[0-9A-Fa-f]{232}$/u);
+  assert.match(record.evidence.header, /^[0-9A-Fa-f]{442}$/u);
+  assert.match(record.evidence.aggregate_signature, /^[0-9A-Fa-f]{192}$/u);
+  if (record.evidence.anchor !== null) {
+    assert.deepEqual(Object.keys(record.evidence.anchor).sort(), ["core_hash", "path", "result"]);
+    assert.match(record.evidence.anchor.core_hash, /^[0-9A-Fa-f]{64}$/u);
+    assert.match(record.evidence.anchor.result, /^[0-9A-Fa-f]{64}$/u);
+    assert.equal(record.evidence.anchor.path.length, 12);
+    for (const sibling of record.evidence.anchor.path) assert.match(sibling, /^[0-9A-Fa-f]{64}$/u);
+  }
+  assert.deepEqual(Object.keys(record.rule).sort(), ["detail", "rule"]);
+  assert.ok(["E1", "E2", "E3", "E4"].includes(record.rule.rule));
+  assert.equal(record.rule.detail, null);
+  assertEvidenceU64(record.generation, "SCCP generation");
+  assertEvidenceU64(record.start_height, "SCCP liability start");
+  assert.ok(BigInt(record.generation) > 0n && BigInt(record.start_height) > 0n);
+  assert.deepEqual(Object.keys(attribution).sort(), [
+    "authority_generation", "context_id", "epoch", "height", "instance", "offenders", "safety_violation", "scope",
+  ]);
+  assert.deepEqual(attribution.scope, { kind: "sccp_generation", value: { generation: record.generation } });
+  assert.equal(attribution.height, record.start_height);
+  assertEvidenceU64(attribution.epoch, "SCCP claimed epoch");
+  for (const field of ["instance", "context_id", "authority_generation"]) assert.match(attribution[field], /^[0-9A-Fa-f]{64}$/u);
+  assert.equal(typeof attribution.safety_violation, "boolean");
+  assert.ok(record.offenders.length > 0 && record.offenders.length <= 31);
+  assert.equal(attribution.offenders.length, record.offenders.length);
+  let previous = -1;
+  const registrations = new Set();
+  for (const [index, offender] of record.offenders.entries()) {
+    assert.deepEqual(Object.keys(offender).sort(), ["activation_height", "lane_id", "signer", "validator"]);
+    assert.ok(Number.isInteger(offender.signer) && offender.signer > previous && offender.signer < 31);
+    previous = offender.signer;
+    assert.ok(Number.isInteger(offender.lane_id) && offender.lane_id >= 0 && offender.lane_id <= 0xffffffff);
+    assert.equal(typeof offender.validator, "string");
+    const registration = `${offender.lane_id}:${offender.validator}`;
+    assert.ok(!registrations.has(registration));
+    registrations.add(registration);
+    assertEvidenceU64(offender.activation_height, "SCCP registration activation");
+    assert.ok(BigInt(offender.activation_height) > 0n && BigInt(offender.activation_height) <= BigInt(record.start_height));
+    const peer = attribution.offenders[index];
+    assert.deepEqual(Object.keys(peer).sort(), ["lane_stake", "peer_id", "signer"]);
+    assert.equal(peer.signer, offender.signer);
+    assert.match(peer.peer_id, /^ea0130[0-9A-F]{96}$/u);
+    assert.equal(peer.lane_stake, null);
+  }
+  for (const field of ["recorded_height", "recorded_view", "recorded_ms", "consensus_admitted_height"]) {
+    assertEvidenceU64(entry[field], `SCCP evidence ${field}`);
+  }
+  assert.deepEqual(Object.keys(entry.penalty_status).sort(), ["details", "status"]);
+  if (entry.penalty_status.status === "pending") {
+    assert.equal(entry.penalty_status.details, null);
+  } else {
+    assert.equal(entry.penalty_status.status, "applied");
+    assert.deepEqual(Object.keys(entry.penalty_status.details), ["height"]);
+    assertEvidenceU64(entry.penalty_status.details.height, "SCCP penalty height");
   }
 }

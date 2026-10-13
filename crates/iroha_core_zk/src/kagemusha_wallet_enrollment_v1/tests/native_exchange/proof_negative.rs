@@ -84,7 +84,7 @@ pub(super) fn claim(
         &signer,
         &bad.package.statement,
         &proof_digest,
-        bad.package.receipt.capsule_digest,
+        bad.package.receipt.capsule_commitment,
         bad.package.receipt.payment_digest,
     )
     .unwrap();
@@ -101,7 +101,7 @@ pub(super) fn claim(
         &bad.credential,
         &bad.package.statement,
         &proof_digest,
-        bad.package.receipt.capsule_digest,
+        bad.package.receipt.capsule_commitment,
         bad.package.receipt.payment_digest,
         KagemushaWalletSignerOutputV1::Raw(signature_bytes),
     )

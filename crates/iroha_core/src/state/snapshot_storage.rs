@@ -119,100 +119,7 @@ pub(super) fn decode_blob<T: DecodeAll + Encode>(
     Ok(decoded)
 }
 
-/// Decode the canonical claim while retaining the original local resource refusal.
-fn decode_blob_for_restore<T: DecodeAll + Encode>(
-    record: SnapshotNoritoBlob,
-    field: &str,
-) -> Result<T, StateRestoreError> {
-    let invalid = |message| json::Error::InvalidField {
-        field: field.to_owned(),
-        message,
-    };
-    let bytes = hex::decode(&record.encoded_hex)
-        .map_err(|error| invalid(format!("invalid Norito hex: {error}")))?;
-    if hex::encode(&bytes) != record.encoded_hex {
-        return Err(invalid("noncanonical Norito hex".into()).into());
-    }
-    let decoded = T::decode_all(&mut bytes.as_slice()).map_err(|error| {
-        StateRestoreError::from(crate::execution_attempt::norito_decode_attempt_error(
-            error,
-            |error| invalid(format!("invalid Norito record: {error}")),
-        ))
-    })?;
-    if decoded.encode() != bytes {
-        return Err(invalid("record is not canonical Norito".into()).into());
-    }
-    Ok(decoded)
-}
-
 impl SnapshotStorage {
-    /// Stream validated claims into their original admitted current/undo maps.
-    /// Source decoding scratch remains with the enclosing snapshot decoder; only
-    /// admitted immutable owners enter the map. No untracked intermediate map exists.
-    pub(super) fn decode_admitted<K, D, V, P>(
-        self,
-        field: &str,
-        budget: iroha_allocation::AllocationBudget,
-        matches_key: impl Fn(&K, &D) -> bool,
-        admit: impl Fn(D) -> Result<V, StateRestoreError>,
-    ) -> Result<Storage<K, V, concread::bptree::Prepaid<P>>, StateRestoreError>
-    where
-        K: mv::Key + Copy + DecodeAll + Encode,
-        D: DecodeAll + Encode,
-        V: mv::Value,
-        P: mv::storage::AdmittedStoragePolicy
-            + concread::bptree::ClonePlanning<K, V>
-            + concread::bptree::ClonePlanning<K, Option<V>>,
-    {
-        let invalid = |message: &str| {
-            StateRestoreError::from(json::Error::InvalidField {
-                field: field.to_owned(),
-                message: message.to_owned(),
-            })
-        };
-        Storage::try_restore_admitted(budget, |current, undo| {
-            let mut last = None;
-            for record in self.revert {
-                let key: K = decode_blob_for_restore(record.key, field)?;
-                if last.is_some_and(|last| last >= key) {
-                    return Err(invalid("undo records are not in strict semantic key order"));
-                }
-                last = Some(key);
-                let value = record
-                    .value
-                    .map(|blob| {
-                        let claim: D = decode_blob_for_restore(blob, field)?;
-                        if !matches_key(&key, &claim) {
-                            return Err(invalid("undo record does not match its key"));
-                        }
-                        admit(claim)
-                    })
-                    .transpose()?;
-                undo(key, value)?;
-            }
-            let mut last = None;
-            for record in self.blocks {
-                let key: K = decode_blob_for_restore(record.key, field)?;
-                if last.is_some_and(|last| last >= key) {
-                    return Err(invalid(
-                        "current records are not in strict semantic key order",
-                    ));
-                }
-                last = Some(key);
-                let claim: D = decode_blob_for_restore(record.value, field)?;
-                if !matches_key(&key, &claim) {
-                    return Err(invalid("current record does not match its key"));
-                }
-                current(key, admit(claim)?)?;
-            }
-            Ok(())
-        })
-        .map_err(|error| match error {
-            mv::storage::AdmittedBlockError::Admission(error) => error.into(),
-            mv::storage::AdmittedBlockError::Callback(error) => error,
-        })
-    }
-
     pub(super) fn decode<K, V>(
         self,
         field: &str,
@@ -273,3 +180,198 @@ impl SnapshotStorage {
 #[cfg(test)]
 #[path = "snapshot_storage_tests.rs"]
 mod tests;
+
+impl SnapshotStorage {
+    /// Restore exact current and undo entries directly into private admitted maps.
+    /// The input JSON envelope belongs to the caller; every new record graph and
+    /// current/undo map allocation comes from this unchanged original store pool.
+    pub(crate) fn decode_generations(
+        self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        crate::smartcontracts::isi::sccp::committee_storage::CommitteeStorage,
+        StateRestoreError,
+    > {
+        use crate::smartcontracts::isi::sccp::{
+            committee_storage::CommitteeStorage,
+            generation_record::{GenerationRecordError, RetainedSccpGeneration},
+        };
+        fn invalid(message: &str) -> StateRestoreError {
+            json::Error::InvalidField {
+                field: "sccp_committee_generations".into(),
+                message: message.into(),
+            }
+            .into()
+        }
+        fn key(blob: SnapshotNoritoBlob) -> Result<u64, StateRestoreError> {
+            // Fixed V1 u64 payload is exactly eight bytes. Reject alternate hex
+            // and canonical Norito spellings without allocating a scratch Vec.
+            let mut bytes = [0u8; 8];
+            if blob.encoded_hex.len() != 16
+                || blob
+                    .encoded_hex
+                    .bytes()
+                    .any(|b| !(b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+            {
+                return Err(invalid("noncanonical generation key hex"));
+            }
+            hex::decode_to_slice(&blob.encoded_hex, &mut bytes)
+                .map_err(|_| invalid("invalid generation key hex"))?;
+            let key = u64::decode_all(&mut bytes.as_slice())
+                .map_err(|_| invalid("invalid generation key"))?;
+            norito::codec::verify_exact_payload(&key, &bytes)
+                .map_err(|_| invalid("noncanonical generation key"))?;
+            Ok(key)
+        }
+        let result = CommitteeStorage::try_restore_admitted(budget.clone(), |current, undo| {
+            let mut last = None;
+            for original in self.revert {
+                let key = key(original.key)?;
+                if last.is_some_and(|previous| previous >= key) {
+                    return Err(invalid("undo records are not in strict semantic key order"));
+                }
+                last = Some(key);
+                let value = original
+                    .value
+                    .map(|blob| {
+                        RetainedSccpGeneration::decode_snapshot_hex(&blob.encoded_hex, budget)
+                    })
+                    .transpose()
+                    .map_err(|error| match error {
+                        GenerationRecordError::Invalid(_) => invalid("invalid undo record"),
+                        resource => StateRestoreError::Sccp(
+                            sccp_snapshot_state::SccpRestoreError::Generation(resource),
+                        ),
+                    })?;
+                if value.as_ref().is_some_and(|value| value.generation != key) {
+                    return Err(invalid("undo record does not match its key"));
+                }
+                undo(key, value)?;
+            }
+            last = None;
+            for original in self.blocks {
+                let key = key(original.key)?;
+                if last.is_some_and(|previous| previous >= key) {
+                    return Err(invalid(
+                        "current records are not in strict semantic key order",
+                    ));
+                }
+                last = Some(key);
+                let value = RetainedSccpGeneration::decode_snapshot_hex(
+                    &original.value.encoded_hex,
+                    budget,
+                )
+                .map_err(|error| match error {
+                    GenerationRecordError::Invalid(_) => invalid("invalid current record"),
+                    resource => StateRestoreError::Sccp(
+                        sccp_snapshot_state::SccpRestoreError::Generation(resource),
+                    ),
+                })?;
+                if value.generation != key {
+                    return Err(invalid("current record does not match its key"));
+                }
+                current(key, value)?;
+            }
+            Ok::<_, StateRestoreError>(())
+        });
+        result.map_err(|error| match error {
+            mv::storage::AdmittedBlockError::Admission(error) => error.into(),
+            mv::storage::AdmittedBlockError::Callback(error) => error,
+        })
+    }
+}
+
+impl SnapshotStorage {
+    /// Restore permanent offence tuples directly into originally admitted current/undo maps.
+    pub(super) fn decode_forgery_offences(
+        self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<sccp_forgery_custody::OffenceStorage, StateRestoreError> {
+        use sccp_forgery_custody::{ForgeryStorageError, OffenceKey, OffenceStorage};
+        fn invalid(message: &str) -> StateRestoreError {
+            json::Error::InvalidField {
+                field: "sccp_forgery_offences".into(),
+                message: message.into(),
+            }
+            .into()
+        }
+        fn key(
+            blob: SnapshotNoritoBlob,
+            budget: &iroha_allocation::AllocationBudget,
+        ) -> Result<OffenceKey, StateRestoreError> {
+            OffenceKey::decode_snapshot_hex(&blob.encoded_hex, budget).map_err(|e| match e {
+                ForgeryStorageError::Invalid => invalid("invalid offence tuple"),
+                resource => resource.into(),
+            })
+        }
+        fn value(
+            blob: SnapshotNoritoBlob,
+            budget: &iroha_allocation::AllocationBudget,
+        ) -> Result<[u8; 32], StateRestoreError> {
+            let text = blob.encoded_hex;
+            if text.len() % 2 != 0
+                || text
+                    .bytes()
+                    .any(|b| !b.is_ascii_digit() && !(b'a'..=b'f').contains(&b))
+            {
+                return Err(invalid("noncanonical evidence-id hex"));
+            }
+            let mut bytes =
+                iroha_allocation::ChargedBuffer::new(text.len() / 2, budget).map_err(|e| {
+                    StateRestoreError::Evidence(
+                        crate::sumeragi::evidence::record::EvidenceRecordRestoreError::Preparation(
+                            crate::state::EvidencePreparationError::from(e),
+                        ),
+                    )
+                })?;
+            for pair in text.as_bytes().chunks_exact(2) {
+                let nibble = |b: u8| {
+                    if b.is_ascii_digit() {
+                        b - b'0'
+                    } else {
+                        b - b'a' + 10
+                    }
+                };
+                bytes.push_reserved(nibble(pair[0]) * 16 + nibble(pair[1]));
+            }
+            let value = <[u8; 32]>::decode_all(&mut bytes.as_slice()).map_err(|e| {
+                e.decode_resource_error().map_or_else(
+                    || invalid("invalid evidence-id payload"),
+                    |e| ForgeryStorageError::Codec(e).into(),
+                )
+            })?;
+            norito::codec::verify_exact_payload(&value, bytes.as_slice()).map_err(|e| {
+                e.decode_resource_error().map_or_else(
+                    || invalid("noncanonical evidence-id payload"),
+                    |e| ForgeryStorageError::Codec(e).into(),
+                )
+            })?;
+            Ok(value)
+        }
+        let result = OffenceStorage::try_restore_admitted(budget.clone(), |current, undo| {
+            let mut last: Option<OffenceKey> = None;
+            for row in self.revert {
+                let key = key(row.key, budget)?;
+                if last.as_ref().is_some_and(|last| last >= &key) {
+                    return Err(invalid("undo offence keys are not strictly ordered"));
+                }
+                last = Some(key.clone());
+                undo(key, row.value.map(|blob| value(blob, budget)).transpose()?)?;
+            }
+            last = None;
+            for row in self.blocks {
+                let key = key(row.key, budget)?;
+                if last.as_ref().is_some_and(|last| last >= &key) {
+                    return Err(invalid("current offence keys are not strictly ordered"));
+                }
+                last = Some(key.clone());
+                current(key, value(row.value, budget)?)?;
+            }
+            Ok::<_, StateRestoreError>(())
+        });
+        result.map_err(|e| match e {
+            mv::storage::AdmittedBlockError::Admission(e) => e.into(),
+            mv::storage::AdmittedBlockError::Callback(e) => e,
+        })
+    }
+}

@@ -4,7 +4,7 @@ mod argument_refusal_tests {
     use crate::execution_attempt::{ExecutionAttemptError, expect_completed_rejection};
     use norito::core::{DecodeLimits, with_decode_limits_measured, with_decode_limits_scope};
 
-    #[derive(Clone, Copy, core::fmt::Debug)]
+    #[derive(Clone, Copy, std::fmt::Debug)]
     enum Route {
         Invocation,
         Metadata,

@@ -36,10 +36,7 @@ fn wallet_advance_v1_terminal_confirmation_and_reason() {
     let f = wallet_fixture(0x90);
     let enrollment = f.enrollment_record(BOOT_A);
     let selected = enrollment
-        .select(
-            bootstrap_capsule(&f).head_marker_state().expect("head"),
-            BOOT_A,
-        )
+        .select(bootstrap_capsule(&f).head_marker_state(), BOOT_A)
         .expect("select");
     let terminal = selected
         .terminate(KagemushaWalletTerminalReasonV1::CustodyDeleted, BOOT_A)
@@ -157,10 +154,7 @@ fn wallet_advance_v1_terminal_abandonment_is_refused_after_bootstrap() {
     let enrollment = provider.status(&slot).expect("status");
     let enrollment = enrollment.marker().expect("marker").clone();
     let selected = enrollment
-        .select(
-            bootstrap_capsule(&f).head_marker_state().expect("head"),
-            BOOT_A,
-        )
+        .select(bootstrap_capsule(&f).head_marker_state(), BOOT_A)
         .expect("select");
     kagemusha_wallet_publish_marker_v1(provider.store(), selected).expect("publish");
     assert_eq!(
@@ -485,15 +479,21 @@ fn native_deletion_review_projects_actual_pending_and_released_custody() {
         let view = review.projection();
         assert_eq!(view.pending, pending);
         assert_eq!(view.slot, slot.0);
-        assert_eq!(view.operation_kind, capsule.kind);
-        assert_eq!(view.head, capsule.statement.successor.value);
-        assert_eq!(view.gross_balance, capsule.successor_state.core.balance);
+        assert_eq!(view.operation_kind, capsule.body().kind);
+        assert_eq!(view.head, capsule.body().statement.successor.value);
+        assert_eq!(
+            view.gross_balance,
+            capsule.body().successor_state.core.balance
+        );
         assert_eq!(
             view.core_burned_total,
-            capsule.successor_state.core.burned_total
+            capsule.body().successor_state.core.burned_total
         );
-        assert_eq!(view.sequence, capsule.successor_state.core.sequence);
-        assert_eq!(view.lifecycle, capsule.successor_state.core.lifecycle);
+        assert_eq!(view.sequence, capsule.body().successor_state.core.sequence);
+        assert_eq!(
+            view.lifecycle,
+            capsule.body().successor_state.core.lifecycle
+        );
         // The shared Advance fixture deliberately retains nonempty outgoing, fee and
         // Load/Unload roots (test_support::state_for); review must expose every warning.
         assert!(view.pending_outgoing && view.fee_claims && view.load_redeem);

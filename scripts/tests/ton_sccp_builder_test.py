@@ -182,11 +182,11 @@ def test_contract_sources_are_exactly_the_v1_set() -> None:
 
 def test_security_notes_describe_the_v1_design() -> None:
     text = (builder.PROJECT / "SECURITY.md").read_text(encoding="utf-8")
-    # TODO: WP-TON (map step T9): SECURITY.md still describes the revision 4
-    # attestation design. When it is rewritten, also require the revision 5
-    # terms here (`sccp_checkpoint`, `BLS_FASTAGGREGATEVERIFY`, `sccp_latched`).
     for current in (
         "sccp_apply_control",
+        "sccp_checkpoint",
+        "BLS_FASTAGGREGATEVERIFY",
+        "sccp_latched",
         "control_nonce",
         "raw_reserve",
         "MINTER_FLOOR",
@@ -940,12 +940,13 @@ def test_test_command_records_gas_and_applies_the_baseline(
         return GAS_OUTPUT
 
     monkeypatch.setattr(builder, "run_acton", fake_acton)
-    # without a baseline the run is recorded and the comparison is reported as not run
-    builder.command_test(Path("/acton"), [])
+    # A missing baseline refuses qualification while preserving the measured run.
+    with pytest.raises(builder.TonBuilderError, match="gas-baseline.json is missing"):
+        builder.command_test(Path("/acton"), [])
     assert calls == [["test", "tests/unit"]]
     rows = builder.load_gas_report(current)
     assert rows["checkpoint n=31"] == {"gas": 164189, "limit": 250000}
-    assert "the 1.1 x gas comparison did not run" in capsys.readouterr().out
+    assert "gas is within" not in capsys.readouterr().out
     # the recorded run is its own baseline
     baseline.write_text(current.read_text())
     builder.command_test(Path("/acton"), [])

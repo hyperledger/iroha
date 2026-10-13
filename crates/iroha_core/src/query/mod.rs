@@ -162,7 +162,11 @@ pub fn insert_evidence_record_for_test(state: &mut crate::state::State, record: 
     let header = iroha_data_model::block::BlockHeader::new(height_u64, None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
-    let key = crate::sumeragi::evidence::evidence_key(&record.evidence);
+    let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(proof) = &record.evidence
+    else {
+        panic!("SCCP admission is not implemented by the native query fixture owner");
+    };
+    let key = crate::sumeragi::evidence::evidence_key(proof);
     let record =
         crate::state::RetainedEvidenceRecord::from_fixture(record, &state.ivm_execution_budget())
             .expect("query fixture graph is funded by the original execution pool");

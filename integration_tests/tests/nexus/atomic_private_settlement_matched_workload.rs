@@ -256,7 +256,15 @@ impl MatchedBenchmarkWorkloadV1 {
     ) -> Result<SettleAtomic> {
         Ok(SettleAtomic::new(
             network_id,
-            format!("matched_{}", self.digest()?).parse()?,
+            iroha::data_model::isi::SettlementId::new(
+                self.payments
+                    .first()
+                    .ok_or_else(|| eyre!("empty payment vector"))?
+                    .source
+                    .account()
+                    .clone(),
+                format!("matched_{}", self.digest()?).parse()?,
+            ),
             self.movements()?,
             NonZeroU64::new(expiry).ok_or_else(|| eyre!("zero settlement expiry"))?,
             Metadata::default(),

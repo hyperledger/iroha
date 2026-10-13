@@ -17,7 +17,12 @@ fn fee_policy(
         if bytes.is_empty() || bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
             return Err(Error::Invalid("Request fee PolicyData bound"));
         }
-        match valid(KagemushaWalletEnvelopeV1::decode_canonical(bytes, scheme))?.message {
+        match read_model_original(
+            || KagemushaWalletEnvelopeV1::decode_canonical(bytes, scheme),
+            Error::Invalid("G1 validation"),
+        )?
+        .message
+        {
             KagemushaWalletMessageV1::PolicyData { data } => Ok(data),
             _ => Err(Error::Invalid("Request fee PolicyData kind")),
         }
@@ -55,7 +60,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let before = self.snapshot()?;
         let (_, manifest) = self.manifest()?;
         let source = self.indexed_step(&manifest, before.sequence)?;
-        let state = source.frozen.capsule.successor_state;
+        let state = source.frozen.capsule.body().successor_state;
         self.source_custody(&manifest, &source)?;
         if valid(state.commitment())?.value != before.head || self.snapshot()? != before {
             return Err(Error::WitnessLost("Request fee selection changed"));
@@ -182,6 +187,15 @@ mod tests {
         );
         assert!(schedule.fee(100_000).unwrap() > 0);
         assert_eq!(fee_policy(&scheme, &a, &b).unwrap(), (actual, issuer));
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let refused = norito::with_decode_limits_scope(limits, || fee_policy(&scheme, &a, &b));
+            assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            assert_eq!(fee_policy(&scheme, &a, &b).unwrap(), (actual, issuer));
+        }
     }
     #[test]
     fn fee_pair_refuses_wrong_items_assets_signatures_missing_signer_and_noncanonical_bounds() {

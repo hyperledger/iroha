@@ -5,14 +5,14 @@
 //! Parliament governance events; SCCP adds only [`SccpEvent::GovernanceEnacted`] with the
 //! subjects it changed.
 //!
-//! Codec indices 2 to 9 belonged to the events of the attestation transport and stay
-//! unassigned: no variant decodes from them, and new events take indices above the last one.
+//! The first-release event family has one contiguous native layout.
 
 use super::{
     generation::SccpGenerationCauseV1,
     governance::SccpGovernanceSubjectV1,
     inbound::SccpSourceLocatorV1,
     light_client::{SccpLcFreezeReasonV1, SccpLcPointV1},
+    native::{SccpForgeryOffenderV1, SccpForgeryRuleV1},
     outbound::SccpVoidKindV1,
     registry::SccpRouteActivationV1,
 };
@@ -554,6 +554,81 @@ sccp_event_payload! {
     }
 }
 
+sccp_event_payload! {
+    /// A native SCCP forgery was admitted and permanently recorded (§4.9).
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpForgeryEvidenceRecordedV1")]
+    pub struct SccpForgeryEvidenceRecordedV1 {
+        /// Exact immutable evidence identifier.
+        pub evidence_id: [u8; 32],
+        /// Retained native committee generation.
+        pub generation: u64,
+        /// Height claimed by the signed X, not the penalty-liability height.
+        pub height: u64,
+        /// First E1–E4 mismatch established at admission.
+        pub rule: SccpForgeryRuleV1,
+        /// Newly deduplicated slashable signers with original registration identity.
+        pub offenders: Vec<SccpForgeryOffenderV1>,
+    }
+}
+
+sccp_event_payload! {
+    /// An authenticated forgery signer has no retained staking member (§4.9 step 6).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpForgeryOffenderUnslashableV1")]
+    pub struct SccpForgeryOffenderUnslashableV1 {
+        /// Retained native committee generation.
+        pub generation: u64,
+        /// Original signer index whose generation member is absent.
+        pub signer: u32,
+    }
+}
+
+sccp_event_payload! {
+    /// New forgery evidence caused this revision to become held (§4.10).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpRevisionForgeryHeldV1")]
+    pub struct SccpRevisionForgeryHeldV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Route revision.
+        pub revision: u32,
+        /// Revision's unchanged forgery floor.
+        pub forgery_floor: u64,
+        /// New maximum admitted forgery generation causing the hold.
+        pub generation: u64,
+    }
+}
+
+sccp_event_payload! {
+    /// Parliament progress moved this revision above the forgery hold (§4.10).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpRevisionForgeryReleasedV1")]
+    pub struct SccpRevisionForgeryReleasedV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Route revision.
+        pub revision: u32,
+        /// Newly enacted monotone forgery floor; other holds remain independent.
+        pub forgery_floor: u64,
+    }
+}
+
+sccp_event_payload! {
+    /// Parliament permanently quarantined this revision (§4.10).
+    #[derive(Copy)]
+    #[norito_schema(name = "iroha_data_model::sccp::events::SccpRevisionQuarantinedV1")]
+    pub struct SccpRevisionQuarantinedV1 {
+        /// External route network.
+        pub network: SccpNetworkV1,
+        /// Route revision.
+        pub revision: u32,
+        /// Exact Parliament certificate that enacted quarantine.
+        pub certificate_id: [u8; 32],
+        /// Canonical enactment height.
+        pub since_height: u64,
+    }
+}
+
 /// SCCP data events (§4.17).
 #[derive(
     Debug,
@@ -587,93 +662,113 @@ pub enum SccpEvent {
     #[norito(rename = "block_committed")]
     BlockCommitted(SccpBlockCommittedV1),
     /// Inbound burn proven.
-    #[codec(index = 10)]
+    #[codec(index = 2)]
     #[norito(rename = "inbound_proven")]
     InboundProven(SccpInboundProvenV1),
     /// Absent account registered for a credit.
-    #[codec(index = 11)]
+    #[codec(index = 3)]
     #[norito(rename = "recipient_registered")]
     RecipientRegistered(SccpRecipientRegisteredV1),
     /// Inbound message released.
-    #[codec(index = 12)]
+    #[codec(index = 4)]
     #[norito(rename = "inbound_released")]
     InboundReleased(SccpInboundReleasedV1),
     /// Inbound message bounced.
-    #[codec(index = 13)]
+    #[codec(index = 5)]
     #[norito(rename = "inbound_bounced")]
     InboundBounced(SccpInboundBouncedV1),
     /// Inbound settlement hit a liability shortfall.
-    #[codec(index = 14)]
+    #[codec(index = 6)]
     #[norito(rename = "inbound_liability_shortfall")]
     InboundLiabilityShortfall(SccpInboundLiabilityShortfallV1),
     /// Outbound void proven.
-    #[codec(index = 15)]
+    #[codec(index = 7)]
     #[norito(rename = "outbound_voided")]
     OutboundVoided(SccpOutboundVoidedV1),
     /// Outbound refund paid.
-    #[codec(index = 16)]
+    #[codec(index = 8)]
     #[norito(rename = "outbound_refunded")]
     OutboundRefunded(SccpOutboundRefundedV1),
     /// Outbound value stranded.
-    #[codec(index = 17)]
+    #[codec(index = 9)]
     #[norito(rename = "outbound_stranded")]
     OutboundStranded(SccpOutboundStrandedV1),
     /// Stranded value released by the Parliament.
-    #[codec(index = 18)]
+    #[codec(index = 10)]
     #[norito(rename = "stranded_released")]
     StrandedReleased(SccpStrandedReleasedV1),
     /// Light-client head advanced.
-    #[codec(index = 19)]
+    #[codec(index = 11)]
     #[norito(rename = "light_client_advanced")]
     LightClientAdvanced(SccpLightClientAdvancedV1),
     /// Light client frozen.
-    #[codec(index = 20)]
+    #[codec(index = 12)]
     #[norito(rename = "light_client_frozen")]
     LightClientFrozen(SccpLightClientFrozenV1),
     /// Light client initialized.
-    #[codec(index = 21)]
+    #[codec(index = 13)]
     #[norito(rename = "light_client_initialized")]
     LightClientInitialized(SccpLightClientInitializedV1),
     /// Trusted checkpoint installed.
-    #[codec(index = 22)]
+    #[codec(index = 14)]
     #[norito(rename = "trusted_checkpoint_installed")]
     TrustedCheckpointInstalled(SccpTrustedCheckpointInstalledV1),
     /// Revision activation changed.
-    #[codec(index = 23)]
+    #[codec(index = 15)]
     #[norito(rename = "revision_activation_changed")]
     RevisionActivationChanged(SccpRevisionActivationChangedV1),
     /// Destination control recorded.
-    #[codec(index = 24)]
+    #[codec(index = 16)]
     #[norito(rename = "control_recorded")]
     ControlRecorded(SccpControlRecordedV1),
     /// SCCP governance proposal enacted.
-    #[codec(index = 25)]
+    #[codec(index = 17)]
     #[norito(rename = "governance_enacted")]
     GovernanceEnacted(SccpGovernanceEnactedV1),
     /// Native generation created.
-    #[codec(index = 26)]
+    #[codec(index = 18)]
     #[norito(rename = "committee_generation_created")]
     CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1),
     /// Unresolved original staking member.
-    #[codec(index = 27)]
+    #[codec(index = 19)]
     #[norito(rename = "generation_member_unslashable")]
     GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1),
     /// Recovery from a missed committee boundary.
-    #[codec(index = 28)]
+    #[codec(index = 20)]
     #[norito(rename = "committee_resync")]
     CommitteeResync(SccpCommitteeResyncV1),
     /// Every active destination cleared a deadline.
-    #[codec(index = 29)]
+    #[codec(index = 21)]
     #[norito(rename = "generation_destination_cleared")]
     GenerationDestinationCleared(SccpGenerationDestinationClearedV1),
     /// SCCP finality failed closed for one block.
-    #[codec(index = 30)]
+    #[codec(index = 22)]
     #[norito(rename = "finality_degraded")]
     FinalityDegraded(SccpFinalityDegradedV1),
     /// Expired fast-pause record removed without changing Parliament state or heads.
-    #[codec(index = 31)]
+    #[codec(index = 23)]
     #[norito(rename = "fast_pause_lapsed")]
     FastPauseLapsed(SccpFastPauseLapsedV1),
+    /// A native SCCP forgery was admitted and permanently recorded (§4.9).
+    #[codec(index = 24)]
+    #[norito(rename = "forgery_evidence_recorded")]
+    ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1),
+    /// An authenticated forgery signer has no retained staking member (§4.9 step 6).
+    #[codec(index = 25)]
+    #[norito(rename = "forgery_offender_unslashable")]
+    ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1),
+    /// New forgery evidence caused this revision to become held (§4.10).
+    #[codec(index = 26)]
+    #[norito(rename = "revision_forgery_held")]
+    RevisionForgeryHeld(SccpRevisionForgeryHeldV1),
+    /// Parliament progress moved this revision above the forgery hold (§4.10).
+    #[codec(index = 27)]
+    #[norito(rename = "revision_forgery_released")]
+    RevisionForgeryReleased(SccpRevisionForgeryReleasedV1),
+    /// Parliament permanently quarantined this revision (§4.10).
+    #[codec(index = 28)]
+    #[norito(rename = "revision_quarantined")]
+    RevisionQuarantined(SccpRevisionQuarantinedV1),
 }
 
 #[cfg(test)]

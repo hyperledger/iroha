@@ -322,10 +322,7 @@ fn advance_matrix(
     resolutions: &[ResolutionV1],
 ) -> MatrixTallyV1 {
     let policy = base.platform.with(|state| state.policy);
-    let request_digest = request
-        .capsule
-        .capsule_digest()
-        .expect("request capsule digest");
+    let request_digest = request.capsule.custody_digest();
     let base_generation = *visible_markers(base, &slot).last().expect("base marker");
     let run = |provider: &mut SimProviderV1| provider.advance(&slot, &TestOwnerV1, request);
     let steps = flow_steps(base, &run);

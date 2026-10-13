@@ -1316,7 +1316,7 @@ fn current_owner_prf_receipt_fixture_for(
     };
     (policy, program, receipt, network, signer)
 }
-fn current_owner_prf_receipt_fixture() -> (
+pub(super) fn current_owner_prf_receipt_fixture() -> (
     IdentifierPolicy,
     RamLfeProgramPolicy,
     IdentifierResolutionReceipt,

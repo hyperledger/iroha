@@ -278,6 +278,7 @@ mod tests {
     use super::*;
     use crate::{
         smartcontracts::isi::sccp::test_support::{blank_state, header},
+        state::World,
         sumeragi::schedule::{ChainParamsRecord, ConsensusSchedule, ScheduledConfig},
     };
 
@@ -432,7 +433,7 @@ mod tests {
 
     #[test]
     fn height_capture_preserves_original_graph_without_admission_at_full_pool() {
-        use crate::{state::World, sumeragi::schedule::ScheduleError};
+        use crate::sumeragi::schedule::ScheduleError;
         use iroha_allocation::AllocationRefusal;
         let state = blank_state();
         let budget = state.ivm_execution_budget();
@@ -553,7 +554,6 @@ mod tests {
 
     #[test]
     fn height_capture_retires_original_charges_after_unwind_and_final_reader() {
-        use crate::state::World;
         let state = blank_state();
         let budget = state.ivm_execution_budget();
         // The empty parent's admitted SCCP fields and this schedule use the same
@@ -641,7 +641,6 @@ mod tests {
     }
     #[test]
     fn original_ready_slots_preserve_lookup_and_boundary_overflow_refusal() {
-        use crate::state::World;
         let state = blank_state();
         let budget = state.ivm_execution_budget();
         // The empty parent's admitted SCCP fields and this schedule use the same

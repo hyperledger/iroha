@@ -63,7 +63,28 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 494)
+        self.assertEqual(len(names), 505)
+
+    def test_authenticated_epoch_schedule_stays_in_exact_boundary_census(self):
+        owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS
+                  if row[0] == 'native certified history boundaries')
+        leaf = 'npos_epoch_schedule_uses_committed_epoch_length'
+        self.assertEqual(owner[-1].count(leaf), 1)
+        for relative in owner[1:3]:
+            target = self.package / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / 'crates/iroha_core/src' / relative, target)
+        self.assertEqual(inventory.validate_native_source_inventory(self.root, owners=(owner,)),
+                         {owner[4] + '::' + name for name in owner[-1]})
+        source = self.package / owner[2]
+        original = source.read_text()
+        declaration = 'fn ' + leaf + '('
+        self.assertEqual(original.count(declaration), 1)
+        source.write_text(original.replace(declaration, 'fn unreviewed_epoch_replacement('))
+        with self.assertRaisesRegex(ValueError, 'census differs') as refusal:
+            inventory.validate_native_source_inventory(self.root, owners=(owner,))
+        self.assertIn(leaf, str(refusal.exception))
+        self.assertIn('unreviewed_epoch_replacement', str(refusal.exception))
 
     def test_native_multisig_semantic_control_binds_its_exact_core_source_owner(self):
         row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
@@ -370,7 +391,7 @@ class NativeInventoryTests(unittest.TestCase):
         expected = {
             "native execution producer source retries": (
                 "sumeragi/driver/exec.rs", "sumeragi/driver/producer_retry_tests.rs",
-                "producer_retry_tests", "sumeragi::driver::exec::producer_retry_tests", 12),
+                "producer_retry_tests", "sumeragi::driver::exec::producer_retry_tests", 13),
             "native witness admission": (
                 "sumeragi/driver/mod.rs", "sumeragi/driver/tests/witness_admission.rs",
                 "witness_admission_tests", "sumeragi::driver::witness_admission_tests", 11),
@@ -511,6 +532,7 @@ class NativeInventoryTests(unittest.TestCase):
             ),
             'native canonical prepared intent framing and row identity': (
                 'borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime',
+                'borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent',
                 'original_prepared_key_selection_refuses_malformed_and_preserves_transaction',
                 'borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality',
                 'sole_intent_decoder_borrows_original_charged_ranges_and_refuses_framing_or_cumulative_limits',

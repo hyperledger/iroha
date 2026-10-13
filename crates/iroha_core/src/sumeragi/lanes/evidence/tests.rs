@@ -65,7 +65,7 @@ impl LaneTransactions for NoTransactions {
         _height: u64,
         _max_bytes: usize,
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
         Ok(Vec::new())
     }
 }
@@ -217,10 +217,12 @@ impl Fixture {
             Arc::new(EmptyStore),
             shared,
             budget.clone(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Some(ExecOutcome::Valid(result)) = executor.execute(&block, &block.hash(&*crypto))
+        let Some(ExecOutcome::Valid(result)) =
+            executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");
         };

@@ -53,7 +53,7 @@ where
     hex(&bytes)
 }
 
-fn case<T>(variant: &str, value: T) -> Value
+pub(super) fn case<T>(variant: &str, value: T) -> Value
 where
     T: NoritoSerialize
         + for<'de> NoritoDeserialize<'de>

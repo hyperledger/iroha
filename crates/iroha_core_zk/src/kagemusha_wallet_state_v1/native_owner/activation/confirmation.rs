@@ -1,5 +1,6 @@
 //! Exact signed Activate inclusion and source-selected durable confirmation.
 use super::*;
+use crate::kagemusha_wallet_state_v1::{decode_attempt_error, finality_read_error};
 mod cursor;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
@@ -57,6 +58,30 @@ impl Confirmation {
         }
         Ok(())
     }
+    // Recheck the complete exact original read from the selected immutable archive address.
+    // This is custody/progress validation, not independent native finality authentication.
+    fn require_checkpoint_original(&self, original: &[u8]) -> Result<(), Error> {
+        if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(original)
+            != self.checkpoint
+        {
+            return Err(Error::WitnessLost(
+                "activation confirming checkpoint digest",
+            ));
+        }
+        let checkpoint =
+            SumeragiFinalityCheckpoint::decode_canonical(original).map_err(|error| {
+                finality_read_error(
+                    error,
+                    Error::WitnessLost("activation confirming checkpoint"),
+                )
+            })?;
+        if ledger::progress(&checkpoint) != self.progress() {
+            return Err(Error::WitnessLost(
+                "activation confirming checkpoint binding",
+            ));
+        }
+        Ok(())
+    }
     fn progress(&self) -> LedgerProgressV1 {
         LedgerProgressV1 {
             height: self.height,
@@ -80,7 +105,13 @@ fn signed_activate(
         norito::with_decode_limits_scope(norito::canonical_decode_limits(bytes.len()), || {
             SignedTransaction::decode_all_versioned(bytes)
         })
-        .map_err(|_| Error::Invalid("activation signed transaction encoding"))?;
+        .map_err(|error| match error {
+            iroha_version::error::Error::NoritoResourceLimit(original) => decode_attempt_error(
+                original,
+                Error::Invalid("activation signed transaction encoding"),
+            ),
+            _ => Error::Invalid("activation signed transaction encoding"),
+        })?;
     let public = transaction
         .authority()
         .try_signatory()
@@ -88,10 +119,9 @@ fn signed_activate(
     let (algorithm, key) = public
         .try_to_bytes()
         .map_err(|_| Error::Invalid("activation account key"))?;
-    if transaction
-        .encode_wire_v1()
-        .map_err(|_| Error::Invalid("activation wire"))?
-        != bytes
+    let canonical = norito::core::classify_decode_attempt(|| transaction.encode_wire_v1())
+        .map_err(|error| decode_attempt_error(error, Error::Invalid("activation wire")))?;
+    if canonical != bytes
         || transaction.network_id() != Some(network)
         || transaction.multisig_signatures().is_some()
         || transaction.signature_count() != 1
@@ -102,6 +132,7 @@ fn signed_activate(
     {
         return Err(Error::Invalid("activation signed transaction authority"));
     }
+    drop(canonical);
     transaction
         .verify_signature()
         .map_err(|_| Error::Proof("activation account signature"))?;
@@ -226,21 +257,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let original = self
             .archive
             .read_object(&value.checkpoint, MAX_FINALITY_CHECKPOINT_BYTES)?;
-        if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(&original)
-            != value.checkpoint
-        {
-            return Err(Error::WitnessLost(
-                "activation confirming checkpoint digest",
-            ));
-        }
-        let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&original)
-            .map_err(|_| Error::WitnessLost("activation confirming checkpoint"))?;
-        if ledger::progress(&checkpoint) != value.progress() {
-            return Err(Error::WitnessLost(
-                "activation confirming checkpoint binding",
-            ));
-        }
-        Ok(())
+        value.require_checkpoint_original(&original)
     }
     pub(super) fn retained_activation_confirmation(
         &mut self,
@@ -353,7 +370,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             };
         let verified = verifier
             .verify_retained_decision(checkpoint.tip())
-            .map_err(|_| Error::Proof("activation selected native decision"))?;
+            .map_err(|error| {
+                finality_read_error(error, Error::Proof("activation selected native decision"))
+            })?;
         let progress = successful_inclusion(&verified, network, signed)?;
         let confirmation = Confirmation {
             version: 1,

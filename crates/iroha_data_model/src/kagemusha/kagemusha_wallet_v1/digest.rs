@@ -67,7 +67,9 @@ pub enum KagemushaWalletDigestRoleV1 {
     Output,
     /// `marker`: local provider marker frame (§4.2).
     Marker,
-    /// `capsule`: local recovery capsule frame (§4.1).
+    /// `capsule-body`: complete canonical private recovery body before blinding.
+    CapsuleBody,
+    /// `capsule`: complete private wrapper, including its durable opening (§4.1).
     Capsule,
     /// `completion`: local completion record frame (§4.1).
     Completion,
@@ -77,7 +79,7 @@ pub enum KagemushaWalletDigestRoleV1 {
 
 impl KagemushaWalletDigestRoleV1 {
     /// Every role, in declaration order.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Scheme,
         Self::Relation,
         Self::ProviderContract,
@@ -95,6 +97,7 @@ impl KagemushaWalletDigestRoleV1 {
         Self::VerifyingKeySet,
         Self::Output,
         Self::Marker,
+        Self::CapsuleBody,
         Self::Capsule,
         Self::Completion,
         Self::Fold,
@@ -121,6 +124,7 @@ impl KagemushaWalletDigestRoleV1 {
             Self::VerifyingKeySet => "verifying-key-set",
             Self::Output => "output",
             Self::Marker => "marker",
+            Self::CapsuleBody => "capsule-body",
             Self::Capsule => "capsule",
             Self::Completion => "completion",
             Self::Fold => "fold",

@@ -18,6 +18,16 @@ fn key_block_epoch() -> (TonMcHeaderV1, TonEpochConfigV1) {
     let (header, shard) =
         ton_open_masterchain_block(config.block, &config.state_proof, None).expect("K header");
     assert_eq!(shard, None);
+    assert_eq!(header.generation_time_seconds(), header.gen_utime);
+    assert!(header.generation_time_seconds() > 0);
+    assert_eq!(
+        ton_masterchain_generation_time_seconds(config.block, &config.state_proof).unwrap(),
+        header.generation_time_seconds()
+    );
+    let mut foreign = config.block;
+    foreign.root_hash[0] ^= 1;
+    assert!(ton_masterchain_generation_time_seconds(foreign, &config.state_proof).is_err());
+    assert!(ton_masterchain_generation_time_seconds(config.block, &[]).is_err());
     let state_hash = header
         .new_state_hash
         .expect("the header proof opens state_update");

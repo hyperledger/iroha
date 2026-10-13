@@ -79,8 +79,9 @@ impl<T> PublicationGuard<'_, T> {
         self.inner.release_deferred(drop).1
     }
 
-    /// Preserve QueuePlan's fair unlock before waiting for Kura publication.
-    /// The outer release guard signals only after the physical unlock completes.
+    /// Exercise fair physical unlock in release-custody regression tests.
+    /// The shared release guard signals only after the physical unlock completes.
+    #[cfg(test)]
     pub(crate) fn unlock_fair(mut self) {
         self.inner.fair = true;
         drop(self);

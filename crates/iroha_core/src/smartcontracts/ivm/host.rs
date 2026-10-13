@@ -5183,6 +5183,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             })
             .collect()
     }
+    /// Extract queued effects for the test overlay builders, retaining their context.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_queued_effects_with_contract_runtime_context(
         &mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
@@ -5194,7 +5196,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.durable_state_authorizations.clear();
         mem::take(&mut self.durable_state_overlay)
     }
-    /// Drain durable writes together with the immutable authorization for each write.
+    /// Extract test overlay writes with the immutable authorization for each write.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_durable_state_overlay_with_authorizations(
         &mut self,
     ) -> (
@@ -5206,8 +5209,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             mem::take(&mut self.durable_state_authorizations),
         )
     }
-    /// Drain completed AXT states so deterministic proof replay can persist them after
-    /// verification using the same lane/height materialization as raw execution.
+    /// Extract completed AXT states for test overlays that compare proof replay with
+    /// raw execution using the same lane and height materialization.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_completed_axt_states(&mut self) -> Vec<axt::HostAxtState> {
         mem::take(&mut self.completed_axt)
     }

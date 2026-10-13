@@ -82,6 +82,7 @@ struct Predecessor {
 /// This copies no witness into a proof and never creates a loaded balance.
 struct Head<'a> {
     state: StateWitness,
+    load_receipt: Option<&'a [u8; 282]>,
     binding: &'a iroha_plonk::DescriptorBinding,
     key: &'a VerifyingKey<Ep>,
     proof: &'a [u8],
@@ -93,6 +94,7 @@ impl<'a> Head<'a> {
     fn loaded(artifact: &'a load_outer::DiagnosticLoadOmega) -> Self {
         Self {
             state: artifact.source.state,
+            load_receipt: Some(&artifact.source.receipt),
             binding: &artifact.binding,
             key: &artifact.key,
             proof: &artifact.proof,
@@ -271,7 +273,8 @@ fn sources(artifact: &Head<'_>, retiring: bool) -> Sources {
         artifact.state.lineage[17],
         artifact.key.kagemusha_digest(artifact.binding).unwrap()
     );
-    let (witness, recovery) = unload_objects::transition(&artifact.state, retiring);
+    let (witness, recovery) =
+        unload_objects::transition(&artifact.state, artifact.load_receipt, retiring);
     let public = [vec![hash_with_domain(
         iroha_plonk_gadgets::statement::STATEMENT_DOMAIN,
         &witness.statement,
@@ -1675,6 +1678,7 @@ fn installed_native_retiring_from_bootstrap_preserves_every_original_and_checkpo
     assert_eq!(before.lineage[14], Fp::ZERO);
     let head = Head {
         state: before,
+        load_receipt: None,
         binding: &rooted.binding,
         key: &rooted.key,
         proof: &rooted.proof,

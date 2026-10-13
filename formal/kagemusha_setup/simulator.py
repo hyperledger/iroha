@@ -1,7 +1,8 @@
 """Generic known-log public-prefix simulator using unchanged fixed RP57.
 
-No transcript or permutation is programmed. This tests the final algebra under
-an explicitly different setup authority, not the current pinned setup or ZK.
+Ordinary calls use the inherited RP57 transcript. A named test-only adapter is
+reported separately in direct zero-challenge controls. This tests the final
+algebra under an explicitly different setup authority, not current pins or ZK.
 """
 from __future__ import annotations
 
@@ -45,7 +46,9 @@ def sample_budget(case):
 
     Each fresh point or random evaluation consumes one bounded scalar sample.
     Every such sample is serialized as a 32-byte proof message; public-only
-    group values, fixed/sigma evaluations, final f and G consume no sample.
+    group values, fixed/sigma evaluations, final f and G consume no sample. At
+    x1=0 a mixed group ending in public preprocessing also consumes no sample;
+    the descriptor-only inventory remains a conservative upper bound.
     """
     d = case.descriptor
     require(1 <= d['k'] <= 16 and d['transcript'] == 2 and
@@ -100,7 +103,7 @@ def simulate(case, instances, coins, *, allow_large=False):
     ledger = {}
 
     class Writer(case.transcript.Transcript):
-        """Only write methods added; inherited fixed RP57 squeeze is untouched."""
+        """Only writes added; the supplied transcript squeeze is inherited."""
         def __init__(self):
             super().__init__(curve, 2, b'')
             self.output = bytearray()
@@ -203,22 +206,24 @@ def simulate(case, instances, coins, *, allow_large=False):
     points = [x*pow(curve.omega(d['k']), rotation % d.n, m) % m for rotation in rotations]
     individual = {(slot, rotations.index(rot)): ev for (slot, rot), ev in zip(queries, evaluations)}
     x1, x2 = t.squeeze(), t.squeeze()
-    require(x1 != 0, 'prefix grouping challenge stop')
     qprime = fresh('qprime'); t.write_point(qprime.point)
     x3 = t.squeeze()
     require(x3 not in points and pow(x3, d.n, m) != 1, 'prefix opening challenge stop')
     qt, public_only_sets = [], []
     for i in range(len(sets)):
         members = [slot for slot in slots if membership[slot] == i]
-        if all(slot[0] in ('fixed', 'sigma') for slot in members):
+        # Forward Horner at zero retains only the last slot. A mixed group
+        # ending in public preprocessing then has an exact public value.
+        active = members[-1:] if x1 == 0 else members
+        if all(slot[0] in ('fixed', 'sigma') for slot in active):
             public_only_sets.append(i)
             value = 0
-            for public_value in setup.at(x3, members):
+            for public_value in setup.at(x3, active):
                 value = (value*x1+public_value) % m
             qt.append(value)
         else:
             require(any(slot[0] in ('advice', 'input', 'table', 'permutation', 'lookup', 'random')
-                        for slot in members), 'masked opening set')
+                        for slot in active), 'masked opening set')
             qt.append(rand())
     for value in qt:
         t.write_scalar(value)
@@ -284,11 +289,14 @@ def simulate(case, instances, coins, *, allow_large=False):
     # Preserve the constructed proof even when complete verification fails.
     write_new(case.directory/'proof.bin', proof)
     require(len(proof) == budget['expected_proof_bytes'], 'exact simulated proof extent')
-    # No verifier symbol, Transcript, Sponge, decision or constant is replaced.
+    # This function replaces no verifier symbol, transcript, decision or constant.
+    # Direct diagnostic controls install the same labelled adapter in the two
+    # private namespaces before entry; their receipts are not fixed-RP57 evidence.
     result = verifier.verify(**args)
     require(result.rounds == tuple(rounds) and result.challenges == tuple(t.challenges),
-            'ordinary fixed-Poseidon transcript replay')
+            'exact supplied transcript replay')
     require(curve.equal(result.generator, generator.point), 'complete generator replay')
+    adapter = getattr(t, 'test_only_challenge_adapter', None)
     record = {'scope': 'Historical public relation under chosen outer setup only; no C12/current-parameter claim',
               'proof_bytes': len(proof), 'simulated_draw_budget': budget,
               'contradictory': getattr(case, 'contradictory', False),
@@ -296,11 +304,15 @@ def simulate(case, instances, coins, *, allow_large=False):
               'public_only_sets': public_only_sets,
               'point_set_evaluations': qt, 'grouping_challenge': x1,
               'public_original_sha256': setup.original_sha256,
-              'proof_sha256': hashlib.sha256(proof).hexdigest(), 'fixed_poseidon': True,
+              'proof_sha256': hashlib.sha256(proof).hexdigest(), 'fixed_poseidon': adapter is None,
               'oracle_programs': 0, 'rounds': rounds, 'challenges': list(t.challenges),
               'opening_point': x3, 'rank_collapsed': collapsed, 'c': c, 'f': f,
               'opening_sets': [list(v) for v in sets], 'derived_logs': ledger,
               'descriptor_sha256': hashlib.sha256(d.raw).hexdigest(),
               'parameter_sha256': hashlib.sha256(case.raw_params).hexdigest()}
+    if adapter is not None:
+        record['test_only_challenge_adapter'] = adapter
+        record['scope'] = ('Test-adapted transcript algebra only; no fixed-RP57, '
+                           'C12 or current-parameter claim')
     save(case.directory/'simulation.json', record)
     return args, result, record

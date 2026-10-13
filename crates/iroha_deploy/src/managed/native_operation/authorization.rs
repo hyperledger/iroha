@@ -571,7 +571,13 @@ fn read_image<T: norito::NoritoSerialize + for<'a> norito::NoritoDeserialize<'a>
     {
         return Ok(Some(retained));
     }
-    let value = attempts::decode_record(&bytes)?;
+    let value = {
+        #[cfg(test)]
+        let _timing = crate::managed::stream_token_custody::body_history::finish_timing::phase(
+            crate::managed::stream_token_custody::body_history::finish_timing::Phase::EpochRecordDecode,
+        );
+        attempts::decode_record(&bytes)?
+    };
     #[cfg(test)]
     reader_tests::record_decoded();
     Ok(Some(RecordImage {

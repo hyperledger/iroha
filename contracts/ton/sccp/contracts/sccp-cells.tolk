@@ -30,6 +30,7 @@ fun sccpBeginParseOrdinary(c: cell): slice {
 /// the last chunk holds 1..=127 bytes and no reference; every chunk is an
 /// ordinary cell. Returns the data-only slices of all chunks (in order) and
 /// the total byte length. A total above `maxBytes` throws `lengthError`.
+@inline_ref
 fun sccpParseSnakeBytes(root: cell, maxBytes: int, lengthError: int): (array<slice>, int) {
     var chunks: array<slice> = [];
     var total = 0;
@@ -125,6 +126,7 @@ fun sccpSnakeCellFromChunks(chunks: array<builder>): cell {
 /// Parses `(Maybe ^HashChunk)` holding exactly `pathLen` hashes, 3 per chunk
 /// except the last. Throws `BadProof` when `pathLen > maxLen` and `BadSnake`
 /// for any non-canonical shape, exotic chunks included.
+@inline_ref
 fun sccpLoadHashPath(path: cell?, pathLen: int, maxLen: int): array<int> {
     assert (pathLen <= maxLen) throw SccpErrors.BadProof;
     var hashes: array<int> = [];
@@ -192,6 +194,7 @@ struct ParsedKeys {
 /// list only after this check and a key-changing rotation stores `next_keys`
 /// only after `sccpLoadKeysCounted`, so the stored committee never depends on
 /// a masterchain library that could later be unpublished.
+@inline_ref
 fun sccpLoadKeys(list: cell, n: int): ParsedKeys {
     var keys: array<slice> = [];
     var parts: array<slice> = [];
@@ -225,6 +228,7 @@ fun sccpLoadKeys(list: cell, n: int): ParsedKeys {
 /// chunks holds more keys than any committee and throws `BadCommittee` before
 /// the next chunk is loaded, so the walk is bounded. The caller checks that
 /// `n` is a committee size.
+@inline_ref
 fun sccpLoadKeysCounted(list: cell): (ParsedKeys, int) {
     var keys: array<slice> = [];
     var parts: array<slice> = [];

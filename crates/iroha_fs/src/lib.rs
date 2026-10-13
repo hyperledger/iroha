@@ -44,6 +44,25 @@ pub enum PublishMode {
     Replace,
 }
 
+/// Native boundaries of one atomic file publication, observed before each operation.
+///
+/// An observer may refuse progress, but cannot replace the retained directory or the bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtomicWriteStep {
+    /// Allocate one exclusive staging name.
+    CreateTemp,
+    /// Write the first half of the original bytes.
+    WriteHead,
+    /// Write the remaining original bytes.
+    WriteTail,
+    /// Sync the original staging file.
+    SyncFile,
+    /// Publish the complete original file without releasing its retained handle.
+    Publish,
+    /// Sync the original publication directory.
+    SyncDirectory,
+}
+
 /// Stable kernel identity of an opened file, independent of its pathname.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileIdentity {
@@ -1059,6 +1078,120 @@ impl OwnerDirectory {
         self.inner.revalidate()
     }
 
+    /// Retain the same directory and ancestors without resolving another path.
+    ///
+    /// # Errors
+    /// Refuses changed original custody or native observation errors.
+    pub fn retain(&self) -> io::Result<Self> {
+        self.revalidate()?;
+        let retained = Self {
+            inner: self.inner.clone(),
+        };
+        retained.revalidate()?;
+        Ok(retained)
+    }
+
+    /// Open an optional regular child for bounded streaming through this original directory.
+    ///
+    /// Only the first native leaf open may report absence. Later missing names, replaced
+    /// ancestors, indirect files and shared write custody remain errors. The caller retains
+    /// this directory and uses [`Self::require_same_regular_file`] after its bounded read.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing custody, and native I/O failures.
+    pub fn open_regular_optional(&self, name: impl AsRef<OsStr>) -> io::Result<Option<File>> {
+        let name = checked_name(name.as_ref())?;
+        self.revalidate()?;
+        let result = self.inner.open_regular_native(name);
+        self.revalidate()?;
+        result
+    }
+
+    /// Join one current regular name to its original descriptor and current native snapshot.
+    ///
+    /// This permits intentional repairs to the same original object between attempts; the
+    /// caller independently checks its format, length and bytes. It never accepts a new inode.
+    ///
+    /// # Errors
+    /// Refuses unsafe custody, changed identities or concurrent metadata changes.
+    pub fn require_same_regular_file(
+        &self,
+        name: impl AsRef<OsStr>,
+        original: &File,
+    ) -> io::Result<()> {
+        let before = FileSnapshot::of(original, false)?;
+        let named = self
+            .open_regular_optional(name)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if before != FileSnapshot::of(&named, false)?
+            || before != FileSnapshot::of(original, false)?
+        {
+            return Err(changed());
+        }
+        self.revalidate()
+    }
+
+    /// Recheck an original private lock descriptor against this directory's current name.
+    ///
+    /// The lock stays held by the caller. This never opens a replacement writable lock or
+    /// creates a missing file; hardlinks and permission changes are refused independently.
+    ///
+    /// # Errors
+    /// Refuses changed lock identity, unsafe private custody and native observation errors.
+    pub fn require_same_lock(&self, name: impl AsRef<OsStr>, original: &File) -> io::Result<()> {
+        let before = FileSnapshot::of(original, true)?;
+        self.require_same_regular_file(name, original)?;
+        if before != FileSnapshot::of(original, true)? {
+            return Err(changed());
+        }
+        self.revalidate()
+    }
+
+    /// Remove a private abandoned staging file through this original directory.
+    ///
+    /// # Errors
+    /// Refuses unsafe or changed files/ancestors and native removal/durability errors.
+    pub fn remove_private(&self, name: impl AsRef<OsStr>) -> io::Result<bool> {
+        let name = checked_name(name.as_ref())?;
+        self.revalidate()?;
+        let result = self.inner.remove_private_native(name);
+        self.revalidate()?;
+        result
+    }
+
+    /// Remove one safe single-link regular file through this retained owner directory.
+    ///
+    /// Existing read permissions are preserved; private files still use [`Self::remove_private`].
+    ///
+    /// # Errors
+    /// Refuses unsafe or changed files/ancestors and native removal/durability errors.
+    pub fn remove_regular(&self, name: impl AsRef<OsStr>) -> io::Result<bool> {
+        let name = checked_name(name.as_ref())?;
+        self.revalidate()?;
+        let result = self.inner.remove_regular_native(name);
+        self.revalidate()?;
+        result
+    }
+
+    /// Remove this exact empty owned directory and sync its retained parent.
+    ///
+    /// All descendant directory handles must be dropped first. Open regular files may
+    /// outlive retirement according to the host's native deletion semantics.
+    ///
+    /// # Errors
+    /// Refuses live descendants, nonempty or changed directories and native failures.
+    pub fn remove_empty(self) -> io::Result<()> {
+        self.inner.remove_empty()
+    }
+
+    /// Sync the retained parent of this directory without reopening its pathname.
+    ///
+    /// # Errors
+    /// Refuses changed ancestry or native durability failures.
+    pub fn sync_parent(&self) -> io::Result<()> {
+        self.inner.sync_parent()
+    }
+
     /// List bounded direct child names through this retained project authority.
     ///
     /// Names are sorted; no child is followed or recursively visited. This validates the
@@ -1068,6 +1201,25 @@ impl OwnerDirectory {
     /// Refuses changed custody, invalid child names, excessive entries and native I/O errors.
     pub fn entries(&self, maximum: usize) -> io::Result<Vec<std::ffi::OsString>> {
         self.inner.entries(maximum)
+    }
+
+    /// Visit direct child names without retaining an allocation for the whole directory.
+    ///
+    /// Every name is borrowed only for its callback. The retained native directory supplies
+    /// enumeration and is revalidated at each callback and after every ordinary outcome.
+    /// Callers may remove their own abandoned staging files through the same authority.
+    /// This checks namespace identity, not an immutable population or sorted iteration order.
+    ///
+    /// # Errors
+    /// Refuses invalid names, changed custody, native enumeration errors and visitor failures.
+    pub fn visit_entries(&self, mut visit: impl FnMut(&OsStr) -> io::Result<()>) -> io::Result<()> {
+        self.revalidate()?;
+        let result = self.inner.visit_entries_native(|name| {
+            self.revalidate()?;
+            visit(name)
+        });
+        self.revalidate()?;
+        result
     }
 
     /// Read this directory's retained kernel identity.
@@ -1088,6 +1240,19 @@ impl OwnerDirectory {
                 .inner
                 .child_owned(checked_name(name.as_ref())?, false, false)?,
         })
+    }
+
+    /// Open an optional safe child through this original parent.
+    ///
+    /// Only the first native child open admits absence. Later missing names, changed
+    /// ancestry and unsafe admitted children remain errors; existing reader modes are kept.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe custody and all post-admission native failures.
+    pub fn open_child_optional(&self, name: impl AsRef<OsStr>) -> io::Result<Option<Self>> {
+        self.inner
+            .child_owned_optional(checked_name(name.as_ref())?)
+            .map(|child| child.map(|inner| Self { inner }))
     }
 
     /// Open one safe child or create it privately if absent.
@@ -1268,12 +1433,50 @@ impl OwnerDirectory {
             .write_atomic(checked_name(name.as_ref())?, bytes, mode, false)
     }
 
+    /// Publish through the same native atomic writer with bounded attempts and observations.
+    ///
+    /// Each observation runs immediately before its named operation and is followed by a
+    /// fresh directory-custody check. The caller may join a retained lock at every boundary.
+    /// Original bytes are borrowed; errors retain visible complete publications for retry.
+    ///
+    /// # Errors
+    /// Refuses zero attempts, unsafe custody, collisions, observer failures and native I/O.
+    pub fn write_atomic_observed(
+        &self,
+        name: impl AsRef<OsStr>,
+        bytes: &[u8],
+        mode: PublishMode,
+        temporary_attempts: u32,
+        mut before: impl FnMut(AtomicWriteStep, &Path) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if temporary_attempts == 0 {
+            return Err(invalid("atomic publication requires a temporary attempt"));
+        }
+        self.inner.write_atomic_observed(
+            checked_name(name.as_ref())?,
+            bytes,
+            mode,
+            false,
+            temporary_attempts,
+            &mut before,
+        )
+    }
+
     /// Open or create a private lock file without locking or truncating it.
     ///
     /// # Errors
     /// Refuses invalid names, unsafe custody and native errors.
     pub fn open_lock(&self, name: impl AsRef<OsStr>) -> io::Result<File> {
         self.inner.open_mutable(checked_name(name.as_ref())?, false)
+    }
+
+    /// Open the existing private lock without creating or truncating another file.
+    ///
+    /// # Errors
+    /// Refuses missing names, changed or unsafe custody and native errors.
+    pub fn open_existing_lock(&self, name: impl AsRef<OsStr>) -> io::Result<File> {
+        self.inner
+            .open_exact_lock(checked_name(name.as_ref())?, false)
     }
 
     /// Complete this directory's native publication durability boundary.
@@ -1864,3 +2067,6 @@ mod owner_private_child_tests;
 
 #[cfg(test)]
 mod private_remove_tests;
+
+#[cfg(test)]
+mod owner_atomic_tests;

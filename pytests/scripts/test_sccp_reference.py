@@ -108,6 +108,7 @@ from sccp_reference.merkle import (  # noqa: E402
     check_block_ref,
     check_leaf,
     control_leaf,
+    control_leaf_preimage,
     history_leaf,
     history_peaks,
     history_root,
@@ -432,6 +433,20 @@ def test_commitment_tree_matches_rust_fixture():
                 assert merkle_root(subset[index], index, count, [unhex(p) for p in path]) == unhex(tree["root"])
     example = data["examples"]["transfer"]
     assert transfer_leaf(unhex(example["message_id"]), unhex(example["destination_word"])) == unhex(example["leaf"])
+    control = data["examples"]["control"]
+    assert control["target"] == "ethereum-mainnet"
+    fields = (
+        unhex(data["taira_network_id"]), ETHEREUM, unhex(control["destination_word"]),
+        control["route_revision"], control["control_nonce"], control["track"],
+        control["parliament_paused"], control["fast_pause_until_ms"],
+        unhex(control["certificate_id"]), unhex(control["effect_hash"]),
+    )
+    preimage = control_leaf_preimage(*fields)
+    assert len(preimage) == 199
+    assert preimage == unhex(control["preimage"])
+    assert control_leaf(*fields) == unhex(control["leaf"])
+    assert leaves[2] == unhex(control["leaf"])
+
 
 
 def test_history_matches_rust_fixture_and_bagging():

@@ -997,3 +997,33 @@ impl Kura {
         store.write_block_data(slot.start, &bytes).unwrap();
     }
 }
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+impl Kura {
+    /// Replace only the original durable frame's certificate, preserving its header and
+    /// exact occupied slot extent. The hash/index and cached executed source stay unchanged.
+    pub fn replace_native_certificate_for_test(
+        &self,
+        height: NonZeroUsize,
+        certificate: iroha_data_model::block::CommitCertificate,
+    ) {
+        let mut store = self.block_store.lock();
+        let slot = store
+            .read_block_index(u64::try_from(height.get() - 1).unwrap())
+            .unwrap();
+        assert!(!slot.is_evicted());
+        let mut bytes = vec![0; usize::try_from(slot.length).unwrap()];
+        store.read_block_data(slot.start, &mut bytes).unwrap();
+        let mut original = iroha_data_model::block::decode_framed_signed_block(&bytes).unwrap();
+        let original_hash = original.hash();
+        original.set_commit_certificate(Some(certificate));
+        assert_eq!(original.hash(), original_hash, "only certificate changes");
+        let replacement = original.encode_wire().unwrap();
+        assert_eq!(
+            replacement.len(),
+            bytes.len(),
+            "original occupied slot extent"
+        );
+        store.write_block_data(slot.start, &replacement).unwrap();
+    }
+}

@@ -39,6 +39,23 @@ pub(crate) fn genesis_fixture_with_scope(
     duplicate_npos: bool,
     root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> SignedBlock {
+    let parameters = (mode == SumeragiConsensusMode::Npos).then(|| SumeragiNposParameters {
+        epoch_length_blocks: NonZeroU64::new(length).unwrap(),
+        epoch_seed: [0x31; 32],
+        evidence_horizon_blocks: 1,
+        slashing_delay_blocks: 1,
+        ..SumeragiNposParameters::default()
+    });
+    genesis_fixture_with_policy(mode, parameters, duplicate_npos, root_scope)
+}
+
+/// Sign exactly the requested policy presence, including the malformed absence fixture.
+fn genesis_fixture_with_policy(
+    mode: SumeragiConsensusMode,
+    parameters: Option<SumeragiNposParameters>,
+    duplicate_npos: bool,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> SignedBlock {
     let mut voters = (1_u8..=4)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
         .collect::<Vec<_>>();
@@ -68,15 +85,8 @@ pub(crate) fn genesis_fixture_with_scope(
         )))
         .into(),
     );
-    if mode == SumeragiConsensusMode::Npos {
-        let parameters = SumeragiNposParameters {
-            epoch_length_blocks: NonZeroU64::new(length).unwrap(),
-            epoch_seed: [0x31; 32],
-            evidence_horizon_blocks: 1,
-            slashing_delay_blocks: 1,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter();
+    if let Some(parameters) = parameters {
+        let parameters = parameters.into_custom_parameter();
         instructions.push(SetParameter::new(Parameter::Custom(parameters.clone())).into());
         if duplicate_npos {
             instructions.push(SetParameter::new(Parameter::Custom(parameters)).into());
@@ -145,4 +155,58 @@ fn signed_genesis_rejects_short_or_repeated_epoch_authority() {
         .unwrap();
     assert_ne!(first.context_id().unwrap(), changed.context_id().unwrap());
     assert_ne!(first.network_id, changed.network_id);
+}
+
+#[test]
+fn permissioned_epoch_is_zero_without_npos_parameters_at_all_boundaries() {
+    use crate::sumeragi::schedule::{ChainParamsRecord, ScheduleError, ScheduledConfig};
+    let genesis = genesis_fixture(SumeragiConsensusMode::Permissioned, 7, false);
+    let (original, _) = authenticated_genesis(&genesis).unwrap().into_parts();
+    assert_eq!(original.authorization.epoch, 0);
+    assert_eq!(original.authorization.first_height, 1);
+    assert_eq!(original.authorization.last_height, u64::MAX);
+    for height in [0, 1, 3_600, 3_601, u64::MAX] {
+        let scheduled = ScheduledConfig {
+            height,
+            epoch: original.clone(),
+            params: ChainParamsRecord::from_core(&iroha_sumeragi::types::ChainParams::default()),
+        }
+        .height_config();
+        if height == 0 {
+            assert!(matches!(scheduled, Err(ScheduleError::Epoch(reason))
+                if reason == "scheduled height is outside its authenticated epoch"));
+        } else {
+            assert_eq!(
+                scheduled
+                    .expect("signed Permissioned authority needs no NPoS policy")
+                    .epoch
+                    .id
+                    .epoch,
+                0
+            );
+        }
+    }
+}
+
+#[test]
+fn npos_epoch_rejects_missing_committed_parameters() {
+    // Omit the policy before signing. The actual signed-genesis reader must
+    // refuse missing authority, without relying on a mutable World default.
+    let genesis = genesis_fixture_with_policy(
+        SumeragiConsensusMode::Npos,
+        None,
+        false,
+        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+    );
+    assert_eq!(
+        iroha_genesis::signed_genesis_consensus_metadata(&genesis)
+            .unwrap()
+            .mode,
+        SumeragiConsensusMode::Npos,
+    );
+    assert!(matches!(
+        authenticated_genesis(&genesis),
+        Err(iroha_data_model::sumeragi_finality::GenesisReadError::Invalid(reason))
+            if reason == "NPoS genesis omits its signed epoch length and seed"
+    ));
 }

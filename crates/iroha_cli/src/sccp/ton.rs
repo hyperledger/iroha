@@ -25,7 +25,7 @@ use iroha_sccp_wallet::pure::{
     ton::{
         SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS, TonAccountV1, TonWalletKeyV1, TvmIntV1,
         TvmStackValueV1, WALLET_V5R1_MAINNET_ID, checkpoint_body, finalize_body, get_method_id,
-        internal_message, parse_stack, quote_with_margin, stack_of_ints, wallet_v5_transfer,
+        internal_message, parse_stack, quote_with_margin, stack_of_uints, wallet_v5_transfer,
     },
 };
 use std::collections::BTreeMap;
@@ -58,11 +58,26 @@ pub(super) fn parse_account(text: &str) -> Result<TonAccountV1> {
     <[u8; 32]>::try_from(bytes).map_err(|_| eyre!("TON account id must be 32 bytes"))
 }
 
-fn last_block(lite: &LiteClient) -> Result<BlockIdExt> {
+pub(super) fn last_block(lite: &LiteClient) -> Result<BlockIdExt> {
     Ok(lite
         .get_masterchain_info()
         .map_err(|error| eyre!("getMasterchainInfo: {error}"))?
         .last)
+}
+
+/// Time from a hash-bound opened header at the exact block selected for all state queries.
+/// The independently selected liteserver remains the external-chain observation boundary;
+/// this helper does not claim to verify a TON finality chain.
+pub(super) fn block_time_ms(lite: &LiteClient, block: BlockIdExt) -> Result<u64> {
+    let proof = lite
+        .get_block_header(block, 0)
+        .map_err(|error| eyre!("getBlockHeader: {error}"))?;
+    let seconds = iroha_sccp::ton_masterchain_generation_time_seconds(
+        iroha_sccp_rpc::builders::ton::block_id(&block),
+        &proof.header_proof,
+    )
+    .map_err(|error| eyre!("opened requested masterchain header: {error}"))?;
+    Ok(u64::from(seconds) * 1000)
 }
 
 /// Run a current result stack at one explicitly selected masterchain block.
@@ -71,7 +86,7 @@ fn run_stack_at(
     at: BlockIdExt,
     account: &TonAccountV1,
     method: &str,
-    args: &[i64],
+    args: &[u64],
 ) -> Result<Vec<TvmStackValueV1>> {
     let result = lite
         .run_smc_method(
@@ -82,9 +97,10 @@ fn run_stack_at(
                 address: *account,
             },
             get_method_id(method),
-            stack_of_ints(args).map_err(|e| eyre!("{method} arguments: {e}"))?,
+            stack_of_uints(args).map_err(|e| eyre!("{method} arguments: {e}"))?,
         )
         .map_err(|e| eyre!("runSmcMethod {method}: {e}"))?;
+    ensure!(result.id == at, "get-method returned another block");
     ensure!(
         result.exit_code == 0 || result.exit_code == 1,
         "{method} exited with code {}",
@@ -112,7 +128,7 @@ fn run_method(
     lite: &LiteClient,
     account: &TonAccountV1,
     method: &str,
-    args: &[i64],
+    args: &[u64],
 ) -> Result<Vec<Option<TvmIntV1>>> {
     integer_stack(run_stack_at(
         lite,
@@ -147,6 +163,10 @@ impl TonWallet {
         let address = parse_account(address)?;
         let key = TonWalletKeyV1::load(key_file).map_err(|error| eyre!("TON key file: {error}"))?;
         let public = run_method(lite, &address, "get_public_key", &[])?;
+        ensure!(
+            public.len() == 1,
+            "wallet public-key reply has extra fields"
+        );
         let public = int_at(&public, 0, "public key")?
             .to_u256()
             .ok_or_else(|| eyre!("the wallet public key is not a 256-bit value"))?;
@@ -171,20 +191,20 @@ impl TonWallet {
         lite: &LiteClient,
         messages: &[(iroha_sccp::v1::ton_cell::Cell, u8)],
     ) -> Result<[u8; 32]> {
-        let seqno = run_method(lite, &self.address, "seqno", &[])?;
+        let block = last_block(lite)?;
+        let seqno = integer_stack(run_stack_at(lite, block, &self.address, "seqno", &[])?)?;
+        ensure!(seqno.len() == 1, "wallet seqno reply has extra fields");
         let seqno = int_at(&seqno, 0, "seqno")?
             .to_u64()
             .and_then(|seqno| u32::try_from(seqno).ok())
             .ok_or_else(|| eyre!("the wallet seqno is not a u32"))?;
-        let now = lite
-            .get_time()
-            .map_err(|error| eyre!("getTime: {error}"))?
-            .now;
+        let now = u32::try_from(block_time_ms(lite, block)? / 1000)?;
         let boc = wallet_v5_transfer(
             &self.address,
             WALLET_V5R1_MAINNET_ID,
             seqno,
-            now.saturating_add(EXTERNAL_LIFETIME_S),
+            now.checked_add(EXTERNAL_LIFETIME_S)
+                .ok_or_else(|| eyre!("wallet message deadline overflows"))?,
             messages,
             &self.key,
         )
@@ -252,7 +272,7 @@ impl TonDestination {
             &state,
             committee,
             &checkpoints,
-            self.now_ms()?,
+            block_time_ms(&self.lite, at)?,
         )
     }
     /// The actual stored committee and equivocation latch at one minter observation.
@@ -263,22 +283,10 @@ impl TonDestination {
     /// Get method `method` of the minter returning one value in nanotons (a required-value
     /// quote, §5.3.5), plus the [`quote_with_margin`] margin: the minter returns what its step
     /// does not use.
-    fn quoted_value(&self, method: &str, args: &[i64]) -> Result<u128> {
+    fn quoted_value(&self, method: &str, args: &[u64]) -> Result<u128> {
         let values = run_method(&self.lite, &self.minter, method, args)?;
-        let quote = int_at(&values, 0, method)?
-            .to_u64()
-            .ok_or_else(|| eyre!("`{method}` is not a u64 value"))?;
-        Ok(quote_with_margin(u128::from(quote)))
-    }
-
-    /// Destination time in milliseconds (the liteserver clock).
-    pub(super) fn now_ms(&self) -> Result<u64> {
-        Ok(u64::from(
-            self.lite
-                .get_time()
-                .map_err(|error| eyre!("getTime: {error}"))?
-                .now,
-        ) * 1_000)
+        ensure!(values.len() == 1, "quote reply has extra fields");
+        Ok(quote_with_margin(ton_coins(int_at(&values, 0, method)?)?))
     }
 
     /// Verify the actual current source and send a finalization from the selected wallet.
@@ -310,8 +318,7 @@ impl TonDestination {
             source,
         )
         .map_err(|e| eyre!("proof bundle: {e}"))?;
-        let nonce =
-            i64::try_from(verified.nonce()).map_err(|_| eyre!("nonce overflows quote argument"))?;
+        let nonce = verified.nonce();
         let value = self.quoted_value("finalize_required_value", &[nonce])?;
         let body = finalize_body(&verified, verified.nonce(), wallet.address())
             .map_err(|e| eyre!("finalize: {e}"))?;
@@ -399,6 +406,11 @@ fn bool_at(values: &[Option<TvmIntV1>], index: usize) -> Result<bool> {
     } else {
         Err(eyre!("noncanonical TVM boolean"))
     }
+}
+fn ton_coins(value: TvmIntV1) -> Result<u128> {
+    let bytes = value.to_u256().ok_or_else(|| eyre!("negative TON Coins"))?;
+    ensure!(bytes[..17] == [0; 17], "value exceeds TON Coins");
+    Ok(u128::from_be_bytes(bytes[16..].try_into()?))
 }
 fn keys_from_chunks(root: &Cell, n: usize) -> Result<Vec<[u8; 48]>> {
     ensure!(is_valid_committee_size(n), "invalid native committee size");
@@ -505,13 +517,20 @@ fn parse_observation(
         network != [0; 32] && instance != [0; 32],
         "zero minter identity"
     );
+    let parliament_paused = bool_at(state, 16)?;
+    let fast_pause_until_ms = u64_at(state, 17)?;
+    let paused = bool_at(state, 18)?;
+    ensure!(
+        paused == (parliament_paused || now_ms < fast_pause_until_ms),
+        "pause observation differs from selected block time"
+    );
     Ok(Observation {
         network,
         instance,
         committee: current,
         keys,
         checkpoints: stored,
-        paused: bool_at(state, 18)?,
+        paused,
         now_ms,
     })
 }
@@ -519,6 +538,18 @@ fn parse_observation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coin_quotes_preserve_the_full_ton_width() {
+        assert_eq!(ton_coins(uint(u64::MAX)).unwrap(), u128::from(u64::MAX));
+        let maximum = (1_u128 << 120) - 1;
+        let mut bytes = [0; 33];
+        bytes[17..].copy_from_slice(&maximum.to_be_bytes());
+        assert_eq!(ton_coins(TvmIntV1(bytes)).unwrap(), maximum);
+        bytes[17] = 1;
+        assert!(ton_coins(TvmIntV1(bytes)).is_err());
+        assert!(ton_coins(TvmIntV1([0xff; 33])).is_err());
+    }
 
     #[test]
     fn raw_accounts_parse() {
@@ -571,6 +602,7 @@ mod tests {
         state[11] = Some(uint(1));
         state[12] = Some(uint(7));
         state[13] = Some(uint(2));
+        state[16] = Some(TvmIntV1([0xff; 33]));
         state[18] = Some(TvmIntV1([0xff; 33]));
         let mut committee = [word(root), uint(1000), uint(1), uint(7), uint(2), uint(4)]
             .into_iter()
@@ -609,7 +641,7 @@ mod tests {
     #[test]
     fn native_minter_observation_rejects_mixed_schema_keys_and_checkpoint_slots() {
         let (state, committee, checkpoints, _) = fixture();
-        for case in 0..9 {
+        for case in 0..10 {
             let mut state = state.clone();
             let mut committee = committee.clone();
             let mut checkpoints = checkpoints.clone();
@@ -624,7 +656,8 @@ mod tests {
                 5 => committee[6] = TvmStackValueV1::Null,
                 6 => checkpoints[3] = Some(uint(3)),
                 7 => checkpoints[6] = Some(word([8; 32])),
-                _ => state[2] = Some(word([0; 32])),
+                8 => state[2] = Some(word([0; 32])),
+                _ => state[16] = Some(uint(0)),
             }
             assert!(
                 parse_observation(3, &state, committee, &checkpoints, 100).is_err(),

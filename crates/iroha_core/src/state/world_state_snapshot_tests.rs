@@ -430,6 +430,136 @@ fn asset_chain() -> (CertifiedTestChain, AssetDefinitionId) {
 }
 
 #[test]
+fn snapshot_separates_original_world_pool_from_request_and_response_capacity() {
+    let (chain, asset) = asset_chain();
+    let _epoch = crossbeam_epoch::pin();
+    let state = chain.state();
+    let tip = chain.committed(chain.height());
+    let execution = state.ivm_execution_budget();
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    assert!(!execution.same_pool(&budget));
+    let original_bytes = execution.reserved_bytes();
+    let (bytes, charge) = with_asset_snapshot(state, &tip, &asset, &budget, |snapshot, _, _| {
+        assert_eq!(
+            snapshot.root().unwrap(),
+            tip.commitment().execution.world_state_root
+        );
+        assert!(execution.reserved_bytes() > original_bytes);
+        assert!(
+            budget.reserved_bytes() > 0,
+            "snapshot material retains request credits"
+        );
+        let size = norito::canonical_frame_len(snapshot).map_err(|error| error.to_string())?;
+        let charge = budget
+            .try_reserve_bytes(size)
+            .map_err(|error| error.to_string())?;
+        assert!(charge.belongs_to(&budget));
+        assert!(!charge.belongs_to(&execution));
+        Ok((
+            norito::encode_canonical(snapshot).map_err(|error| error.to_string())?,
+            charge,
+        ))
+    })
+    .expect("independent request capacity must not replace original World storage custody");
+    assert_eq!(execution.reserved_bytes(), original_bytes);
+    assert_eq!(budget.reserved_bytes(), charge.remaining_bytes());
+    assert_eq!(bytes.len(), charge.remaining_bytes());
+    drop(bytes);
+    drop(charge);
+    assert_eq!(budget.reserved_bytes(), 0);
+
+    let empty_request = AllocationBudget::new(0);
+    let called = Cell::new(false);
+    let result = with_asset_snapshot(state, &tip, &asset, &empty_request, |_, _, _| {
+        called.set(true);
+        Ok(())
+    });
+    assert!(matches!(result, Err(WorldStateSnapshotError::Invalid(_))));
+    assert!(
+        !called.get(),
+        "State capacity cannot fund an empty request pool"
+    );
+    assert_eq!(empty_request.reserved_bytes(), 0);
+    assert_eq!(execution.reserved_bytes(), original_bytes);
+    // The direct World boundary still refuses a foreign pool, including an ample one.
+    assert!(matches!(
+        state.world.try_block(&budget),
+        Err(mv::storage::AdmittedStorageError::ScopeIdentity)
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn snapshot_preserves_original_world_capacity_release_and_exact_retry() {
+    use iroha_allocation::AllocationRefusal;
+    use mv::storage::AdmittedStorageError;
+    use std::task::{Context, Waker};
+
+    let (chain, asset) = asset_chain();
+    // Keep EBR retirement from changing the actual occupied source during this probe.
+    let _epoch = crossbeam_epoch::pin();
+    let state = chain.state();
+    let tip = chain.committed(chain.height());
+    let expected_root = state.verify_world_state_accumulator().unwrap();
+    let expected_tip = state.view().native_execution_tip();
+    let execution = state.ivm_execution_budget();
+    let request = AllocationBudget::new(32 * 1024 * 1024);
+    assert!(!execution.same_pool(&request));
+    let mut registration = crate::unit_test_support::release_registration(&execution);
+    let mut context = Context::from_waker(Waker::noop());
+    let occupied = execution
+        .try_reserve_bytes(execution.limit_bytes() - execution.reserved_bytes())
+        .unwrap();
+    let called = Cell::new(false);
+    let error = with_asset_snapshot(state, &tip, &asset, &request, |_, _, _| {
+        called.set(true);
+        Ok(())
+    })
+    .unwrap_err();
+    let WorldStateSnapshotError::Acquisition(AdmittedStorageError::Allocation(refusal)) = error
+    else {
+        panic!("snapshot must retain the original State allocation refusal: {error}");
+    };
+    let AllocationRefusal::Capacity {
+        requested_bytes,
+        release,
+        ..
+    } = &refusal
+    else {
+        panic!("occupied State pool must preserve its capacity observation: {refusal}");
+    };
+    assert!(!called.get());
+    assert_eq!(request.reserved_bytes(), 0);
+    assert_eq!(
+        refusal,
+        execution.try_reserve_bytes(*requested_bytes).unwrap_err()
+    );
+    assert!(registration.poll_wait(release, &mut context).is_pending());
+    drop(request.try_reserve_bytes(1).unwrap());
+    assert!(registration.poll_wait(release, &mut context).is_pending());
+    assert_eq!(state.view().native_execution_tip(), expected_tip);
+    drop(occupied);
+    assert!(registration.poll_wait(release, &mut context).is_ready());
+    registration.cancel();
+    with_asset_snapshot(state, &tip, &asset, &request, |snapshot, _, _| {
+        called.set(true);
+        assert_eq!(
+            snapshot.root().unwrap(),
+            tip.commitment().execution.world_state_root
+        );
+        Ok(())
+    })
+    .expect("retry must use the same certified cut after original capacity releases");
+    assert!(called.get());
+    assert_eq!(request.reserved_bytes(), 0);
+    assert_eq!(
+        state.verify_world_state_accumulator().unwrap(),
+        expected_root
+    );
+    assert_eq!(state.view().native_execution_tip(), expected_tip);
+}
+
+#[test]
 fn certified_world_cut_survives_equivalent_and_refused_manifest_refresh() {
     use crate::governance::manifest::LaneManifestRegistry;
     use iroha_config::parameters::actual::LaneRegistry;

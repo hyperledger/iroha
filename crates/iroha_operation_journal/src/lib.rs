@@ -24,12 +24,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod canonical_read;
+pub use canonical_read::{NativeRecordObservation, ObservedNativeRecord};
+
 /// Maximum canonical byte length of each retained native journal record.
 pub const MAX_JOURNAL_BYTES: usize = 4 * 1024 * 1024;
 const APPLIED_EVIDENCE: &str = "applied.json";
 
 /// Fixed native preparation stages; arbitrary journal names cannot enter this interface.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NativeRecord {
     /// Original finite request, retained before quotation or signing.
     Request,

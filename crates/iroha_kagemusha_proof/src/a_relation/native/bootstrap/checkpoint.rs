@@ -167,11 +167,10 @@ impl Payload {
         if bytes.len() != layout.payload_bytes {
             return Err(Error::Input);
         }
-        let payload: Self = norito::decode_canonical_with_limits(
+        let payload: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(layout.payload_bytes),
-        )
-        .map_err(|_| Error::Input)?;
+        )?;
         payload.check(layout, source_context)?;
         Ok(payload)
     }
@@ -221,11 +220,10 @@ impl TerminalPayload {
         if bytes.len() != layout.payload_bytes {
             return Err(Error::Input);
         }
-        let payload: Self = norito::decode_canonical_with_limits(
+        let payload: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(layout.payload_bytes),
-        )
-        .map_err(|_| Error::Input)?;
+        )?;
         payload.check(layout, context)?;
         Ok(payload)
     }

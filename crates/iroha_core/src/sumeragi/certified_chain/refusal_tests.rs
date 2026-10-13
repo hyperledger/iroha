@@ -307,3 +307,106 @@ fn original_availability_constructor_refusal_retries_without_installing_authorit
     assert_eq!(provider.instance(), chain.instance());
     assert!(provider.height_config(2).unwrap().is_some());
 }
+
+#[test]
+fn certified_wrapper_scope_and_block_time_are_checked_by_both_reader_owners() {
+    use iroha_data_model::block::consensus::SumeragiRootScope;
+    use iroha_data_model::sumeragi_finality::{
+        CertifiedResultError, CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+        certified_result::{FLAG_ACTIVE, context_committee_root},
+    };
+    use iroha_model_base::topology::DataSpaceId;
+    let chain = original_chain();
+    let original = chain.committed(1).block().clone();
+    let certificate = original.commit_certificate().unwrap();
+    let decoded = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut fields = decoded.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&decoded.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        decoded.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let changed = |bytes: Vec<u8>| {
+        crate::block::reserve_block_for_tests().initialize(
+            original.as_ref().clone().with_commit_certificate(Some(
+                iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                    certificate.consensus_header().to_vec(),
+                    certificate.commit_qc().to_vec(),
+                    bytes,
+                    certificate.availability().to_vec(),
+                ),
+            )),
+        )
+    };
+    // Structural read only: this does not turn a modified genesis result into execution authority.
+    let active_frame = changed(active.preimage().unwrap());
+    read_frame(active_frame.clone(), 1, SumeragiRootScope::Global).unwrap();
+    let mut late = active.header().fields();
+    late.timestamp_ms += 1;
+    let wrong_time = CertifiedResultV1::from_parts_unvalidated(
+        SccpFinalityHeaderV1::from_fields(&late).unwrap(),
+        active.commitment().clone(),
+    );
+    // The canonical result hash rejects missing X before decoding. A parsed X with
+    // the wrong scope or block time instead reaches the precise wrapper check.
+    // Pin each rejection; none may be accepted or relabelled as a local refusal.
+    let bare_body = decoded.commitment().preimage().unwrap();
+    assert!(result_of_preimage(&bare_body).is_none());
+    for (source, scope, rejection) in [
+        (
+            active_frame,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: chain.network_id(),
+                dataspace_id: DataSpaceId::new(7),
+            },
+            ChainReadError::Malformed {
+                height: 1,
+                reason: CertifiedResultError::ActiveOutsideGlobal.to_string(),
+            },
+        ),
+        (
+            changed(wrong_time.preimage().unwrap()),
+            SumeragiRootScope::Global,
+            ChainReadError::Malformed {
+                height: 1,
+                reason: CertifiedResultError::BlockMismatch.to_string(),
+            },
+        ),
+        (
+            changed(bare_body),
+            SumeragiRootScope::Global,
+            ChainReadError::ResultMismatch { height: 1 },
+        ),
+    ] {
+        let expected = read_frame(source.clone(), 1, scope).unwrap_err();
+        assert!(
+            matches!(&expected, ExecutionAttemptError::Rejected(actual) if actual == &rejection),
+            "the original reader must preserve {rejection:?}, got {expected:?}"
+        );
+        let budget = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
+        let actual = AdmittedCommittedBlock::read(
+            source,
+            1,
+            scope,
+            &mut EpochValidationScope::new(),
+            &budget,
+        )
+        .err()
+        .expect("same wrapper refusal in original prepaid destination");
+        assert_eq!(expected.to_string(), actual.to_string());
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+    let retry = read_frame(original.clone(), 1, SumeragiRootScope::Global).unwrap();
+    assert_eq!(
+        retry.block().encode_wire().unwrap(),
+        original.encode_wire().unwrap()
+    );
+}

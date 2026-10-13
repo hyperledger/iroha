@@ -714,6 +714,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         lane_authorities,
     ));
     let mut executor = StateExecutor::spawn(ExecutorContext {
+        time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(&state),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -2561,6 +2562,7 @@ mod tests {
             availability,
         );
         let mut executor = StateExecutor::spawn(ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(

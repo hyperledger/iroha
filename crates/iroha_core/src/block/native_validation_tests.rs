@@ -159,6 +159,8 @@ impl NativeValidationFixture {
             header,
             bytes,
             self.chain.state(),
+            None,
+            None,
         )
     }
 }

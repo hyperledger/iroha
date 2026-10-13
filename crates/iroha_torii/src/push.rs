@@ -2948,6 +2948,7 @@ mod tests {
             );
             let (events, _) = tokio::sync::broadcast::channel(16);
             let executor = StateExecutor::spawn(ExecutorContext {
+                time_source: iroha_primitives::time::TimeSource::new_system(),
                 state: Arc::clone(&state),
                 root_scope: source.root_scope(),
                 native_context_archive: Arc::new(

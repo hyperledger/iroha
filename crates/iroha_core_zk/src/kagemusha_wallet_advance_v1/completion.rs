@@ -39,13 +39,13 @@ use super::{
 };
 
 /// Frozen completion record: a [`KagemushaWalletFrozenFrameV1`] bound to one operation and
-/// the capsule its receipt signs.
+/// the private wrapper joined to its signed public commitment.
 pub trait KagemushaWalletCompletionFrameV1: KagemushaWalletFrozenFrameV1 {
     /// Decode binding of the completion records covered by `marker` (G1: its wallet identity).
     fn marker_binding(marker: &KagemushaWalletMarkerV1) -> Self::Binding;
     /// Operation identity.
     fn operation_id(&self) -> [u8; 32];
-    /// Digest of the capsule the receipt signs.
+    /// Private custody digest of the recovery wrapper.
     fn capsule_digest(&self) -> [u8; 32];
 }
 
@@ -94,7 +94,7 @@ pub enum KagemushaWalletCompletionExpectationV1 {
         selected_generation: u128,
         /// Operation identity.
         operation_id: [u8; 32],
-        /// Capsule digest the receipt signs.
+        /// Private custody digest of the recovery wrapper.
         capsule_digest: [u8; 32],
     },
     /// Released head: exactly the record whose frame digest is `completion_digest`.
@@ -103,7 +103,7 @@ pub enum KagemushaWalletCompletionExpectationV1 {
         selected_generation: u128,
         /// Operation identity.
         operation_id: [u8; 32],
-        /// Capsule digest the receipt signs.
+        /// Private custody digest of the recovery wrapper.
         capsule_digest: [u8; 32],
         /// Frame digest bound by the Released marker.
         completion_digest: [u8; 32],

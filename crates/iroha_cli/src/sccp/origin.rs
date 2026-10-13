@@ -1,4 +1,4 @@
-//! Authenticate deployment pins from a selected signed genesis and complete certified World cut.
+//! Authenticate native routes and deployment pins from a selected signed genesis and complete certified World cut.
 
 use crate::RunContext;
 use eyre::{Result, ensure, eyre};
@@ -7,11 +7,13 @@ use iroha::{
     crypto::{Hash, HashOf, PublicKey},
     data_model::{
         block::{BlockHeader, consensus::SumeragiRootScope},
+        bridge::SccpNetworkV1,
         id::NetworkId,
         sccp::{
             deployment::SccpCommitteePinV1,
             generation::SccpCommitteeGenerationV1,
             params::{SCCP_PIN_MARGIN_MS_V1, SccpParametersV1},
+            registry::SccpRouteV1,
         },
         sumeragi_finality::{
             FinalityValidator, MAX_WORLD_STATE_SNAPSHOT_BYTES_V1, SumeragiFinalityVerifier,
@@ -19,7 +21,10 @@ use iroha::{
         },
     },
 };
-use iroha_sccp::{api::SccpGenerationV1, v1::committee::committee_root};
+use iroha_sccp::{
+    api::{SccpCapabilitiesV1, SccpGenerationV1},
+    v1::committee::committee_root,
+};
 use std::{
     io::Read as _,
     num::NonZeroU64,
@@ -155,15 +160,54 @@ fn selected_interval(selected: Option<u64>, current: u64, element_count: usize) 
     Ok(selected)
 }
 
-pub(super) fn authenticate<C: RunContext>(
+/// Original native authority and a complete certified World cut selected independently of discovery.
+pub(super) struct AuthenticatedOrigin {
+    pub network: [u8; 32],
+    pub instance: [u8; 32],
+    world: VerifiedWorldStateSnapshotV1,
+    element_count: usize,
+}
+
+impl AuthenticatedOrigin {
+    pub fn verify_route(&self, network: SccpNetworkV1, route: &SccpRouteV1) -> Result<()> {
+        ensure!(
+            route.network == network,
+            "route names another requested network"
+        );
+        self.world
+            .verify_table_value("world.sccp_routes", &network, route)?;
+        Ok(())
+    }
+
+    pub fn verify_capabilities(&self, capabilities: &SccpCapabilitiesV1) -> Result<()> {
+        ensure!(
+            capabilities.network_id == self.network
+                && capabilities.consensus_instance == self.instance,
+            "SCCP discovery differs from the selected original native root"
+        );
+        Ok(())
+    }
+
+    pub fn current_generation(&self, capabilities: &SccpCapabilitiesV1) -> Result<u64> {
+        self.verify_capabilities(capabilities)?;
+        let current = capabilities
+            .current_generation
+            .as_ref()
+            .ok_or_else(|| eyre!("SCCP is not initialized"))?;
+        self.world
+            .verify_cell_value("world.sccp_committee_current", &current.generation)?;
+        Ok(current.generation)
+    }
+}
+
+pub(super) fn authenticate_origin<C: RunContext>(
     context: &C,
     client: &Client,
     args: &OriginArgs,
-    selected: Option<u64>,
-) -> Result<AuthenticatedPin> {
+) -> Result<AuthenticatedOrigin> {
     ensure!(
         args.at_height >= 2,
-        "deployment needs a certified successor"
+        "native authority needs a certified successor"
     );
     let hash = HashOf::<BlockHeader>::from_untyped_unchecked(args.genesis_hash);
     let network = selected_network(hash, context.config().network_id)?;
@@ -197,13 +241,7 @@ pub(super) fn authenticate<C: RunContext>(
     )?;
     ensure!(
         verifier.root_scope() == SumeragiRootScope::Global,
-        "SCCP deployment requires the original Global root"
-    );
-    let capabilities = client.sccp().capabilities()?;
-    ensure!(
-        capabilities.network_id == *network.as_bytes()
-            && capabilities.consensus_instance == verifier.instance().0,
-        "SCCP discovery differs from the selected original native root"
+        "SCCP requires the original Global root"
     );
     // The caller selects the height. The endpoint cannot extend this work by advertising a new tip.
     let mut tip = None;
@@ -218,6 +256,25 @@ pub(super) fn authenticate<C: RunContext>(
     tip.verify_global_scope(network, verifier.chain_id())?;
     let snapshot_wire = bounded_read(&args.world_snapshot, MAX_WORLD_STATE_SNAPSHOT_BYTES_V1)?;
     let (world, element_count) = authenticated_world(&snapshot_wire, args.world_schema_hash, &tip)?;
+    Ok(AuthenticatedOrigin {
+        network: *network.as_bytes(),
+        instance: verifier.instance().0,
+        world,
+        element_count,
+    })
+}
+
+pub(super) fn authenticate<C: RunContext>(
+    context: &C,
+    client: &Client,
+    args: &OriginArgs,
+    selected: Option<u64>,
+) -> Result<AuthenticatedPin> {
+    let original = authenticate_origin(context, client, args)?;
+    let capabilities = client.sccp().capabilities()?;
+    original.verify_capabilities(&capabilities)?;
+    let world = &original.world;
+    let element_count = original.element_count;
     // DTO values are candidates; these exact cell/table preimages must match the authenticated World.
     let current = capabilities
         .current_generation
@@ -236,7 +293,7 @@ pub(super) fn authenticate<C: RunContext>(
     let mut pinned = None;
     for generation in selected..=current.generation {
         let record = authenticate_record(
-            &world,
+            world,
             generation,
             client.sccp().committee(generation)?,
             required_until,
@@ -265,8 +322,8 @@ pub(super) fn authenticate<C: RunContext>(
         "authenticated deployment pin is malformed"
     );
     Ok(AuthenticatedPin {
-        network: *network.as_bytes(),
-        instance: verifier.instance().0,
+        network: original.network,
+        instance: original.instance,
         pin,
         keys: record.keys,
     })
@@ -363,6 +420,136 @@ mod tests {
         (snapshot, tip)
     }
     #[test]
+    fn catch_up_generation_requires_original_identity_and_committed_cell() {
+        use iroha_sccp::api::{SccpCurrentGenerationV1, SccpFinalityConstantsV1, SccpReadLimitsV1};
+        let row = record();
+        let (snapshot, tip) = certified(&row);
+        let original = AuthenticatedOrigin {
+            network: [1; 32],
+            instance: [2; 32],
+            world: snapshot.authenticate(&tip).unwrap(),
+            element_count: 2,
+        };
+        let capabilities = SccpCapabilitiesV1 {
+            network_id: original.network,
+            consensus_instance: original.instance,
+            finality: SccpFinalityConstantsV1::current(),
+            current_generation: Some(SccpCurrentGenerationV1 {
+                generation: 1,
+                committee_root: row.committee_root,
+                start_height: 1,
+                deadline_ms: 1100,
+            }),
+            liability_clock: 1000,
+            parameters: None,
+            committed_height: 2,
+            light_client_profiles: vec![],
+            chain_id: "discovery only".into(),
+            profiles: vec![],
+            profiles_policy_hash: [0; 32],
+            limits: SccpReadLimitsV1::v1(),
+            path_templates: vec![],
+        };
+        assert_eq!(original.current_generation(&capabilities).unwrap(), 1);
+        for case in 0..4 {
+            let mut changed = capabilities.clone();
+            match case {
+                0 => changed.network_id[0] ^= 1,
+                1 => changed.consensus_instance[0] ^= 1,
+                2 => changed.current_generation.as_mut().unwrap().generation += 1,
+                _ => changed.current_generation = None,
+            }
+            assert!(
+                original.current_generation(&changed).is_err(),
+                "case {case}"
+            );
+        }
+    }
+
+    #[test]
+    fn destination_route_binds_complete_record_to_original_world() {
+        use iroha::data_model::sccp::{
+            deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
+            registry::SccpRouteRevisionV1,
+        };
+        let generation = record();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let account = generation.members[0].as_ref().unwrap().validator.clone();
+        let mut route = SccpRouteV1::empty(network, account).unwrap();
+        route.revisions.insert(
+            1,
+            SccpRouteRevisionV1::staged(
+                1,
+                SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+                    address: [3; 20],
+                    runtime_code_hash: [4; 32],
+                }),
+                SccpCommitteePinV1 {
+                    generation: 1,
+                    committee_root: generation.committee_root,
+                    start_height: 1,
+                    until_ms: 1100,
+                },
+                1000,
+                2,
+            ),
+        );
+        let snapshot = WorldStateSnapshotV1 {
+            schema_hash: Hash::new(b"original route schema"),
+            entries: vec![WorldStateSnapshotEntryV1 {
+                field_id: "world.sccp_routes".into(),
+                kind: WorldStateElementKindV1::Table,
+                key_hash: Some(world_state_value_hash_v1(&network).unwrap()),
+                value_hash: world_state_value_hash_v1(&route).unwrap(),
+            }],
+        };
+        let mut native = NativeFinalityFixture::new();
+        let block = native.block_with_submitted_work(native.next_header());
+        let proof = native.certify_with_world_root(block, snapshot.root().unwrap());
+        let tip = native.verifier().verify_retained_decision(&proof).unwrap();
+        let original = AuthenticatedOrigin {
+            network: [1; 32],
+            instance: [2; 32],
+            world: snapshot.authenticate(&tip).unwrap(),
+            element_count: 1,
+        };
+        original.verify_route(network, &route).unwrap();
+        assert!(
+            original
+                .verify_route(SccpNetworkV1::BscMainnet, &route)
+                .is_err()
+        );
+        for case in 0..8 {
+            let mut changed = route.clone();
+            let revision = changed.revisions.get_mut(&1).unwrap();
+            match case {
+                0 => revision.initial_committee.committee_root[0] ^= 1,
+                1 => revision.initial_committee.until_ms += 1,
+                2 => revision.initial_committee.generation += 1,
+                3 => revision.max_wrapped_supply += 1,
+                4 => revision.destination_word[0] ^= 1,
+                5 => revision.revision += 1,
+                6 => {
+                    let SccpDeploymentV1::Evm(deployment) = &mut revision.deployment else {
+                        unreachable!()
+                    };
+                    deployment.runtime_code_hash[0] ^= 1;
+                }
+                _ => {
+                    let SccpDeploymentV1::Evm(deployment) = &mut revision.deployment else {
+                        unreachable!()
+                    };
+                    deployment.address[0] ^= 1;
+                }
+            }
+            assert!(
+                original.verify_route(network, &changed).is_err(),
+                "case {case}"
+            );
+        }
+    }
+
+    #[test]
     fn selected_network_and_finite_generation_interval_are_independent_of_discovery() {
         let hash = HashOf::from_untyped_unchecked(Hash::new(b"original genesis"));
         let network = NetworkId::from_genesis_hash(hash);
@@ -403,17 +590,22 @@ mod tests {
         let mut wrong_root = row.clone();
         wrong_root.committee_root[0] ^= 1;
         assert!(authenticate_record(&world, 1, wrong_root, 1100).is_err());
-        let mut changed = row.clone();
-        // Genesis binds its creation and liability clocks together. Keep the
-        // altered record structurally valid and within the pin horizon so only
-        // its mismatch with the certified World can reject the substitution.
-        changed.start_timestamp_ms += 1;
-        changed.start_lc += 1;
-        changed.deadline_ms += 1;
-        changed.liable_until_lc += 1;
-        assert!(native_record(changed.clone()).is_well_formed());
-        assert!(changed.deadline_ms >= 1100);
-        assert!(authenticate_record(&world, 1, changed, 1100).is_err());
+        let mut changed_grace = row.clone();
+        changed_grace.grace_ms += 1;
+        changed_grace.liable_until_lc += 1;
+        // Genesis binds its creation and liability clocks together. Keep both
+        // altered records structurally valid and within the pin horizon so only
+        // their mismatch with the certified World rejects the substitutions.
+        let mut changed_clocks = row.clone();
+        changed_clocks.start_timestamp_ms += 1;
+        changed_clocks.start_lc += 1;
+        changed_clocks.deadline_ms += 1;
+        changed_clocks.liable_until_lc += 1;
+        for changed in [changed_grace, changed_clocks] {
+            assert!(native_record(changed.clone()).is_well_formed());
+            assert!(changed.deadline_ms >= 1100);
+            assert!(authenticate_record(&world, 1, changed, 1100).is_err());
+        }
         let mut discovery_only = row;
         discovery_only.liable = false;
         assert!(

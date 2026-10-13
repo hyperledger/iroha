@@ -8750,12 +8750,12 @@ mod tests {
     #[test]
     fn canonical_kotodama_binding_returns_full_artifact_manifest() {
         let request = canonical_kotodama_request(
-            r#"seiyaku Demo { permission RunDemo;
+            r"seiyaku Demo { permission RunDemo;
                 hajimari() {}
                 kaizen() {}
                 kotoage fn run() authorize(RunDemo) {}
                 view fn ping() authorize(anyone) -> int { return 1; }
-            }"#,
+            }",
         );
         let result = compile_kotodama_request(&request).expect("compile canonical Kotodama source");
         assert!(result.ok);
@@ -8821,7 +8821,7 @@ mod tests {
     }
     #[test]
     fn canonical_kotodama_request_preserves_source_name_and_selects_zk_policy() {
-        let source = r#"
+        let source = r"
 seiyaku Privacy { permission CanCommitPrivateInput;
   kotoage fn commit() authorize(CanCommitPrivateInput) {
     let Secret<int> value = crypto::private_input(0);
@@ -8830,7 +8830,7 @@ seiyaku Privacy { permission CanCommitPrivateInput;
     crypto::commit_output();
   }
 }
-"#;
+";
         let request = JsKotodamaCompileRequest {
             artifacts: Vec::new(),
             source: source.to_owned(),
@@ -13983,7 +13983,10 @@ seiyaku Privacy { permission CanCommitPrivateInput;
                 DomainId::try_new("sbp", "universal").expect("destination asset domain"),
                 "pkr".parse().expect("destination asset name"),
             ),
-            settlement_id: "fx_1".parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                sample_account("payer"),
+                "fx_1".parse().expect("settlement reference"),
+            ),
             recipient: AccountId::new(
                 KeyPair::random_with_algorithm(Algorithm::Ed25519)
                     .public_key()

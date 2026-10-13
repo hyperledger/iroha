@@ -186,6 +186,7 @@ fn context(
         .unwrap();
     (
         ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Clone::clone(chain.state()),
             native_context_archive: Arc::new(
                 NativeContextArchive::open(
@@ -331,7 +332,7 @@ fn assert_pending_archive_owner(
     assert_eq!(worker.applied.0, 1);
     assert!(events.try_recv().is_err());
     assert!(worker.live.as_ref().unwrap().overlay.is_none());
-    assert!(worker.execute(block, qc.block_hash).is_none());
+    assert!(worker.execute(block, qc.block_hash, false).is_none());
     assert_eq!(worker.prepare(block, qc).unwrap(), Some(qc.result));
     event_count
 }
@@ -645,7 +646,7 @@ fn partial_archive_failure_retains_exact_decision_and_retries_without_reexecutio
         "archive failure cannot clean committed queue work"
     );
     assert!(events.try_recv().is_err());
-    assert!(worker.execute(&block, qc.block_hash).is_none());
+    assert!(worker.execute(&block, qc.block_hash, false).is_none());
     assert_eq!(worker.build(3, 0, 1 << 20, 100).unwrap(), None);
     assert_eq!(worker.prepare(&block, &qc).unwrap(), Some(qc.result));
     assert!(

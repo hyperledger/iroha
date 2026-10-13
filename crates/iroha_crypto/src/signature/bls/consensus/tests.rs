@@ -1595,3 +1595,27 @@ fn single_verifier_matches_vectors_and_rejects_malformed_points_without_allocati
         )));
     }
 }
+
+#[test]
+fn single_key_verifier_uses_native_suite_without_pop_or_committee_authority() {
+    let secret = private_key(0);
+    let key = bytes::<48>(PUBLIC_KEYS[0]);
+    let preimage = sample_preimage(ConsensusContext::Commit);
+    let digest = ConsensusDigest::from_preimage(&preimage).unwrap();
+    let signature = sign(&secret, &digest).unwrap();
+    assert!(verify_public_key(&key, &digest, &signature));
+    assert!(!verify_public_key(
+        &bytes::<48>(PUBLIC_KEYS[1]),
+        &digest,
+        &signature
+    ));
+    let old = Signature::try_new(&secret, &preimage).unwrap();
+    let old: [u8; 96] = old.payload().try_into().unwrap();
+    assert!(!verify_public_key(&key, &digest, &old));
+    without_allocations(|| {
+        assert!(!verify_public_key(&[0; 48], &digest, &signature));
+        assert!(!verify_public_key(&key, &digest, &identity_signature()));
+        assert!(!verify_public_key(&key, &digest, &old));
+        assert!(verify_public_key(&key, &digest, &signature));
+    });
+}

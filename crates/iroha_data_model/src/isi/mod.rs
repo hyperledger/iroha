@@ -433,9 +433,11 @@ impl_direct_instruction_box!(crate::isi::escrow::ExpireAssetLock);
 impl_direct_instruction_box!(crate::isi::vpn::OpenVpnLeaseEscrow);
 impl_direct_instruction_box!(crate::isi::vpn::SettleVpnLease);
 impl_direct_instruction_box!(crate::isi::vpn::RefundExpiredVpnLease);
+impl_direct_instruction_box!(crate::isi::chain::Keepalive);
 // Allow direct boxing of the SCCP v1 instructions (`specs/sccp.md` §4).
 impl_direct_instruction_box!(
     crate::isi::sccp::InitializeSccpV1,
+    crate::isi::sccp::SubmitSccpForgeryEvidenceV1,
     crate::isi::sccp::RecordSccpMessage,
     crate::isi::sccp::SubmitSccpInboundMessageV1,
     crate::isi::sccp::SettleSccpV1,
@@ -1968,6 +1970,8 @@ pub mod asset_alias;
 pub mod asset_transfer_control;
 /// Confidential registry management instructions. Bridge proof ingestion instructions.
 pub mod bridge;
+/// Shared chain-level due-work maintenance.
+pub mod chain;
 /// Confidential registry management instructions.
 pub mod confidential;
 /// Content lane instructions.

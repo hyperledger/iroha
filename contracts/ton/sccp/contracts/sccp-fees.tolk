@@ -68,22 +68,18 @@ const SCCP_GAS_WALLET_RECEIVE = 8000
 const SCCP_GAS_WALLET_TRANSFER = 8000
 const SCCP_GAS_WALLET_BURN = 7000
 
-// Account state sizes, upper bounds of the storage statistics of each
-// account (code, data and the account's own cell). The minter bound is the
-// measured largest state: the compiled code, the 16 `KeyChunk`s of n = 31,
-// three checkpoints, the largest supplies and counters, the wallet and bucket
-// code, and eight `retries` records, which only bounced steps create: 257
-// cells and 120 032 bits.
-// TODO: WP-TON-RUST: `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` of
-// `crates/iroha_sccp/src/v1/ton_cell.rs` mirror the two minter constants and
-// still hold the bound of the retired roster minter (102 000 bits, 205
-// cells); move them to the values below.
+// Account state sizes including compiled code and data. The native n = 31
+// minter with three checkpoints, wallet and bucket code, maximal counters
+// and eight retained retries measures 219 cells and 112 023 bits.
+// TODO: establish a bound or funded storage policy for arbitrary retained
+// retry history; this sampled state does not prove such a bound. Keep the
+// Rust mirrors in `crates/iroha_sccp/src/v1/ton_cell.rs` synchronized.
 const SCCP_BUCKET_STATE_BITS = 9000
 const SCCP_BUCKET_STATE_CELLS = 27
 const SCCP_WALLET_STATE_BITS = 7500
 const SCCP_WALLET_STATE_CELLS = 16
-const SCCP_MINTER_STATE_BITS = 122000
-const SCCP_MINTER_STATE_CELLS = 260
+const SCCP_MINTER_STATE_BITS = 113000
+const SCCP_MINTER_STATE_CELLS = 220
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
 const SCCP_BUCKET_STATE_INIT_BITS = 9000

@@ -307,7 +307,7 @@ fn pruning_requires_explicit_pending_set_preserves_inclusive_liability_and_eight
                 successor_validity_ms: params.committee_validity_ms,
             });
         }
-        publish_record(&mut stx, record).expect("fixture generation admission");
+        publish_record(&mut stx, record).expect("fixture generation publication");
     }
     let boundary = store::committee_generations::get(&*stx.world, &1)
         .unwrap()
@@ -378,7 +378,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             next_committee_root: committee.root,
             successor_validity_ms: parameters.committee_validity_ms,
         });
-        publish_record(&mut stx, record).expect("fixture generation admission");
+        publish_record(&mut stx, record).expect("fixture generation publication");
     }
     store::liability_clock::set(&mut stx, 2_000);
     let network = SccpNetworkV1::EthereumMainnet;
@@ -685,7 +685,7 @@ fn destination_clearance_visits_only_bounded_pending_index_after_cleared_history
             if id <= cleared_history {
                 record.dest_cleared_lc = Some(2_000);
             }
-            publish_record(&mut stx, record).expect("fixture generation admission");
+            publish_record(&mut stx, record).expect("fixture generation publication");
         }
         store::liability_clock::set(&mut stx, 3_000);
         assert_eq!(stx.world.sccp_destination_pending_generations.len(), 65);

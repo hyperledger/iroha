@@ -136,7 +136,11 @@ fn named_and_numeric_identifiers_roundtrip_as_quoted_keys() {
     assert_key(name.clone(), "transfer");
     assert_key(RoleId::new(name.clone()), "transfer");
     assert_key(TriggerId::new(name.clone()), "transfer");
-    assert_key(SettlementId::new(name.clone()), "transfer");
+    let owner = AccountId::new(KEY.parse().expect("owner public key"));
+    assert_key(
+        SettlementId::new(owner.clone(), name.clone()),
+        &format!("transfer${owner}"),
+    );
     assert_key(FeedId(name.clone()), "transfer");
     assert_key(CustomParameterId::new(name.clone()), "transfer");
     let domain = DomainId::try_new("wonderland", "universal").expect("domain fixture");

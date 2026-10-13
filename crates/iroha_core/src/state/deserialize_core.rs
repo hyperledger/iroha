@@ -3057,3 +3057,11 @@ mod evidence_record_restore_adapter_tests {
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }
+
+impl From<sccp_forgery_custody::ForgeryStorageError> for StateRestoreError {
+    fn from(error: sccp_forgery_custody::ForgeryStorageError) -> Self {
+        Self::Admission(StateAdmissionError::Storage(
+            StateStorageAdmissionError::SccpForgery(error),
+        ))
+    }
+}

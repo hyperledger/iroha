@@ -744,6 +744,7 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpInboundMessageV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SettleSccpV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpOutboundVoidV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::AdvanceSccpLightClientV1> => CoreAuthorized,
     dispatch_instruction::<
         iroha_data_model::isi::sccp::ReportSccpLightClientEquivocationV1

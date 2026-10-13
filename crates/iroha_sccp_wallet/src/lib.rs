@@ -5,7 +5,7 @@
 //! is involved. It holds:
 //!
 //! - `pure`: network-free verification of proof bundles, rotation chains and
-//!   Parliament controls against the destination's own state, and destination
+//!   Parliament/fast-pause controls against independently observed native destination state, and destination
 //!   transaction encodings (EVM calldata and EIP-1559 signing; TON),
 //!   exportable to SDK bridges;
 //! - `config`: the file-only `[sccp]` table (endpoint lists, timeouts, pinned

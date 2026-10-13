@@ -50,7 +50,10 @@ fn atomic() -> SettleAtomic {
         NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
             b"atomic-js-fixture",
         ))),
-        "atomic_js".parse().expect("id"),
+        iroha_data_model::isi::SettlementId::new(
+            account(1),
+            "atomic_js".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical"),
         NonZeroU64::new(500).expect("expiry"),
         Metadata::default(),
@@ -83,6 +86,12 @@ fn atomic_json_roundtrip_preserves_scope_intent_and_binary_instruction() {
 #[test]
 fn atomic_json_rejects_missing_or_unknown_fields_and_variant_substitutions() {
     let payload = json::to_value(&atomic()).expect("JSON");
+    let mut bare_id = payload.clone();
+    bare_id.as_object_mut().expect("object").insert(
+        "settlement_id".into(),
+        json::Value::String("atomic_js".into()),
+    );
+    assert!(value_to_instruction(settlement([("Atomic", bare_id)])).is_err());
     for field in [
         "network_id",
         "settlement_id",

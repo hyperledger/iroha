@@ -166,11 +166,7 @@ impl From<state::Error> for Failure {
                 UNAVAILABLE,
                 advance::KagemushaWalletUnavailableV1::from_io(&error),
             ),
-            E::DecodeResource(original) => match original.kind() {
-                norito::core::DecodeAttemptErrorKind::Allocator
-                | norito::core::DecodeAttemptErrorKind::EnclosingLimit => Self::code(RESOURCE),
-                norito::core::DecodeAttemptErrorKind::Invalid => Self::code(INTERNAL),
-            },
+            E::DecodeResource(_) => Self::code(RESOURCE),
             // Compact binary wallet readers cannot originate signed-genesis reads.
             // Preserve an unexpected typed read until this final ABI projection;
             // do not invent locality or an invalidity verdict from its diagnostic.

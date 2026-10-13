@@ -871,6 +871,11 @@ impl Read {
                     // The private SDK carrier retains the exact statement it already checked.
                     // Request rebinding above and trusted prefix placement below remain fresh.
                     FinalityAttestation::Authenticated(attestation) => {
+                        if attestation.root_scope() != root_scope {
+                            return Self::Invalid(Box::new(NativeFinalityError(
+                                "SDK attestation result scope differs from selected native root".into()
+                            ).into()));
+                        }
                         Self::Claim(Box::new(attestation.into_attestation()))
                     }
                 }

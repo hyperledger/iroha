@@ -1519,9 +1519,9 @@ def require_block_start_enactment_phases(state: str) -> None:
         state_path,
     )
     # This small statement region contains only the original height and the
-    # three unconditional calls: private-settlement expiry, the SCCP begin-block
-    # step (specs/sccp.md S0, before the governance pass) and Parliament
-    # enactment. Ignore line comments, but reject hidden conditions,
+    # four unconditional calls: private-settlement expiry, the SCCP begin-block
+    # step (specs/sccp.md S0, before the governance pass), Parliament enactment,
+    # then SCCP G4 fast-pause lapse cleanup (§4.7.2, §4.14.7). Ignore line comments, but reject hidden conditions,
     # substituted owners/heights, duplicate calls, or swapped execution order.
     phases = re.sub(r"//[^\n]*", "", phases)
     expected = (
@@ -1531,6 +1531,8 @@ def require_block_start_enactment_phases(state: str) -> None:
         "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)"
         ".map_err(StateBlockStartError::Storage)?;"
         "Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;"
+        "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)"
+        ".map_err(StateBlockStartError::Storage)?;"
     )
     if re.sub(r"\s+", "", phases) != re.sub(r"\s+", "", expected):
         raise RuntimeError(f"{state_path}: start phases must use the original block and height in order")
@@ -1742,6 +1744,143 @@ def require_completed_replay_source(source: str) -> None:
         raise RuntimeError(f"{path}: completed replay must stream the complete canonical committee preimage")
 
 
+def require_publication_kura_cleanup(publication: str) -> None:
+    """Bind retained Kura release custody to the actual State attempt and cleanup."""
+    path = "crates/iroha_core/src/state/publication.rs"
+    source = compact_rust(strip_rust_comments(publication))
+    require_ordered_once(path, "original publication cleanup fields", source, (
+        "geometry_cleanup:crate::kura::KuraPublicationSlot<'state>,",
+        "effect_cleanup:effect_publication::StateEffectLocks<'state>,",
+        "commit_fence:crate::publication_lock::DeferredPublicationFence<'state,()>,",
+    ))
+    require_ordered_once(path, "original publication cleanup construction", source, (
+        "geometry_cleanup:crate::kura::KuraPublicationSlot::new(&state.kura),",
+        "effect_cleanup:effect_publication::StateEffectLocks::new(state),",
+        "commit_fence:state.state_commit_lock.defer_notifications(),",
+    ))
+    attempt = compact_rust(strip_rust_comments(rust_item(
+        publication, "    fn attempt_original_publication(", path,
+    )))
+    require_ordered_once(path, "original Kura physical scope", attempt, (
+        "letmutgeometry_lease=geometry_cleanup.physical_scope();",
+        "letmuteffect_locks=effect_cleanup.physical_scope();",
+        "let_state_commit_lock=commit_fence.lock();",
+        "letprepared_geometry=pending_autoscale_lifecycle.as_ref().map(|pending|{",
+        "ifprepared_geometry.is_some(){geometry_lease.try_prepare().map_err(|error|matcherror{"
+        "crate::kura::KuraPublicationPreparationError::Busy{wait,..}=>{TransactionsBlockError::PublicationBusy(wait)}"
+        "crate::kura::KuraPublicationPreparationError::Storage(error)=>{TransactionsBlockError::from(LaneLifecycleError::GeometryStorage(error))}})?;}",
+        "effect_locks.try_prepare().map_err(|(_,wait)|TransactionsBlockError::PublicationBusy(wait))?;*irreversible=true;",
+        "ifletErr(error)=geometry.apply(geometry_lease.lease()){",
+        "let_view_generation=publication_notice.begin();",
+        "effect_locks.release_writers();drop(geometry_lease);",
+        "ifletSome(post)=lifecycle_post_publication.take(){post.publish(state_ref);}",
+        "drop(autoscale_lifecycle_guard);",
+        "drop(_state_commit_lock);",
+    ))
+    preparation = rust_item(publication, "        if prepared_geometry.is_some() {", path)
+    tail = publication[publication.index(preparation) + len(preparation):]
+    writer = compact_rust(strip_rust_comments(rust_item(
+        tail, "        {\n            let state_write_lock_wait_start", path,
+    )))
+    before_effects = writer[:writer.index("effect_locks.try_prepare()")]
+    mutation = compact_rust('''#[cfg(all(test, sumeragi_core_mutation = "HC272"))]
+        { *irreversible = true; }''')
+    if (before_effects.count(mutation) != 1
+            or "*irreversible=" in before_effects.replace(mutation, "", 1)):
+        raise RuntimeError(f"{path}: original effect refusal must precede irreversible geometry")
+    engine = compact_rust(strip_rust_comments(rust_item(
+        publication, "    fn try_publish_inner(", path,
+    )))
+    notices = ('self.publication.as_mut().expect("retainedoriginalpublication")'
+               '.geometry_cleanup.retire_notices();')
+    unwind = ('Err(payload)=>{original.poisoned=true;self.publication=Some(original);'
+              'mv::BlockRetirement::release_writers(self);' + notices + 'resume_unwind(payload);}')
+    terminal = ('letterminal=original.poisoned||original.published;self.publication=Some(original);'
+                'ifterminal{mv::BlockRetirement::release_writers(self);}' + notices + 'result}')
+    if (engine.count(".retire_notices()") != 2 or engine.count(notices) != 2 or engine.count(unwind) != 1
+            or not engine.endswith(terminal) or attempt.count('.retire_notices()') != 0):
+        raise RuntimeError(f"{path}: original Kura notices must follow complete State cleanup")
+
+    retained_path = "crates/iroha_core/src/kura/publication_lease/retained.rs"
+    retained = read(retained_path)
+    release = compact_rust(strip_rust_comments(rust_item(
+        retained, "    fn release_into(", retained_path,
+    )))
+    if release != compact_rust('''fn release_into(&mut self, releases: &mut [DeferredReleaseBatch; 4]) {
+        for (guard, batch) in [ &mut self.sidecar, &mut self.geometry,
+            &mut self.canonical, &mut self.prune, ].into_iter().zip(releases) {
+            if let Some(guard) = guard.take() {
+                if cfg!(all(test, sumeragi_core_mutation = "HC274")) {
+                    drop(guard); continue;
+                }
+                assert!(guard.try_release_into(batch).is_ok(), "original Kura release batch");
+            }
+        }
+    }'''):
+        raise RuntimeError(f"{retained_path}: every original physical prefix must retain its exact release batch")
+    prepare = compact_rust(strip_rust_comments(rust_item(
+        retained, "    pub(crate) fn try_prepare(", retained_path,
+    )))
+    require_all(retained_path, prepare, (
+        'assert!(self.lease.is_none(),"originalKuraleasemustbereleasedbeforeretry");',
+        "letmutacquisition=Acquisition{fences:AcquiredKuraPublicationFences::new(),releases:&mutself.releases,};",
+        "letpending_canonical_bytes=self.kura.prepare_publication_fences(&mutacquisition.fences)?;",
+        "letfences=std::mem::replace(&mutacquisition.fences,AcquiredKuraPublicationFences::new(),);",
+        "self.lease=Some(KuraPublicationLease{kura:self.kura,pending_canonical_bytes,fences,});",
+    ))
+    for declaration, body in (
+        ("impl Drop for Acquisition<'_, '_>",
+         "fn drop(&mut self) { self.fences.release_into(self.releases); }"),
+        ("impl Drop for KuraPhysicalScope<'_, '_>",
+         "fn drop(&mut self) { self.0.release_writers(); }"),
+        ("impl Drop for KuraPublicationSlot<'_>",
+         "fn drop(&mut self) { self.release_writers(); }"),
+    ):
+        item = compact_rust(strip_rust_comments(rust_item(retained, declaration, retained_path)))
+        if item != compact_rust(declaration + " { " + body + " }"):
+            raise RuntimeError(f"{retained_path}: partial and complete original physical owners must defer notices")
+    release_writers = compact_rust(strip_rust_comments(rust_item(
+        retained, "    fn release_writers(", retained_path,
+    )))
+    if release_writers != compact_rust("""
+        fn release_writers(&mut self) {
+            if let Some(mut lease) = self.lease.take() {
+                lease.fences.release_into(&mut self.releases);
+            }
+        }
+    """):
+        raise RuntimeError(f"{retained_path}: original physical release must retain its source batches")
+    retire = compact_rust(strip_rust_comments(rust_item(
+        retained, "    pub(crate) fn retire_notices(", retained_path,
+    )))
+    if retire != compact_rust('''
+        pub(crate) fn retire_notices(&mut self) {
+            assert!(self.lease.is_none(), "original Kura physical scope must end before notification");
+            let fresh = [
+                self.kura.sidecar_lock.deferred_releases(),
+                self.kura.lane_geometry_lock.deferred_releases(),
+                self.kura.canonical_chain_lock.deferred_releases(),
+                self.kura.prune_lock.deferred_releases(),
+            ];
+            drop(std::mem::replace(&mut self.releases, fresh));
+        }
+    '''):
+        raise RuntimeError(f"{retained_path}: notices must retain the four exact original Kura sources")
+    # These genuine native callbacks probe State, effect, and Kura siblings;
+    # their three distinct paths remain the executable HC274 regression owner.
+    tests_path = "crates/iroha_core/src/state/publication_effect_kura_tests.rs"
+    tests = read(tests_path)
+    for name, arguments in (
+        ("partial_refusal", "true, false"),
+        ("success", "false, false"),
+        ("unwind", "false, true"),
+    ):
+        declaration = f"fn original_kura_{name}_callbacks_follow_all_state_siblings()"
+        test = compact_rust(strip_rust_comments(rust_item(tests, declaration, tests_path)))
+        if test != compact_rust(declaration + " { check_kura_release(" + arguments + "); }"):
+            raise RuntimeError(f"{tests_path}: original Kura native cleanup regression is disconnected")
+
+
 def require_parliament_commit_publication(state: str) -> None:
     """Publish Parliament metrics only from the retained State owner, once, after publication."""
     state_path = "crates/iroha_core/src/state.rs"
@@ -1905,18 +2044,20 @@ def require_parliament_commit_publication(state: str) -> None:
         "iforiginal.published{self.publication=Some(original);returnStatePublicationOutcome::Published;}",
         "letresult=self.attempt_original_publication(&mutoriginal);",
         "iforiginal.fields_frozen&&!original.irreversible{self.recover_original_publication_fields();self.retire_original_publication_notices();}",
-        "self.publication=Some(original);ifterminal{mv::BlockRetirement::release_writers(self);}result",
+        "self.publication=Some(original);ifterminal{mv::BlockRetirement::release_writers(self);}"
+        "self.publication.as_mut().expect(\"retainedoriginalpublication\").geometry_cleanup.retire_notices();result",
         '#[cfg(feature="telemetry")]lettelemetry_origin=this.committed_telemetry_origin().map_err(|_|TransactionsBlockError::WorldCommitPreparation)?;',
     ))
+    require_publication_kura_cleanup(publication)
     constructor = section(source_compact, "impl<'state>StatePublication<'state>{", "impl<'state>StateBlock<'state>{", path)
     if not (0 <= constructor.find("effect_cleanup:effect_publication::StateEffectLocks::new(state)")
             < constructor.find("commit_fence:state.state_commit_lock.defer_notifications()")):
         raise RuntimeError(f"{path}: original effect and commit-fence owners must precede publication")
     commit = section(publication, "    fn attempt_original_publication(",
                      "\n#[cfg(test)]", path)
-    # All fallible World/geometry work precedes the original State writer and
-    # visibility interval. The prepared World effects are consumed under that
-    # same writer, after the original World journal publishes.
+    # Reversible World and geometry preflight precede the final State writer.
+    # Physical geometry follows complete original effect acquisition under that
+    # writer, before visibility; World effects follow the same World journal.
     compact = re.sub(r"\s+", "", re.sub(r"//[^\n]*", "", commit))
     # The retained effects come from the original propagated preparation and
     # survive the final accumulator write before the immutable field freeze.
@@ -1979,8 +2120,9 @@ def require_parliament_commit_publication(state: str) -> None:
         if (len(mentions) != len(owners)
                 or any(compact_publication.count(owner) != 1 for owner in owners)):
             raise RuntimeError(f"{path}: retained World validation success must stay with its original stage")
-    geometry = section(compact, "ifletErr(err)=geometry_result{", "autoscale_start.elapsed()", path)
-    if not geometry.endswith("returnErr(TransactionsBlockError::from(err));}"):
+    geometry = section(compact, "ifletErr(error)=geometry.apply(geometry_lease.lease()){",
+                       "autoscale_start.elapsed()", path)
+    if not geometry.endswith("returnErr(TransactionsBlockError::from(error));}"):
         raise RuntimeError(f"{path}: geometry refusal must return before State publication")
     parliament_telemetry = (
         '#[cfg(feature="telemetry")]{iftelemetry_origin==crate::sumeragi::executor::CommitTelemetryOrigin::Forward{for&(transition,no_result_kind)'
@@ -1991,10 +2133,13 @@ def require_parliament_commit_publication(state: str) -> None:
         "let_state_commit_lock=commit_fence.lock();",
         prepare_call,
         "*tiered_snapshot=Some(",
-        "ifletErr(err)=geometry_result{",
+        "letprepared_geometry=pending_autoscale_lifecycle.as_ref().map(|pending|{",
+        "ifprepared_geometry.is_some(){geometry_lease.try_prepare().map_err(|error|matcherror{",
         "letstate_write_lock_wait_start=Instant::now();let_state_write_lock=write_fence.lock();",
         "block_hashes.try_prepare_publication().map_err(|error|matcherror{",
         "world.try_prepare_frozen_publication().map_err(original_preparation_error)?;",
+        "effect_locks.try_prepare().map_err(|(_,wait)|TransactionsBlockError::PublicationBusy(wait))?;",
+        "ifletErr(error)=geometry.apply(geometry_lease.lease()){",
         "let_view_generation=publication_notice.begin();",
         "transactions.publish_prepared();",
         "canonical_runtime.publish_prepared();",
@@ -2009,8 +2154,8 @@ def require_parliament_commit_publication(state: str) -> None:
     )
     positions = [compact.find(token) for token in ordered]
     # The same State writer is also acquired once during the earlier preflight.
-    # Bind this occurrence to the one after geometry refusal, where publication
-    # starts, while retaining exactly one match for every other stage.
+    # Bind this occurrence to the one after reversible geometry preparation,
+    # retaining exactly one match for every other stage.
     writer = "letstate_write_lock_wait_start=Instant::now();let_state_write_lock=write_fence.lock();"
     writer_index = ordered.index(writer)
     positions[writer_index] = compact.rfind(writer)
@@ -2018,15 +2163,19 @@ def require_parliament_commit_publication(state: str) -> None:
             or any(compact.count(token) != 1 for token in ordered if token != writer)
             or positions != sorted(positions)):
         raise RuntimeError(f"{path}: Parliament telemetry requires ordered prepared State publication")
-    publication = section(compact, "letautoscale_storage_hold=",
-                          "ifletSome(post)=lifecycle_post_publication.as_mut(){", path)
+    # The enclosing final writer block follows the complete Kura preparation
+    # block; extracting matching braces keeps scope checks independent of layout.
+    prepared_geometry = rust_item(commit, "        if prepared_geometry.is_some() {", path)
+    writer_tail = commit[commit.index(prepared_geometry) + len(prepared_geometry):]
+    publication = compact_rust(strip_rust_comments(rust_item(writer_tail, "        {\n            let state_write_lock_wait_start", path)))
     writer_order = (
         "let_state_write_lock=write_fence.lock();",
         "block_hashes.try_prepare_publication().map_err(|error|matcherror{mv::PublicationPreparationError::Busy(wait)=>{TransactionsBlockError::BlockHashesBusy(wait)}_=>TransactionsBlockError::SnapshotObservationChanged,})?;",
         "world.try_prepare_frozen_publication().map_err(original_preparation_error)?;",
         "canonical_runtime.try_prepare_frozen_publication().map_err(original_preparation_error)?;",
         "native_execution_tip.try_prepare_frozen_publication().map_err(original_preparation_error)?;",
-        "effect_locks.prepare_blocking();",
+        "effect_locks.try_prepare().map_err(|(_,wait)|TransactionsBlockError::PublicationBusy(wait))?;",
+        "letautoscale_storage_hold=ifletSome(geometry)=prepared_geometry{",
         "let_view_generation=publication_notice.begin();",
         "transactions.publish_prepared();", "canonical_runtime.publish_prepared();",
         "native_execution_tip.publish_prepared();",
@@ -2708,7 +2857,7 @@ def require_parliament_pulse_isolation_evidence(
         "assert_eq!(stored.commitment().beacon,None);",
     ))
     pinned_helper(execution_tests, path, "fn invalid(", (
-        "assert!(matches!(executor.execute(candidate,&hash),Some(ExecOutcome::Invalid)));",
+        "assert!(matches!(executor.execute(candidate,&hash,false),Some(ExecOutcome::Invalid)));",
         "assert_eq!(u64::try_from(view.height()).unwrap(),chain.height());",
         "assert!(view.world().global_beacon_pulses().is_empty());",
         "assert!(view.world().global_beacon_pulse_slots().is_empty());",
@@ -2743,7 +2892,7 @@ def require_parliament_pulse_isolation_evidence(
         "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned),"
         "&custody.chain,&unrequested,);",
         "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned)"
-        ".execute(&requested_nothing,&hash),Some(ExecOutcome::Valid(_))),",
+        ".execute(&requested_nothing,&hash,false),Some(ExecOutcome::Valid(_))),",
         "assert_sortition_awaits(&custody.chain,attempt_id,SLOT);",
         # Every later block likewise, far past the unserved slot.
         "whilechain.height()+1<release{assert_no_demand_at_next_height(&chain);"
@@ -3998,7 +4147,17 @@ def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -
     # The preflight is awaited, and its refusal propagated, before Sumeragi starts.
     if mask_rust(daemon).count("preflight_threshold_signer_startup_readiness_v1(") != 1:
         raise RuntimeError(f"{daemon_path}: startup must call the custody preflight exactly once")
-    startup_owner = "pub(crate) async fn start_with_runtime_deps("
+    entry_owner = "pub(crate) async fn start_with_runtime_deps("
+    entry, _ = live_rust_item(daemon, entry_owner, daemon_path)
+    entry_body = compact_rust("""
+        { let prepared = PreparedStartup::prepare(config, genesis).await?;
+          Self::activate_with_runtime_deps(
+              build, prepared, logger, shutdown_signal, runtime_deps, musubi_publication_factory,
+          ).await }
+    """)
+    if entry[entry.index("{"):] != entry_body:
+        raise RuntimeError(f"{daemon_path}: startup must propagate original preparation into awaited activation")
+    startup_owner = "async fn activate_with_runtime_deps("
     startup, _ = live_rust_item(daemon, startup_owner, daemon_path)
     require_ordered_once(daemon_path, startup_owner, startup, (
         "letlocal_consensus_peer=config.common.trusted_peers.value().myself.id().clone();",

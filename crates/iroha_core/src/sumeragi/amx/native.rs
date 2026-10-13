@@ -880,6 +880,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         participant.held.retain(|held| {
             held.height.saturating_add(MAX_AMX_DEADLINE_WINDOW) >= participant.global_height
         });
+        participant.prune_decision_contexts();
         let next = candidate
             .finish()
             .map_err(|error| graph_error(error, state))?

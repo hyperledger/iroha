@@ -1363,3 +1363,34 @@ fn contract_rejection_maps_to_unprocessable_entity() {
         StatusCode::UNPROCESSABLE_ENTITY
     );
 }
+#[test]
+fn settlement_replay_maps_to_conflict_without_claiming_new_success() {
+    use iroha_data_model::executor::settlement::{
+        SettlementReplayDispositionV1, SettlementReplayV1,
+    };
+    let payer = iroha_data_model::account::AccountId::new(
+        iroha_crypto::KeyPair::from_seed(vec![0x72; 32], iroha_crypto::Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    for disposition in [
+        SettlementReplayDispositionV1::AlreadySettled,
+        SettlementReplayDispositionV1::ConflictingIntent,
+    ] {
+        let replay = SettlementReplayV1 {
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                payer.clone(),
+                "customer-payment-9".parse().unwrap(),
+            ),
+            disposition,
+            committed_block_height: 42,
+            committed_block_hash: iroha_crypto::HashOf::from_untyped_unchecked(
+                iroha_crypto::Hash::new(b"original settlement"),
+            ),
+        };
+        assert_eq!(
+            Error::Query(ValidationFail::SettlementReplay(Box::new(replay))).status_code(),
+            StatusCode::CONFLICT,
+        );
+    }
+}

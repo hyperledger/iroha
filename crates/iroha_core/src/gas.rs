@@ -328,6 +328,24 @@ fn sccp_instruction_gas(any: &dyn core::any::Any) -> Option<u64> {
                 .saturating_add(sccp_proof_gas(report.b.len())),
         );
     }
+    if let Some(evidence) = any.downcast_ref::<sccp::SubmitSccpForgeryEvidenceV1>() {
+        // Fee exemption does not waive the native aggregate-signature verification
+        // or the optional fixed-depth anchor proof's decoding and hashing work.
+        let anchor_bytes = evidence.anchor.as_ref().map_or(0, |anchor| {
+            anchor.core_hash.len()
+                + anchor.result.len()
+                + anchor
+                    .path
+                    .iter()
+                    .map(|sibling| sibling.len())
+                    .sum::<usize>()
+        });
+        let bytes = evidence.qc.len()
+            + evidence.header.len()
+            + evidence.aggregate_signature.len()
+            + anchor_bytes;
+        return Some(BASE_SCCP.saturating_add(sccp_proof_gas(bytes)));
+    }
     if any.downcast_ref::<sccp::SettleSccpV1>().is_some() {
         // A settlement releases escrow and may register its recipient implicitly.
         return Some(
@@ -1997,7 +2015,7 @@ mod tests {
         assert_eq!(confidential_gas_cost(&instr, &DEFAULT_ZK_GAS), 0);
     }
     #[test]
-    fn sccp_gas_grows_with_source_proof_work_and_fits_the_block() {
+    fn sccp_gas_grows_with_native_proof_work_and_fits_the_block() {
         use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         use iroha_data_model::sccp::{
             inbound::{SCCP_SOURCE_PROOF_MAX_BYTES_V1, SccpSourceProofBytesV1},
@@ -2015,10 +2033,26 @@ mod tests {
         }
         assert_eq!(
             I::all().len(),
-            7,
-            "the seven SCCP v1 instructions are priced"
+            8,
+            "the complete current SCCP instruction surface"
         );
         assert_eq!(gas(I::initialize().into()), BASE_SCCP);
+        let mut forgery = dm_isi::sccp::SubmitSccpForgeryEvidenceV1 {
+            qc: [0; 116],
+            header: [0; 221],
+            aggregate_signature: [0; 96],
+            anchor: None,
+        };
+        let unanchored = gas(forgery.clone().into());
+        assert!(unanchored >= SCCP_LIGHT_CLIENT_VERIFY);
+        forgery.anchor = Some(iroha_data_model::sccp::native::SccpAnchorWitnessV1 {
+            core_hash: [1; 32],
+            result: [2; 32],
+            path: [[3; 32]; iroha_data_model::sccp::native::SCCP_ANCHOR_PATH_DEPTH_V1],
+        });
+        let anchored = gas(forgery.into());
+        assert!(anchored > unanchored);
+        assert!(anchored < SHIPPED_BLOCK_GAS_LIMIT);
         let record = |bytes: usize| {
             let mut record = I::record();
             record.recipient = vec![1; bytes];

@@ -23,8 +23,16 @@ const fn canonical_padding<T>() -> usize {
 }
 
 // Every direct u128 root is pinned, including map/payout records which can be
-// retained or framed outside one of the 28 bounded standalone object types.
+// retained or framed outside one of the 29 bounded standalone object types.
 const _: () = {
+    // The owner and its wire DTO must agree on every supported pointer width.
+    // In particular, a 32-bit pointer must not reintroduce Body's u128 padding.
+    assert!(
+        norito::core::archived_payload_align::<KagemushaWalletRecoveryCapsuleV1>()
+            == norito::core::archived_payload_align::<
+                super::custody::KagemushaWalletRecoveryCapsuleFrameV1,
+            >()
+    );
     assert!(norito::core::archived_payload_align::<KagemushaWalletMarkerStateV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletMarkerV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletFoldRecordV1>() == 16);
@@ -91,7 +99,8 @@ assert_frame_padding! {
     KagemushaWalletPaymentV1 => 8, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
     KagemushaWalletPackageV1 => 8, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
     KagemushaWalletMarkerV1 => 8, KAGEMUSHA_WALLET_MARKER_MAX_BYTES_V1;
-    KagemushaWalletRecoveryCapsuleV1 => 8, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1;
+    KagemushaWalletRecoveryBodyV1 => 8, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1;
+    KagemushaWalletRecoveryCapsuleV1 => 0, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1;
     KagemushaWalletCompletionRecordV1 => 0, KAGEMUSHA_WALLET_COMPLETION_RECORD_MAX_BYTES_V1;
     KagemushaWalletFoldRecordV1 => 8, KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1;
     KagemushaWalletLoadReceiptV1 => 8, KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1;
@@ -179,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn kagemusha_wallet_v1_frozen_frames_preserve_all_28_padding_contracts() {
+    fn kagemusha_wallet_v1_frozen_frames_preserve_all_29_padding_contracts() {
         let Value::Object(document) = vectors() else {
             panic!("fixture object");
         };
@@ -218,7 +227,7 @@ mod tests {
         let Value::Array(frames) = document.get("frames").expect("frames") else {
             panic!("frames array");
         };
-        assert_eq!(covered.len(), 28);
+        assert_eq!(covered.len(), 29);
         assert_eq!(frames.len(), covered.len());
         for frame in frames {
             let Value::Object(row) = frame else {

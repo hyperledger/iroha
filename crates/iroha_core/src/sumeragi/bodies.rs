@@ -15,7 +15,7 @@
 //! storage is recovered, preserving custody rather than silently discarding certified work.
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::File,
     io,
     path::{Path, PathBuf},
     sync::{
@@ -25,22 +25,26 @@ use std::{
 };
 
 use iroha_allocation::AllocationBudget;
+use iroha_fs::OwnerDirectory;
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
     types::Hash32,
 };
 use parking_lot::Mutex;
+#[cfg(test)]
+use std::fs;
 
 use super::{
     body_read::{BodyReadError, BodyReadJob, BodyReader, FileBodyRead},
     body_record::PreparedBodyWrite,
     driver::{SharedCrypto, traits::BodyStore},
     durable_artifact,
-    records::{Faults, FsStep, NoFaults, create_dir_durable, sync_dir},
+    records::{Faults, FsStep, NoFaults},
 };
 
 /// Suffix of a temporary file before its rename (left behind only by a crash).
 const TEMP_SUFFIX: &str = ".tmp";
+const LOCK_NAME: &str = ".custody.lock";
 
 /// Bounds of a body store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,15 +63,24 @@ impl Default for BodyLimits {
 /// Largest body file accepted on read (far above the largest block the core accepts).
 const MAX_BODY_FILE_BYTES: u64 = 80 * 1024 * 1024;
 
+// The same prepared bytes and admitted height survive every publication refusal. Only an
+// explicit local applied-height retirement may release that height while retaining the bytes.
+struct PendingBodyPublication {
+    prepared: PreparedBodyWrite,
+    directory: Option<OwnerDirectory>,
+}
+
 /// The driver's [`BodyStore`] over files (see the module documentation).
 pub struct FileBodyStore {
+    // Configured spelling is diagnostic only; all native operations use original custody.
     dir: PathBuf,
+    custody: BodyReadCustody,
     hasher: SharedCrypto,
     faults: Arc<dyn Faults>,
     limits: BodyLimits,
     instance: Hash32,
     execution_budget: AllocationBudget,
-    pending_write: Mutex<Option<PreparedBodyWrite>>,
+    pending_write: Mutex<Option<PendingBodyPublication>>,
     retirement_through: AtomicU64,
 }
 
@@ -92,63 +105,70 @@ fn parse_height(name: &str) -> Option<u64> {
         .flatten()
 }
 
-/// Sum durable body sizes under the store lock, optionally removing abandoned temp files.
-fn scan(dir: &Path, clean_temps: bool) -> io::Result<u64> {
-    let mut total = 0u64;
-    for height in fs::read_dir(dir)? {
-        let height = height?;
-        if parse_height(&height.file_name().to_string_lossy()).is_none() {
-            continue;
-        }
-        if !height.file_type()?.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "body height is not a directory",
-            ));
-        }
-        for body in fs::read_dir(height.path())? {
-            let body = body?;
-            if !body.file_type()?.is_file() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "body is not a regular file",
-                ));
-            }
-            if body.file_name().to_string_lossy().ends_with(TEMP_SUFFIX) {
-                if clean_temps {
-                    fs::remove_file(body.path())?;
-                }
-                continue;
-            }
-            total = total.checked_add(body.metadata()?.len()).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "body storage size overflow")
-            })?;
-        }
+// Retain the original directory and lock identity without holding a cross-operation lock.
+// Each writer opens its own descriptor of that exact lock so separate handles serialize.
+pub(super) struct BodyReadCustody {
+    pub(super) directory: OwnerDirectory,
+    lock: File,
+}
+impl BodyReadCustody {
+    pub(super) fn revalidate(&self) -> io::Result<()> {
+        self.directory.require_same_lock(LOCK_NAME, &self.lock)
     }
-    Ok(total)
+    fn retain(&self) -> io::Result<Self> {
+        self.revalidate()?;
+        let original = Self {
+            directory: self.directory.retain()?,
+            lock: self.lock.try_clone()?,
+        };
+        original.revalidate()?;
+        Ok(original)
+    }
+    fn lock(&self) -> io::Result<File> {
+        self.revalidate()?;
+        // A new open is required: a duplicate of one locked description would not serialize
+        // cooperative operations. Never create or replace this already selected lock file.
+        let operation = self.directory.open_existing_lock(LOCK_NAME)?;
+        self.directory.require_same_lock(LOCK_NAME, &operation)?;
+        self.revalidate()?;
+        operation.lock()?;
+        self.directory.require_same_lock(LOCK_NAME, &operation)?;
+        self.revalidate()?;
+        Ok(operation)
+    }
 }
 
-/// Serialize mutations and capacity checks across handles and processes. Each operation opens
-/// its own descriptor: closing it releases the lock, including on every error path.
-fn lock_store(dir: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600).custom_flags(i32::from_ne_bytes(
-            rustix::fs::OFlags::NOFOLLOW.bits().to_ne_bytes(),
-        ));
-    }
-    let file = options.open(dir.join(".custody.lock"))?;
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "body store lock is not a regular file",
-        ));
-    }
-    file.lock()?;
-    Ok(file)
+/// Sum durable body sizes under the original operation lock, streaming every original child.
+fn scan(custody: &BodyReadCustody, clean_temps: bool) -> io::Result<u64> {
+    let mut total = 0u64;
+    custody.directory.visit_entries(|name| {
+        custody.revalidate()?;
+        if parse_height(&name.to_string_lossy()).is_none() {
+            return Ok(());
+        }
+        let height = custody.directory.open_child(name)?;
+        height.visit_entries(|name| {
+            custody.revalidate()?;
+            let file = height
+                .open_regular_optional(name)?
+                .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+            let length = file.metadata()?.len();
+            height.require_same_regular_file(name, &file)?;
+            drop(file);
+            if name.to_string_lossy().ends_with(TEMP_SUFFIX) {
+                if clean_temps {
+                    height.remove_regular(name)?;
+                }
+            } else {
+                total = total.checked_add(length).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "body storage size overflow")
+                })?;
+            }
+            Ok(())
+        })
+    })?;
+    custody.revalidate()?;
+    Ok(total)
 }
 
 impl FileBodyStore {
@@ -188,10 +208,16 @@ impl FileBodyStore {
     ) -> io::Result<Self> {
         let dir = root.join("bodies").join(hex::encode(instance.0));
         durable_artifact::establish_dir(&*faults, &dir)?;
-        let _guard = lock_store(&dir)?;
-        scan(&dir, true)?;
+        let directory = OwnerDirectory::open(&dir)?;
+        let lock = directory.open_lock(LOCK_NAME)?;
+        let custody = BodyReadCustody { directory, lock };
+        // This pin stays unlocked. The distinct operation descriptor owns initialization.
+        let _guard = custody.lock()?;
+        scan(&custody, true)?;
+        custody.revalidate()?;
         Ok(Self {
             dir,
+            custody,
             hasher,
             faults,
             limits,
@@ -219,8 +245,8 @@ impl FileBodyStore {
     /// # Errors
     /// A lock or directory-read failure. Accounting errors are never treated as free space.
     pub fn bytes(&self) -> io::Result<u64> {
-        let _guard = lock_store(&self.dir)?;
-        scan(&self.dir, false)
+        let _guard = self.custody.lock()?;
+        scan(&self.custody, false)
     }
 
     /// The heights that hold bodies, ascending.
@@ -228,19 +254,17 @@ impl FileBodyStore {
     /// # Errors
     /// An I/O failure.
     pub fn heights(&self) -> io::Result<Vec<u64>> {
+        let _guard = self.custody.lock()?;
         let mut heights = Vec::new();
-        for entry in fs::read_dir(&self.dir)? {
-            let entry = entry?;
-            if let Some(height) = parse_height(&entry.file_name().to_string_lossy()) {
-                if !entry.file_type()?.is_dir() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "body height is not a directory",
-                    ));
-                }
+        self.custody.directory.visit_entries(|name| {
+            self.custody.revalidate()?;
+            if let Some(height) = parse_height(&name.to_string_lossy()) {
+                self.custody.directory.open_child(name)?.revalidate()?;
                 heights.push(height);
             }
-        }
+            Ok(())
+        })?;
+        self.custody.revalidate()?;
         heights.sort_unstable();
         Ok(heights)
     }
@@ -257,85 +281,129 @@ impl BodyStore for FileBodyStore {
                 "body identity or original pool mismatch",
             ));
         }
-        let mut pending = self.pending_write.lock();
-        if let Some(original) = pending.as_ref() {
-            if original.body() != body {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "another original body awaits durable publication",
-                ));
-            }
-        } else {
-            *pending = Some(PreparedBodyWrite::new(body.clone()));
-        }
-        let bytes = pending
-            .as_mut()
-            .expect("original prepared body retained")
-            .prepare(&self.execution_budget)
-            .map_err(io::Error::other)?;
-        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        if len > MAX_BODY_FILE_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "body exceeds the read limit",
-            ));
-        }
-        let _guard = lock_store(&self.dir)?;
-        let path = self.body_path(body.header().height, block_hash);
-        let held = match fs::symlink_metadata(&path) {
-            Ok(_) => {
-                durable_artifact::check_exact(&path, bytes)?;
-                true
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-            Err(error) => return Err(error),
-        };
-        if !held
-            && scan(&self.dir, false)?
-                .checked_add(len)
-                .is_none_or(|total| total > self.limits.max_bytes)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::StorageFull,
-                "sumeragi body store is full",
-            ));
-        }
-        let height_dir = self.dir.join(height_name(body.header().height));
-        create_dir_durable(&*self.faults, &height_dir)?;
-        durable_artifact::publish(
-            &*self.faults,
-            &height_dir,
-            &hex::encode(block_hash.0),
-            bytes,
-        )?;
-        *pending = None;
-        Ok(())
+        // Preparation and final byte retirement can refund this original pool. Every
+        // physical guard must retire before an arbitrary waiter can reenter the store.
+        self.execution_budget
+            .with_deferred_refund_notifications(|_| {
+                self.custody.revalidate()?;
+                let mut pending = self.pending_write.lock();
+                if let Some(original) = pending.as_ref() {
+                    if original.prepared.body() != body {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WouldBlock,
+                            "another original body awaits durable publication",
+                        ));
+                    }
+                } else {
+                    *pending = Some(PendingBodyPublication {
+                        prepared: PreparedBodyWrite::new(body.clone()),
+                        directory: None,
+                    });
+                }
+                let original = pending.as_mut().expect("original prepared body retained");
+                if let Some(directory) = &original.directory {
+                    directory.revalidate()?;
+                }
+                let bytes = original
+                    .prepared
+                    .prepare(&self.execution_budget)
+                    .map_err(io::Error::other)?;
+                let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                if len > MAX_BODY_FILE_BYTES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "body exceeds the read limit",
+                    ));
+                }
+                let _guard = self.custody.lock()?;
+                let height = height_name(body.header().height);
+                let name = hex::encode(block_hash.0);
+                let candidate = if original.directory.is_none() {
+                    self.custody.directory.open_child_optional(&height)?
+                } else {
+                    None
+                };
+                let held = match original.directory.as_ref().or(candidate.as_ref()) {
+                    Some(directory) => durable_artifact::check_exact_in(directory, &name, bytes)?,
+                    None => false,
+                };
+                if !held
+                    && scan(&self.custody, false)?
+                        .checked_add(len)
+                        .is_none_or(|total| total > self.limits.max_bytes)
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::StorageFull,
+                        "sumeragi body store is full",
+                    ));
+                }
+                let display = self.dir.join(&height);
+                if original.directory.is_none() {
+                    if let Some(directory) = candidate {
+                        original.directory = Some(directory);
+                    } else {
+                        self.faults.before(FsStep::CreateDir, &display)?;
+                        self.custody.revalidate()?;
+                        original.directory = Some(self.custody.directory.ensure_child(&height)?);
+                        self.faults.before(FsStep::SyncDir, &self.dir)?;
+                        self.custody.revalidate()?;
+                        self.custody.directory.sync()?;
+                    }
+                }
+                durable_artifact::publish_in(
+                    &*self.faults,
+                    original
+                        .directory
+                        .as_ref()
+                        .expect("retained publication height"),
+                    &display,
+                    &name,
+                    bytes,
+                    || self.custody.revalidate(),
+                )?;
+                self.custody.revalidate()?;
+                *pending = None;
+                Ok(())
+            })
     }
 
     fn prune_through(&self, height: u64) -> io::Result<()> {
-        let _guard = lock_store(&self.dir)?;
+        // Match put's pending-owner then operation-lock order. Explicit retirement may
+        // release a height handle, but never the pending original bytes or their funding.
+        let mut pending = self.pending_write.lock();
+        let _guard = self.custody.lock()?;
         // Publish local applied-height authority before removing any path. An open
         // read may race with removal, but must still verify the same source again
         // in committed storage. This frontier is never inferred from disk absence.
         self.retirement_through.fetch_max(height, Ordering::Release);
-        for entry in fs::read_dir(&self.dir)? {
-            let entry = entry?;
-            let Some(h) = parse_height(&entry.file_name().to_string_lossy()) else {
-                continue;
+        if let Some(original) = pending.as_mut()
+            && original.prepared.body().header().height <= height
+        {
+            original.directory = None;
+        }
+        self.custody.directory.visit_entries(|name| {
+            self.custody.revalidate()?;
+            let Some(h) = parse_height(&name.to_string_lossy()) else {
+                return Ok(());
             };
             if h > height {
-                continue;
+                return Ok(());
             }
-            if !entry.file_type()?.is_dir() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "body height is not a directory",
-                ));
-            }
-            self.faults.before(FsStep::Remove, &entry.path())?;
-            fs::remove_dir_all(entry.path())?;
-        }
-        sync_dir(&*self.faults, &self.dir)
+            let directory = self.custody.directory.open_child(name)?;
+            self.faults.before(FsStep::Remove, &self.dir.join(name))?;
+            self.custody.revalidate()?;
+            directory.visit_entries(|body| {
+                self.custody.revalidate()?;
+                directory.remove_regular(body)?;
+                Ok(())
+            })?;
+            self.custody.revalidate()?;
+            directory.remove_empty()
+        })?;
+        self.faults.before(FsStep::SyncDir, &self.dir)?;
+        self.custody.revalidate()?;
+        self.custody.directory.sync()?;
+        self.custody.revalidate()
     }
 
     fn retirement_authorized(&self, height: u64) -> bool {
@@ -354,10 +422,9 @@ impl BodyReader for FileBodyStore {
                 "body read source belongs to another instance",
             )));
         }
-        let path = self.body_path(source.height(), &source.block_hash());
         Ok(Box::new(FileBodyRead::open(
+            self.custody.retain().map_err(BodyReadError::Io)?,
             source,
-            &path,
             MAX_BODY_FILE_BYTES as usize,
             self.execution_budget.clone(),
         )?))

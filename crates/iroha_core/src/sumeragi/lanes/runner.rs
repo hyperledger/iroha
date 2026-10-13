@@ -515,6 +515,7 @@ impl Inner {
                 record.lane,
                 Arc::clone(&inputs.queue),
                 Arc::clone(&inputs.state),
+                iroha_primitives::time::TimeSource::new_system(),
             ))
         });
         let recovery_key = (record.lane, record.incarnation);
@@ -534,6 +535,7 @@ impl Inner {
                 store.clone(),
                 shared.clone(),
                 inputs.state.ivm_execution_budget(),
+                iroha_primitives::time::TimeSource::new_system(),
             )
         });
         let executor = match recovery.complete() {

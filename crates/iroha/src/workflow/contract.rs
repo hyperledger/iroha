@@ -48,7 +48,8 @@ pub const MAX_WORKFLOW_DETAIL_BYTES_V1: usize = 512;
 pub const MAX_WORKFLOW_JOURNAL_BYTES_V1: usize = 16 * 1_048_576;
 
 /// Worst-case record bytes outside the steps: frame header, journal digest, identity with
-/// maximal binding texts, status, failure and timestamps.
+/// maximal binding texts, status, failure, timestamps and the fixed 200-byte
+/// native payment completion locator (plus its canonical field framing).
 pub const JOURNAL_FIXED_RECORD_BYTES_V1: usize = 2_048;
 /// Worst-case record bytes of one step without identities, participants, custody or bytes.
 pub const STEP_FIXED_RECORD_BYTES_V1: usize = 512;
@@ -132,6 +133,10 @@ contract_enum! {
         Dkg => "dkg",
         /// Threshold share collection followed by the opening transaction.
         ThresholdOpening => "threshold_opening",
+        /// One native payment carrier with independently verified business completion.
+        NativePayment => "native_payment",
+        /// One supervised authenticated AMX relay carrier with its exact durable identity.
+        AmxRelay => "amx_relay",
     }
 }
 

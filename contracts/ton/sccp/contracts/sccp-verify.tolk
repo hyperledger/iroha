@@ -30,6 +30,7 @@ fun sccpNode(left: int, right: int): uint256 {
 }
 
 /// Positional promote-odd Merkle root (§3.4); throws `BadProof`.
+@inline_ref
 fun sccpMerkleRoot(leaf: int, index: int, count: int, siblings: array<int>): int {
     assert ((count >= 1) & (index >= 0) & (index < count)) throw SccpErrors.BadProof;
     var h = leaf;
@@ -83,6 +84,7 @@ fun sccpHistoryLeaf(height: int, sccpRoot: int, messageCount: int): uint256 {
 ///   a path of at most 32 siblings, and the history leaf of the block proves
 ///   under `X.history_root` at `(historyIndex, X.history_size)`. X5 bounds
 ///   `X.history_size` by 2^32.
+@inline_ref
 fun sccpCheckBlockRef(block: cell, x: XHeader): (int, int) {
     var s = sccpBeginParseOrdinary(block);
     assert (s.remainingBitsCount() == SCCP_BLOCK_REF_BITS) throw SccpErrors.BadSnake;

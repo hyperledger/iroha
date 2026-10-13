@@ -3289,7 +3289,6 @@ construct {
             for reason in [
                 "insufficient_funds",
                 "counterparty_mismatch",
-                "unsupported_policy",
                 "zero_quantity",
                 "missing_entity",
                 "math_error",
@@ -3315,12 +3314,8 @@ construct {
     }
     [settlement_fx_window_ms]
     {
-        for kind in ["pvp"] {
-            for order in ["delivery_then_payment", "payment_then_delivery"] {
-                for atomicity in ["all_or_nothing", "commit_first_leg", "commit_second_leg"] {
-                    let _ = settlement_fx_window_ms.with_label_values(&[kind, order, atomicity]);
-                }
-            }
+        for order in ["delivery_then_payment", "payment_then_delivery"] {
+            let _ = settlement_fx_window_ms.with_label_values(&["pvp", order, "all_or_nothing"]);
         }
     }
     [settlement_buffer_xor settlement_buffer_capacity_xor settlement_buffer_status

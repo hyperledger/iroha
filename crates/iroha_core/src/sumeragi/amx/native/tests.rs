@@ -765,6 +765,93 @@ fn native_amx_original_graph_refusal_preserves_committed_owner_and_exact_retry_c
 }
 
 #[test]
+fn native_amx_decision_context_archive_keeps_original_pool_custody_through_copy_and_refusal() {
+    use iroha_data_model::sumeragi::epoch::{
+        BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochContextV1,
+        ValidatorEpochDecisionV1,
+    };
+
+    // Synthetic successor bodies exercise graph admission only. Admission must
+    // never authenticate these bodies; signed sequential handoffs are tested by
+    // the participant protocol and the native handoff execution controls.
+    fn successor(previous: &ValidatorEpochContextV1) -> ValidatorEpochContextV1 {
+        let mut next = previous.clone();
+        next.authorization.epoch += 1;
+        next.authorization.first_height = previous.authorization.last_height + 1;
+        next.authorization.last_height = next.authorization.first_height + 9;
+        next.authorization.previous_authorization_id =
+            previous.authorization.authorization_id().unwrap();
+        next.authorization.decision = ValidatorEpochDecisionV1::Retain;
+        next.authorization.beacon =
+            BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+                session_id: [0x41; 32],
+                transcript_hash: [0x51; 32],
+            });
+        next.leader_seed = [0x32; 32];
+        next.validate_successor(previous).unwrap();
+        next
+    }
+
+    let mut roots = Roots::new();
+    let transaction = roots.transaction(25, 0xE4);
+    let begin = roots.begin(&transaction);
+    roots.prepare(0, &transaction, &begin);
+    let mut source = native(&roots.participants[0]);
+    let original = source.clone();
+    let mut first = source.participant.global.current.clone();
+    first.authorization.last_height = 10;
+    first.validate().unwrap();
+    let second = successor(&first);
+    let third = successor(&second);
+    source.participant.global.current = second;
+    source.participant.global.previous = Some(first.clone());
+    source.validate().unwrap();
+    assert!(source.participant.needs_decision_context(&first));
+
+    let budget = roots.participants[0].state().ivm_execution_budget();
+    let limit = budget.limit_bytes();
+    let retained = budget.reserved_bytes();
+    budget.set_limit_bytes(retained);
+    assert!(matches!(
+        Candidate::copy(&source, &budget, 0, 0, None, Some(&third)),
+        Err(GraphError::Admission(_))
+    ));
+    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(native(&roots.participants[0]), original);
+    budget.set_limit_bytes(limit);
+
+    let owner = Candidate::copy(&source, &budget, 0, 0, None, Some(&third))
+        .unwrap()
+        .finish()
+        .unwrap();
+    assert!(!owner.is_authenticated());
+    assert!(owner.belongs_to(&budget));
+    let archived = owner.canonical().unwrap();
+    assert_eq!(archived.participant.decision_contexts, vec![first]);
+    assert_eq!(archived.participant.global.current, third);
+    let with_archive_bytes = budget.reserved_bytes();
+    let mut missing = archived.clone();
+    missing.participant.decision_contexts.clear();
+    assert!(matches!(
+        RetainedNativeAmx::admit(&missing, &budget),
+        Err(GraphError::Invalid(_))
+    ));
+    assert_eq!(budget.reserved_bytes(), with_archive_bytes);
+    let copy = RetainedNativeAmx::admit(archived, &budget).unwrap();
+    assert!(!copy.is_authenticated());
+    assert!(copy.belongs_to(&budget));
+    assert_eq!(copy.canonical(), Some(archived));
+    assert_eq!(
+        norito::encode_canonical(&copy).unwrap(),
+        norito::encode_canonical(&owner).unwrap()
+    );
+    drop(copy);
+    drop(owner);
+    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(native(&roots.participants[0]), original);
+}
+
+#[test]
 fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_maintenance_effects() {
     use iroha_data_model::validation_fee::RetailFeeAccountStateV1;
     let mut roots = Roots::new();

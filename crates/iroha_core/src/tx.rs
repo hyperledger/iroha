@@ -2728,17 +2728,16 @@ impl AcceptedTransaction<'static> {
         }
         .with_validation_time(now))
     }
-    /// Accept an entrypoint at one explicit validation instant.
+    /// Admit a test-chain or queue fixture at one explicit validation instant.
     ///
-    /// Durable recovery uses the persisted enqueue instant to prove that an acknowledged
-    /// entrypoint passed the same chain, signature, crypto-policy, clock, and limit checks as
-    /// ingress before classifying its current terminal state. It deliberately does not
-    /// re-evaluate live NTS health: the durable record proves prior ingress admission, and a
-    /// restarting sampler must not invalidate acknowledged queue state.
+    /// Fixtures run the same chain, signature, crypto-policy, clock, and limit checks as
+    /// ingress with their own clock. Live NTS health is not part of this fixture operation;
+    /// production ingress captures and enforces its actual NTS admission snapshot.
     ///
     /// # Errors
     ///
     /// See [`AcceptTransactionFail`].
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn accept_entrypoint_at_time(
         tx: TransactionEntrypoint,
         expected_network_id: &NetworkId,
@@ -3095,6 +3094,13 @@ impl StateBlock<'_> {
         state_transaction.current_lane_id = Some(routing_decision.lane_id);
         state_transaction.current_dataspace_id = Some(routing_decision.dataspace_id);
         state_transaction.world.current_dataspace_id = Some(routing_decision.dataspace_id);
+        crate::executor::reject_committed_direct_payment(state_transaction, tx).map_err(
+            |error| {
+                TransactionRejectionReason::Validation(
+                    state_transaction.attempt_error_to_validation_fail(error),
+                )
+            },
+        )?;
         crate::executor::validate_transaction_fee_admission(state_transaction, tx)
             .map_err(TransactionRejectionReason::Validation)?;
         if let Err(error) =
@@ -8703,7 +8709,10 @@ pub mod tests {
             finalize
         )));
         let settlement_id: iroha_data_model::isi::settlement::SettlementId =
-            "settlement-1".parse().expect("settlement id");
+            iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "settlement-1".parse().expect("settlement reference"),
+            );
         let dvp = iroha_data_model::isi::settlement::DvpIsi::new(
             settlement_id.clone(),
             iroha_data_model::isi::settlement::SettlementLeg::new(

@@ -20,6 +20,7 @@ fn projection(lanes: &SumeragiLaneState) -> Projection<'_> {
         lanes: LaneStateRef(lanes),
         ordinary_writes: OrdinaryWritesRef(&EMPTY_WRITES),
         casting_bindings: CastingBindingsRef(&EMPTY_CASTING),
+        sccp_delta: &[],
     }
 }
 fn archive(root: &Path, budget: AllocationBudget, maximum: usize) -> NativeContextArchive {
@@ -75,6 +76,7 @@ fn exact_canonical_projection_owns_original_pool_until_last_drop() {
         lanes: lanes.clone(),
         ordinary_writes: writes.clone(),
         casting_bindings: vec![],
+        sccp_delta: vec![],
     })
     .unwrap();
     let budget = AllocationBudget::new(bytes.len() * 2);
@@ -424,4 +426,40 @@ fn actual_native_archive_retains_writes_bound_to_the_original_execution_root() {
         2,
         committed.commitment().execution.ordinary_writes_root
     ));
+}
+
+#[test]
+fn exact_sccp_delta_capture_is_funded_and_matches_the_original_overlay() {
+    use crate::smartcontracts::isi::sccp::{store, test_support};
+    let state = test_support::blank_state();
+    let mut block = state.block(test_support::header(2));
+    {
+        let mut transaction = block.transaction();
+        store::parameters::set(
+            &mut transaction,
+            Some(iroha_data_model::sccp::params::SccpParametersV1::taira_default()),
+        );
+        transaction.apply();
+    }
+    let expected = block.world.sccp_execution_write_set_bytes();
+    assert!(!expected.is_empty());
+    let budget = AllocationBudget::new(expected.len());
+    let occupied = ChargedBuffer::<u8>::new(1, &budget).unwrap();
+    let error = capture_sccp_delta(&block.world, &budget, expected.len())
+        .err()
+        .expect("original pool occupied");
+    assert!(error.is_local_refusal());
+    assert_eq!(budget.reserved_bytes(), 1);
+    drop(occupied);
+    let original = capture_sccp_delta(&block.world, &budget, expected.len()).unwrap();
+    assert!(original.belongs_to(&budget));
+    assert_eq!(original.as_slice(), expected);
+    assert_eq!(budget.reserved_bytes(), expected.len());
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(matches!(
+        capture_sccp_delta(&block.world, &budget, expected.len() - 1),
+        Err(NativeContextArchiveError::Limit { .. })
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
 }

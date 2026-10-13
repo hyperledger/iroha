@@ -26,6 +26,12 @@ use std::{
 
 // Publish an untouched replacement through each field's ordinary writer.
 macro_rules! commit_untouched_fixture_field {
+    ($world:ident, sccp_forgery_offences) => {
+        $world
+            .sccp_forgery_offences
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original offence fixture publication")
+    };
     ($world:ident, sccp_anchor_chunks) => {
         $world
             .sccp_anchor_chunks

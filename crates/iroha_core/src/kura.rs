@@ -228,7 +228,9 @@ mod physical_resource_initialization_tests;
 
 use crate::publication_lock::{PublicationGuard, PublicationMutex};
 mod publication_lease;
-pub(crate) use publication_lease::{KuraPublicationLease, KuraPublicationPreparationError};
+pub(crate) use publication_lease::{
+    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationSlot,
+};
 
 /// The interface of Kura subsystem.
 ///

@@ -81,7 +81,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .map_err(|_| Error::WitnessLost("Archive Send sequence"))?,
         );
         let send = self.indexed_step(&manifest, sequence)?;
-        if !matches!(send.frozen.capsule.statement.effect, KagemushaWalletEffectV1::Send { credit_id, .. } if credit_id == *credit)
+        if !matches!(send.frozen.capsule.body().statement.effect, KagemushaWalletEffectV1::Send { credit_id, .. } if credit_id == *credit)
         {
             return Err(Error::WitnessLost("Archive Send binding"));
         }
@@ -89,7 +89,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let certificates = source
             .original(
                 &mut self.archive,
-                &send.frozen.capsule.successor_state,
+                &send.frozen.capsule.body().successor_state,
                 PreparationOriginalV1::EnrollmentCertificates,
             )?
             .ok_or(Error::WitnessLost("Archive historical issuer set"))?;
@@ -100,7 +100,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         manifest: &manifest::Manifest,
         released: &ReleasedStep,
     ) -> Result<SourceCustodyV1, Error> {
-        let capsule = valid(released.frozen.capsule.capsule_digest())?;
+        let capsule = released.frozen.capsule.custody_digest();
         let address = manifest
             .capsule_sources
             .get(&mut self.archive, &capsule)?
@@ -113,7 +113,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .archive
                 .read_object(&address, SOURCE_CUSTODY_MAX_BYTES)?,
         )?;
-        source.require(&mut self.archive, &released.frozen.capsule.successor_state)?;
+        source.require(
+            &mut self.archive,
+            &released.frozen.capsule.body().successor_state,
+        )?;
         Ok(source)
     }
 
@@ -125,7 +128,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         folded: Option<&KagemushaWalletFoldRecordV1>,
     ) -> Result<(SourceCustodyV1, KagemushaWalletStateV1), Error> {
         let mut source = self.source_custody(manifest, released)?;
-        let mut state = released.frozen.capsule.successor_state;
+        let mut state = released.frozen.capsule.body().successor_state;
         if kind.consumes_lineage() {
             let fold = folded.ok_or(Error::FoldRequired)?;
             let expected = fold.lineage.public.pending_outgoing_root;

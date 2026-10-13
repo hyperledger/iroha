@@ -2388,19 +2388,13 @@ mod tests {
     #[test]
     fn create_archive_packages_bundle_directory() {
         let tempdir = tempdir().expect("tempdir");
-        let output_root = tempdir.path();
-        let bundle_name = "mochi-test-bundle";
-        let bundle_root = output_root.join(bundle_name);
-        fs::create_dir_all(NativeBundleLayout::current().runtime_directory(&bundle_root))
-            .expect("bundle dir");
-        fs::write(
-            NativeBundleLayout::current().executable(&bundle_root, "mochi"),
-            b"binary",
-        )
-        .expect("bundle file");
+        let result = bundle_fixture(tempdir.path(), false, None);
+        let bundle_name = &result.bundle_name;
+        let before = generate_manifest_json(&result.bundle_root, "debug").unwrap();
+        let manifest = fs::read(&result.manifest_path).unwrap();
         let (archive_path, _custody) =
-            create_archive(output_root, bundle_name, &bundle_root).expect("archive builds");
-        assert!(archive_path.exists(), "archive should exist");
+            create_archive(&result.output_root, bundle_name, &result.bundle_root)
+                .expect("archive builds");
         let listing = Command::new("tar")
             .arg("-tzf")
             .arg(&archive_path)
@@ -2423,6 +2417,41 @@ mod tests {
                 )),
             "archive listing did not include bundle payload: {stdout}"
         );
+        let extracted = tempfile::tempdir().expect("fresh extraction directory");
+        let status = Command::new("tar")
+            .arg("-xzf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(extracted.path())
+            .status()
+            .expect("archive extraction");
+        assert!(status.success(), "archive extraction failed: {status:?}");
+        let installed = extracted.path().join(bundle_name);
+        assert_eq!(fs::read(installed.join("manifest.json")).unwrap(), manifest);
+        assert_eq!(
+            generate_manifest_json(&installed, "debug").unwrap()["files"],
+            before["files"],
+            "extraction must preserve every packaged path and byte"
+        );
+        for name in RUNTIME_BINARIES {
+            let program = NativeBundleLayout::current().executable(&installed, name);
+            assert!(program.is_file(), "extracted native program is absent");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                assert_eq!(
+                    fs::metadata(&program).unwrap().permissions().mode() & 0o777,
+                    fs::metadata(
+                        NativeBundleLayout::current().executable(&result.bundle_root, name,)
+                    )
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                        & 0o777,
+                    "extraction must preserve executable permissions"
+                );
+            }
+        }
     }
 }
 

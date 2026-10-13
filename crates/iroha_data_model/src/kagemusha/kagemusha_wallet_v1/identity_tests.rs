@@ -467,12 +467,12 @@ fn kagemusha_wallet_v1_provider_contract_and_relation_layouts() {
     let transcript = kagemusha_wallet_provider_contract_transcript_v1();
     assert_eq!(&transcript[..2], &[1, 0]);
     let name = KAGEMUSHA_WALLET_PROVIDER_CONTRACT_NAME_V1.as_bytes();
-    assert_eq!(name.len(), 35);
-    assert_eq!(&transcript[2..37], name);
-    assert!(transcript[37..].iter().all(|byte| *byte == 0));
+    assert_eq!(name.len(), 37);
+    assert_eq!(&transcript[2..39], name);
+    assert!(transcript[39..].iter().all(|byte| *byte == 0));
     assert_eq!(
         hex::encode(kagemusha_wallet_provider_contract_v1()),
-        "52b501e3344547c36579684aafb2b15eb0caf3393e77aebdfbaa14ac57d0cc8d"
+        "ac0c9bdca39a5a00385214934f0299da60d5ff1425aa270c535a462247a9fa1e"
     );
 
     let relation = kagemusha_wallet_relation_transcript_v1(

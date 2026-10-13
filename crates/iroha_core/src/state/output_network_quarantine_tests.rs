@@ -16,6 +16,17 @@ use iroha_data_model::{
 use iroha_model_base::metadata::Metadata;
 use iroha_primitives::numeric::Quantity;
 
+fn quarantine_fixture(
+    row_bytes: u64,
+    callback_bytes: Option<usize>,
+    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
+    quota: usize,
+) -> State {
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, |policy| {
+        policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
+    })
+}
+
 fn write_quarantine(key: &str, value: u64) -> InstructionBox {
     SetKeyValue::account(ALICE_ID.clone(), key.parse().unwrap(), Json::new(value)).into()
 }
@@ -106,9 +117,7 @@ fn earlier_ranked(
 #[test]
 fn actual_quarantine_zero_exact_and_overflow_quota_own_complete_rows_and_effects() {
     for quota in [0, 1, 3] {
-        let state = fixture_with_policy(65_536, None, None, |policy| {
-            policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
-        });
+        let state = quarantine_fixture(65_536, None, None, quota);
         let inputs: Vec<_> = (0..3)
             .map(|index| {
                 signed_quarantine_input(
@@ -180,9 +189,7 @@ fn actual_quarantine_zero_exact_and_overflow_quota_own_complete_rows_and_effects
 
 #[test]
 fn hash_ranked_selection_is_mode_independent_and_does_not_reorder_actual_effects() {
-    let seed = fixture_with_policy(65_536, None, None, |policy| {
-        policy.quarantine_max_txs_per_block = 2;
-    });
+    let seed = quarantine_fixture(65_536, None, None, 2);
     let inputs: Vec<_> = (0..3)
         .map(|index| {
             signed_quarantine_input(
@@ -211,9 +218,7 @@ fn hash_ranked_selection_is_mode_independent_and_does_not_reorder_actual_effects
     ] {
         let mut mode_baseline = None;
         for parallel in [false, true] {
-            let mut state = fixture_with_policy(65_536, None, None, |policy| {
-                policy.quarantine_max_txs_per_block = 2;
-            });
+            let mut state = quarantine_fixture(65_536, None, None, 2);
             assert_eq!(state.network_id, seed.network_id);
             state.pipeline.parallel_apply = parallel;
             let source = carrier(
@@ -271,9 +276,7 @@ fn hash_ranked_selection_is_mode_independent_and_does_not_reorder_actual_effects
 
 #[test]
 fn only_exact_signed_boolean_true_uses_the_disabled_quarantine_quota() {
-    let state = fixture_with_policy(65_536, None, None, |policy| {
-        policy.quarantine_max_txs_per_block = 0;
-    });
+    let state = quarantine_fixture(65_536, None, None, 0);
     let classifications = [
         Some(Json::new(true)),
         Some(Json::new(false)),
@@ -324,9 +327,7 @@ fn only_exact_signed_boolean_true_uses_the_disabled_quarantine_quota() {
 
 #[test]
 fn stateless_invalid_lower_hash_does_not_consume_a_quarantine_slot() {
-    let state = fixture_with_policy(65_536, None, None, |policy| {
-        policy.quarantine_max_txs_per_block = 1;
-    });
+    let state = quarantine_fixture(65_536, None, None, 1);
     let healthy = signed_quarantine_input(
         &state,
         vec![write_quarantine("valid_quota", 1)],
@@ -375,9 +376,7 @@ fn stateless_invalid_lower_hash_does_not_consume_a_quarantine_slot() {
 
 #[test]
 fn actual_business_failure_does_not_refill_the_frozen_quarantine_selection() {
-    let state = fixture_with_policy(65_536, None, None, |policy| {
-        policy.quarantine_max_txs_per_block = 1;
-    });
+    let state = quarantine_fixture(65_536, None, None, 1);
     let later = signed_quarantine_input(
         &state,
         vec![write_quarantine("quota_refill", 1)],
@@ -425,9 +424,7 @@ fn actual_business_failure_does_not_refill_the_frozen_quarantine_selection() {
 
 #[test]
 fn healthy_callback_output_overflow_does_not_refill_quarantine_or_apply_effects() {
-    let state = fixture_with_policy(16_384, Some(32_768), None, |policy| {
-        policy.quarantine_max_txs_per_block = 1;
-    });
+    let state = quarantine_fixture(16_384, Some(32_768), None, 1);
     let later = signed_quarantine_input(
         &state,
         vec![write_quarantine("overflow_refill", 1)],
@@ -489,9 +486,7 @@ fn healthy_callback_output_overflow_does_not_refill_quarantine_or_apply_effects(
 
 #[test]
 fn signed_batch_and_ballot_cannot_bypass_a_zero_quarantine_quota() {
-    let state = fixture_with_policy(65_536, None, None, |policy| {
-        policy.quarantine_max_txs_per_block = 0;
-    });
+    let state = quarantine_fixture(65_536, None, None, 0);
     let ballot: InstructionBox = CastPlainBallot {
         referendum_id: "quarantine_ballot".to_owned(),
         direction: 0,
@@ -551,7 +546,7 @@ fn signed_batch_and_ballot_cannot_bypass_a_zero_quarantine_quota() {
 
 #[test]
 fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes() {
-    use crate::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
+    use crate::sumeragi::test_chain::{CertifiedTestChain, Signers};
 
     for quota in [0, 1] {
         let component = state(65_536);
@@ -563,36 +558,22 @@ fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes()
             .pipeline_policy()
             .clone();
         policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
-        policy.validate().expect("valid signed quarantine policy");
-        let block_parameters = component.world.parameters.view().block();
-        let nexus = component.nexus_snapshot();
-        let crypto = component.crypto.read().as_ref().clone();
-        let mut config = TestChainConfig::new(component.world, 0);
-        config.genesis_parameters.extend([
-            Parameter::Custom(policy.clone().into_custom_parameter()),
-            Parameter::Block(BlockParameter::ExecutionOutput(
-                block_parameters.execution_output(),
-            )),
-            Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
-                block_parameters.max_time_trigger_invocations(),
-            )),
-        ]);
+        let mut config = output_fixture_config(component, policy.clone());
         config
             .genesis_instructions
             .push(Register::account(Account::new(ALICE_ID.clone())).into());
-        config.chain_id = component.chain_id;
-        config.pipeline = component.pipeline;
-        config.governance = Some(component.gov);
-        config.nexus = Some(nexus);
-        config.zk = Some(component.zk);
-        config.crypto = Some(crypto);
-        config.fraud_monitoring = component.fraud_monitoring;
         let mut chain =
             CertifiedTestChain::start(config).expect("actual signed quarantine genesis");
         let state = std::sync::Arc::clone(chain.state());
         assert_eq!(
             state.world.parameters.view().get().pipeline_policy(),
             &policy
+        );
+        assert_eq!(
+            crate::pipeline_validity_policy::committed(state.view().world.parameters.get())
+                .unwrap(),
+            Some(policy),
+            "sealed work uses the exact signed quarantine policy"
         );
         let mut commits = Vec::new();
         let mut reveals = Vec::new();
@@ -692,34 +673,20 @@ fn sealed_reveal_quota_uses_actual_pending_commitments_and_outer_source_hashes()
             .min_by_key(|(_, input)| input.hash())
             .unwrap()
             .0;
-        let mut builder = BlockBuilder::new(BlockHeader::new(
-            NonZeroU64::new(3).unwrap(),
-            Some(committed.block_hash()),
-            None,
-            u64::try_from(committed.block().header().creation_time().as_millis()).unwrap() + 1,
-            0,
-        ));
-        for reveal in &reveals {
-            let TransactionEntrypoint::SealedReveal(reveal) = reveal else {
-                unreachable!()
-            };
-            builder.push_sealed_transaction_reveal(reveal.clone());
-        }
-        builder.set_execution_context(Some(
-            iroha_data_model::block::BlockExecutionContextBundle::new(
-                reveals
-                    .iter()
-                    .map(|input| {
-                        iroha_data_model::block::ExternalExecutionContext::new(
-                            input.hash(),
-                            iroha_model_base::topology::LaneId::SINGLE,
-                            iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                        )
-                    })
-                    .collect(),
-            ),
-        ));
-        let source = builder.build_with_signature(0, ALICE_KEYPAIR.private_key());
+        let source = chain.proposal_entrypoints(reveals.clone());
+        assert_eq!(source.header().height().get(), 3);
+        assert_eq!(
+            source.header().prev_block_hash(),
+            Some(committed.block().hash())
+        );
+        assert_eq!(
+            source.network_input_hashes().collect::<Vec<_>>(),
+            reveals
+                .iter()
+                .map(TransactionEntrypoint::hash)
+                .collect::<Vec<_>>(),
+            "hash ranking uses the same ordered outer reveal sources"
+        );
         let (mut block, _recording) = recorded_network_block(&state, &source);
         let fragments = block.committed_fragment_count();
         execute(&mut block, &source).unwrap();
@@ -767,9 +734,7 @@ fn real_nexus_fee_is_not_charged_for_quota_refusal_before_business_execution() {
             &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
         )
         .expect("canonical network XOR fee asset");
-        let state = fixture_with_policy(65_536, None, Some(asset.clone()), |policy| {
-            policy.quarantine_max_txs_per_block = u64::try_from(quota).unwrap();
-        });
+        let state = quarantine_fixture(65_536, None, Some(asset.clone()), quota);
         let mut metadata = Metadata::default();
         metadata.insert("quarantine".parse().unwrap(), Json::new(true));
         let mut builder = TransactionBuilder::new(

@@ -217,16 +217,29 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
         push(at_limit.clone()).expect("the bound itself is includable");
         assert_eq!(queue.active_len(), 1);
         // The proposer selects what the queue admitted, within the same budget.
-        let selected = crate::sumeragi::payload::select(&state, &queue, budget, 0).unwrap();
+        let selected = crate::sumeragi::payload::select(
+            &state.view(),
+            &queue,
+            budget,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
+        )
+        .unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(
             selected[0].hash_as_entrypoint(),
             at_limit.hash_as_entrypoint()
         );
         assert!(
-            crate::sumeragi::payload::select(&state, &queue, budget - 1, 0)
-                .unwrap()
-                .is_empty(),
+            crate::sumeragi::payload::select(
+                &state.view(),
+                &queue,
+                budget - 1,
+                &crate::sumeragi::payload::MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now()
+            )
+            .unwrap()
+            .is_empty(),
             "one byte less budget cannot carry the transaction"
         );
     }
@@ -240,14 +253,26 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
         .push(one_over.clone(), roomy.view())
         .expect("one more payload byte admits one more transaction byte");
     assert!(
-        crate::sumeragi::payload::select(&roomy, &queue, budget, 0)
-            .unwrap()
-            .is_empty()
+        crate::sumeragi::payload::select(
+            &roomy.view(),
+            &queue,
+            budget,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .is_empty()
     );
     assert_eq!(
-        crate::sumeragi::payload::select(&roomy, &queue, budget + 1, 0)
-            .unwrap()
-            .len(),
+        crate::sumeragi::payload::select(
+            &roomy.view(),
+            &queue,
+            budget + 1,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .len(),
         1
     );
 }
@@ -520,7 +545,14 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         .expect("the largest includable transaction is admitted");
     // The proposer's budget is the committed payload limit less the reserve.
     let budget = usize::try_from(includable).unwrap();
-    let selected = crate::sumeragi::payload::select(&state, &queue, budget, 0).unwrap();
+    let selected = crate::sumeragi::payload::select(
+        &state.view(),
+        &queue,
+        budget,
+        &crate::sumeragi::payload::MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
+    )
+    .unwrap();
     assert_eq!(selected.len(), 1);
     assert_eq!(
         selected[0].hash_as_entrypoint(),
@@ -555,8 +587,9 @@ impl QueueAdmissionStateAccess for DeferredInclusionAccess {
     }
     fn sccp_exempt_admission(
         &mut self,
+        _queue: &Queue,
         _transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         panic!("admission continued after a deferred includable assessment")
     }
     fn manifest_authority_eligible_lanes(

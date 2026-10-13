@@ -799,3 +799,48 @@ mod tests {
         assert!(governance_revisions::is_empty(&*stx.world));
     }
 }
+
+/// Permanent offences are read separately from Native evidence; no native-horizon pruning.
+pub mod forgery_offences {
+    use super::*;
+    use crate::state::sccp_forgery_custody::OffenceKey;
+
+    /// Borrow the original evidence id, retaining absence as absence.
+    #[must_use]
+    pub fn get<'a>(
+        world: &'a (impl WorldReadOnly + ?Sized),
+        key: &OffenceKey,
+    ) -> Option<&'a [u8; 32]> {
+        world.sccp_forgery_offences().get(key)
+    }
+
+    /// Install one new offence under its original map pool and advance the maximum.
+    /// The executing-parent handler owns paired record/event publication in the same
+    /// child transaction; this primitive alone grants no instruction authority.
+    pub(crate) fn insert_new(
+        stx: &mut StateTransaction<'_, '_>,
+        key: OffenceKey,
+        evidence_id: [u8; 32],
+    ) -> Result<bool, (OffenceKey, mv::storage::AdmittedStorageError)> {
+        if !key.belongs_to(stx.world.sccp_forgery_offences.allocation_budget()) {
+            return Err((key, mv::storage::AdmittedStorageError::ScopeIdentity));
+        }
+        if stx.world.sccp_forgery_offences.get(&key).is_some() {
+            return Ok(false);
+        }
+        let generation = key.generation();
+        stx.world
+            .sccp_forgery_offences
+            .try_insert_admitted(key, evidence_id)
+            .map_err(|((key, _), error)| (key, error))?;
+        let maximum = stx.world.sccp_forgery_max_generation.get_mut();
+        *maximum = Some(maximum.map_or(generation, |previous| previous.max(generation)));
+        Ok(true)
+    }
+}
+
+/// Highest recorded SCCP generation; this does not derive a hold release by itself.
+#[must_use]
+pub fn forgery_max_generation(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64> {
+    *world.sccp_forgery_max_generation()
+}

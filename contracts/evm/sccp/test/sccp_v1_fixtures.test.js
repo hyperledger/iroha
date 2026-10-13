@@ -16,7 +16,7 @@
 //   rejected controls certified by the model, and every recorded control leaf
 //   of an EVM target applied on its own chain;
 // - `evm_calldata_v1.json`: the `calldata_conformance` entries of
-//   `transferToTaira` and `voidFrozen`.
+//   every native golden call, view return, log and calldata conformance entry.
 //
 // The canonical run is the locked build on the fixtures' own profile
 // (`ethereum-mainnet`, chain id 1). Rows that bind no network also run under
@@ -75,11 +75,12 @@ const CONTEXT = FINALITY.verification_context;
 const EVM_SCENARIOS = TRANSITIONS.scenarios.filter((scenario) => scenario.flavor === "evm");
 const CONTROL_SCENARIOS = CONTROL.destination_effects;
 const PORTABLE_SCENARIOS = EVM_SCENARIOS.filter(r.isProfileIndependent);
-// TODO: (SCCP Rust `evm_abi` step) once `evm_calldata_v1.json` is regenerated for revision 5, replay
-// its golden calls, view returns and logs too, and require the conformance table to hold these two
-// functions only. Until then the file still carries revision 4 calls, which this suite ignores.
-const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen"]);
-const CONFORMANCE = CALLDATA.calldata_conformance.filter((entry) => CONFORMANCE_FUNCTIONS.includes(entry.function));
+// Transfer/frozen encodings are canonical on-chain too; expired-void encodings have
+// separate strict-local and Solidity verdicts. No fixture function is silently skipped.
+const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen", "voidExpired", "voidExpiredFromCheckpoint"]);
+assert.deepEqual([...new Set(CALLDATA.calldata_conformance.map((row) => row.function))].sort(), [...CONFORMANCE_FUNCTIONS].sort());
+const CONFORMANCE = CALLDATA.calldata_conformance.filter((entry) => ["transferToTaira", "voidFrozen"].includes(entry.function));
+const NATIVE_VOID_CONFORMANCE = CALLDATA.calldata_conformance.filter((entry) => ["voidExpired", "voidExpiredFromCheckpoint"].includes(entry.function));
 
 /**
  * Pinned row counts. A regenerated fixture with other counts fails here until
@@ -115,6 +116,11 @@ const ROW_COUNTS = Object.freeze({
   "control.rejected with a destination outcome": 8,
   "calldata_conformance.transferToTaira": 13,
   "calldata_conformance.voidFrozen": 12,
+  "calldata_conformance.voidExpired": 25,
+  "calldata_conformance.voidExpiredFromCheckpoint": 19,
+  "native_calldata.calls": 9,
+  "native_calldata.views": 15,
+  "native_calldata.logs": 3,
 });
 
 /** Negative certificates that only the TON flavour can express (`expected.evm` is null). */
@@ -162,6 +168,8 @@ function expectedRows() {
   const conformance = CONFORMANCE.map((entry) => `${entry.function}/${entry.label}`);
   const controlsOf = (profile) => CONTROL.controls.filter((row) => row.target === profile.network).map(controlRowId);
   const rows = {
+    "ethereum/native_calldata": CALLDATA.calls.map((row) => row.label),
+    "ethereum/native_void_conformance": NATIVE_VOID_CONFORMANCE.map((row) => `${row.function}/${row.label}`),
     "ethereum/finality.headers.valid": labels(FINALITY.headers.valid),
     "ethereum/finality.headers.invalid": labels(FINALITY.headers.invalid),
     "ethereum/transitions.steps": stepIds(EVM_SCENARIOS),
@@ -331,6 +339,11 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
   it("pins the row counts of every fixture this suite replays", () => {
     const count = (rows, keep) => rows.filter(keep).length;
     const measured = {
+      "calldata_conformance.voidExpired": NATIVE_VOID_CONFORMANCE.filter((row) => row.function === "voidExpired").length,
+      "calldata_conformance.voidExpiredFromCheckpoint": NATIVE_VOID_CONFORMANCE.filter((row) => row.function === "voidExpiredFromCheckpoint").length,
+      "native_calldata.calls": CALLDATA.calls.length,
+      "native_calldata.views": CALLDATA.views.length,
+      "native_calldata.logs": CALLDATA.logs.length,
       "finality.test_keys": FINALITY.test_keys.length,
       "finality.committees": Object.keys(FINALITY.committees).length,
       "finality.certificates": FINALITY.certificates.length,
@@ -362,6 +375,17 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
       "calldata_conformance.voidFrozen": count(CONFORMANCE, (entry) => entry.function === "voidFrozen"),
     };
     assert.deepEqual(measured, { ...ROW_COUNTS });
+    for (const row of CALLDATA.selectors) assert.equal(m.iface.getFunction(row.function).selector, row.selector);
+    for (const row of CALLDATA.events) assert.equal(ethers.id(row.signature), row.topic0);
+    for (const row of CALLDATA.views) {
+      const expectedArgs = row.function === "checkpointHeader" ? [200] : row.function === "isConsumed" ? [300]
+        : row.function === "transferNonces" ? [`0x${"55".repeat(20)}`] : [];
+      assert.equal(m.iface.encodeFunctionData(row.function, expectedArgs), row.calldata, `view ${row.function}`);
+    }
+    for (const row of CALLDATA.logs) {
+      const decoded = m.iface.parseLog(row);
+      assert.deepEqual(m.eventLog(decoded.name, decoded.args), { topics: row.topics, data: row.data });
+    }
     // The rows no EVM harness replays are exactly the known ones.
     const tonOnly = FINALITY.negative_certificates.filter((row) => row.expected.evm === null);
     assert.deepEqual(labels(tonOnly), [...TON_ONLY_NEGATIVES]);
@@ -1651,6 +1675,94 @@ for (const hardfork of HARDFORKS) {
       });
     }
 
+    // Native calldata is derived by Rust's maintained BLS reference support. Ethers is an
+    // independent ABI encoder; the contract then verifies the genuine supplied certificate.
+    it("native golden calls, view returns and raw logs", async () => {
+      for (const row of CALLDATA.calls) {
+        const scenario = row.scenario ?? CALLDATA.calls.find((item) => item.label === "finalize_direct").scenario;
+        const deployment = h.deploymentOf(scenario.deployment, ETHEREUM);
+        const { chain, destination } = await r.openDestination({ hardfork, profile: ETHEREUM,
+          deployment, at: T0, relocateTo: r.addressOfWord(scenario.deployment.destination_word) });
+        try {
+          assert.equal(await chain.call(destination.address, m.iface.encodeFunctionData("initialCommittee")),
+            CALLDATA.view_returns.initial_committee, "initial committee exact return");
+          const context = { destination, pool: CALLDATA.certificates, target: r.PRODUCTION,
+            probes: r.scenarioProbes(scenario, CALLDATA.certificates), balances: new Map(),
+            fixtureDeployment: scenario.deployment, where: row.label };
+          for (const [index, step] of scenario.steps.entries()) {
+            const [name, args] = r.stepCall(step, CALLDATA.certificates);
+            if (row.scenario && index === scenario.steps.length - 1) {
+              assert.equal(name, row.function);
+              assert.equal(m.iface.encodeFunctionData(name, args), row.calldata, `${row.label}: Rust/ethers bytes`);
+            }
+            await r.replayStep(context, step, index);
+          }
+          if (row.label === "rotate_one") {
+            assert.equal(await chain.call(destination.address, m.iface.encodeFunctionData("committeeState")),
+              CALLDATA.view_returns.committee_after_rotation);
+            assert.equal(await destination.view("equivocated"), false, "separate latch view remains explicit");
+          }
+          if (row.label.startsWith("apply_control")) {
+            assert.equal(await chain.call(destination.address, m.iface.encodeFunctionData("pauseState")),
+              CALLDATA.view_returns.pause_after_control);
+          }
+          if (row.label === "transfer_to_taira") {
+            const sender = ethers.getAddress(`0x${"55".repeat(20)}`);
+            await chain.rpc("hardhat_setBalance", [sender, ethers.toQuantity(10n ** 20n)]);
+            await chain.rpc("hardhat_impersonateAccount", [sender]);
+            const receipt = await destination.raw(row.calldata, { from: sender, at: T0 + 301n });
+            const golden = CALLDATA.logs.find((item) => item.label === row.label);
+            assert.deepEqual(destination.logs(receipt).filter((log) => log.topics[0] === golden.topics[0]),
+              [{ topics: golden.topics, data: golden.data }], "exact golden burn log");
+            assert.equal(await destination.view("balanceOf", [sender]), 500_000_000n);
+            assert.equal(await destination.view("transferNonces", [sender]), 1n);
+          }
+          if (row.label === "void_expired" || row.label === "void_frozen") {
+            const step = scenario.steps.at(-1);
+            const logs = r.expectedLogs(step.expected.events, CALLDATA.certificates).sccp;
+            const golden = CALLDATA.logs.find((item) => item.label === (row.label === "void_expired" ? "voided_expired" : "voided_frozen"));
+            assert(logs.some((log) => JSON.stringify(log) === JSON.stringify({ topics: golden.topics, data: golden.data })),
+              "golden void log is among exactly replayed source logs");
+          }
+          ledger.ran("ethereum/native_calldata", row.label);
+        } finally { await chain.close(); }
+      }
+    });
+
+    it("native expired-void mutations preserve separate decoder and contract verdicts", async () => {
+      for (const functionName of ["voidExpired", "voidExpiredFromCheckpoint"]) {
+        const row = CALLDATA.calls.find((item) => item.function === functionName);
+        const scenario = row.scenario;
+        const deployment = h.deploymentOf(scenario.deployment, ETHEREUM);
+        const { chain, destination } = await r.openDestination({ hardfork, profile: ETHEREUM,
+          deployment, at: T0, relocateTo: r.addressOfWord(scenario.deployment.destination_word) });
+        try {
+          const context = { destination, pool: CALLDATA.certificates, target: r.PRODUCTION,
+            probes: r.scenarioProbes(scenario, CALLDATA.certificates), balances: new Map(),
+            fixtureDeployment: scenario.deployment, where: functionName };
+          for (const [index, step] of scenario.steps.slice(0, -1).entries()) await r.replayStep(context, step, index);
+          const finalStep = scenario.steps.at(-1);
+          for (const entry of NATIVE_VOID_CONFORMANCE.filter((item) => item.function === functionName)) {
+            const id = `${entry.function}/${entry.label}`;
+            assert.equal(entry.decoder === "accept", entry.label === "canonical", `${id}: strict local verdict`);
+            await onSnapshot(chain, async () => {
+              const outcome = await destination.attempt(entry.calldata, { at: BigInt(finalStep.now_ms) / 1000n });
+              if (entry.contract !== "accept") {
+                assertRevert(outcome, entry.contract === "empty" ? null : entry.contract, id);
+                assert.equal(await destination.view("isConsumed", [finalStep.nonce]), false);
+              } else {
+                assert(outcome.receipt, `${id}: ${outcome.revert && h.describeRevert(outcome.revert)}`);
+                r.assertLogs(destination, outcome.receipt, r.expectedLogs(finalStep.expected.events, CALLDATA.certificates), id);
+                assert.deepEqual(await destination.state(context.probes), finalStep.state_after, id);
+              }
+            });
+            assert.equal(await destination.view("isConsumed", [finalStep.nonce]), false, `${id}: restored`);
+            ledger.ran("ethereum/native_void_conformance", id);
+          }
+        } finally { await chain.close(); }
+      }
+    });
+
     // -- evm_calldata_v1.json calldata_conformance ------------------------------
 
     for (const profile of [ETHEREUM, BSC]) {
@@ -1759,6 +1871,8 @@ for (const hardfork of HARDFORKS) {
           "control leaves on their chains": count("ethereum/control.controls", "bsc/control.controls"),
           "spec control leaves": count("ethereum/control.spec_examples"),
           "init bounds": count("ethereum/transitions.init_bounds", "bsc/transitions.init_bounds"),
+          "native golden calls": count("ethereum/native_calldata"),
+          "native expired-void conformance entries": count("ethereum/native_void_conformance"),
           "calldata conformance entries": count("ethereum/calldata_conformance", "bsc/calldata_conformance"),
         },
         {
@@ -1775,6 +1889,8 @@ for (const hardfork of HARDFORKS) {
           "spec control leaves": ROW_COUNTS["control.spec_examples"],
           "init bounds": 2 * ROW_COUNTS["transitions.init_bounds"],
           "calldata conformance entries": 2 * conformance,
+          "native golden calls": ROW_COUNTS["native_calldata.calls"],
+          "native expired-void conformance entries": ROW_COUNTS["calldata_conformance.voidExpired"] + ROW_COUNTS["calldata_conformance.voidExpiredFromCheckpoint"],
         },
       );
       const total = Object.values(counts).reduce((sum, rows) => sum + rows, 0);

@@ -7,13 +7,13 @@ use iroha_core::{
     query::store::LiveQueryStore,
     queue::evaluate_policy_plan_with_nexus_and_world_at,
     smartcontracts::isi::sccp::{self, admission, fees, hook, leaves, params, store},
-    state::{State, World},
+    state::{State, StateReadOnly, World},
 };
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    block::BlockHeader,
+    block::{BlockHeader, consensus::SumeragiRootScope},
     bridge::SccpNetworkV1,
     isi::{
         InstructionBox,
@@ -65,52 +65,6 @@ fn network_id() -> NetworkId {
     NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
         [0x7a; 32],
     )))
-}
-
-/// One populated value of each of the seven SCCP v1 instructions.
-fn sccp_instructions() -> Vec<InstructionBox> {
-    let proof = || SccpSourceProofBytesV1::new(vec![0x4e, 0x52, 0x54, 0x30, 0x01]).expect("proof");
-    let evidence = |byte| SccpLcEvidenceBytesV1::new(vec![byte, 2]).expect("evidence");
-    vec![
-        InitializeSccpV1 {
-            parameters: SccpParametersV1::taira_default(),
-            reset_nonce: [0x5a; 32],
-        }
-        .into(),
-        RecordSccpMessage {
-            network: SccpNetworkV1::EthereumMainnet,
-            expected_revision: 1,
-            amount: Numeric::new(1_000_000_000_u64, 9),
-            recipient: vec![0x22; 20],
-        }
-        .into(),
-        SubmitSccpInboundMessageV1 {
-            network: SccpNetworkV1::TonMainnet,
-            revision: 2,
-            payload: vec![2, 1, 0, 0, 0, 4],
-            proof: proof(),
-        }
-        .into(),
-        SettleSccpV1::inbound([1; 32]).into(),
-        SubmitSccpOutboundVoidV1 {
-            network: SccpNetworkV1::BscMainnet,
-            revision: 1,
-            proof: proof(),
-        }
-        .into(),
-        AdvanceSccpLightClientV1 {
-            network: SccpNetworkV1::EthereumMainnet,
-            expected_state_hash: None,
-            advance: SccpLcAdvanceBytesV1::new(vec![1; 64]).expect("advance"),
-        }
-        .into(),
-        ReportSccpLightClientEquivocationV1 {
-            network: SccpNetworkV1::BscMainnet,
-            a: evidence(1),
-            b: evidence(3),
-        }
-        .into(),
-    ]
 }
 
 #[test]
@@ -205,8 +159,46 @@ fn every_sccp_instruction_routes_to_the_universal_dataspace() {
         ordinary.dataspace_id, PRIVATE_DATASPACE,
         "the fixture routes ordinary work away from the universal dataspace"
     );
-    let samples = sccp_instructions();
-    assert_eq!(samples.len(), 7);
+    let samples: Vec<InstructionBox> = vec![
+        SettleSccpV1::inbound([1; 32]).into(),
+        RecordSccpMessage {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_revision: 1,
+            amount: Numeric::new(1_000_000_000_u64, 9),
+            recipient: vec![0x22; 20],
+        }
+        .into(),
+        InitializeSccpV1 {
+            parameters: SccpParametersV1::taira_default(),
+            reset_nonce: [0x5a; 32],
+        }
+        .into(),
+        SubmitSccpInboundMessageV1 {
+            network: SccpNetworkV1::TonMainnet,
+            revision: 1,
+            payload: vec![1],
+            proof: SccpSourceProofBytesV1::new(vec![1]).unwrap(),
+        }
+        .into(),
+        SubmitSccpOutboundVoidV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: SccpSourceProofBytesV1::new(vec![2]).unwrap(),
+        }
+        .into(),
+        AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: Some([8; 32]),
+            advance: SccpLcAdvanceBytesV1::new(vec![1; 64]).unwrap(),
+        }
+        .into(),
+        ReportSccpLightClientEquivocationV1 {
+            network: SccpNetworkV1::BscMainnet,
+            a: SccpLcEvidenceBytesV1::new(vec![1, 2]).unwrap(),
+            b: SccpLcEvidenceBytesV1::new(vec![3, 4]).unwrap(),
+        }
+        .into(),
+    ];
     for instruction in samples {
         assert!(sccp::is_sccp_instruction(&*instruction));
         assert_eq!(
@@ -224,26 +216,52 @@ fn a_network_without_sccp_is_unchanged() {
     assert_eq!(params::parameters(world), None);
     assert!(!params::exists(world));
     assert!(store::routes::is_empty(world));
-    assert!(store::block_commitments::is_empty(world));
-    assert_eq!(store::history::get(world).size, 0);
+    assert!(store::committee_generations::is_empty(world));
+    assert_eq!(*store::committee_current::get(world), 0);
+    let committed_time_ms = view
+        .native_execution_tip()
+        .map(|tip| tip.creation_time_ms());
+    assert_eq!(
+        committed_time_ms, None,
+        "the blank chain has no committed time"
+    );
     let transaction = signed(vec![
         iroha_data_model::isi::Log::new(iroha_data_model::Level::INFO, "ordinary".to_owned())
             .into(),
     ]);
     assert_eq!(admission::classify(world, &view, 2, &transaction), Ok(None));
     assert!(!admission::allows_unregistered_authority(
-        transaction.instructions(),
-        transaction.authority()
+        transaction.instructions()
     ));
     assert!(admission::block_exempt_cap_ok(world, &[]));
-    assert!(!fees::exempt_on_success(world, transaction.payload(), None));
+    assert!(!fees::exempt_on_success(
+        world,
+        transaction.payload(),
+        committed_time_ms
+    ));
     let log = InstructionBox::from(iroha_data_model::isi::Log::new(
         iroha_data_model::Level::INFO,
         "ordinary".to_owned(),
     ));
     assert!(!sccp::is_sccp_instruction(&*log));
     drop(view);
-    let mut block = state.try_block(header(2)).expect("open block");
-    hook::finalize_block(&mut block, &header(2), None).expect("no-op without SCCP");
-    assert!(store::block_commitments::is_empty(&block.world));
+    // Exercise the actual lifecycle owner before and after a heartbeat interval:
+    // elapsed time cannot create a generation on a network without SCCP.
+    let initial_time = header(2).creation_time_ms;
+    let after_heartbeat = initial_time + SccpParametersV1::taira_default().committee_heartbeat_ms;
+    for timestamp_ms in [initial_time, after_heartbeat, u64::MAX] {
+        let candidate = BlockHeader::new(NonZeroU64::new(2).unwrap(), None, None, timestamp_ms, 0);
+        let mut block = state.try_block(candidate).expect("open block");
+        hook::begin_block(&mut block).expect("inactive block start without SCCP");
+        let finality =
+            hook::finalize_block(&mut block, &candidate, None, SumeragiRootScope::Global)
+                .expect("inactive without SCCP");
+        assert!(!finality.is_active());
+        assert!(!finality.is_rotation());
+        assert_eq!(finality.height(), 2);
+        assert!(store::block_commitments::is_empty(&block.world));
+        assert!(store::committee_generations::is_empty(&block.world));
+        assert_eq!(*store::committee_current::get(&block.world), 0);
+        assert_eq!(*store::liability_clock::get(&block.world), 0);
+    }
 }

@@ -4646,6 +4646,8 @@ pub mod sccp {
     /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
+    /// Read the native certificate of an explicit height or `latest`.
+    pub const FINALITY: RouteDescriptor = public_get("sccp.finality", "/v1/sccp/finality/{height}");
     /// Read the newest outbound or inbound records.
     pub const MESSAGES_RECENT: RouteDescriptor =
         public_get("sccp.messages.recent", "/v1/sccp/messages/recent");
@@ -4714,10 +4716,11 @@ pub mod sccp {
         REGISTRY,
         MESSAGES_RECENT,
         MESSAGE,
-        MESSAGE_PROOF,
         OUTBOUND_BY_NONCE,
         CONTROLS,
+        MESSAGE_PROOF,
         CONTROL_PROOF,
+        FINALITY,
     ];
 }
 /// Canonical descriptors enforced by Torii's mounted-route registry. Router assembly fails when any

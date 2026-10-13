@@ -29,8 +29,11 @@ pub(crate) mod randomness;
 pub(crate) use cancellation::NativeProofError;
 
 /// Native artifact/proof admission failure. No failure selects or modifies wallet state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    /// Original local canonical-read refusal; no authority or proof verdict completed.
+    #[error("wallet original read unavailable: {0}")]
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// A signed scheme, certificate, manifest or canonical wallet object is invalid.
     #[error("invalid wallet authority or object")]
     Authority,
@@ -44,6 +47,9 @@ pub enum Error {
     /// This is neither proof rejection nor loss of monetary custody.
     #[error("wallet proof artifacts unavailable")]
     Unavailable,
+    /// Independent native opening entropy failed or exhausted its bounded sampler.
+    #[error("wallet opening entropy unavailable")]
+    Entropy,
     /// Descriptor, key, curve, instance types, parameters or proof layout differ.
     #[error("invalid wallet proof artifact profile")]
     Profile,
@@ -56,6 +62,23 @@ pub enum Error {
 }
 
 impl Error {
+    /// Preserve the original local owner; completed codec invalidity remains Authority.
+    pub(crate) fn decode_attempt(error: norito::core::DecodeAttemptError) -> Self {
+        match error.into_local_refusal() {
+            Ok(original) => Self::DecodeResource(original),
+            Err(_) => Self::Authority,
+        }
+    }
+
+    /// Carry an existing coordinator read refusal across native preparation unchanged.
+    pub(crate) fn preparation_read(error: crate::kagemusha_wallet_state_v1::Error) -> Self {
+        use crate::kagemusha_wallet_state_v1::Error as StateError;
+        match error {
+            StateError::DecodeResource(original) => Self::DecodeResource(original),
+            _ => Self::Authority,
+        }
+    }
+
     /// Whether a caller cancelled this operation rather than receiving a proof verdict.
     #[must_use]
     pub const fn is_cancelled(&self) -> bool {
@@ -205,7 +228,7 @@ fn inventory_size<'a>(items: impl IntoIterator<Item = (&'a [u8], &'a [u8])>) -> 
 // Each required Request is one exact retained original, never an independently supplied
 // selector DTO. A second matching role is ambiguous even when its bytes happen to agree.
 fn retained_request(
-    capsule: &KagemushaWalletRecoveryCapsuleV1,
+    capsule: &KagemushaWalletRecoveryBodyV1,
 ) -> Result<KagemushaWalletRequestV1, Error> {
     let mut originals = capsule
         .retained_inputs
@@ -218,18 +241,20 @@ fn retained_request(
     {
         return Err(Error::Authority);
     }
-    norito::decode_canonical_with_limits(
-        &original.bytes,
-        norito::canonical_decode_limits(original.bytes.len()),
-    )
-    .map_err(|_| Error::Authority)
+    norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(
+            &original.bytes,
+            norito::canonical_decode_limits(original.bytes.len()),
+        )
+    })
+    .map_err(Error::decode_attempt)
 }
 
 // Proof-context checks are not a NativeProofs implementation. In particular, they never
 // turn a retained incoming Payment's soft validity into a hard acceptance prerequisite.
 fn capsule_selector(
     scheme: &KagemushaWalletSchemeV1,
-    capsule: &KagemushaWalletRecoveryCapsuleV1,
+    capsule: &KagemushaWalletRecoveryBodyV1,
     credential: &KagemushaWalletCredentialV1,
 ) -> Result<(KagemushaWalletOperationKindV1, u32), Error> {
     authority(capsule.to_canonical_bytes())?;
@@ -538,6 +563,19 @@ impl ArtifactSet {
     pub fn verify_capsule_proofs_cancellable(
         &self,
         capsule: &KagemushaWalletRecoveryCapsuleV1,
+        credential: &KagemushaWalletCredentialV1,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), Error> {
+        self.verify_body_proofs_cancellable(capsule.body(), credential, budget, cancellation)
+    }
+
+    /// Verify a fixed recovery body before independent commitment-opening entropy.
+    /// # Errors
+    /// Preserves canonical/context, proof and cancellation failures.
+    pub(crate) fn verify_body_proofs_cancellable(
+        &self,
+        capsule: &KagemushaWalletRecoveryBodyV1,
         credential: &KagemushaWalletCredentialV1,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,

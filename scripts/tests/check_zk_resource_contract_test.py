@@ -2695,21 +2695,69 @@ def test_lane_route_statements_state_that_there_is_no_rescue_above_the_global_bu
     """The includable bound holds for the route at admission; it is not a promise of inclusion."""
     agreement = CONTRACT["stage_decisions"]["agreement"]
     assert "nothing admitted is unincludable" not in agreement
-    assert "only its lane's proposer can carry it" in agreement
-    assert "stays queued until it expires" in agreement
+    assert "transaction_cap_fits_block_payload at both applicable successor heights" in agreement
+    assert "the full global selection budget can carry" in agreement
+    assert "smaller native lane budget or a partially consumed global proposal budget" in agreement
+    assert "Raw authoring selector tests exercise incoherent inputs before policy validation" in agreement
     system = (ROOT / "crates/iroha_data_model/src/parameter/system.rs").read_text(encoding="utf-8")
     payload = (ROOT / "crates/iroha_core/src/sumeragi/payload.rs").read_text(encoding="utf-8")
     assert "rescues it when the lane stalls" not in system
     assert "never left waiting" not in system
     assert "The bound is not a promise of inclusion." in system
+    assert "raw authoring parameters before coherence validation" in system
+    assert "only its lane's proposer can carry it" in system
+    assert "it stays queued until it expires" in system
+    assert "not evidence of an admissible committed policy" in system
     assert "with the\n/// global chain as its rescue" not in payload
+    assert "The raw selector verdict does not establish an admissible committed policy." in payload
     lanes = (ROOT / "specs/sumeragi_lanes.md").read_text(encoding="utf-8")
-    assert "such a\ntransaction is never rescued" in lanes
+    normalized_lanes = CHECKER["normalize"](lanes)
+    assert "transaction cap plus the global proposer reserve to fit" in normalized_lanes
+    assert "every admitted transaction fits the full global selection budget" in normalized_lanes
+    assert "rescue carries it only when enough space remains" in normalized_lanes
+    coherence = relation(CONTRACT, "transaction_cap_fits_block_payload")
+    assert coherence["expr"] == (
+        "transaction.max_tx_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes"
+    )
+    assert coherence["enforcement"]
     proposer = next(entry for entry in CONTRACT["stage_tests"] if entry["stage"] == "proposer")
     assert "global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budget" in {
         test["name"] for test in proposer["tests"]
     }
     assert "if next > max_bytes {" in {site["contains"] for site in proposer["enforcement"]}
+
+
+def test_committed_coherence_and_global_packing_guards_cannot_disappear() -> None:
+    """Every committed-policy edge and the global rescue budget remain source-checked."""
+    coherence = relation(CONTRACT, "transaction_cap_fits_block_payload")
+    proposer = next(entry for entry in CONTRACT["stage_tests"] if entry["stage"] == "proposer")
+    cases = [(coherence["id"], site) for site in coherence["enforcement"]]
+    cases.extend(
+        ("proposer", site)
+        for site in proposer["enforcement"]
+        if site["path"] == "crates/iroha_core/src/sumeragi/payload.rs"
+    )
+    assert len(cases) == 13
+    for owner, site in cases:
+        path = site["path"]
+        source = CHECKER["_read"](ROOT, path, "test")
+        normalized = CHECKER["_normalized"](source)
+        needle = CHECKER["normalize"](site["contains"])
+        assert normalized.count(needle) == 1, (owner, site)
+        # The canonical matcher ignores whitespace; replace the actual code span while
+        # keeping every other statement and every registry record unchanged.
+        pattern = r"\s*".join(re.escape(piece) for piece in site["contains"].split())
+        match = re.search(pattern, source)
+        assert match is not None, (owner, site)
+        changed = source[: match.start()] + "/* removed enforcing application */" + source[match.end() :]
+        CHECKER["_OVERRIDES"][path] = changed
+        try:
+            found: list = []
+            CHECKER["_check_owned_sites"](ROOT, CONTRACT, path, found)
+        finally:
+            del CHECKER["_OVERRIDES"][path]
+        assert any(owner in problem and "no longer contains" in problem for problem in found), found
+    assert CHECKER["_OVERRIDES"] == {}
 
 
 PATH_CRATES = (

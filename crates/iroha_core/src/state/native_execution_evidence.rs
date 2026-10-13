@@ -8,7 +8,7 @@ use super::NativeExecutionProjectionV1;
 use crate::sumeragi::certified_chain::{CertifiedPrefix, CommittedBlock, PrefixArtifacts};
 use iroha_data_model::{NetworkId, block::SignedBlock, sumeragi_lanes::SumeragiLaneState};
 use iroha_model_base::chain::ChainId;
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 /// Finite byte/work bounds chosen independently of supplied evidence.
 #[derive(Debug, Clone, Copy)]
@@ -19,11 +19,9 @@ pub struct NativeExecutionEvidenceLimits {
     pub max_carrier_bytes: u64,
     /// Maximum canonical complete context projection bytes per carrier.
     pub max_context_bytes: u64,
-    /// Maximum cumulative retained complete carrier and context projection encodings.
+    /// Maximum cumulative complete carrier and context projection encodings.
+    /// Retiring a consumed carrier does not refund this interval-wide work bound.
     pub max_retained_bytes: u64,
-}
-struct RetainedCarrier {
-    block: iroha_data_model::block::SharedSignedBlock,
 }
 
 /// Exact authenticated global carrier and its complete lane state for read-only queries.
@@ -84,7 +82,7 @@ pub struct NativeExecutionEvidenceVerifier {
     limits: NativeExecutionEvidenceLimits,
     retained_bytes: u64,
     pending_genesis: Option<NativeExecutionProjectionV1>,
-    carriers: BTreeMap<u64, RetainedCarrier>,
+    authenticated_carriers: u64,
     lanes: Option<Arc<SumeragiLaneState>>,
     poisoned: bool,
 }
@@ -114,7 +112,7 @@ impl NativeExecutionEvidenceVerifier {
             limits,
             retained_bytes: 0,
             pending_genesis: None,
-            carriers: BTreeMap::new(),
+            authenticated_carriers: 0,
             lanes: None,
             poisoned: false,
         })
@@ -198,7 +196,10 @@ impl NativeExecutionEvidenceVerifier {
             .checked_add(body_bytes)
             .and_then(|bytes| bytes.checked_add(context_bytes))
             .ok_or("native retained evidence length overflow")?;
-        let count = self.carriers.len() as u64 + u64::from(self.pending_genesis.is_some());
+        let count = self
+            .authenticated_carriers
+            .checked_add(u64::from(self.pending_genesis.is_some()))
+            .ok_or("native authenticated carrier count overflow")?;
         if count >= self.limits.max_carriers
             || body_bytes > self.limits.max_carrier_bytes
             || context_bytes == 0
@@ -252,22 +253,9 @@ impl NativeExecutionEvidenceVerifier {
         Ok(Some(receipt))
     }
 
-    /// Borrow a retained original carrier only after the interval has its actual H2 anchor.
-    pub(crate) fn authenticated_carrier(
-        &self,
-        height: u64,
-    ) -> Option<iroha_data_model::block::SharedSignedBlock> {
-        if self.poisoned || self.pending_genesis.is_some() || self.carriers.len() < 2 {
-            return None;
-        }
-        self.carriers
-            .get(&height)
-            .map(|carrier| carrier.block.clone())
-    }
-
     /// Transfer the exact latest global lane state after a clean, fully anchored interval.
     pub(super) fn into_current_lanes(self) -> Result<Arc<SumeragiLaneState>, String> {
-        if self.poisoned || self.pending_genesis.is_some() || self.carriers.len() < 2 {
+        if self.poisoned || self.pending_genesis.is_some() || self.authenticated_carriers < 2 {
             return Err("native lane state interval has not completed its successor anchor".into());
         }
         self.lanes
@@ -296,12 +284,13 @@ impl NativeExecutionEvidenceVerifier {
         // Lane execution lives in the sole LaneRunner/global merge path. This reader validates
         // the global certificate and complete state commitment; it creates no second executor.
         let lanes = Arc::new(evidence.lanes);
-        self.carriers.insert(
-            height,
-            RetainedCarrier {
-                block: block.clone(),
-            },
-        );
+        // The prefix owns only its latest parent; emitted receipts own the exact
+        // carriers their callers still need. Counting authenticated work must not
+        // retain every historical graph until the complete interval is dropped.
+        self.authenticated_carriers = self
+            .authenticated_carriers
+            .checked_add(1)
+            .ok_or("native authenticated carrier count overflow")?;
         self.lanes = Some(Arc::clone(&lanes));
         Ok(VerifiedNativeExecutionCarrier {
             block,

@@ -1071,4 +1071,130 @@ mod tests {
             assert_eq!(signers[0].sign(&preimage), Err(SigningError::Refused));
         }
     }
+
+    #[test]
+    fn native_signer_rejects_unallowlisted_and_old_transcript_inputs() {
+        let (signers, crypto, _) = validators(4);
+        let message = message(1);
+        let key = &signers[0];
+        let native = key.sign(&message).unwrap();
+        let old = iroha_crypto::Signature::try_new(&key.private, &message).unwrap();
+        let old = Signature(old.payload().try_into().unwrap());
+        assert!(!crypto.verify(key.public_key(), &message, &old));
+        assert!(!crypto.verify_aggregate(
+            &[key.public_key()],
+            &message,
+            &AggregateSignature(old.0)
+        ));
+        assert!(crypto.verify(key.public_key(), &message, &native));
+        let public = iroha_key(key.public_key()).unwrap();
+        assert!(
+            iroha_crypto::Signature::from_bytes(&native.0)
+                .verify(&public, &message)
+                .is_err()
+        );
+        for invalid in [
+            b"outside consensus".as_slice(),
+            &message[..message.len() - 1],
+        ] {
+            assert_eq!(key.sign(invalid), Err(SigningError::Refused));
+            assert!(!crypto.verify(key.public_key(), invalid, &native));
+            assert!(!crypto.verify_aggregate(
+                &[key.public_key()],
+                invalid,
+                &AggregateSignature(native.0)
+            ));
+            assert!(!crypto.verify_aggregate_multi(
+                &[(vec![key.public_key()], invalid.to_vec())],
+                &AggregateSignature(native.0)
+            ));
+        }
+        // An invalid group may not disappear while a valid group is still accepted.
+        assert!(!crypto.verify_aggregate_multi(
+            &[
+                (vec![key.public_key()], message),
+                (vec![key.public_key()], b"invalid".to_vec())
+            ],
+            &AggregateSignature(native.0),
+        ));
+    }
+
+    #[test]
+    fn actual_core_commit_output_verifies_independent_sccp_relation() {
+        use iroha_sccp::v1::finality::{
+            FLAG_ACTIVE, QcFixedV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1, outer_result,
+            verify_certificate,
+        };
+        let (signers, crypto, committee) = validators(4);
+        let keys: Vec<[u8; 48]> = committee
+            .members()
+            .iter()
+            .map(|key| key.as_bytes().try_into().unwrap())
+            .collect();
+        let x = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+            network_id: [0x61; 32],
+            height: 7,
+            timestamp_ms: 7_000,
+            flags: FLAG_ACTIVE,
+            generation: 1,
+            committee_root: iroha_data_model::sumeragi_finality::certified_result::committee_root(
+                &keys,
+            )
+            .unwrap(),
+            ..Default::default()
+        })
+        .unwrap();
+        let fixed = QcFixedV1 {
+            epoch: EPOCH.epoch,
+            epoch_context: EPOCH.context.0,
+            view: 3,
+            block_hash: [1; 32],
+            result_body: [0x62; 32],
+            signers: signers[..committee.q()]
+                .iter()
+                .fold(0, |mask, signer| mask | (1 << index(&committee, signer))),
+        };
+        let result = outer_result(&x, &fixed.result_body);
+        let votes: Vec<_> = signers[..committee.q()]
+            .iter()
+            .map(|signer| {
+                let mut vote = vote(VoteKind::Commit, fixed.view, signer, &committee);
+                vote.result = result;
+                vote.sig = signer.sign(&vote.preimage()).unwrap();
+                vote
+            })
+            .collect();
+        let refs: Vec<_> = votes.iter().collect();
+        let output = form_qc(&crypto, committee.n(), &refs).unwrap();
+        let verified = verify_certificate(
+            &I.0,
+            &fixed.encode(),
+            x.as_bytes(),
+            &output.agg_sig.0,
+            &keys,
+        )
+        .unwrap();
+        assert_eq!(verified.result, result.0);
+        assert_eq!(
+            verified.message,
+            *ConsensusDigest::from_preimage(&output.preimage())
+                .unwrap()
+                .as_bytes()
+        );
+        let old: Vec<[u8; 96]> = signers[..committee.q()]
+            .iter()
+            .map(|signer| {
+                iroha_crypto::Signature::try_new(&signer.private, &output.preimage())
+                    .unwrap()
+                    .payload()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let old = consensus::aggregate(&old).unwrap();
+        assert_eq!(
+            verify_certificate(&I.0, &fixed.encode(), x.as_bytes(), &old, &keys),
+            Err(iroha_sccp::v1::finality::CertificateError::Signature)
+        );
+    }
 }

@@ -4863,3 +4863,19 @@ pub mod sccp {
 #[cfg(test)]
 #[path = "defaults_tests.rs"]
 mod tests;
+
+/// Local scheduling and bounded work for the supervised native AMX relay.
+pub mod amx_relay {
+    /// Durable existing-workflow storage; no signing key is stored here.
+    pub const JOURNAL_DIR: &str = "./storage/amx/workflows";
+    /// Default observation cadence, independent of all consensus deadlines.
+    pub const POLL_INTERVAL_MS: u64 = 2_000;
+    /// Maximum local observation interval.
+    pub const MAX_POLL_INTERVAL_MS: u64 = 60_000;
+    /// Maximum original source heights inspected in one service pass.
+    pub const MAX_SOURCE_HEIGHTS_PER_PASS: usize = 32;
+    /// Maximum contiguous destination finality proofs read in one observation.
+    pub const MAX_FINALITY_PROOF_READS: usize = 64;
+    /// Maximum separately pinned and funded destinations.
+    pub const MAX_ROUTES: usize = 32;
+}

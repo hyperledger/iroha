@@ -859,7 +859,7 @@ mod tests {
                 Quantity::from(12_u32),
             ),
         ];
-        let settlement: SettlementId = "consent_trade".parse().unwrap();
+        let settlement = SettlementId::new(ALICE_ID.clone(), "consent_trade".parse().unwrap());
         let initiation = (
             settlement,
             Hash::new(b"initiation-consent"),

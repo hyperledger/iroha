@@ -1,6 +1,6 @@
 //! SCCP v1 instructions (`specs/sccp.md` §4).
 //!
-//! These are the wire structs of the seven SCCP v1 instructions. Core enforces every SCCP rule;
+//! These are the wire structs of the SCCP v1 instructions. Core enforces every SCCP rule;
 //! the default executor only allows visitors through. Per-chain proofs, advances and evidence
 //! are the bounded opaque wrappers of [`crate::sccp`], decoded by `iroha_sccp::light_client`.
 
@@ -10,6 +10,7 @@ use crate::{
     sccp::{
         inbound::SccpSourceProofBytesV1,
         light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
+        native::SccpAnchorWitnessV1,
         params::SccpParametersV1,
     },
 };
@@ -17,8 +18,11 @@ use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
-/// Genesis-only: store the SCCP parameters, create the route escrows and an empty registry
-/// (§4.1).
+/// Authenticated Global signed-genesis only: install SCCP parameters, route escrows and registry.
+///
+/// The same genesis execution's post-execution finalizer installs generation one from the
+/// reconciled original height context before sealing the atomic output (§4.1, G1). This DATA
+/// never grants authority to pre-authored transaction keys or to a later initialization block.
 #[derive(
     Debug,
     Clone,
@@ -335,6 +339,49 @@ pub struct ReportSccpLightClientEquivocationV1 {
 }
 impl crate::seal::Instruction for ReportSccpLightClientEquivocationV1 {}
 
+/// Submit an exact native `CommitQC` certificate claiming an SCCP result Taira never made.
+///
+/// These fixed-size originals are DATA. Core must enforce §§3.8 and 4.9: active live-network
+/// header, retained generation and liability, exact quorum BLS verification, first E1–E4
+/// mismatch, immutable offender attribution and deduplication. A transaction carries no other
+/// instruction; execution failure makes its block invalid (R-EX), not an ordinary paid failure.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1")]
+pub struct SubmitSccpForgeryEvidenceV1 {
+    /// Exact 116-byte `QC_FIXED`, including its signer mask and result-body digest.
+    pub qc: [u8; 116],
+    /// Exact 221-byte SCCP finality header X; never reconstructed from untrusted fields.
+    pub header: [u8; 221],
+    /// Original compressed BLS aggregate signature; syntax alone is not verification.
+    pub aggregate_signature: [u8; 96],
+    /// Original anchor witness, required only for a height in a completed anchor chunk.
+    #[norito(required)]
+    pub anchor: Option<SccpAnchorWitnessV1>,
+}
+impl crate::seal::Instruction for SubmitSccpForgeryEvidenceV1 {}
+
+impl_aos_decode_from_slice!(SubmitSccpForgeryEvidenceV1 {
+    qc: [u8; 116],
+    header: [u8; 221],
+    aggregate_signature: [u8; 96],
+    anchor: Option<SccpAnchorWitnessV1>,
+});
+
 impl_aos_decode_from_slice!(InitializeSccpV1 {
     parameters: SccpParametersV1,
     reset_nonce: [u8; 32],
@@ -406,6 +453,21 @@ mod tests {
 
     #[test]
     fn every_instruction_roundtrips() {
+        let evidence = SubmitSccpForgeryEvidenceV1 {
+            qc: [0xa1; 116],
+            header: [0xb2; 221],
+            aggregate_signature: [0xc3; 96],
+            anchor: Some(SccpAnchorWitnessV1 {
+                core_hash: [1; 32],
+                result: [0; 32],
+                path: [[2; 32]; 12],
+            }),
+        };
+        check(&evidence);
+        check(&SubmitSccpForgeryEvidenceV1 {
+            anchor: None,
+            ..evidence
+        });
         check(&InitializeSccpV1 {
             parameters: SccpParametersV1::taira_default(),
             reset_nonce: [0x5a; 32],

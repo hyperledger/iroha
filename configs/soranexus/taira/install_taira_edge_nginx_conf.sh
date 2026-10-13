@@ -15,6 +15,7 @@ readonly INSTALL_LOCK_FD=9
 INSTALL=0
 RELOAD=0
 ALIAS_ROUTES=()
+BOOTSTRAP_PUBLICATION_DIR=""
 REQUIRED_ALIASES=()
 NGINX_TEST_DIRS=()
 INSTALL_BACKUP_DIR=""
@@ -206,6 +207,7 @@ usage() {
   cat <<'EOF'
 Usage: install_taira_edge_nginx_conf.sh [--roster PATH] [--output PATH]
                                        [--target-conf PATH]
+                                       [--bootstrap-publication-dir PATH]
                                        [--soracloud-alias-route ALIAS=HOST:PORT]
                                        [--require-alias ALIAS]
                                        [--install] [--reload]
@@ -225,6 +227,9 @@ For the current Solswap indexer edge binding:
     --install --reload
 
 The default target is /etc/nginx/conf.d/taira.conf.
+--bootstrap-publication-dir selects the separately promoted public checkpoint.nrt
+and network-profiles.nrt pair; it never publishes or changes those files. Do not
+select or relax permissions on Kagami's owner-private preparation directory.
 EOF
 }
 
@@ -252,6 +257,18 @@ while [[ $# -gt 0 ]]; do
         exit 1
       }
       TARGET_CONF="$2"
+      shift 2
+      ;;
+    --bootstrap-publication-dir)
+      [[ $# -ge 2 && -n "$2" ]] || {
+        echo "missing value for --bootstrap-publication-dir" >&2
+        exit 1
+      }
+      [[ -z "$BOOTSTRAP_PUBLICATION_DIR" ]] || {
+        echo "--bootstrap-publication-dir must be supplied only once" >&2
+        exit 1
+      }
+      BOOTSTRAP_PUBLICATION_DIR="$2"
       shift 2
       ;;
     --soracloud-alias-route)
@@ -328,6 +345,9 @@ render_args=(
   --roster "$ROSTER"
   --output "$OUTPUT"
 )
+if [[ -n "$BOOTSTRAP_PUBLICATION_DIR" ]]; then
+  render_args+=(--bootstrap-publication-dir "$BOOTSTRAP_PUBLICATION_DIR")
+fi
 if ((${#ALIAS_ROUTES[@]} > 0)); then
   for route in "${ALIAS_ROUTES[@]}"; do
     render_args+=(--soracloud-alias-route "$route")

@@ -27,7 +27,10 @@ struct Fixture {
     qc: Qc,
 }
 fn fixture() -> Fixture {
-    let fixture = NativeFinalityFixture::new();
+    fixture_from_native(&NativeFinalityFixture::new())
+}
+
+fn fixture_from_native(fixture: &NativeFinalityFixture) -> Fixture {
     let parent = fixture
         .verifier()
         .verify_retained_decision(fixture.genesis_proof())
@@ -1064,3 +1067,6 @@ fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
         );
     }
 }
+
+#[path = "replay_output_tests.rs"]
+mod replay_outputs;

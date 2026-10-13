@@ -648,6 +648,11 @@ capture_world_table_once!(
     "world.sccp_committee_generations"
 );
 capture_world_table_once!(
+    capture_sccp_forgery_offences_once,
+    sccp_forgery_offences,
+    "world.sccp_forgery_offences"
+);
+capture_world_table_once!(
     capture_sccp_anchor_chunks_once,
     sccp_anchor_chunks,
     "world.sccp_anchor_chunks"
@@ -970,6 +975,7 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
+    capture_sccp_forgery_offences_once::MATERIALIZER,
     capture_sccp_committee_generations_once::MATERIALIZER,
     capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
@@ -1366,6 +1372,7 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
+            "world.sccp_forgery_offences",
             "world.sccp_committee_generations",
             "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",

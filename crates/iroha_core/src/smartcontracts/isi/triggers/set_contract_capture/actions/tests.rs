@@ -196,10 +196,16 @@ fn selected_empty_action_output_cannot_hide_a_corrupt_populated_sibling() {
     let mut set = fixture();
     set.ids = mv::storage::Storage::default();
     let pool = AllocationBudget::new(16 * 1024 * 1024);
-    assert!(matches!(
-        set.capture_data_authority_table(limits(), &pool),
-        Err(LeafError::SourceValidation(_))
-    ));
+    let result = CheckedActions::capture(&set, action_source_work(limits()), &pool)
+        .map_err(LeafError::from)
+        .and_then(|mut checked| {
+            let outcome = checked.encode(ActionTable::Data, limits());
+            let current = checked.matches_current();
+            drop(checked);
+            assert!(current.expect("original action source identities"));
+            outcome
+        });
+    assert!(matches!(result, Err(LeafError::SourceValidation(_))));
     assert_eq!(pool.reserved_bytes(), 0);
 }
 #[test]

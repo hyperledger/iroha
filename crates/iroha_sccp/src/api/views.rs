@@ -932,6 +932,37 @@ mod tests {
     }
 
     #[test]
+    fn held_pending_status_is_closed_nonfinal_data_in_every_codec() {
+        let mut held = inbound();
+        held.record.status = SccpInboundStatusV1::pending(SccpPendingReasonV1::Held);
+        let held = SccpMessageStatusV1::Inbound(held);
+        assert!(held.inbound().unwrap().record.status.is_pending());
+        assert!(
+            !held.is_final(),
+            "a hold is not an immutable terminal status"
+        );
+        roundtrip(&held);
+        roundtrip(&SccpRecentMessagesV1 {
+            messages: vec![held.clone()],
+            next_before: Some("20:02".to_owned()),
+        });
+        assert!(
+            SccpPendingReasonV1::Held
+                .encode()
+                .starts_with(&6_u32.encode())
+        );
+        for index in [7_u32, u32::MAX] {
+            assert!(SccpPendingReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+        }
+        let json = norito::json::to_json(&held).expect("held JSON");
+        assert!(json.contains(r#""reason":"held""#), "{json}");
+        for replacement in [r#""reason":"Held""#, r#""reason":"unknown""#] {
+            let hostile = json.replace(r#""reason":"held""#, replacement);
+            assert!(norito::json::from_json::<SccpMessageStatusV1>(&hostile).is_err());
+        }
+    }
+
+    #[test]
     fn views_roundtrip_in_every_codec() {
         let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
         roundtrip(&recorded);

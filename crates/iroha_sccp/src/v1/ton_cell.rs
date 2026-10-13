@@ -800,11 +800,12 @@ pub fn bucket_account_id(
 // Storage rent (§5.3.5)
 // ---------------------------------------------------------------------------------------------
 
-/// Upper bound of the minter's account state in bits (code and maximal data), the size
-/// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
-pub const TON_MINTER_STATE_BITS: u64 = 102_000;
-/// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
-pub const TON_MINTER_STATE_CELLS: u64 = 205;
+/// Measured storage allowance in bits for the native n=31 minter with eight retries.
+/// `MINTER_FLOOR` uses this value (`SCCP_MINTER_STATE_BITS`).
+/// TODO: bound or separately fund arbitrary retained retry history.
+pub const TON_MINTER_STATE_BITS: u64 = 113_000;
+/// Matching sampled storage allowance in cells (`SCCP_MINTER_STATE_CELLS`).
+pub const TON_MINTER_STATE_CELLS: u64 = 220;
 /// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
 pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
 /// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
@@ -1153,19 +1154,19 @@ mod tests {
         let minter = minter_account_id(&init, minter_code).unwrap();
         assert_eq!(
             hex(&minter),
-            "92307c3c528511efcd1a5f3371c942b8210eaabe2a0b50c4baba26998046d736"
+            "98e5d863619df3181f46fff79c056b7796c80cd95517f7894763bb7c5577463a"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "9899f189d3514cff3e274917618071f97ae424d45e695cbb0f5923379554471a"
+            "f136f11198d213994b8e919712fa572f56cebd27e726dcf403cdc7f4c2861902"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "d570c41fef1cff695649f071940916dc8cd8e8a3ae4df7c350f21873aadd29e8"
+            "ab2cc3bf02ffe558a524de20bd9c093e5c33697e1ea498d0f79900984c5def97"
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "61bdb5be6e60f9cf7411f1e039092aed56b2af1b1e79783cc8dfce9148e20202"
+            "b6b1ed57a0c2abaa2ae1fef3361691ec16991fd9325b0885dfc4a52ff369fce6"
         );
     }
 
@@ -1308,12 +1309,12 @@ mod tests {
         assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
         assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
         assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
-        // MINTER_FLOOR at mainnet prices: 204 500 units per 2^16 s over 100 years
+        // MINTER_FLOOR at mainnet prices: 223 000 units per 2^16 s over 100 years
         assert_eq!(
             ton_minter_floor_at_mainnet_prices(),
-            (204_500_u128 * 3_153_600_000).div_ceil(65_536)
+            (223_000_u128 * 3_153_600_000).div_ceil(65_536)
         );
-        assert_eq!(ton_minter_floor_at_mainnet_prices(), 9_840_563_965);
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 10_730_786_133);
     }
 
     /// The value of `const <name> = <integer>` in a Tolk source.

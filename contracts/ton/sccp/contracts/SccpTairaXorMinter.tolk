@@ -94,6 +94,7 @@ struct ObtainedX {
 ///
 /// Checkpoint: the use check of §5.1.3 (`sccpUseCheckpoint`), which includes
 /// `Live` and changes nothing.
+@inline_ref
 fun obtainX(
     source: cell,
     isInline: bool,
@@ -137,6 +138,7 @@ fun obtainX(
 
 /// Buckets a consume on bucket `idx` deploys: 0 when it exists, else
 /// `idx − deployed + 1` up to `SCCP_MAX_DEPLOY_AHEAD` (§5.3.4 step 2).
+@inline
 fun bucketDeployCount(idx: int, deployed: int): int {
     if (idx < deployed) {
         return 0;
@@ -158,6 +160,7 @@ fun sendBucketActivation(minter: address, bucketCode: cell, index: int, queryId:
 }
 
 /// Activates buckets `[first, end)`, in order.
+@inline_ref
 fun sendBucketActivations(minter: address, bucketCode: cell, first: int, end: int, queryId: int) {
     var i = first;
     while (i < end) {
@@ -186,6 +189,7 @@ fun sendToBucket<TBody>(
 
 /// Sends a bounceable `sccp_unconsume{nonce}` (§5.3.4 step 7); its bounce
 /// records a retry.
+@inline_ref
 fun sendUnconsume(minter: address, bucketCode: cell, nonce: int, mode: int) {
     sendToBucket(
         minter,
@@ -208,6 +212,7 @@ fun emitEvent<TBody>(body: TBody) {
 /// step 12), whatever follows it: a checkpoint, a rotation, a latch or a use.
 /// `cert` is the `^TairaCert` as it arrived. A step that later aborts drops
 /// the event with its other effects.
+@inline_ref
 fun emitCertificate(height: int, generation: int, cert: cell) {
     emitEvent(SccpCertificateEvent {
         height,
@@ -234,6 +239,7 @@ fun emitObtained(obtained: ObtainedX, source: cell) {
 }
 
 /// Returns everything above the reserved floor to `response` (TEP-74 excesses).
+@inline_ref
 fun returnExcess(response: address, queryId: int) {
     val excess = createMessage({
         bounce: BounceMode.NoBounce,
@@ -278,6 +284,7 @@ fun returnExcess(response: address, queryId: int) {
 /// certificate changed, activates the missing buckets and sends
 /// `sccp_consume` to the bucket of the nonce. The bucket's reply completes or
 /// refuses the step (`sccp_consumed`, `sccp_already_consumed`).
+@inline_ref
 fun handleConsumeRequest(
     valueCoins: coins,
     kind: int,
@@ -414,6 +421,7 @@ fun handleConsumeRequest(
 ///
 /// It then sets `parliament_paused`, the clamped `fast_pause_until_ms` and
 /// `control_nonce`, counts the operation and emits `sccp_control_applied`.
+@inline_ref
 fun handleApplyControl(
     valueCoins: coins,
     queryId: int,
@@ -520,6 +528,7 @@ fun handleApplyControl(
 /// `nextKeys`. A successor that is already expired is installed all the same:
 /// the state persists and the minter is `Frozen` from then on. A certificate
 /// that changes nothing throws `NothingToDo`.
+@inline_ref
 fun handleCheckpoint(
     valueCoins: coins,
     queryId: int,

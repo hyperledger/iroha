@@ -51,16 +51,17 @@ SM helper telemetry (Prometheus metrics)
 Settlement telemetry
 
 Consensus state contains only successful settlement receipts. Each
-`SettlementId` keys one immutable, fixed two-leg receipt in
-`settlement_receipts` and is consumed after the first successful DvP, PvP, or
-governed FX settlement. Rejected attempts do not create receipt state and
+owner-qualified `SettlementId { owner, reference }` keys one immutable typed
+receipt in `settlement_receipts` and is consumed after the first successful
+Atomic, DvP, PvP, or governed FX settlement. Atomic receipts hold 1 through 255
+movements; bilateral and FX receipts hold their exact pair. Rejected attempts do not create receipt state and
 therefore cannot retain account or asset-definition references. Operators can
 still observe failures through the bounded counters and last-event snapshots
 below; these diagnostics are local and do not participate in consensus.
 
-- `iroha_settlement_events_total{kind="dvp|pvp",outcome="success|failure",reason}` — settlement lifecycle counters labelled by instruction kind and failure reason (`insufficient_funds`, `counterparty_mismatch`, `unsupported_policy`, `zero_quantity`, `missing_entity`, `math_error`, `other`; success uses `reason="-"`).
+- `iroha_settlement_events_total{kind="dvp|pvp",outcome="success|failure",reason}` — settlement lifecycle counters labelled by instruction kind and failure reason (`insufficient_funds`, `counterparty_mismatch`, `zero_quantity`, `missing_entity`, `math_error`, `other`; success uses `reason="-"`).
 - `iroha_settlement_finality_events_total{kind="dvp|pvp",outcome="success|failure",final_state="none|delivery_only|payment_only|both|primary_only|counter_only"}` — finality counters grouped by settlement kind, execution outcome, and which legs remained committed. DvP reports `delivery_only|payment_only`, PvP reports `primary_only|counter_only`; `none` means both legs rolled back.
-- `iroha_settlement_fx_window_ms{kind="pvp",order,atomicity}` — histogram of observed PvP FX windows (milliseconds between committed legs) labelled by execution order (`delivery_then_payment`/`payment_then_delivery`) and atomicity policy (`all_or_nothing|commit_first_leg|commit_second_leg`).
+- `iroha_settlement_fx_window_ms{kind="pvp",order,atomicity}` — histogram of observed PvP FX windows (milliseconds between committed legs) labelled by execution order (`delivery_then_payment`/`payment_then_delivery`) and atomicity policy (`all_or_nothing`).
 
 Subscription telemetry
 - `iroha_subscription_billing_attempts_total{pricing="fixed|usage"}` — billing trigger invocations grouped by pricing kind.

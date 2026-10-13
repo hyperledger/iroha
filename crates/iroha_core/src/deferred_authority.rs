@@ -496,7 +496,7 @@ mod tests {
                 .collect();
         assert_eq!(
             others.len(),
-            6,
+            7,
             "every current SCCP instruction except the record"
         );
         assert_eq!(check(&others, None), Ok(()));

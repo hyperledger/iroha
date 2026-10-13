@@ -17,10 +17,17 @@ first grant that submitter an exact `CanExecuteSettlement` permission binding:
 - the settlement identifier; and
 - the exact source `AssetId`, including its dataspace scope.
 
+The ledger identity is `SettlementId { owner, reference }`, where `owner` must
+participate as an authorized debit source. CLI input spells this pair as
+`reference$canonical_account`; native JSON and Norito retain both fields. ISO
+`TxId` carries only `reference`, with the payer identity retained separately in
+the payment context. A reference alone is not a globally unique ledger identity.
+
 Changing either leg, the execution order, metadata, settlement identifier, or
 balance scope changes the intent hash and invalidates the permission. Both legs
-must use distinct asset definitions and `AllOrNothing` atomicity; partial-commit
-plans are rejected in the first-release protocol.
+must use distinct asset definitions. `AllOrNothing` is the sole atomicity
+variant (binary tag `0`); other tags and JSON names fail model decoding, and ISO
+`Plan/Atomicity` accepts only `ALL_OR_NOTHING`.
 
 Successful execution passes both legs through the ordinary asset policy,
 transfer-control, transcript, and event pipeline before writing one immutable
@@ -250,9 +257,13 @@ obligations that the Norito ↔ ISO 20022 bridge must enforce before emitting m
 - Referenced lifecycle messages reuse the original pinned profile and signature policy; callers
   cannot select a downgrade. `pacs.002`, `pacs.004`, `sese.024`, and `sese.025` are accepted only
   from the original counterparty, while `camt.056` is accepted only from the originator. A
-  `pacs.002` settlement transition additionally carries exact evidence for a committed ledger
-  transaction. The bridge rejects replayed payload, business-message-id, or UETR evidence and
-  updates durable state only when the referenced original is known.
+  `pacs.002` settlement transition additionally requires authenticated successful execution
+  of the exact original transaction, using the same canonical outcome resolver as
+  reconciliation. Inclusion of a rejected transaction cannot authorize settlement.
+  Missing or conflicting canonical evidence fails before lifecycle admission, leaving the
+  notification identity available for retry. The bridge rejects replayed payload,
+  business-message-id, or UETR evidence and updates durable state only when the referenced
+  original is known.
 - Both recorded parties may read their records, configured audit administrators have global
   read-only access, and outbound ISO documents are signed. Durable replay tombstones retain the
   message ID, payload hash, business message ID, and UETR for the complete dedupe TTL even after
@@ -292,7 +303,7 @@ obligations that the Norito ↔ ISO 20022 bridge must enforce before emitting m
 
 | DvP field                                              | ISO 20022 path                          | Notes |
 |--------------------------------------------------------|----------------------------------------|-------|
-| `settlement_id`                                        | `TxId`                                 | Stable lifecycle identifier |
+| `settlement_id.reference`                                        | `TxId`                                 | Stable lifecycle identifier |
 | `delivery_leg.asset_definition_id` (security)          | `SctiesLeg/FinInstrmId`                | Canonical identifier (ISIN, CUSIP, …) |
 | `delivery_leg.quantity`                                | `SctiesLeg/Qty`                        | Decimal string; honours asset precision |
 | `payment_leg.asset_definition_id` (currency)           | `CashLeg/Ccy`                          | ISO currency code; CLI offline previews fall back to `XXX` when only an opaque canonical asset-definition address is available and no original 3-letter code can be recovered from the identifier alone |
@@ -302,7 +313,7 @@ obligations that the Norito ↔ ISO 20022 bridge must enforce before emitting m
 | `delivery_leg.to` (buyer / receiving party)            | `RcvgSttlmPties/Pty/Bic`               | BIC of receiving participant |
 | `delivery_leg.to` account identifier                   | `RcvgSttlmPties/Acct`                  | Free-form; matches receiving account ID |
 | `plan.order`                                           | `Plan/ExecutionOrder`                  | Enum: `DELIVERY_THEN_PAYMENT` or `PAYMENT_THEN_DELIVERY` |
-| `plan.atomicity`                                       | `Plan/Atomicity`                       | Enum: `ALL_OR_NOTHING`, `COMMIT_FIRST_LEG`, `COMMIT_SECOND_LEG` |
+| `plan.atomicity`                                       | `Plan/Atomicity`                       | Only `ALL_OR_NOTHING` |
 | **Message purpose**                                    | `SttlmTpAndAddtlParams/SctiesMvmntTp`  | `DELI` (deliver) or `RECE` (receive); mirrors which leg the submitting party executes. |
 |                                                        | `SttlmTpAndAddtlParams/Pmt`            | `APMT` (against payment) or `FREE` (free-of-payment). |
 | `delivery_leg.metadata`, `payment_leg.metadata`        | `SctiesLeg/Metadata`, `CashLeg/Metadata` | Optional Norito JSON encoded as UTF‑8 |
@@ -321,7 +332,7 @@ they finance a securities settlement.
 | Counterparty agent identifiers                 | `InstgAgt`, `InstdAgt`                              | BIC/LEI of sending and receiving agents. |
 | Settlement purpose                             | `CdtTrfTxInf/PmtTpInf/CtgyPurp/Cd`                  | Set to `SECU` for securities-related PvP funding. |
 | Norito metadata (account ids, FX data)         | `CdtTrfTxInf/SplmtryData`                           | Carries full AccountId, FX timestamps, execution plan hints. |
-| Instruction identifier / lifecycle linking     | `CdtTrfTxInf/PmtId/InstrId`, `CdtTrfTxInf/RmtInf`   | Matches the Norito `settlement_id` so the cash leg reconciles with the securities side. |
+| Instruction identifier / lifecycle linking     | `CdtTrfTxInf/PmtId/InstrId`, `CdtTrfTxInf/RmtInf`   | Matches `settlement_id.reference`; reconciliation also binds the payer account. |
 
 The JavaScript SDK’s ISO bridge aligns with this requirement by defaulting the
 `pacs.009` category purpose to `SECU`; callers may override it with another
@@ -336,7 +347,7 @@ status (e.g., `ConfSts = ACCP`) rather than the PvP “purpose”.
 
 | PvP field                                     | ISO 20022 path            | Notes |
 |-----------------------------------------------|---------------------------|-------|
-| `settlement_id`                               | `TxId`                    | Stable lifecycle identifier |
+| `settlement_id.reference`                               | `TxId`                    | Stable lifecycle identifier |
 | `primary_leg.asset_definition_id`             | `SttlmCcy`                | Currency code for the primary leg; CLI offline previews fall back to `XXX` when the input is an opaque canonical asset-definition address |
 | `primary_leg.quantity`                        | `SttlmAmt`                | Amount delivered by initiator |
 | `counter_leg.asset_definition_id`             | `AddtlInf` (JSON payload) | Counter currency code embedded in supplemental info |
@@ -350,7 +361,7 @@ Example (CLI ISO preview with linkages, hold, and market MIC):
 
 ```sh
 iroha app settlement dvp \
-  --settlement-id DVP-FIXTURE-1 \
+  --settlement-id 'DVP-FIXTURE-1$<canonical-delivery-account-id>' \
   --delivery-asset security#equities \
   --delivery-quantity 500 \
   --delivery-from <i105-account-id> \
@@ -722,7 +733,7 @@ Release once both `pacs.009` legs reach `ACSC`:
       <pacs:SplmtryData>
         <pacs:Envlp>
           <nor:NoritoBridge xmlns:nor="urn:norito:settlement">
-            <nor:SettlementId>DVP-2025-05-CLS01</nor:SettlementId>
+            <nor:SettlementId>DVP-2025-05-CLS01$sorauﾛ1NｲﾘｳdPBeｼRoｸQ2ﾔgｼQqeｶﾍｽﾁhRW2ｺｿZ9ﾕｦUﾅRX5NJYH53</nor:SettlementId>
             <nor:Atomicity>ALL_OR_NOTHING</nor:Atomicity>
           </nor:NoritoBridge>
         </pacs:Envlp>

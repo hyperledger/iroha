@@ -318,7 +318,14 @@ A point `(x, y)` with canonical integer coordinates is buffered as:
   and `(x, y mod 2)` fixes the point. The encoding is injective and costs the same two elements.
   The M4 format memo may replace it only with another injective encoding.
 
-KATs: `kats_v1.json` `poseidon_transcript` (oracle mode). TODO (T11): production KATs.
+KATs: `kats_v1.json` `poseidon_transcript` retains the oracle-mode vectors.
+`iroha_plonk::transcript::kat_tests::production_poseidon_and_prelude_vectors` pins
+production injective-absorption challenges for the Pallas and Vesta fixture points,
+checking the transcript against a raw sponge with the coordinate encoding computed
+independently. It also pins the Pallas instance-frame prelude (`repr =
+0x0123456789abcdef`, lengths `[1, 0, 65535]`) for BLAKE2b and Poseidon. This test passed
+in the retained native and `x86_64-apple-darwin` release suites; this is vector and
+encoding coverage, not a Fiat-Shamir soundness argument.
 
 ### 6.2b PIPA-R base-field RP57 [P]
 
@@ -775,6 +782,6 @@ Open items:
   Keep this reference and its frozen inputs after M7. Its documented scope excludes
   batch weights, encoded accumulators, k16 and recursive PIPA-AS; it is not a
   production fallback decoder or full-release qualification.
-- TODO: production Poseidon and instance-frame KATs, and `PINNED_PARAMS_V1` beyond `k = 16`.
+- TODO: `PINNED_PARAMS_V1` beyond `k = 16`.
 - TODO: Fiat-Shamir soundness memos (target and hash-query bound) before any format option: LogUp,
   128-bit endoscalar challenges or a base-field transcript.

@@ -222,7 +222,7 @@ fn expected_sese025_schema() -> Sese025 {
         receiving_party_bic: Some("MARKDEFF".to_owned()),
         receiving_account: Some("RCVG-ACC".to_owned()),
         execution_order: "PAYMENT_THEN_DELIVERY".to_owned(),
-        atomicity: "COMMIT_SECOND_LEG".to_owned(),
+        atomicity: "ALL_OR_NOTHING".to_owned(),
         hold_indicator: Some(false),
         partial_settlement_indicator: Some("NPAR".to_owned()),
         settlement_condition: Some("NOMC".to_owned()),
@@ -1801,6 +1801,24 @@ fn versioned_pacs029_supported() {
     assert!(msg_validate());
 }
 #[test]
+fn bilateral_iso_rejects_retired_partial_atomicity() {
+    for (message, populate) in [
+        ("sese.023", populate_sese023_minimal as fn()),
+        ("sese.025", populate_sese025_minimal as fn()),
+    ] {
+        reset();
+        msg_create(message);
+        populate();
+        assert!(msg_validate());
+        for retired in ["COMMIT_FIRST_LEG", "COMMIT_SECOND_LEG"] {
+            msg_set("Plan/Atomicity", retired.as_bytes());
+            assert!(!msg_validate(), "{message} must reject {retired}");
+        }
+        msg_set("Plan/Atomicity", b"ALL_OR_NOTHING");
+        assert!(msg_validate());
+    }
+}
+#[test]
 fn sese023_roundtrip_and_norito_snapshot() {
     reset();
     let schema = expected_sese023_schema();
@@ -1876,10 +1894,7 @@ fn sese025_validation_and_serialization() {
     let materialized = Sese025::from_parsed(&parsed).expect("materialize sese.025 into schema");
     assert_eq!(materialized, schema);
     assert_eq!(parsed.field_text("ConfSts"), Some("ACCP"));
-    assert_eq!(
-        parsed.field_text("Plan/Atomicity"),
-        Some("COMMIT_SECOND_LEG")
-    );
+    assert_eq!(parsed.field_text("Plan/Atomicity"), Some("ALL_OR_NOTHING"));
     assert_eq!(
         parsed.field_text("SttlmTpAndAddtlParams/SctiesMvmntTp"),
         Some("RECE")

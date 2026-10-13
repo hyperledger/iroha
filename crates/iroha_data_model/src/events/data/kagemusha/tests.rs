@@ -248,6 +248,10 @@ fn native_capture_for(
     let native_finality_frame = native_finality.to_canonical_bytes().unwrap();
     let event_commitment = decision.execution().event_commitment.unwrap();
     let certificate = decision.block().commit_certificate().unwrap();
+    assert_eq!(
+        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+        Some(decision.result())
+    );
     let core_header: iroha_sumeragi::message::BlockHeader =
         norito::decode_canonical(certificate.consensus_header()).unwrap();
     let qc: iroha_sumeragi::message::Qc =
@@ -411,6 +415,10 @@ fn npos_schedule_capture() -> norito::json::Value {
                 .map(|proof| {
                     let decision = verifier.verify_retained_decision(proof).unwrap();
                     let certificate = decision.block().commit_certificate().unwrap();
+                    assert_eq!(
+                        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+                        Some(decision.result())
+                    );
                     norito::json!({
                         "height": (decision.height()),
                         "proof_frame_hex": (hex::encode(norito::encode_canonical(proof).unwrap())),

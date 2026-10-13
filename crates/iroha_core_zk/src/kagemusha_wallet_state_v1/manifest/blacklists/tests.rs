@@ -32,13 +32,14 @@ fn inputs() -> (
     let capsule: KagemushaWalletRecoveryCapsuleV1 =
         archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
     let certificates = capsule
+        .body()
         .retained_inputs
         .iter()
         .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::CertificateSet)
         .unwrap()
         .bytes
         .clone();
-    let mut state = capsule.successor_state;
+    let mut state = capsule.body().successor_state;
     // This local state projection exercises custody joins only; it is never released/proved.
     state.rest.blacklist = list.blacklist_digest();
     state.core.blacklist_version = list.body.list_version;
@@ -154,8 +155,8 @@ fn bounded_selected_index_restores_exact_full_and_certificate_originals_after_ca
         "signed policy digest and archive content hash are distinct selectors"
     );
     let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
-    let capsule_bytes = capsule.to_canonical_bytes().unwrap();
-    let capsule_key = ArchiveKey::Capsule(capsule.capsule_digest().unwrap());
+    let capsule_bytes = capsule.to_canonical_bytes();
+    let capsule_key = ArchiveKey::Capsule(capsule.custody_digest());
     objects.put(capsule_key, &capsule_bytes).unwrap();
     objects.remove(capsule_key).unwrap();
     // Reopened archive capability over the same exact durable objects and selected root.
@@ -342,4 +343,77 @@ fn partial_certificate_or_index_publication_keeps_old_source_and_retry_reads_exa
             Some((full.clone(), certificates.clone()))
         );
     }
+}
+
+#[test]
+fn selected_full_list_decoder_keeps_local_refusal_and_exact_original_retry() {
+    let (scheme, state, full, certificates) = inputs();
+    let expected = decode_selected_list(&full, &scheme.scheme_id()).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        decode_selected_list(&full, &scheme.scheme_id())
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(
+        decode_selected_list(&full, &scheme.scheme_id()).unwrap(),
+        expected
+    );
+    assert_eq!(expected.to_canonical_bytes().unwrap(), full);
+    assert_eq!(
+        authenticate(&scheme, &state, &full, &certificates).unwrap(),
+        state.rest.blacklist
+    );
+    assert!(matches!(
+        decode_selected_list(&[0], &scheme.scheme_id()),
+        Err(Error::WitnessLost(_))
+    ));
+    assert!(matches!(
+        decode_selected_list(&full, &[0; 32]),
+        Err(Error::WitnessLost(_))
+    ));
+}
+
+#[test]
+fn selected_policy_refusal_keeps_index_and_published_originals_unchanged() {
+    let (scheme, state, full, certificates) = inputs();
+    let mut objects = Probe::new();
+    let reference = publish_blacklist_original(&mut objects, &scheme.scheme_id(), &full).unwrap();
+    let empty = IndexRoot::default();
+    let writes = objects.writes;
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        retain(
+            &mut objects,
+            empty,
+            &scheme,
+            &state,
+            &reference,
+            &certificates,
+        )
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(objects.writes, writes);
+    assert_eq!(empty, IndexRoot::default());
+    let selected = retain(
+        &mut objects,
+        empty,
+        &scheme,
+        &state,
+        &reference,
+        &certificates,
+    )
+    .unwrap();
+    let writes = objects.writes;
+    let refused = norito::with_decode_limits_scope(limits, || {
+        selected_originals(&mut objects, selected, &scheme, &state)
+    });
+    assert!(matches!(refused, Err(Error::DecodeResource(ref cause))
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(objects.writes, writes);
+    assert_eq!(
+        selected_originals(&mut objects, selected, &scheme, &state).unwrap(),
+        Some((full, certificates))
+    );
 }

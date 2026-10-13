@@ -50,7 +50,8 @@ use AmxInstructionAdmissionErrorV1 as Error;
 #[must_use = "dropping this job abandons the original pending AMX instruction"]
 pub struct PendingAmxInstructionV1<'a> {
     source: Option<AllocatedAmxRecordProofV1>,
-    action: Action<'a>,
+    action: Action,
+    transaction: Option<PrepareTransaction<'a>>,
 }
 impl fmt::Debug for PendingAmxInstructionV1<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -183,6 +184,7 @@ impl AllocatedAmxRecordProofV1 {
         PendingAmxInstructionV1 {
             source: Some(self),
             action: Action::Relay,
+            transaction: None,
         }
     }
     /// Select customer-authorized Prepare and borrow its original transaction until admission.
@@ -194,7 +196,32 @@ impl AllocatedAmxRecordProofV1 {
     ) -> PendingAmxInstructionV1<'_> {
         PendingAmxInstructionV1 {
             source: Some(self),
-            action: Action::Prepare(dataspace, transaction),
+            action: Action::Prepare(dataspace),
+            transaction: Some(PrepareTransaction::Borrowed(transaction)),
+        }
+    }
+    /// Retain one original shared block input as the source of Prepare transaction fields.
+    ///
+    /// The block clone shares its original charged control and never copies its nested graph.
+    /// Input and instruction indices select a `BeginAmxV1`; selection alone does not authenticate
+    /// the block or its execution. The caller must retain and recheck that original authority.
+    /// Completion borrows the selected transaction and applies the same exact proof binding and
+    /// prepaid-field admission as [`Self::into_prepare`]. Nested block funding is a separate owner.
+    pub fn into_prepare_from_block(
+        self,
+        dataspace: DataSpaceId,
+        block: crate::block::SharedSignedBlock,
+        input_index: usize,
+        instruction_index: usize,
+    ) -> PendingAmxInstructionV1<'static> {
+        PendingAmxInstructionV1 {
+            source: Some(self),
+            action: Action::Prepare(dataspace),
+            transaction: Some(PrepareTransaction::OriginalInput {
+                block,
+                input_index,
+                instruction_index,
+            }),
         }
     }
     /// Select Settle while retaining one original Decision record in a resumable owner.
@@ -202,23 +229,67 @@ impl AllocatedAmxRecordProofV1 {
         PendingAmxInstructionV1 {
             source: Some(self),
             action: Action::Settle(dataspace),
+            transaction: None,
         }
     }
 }
 
-enum Action<'a> {
+enum Action {
     Relay,
-    Prepare(DataSpaceId, &'a AmxTransactionV1),
+    Prepare(DataSpaceId),
     Settle(DataSpaceId),
 }
-impl Action<'_> {
-    fn demand(&self, proof: &AmxRecordProofV1) -> Result<(usize, usize), Error> {
+enum PrepareTransaction<'a> {
+    Borrowed(&'a AmxTransactionV1),
+    OriginalInput {
+        block: crate::block::SharedSignedBlock,
+        input_index: usize,
+        instruction_index: usize,
+    },
+}
+impl PrepareTransaction<'_> {
+    fn transaction(&self) -> Result<&AmxTransactionV1, Error> {
+        match self {
+            Self::Borrowed(transaction) => Ok(transaction),
+            Self::OriginalInput {
+                block,
+                input_index,
+                instruction_index,
+            } => {
+                let signed = block
+                    .external_signed_transaction_ref_at(*input_index)
+                    .ok_or(Error::Source)?;
+                let crate::transaction::Executable::Instructions(instructions) =
+                    signed.instructions()
+                else {
+                    return Err(Error::Source);
+                };
+                instructions
+                    .get(*instruction_index)
+                    .and_then(|instruction| {
+                        instruction
+                            .as_any()
+                            .downcast_ref::<super::sumeragi_amx::BeginAmxV1>()
+                    })
+                    .map(|begin| &begin.transaction)
+                    .ok_or(Error::Source)
+            }
+        }
+    }
+}
+impl Action {
+    fn demand(
+        &self,
+        proof: &AmxRecordProofV1,
+        transaction: Option<&PrepareTransaction<'_>>,
+    ) -> Result<(usize, usize), Error> {
         let mut bytes = ChargedShared::<FundedAmxInstruction>::allocation_layout().size();
         let mut count = 0usize;
         match (self, &proof.record) {
             (Self::Relay, AmxRecordV1::Prepared(_))
             | (Self::Settle(_), AmxRecordV1::Decision(_)) => {}
-            (Self::Prepare(_, transaction), AmxRecordV1::Begin(begin)) => {
+            (Self::Prepare(_), AmxRecordV1::Begin(begin)) => {
+                let transaction = transaction.ok_or(Error::Source)?.transaction()?;
                 transaction.validate().map_err(|_| Error::Source)?;
                 if streamed_transaction_id(transaction)? != begin.tx
                     || transaction.deadline != begin.deadline
@@ -279,7 +350,9 @@ fn into_instruction(
     if !proof.belongs_to(budget) {
         return Err(Error::Source);
     }
-    let (bytes, count) = job.action.demand(proof.canonical())?;
+    let (bytes, count) = job
+        .action
+        .demand(proof.canonical(), job.transaction.as_ref())?;
     norito::core::reserve_decode_allocation(bytes)?;
     let mut reservation = budget.try_reserve_bytes(bytes)?;
     let mut construction = Construction::new(count, &mut reservation)?;
@@ -287,9 +360,15 @@ fn into_instruction(
     let action = match &job.action {
         Action::Relay => PreparedAction::Relay,
         Action::Settle(dataspace) => PreparedAction::Settle(*dataspace),
-        Action::Prepare(dataspace, transaction) => PreparedAction::Prepare(
+        Action::Prepare(dataspace) => PreparedAction::Prepare(
             *dataspace,
-            construction.transaction(transaction, &mut reservation)?,
+            construction.transaction(
+                job.transaction
+                    .as_ref()
+                    .ok_or(Error::Source)?
+                    .transaction()?,
+                &mut reservation,
+            )?,
         ),
     };
     if reservation.remaining_bytes() != 0 || construction.charges().as_slice().len() != count {
@@ -487,6 +566,132 @@ mod tests {
         assert_eq!(pool.reserved_bytes(), retained);
         drop(instruction);
         assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    fn original_input_block(
+        transaction: AmxTransactionV1,
+        pool: &AllocationBudget,
+    ) -> crate::block::SharedSignedBlock {
+        use crate::{
+            account::AccountId,
+            block::{BlockHeader, SharedSignedBlock, builder::BlockBuilder},
+            transaction::{FeePaymentIntent, TransactionBuilder},
+        };
+        use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
+        let key = KeyPair::try_from_seed(vec![0x6B; 32], Algorithm::Ed25519).unwrap();
+        let network = crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+            Hash::new(b"original Prepare input"),
+        ));
+        let signed = TransactionBuilder::new(
+            network,
+            AccountId::new(key.public_key().clone()),
+            FeePaymentIntent::authority(vec![], None),
+        )
+        .with_instructions([super::super::sumeragi_amx::BeginAmxV1 { transaction }])
+        .sign(key.private_key());
+        let header = BlockHeader::new(
+            std::num::NonZeroU64::new(2).unwrap(),
+            Some(HashOf::from_untyped_unchecked(Hash::new(
+                b"original parent",
+            ))),
+            None,
+            1_000,
+            0,
+        );
+        let mut block = BlockBuilder::new(header);
+        block.push_transaction(signed);
+        SharedSignedBlock::try_new(block.build_with_signature(0, key.private_key()), pool).unwrap()
+    }
+
+    #[test]
+    fn original_amx_prepare_from_shared_input_preserves_source_and_retries_exact_funding() {
+        let (transaction, proof, pool) = crate::sumeragi_amx::allocated_amx_instruction_fixture();
+        let dataspace = transaction.legs[0].dataspace;
+        let legs = transaction.legs.as_ptr();
+        let payloads: [_; 2] =
+            std::array::from_fn(|index| transaction.legs[index].payload.as_ptr());
+        let proof_pointers = original_pointers(proof.canonical());
+        let block = original_input_block(transaction, &pool);
+        let original_block = block.clone();
+        let held = pool.reserved_bytes();
+        let configured = pool.limit_bytes();
+        let mut pending = proof.into_prepare_from_block(dataspace, block, 0, 0);
+        let Some(PrepareTransaction::OriginalInput { block, .. }) = &pending.transaction else {
+            panic!("retained input");
+        };
+        assert!(crate::block::SharedSignedBlock::ptr_eq(
+            block,
+            &original_block
+        ));
+        pool.set_limit_bytes(held);
+        assert!(matches!(
+            pending.complete(&pool),
+            Err(Error::Admission(AllocationRefusal::Capacity { .. }))
+        ));
+        assert_eq!(pool.reserved_bytes(), held);
+        assert_eq!(
+            original_pointers(pending.source().unwrap().canonical()),
+            proof_pointers
+        );
+        let source = pending.transaction.as_ref().expect("Prepare source");
+        assert_eq!(source.transaction().unwrap().legs.as_ptr(), legs);
+        for (index, pointer) in payloads.into_iter().enumerate() {
+            assert_eq!(
+                source.transaction().unwrap().legs[index].payload.as_ptr(),
+                pointer
+            );
+        }
+        drop(original_block);
+        assert_eq!(
+            pool.reserved_bytes(),
+            held,
+            "pending owner retains original block control"
+        );
+        pool.set_limit_bytes(configured);
+        let instruction = pending.complete(&pool).unwrap();
+        let prepare = instruction.as_any().downcast_ref::<PrepareAmxV1>().unwrap();
+        assert_eq!(original_pointers(&prepare.begin), proof_pointers);
+        assert_ne!(
+            prepare.transaction.legs.as_ptr(),
+            legs,
+            "destination fields are independently prepaid"
+        );
+        let wire = norito::encode_canonical(&instruction).unwrap();
+        let decoded: InstructionBox = norito::decode_canonical(&wire).unwrap();
+        assert_eq!(decoded, instruction, "owned source adds no wire variant");
+        drop(decoded);
+        assert!(pending.complete(&pool).is_err());
+        drop(pending);
+        assert_eq!(
+            pool.reserved_bytes(),
+            actual_instruction_layout_bytes(&instruction)
+        );
+        drop(instruction);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn original_amx_prepare_from_shared_input_rejects_selectors_and_changed_terms() {
+        for (input, instruction, changed) in [(1, 0, false), (0, 1, false), (0, 0, true)] {
+            let (mut transaction, proof, pool) =
+                crate::sumeragi_amx::allocated_amx_instruction_fixture();
+            let dataspace = transaction.legs[0].dataspace;
+            if changed {
+                transaction.nonce[0] ^= 1;
+            }
+            let original = original_pointers(proof.canonical());
+            let block = original_input_block(transaction, &pool);
+            let held = pool.reserved_bytes();
+            let mut pending = proof.into_prepare_from_block(dataspace, block, input, instruction);
+            assert!(matches!(pending.complete(&pool), Err(Error::Source)));
+            assert_eq!(
+                original_pointers(pending.source().unwrap().canonical()),
+                original
+            );
+            assert_eq!(pool.reserved_bytes(), held);
+            drop(pending);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
     }
 
     fn original_pointers(proof: &AmxRecordProofV1) -> [usize; 5] {

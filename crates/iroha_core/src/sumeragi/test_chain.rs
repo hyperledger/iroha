@@ -582,6 +582,7 @@ impl CertifiedTestChain {
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
         let executor = StateExecutor::spawn(ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -1216,7 +1217,7 @@ impl CertifiedTestChain {
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
-        let result = match self.executor.execute(&block, &block_hash) {
+        let result = match self.executor.execute(&block, &block_hash, false) {
             Some(ExecOutcome::Valid(result)) => result,
             other => {
                 use iroha_data_model::events::{
@@ -1244,6 +1245,7 @@ impl CertifiedTestChain {
             block_hash,
             result,
             certificate: None,
+            appended: false,
             published: None,
         })
     }
@@ -1421,6 +1423,7 @@ pub struct PendingTestExecution<'chain> {
     block_hash: Hash32,
     result: Hash32,
     certificate: Option<(Signers, Qc)>,
+    appended: bool,
     published: Option<CommittedBlock>,
 }
 
@@ -1450,14 +1453,11 @@ impl PendingTestExecution<'_> {
             return Err("published source cannot prepare another inspection".into());
         }
         self.prepare(signers)?;
+        self.append_prepared().map_err(|error| error.to_string())?;
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("original certificate retained");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .prepare_publication_for_inspection(&self.block, qc)
@@ -1540,6 +1540,69 @@ impl PendingTestExecution<'_> {
         }
     }
 
+    /// Retain the actual prepared source handles for an append scheduler control.
+    #[cfg(test)]
+    pub(crate) fn prepared_commit_for_test(&self) -> super::driver::exec::Commit {
+        super::driver::exec::Commit {
+            block: self.block.clone(),
+            qc: self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+                .clone(),
+        }
+    }
+
+    /// Drive the real executor-thread append boundary for this exact original source.
+    #[cfg(test)]
+    pub(crate) fn run_original_append_for_test(
+        &mut self,
+        commit: Arc<super::driver::exec::Commit>,
+    ) -> super::driver::exec::ExecDone {
+        assert_eq!(commit.block, self.block);
+        assert_eq!(
+            &commit.qc,
+            &self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+        );
+        let done = super::driver::run_original_append_for_test(
+            &mut self.chain.executor,
+            &self.chain.blocks,
+            commit,
+        );
+        if matches!(
+            done,
+            super::driver::exec::ExecDone::Appended { durable: true, .. }
+        ) {
+            self.appended = true;
+        }
+        done
+    }
+
+    /// Durably append the exact prepared frame through the real Kura block store.
+    /// This separate fixture phase follows the driver's append-before-commit ordering;
+    /// retries after durability publish the retained overlay without another authority read.
+    ///
+    /// # Errors
+    /// The original certificate is not prepared, or its actual storage attempt refuses.
+    pub fn append_prepared(
+        &mut self,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        let (_, qc) = self.certificate.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "original certificate is not prepared",
+            )
+        })?;
+        self.chain.blocks.append(&self.block, qc)?;
+        self.appended = true;
+        Ok(())
+    }
+
     /// Persist and publish this exact original execution. Repeated completion returns the
     /// original committed block without repeating State changes or event delivery.
     ///
@@ -1557,14 +1620,13 @@ impl PendingTestExecution<'_> {
             return Ok(published.clone());
         }
         self.prepare(signers)?;
+        if !self.appended {
+            self.append_prepared().map_err(|error| error.to_string())?;
+        }
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("prepared original certificate");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .commit(&self.block, qc)

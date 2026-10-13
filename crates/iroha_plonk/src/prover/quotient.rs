@@ -75,7 +75,7 @@ mod evaluation;
 use evaluation::{EvaluatedRow, TilePlan};
 
 mod gate_fold;
-use gate_fold::GateFold;
+use gate_fold::{GateFold, GatePlan};
 
 mod workspace;
 pub use workspace::{QuotientWorkspace, WorkspaceError};
@@ -686,6 +686,51 @@ fn evaluate_many<F: PastaField>(
     Ok(())
 }
 
+/// Reuses two already-dead gate cosets for public lookup mask weights.
+/// A short workspace or a single lookup keeps the existing fold without allocation.
+fn prepare_lookup_mask_weights<'a, F: PastaField>(
+    columns: &mut impl Iterator<Item = &'a mut [F]>,
+    masks: [&[F]; 2],
+    powers: [F; 2],
+    lookups: usize,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Option<[&'a [F]; 2]>, ProverError> {
+    CancellationToken::checkpoint(cancellation)?;
+    if lookups <= 1 {
+        return Ok(None);
+    }
+    let (Some(first), Some(last)) = (columns.next(), columns.next()) else {
+        return Ok(None);
+    };
+    let n = masks[0].len();
+    for actual in [masks[1].len(), first.len(), last.len()] {
+        if actual != n {
+            return Err(KeyError::Shape {
+                what: "lookup mask weights",
+                expected: n,
+                actual,
+            }
+            .into());
+        }
+    }
+    first
+        .par_chunks_mut(ROWS_PER_TASK)
+        .zip(last.par_chunks_mut(ROWS_PER_TASK))
+        .enumerate()
+        .for_each(|(task, (first, last))| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return;
+            }
+            let start = task * ROWS_PER_TASK;
+            for (offset, (first, last)) in first.iter_mut().zip(last).enumerate() {
+                *first = masks[0][start + offset] * powers[0];
+                *last = masks[1][start + offset] * powers[1];
+            }
+        });
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(Some([first, last]))
+}
+
 /// Updates owned key-polynomial buffers in place, or changes the borrowed
 /// slice when the key already caches every coset.
 fn refresh_key_cosets<'a, C: PastaCurve>(
@@ -810,7 +855,14 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         y,
     } = challenges;
     let gate_fold = GateFold::new(y);
+    let gate_plan = GatePlan::new(compiled);
+    let compiled = gate_plan.compiled();
     let one = C::ScalarExt::ONE;
+    // Public powers shared by every row and lookup; no inverse of y is used.
+    let y2 = y.square();
+    let y3 = y2 * y;
+    let y4 = y2.square();
+    let y5 = y4 * y;
     let delta = <C::ScalarExt as ff::PrimeField>::DELTA;
     let mut cosets = SecretColumns::new(Vec::with_capacity(shape.quotient_pieces));
     let elements = workspace_elements(pk, protocol)?;
@@ -962,7 +1014,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                         let row = start + offset;
                         let r_next = (row + 1) & mask;
                         let scratch = EvaluatedRow::new(&scratch, tile_plan.width, lane);
-                        let mut value = gate_fold.evaluate(&compiled.gates, scratch, filter);
+                        let mut value = gate_plan.evaluate(&gate_fold, scratch, filter);
                         // Every term is computed; a filtered term adds zero but
                         // keeps its power of y.
                         let mut push = |term: ConstraintTerm, contribution: C::ScalarExt| {
@@ -1054,6 +1106,16 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                 next_column(&mut lookup_columns)?,
                 next_column(&mut lookup_columns)?,
             ];
+            // The three streamed lookup cosets remain disjoint from these two
+            // optional public weight columns. Reuse only workspace already owned
+            // by the gate stage; never extend its allocation or any advice lifetime.
+            let mask_weights = prepare_lookup_mask_weights(
+                &mut lookup_columns,
+                [l0, l_last],
+                [y, y3],
+                shape.lookups,
+                cancellation,
+            )?;
             for (index, (lookup, numerator)) in
                 inputs.lookups.iter().zip(&lookup_numerators).enumerate()
             {
@@ -1076,34 +1138,48 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                             let r_next = (row + 1) & mask;
                             let r_prev = (row + mask) & mask;
                             let a_minus_s = input[row] - table[row];
-                            let mut push = |part, contribution: C::ScalarExt| {
+                            // Evaluate every unmasked contribution before filtering,
+                            // preserving all five keeps calls in the serial order.
+                            let kept = |part, contribution: C::ScalarExt| {
                                 let term = ConstraintTerm::Lookup {
                                     lookup: index,
                                     part,
                                 };
-                                *value = *value * y
-                                    + if filter.keeps(term) {
-                                        contribution
-                                    } else {
-                                        C::ScalarExt::ZERO
-                                    };
+                                if filter.keeps(term) {
+                                    contribution
+                                } else {
+                                    C::ScalarExt::ZERO
+                                }
                             };
-                            push(LookupConstraint::First, (one - product[row]) * l0[row]);
-                            push(
-                                LookupConstraint::Last,
-                                (product[row].square() - product[row]) * l_last[row],
-                            );
-                            push(
+                            let first = kept(LookupConstraint::First, one - product[row]);
+                            let last =
+                                kept(LookupConstraint::Last, product[row].square() - product[row]);
+                            let product_term = kept(
                                 LookupConstraint::Product,
-                                (product[r_next] * (input[row] + beta) * (table[row] + gamma)
-                                    - product[row] * numerator[row])
-                                    * l_active[row],
+                                product[r_next] * (input[row] + beta) * (table[row] + gamma)
+                                    - product[row] * numerator[row],
                             );
-                            push(LookupConstraint::Start, a_minus_s * l0[row]);
-                            push(
+                            let start = kept(LookupConstraint::Start, a_minus_s);
+                            let step = kept(
                                 LookupConstraint::Step,
-                                a_minus_s * (input[row] - input[r_prev]) * l_active[row],
+                                a_minus_s * (input[row] - input[r_prev]),
                             );
+                            // Expand five Horner positions, factoring only equal
+                            // public masks. Omitted terms still retain their powers.
+                            let (first_and_start, last) = match mask_weights {
+                                Some([first_weight, last_weight]) => (
+                                    first_weight[row] * (y3 * first + start),
+                                    last_weight[row] * last,
+                                ),
+                                None => (
+                                    l0[row] * (y4 * first + y * start),
+                                    l_last[row] * (y3 * last),
+                                ),
+                            };
+                            *value = *value * y5
+                                + first_and_start
+                                + last
+                                + l_active[row] * (y2 * product_term + step);
                         }
                     });
             }

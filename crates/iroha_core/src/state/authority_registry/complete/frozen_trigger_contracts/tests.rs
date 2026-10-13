@@ -4,7 +4,7 @@ use crate::{
     kura::Kura,
     query::store::LiveQueryStore,
     smartcontracts::triggers::{
-        set::SetReadOnly,
+        set::{CheckedContracts, SetReadOnly, contract_source_work},
         specialized::{SpecializedAction, SpecializedTrigger},
     },
     state::{
@@ -71,11 +71,16 @@ fn equal(actual: &CanonicalTablePairedSnapshot, expected: &CanonicalTablePairedS
 fn real_ordinary_and_replace_empty_originals_match_the_committed_encoder() {
     let state = new_state(World::new());
     let pool = state.ivm_execution_budget();
-    let expected = state
-        .world
-        .triggers
-        .capture_contracts_authority_table(limits(), &pool)
-        .unwrap();
+    let expected = {
+        let mut checked =
+            CheckedContracts::capture(&state.world.triggers, contract_source_work(limits()), &pool)
+                .unwrap();
+        let outcome = checked.encode(limits());
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original contract source identities"));
+        outcome.unwrap()
+    };
     for replace in [false, true] {
         let mut block = if replace {
             state.block_and_revert(header())
@@ -92,11 +97,16 @@ fn real_ordinary_and_replace_empty_originals_match_the_committed_encoder() {
 fn real_populated_current_and_predecessor_use_the_exact_original_bytecode_projection() {
     let state = new_state(populated());
     let pool = state.ivm_execution_budget();
-    let expected = state
-        .world
-        .triggers
-        .capture_contracts_authority_table(limits(), &pool)
-        .unwrap();
+    let expected = {
+        let mut checked =
+            CheckedContracts::capture(&state.world.triggers, contract_source_work(limits()), &pool)
+                .unwrap();
+        let outcome = checked.encode(limits());
+        let current = checked.matches_current();
+        drop(checked);
+        assert!(current.expect("original contract source identities"));
+        outcome.unwrap()
+    };
     assert_eq!(expected.row_count(), 1);
     let mut block = state.block(header());
     freeze(&mut block);

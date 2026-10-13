@@ -5,6 +5,7 @@ use crate::{
     sumeragi::evidence::observe,
     test_allocations::{allocations_during, refuse_one_layout_during},
 };
+use iroha_data_model::block::consensus::EvidenceScope;
 use mv::storage::StorageReadOnly as _;
 
 fn claim() -> EvidenceRecord {
@@ -25,6 +26,12 @@ fn claim() -> EvidenceRecord {
         .canonical_projection();
     assert!(!record.attribution.offenders.is_empty());
     record
+}
+fn native_claim(record: &EvidenceRecord) -> &Evidence {
+    let RecordedEvidenceV1::Native(proof) = &record.evidence else {
+        panic!("the genuine native fixture must retain its closed variant");
+    };
+    proof
 }
 fn parse(
     source: &str,
@@ -64,7 +71,7 @@ fn retained_record_restore_and_borrowed_encoding_preserve_exact_canonical_schema
             Some(pool.reserved_bytes())
         );
         assert_eq!(record.allocation_bytes_in(&foreign), Some(0));
-        assert!(pool.reserved_bytes() > original.evidence.native_frame().len());
+        assert!(pool.reserved_bytes() > native_claim(&original).native_frame().len());
         drop(record);
         assert_eq!(pool.reserved_bytes(), 0);
     }
@@ -87,8 +94,8 @@ fn retained_record_clone_status_and_last_owner_preserve_actual_backing_and_refun
     assert!(record.shares_body(&applied));
     assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
     assert_eq!(
-        record.evidence.native_frame().as_ptr(),
-        applied.evidence.native_frame().as_ptr()
+        record.native_evidence().unwrap().native_frame().as_ptr(),
+        applied.native_evidence().unwrap().native_frame().as_ptr()
     );
     assert_eq!(
         record.attribution.offenders.as_ptr(),
@@ -124,7 +131,7 @@ fn retained_record_restore_proof_and_final_shell_refusals_keep_typed_original_ca
     let pool = AllocationBudget::new(1 << 20);
     let blocker = pool.try_reserve_bytes(pool.limit_bytes()).unwrap();
     let proof_layout =
-        std::alloc::Layout::array::<u8>(original.evidence.native_frame().len()).unwrap();
+        std::alloc::Layout::array::<u8>(native_claim(&original).native_frame().len()).unwrap();
     let expected = pool.try_reserve(proof_layout).unwrap_err();
     let failure = parse(&source, &pool).unwrap_err();
     assert!(
@@ -163,13 +170,16 @@ fn retained_record_body_rejects_equivalent_foreign_graph_pool_before_shell_alloc
         &foreign,
     )
     .unwrap();
-    let mut frame = ChargedBuffer::new(original.evidence.native_frame().len(), &pool).unwrap();
-    frame.append(original.evidence.native_frame()).unwrap();
+    let mut frame =
+        ChargedBuffer::new(native_claim(&original).native_frame().len(), &pool).unwrap();
+    frame
+        .append(native_claim(&original).native_frame())
+        .unwrap();
     let frame_pointer = frame.as_slice().as_ptr();
     let graph_pointer = attribution.offenders.as_ptr();
     let mut frame = Some(frame);
     let mut admitted = super::super::AdmittedEvidence::from_verified(
-        super::super::evidence_key(&original.evidence),
+        super::super::evidence_key(native_claim(&original)),
         attribution,
     );
     let mut failure = None;
@@ -191,7 +201,7 @@ fn retained_record_body_rejects_equivalent_foreign_graph_pool_before_shell_alloc
     assert_eq!(admitted.native_frame().unwrap().as_ptr(), frame_pointer);
     let record = admitted
         .record(
-            &original.evidence,
+            native_claim(&original),
             original.recorded_at_height,
             original.recorded_at_view,
             original.recorded_at_ms,
@@ -218,7 +228,7 @@ fn retained_record_storage_restores_complete_current_undo_claims_without_budgetl
     let pending = claim();
     let mut applied = pending.clone();
     applied.penalty_status = EvidencePenaltyStatus::Applied { height: 5 };
-    let key = super::super::evidence_key(&pending.evidence);
+    let key = super::super::evidence_key(native_claim(&pending));
     let absent = iroha_crypto::Hash::new(b"original predecessor absence");
     let ordinary = mv::storage::Storage::from_snapshot_parts(
         std::collections::BTreeMap::from([(key, applied)]),
@@ -259,7 +269,7 @@ fn retained_record_restore_keeps_resource_refusal_and_canonical_negative_priorit
     assert_eq!(pool.reserved_bytes(), 0);
     for source in [
         "{}",
-        "{\"evidence\":{\"native\":[]}}",
+        "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
         "{\"attribution\":{}}",
     ] {
         let ordinary = json::from_str::<EvidenceRecord>(source).unwrap_err();
@@ -295,8 +305,8 @@ fn retained_record_reordered_fields_preserve_canonical_values_and_first_invalid_
     // Both fields are invalid. Source order, rather than a fabricated fixed schema
     // order, selects the canonical first error and retains its failed prefix.
     for source in [
-        "{\"attribution\":{},\"evidence\":{\"native\":[]}}",
-        "{\"evidence\":{\"native\":[]},\"attribution\":{}}",
+        "{\"attribution\":{},\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}}}",
+        "{\"evidence\":{\"kind\":\"native\",\"value\":{\"native\":[]}},\"attribution\":{}}",
     ] {
         let ordinary = json::from_str::<EvidenceRecord>(source).unwrap_err();
         let restored = parse(source, &pool).unwrap_err();
@@ -329,8 +339,12 @@ fn retained_record_nested_invalid_keys_match_peer_decoder_category_and_source_or
         let changed = attribution.replacen(&original_key, &invalid, 1);
         assert_ne!(changed, attribution);
         for source in [
-            format!("{{\"attribution\":{changed},\"evidence\":{{\"native\":[]}}}}"),
-            format!("{{\"evidence\":{{\"native\":[]}},\"attribution\":{changed}}}"),
+            format!(
+                "{{\"attribution\":{changed},\"evidence\":{{\"kind\":\"native\",\"value\":{{\"native\":[]}}}}}}"
+            ),
+            format!(
+                "{{\"evidence\":{{\"kind\":\"native\",\"value\":{{\"native\":[]}}}},\"attribution\":{changed}}}"
+            ),
         ] {
             let ordinary = json::from_str::<EvidenceRecord>(&source).unwrap_err();
             let restored = parse(&source, &pool).unwrap_err();
@@ -344,5 +358,87 @@ fn retained_record_nested_invalid_keys_match_peer_decoder_category_and_source_or
             );
             assert_eq!(pool.reserved_bytes(), 0);
         }
+    }
+}
+
+#[test]
+fn native_owner_rejects_sccp_material_and_generation_scope_without_charging_or_fallback() {
+    use iroha_data_model::{
+        isi::sccp::SubmitSccpForgeryEvidenceV1,
+        sccp::native::{SccpForgeryRecordV1, SccpForgeryRuleV1},
+    };
+    let original = claim();
+    let pool = AllocationBudget::new(1 << 20);
+    // DATA only: these zeros are not a valid BLS certificate or a verified forgery.
+    let mut unsupported = original.clone();
+    unsupported.evidence = RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
+        evidence: SubmitSccpForgeryEvidenceV1 {
+            qc: [0; 116],
+            header: [0; 221],
+            aggregate_signature: [0; 96],
+            anchor: None,
+        },
+        rule: SccpForgeryRuleV1::E1,
+        generation: 1,
+        start_height: 1,
+        offenders: Vec::new(),
+    }));
+    let text = json::to_json(&unsupported).unwrap();
+    assert!(matches!(
+        parse(&text, &pool),
+        Err(EvidenceRecordRestoreError::Json(_))
+    ));
+    assert!(matches!(
+        RetainedEvidenceRecord::from_fixture(unsupported, &pool),
+        Err(EvidenceRecordRestoreError::UnsupportedSccp)
+    ));
+    assert_eq!(pool.reserved_bytes(), 0);
+    let mut mixed = original.clone();
+    mixed.attribution.scope = EvidenceScope::SccpGeneration { generation: 1 };
+    let text = json::to_json(&mixed).unwrap();
+    assert!(matches!(
+        parse(&text, &pool),
+        Err(EvidenceRecordRestoreError::UnsupportedSccp)
+    ));
+    assert!(matches!(
+        RetainedEvidenceRecord::from_fixture(mixed, &pool),
+        Err(EvidenceRecordRestoreError::UnsupportedSccp)
+    ));
+    assert_eq!(
+        pool.reserved_bytes(),
+        0,
+        "native proof prefix is retired on later scope refusal"
+    );
+}
+
+#[test]
+fn closed_native_envelope_reorders_without_accepting_bare_or_unknown_material() {
+    let original = claim();
+    let proof = json::to_json(native_claim(&original)).unwrap();
+    let expected = json::to_json(&original.evidence).unwrap();
+    let canonical = json::to_json(&original).unwrap();
+    let pool = AllocationBudget::new(1 << 20);
+    let reordered = format!("{{\"value\":{proof},\"kind\":\"native\"}}");
+    let source = canonical.replacen(&expected, &reordered, 1);
+    let restored = parse(&source, &pool).unwrap();
+    assert_eq!(restored.canonical_projection(), original);
+    assert_eq!(json::to_json(&restored).unwrap(), canonical);
+    drop(restored);
+    for envelope in [
+        proof.clone(),
+        format!("{{\"kind\":\"unrecognized\",\"value\":{proof}}}"),
+        format!("{{\"kind\":\"native\",\"kind\":\"native\",\"value\":{proof}}}"),
+        format!("{{\"kind\":\"native\",\"value\":{proof},\"value\":{proof}}}"),
+        format!("{{\"kind\":\"native\",\"value\":{proof},\"extra\":0}}"),
+        format!("{{\"value\":{proof}}}"),
+        "{\"kind\":\"native\"}".into(),
+    ] {
+        let source = canonical.replacen(&expected, &envelope, 1);
+        let ordinary = json::from_str::<EvidenceRecord>(&source).unwrap_err();
+        let EvidenceRecordRestoreError::Json(error) = parse(&source, &pool).unwrap_err() else {
+            panic!("closed envelope errors retain canonical syntax classification");
+        };
+        assert_eq!(error.to_string(), ordinary.to_string());
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

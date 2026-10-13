@@ -166,7 +166,7 @@ mod tests {
             .parameters
             .get_mut()
             .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
-            .expect("fixture validator parameters");
+            .expect("fixture NPoS parameters");
     }
 
     fn original_genesis_context() -> iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {

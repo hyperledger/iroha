@@ -135,6 +135,36 @@ fn parameter_changes_validate_after_genesis_only() {
     }
 }
 
+#[test]
+fn clock_drift_bound_applies_to_genesis_and_mutable_parameter_changes() {
+    use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+    let current = SumeragiParameters::default();
+    for genesis in [true, false] {
+        for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
+            validate_parameter_change(
+                &current,
+                &SumeragiParameter::MaxClockDriftMs(value),
+                genesis,
+                false,
+            )
+            .expect("inclusive protocol bound");
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            let expected = iroha_data_model::parameter::system::validate_max_clock_drift_ms(value)
+                .unwrap_err();
+            assert_eq!(
+                validate_parameter_change(
+                    &current,
+                    &SumeragiParameter::MaxClockDriftMs(value),
+                    genesis,
+                    false,
+                ),
+                Err(ScheduleError::Epoch(expected.to_string())),
+            );
+        }
+    }
+}
+
 fn genesis_with(instructions: Vec<InstructionBox>) -> GenesisBlock {
     let genesis_key = KeyPair::random();
     let account = AccountId::new(genesis_key.public_key().clone());

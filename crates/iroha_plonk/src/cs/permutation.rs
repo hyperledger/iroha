@@ -1,12 +1,12 @@
-//! The halo2 permutation (equality) argument and its copy assembly.
+//! Native permutation (equality) argument with the pinned historical halo2 copy rule.
 //!
 //! [`PermutationArgument`] lists the equality-enabled columns in
 //! `enable_equality` order. With degree `d` the columns split into sets of
 //! `d - 2` consecutive columns, one grand product per set (spec section 2).
 //!
-//! [`PermutationAssembly`] records copy constraints with the vendored
-//! union-find, so the resulting permutation, and therefore the `sigma`
-//! commitments of the verifying key, equal halo2's: cells are numbered
+//! [`PermutationAssembly`] records copy constraints using the historical
+//! union-find rule retained after prover retirement. This pins the permutation
+//! and therefore the verifying key's `sigma` commitments: cells are numbered
 //! `column * n + row`; a copy within one cycle is a no-op; otherwise the
 //! smaller cycle is merged into the larger one (the left one survives a tie),
 //! relabelled, and the two cells' mapping entries are swapped.
@@ -130,14 +130,14 @@ impl UnionFind {
     }
 }
 
-/// Copy constraints recorded as the vendored permutation cycles.
+/// Copy constraints recorded with the pinned historical permutation cycles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PermutationAssembly {
     columns: Vec<Column<Any>>,
     n: usize,
     cells: usize,
     /// `None` while every cell maps to itself (until the first nontrivial
-    /// copy), as in the vendored assembly.
+    /// copy), as in the historical assembly.
     union_find: Option<UnionFind>,
 }
 
@@ -446,8 +446,8 @@ mod tests {
 
     #[test]
     fn exact_vendored_mapping_for_a_fixed_copy_sequence() {
-        // Derived step by step from the vendored `Assembly::copy` algorithm
-        // (the oracle crate compares against the vendored code itself):
+        // Independent step-by-step derivation of the pinned `Assembly::copy`
+        // rule; this expected mapping needs no deleted external oracle:
         // (0,0)-(1,0), (1,1)-(0,1), (0,1)-(0,0) over 2 columns x 2 rows.
         let a: Column<Any> = Column::new(0, Advice).into();
         let b: Column<Any> = Column::new(1, Advice).into();

@@ -476,6 +476,17 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC257", "Full State executor: omit the uncertified CT1 clock-ahead guard",
+      ["sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead"],
+      causes=(ExpectedFailure("uncertified future block must defer before execution",
+          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
+    m("HC258", "Driver Execute: drop the authenticated certified flag before application execution",
+      ["sumeragi::driver::tests::sched::certified_execution_flag_reaches_the_application_without_inference"],
+      causes=(ExpectedFailure("certified Execute flag reaches the application unchanged",
+          "crates/iroha_core/src/sumeragi/driver/tests/sched.rs"),)),
     m("HC1", "evidence: use native lane height instead of original retirement for replay pruning",
       ["sumeragi::evidence::tests::lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_incarnation"]),
     m("HC2", "staking: omit original lane custody and exact registration revalidation",
@@ -1097,10 +1108,10 @@ CORE_MUTATIONS = [
     m('HC245', 'Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection',
       ['state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry']),
     m('HC246', 'SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments',
-      ['smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once'],
+      ['smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation', 'smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once'],
       causes=(
-          ExpectedFailure('the first native block at expiry must remove the original fast-pause record', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/control/tests/lapse.rs'),
-          ExpectedFailure('the original native execution must stage lapse before publication', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/control/tests/lapse.rs'),
+          ExpectedFailure('the first native block at expiry must remove the original fast-pause record', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/native/control_producer_tests/lapse_tests.rs'),
+          ExpectedFailure('the original native execution must stage lapse before publication', 'crates/iroha_core/src/smartcontracts/isi/sccp/read/native/control_producer_tests/lapse_tests.rs'),
       )),
 
     m('HC247', 'Payload producer retry: erase the original resource refusal at the driver boundary',
@@ -1129,6 +1140,89 @@ CORE_MUTATIONS = [
           worker_thread="sumeragi-publication-test",
           join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
           join_message="publication worker fixture: Any { .. }"),)),
+
+    m("HC265", "Direct payment replay: charge another execution fee for an already consumed business identity",
+      ["executor::settlement_replay::tests::direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart"],
+      causes=(ExpectedFailure("same direct payment identity charges one execution fee across distinct carriers",
+          "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
+
+    m("HC275", "Native append: discard the original physical State authority read release",
+      ["state::tests::publication_effect_manifest_tests::original_append_driver_retains_manifest_release_without_timer_or_foreign_wake"],
+      causes=(ExpectedFailure("the original append scheduler must retain its physical State release",
+          "crates/iroha_core/src/state/publication_effect_manifest_tests.rs"),)),
+
+    m("HC274", "Kura publication cleanup: notify before enclosing original State owners release",
+      ["state::tests::publication_effect_kura_tests::original_kura_partial_refusal_callbacks_follow_all_state_siblings",
+       "state::tests::publication_effect_kura_tests::original_kura_success_callbacks_follow_all_state_siblings",
+       "state::tests::publication_effect_kura_tests::original_kura_unwind_callbacks_follow_all_state_siblings"],
+      causes=tuple(ExpectedFailure("original Kura notifications must wait for complete State cleanup",
+          "crates/iroha_core/src/state/publication_effect_kura_tests.rs") for _ in range(3))),
+
+    m("HC273", "Lifecycle preflight: discard the original manifest writer refusal",
+      ["state::tests::publication_effect_manifest_tests::signed_lifecycle_manifest_writer_refusal_retains_preflight_and_original_retry"],
+      causes=(ExpectedFailure("the signed manifest preflight must retain its original local refusal",
+          "crates/iroha_core/src/state/publication_effect_manifest_tests.rs"),)),
+
+    m("HC272", "State publication: make original effect-index contention irreversible before visibility",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::effect_retry_tests::actual_state_effect_reader_refusal_retains_original_and_retries_after_release",
+       "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::effect_retry_tests::actual_state_effect_writer_refusal_retains_original_and_retries_after_release",
+       "state::tests::publication_effect_lifecycle_tests::signed_lifecycle_index_refusal_precedes_geometry_and_replays_final_cursor_journal"],
+      causes=(ExpectedFailure("the original index blocker must defer before visibility",
+          "crates/iroha_core/src/state/publication_effect_retry_tests.rs"),
+          ExpectedFailure("the original index blocker must defer before visibility",
+          "crates/iroha_core/src/state/publication_effect_retry_tests.rs"),
+          ExpectedFailure("the signed lifecycle index blocker must defer before geometry",
+          "crates/iroha_core/src/state/publication_effect_lifecycle_tests.rs"))),
+
+    m("HC271", "Begin delivery: skip original source revalidation after funded Prepare admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::begins::native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction"],
+      causes=(ExpectedFailure("source namespace must be rechecked after instruction admission",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody/begins.rs"),)),
+
+    m("HC267", "Decision delivery: skip original source revalidation after funded instruction admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction"],
+      causes=(ExpectedFailure("Decision delivery must recheck original namespace after instruction admission",
+          "crates/iroha_core/src/sumeragi/amx/native/tests/paid_borrowed_custody.rs"),)),
+
+    m("HC259", "Proposer clock: select future signed inputs on Global and routing lanes",
+      ["sumeragi::payload::resource_contract_tests::proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time",
+       "sumeragi::payload::resource_contract_tests::lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance"],
+      causes=(ExpectedFailure("global proposer must leave future signed input queued",
+          "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"),
+          ExpectedFailure("lane proposer must leave future signed input queued",
+          "crates/iroha_core/src/sumeragi/payload/resource_contract_tests.rs"))),
+
+    m("HC268", "Routing lane executor: omit the uncertified effective-clock guard",
+      ["sumeragi::lanes::executor::native_decode_tests::signed_lane_clock_retains_original_admission_until_exact_boundary_and_certified_replay"],
+      causes=(ExpectedFailure("uncertified lane must wait at its authenticated effective clock boundary",
+          "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
+
+    m("HC269", "Routing lane builder: publish before its authenticated effective timestamp",
+      ["sumeragi::lanes::executor::tests::lane_builder_effective_clock_retains_original_payload_across_clock_rewind"],
+      causes=(ExpectedFailure("lane builder must retain its original effective timestamp before publication",
+          "crates/iroha_core/src/sumeragi/lanes/executor.rs"),)),
+
+    m("HC264", "Routing lane builder: collapse future-only clock wait into an empty payload",
+      ["sumeragi::lanes::executor::tests::future_only_lane_work_retries_without_an_empty_answer_or_new_traffic"],
+      causes=(ExpectedFailure("future-only lane work must retry instead of reporting an empty payload",
+          "crates/iroha_core/src/sumeragi/lanes/executor.rs"),)),
+
+    m("HC260", "Proposer clock: publish original canonical payload before its clock boundary",
+      ["sumeragi::executor::payload_owner::tests::proposer_clock_retains_final_input_and_canonical_output_until_due",
+       "sumeragi::executor::payload_owner::tests::proposer_clock_retains_certified_lane_floor_and_completed_original"],
+      causes=tuple(ExpectedFailure(message,
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread=worker,
+          join_source=join_source,
+          join_message=join_message) for message, worker, join_source, join_message in (
+              ("canonical payload clock must wait after its signed input becomes due",
+               "sumeragi-publication-test",
+               "crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+               "publication worker fixture: Any { .. }"),
+              ("canonical lane merge floor must wait without empty or unrelated work",
+               "sumeragi-original-lane-merge-test",
+               "crates/iroha_core/src/sumeragi/lanes/merge_tests.rs",
+               "original lane fixture: Any { .. }")))),
 
     m("HC253", "Native parent journal retry: classify unavailable original path bindings as corrupt history",
       ["sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire",
@@ -1248,11 +1342,19 @@ MODEL_MUTATIONS = [
           ExpectedFailure('epoch cache adds no heap graph beyond original context validation', 'crates/iroha_data_model/src/sumeragi_finality/epoch_graph/validation_tests.rs'),
       )),
 
+    m("DM35", "AMX decisions: discard authenticated authority while Yes escrow remains unresolved",
+      ["sumeragi_amx::tests::sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart"]),
+
+    m("DM36", "committed clock drift: omit the CT4 protocol bound",
+      ["parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow"]),
+
 ]
 
 
 # Daemon integration rules execute only in the owning daemon unit-test crate.
 DAEMON_MUTATIONS = [
+    m("HC266", "AMX relay journal identity substitutes an unrelated authenticated successful carrier",
+      ["amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier"]),
     m("HC105", "DKG generation restore: ignore original input marker or later producer intent",
       ["beacon_bootstrap::seat_attempt::durable_tests::input_marker_or_later_intent_cannot_restore_generation_or_grant_a_new_interval"]),
     m("HC106", "DKG generation restore: accept a replaced inherited input stream",

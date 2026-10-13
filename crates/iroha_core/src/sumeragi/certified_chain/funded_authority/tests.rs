@@ -26,6 +26,9 @@ fn demand(scheduled: &schedule::ScheduledConfig) -> usize {
 
 #[test]
 fn native_funded_authority_borrows_original_epoch_and_one_exact_configuration_graph() {
+    // Retain fixture publication generations before they can become reclaimable;
+    // unrelated EBR collection must not change the original pool's measured baseline.
+    let _epoch = crossbeam_epoch::pin();
     let chain = chain();
     let parent = chain.committed(2);
     let current = chain.committed(3);
@@ -95,6 +98,9 @@ fn native_funded_authority_borrows_original_epoch_and_one_exact_configuration_gr
 
 #[test]
 fn native_funded_authority_partial_key_array_epoch_and_completion_unwinds_refund_exactly() {
+    // Retain fixture publication generations before they can become reclaimable;
+    // unrelated EBR collection must not change the original pool's measured baseline.
+    let _epoch = crossbeam_epoch::pin();
     let chain = chain();
     let parent = chain.committed(2);
     let current = chain.committed(3);
@@ -139,6 +145,9 @@ fn native_funded_authority_partial_key_array_epoch_and_completion_unwinds_refund
 #[test]
 fn exact_core_key_allocator_refusal_retires_partial_graph_and_preserves_original_prepaid_remainder()
 {
+    // Retain fixture publication generations before they can become reclaimable;
+    // unrelated EBR collection must not change the original pool's measured baseline.
+    let _epoch = crossbeam_epoch::pin();
     let chain = chain();
     let parent = chain.committed(2);
     let slot = scheduled(&parent);
@@ -200,6 +209,9 @@ fn exact_core_key_allocator_refusal_retires_partial_graph_and_preserves_original
 #[test]
 fn native_funded_authority_preserves_structural_rejection_before_capacity_and_exact_original_fields()
  {
+    // Retain fixture publication generations before they can become reclaimable;
+    // unrelated EBR collection must not change the original pool's measured baseline.
+    let _epoch = crossbeam_epoch::pin();
     let chain = chain();
     let parent = chain.committed(2);
     let original = scheduled(&parent);

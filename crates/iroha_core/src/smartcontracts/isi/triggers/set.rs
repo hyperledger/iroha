@@ -12,6 +12,7 @@ pub(crate) mod invocation_identity;
 mod acquisition;
 #[path = "set_action_relation.rs"]
 mod action_relation;
+#[cfg(test)]
 #[path = "set_authority_capture.rs"]
 mod authority_capture;
 #[path = "set_authority_registry.rs"]

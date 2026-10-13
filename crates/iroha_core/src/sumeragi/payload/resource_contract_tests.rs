@@ -1,7 +1,8 @@
 //! Follower stage of the resource contract (`specs/zk_resource_contract.json`): the block the
 //! proposer assembles around the largest includable transaction fits the committed payload
 //! limit and executes through the production payload decoder and executor. A transaction
-//! routed to a native lane is admitted and selected within that lane's committed budget.
+//! routed to a native lane is admitted under the coherent transaction cap and selected
+//! within the lane's separate committed budget.
 use super::*;
 use crate::{
     state::World,
@@ -13,15 +14,16 @@ use crate::{
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     account::{Account, AccountId},
-    isi::{InstructionBox, Log, Register},
+    isi::{InstructionBox, Log, Register, privacy::SchedulePrivacyConsensusPolicyTighteningV1},
     level::Level,
     parameter::{
         Parameter,
         system::{
             BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, LANE_BATCH_FRAMING_RESERVE_BYTES,
-            SumeragiParameter, SumeragiParameters,
+            SumeragiParameter, SumeragiParameters, TransactionParameter,
         },
     },
+    privacy::PrivacyConsensusLimitsV1,
     sumeragi_lanes::{
         SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy, SumeragiLaneRoute,
     },
@@ -35,32 +37,82 @@ const INCLUDABLE: u32 = 16 * 1024;
 /// The committed payload limit of the fixture chain.
 const MAX_BLOCK_BYTES: u32 = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + INCLUDABLE;
 
-fn chain() -> (CertifiedTestChain, KeyPair) {
+/// Small limits installed by the original signed genesis, including an actual governed
+/// privacy tightening at height two. No decoded World policy bypasses final coherence.
+fn bounded_config(cap: u32) -> TestChainConfig {
     let mut config = TestChainConfig::new(World::new(), 1_000);
+    config.genesis_parameters.extend([
+        Parameter::Transaction(TransactionParameter::MaxTxBytes(
+            std::num::NonZeroU64::new(u64::from(cap)).unwrap(),
+        )),
+        Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+            std::num::NonZeroU32::new(BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + cap).unwrap(),
+        )),
+    ]);
+    config.genesis_instructions.push(
+        SchedulePrivacyConsensusPolicyTighteningV1::new(
+            2,
+            PrivacyConsensusLimitsV1 {
+                max_proof_bytes_per_action: cap,
+                max_action_bytes: cap,
+                max_privacy_bytes_per_transaction: cap,
+                max_privacy_bytes_per_block: cap,
+                max_statement_and_encrypted_output_bytes_per_transaction: cap,
+                ..PrivacyConsensusLimitsV1::taira_default()
+            },
+        )
+        .into(),
+    );
     config
-        .genesis_parameters
-        .push(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
-            std::num::NonZeroU32::new(MAX_BLOCK_BYTES).unwrap(),
-        )));
-    let prepared = CertifiedTestChain::prepare(config).unwrap();
+}
+
+fn chain() -> (CertifiedTestChain, KeyPair) {
+    let prepared = CertifiedTestChain::prepare(bounded_config(INCLUDABLE)).unwrap();
     let clock = prepared.clock.clone();
     (CertifiedTestChain::from_prepared(prepared).unwrap(), clock)
 }
 
-/// The framed length admission measures for `transaction`.
-fn framed_len(chain: &CertifiedTestChain, transaction: &SignedTransaction) -> usize {
-    let (_, clock) = TimeSource::new_mock(transaction.creation_time() + Duration::from_millis(1));
+/// Canonical framed bytes, measured independently of admission so refused inputs can be sized.
+fn framed_len(transaction: &SignedTransaction) -> usize {
+    norito::to_bytes(transaction)
+        .expect("canonical signed frame")
+        .len()
+}
+
+/// Both real envelope admission and the follower reject the same over-cap bytes/reason.
+fn assert_cap_rejected(chain: &CertifiedTestChain, transaction: &SignedTransaction, cap: u32) {
+    let (_, time) = TimeSource::new_mock(transaction.creation_time() + Duration::from_millis(1));
     let view = chain.state().view();
-    AcceptedTransaction::accept_with_time_source(
+    let limits = view.world().parameters().transaction();
+    let crypto = iroha_config::parameters::actual::Crypto::default();
+    let admission = AcceptedTransaction::accept_with_time_source(
         transaction.clone(),
         &chain.network_id(),
         Duration::from_secs(1),
-        view.world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
-        &clock,
-    )
-    .expect("the fixture transaction is accepted")
-    .encoded_len()
+        limits,
+        &crypto,
+        &time,
+    );
+    let follower = AcceptedTransaction::validate_with_now(
+        transaction,
+        &chain.network_id(),
+        Duration::from_secs(1),
+        limits,
+        &crypto,
+        transaction.creation_time(),
+    );
+    let reason = format!(
+        "Transaction size {} bytes exceeds limit {cap} bytes",
+        framed_len(transaction)
+    );
+    let Err(crate::tx::AcceptTransactionFail::TransactionLimit(admission)) = admission else {
+        panic!("admission must reject the exact transaction cap violation");
+    };
+    let Err(crate::tx::AcceptTransactionFail::TransactionLimit(follower)) = follower else {
+        panic!("follower must reject the exact transaction cap violation");
+    };
+    assert_eq!(admission.reason, reason);
+    assert_eq!(follower.reason, reason);
 }
 
 /// A `Log` transaction of the clock account whose framed length is exactly `target`.
@@ -82,16 +134,16 @@ fn sized(
     };
     let target = usize::try_from(target).unwrap();
     let slack = 1_024;
-    let probe = framed_len(chain, &sign(target - slack));
+    let probe = framed_len(&sign(target - slack));
     let transaction = sign(target - slack + (target - probe));
-    assert_eq!(framed_len(chain, &transaction), target);
+    assert_eq!(framed_len(&transaction), target);
     transaction
 }
 
 /// The proposer's assembled maximum is a valid block for the follower, and the reserve is
-/// packing policy: a block around a transaction one byte over the includable bound still
-/// fits the payload limit and executes, although admission never lets such a transaction
-/// reach a proposer.
+/// packing policy: two cap-valid transactions whose aggregate exceeds the selection budget
+/// can still fit the actual block payload and execute. An individual over-cap transaction
+/// is rejected by both admission and the follower under the coherent committed policy.
 #[test]
 fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
     let (mut chain, clock) = chain();
@@ -143,51 +195,92 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
     assert_eq!(chain.commit(vec![largest]), vec![true]);
     assert_eq!(chain.height(), 2);
 
-    // Height 3: one byte over the includable bound. Admission refuses it; a block around it
-    // is still within the payload limit and valid, so block validity is unchanged.
-    let window = sized(&chain, &clock, INCLUDABLE + 1, 2_500);
+    // An individual cap+1 transaction is invalid at both real entrypoints. Canonical byte
+    // measurement grants no proposal authority; the actual proposal helper also rejects it.
+    let one_over = sized(&chain, &clock, INCLUDABLE + 1, 2_500);
+    assert_cap_rejected(&chain, &one_over, INCLUDABLE);
+
+    // Height 3: two individually cap-valid inputs exceed the proposer's total selection
+    // budget by one byte. Selection skips one, but an actually fitting block is still valid.
+    let window = vec![
+        sized(&chain, &clock, INCLUDABLE / 2, 2_500),
+        sized(&chain, &clock, INCLUDABLE / 2 + 1, 2_501),
+    ];
     assert_eq!(
-        admission(&chain, &window),
-        Err(ExecutionAttemptError::Rejected(
-            TransactionNeverIncludable {
-                encoded_bytes: u64::from(INCLUDABLE) + 1,
-                max_bytes: u64::from(INCLUDABLE),
-            }
-        ))
+        window.iter().map(framed_len).sum::<usize>(),
+        INCLUDABLE as usize + 1
+    );
+    let (_, time) = TimeSource::new_mock(Duration::from_millis(2_502));
+    let queue = Arc::new(Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &time,
+    ));
+    for transaction in &window {
+        assert_eq!(admission(&chain, transaction), Ok(()));
+        let accepted = AcceptedTransaction::accept_with_time_source(
+            transaction.clone(),
+            &chain.network_id(),
+            Duration::from_secs(1),
+            chain.state().view().world().parameters().transaction(),
+            &iroha_config::parameters::actual::Crypto::default(),
+            &time,
+        )
+        .expect("each input is below the committed cap");
+        assert_eq!(accepted.encoded_len(), framed_len(transaction));
+        queue
+            .push(accepted, chain.state().view())
+            .expect("cap-valid queue admission");
+    }
+    assert_eq!(
+        select(
+            &chain.state().view(),
+            &queue,
+            INCLUDABLE as usize,
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .len(),
+        1
     );
     let wire = chain
-        .proposal(None, vec![window.clone()])
+        .proposal(None, window.clone())
         .resultless_proposal_wire_len()
         .unwrap();
-    assert!(wire > usize::try_from(INCLUDABLE).unwrap() + 1 && wire <= limit);
-    assert_eq!(chain.commit(vec![window]), vec![true]);
+    assert!(wire > INCLUDABLE as usize + 1 && wire <= limit);
+    assert_eq!(chain.commit(window), vec![true, true]);
     assert_eq!(chain.height(), 3);
 
-    // A transaction as large as the payload limit cannot be assembled within it; the signed
-    // header rule of the consensus core (`Defect::PayloadTooLarge`) rejects such a block on
-    // every validator.
-    let oversized = sized(&chain, &clock, MAX_BLOCK_BYTES, 3_500);
-    assert!(admission(&chain, &oversized).is_err());
+    // Six distinct, individually valid cap-sized inputs exceed the actual payload limit.
+    // This isolates the signed header size rule from the independent transaction cap.
+    let oversized = (0..6)
+        .map(|index| sized(&chain, &clock, INCLUDABLE, 3_500 + index))
+        .collect::<Vec<_>>();
+    for transaction in &oversized {
+        assert_eq!(admission(&chain, transaction), Ok(()));
+    }
     let wire = chain
-        .proposal(None, vec![oversized])
+        .proposal(None, oversized)
         .resultless_proposal_wire_len()
         .unwrap();
     assert!(
         wire > limit,
-        "a payload-sized transaction cannot be assembled: {wire}"
+        "valid inputs cannot be assembled beyond the payload cap: {wire}"
     );
 }
 
 /// Transaction bytes the lane fixture chain's global proposer can select.
-const LANE_FIXTURE_GLOBAL: u32 = 8 * 1024;
-/// Transaction bytes the fixture lane's proposer can select: above the global budget.
+const LANE_FIXTURE_GLOBAL: u32 = 32 * 1024;
+/// Remaining global selection bytes after other proposal contents have reserved space.
+const RESIDUAL_GLOBAL_BUDGET: u32 = 8 * 1024;
+/// Transaction bytes the fixture lane's proposer can select: below the committed global cap.
 const LANE_FIXTURE_LANE: u32 = 24 * 1024;
 /// The fixture's native lane.
 const LANE_FIXTURE_ID: LaneId = LaneId::new(2);
 
-/// A certified chain whose signed genesis commits a native lane with a larger payload limit
-/// than the global chain, and routes one account to it. Returns the chain, the clock key
-/// (routed to lane zero) and the routed account's key.
+/// A certified chain whose signed genesis commits a smaller native lane selection budget
+/// than the coherent global transaction cap, and routes one account to it. Returns the chain,
+/// the clock key (routed to lane zero) and the routed account's key.
 fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
     let user = KeyPair::from_seed(vec![0x51; 32], Algorithm::Ed25519);
     let account = AccountId::new(user.public_key().clone());
@@ -222,18 +315,10 @@ fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
         }],
         autoscale: None,
     };
-    let mut config = TestChainConfig::new(World::new(), 1_000);
+    let mut config = bounded_config(LANE_FIXTURE_GLOBAL);
     config
         .genesis_instructions
         .push(Register::account(Account::new(account)).into());
-    config
-        .genesis_parameters
-        .push(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
-            std::num::NonZeroU32::new(
-                BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + LANE_FIXTURE_GLOBAL,
-            )
-            .unwrap(),
-        )));
     config
         .genesis_parameters
         .push(Parameter::Custom(policy.into_custom_parameter()));
@@ -245,15 +330,149 @@ fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
     (chain, clock, user)
 }
 
-/// A transaction routed to a native lane has that lane's budget at admission, in the queue
-/// and at the lane's proposer: it is admitted above the global budget up to the lane budget,
-/// refused one byte over, and selected within exactly the budget the lane builder uses. A
-/// transaction routed to lane zero keeps the global budget whatever the lane would carry.
+#[test]
+fn proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time() {
+    let (chain, signer) = chain();
+    let (clock, time) = TimeSource::new_mock(Duration::from_millis(3_000));
+    let queue = Arc::new(Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &time,
+    ));
+    let due = sized(&chain, &signer, 4_096, 3_000);
+    let future = sized(&chain, &signer, 4_096, 3_001);
+    for original in [&future, &due] {
+        let accepted = AcceptedTransaction::accept_with_time_source(
+            original.clone(),
+            &chain.network_id(),
+            Duration::from_secs(1),
+            chain.state().view().world().parameters().transaction(),
+            &iroha_config::parameters::actual::Crypto::default(),
+            &time,
+        )
+        .unwrap();
+        queue.push(accepted, chain.state().view()).unwrap();
+        if queue.queued_len() == 1 {
+            assert!(
+                matches!(
+                    select(
+                        &chain.state().view(),
+                        &queue,
+                        INCLUDABLE as usize,
+                        &MergeProposal::default(),
+                        time.now(),
+                    ),
+                    Err(PayloadError::ClockAhead)
+                ),
+                "global proposer must leave future signed input queued"
+            );
+        }
+    }
+    let selected = select(
+        &chain.state().view(),
+        &queue,
+        INCLUDABLE as usize,
+        &MergeProposal::default(),
+        time.now(),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.len(),
+        1,
+        "global proposer must leave future signed input queued"
+    );
+    assert_eq!(selected[0].hash_as_entrypoint(), due.hash_as_entrypoint());
+    assert_eq!(queue.queued_len(), 2);
+    clock.advance(Duration::from_millis(1));
+    let selected = select(
+        &chain.state().view(),
+        &queue,
+        INCLUDABLE as usize,
+        &MergeProposal::default(),
+        time.now(),
+    )
+    .unwrap();
+    assert_eq!(selected.len(), 2);
+    assert!(
+        selected
+            .iter()
+            .any(|input| input.hash_as_entrypoint() == future.hash_as_entrypoint())
+    );
+    assert_eq!(
+        queue.queued_len(),
+        2,
+        "selection does not consume original queue custody"
+    );
+    clock.rewind(Duration::from_millis(1));
+    assert_eq!(
+        select(
+            &chain.state().view(),
+            &queue,
+            INCLUDABLE as usize,
+            &MergeProposal::default(),
+            time.now()
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance() {
+    use crate::sumeragi::lanes::executor::LaneSelectionError;
+    let (chain, _, signer) = lane_chain();
+    let (clock, time) = TimeSource::new_mock(Duration::from_millis(3_000));
+    let queue = Arc::new(Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &time,
+    ));
+    let future = sized(&chain, &signer, 4_096, 3_001);
+    let accepted = AcceptedTransaction::accept_with_time_source(
+        future.clone(),
+        &chain.network_id(),
+        Duration::from_secs(1),
+        chain.state().view().world().parameters().transaction(),
+        &iroha_config::parameters::actual::Crypto::default(),
+        &time,
+    )
+    .unwrap();
+    queue.push(accepted, chain.state().view()).unwrap();
+    let source =
+        QueueLaneTransactions::new(LANE_FIXTURE_ID, queue.clone(), chain.state().clone(), time);
+    let height = chain.height() + 1;
+    let skip = std::collections::BTreeSet::new();
+    assert!(
+        matches!(
+            source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+            Err(LaneSelectionError::ClockAhead)
+        ),
+        "lane proposer must leave future signed input queued"
+    );
+    assert_eq!(queue.queued_len(), 1);
+    clock.advance(Duration::from_millis(1));
+    let selected = source
+        .candidates(height, LANE_FIXTURE_LANE as usize, &skip)
+        .unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(
+        selected[0].hash_as_entrypoint(),
+        future.hash_as_entrypoint()
+    );
+    assert_eq!(queue.queued_len(), 1);
+    clock.rewind(Duration::from_millis(1));
+    assert!(matches!(
+        source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+        Err(LaneSelectionError::ClockAhead)
+    ));
+}
+
+/// Admission uses the coherent transaction cap on either route. The lane proposer obeys
+/// its smaller budget: it carries the exact lane maximum and skips a queued cap-valid input
+/// one byte larger. Such an input remains eligible for later global rescue.
 #[test]
 fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     let (chain, clock, user) = lane_chain();
     let global = u64::from(LANE_FIXTURE_GLOBAL);
-    let lane = u64::from(LANE_FIXTURE_LANE);
     {
         let view = chain.state().view();
         let record = view
@@ -276,7 +495,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             parameters.max_includable_transaction_bytes(TransactionInclusionRoute::NativeLane {
                 max_block_bytes: lane_payload,
             }),
-            lane
+            global
         );
     }
     let (_, time) = TimeSource::new_mock(Duration::from_millis(3_001));
@@ -302,67 +521,52 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             accepted,
         )
     };
-    let never = |encoded_bytes: u64, max_bytes: u64| TransactionNeverIncludable {
-        encoded_bytes,
-        max_bytes,
-    };
-    // Routed to the lane: above the global budget, at the lane budget and one byte over.
-    let above_global = accept(sized(&chain, &user, LANE_FIXTURE_GLOBAL + 1, 3_000));
+    // All these lane inputs fit the committed cap; the first exceeds only a residual budget.
+    let above_residual = accept(sized(&chain, &user, RESIDUAL_GLOBAL_BUDGET + 1, 3_000));
     let at_lane = accept(sized(&chain, &user, LANE_FIXTURE_LANE, 3_000));
     let over_lane = accept(sized(&chain, &user, LANE_FIXTURE_LANE + 1, 3_000));
-    // Routed to lane zero: the global budget and one byte over.
+    // The committed transaction cap is inclusive on both routes, with exact +1 refusal.
     let at_global = accept(sized(&chain, &clock, LANE_FIXTURE_GLOBAL, 3_000));
-    let over_global = accept(sized(&chain, &clock, LANE_FIXTURE_GLOBAL + 1, 3_000));
+    let at_cap_lane = accept(sized(&chain, &user, LANE_FIXTURE_GLOBAL, 3_000));
+    for key in [&clock, &user] {
+        assert_cap_rejected(
+            &chain,
+            &sized(&chain, key, LANE_FIXTURE_GLOBAL + 1, 3_000),
+            LANE_FIXTURE_GLOBAL,
+        );
+    }
     {
         let view = chain.state().view();
         let routing = super::super::lanes::routing::RoutingSnapshot::of(&view).unwrap();
         let inputs = routing.inputs(view.world());
-        for routed in [&above_global, &at_lane, &over_lane] {
+        for routed in [&above_residual, &at_lane, &over_lane, &at_cap_lane] {
             assert_eq!(inputs.route(routed, height).unwrap(), Some(LANE_FIXTURE_ID));
         }
-        for direct in [&at_global, &over_global] {
-            assert_eq!(inputs.route(direct, height).unwrap(), Some(GLOBAL_LANE));
-        }
+        assert_eq!(inputs.route(&at_global, height).unwrap(), Some(GLOBAL_LANE));
     }
-    assert_eq!(admission(&above_global), Ok(()));
-    assert_eq!(admission(&at_lane), Ok(()));
-    assert_eq!(
-        admission(&over_lane),
-        Err(ExecutionAttemptError::Rejected(never(lane + 1, lane)))
-    );
-    assert_eq!(admission(&at_global), Ok(()));
-    assert_eq!(
-        admission(&over_global),
-        Err(ExecutionAttemptError::Rejected(never(global + 1, global)))
-    );
+    for accepted in [
+        &above_residual,
+        &at_lane,
+        &over_lane,
+        &at_cap_lane,
+        &at_global,
+    ] {
+        assert_eq!(admission(accepted), Ok(()));
+    }
 
-    // Queue admission makes the same decisions and retains nothing it refuses.
+    // Queue custody retains valid inputs even when the lane alone cannot carry them.
     let queue = Arc::new(Queue::test(
         iroha_config::parameters::actual::Queue::default(),
         &time,
     ));
-    for (refused, reason) in [
-        (&over_lane, never(lane + 1, lane).to_string()),
-        (&over_global, never(global + 1, global).to_string()),
-    ] {
-        let failure = queue
-            .push(refused.clone(), chain.state().view())
-            .expect_err("no proposer on the route can select it");
-        assert!(
-            matches!(
-                &failure.err,
-                crate::queue::Error::UnsupportedTransactionAdmission { reason: actual }
-                    if *actual == reason
-            ),
-            "{:?}",
-            failure.err
-        );
-    }
     assert_eq!(queue.queued_len(), 0);
+    queue
+        .push(over_lane.clone(), chain.state().view())
+        .expect("global rescue can carry it");
     queue
         .push(at_lane.clone(), chain.state().view())
         .expect("the lane budget itself is includable on the lane route");
-    assert_eq!(queue.queued_len(), 1);
+    assert_eq!(queue.queued_len(), 2);
 
     // The lane's proposer reads the queue with the budget its builder passes: the committed
     // lane payload limit less the batch framing reserve. One byte less cannot carry it.
@@ -370,6 +574,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
         LANE_FIXTURE_ID,
         Arc::clone(&queue),
         Arc::clone(chain.state()),
+        time.clone(),
     );
     let budget = usize::try_from(LANE_FIXTURE_LANE).unwrap();
     let skip = std::collections::BTreeSet::new();
@@ -385,13 +590,14 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             .unwrap()
             .is_empty()
     );
-    // The global proposer leaves a fresh lane input to its lane, and could not carry it.
+    // The global proposer leaves fresh lane inputs to their lane even with enough capacity.
     assert!(
         select(
-            chain.state(),
+            &chain.state().view(),
             &queue,
             usize::try_from(LANE_FIXTURE_GLOBAL).unwrap(),
-            0
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
         )
         .unwrap()
         .is_empty()
@@ -445,22 +651,53 @@ fn proposer_selection_is_capped_by_the_fastpq_network_input_bound() {
     }
     assert_eq!(queue.queued_len(), cap + 2);
     let budget = usize::try_from(INCLUDABLE).unwrap();
-    assert_eq!(select(chain.state(), &queue, budget, 0).unwrap().len(), cap);
     assert_eq!(
-        select(chain.state(), &queue, budget, 3).unwrap().len(),
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .len(),
+        cap
+    );
+    assert_eq!(
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal {
+                transactions: 3,
+                ..MergeProposal::default()
+            },
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .len(),
         cap - 3
     );
     assert!(
-        select(chain.state(), &queue, budget, cap)
-            .unwrap()
-            .is_empty()
+        select(
+            &chain.state().view(),
+            &queue,
+            budget,
+            &MergeProposal {
+                transactions: cap,
+                ..MergeProposal::default()
+            },
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .is_empty()
     );
 }
 
 /// The global chain rescues an input whose lane has not carried it for `2A` global block
-/// times, and only within the global selection budget. A lane-routed transaction above that
-/// budget was includable for its lane at admission, and no global proposer ever selects it:
-/// if its lane stalls or closes it stays queued until it expires.
+/// times, and only within the remaining global selection budget. Both inputs fit the
+/// committed global cap; a budget reduced by other proposal contents can defer one until
+/// another proposal leaves enough room. No valid policy admits an input above the full cap.
 #[test]
 fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budget() {
     let (mut chain, _clock, user) = lane_chain();
@@ -478,8 +715,8 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
             .expect("within the transaction cap")
         };
         (
-            accept(sized(&chain, &user, LANE_FIXTURE_GLOBAL, 3_000)),
-            accept(sized(&chain, &user, LANE_FIXTURE_GLOBAL + 1, 3_000)),
+            accept(sized(&chain, &user, RESIDUAL_GLOBAL_BUDGET, 3_000)),
+            accept(sized(&chain, &user, RESIDUAL_GLOBAL_BUDGET + 1, 3_000)),
         )
     };
     let queue_of = |transactions: &[&AcceptedTransaction<'static>]| {
@@ -496,9 +733,19 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
     };
     let both = queue_of(&[&within, &above]);
     let only_above = queue_of(&[&above]);
-    let budget = usize::try_from(LANE_FIXTURE_GLOBAL).unwrap();
+    let budget = usize::try_from(RESIDUAL_GLOBAL_BUDGET).unwrap();
     // Fresh lane inputs are left to their lane.
-    assert!(select(chain.state(), &both, budget, 0).unwrap().is_empty());
+    assert!(
+        select(
+            &chain.state().view(),
+            &both,
+            budget,
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .is_empty()
+    );
 
     // The lane carries neither input for more than `2A` global block times (A = 4 here).
     let cadence = chain
@@ -512,17 +759,37 @@ fn global_rescue_carries_a_stalled_lane_transaction_only_within_the_global_budge
     chain.commit_at(3_000 + 2 * 4 * cadence + 1_000, Vec::new());
 
     // The rescue takes the input the global budget carries and skips the larger one.
-    let rescued = select(chain.state(), &both, budget, 0).unwrap();
+    let rescued = select(
+        &chain.state().view(),
+        &both,
+        budget,
+        &MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
+    )
+    .unwrap();
     assert_eq!(rescued.len(), 1);
     assert_eq!(rescued[0].hash_as_entrypoint(), within.hash_as_entrypoint());
     // Its size alone keeps the larger input out: alone in the queue it is still skipped
     // within the global budget, and one more byte of budget would carry it.
     assert!(
-        select(chain.state(), &only_above, budget, 0)
-            .unwrap()
-            .is_empty()
+        select(
+            &chain.state().view(),
+            &only_above,
+            budget,
+            &MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .is_empty()
     );
-    let carried = select(chain.state(), &only_above, budget + 1, 0).unwrap();
+    let carried = select(
+        &chain.state().view(),
+        &only_above,
+        budget + 1,
+        &MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
+    )
+    .unwrap();
     assert_eq!(carried.len(), 1);
     assert_eq!(carried[0].hash_as_entrypoint(), above.hash_as_entrypoint());
 }

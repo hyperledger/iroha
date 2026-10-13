@@ -97,6 +97,9 @@ pub(super) fn payload_failure(error: &super::payload::PayloadError) -> Option<Pu
         PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
             PublicationError::Deferred(original.clone().into())
         }
+        PayloadError::SccpForgeryPreparation(original) => validation_failure(
+            &BlockValidationError::StateStorageAdmission(original.clone()),
+        )?,
         PayloadError::StakingPreparation(original) => {
             validation_failure(&BlockValidationError::EvidencePreparation(original.clone()))?
         }
@@ -198,10 +201,24 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 | AdmittedStorageError::PolicyIdentity
                 | AdmittedStorageError::PolicyDemand { .. },
             )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Poisoned { .. }
+                    | AdmittedStorageError::Planning(_)
+                    | AdmittedStorageError::ScopeIdentity
+                    | AdmittedStorageError::PolicyIdentity
+                    | AdmittedStorageError::PolicyDemand { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(EvidencePreparationError::Invariant)
             | StateStorageAdmissionError::NativeAmx(
                 super::super::amx::NativeAmxAdmissionError::Invalid(_),
+            ) => return Some(PublicationError::RecoveryRequired(original.to_string())),
+            StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::OriginalHistoryPending,
             ) => {
-                return Some(PublicationError::RecoveryRequired(original.to_string()));
+                return Some(PublicationError::Retryable(original.to_string()));
             }
             StateStorageAdmissionError::World(
                 AdmittedStorageError::Busy { .. }
@@ -213,6 +230,21 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 super::super::amx::NativeAmxAdmissionError::Admission(_)
                 | super::super::amx::NativeAmxAdmissionError::Allocator { .. }
                 | super::super::amx::NativeAmxAdmissionError::Codec(_),
+            )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Codec(_)
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Busy { .. }
+                    | AdmittedStorageError::Changed
+                    | AdmittedStorageError::Allocation(_)
+                    | AdmittedStorageError::Allocator { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::Admission(_)
+                | EvidencePreparationError::Allocator { .. }
+                | EvidencePreparationError::DecodeScope { .. }
+                | EvidencePreparationError::DecodeResource(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
             | StateStorageAdmissionError::RootScopeDecode(_) => {

@@ -5,6 +5,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import org.hyperledger.iroha.sdk.norito.NoritoEncoder
 import org.hyperledger.iroha.sdk.norito.NoritoHeader
 import org.hyperledger.iroha.sdk.tx.norito.TransactionPayloadAdapter
 import kotlin.test.Test
@@ -596,6 +597,66 @@ class ProofAttachmentTest {
     }
 
     @Test
+    fun `all proof attachment tails match current Rust under both length layouts`() {
+        val rows = FixtureGeneratorRunner.run("proof-attachments-v1")
+        val seen = mutableSetOf<Pair<Int, Int>>()
+        for (row in rows) {
+            val columns = row.split('\t')
+            assertEquals(3, columns.size)
+            val flags = columns[0].toInt()
+            val mask = columns[1].toInt()
+            assertTrue(flags in listOf(0, NoritoHeader.COMPACT_LEN))
+            assertTrue(mask in 0..7)
+            assertTrue(seen.add(flags to mask), "duplicate fixture row")
+            val attachment = attachmentWithTailMask(mask)
+            val rust = FixtureGeneratorRunner.hexToBytes(columns[2])
+            assertContentEquals(rust, TransactionPayloadAdapter.encodeProofAttachmentPayload(attachment, flags))
+            assertEquals(attachment, TransactionPayloadAdapter.decodeProofAttachmentPayload(rust, flags))
+        }
+        assertEquals(16, seen.size)
+    }
+
+    @Test
+    fun `proof attachment rejects redundant absent tails under both length layouts`() {
+        for (flags in listOf(0, NoritoHeader.COMPACT_LEN)) {
+            val absentField = NoritoEncoder(flags).apply {
+                writeLength(1L, flags and NoritoHeader.COMPACT_LEN != 0)
+                writeByte(0)
+            }.toByteArray()
+            for (mask in 0..7) {
+                val attachment = attachmentWithTailMask(mask)
+                val canonical = TransactionPayloadAdapter.encodeProofAttachmentPayload(attachment, flags)
+                assertEquals(attachment, TransactionPayloadAdapter.decodeProofAttachmentPayload(canonical, flags))
+                val tail = when {
+                    mask and 4 != 0 -> 3
+                    mask and 2 != 0 -> 2
+                    mask and 1 != 0 -> 1
+                    else -> 0
+                }
+                var padded = canonical
+                repeat(3 - tail) {
+                    padded += absentField
+                    assertFailsWith<IllegalArgumentException> {
+                        TransactionPayloadAdapter.decodeProofAttachmentPayload(padded, flags)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun attachmentWithTailMask(mask: Int): ProofAttachment {
+        val proof = byteArrayOf(1, 2)
+        return ProofAttachment(
+            "pipa-r/pasta",
+            proof,
+            ProofVerifierKeyRef("pipa-r/pasta", "vk_transfer"),
+            if (mask and 1 != 0) ByteArray(32) { 0x55 } else null,
+            if (mask and 2 != 0) IrohaHash.prehash(proof) else null,
+            if (mask and 4 != 0) sampleLanePrivacy() else null,
+        )
+    }
+
+    @Test
     fun `lane privacy roundtrips under both supported Norito length layouts`() {
         val attachment = sampleAttachment()
         for (flags in listOf(0, NoritoHeader.COMPACT_LEN)) {
@@ -667,9 +728,9 @@ class ProofAttachmentTest {
     }
 
     private fun sampleAttachment(): ProofAttachment = ProofAttachment(
-        "halo2/ipa",
+        "pipa-r/pasta",
         byteArrayOf(1, 2),
-        ProofVerifierKeyRef("halo2/ipa", "vk_transfer"),
+        ProofVerifierKeyRef("pipa-r/pasta", "vk_transfer"),
         lanePrivacy = sampleLanePrivacy(),
     )
 
@@ -698,7 +759,7 @@ class ProofAttachmentTest {
     }
 
     private fun requiredAttachmentPrefix(): ByteArray {
-        val backend = "halo2/ipa"
+        val backend = "pipa-r/pasta"
         return ByteArrayOutputStream().apply {
             write(field(encodeString(backend)))
             write(field(manualProofBox(backend, byteArrayOf(1, 2))))
@@ -728,18 +789,10 @@ class ProofAttachmentTest {
             for (sibling in auditPath) write(field(option(sibling)))
         }.toByteArray()
         val merkleProof = field(u32(leafIndex)) + field(path)
-        val merkleWitness = field(fixedBytes(ByteArray(32) { 0xaa.toByte() })) + field(merkleProof)
+        val merkleWitness = field(ByteArray(32) { 0xaa.toByte() }) + field(merkleProof)
         val witness = u32(witnessTag) + field(merkleWitness)
-        return field(u16(7)) + field(witness)
+        return field(field(u16(7))) + field(witness)
     }
-
-    private fun fixedBytes(bytes: ByteArray): ByteArray =
-        ByteArrayOutputStream().apply {
-            for (byte in bytes) {
-                write(u64(1L))
-                write(byte.toInt())
-            }
-        }.toByteArray()
 
     private fun option(payload: ByteArray?): ByteArray =
         if (payload == null) byteArrayOf(0) else byteArrayOf(1) + u64(payload.size.toLong()) + payload

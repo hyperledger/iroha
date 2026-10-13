@@ -1730,7 +1730,7 @@ fn kagemusha_wallet_v1_receipt_sign_verify_and_bindings() {
         "receipt.operation_id"
     ));
     let mut other_capsule = receipt;
-    other_capsule.capsule_digest = [0x32; 32];
+    other_capsule.capsule_commitment = [0x32; 32];
     assert!(matches!(
         other_capsule.verify(&signer, &statement, &proof_digest),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature { .. })
@@ -1742,14 +1742,14 @@ fn kagemusha_wallet_v1_receipt_sign_verify_and_bindings() {
         "receipt.payment_digest"
     ));
     let mut zero_capsule = receipt;
-    zero_capsule.capsule_digest = [0; 32];
+    zero_capsule.capsule_commitment = [0; 32];
     assert!(is_invalid(
         zero_capsule.validate(),
-        "receipt.capsule_digest"
+        "receipt.capsule_commitment"
     ));
     assert!(is_invalid(
         KagemushaWalletReceiptBodyV1::derive(&signer, &statement, &proof_digest, [0; 32], [0; 32]),
-        "receipt.capsule_digest"
+        "receipt.capsule_commitment"
     ));
     assert!(is_invalid(
         KagemushaWalletReceiptBodyV1::derive(&signer, &statement, &[0; 32], CAPSULE, [0; 32]),
@@ -1888,6 +1888,169 @@ fn kagemusha_wallet_v1_package_verify_digest_and_flips() {
             field: "package.version",
             ..
         })
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_package_decode_canonical_preserves_each_operation() {
+    let f = android();
+    let scheme = f.scheme.scheme_id();
+    for effect in sample_effects(&f) {
+        let package = signed_package(
+            &f,
+            &f.credential,
+            &statement_for(&f, effect),
+            stand_in_proof(40),
+        );
+        let frame = norito::encode_canonical(&package).expect("canonical package");
+        let decoded = KagemushaWalletPackageV1::decode_canonical(&frame, &scheme)
+            .expect("bounded canonical package");
+        assert_eq!(decoded, package);
+        assert_eq!(
+            norito::encode_canonical(&decoded).expect("exact retry"),
+            frame
+        );
+        decoded.verify(&f.credential).expect("signed DATA control");
+    }
+}
+
+#[test]
+fn kagemusha_wallet_v1_package_decode_checks_versions_before_scheme_and_structure() {
+    let f = android();
+    let package = signed_package(
+        &f,
+        &f.credential,
+        &statement_for(&f, send_effect()),
+        stand_in_proof(40),
+    );
+    let scheme = f.scheme.scheme_id();
+    let foreign = [0x55; 32];
+    for field in [
+        "package.version",
+        "statement.version",
+        "lineage.version",
+        "receipt.version",
+    ] {
+        let mut changed = package.clone();
+        match field {
+            "package.version" => changed.version = 2,
+            "statement.version" => changed.statement.version = 2,
+            "lineage.version" => {
+                let KagemushaWalletLineageSlotV1::Present { lineage } = &mut changed.lineage else {
+                    panic!("Send fixture must carry lineage");
+                };
+                lineage.public.version = 2;
+            }
+            "receipt.version" => changed.receipt.version = 2,
+            _ => unreachable!("closed field list"),
+        }
+        // The version check must precede both the foreign scheme and empty-proof failures.
+        changed.step_proof = stand_in_proof(0);
+        let frame = norito::encode_canonical(&changed).expect("malformed DATA frame");
+        assert!(
+            matches!(
+                KagemushaWalletPackageV1::decode_canonical(&frame, &foreign),
+                Err(KagemushaWalletValidationErrorV1::UnsupportedVersion { field: actual, version: 2 })
+                    if actual == field
+            ),
+            "{field}"
+        );
+    }
+    let frame = norito::encode_canonical(&package).expect("canonical package");
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&frame, &foreign),
+        Err(KagemushaWalletValidationErrorV1::SchemeMismatch {
+            field: "package.scheme_id"
+        })
+    ));
+    let mut malformed = package;
+    malformed.step_proof = stand_in_proof(0);
+    let frame = norito::encode_canonical(&malformed).expect("empty proof DATA");
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&frame, &foreign),
+        Err(KagemushaWalletValidationErrorV1::SchemeMismatch {
+            field: "package.scheme_id"
+        })
+    ));
+    assert!(is_invalid(
+        KagemushaWalletPackageV1::decode_canonical(&frame, &scheme),
+        "step_proof.bytes"
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_package_decode_rejects_other_frames_layouts_and_oversize() {
+    let f = android();
+    let scheme = f.scheme.scheme_id();
+    let package = signed_package(
+        &f,
+        &f.credential,
+        &statement_for(&f, send_effect()),
+        stand_in_proof(40),
+    );
+    let frame = norito::encode_canonical(&package).expect("canonical package");
+    KagemushaWalletPackageV1::decode_canonical(&frame, &scheme).expect("positive control");
+    // Magic, header version, schema, compression, length, CRC, flags and alignment padding.
+    for byte in [0, 4, 5, 6, 22, 23, 31, 39, 40] {
+        let mut changed = frame.clone();
+        changed[byte] ^= 1;
+        assert!(
+            matches!(
+                KagemushaWalletPackageV1::decode_canonical(&changed, &scheme),
+                Err(KagemushaWalletValidationErrorV1::Codec(_))
+            ),
+            "header byte {byte}"
+        );
+    }
+    let other_schema = norito::encode_canonical(&package.statement).expect("statement frame");
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&other_schema, &scheme),
+        Err(KagemushaWalletValidationErrorV1::Codec(_))
+    ));
+    let flags = norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+    let alternate = {
+        let _guard = norito::core::DecodeFlagsGuard::enter(flags);
+        norito::to_bytes(&package).expect("alternate layout DATA")
+    };
+    assert_ne!(alternate, frame);
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&alternate, &scheme),
+        Err(KagemushaWalletValidationErrorV1::Codec(_))
+    ));
+    let mut trailing = frame.clone();
+    trailing.push(0);
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&trailing, &scheme),
+        Err(KagemushaWalletValidationErrorV1::Codec(_))
+    ));
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&frame[..frame.len() - 1], &scheme),
+        Err(KagemushaWalletValidationErrorV1::Codec(_))
+    ));
+    let oversized = vec![0; KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1];
+    assert!(matches!(
+        KagemushaWalletPackageV1::decode_canonical(&oversized, &scheme),
+        Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { actual, max })
+            if actual == oversized.len() && max == KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_package_decode_does_not_grant_receipt_authority() {
+    let f = android();
+    let mut package = signed_package(
+        &f,
+        &f.credential,
+        &statement_for(&f, send_effect()),
+        stand_in_proof(40),
+    );
+    package.receipt.capsule_commitment[0] ^= 1;
+    let frame = norito::encode_canonical(&package).expect("structural DATA frame");
+    let decoded = KagemushaWalletPackageV1::decode_canonical(&frame, &f.scheme.scheme_id())
+        .expect("canonical structural decoding does not verify signatures");
+    assert!(matches!(
+        decoded.verify(&f.credential),
+        Err(KagemushaWalletValidationErrorV1::InvalidSignature { .. })
     ));
 }
 
