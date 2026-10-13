@@ -70,7 +70,15 @@ fn state() -> StorageState {
     world.provider_owners.insert(provider, account(4));
     world.capacity_declarations.insert(
         provider,
-        CapacityDeclarationRecord::new(provider, vec![1], 1, 1, 1, 2, Default::default()),
+        CapacityDeclarationRecord::new(
+            provider,
+            vec![1],
+            1,
+            1,
+            1,
+            2,
+            iroha_model_base::metadata::Metadata::default(),
+        ),
     );
     let mut config = TestChainConfig::new(world, NOW - 1_000);
     config.genesis_instructions.extend([

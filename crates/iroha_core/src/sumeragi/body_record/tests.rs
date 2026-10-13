@@ -215,8 +215,7 @@ fn decoded_record_cannot_supply_its_own_source_authority() {
     let (job, error) = decoded
         .into_restoration(wrong_source.clone())
         .complete(&budget, &BlsCrypto::new())
-        .err()
-        .expect("foreign expected identity is rejected");
+        .expect_err("foreign expected identity is rejected");
     assert!(!error.is_local_refusal());
     assert_eq!(job.source(), &wrong_source);
     assert_eq!(
@@ -245,7 +244,6 @@ fn complete_decode_requires_mandatory_table_and_rejects_truncation_or_extra_byte
     let (_, error) = decoded
         .into_restoration(source)
         .complete(&budget, &BlsCrypto::new())
-        .err()
-        .expect("corrupt original signature rejects");
+        .expect_err("corrupt original signature rejects");
     assert!(!error.is_local_refusal());
 }

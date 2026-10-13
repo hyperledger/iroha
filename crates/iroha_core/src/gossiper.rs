@@ -37,7 +37,7 @@ use norito::{
 };
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     num::{NonZeroU32, NonZeroUsize},
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
@@ -81,7 +81,7 @@ struct PeerRecentSuppressionEntry {
     key: PeerRecentSendKey,
     expires_tick: u64,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PeerRecentSendKey {
     entrypoint_hash: EntrypointHash,
 }
@@ -314,7 +314,7 @@ pub struct TransactionGossiper {
     /// Deferred gossip hashes bucketed by resend tick.
     gossip_deferred: Vec<Vec<HashOf<TransactionEntrypoint>>>,
     /// Recently-sent wire identities tracked per peer to suppress duplicate fanout.
-    peer_recently_sent: BTreeMap<PeerId, HashMap<PeerRecentSendKey, u64>>,
+    peer_recently_sent: BTreeMap<PeerId, BTreeMap<PeerRecentSendKey, u64>>,
     /// Expiry ring for per-peer suppression entries (tick-based TTL).
     peer_recent_ring: Vec<Vec<PeerRecentSuppressionEntry>>,
     /// Subscriber and outbound TxGossip drop counter at the last backpressure observation.
@@ -467,7 +467,7 @@ impl TransactionGossiper {
         }
         let index = self.deferred_index();
         let slot = &mut self.gossip_deferred[index];
-        let mut seen: HashSet<_> = slot.iter().copied().collect();
+        let mut seen: BTreeSet<_> = slot.iter().copied().collect();
         for hash in hashes {
             if seen.insert(hash) {
                 slot.push(hash);
@@ -1424,6 +1424,17 @@ impl TransactionGossiper {
             plane,
         }: TransactionGossip,
     ) {
+        struct MaterializedGossipCandidate {
+            entrypoint: TransactionEntrypoint,
+            payload: Arc<Vec<u8>>,
+            entrypoint_hash: HashOf<TransactionEntrypoint>,
+            route: GossipRoute,
+            plan: RoutingPlan,
+            prepared: Option<PreparedTransactionMetadata>,
+            ed25519_prechecked: bool,
+            precheck_rejection: Option<AcceptTransactionFail>,
+        }
+
         iroha_logger::debug!(size = txs.len(), "received transaction gossip batch");
         let batch_txs = txs.len();
         if self.reject_oversized_incoming_batch(plane, batch_txs) {
@@ -1495,22 +1506,12 @@ impl TransactionGossiper {
             (params.sumeragi().max_clock_drift(), params.transaction())
         };
         let crypto_cfg = self.state.crypto();
-        let mut batch_seen_hashes = HashSet::with_capacity(batch_txs);
+        let mut batch_seen_hashes = BTreeSet::new();
         let state = self.state.as_ref();
         let committed_transactions = state.transactions.view();
         let ed25519_batch_cap = self.state.installed_pipeline().signature_batch_max_ed25519;
         let stateless_cache_cap = self.state.installed_pipeline().stateless_cache_cap;
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
-        struct MaterializedGossipCandidate {
-            entrypoint: TransactionEntrypoint,
-            payload: Arc<Vec<u8>>,
-            entrypoint_hash: HashOf<TransactionEntrypoint>,
-            route: GossipRoute,
-            plan: RoutingPlan,
-            prepared: Option<PreparedTransactionMetadata>,
-            ed25519_prechecked: bool,
-            precheck_rejection: Option<AcceptTransactionFail>,
-        }
         let mut materialized = Vec::with_capacity(batch_txs);
         for (idx, tx) in txs.into_iter().enumerate() {
             let Some(route) = routes.get(idx).copied() else {
@@ -2119,7 +2120,7 @@ impl TransactionGossiper {
             (params.sumeragi().max_clock_drift(), params.transaction())
         };
         let crypto_cfg = self.state.crypto();
-        let mut batch_seen_hashes = HashSet::with_capacity(batch_txs);
+        let mut batch_seen_hashes = BTreeSet::new();
         let state = self.state.as_ref();
         let committed_transactions = state.transactions.view();
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
@@ -2732,7 +2733,7 @@ impl Clone for GossipTransaction {
 const GOSSIP_TX_DECODE_CACHE_LIMIT: usize = 2048;
 const GOSSIP_TX_DECODE_CACHE_BYTE_LIMIT: usize = 8 * 1024 * 1024;
 const GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT: usize = 8192;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct GossipTxDecodeCacheKey {
     len: u32,
     prefix: u128,
@@ -2762,7 +2763,7 @@ struct GossipTxDecodeCacheEntry {
     consumed: usize,
 }
 struct GossipTxDecodeCache {
-    map: HashMap<GossipTxDecodeCacheKey, GossipTxDecodeCacheEntry>,
+    map: BTreeMap<GossipTxDecodeCacheKey, GossipTxDecodeCacheEntry>,
     bytes: usize,
     count_limit: usize,
     byte_limit: usize,
@@ -2776,7 +2777,7 @@ impl GossipTxDecodeCache {
     }
     fn with_limits(count_limit: usize, byte_limit: usize) -> Self {
         Self {
-            map: HashMap::new(),
+            map: BTreeMap::new(),
             bytes: 0,
             count_limit,
             byte_limit,
@@ -2810,7 +2811,7 @@ thread_local! {
 }
 #[derive(Default)]
 struct GossipKnownEntrypointHashCache {
-    known: HashMap<HashOf<TransactionEntrypoint>, ()>,
+    known: BTreeMap<HashOf<TransactionEntrypoint>, ()>,
 }
 impl GossipKnownEntrypointHashCache {
     fn contains(&self, entrypoint_hash: HashOf<TransactionEntrypoint>) -> bool {
@@ -2998,27 +2999,6 @@ impl GossipTransaction {
         let _ = self.entrypoint.set(Arc::clone(&entrypoint));
         Ok(self.entrypoint.get().map_or(entrypoint, Arc::clone))
     }
-    /// Borrow the transaction entrypoint payload.
-    pub fn as_entrypoint(&self) -> &TransactionEntrypoint {
-        if self.entrypoint.get().is_none() {
-            self.materialize_entrypoint()
-                .expect("decode gossip transaction entrypoint");
-        }
-        self.entrypoint
-            .get()
-            .expect("entrypoint materialized above")
-            .as_ref()
-    }
-    /// Borrow the signed transaction payload when this gossip item exposes one.
-    pub fn as_signed(&self) -> &SignedTransaction {
-        match self.as_entrypoint() {
-            TransactionEntrypoint::External(signed) => signed,
-            TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("gossip entrypoint is not a signed transaction")
-            }
-        }
-    }
     /// Return the entrypoint hash without rehashing.
     pub fn hash(&self) -> HashOf<TransactionEntrypoint> {
         self.entrypoint_hash
@@ -3028,6 +3008,10 @@ impl GossipTransaction {
         self.entrypoint_hash
     }
     /// Consume the wrapper and return its entrypoint and exact cached canonical frame.
+    ///
+    /// # Errors
+    /// Returns the original Norito error if the cached canonical frame cannot be
+    /// decoded into an entrypoint, including local decoder resource refusals.
     pub fn into_entrypoint_with_payload(
         self,
     ) -> Result<(TransactionEntrypoint, Arc<Vec<u8>>), ncore::Error> {
@@ -3559,7 +3543,10 @@ mod tests {
             Arc::ptr_eq(&first.encoded, &second.encoded),
             "encoded bytes must be reused from cache"
         );
-        assert_eq!(first.as_signed().hash(), signed.hash());
+        assert_eq!(
+            first.clone().into_entrypoint_with_payload().unwrap().0,
+            TransactionEntrypoint::External(signed.clone())
+        );
         assert!(first.is_entrypoint_materialized());
     }
     #[test]
@@ -5292,6 +5279,55 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
     include!("gossiper_network_domain_tests.rs");
     include!("gossiper_restricted_route_tests.rs");
     #[test]
+    fn lazy_gossip_materialization_retains_every_complete_original_carrier() {
+        use iroha_data_model::transaction::signed::SealedTransactionReveal;
+        let (signed, _) = build_transaction("complete-gossip-carrier");
+        let inputs = [
+            TransactionEntrypoint::External(signed.clone()),
+            build_sealed_commitment_entrypoint(),
+            TransactionEntrypoint::SealedReveal(SealedTransactionReveal::new(
+                iroha_crypto::Hash::new(b"original-gossip-commitment"),
+                signed,
+                [0x91; 32],
+            )),
+        ];
+        for input in inputs {
+            let bytes = Arc::new(encode_transaction_entrypoint(&input));
+            let (decoded, used) =
+                <GossipTransaction as ncore::DecodeFromSlice>::decode_from_slice(&bytes)
+                    .expect("decode the canonical complete carrier");
+            assert_eq!(used, bytes.len());
+            assert!(!decoded.is_entrypoint_materialized());
+            assert_eq!(decoded.hash(), input.hash());
+            let original_frame = decoded.payload();
+            for _ in 0..2 {
+                let (retained, frame) = decoded.clone().into_entrypoint_with_payload().unwrap();
+                assert_eq!(retained, input);
+                assert_eq!(retained.hash(), input.hash());
+                assert_eq!(frame.as_slice(), bytes.as_slice());
+                assert!(Arc::ptr_eq(&frame, &original_frame));
+                assert!(decoded.is_entrypoint_materialized());
+            }
+        }
+    }
+    #[test]
+    fn lazy_gossip_decode_error_preserves_unmaterialized_original_for_retry() {
+        let (signed, _) = build_transaction("refused-gossip-carrier");
+        let original = Arc::new(vec![0_u8; ncore::Header::SIZE]);
+        let item = GossipTransaction::lazy_from_encoded(
+            Arc::clone(&original),
+            signed.hash_as_entrypoint(),
+        );
+        let identity = item.hash();
+        for _ in 0..2 {
+            assert!(item.clone().into_entrypoint_with_payload().is_err());
+            assert!(!item.is_entrypoint_materialized());
+            assert!(Arc::ptr_eq(&item.payload(), &original));
+            assert_eq!(item.payload().as_slice(), original.as_slice());
+            assert_eq!(item.hash(), identity);
+        }
+    }
+    #[test]
     fn native_gossip_item_is_one_canonical_frame_and_rejects_retired_prefixes() {
         let (signed, _) = build_transaction("native-gossip-frame");
         let frame = payload_for(&signed);
@@ -5303,7 +5339,10 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             <GossipTransaction as ncore::DecodeFromSlice>::decode_from_slice(&bytes)
                 .expect("canonical item");
         assert_eq!(used, bytes.len());
-        assert_eq!(decoded.as_signed(), &signed);
+        assert_eq!(
+            decoded.clone().into_entrypoint_with_payload().unwrap().0,
+            TransactionEntrypoint::External(signed.clone())
+        );
         for retired_tag in [0, 1] {
             let mut retired = vec![retired_tag];
             retired.extend_from_slice(&bytes);

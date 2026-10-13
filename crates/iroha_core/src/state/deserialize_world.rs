@@ -4167,8 +4167,7 @@ fn replay_soracloud_service_lease_usage(
             let delta = usage.replica_accounted_egress_bytes - checkpoint.accounted_egress_bytes;
             let elapsed_blocks = block_height.saturating_sub(checkpoint.last_updated_height);
             let maximum_delta = elapsed_blocks
-                .checked_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1);
             if delta > maximum_delta {
                 return Err("lease usage exceeds the elapsed-block egress bound".to_owned());
             }
@@ -7190,8 +7189,8 @@ mod validation_fee_registry_restore_tests {
         };
         let policy = ValidationFeePolicyV1 {
             retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-            effective_from_ms: 1793451600000,
-            notice_published_at_ms: 1790859600000,
+            effective_from_ms: 1_793_451_600_000,
+            notice_published_at_ms: 1_790_859_600_000,
             schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
             network_id: policy_network_id,
             policy_version: 1,
@@ -7767,9 +7766,9 @@ fn validate_da_pin_persistence_cut(
         }
     }
     for (manifest, ticket) in by_manifest.iter() {
-        if !by_ticket
+        if by_ticket
             .get(ticket)
-            .is_some_and(|record| record.intent.manifest_hash == *manifest)
+            .is_none_or(|record| record.intent.manifest_hash != *manifest)
         {
             return Err(invalid(
                 "da_pin_intents_by_manifest",
@@ -7792,9 +7791,9 @@ fn validate_da_pin_persistence_cut(
         }
     }
     for (alias, ticket) in by_alias.iter() {
-        if !by_ticket
+        if by_ticket
             .get(ticket)
-            .is_some_and(|record| record.intent.alias.as_deref() == Some(alias.as_str()))
+            .is_none_or(|record| record.intent.alias.as_deref() != Some(alias.as_str()))
         {
             return Err(invalid(
                 "da_pin_intents_by_alias",

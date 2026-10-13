@@ -338,7 +338,8 @@ fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
                 block.fastpq_transcripts.clear();
             }
             1 => {
-                block.fastpq_source_captures = Default::default();
+                block.fastpq_source_captures =
+                    crate::fastpq::FastpqSourceCaptureAccumulator::default();
             }
             2 => {
                 block.fastpq_transcripts.get_mut(&hash).unwrap().clear();
@@ -358,7 +359,7 @@ fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
             .unwrap_err();
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
         block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         assert!(
             block
                 .finalize_fastpq_source_inventory(&[], &[], &[])

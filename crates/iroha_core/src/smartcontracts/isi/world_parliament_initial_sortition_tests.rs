@@ -403,6 +403,10 @@ fn parliament_initial_sortition_pulse_overflow_cannot_mutate_the_attempt() {
 /// identifier other than the one stored for the slot.
 #[test]
 fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after_rotation() {
+    const UNKNOWN: &str = "unknown finalized beacon pulse";
+    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
+    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
+
     use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     use iroha_data_model::{
         consensus::{FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconChainAnchorV1},
@@ -530,7 +534,7 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &network_id,
-            pulse,
+            &pulse,
             slot_height,
         ),
         Ok(seed)
@@ -577,9 +581,6 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
         );
         assert!(awaiting_pulse(state_transaction));
     };
-    const UNKNOWN: &str = "unknown finalized beacon pulse";
-    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
-    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
     let store = |state_transaction: &mut StateTransaction<'_, '_>,
                  stored: FinalizedGlobalThresholdBeaconPulseV1| {
         state_transaction

@@ -152,7 +152,7 @@ fn resident_network_projection_and_real_kaigi_candidate_insertion_match_recount(
         let block = network_index_block_at(height, vec![entrypoint.clone()]);
         Kura::insert_transaction_entrypoint_heights(
             &mut index,
-            NonZeroUsize::new(height as usize).unwrap(),
+            NonZeroUsize::new(usize::try_from(height).unwrap()).unwrap(),
             &block,
         );
         assert_eq!(

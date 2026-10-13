@@ -1760,7 +1760,7 @@ fn mutates_contract_deployment_permission(instruction: &InstructionBox) -> bool 
         Some(
             PermissionOrRoleMutation::AccountPermission { permission, .. }
                 | PermissionOrRoleMutation::RolePermission { permission, .. }
-        ) if matches!(permission.name().as_ref(), "CanManageSmartContractCode" | "CanGrantSmartContractCodeManagement")
+        ) if matches!(permission.name(), "CanManageSmartContractCode" | "CanGrantSmartContractCodeManagement")
     )
 }
 fn ensure_contract_code_management_permission_lifecycle(
@@ -1769,7 +1769,7 @@ fn ensure_contract_code_management_permission_lifecycle(
     permission: &Permission,
 ) -> Result<(), ValidationFail> {
     let is_genesis = is_initial_genesis_context(state_transaction);
-    match permission.name().as_ref() {
+    match permission.name() {
         "CanGrantSmartContractCodeManagement" => {
             executor_permission::smart_contract::CanGrantSmartContractCodeManagement::try_from(
                 permission,
@@ -2559,8 +2559,7 @@ fn resolve_fee_sponsor_program(
         return Err(NexusFeeAdmissionError::sponsor(
             FeeRejectionCode::RevisionNotActive,
             format!(
-                "fee sponsor program `{program_id}` active revision is {:?}; transaction selected {signed_revision}",
-                effective_revision
+                "fee sponsor program `{program_id}` active revision is {effective_revision:?}; transaction selected {signed_revision}"
             ),
         ).into());
     }
@@ -4597,6 +4596,12 @@ fn evaluate_nexus_fee_admission_payload(
 /// ([`crate::smartcontracts::isi::sccp::hold::committed_time_ms`]); it is distinct from the
 /// fee observation horizon. `None` represents an empty predecessor and cannot expire a pause.
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+/// Returns a rejection for unsupported settlement configuration, invalid gas
+/// or signed charge limits, unresolved fee policy or assets, insufficient
+/// funding, or invalid sponsor authorization/capacity. Original local policy
+/// and exemption-read refusals remain `Deferred`.
 pub fn quote_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4690,6 +4695,11 @@ fn fee_exempt_admission_quote(payload: &TransactionPayload) -> FeeAdmissionQuote
 /// Supply the original parent's SCCP time separately from the fee observation horizon, as
 /// required by [`quote_nexus_fee_admission_payload`].
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+/// Returns the same policy, gas, asset and funding errors as strict fee quoting,
+/// or a configuration error if canonical charge limits do not converge within
+/// 32 iterations. Original local read refusals remain `Deferred`.
 pub fn quote_nexus_fee_admission_draft(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4769,6 +4779,10 @@ pub fn quote_nexus_fee_admission_draft(
 /// This is the queue/admission wrapper around
 /// [`quote_nexus_fee_admission_payload`]; signatures do not affect fee bytes.
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+/// Propagates the signed-limit, policy, funding and local-read errors from
+/// [`quote_nexus_fee_admission_payload`] for the transaction payload.
 pub fn quote_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -6450,7 +6464,7 @@ impl Executor {
             Self::charge_nexus_fees(
                 state_transaction,
                 authority,
-                &transaction,
+                transaction,
                 fee_sponsor,
                 tx_bytes_len,
                 instruction_count,
@@ -6910,7 +6924,7 @@ impl Executor {
                 let bh = crate::zk::hash_proof(&b.proof);
                 (a.backend.as_str(), ah).cmp(&(b.backend.as_str(), bh))
             });
-            for attachment in list_sorted.into_iter() {
+            for attachment in list_sorted {
                 if let Some((field, message)) = attachment.structural_error() {
                     return Err(ValidationFail::NotPermitted(format!(
                         "malformed proof attachment: {field} {message}"
@@ -12472,8 +12486,9 @@ mod tests {
         );
         let statement_digest = statement.digest().expect("hash Jindo statement fixture");
         let envelope = PrivacyProofEnvelopeV1 {
-            wire_magic: Default::default(),
-            catalog_commitment: Default::default(),
+            wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+            catalog_commitment:
+                iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
             protocol_id: profile.protocol_id,
             proof_system_id: profile.proof_system_id,
             engine_id: profile.engine_id,
@@ -13345,9 +13360,7 @@ mod tests {
     fn initial_executor_treats_sccp_proposer_permission_as_genesis_only() {
         let permission: Permission =
             executor_permission::sccp::CanProposeSccpRouteGovernance.into();
-        assert!(is_builtin_initial_permission_name(
-            permission.name().as_ref()
-        ));
+        assert!(is_builtin_initial_permission_name(permission.name()));
         assert!(
             initial_permission_is_genesis_only(&permission),
             "SCCP route governance proposers are granted and revoked only in genesis"
@@ -14064,7 +14077,7 @@ mod tests {
             .execute(&authority, &mut state_transaction)
             .expect("seed empty role fixture");
         for permission in invalid_permissions {
-            let permission_name: &str = permission.name().as_ref();
+            let permission_name: &str = permission.name();
             for (path, instruction) in [
                 (
                     "account",
@@ -21874,13 +21887,13 @@ mod tests {
         program
     }
     fn prepared_parameterized_trigger_contract() -> ivm::PreparedContract {
-        let source = r#"
+        let source = r"
 seiyaku TriggerArguments { permission Admin;
   kotoage fn run(quantity val) authorize(Admin) {
     let _val = val;
   }
 }
-"#;
+";
         let code = kotodama_lang::compiler::Compiler::new()
             .compile_source(source)
             .expect("compile parameterized trigger callback");
@@ -22970,13 +22983,13 @@ seiyaku MeteredFailure { permission CanInvokeContractEntrypoint;
             },
         )
         .compile_source(
-            r#"
+            r"
 seiyaku IdentityRequired {
   view fn write(int value) authorize(anyone) -> int {
     return value;
   }
 }
-"#,
+",
         )
         .expect("compile identity-required raw contract");
         let authority = ALICE_ID.clone();
@@ -23127,11 +23140,11 @@ seiyaku IdentityRequired {
     fn reviewable_contract_metadata_binds_exact_invocation_arguments() {
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
   kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {}
 }
-"#,
+",
             )
             .expect("compile reviewed contract");
         let prepared = ivm::prepare_contract(Arc::<[u8]>::from(program.clone()))

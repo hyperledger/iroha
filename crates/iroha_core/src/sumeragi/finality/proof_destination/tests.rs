@@ -117,7 +117,7 @@ fn retained_proof_preparation_binds_original_source_and_refunds_partial_key_unwi
     let reader = CertifiedChain::new(&view).unwrap();
     let certified = reader.certified(2).unwrap();
     let members = &certified.commitment().schedule.current.committee;
-    let foreign_members = members.to_vec();
+    let foreign_members = members.clone();
     let genesis = chain.committed(1);
     let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let wire = norito::canonical_frame_len(certified.block().as_ref()).unwrap() + 1;

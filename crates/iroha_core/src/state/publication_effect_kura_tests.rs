@@ -174,13 +174,14 @@ fn original_kura_unwind_callbacks_follow_all_state_siblings() {
 fn geometry_reuses_only_the_exact_original_kura_lease() {
     let kura = Kura::blank_kura_for_testing();
     let other = Kura::blank_kura_for_testing();
+    let mut releases = crate::kura::KuraPublicationReleases::new(&kura);
     let original = kura.try_publication_lease().expect("actual source Kura");
     assert!(
-        geometry_scoped_lease(&kura, Some(&original))
+        geometry_scoped_lease(&kura, Some(&original), &mut releases)
             .unwrap()
             .is_none()
     );
-    let error = geometry_scoped_lease(&other, Some(&original))
+    let error = geometry_scoped_lease(&other, Some(&original), &mut releases)
         .err()
         .expect("foreign Kura cannot substitute");
     assert!(
@@ -198,7 +199,29 @@ fn geometry_reuses_only_the_exact_original_kura_lease() {
             .all(|(_, lock)| lock.try_lock().is_some())
     );
     drop(original);
-    let scoped = geometry_scoped_lease(&kura, None)
+    let foreign_fences = other.publication_fences_for_test();
+    let foreign_prune = foreign_fences[0].1.lock();
+    let refusal = match geometry_scoped_lease(&other, None, &mut releases) {
+        Err(error) => error,
+        Ok(_) => panic!("foreign cleanup must refuse before acquiring any physical fence"),
+    };
+    assert!(
+        matches!(refusal, LaneLifecycleError::GeometryStorage(crate::kura::Error::IO(ref error, _))
+        if error.kind() == std::io::ErrorKind::InvalidInput && error.to_string() == "geometry cleanup belongs to another Kura")
+    );
+    drop(foreign_prune);
+    assert!(
+        kura.publication_fences_for_test()
+            .iter()
+            .all(|(_, lock)| lock.try_lock().is_some())
+    );
+    assert!(
+        other
+            .publication_fences_for_test()
+            .iter()
+            .all(|(_, lock)| lock.try_lock().is_some())
+    );
+    let scoped = geometry_scoped_lease(&kura, None, &mut releases)
         .unwrap()
         .expect("standalone owner keeps its original lease");
     assert!(scoped.belongs_to(&kura));

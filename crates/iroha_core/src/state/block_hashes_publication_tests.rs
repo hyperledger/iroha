@@ -19,10 +19,7 @@ fn detached(owner: &BlockHashes, replace: bool, appends: &[u8]) -> DetachedBlock
     block.detach()
 }
 
-fn prepare<'target>(
-    journal: DetachedBlockHashes,
-    owner: &'target BlockHashes,
-) -> PreparedBlockHashes<'target, ()> {
+fn prepare(journal: DetachedBlockHashes, owner: &BlockHashes) -> PreparedBlockHashes<'_, ()> {
     journal
         .try_prepare_publication(owner, |_, _| Ok::<_, &str>(()))
         .unwrap_or_else(|(_, error, _)| panic!("hash publication preparation: {error:?}"))

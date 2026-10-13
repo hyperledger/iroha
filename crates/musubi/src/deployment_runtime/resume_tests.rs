@@ -229,12 +229,12 @@ fn complete(plan: &Plan) -> Result<DeploymentReceipt> {
         .collect();
     for (index, ((name, tx), evidence)) in plan.transactions.iter().zip(&stages).enumerate() {
         directory.write_atomic(
-            &format!("attempt-{index:04}.json"),
+            format!("attempt-{index:04}.json"),
             &norito::json::to_vec(&norito::json!({"name": name, "hash": (tx.hash().to_string())}))?,
             PublishMode::CreateNew,
         )?;
         directory.write_atomic(
-            &format!("applied-{index:04}.json"),
+            format!("applied-{index:04}.json"),
             &norito::json::to_vec(evidence)?,
             PublishMode::CreateNew,
         )?;

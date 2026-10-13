@@ -425,7 +425,12 @@ fn fixture_with_effects_in_root(
                 fee_and_protocol.then(|| NonZeroU64::new(gas).unwrap()),
             ),
         );
-        tx.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        tx.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let mut tx = tx.with_instructions(body);
         if let Some(dataspace) = private_dataspace {
             let view = state.view();
@@ -832,7 +837,7 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         assert_eq!(actual_capture.route(), FastpqSourceRouteV1::Unrouted);
         // Corrupt facts captured by the actual Pipeline transfer. These are
         // hostile state mutations, never an admitted replacement source owner.
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         if mutation != 3 {
             let hash = if mutation == 0 {
                 Hash::new(b"unowned internal execution call")
@@ -875,7 +880,7 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
         };
         assert_eq!(error, expected);
         block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = Default::default();
+        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
         assert!(
             block
                 .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(

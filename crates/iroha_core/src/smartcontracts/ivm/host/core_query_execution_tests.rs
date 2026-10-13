@@ -206,11 +206,11 @@ fn core_queries_return_typed_handles_and_specialists_remain_norito() {
     let contract_address = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku DedicatedQueryContract {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
     let code_hash = *state

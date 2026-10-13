@@ -145,17 +145,17 @@ fn trigger_installation_refusal_and_late_identity_change_keep_every_original_del
     mutate_all(&mut block);
     let journal = capture(block);
     let pointer = contract_touch_pointer(&journal);
-    let (journal, error, _cleanup) = journal
+    let (journal, error, cleanup) = journal
         .try_prepare_publication(&set, |_, _| {
             assert_all_writers_released(&set);
             Err::<(), _>("capacity")
         })
         .err()
         .expect("resource refusal");
-    drop(_cleanup);
+    drop(cleanup);
     assert!(matches!(error, SetPublicationError::Admission("capacity")));
     let installation_released = Arc::new(AtomicBool::new(false));
-    let (journal, error, _cleanup) = journal
+    let (journal, error, cleanup) = journal
         .try_prepare_publication(&set, |_, target| {
             target.contracts.block().commit();
             Ok::<_, ()>(TriggerInstallation {
@@ -165,7 +165,7 @@ fn trigger_installation_refusal_and_late_identity_change_keep_every_original_del
         })
         .err()
         .expect("late changed component");
-    drop(_cleanup);
+    drop(cleanup);
     assert!(matches!(
         error,
         SetPublicationError::Component {

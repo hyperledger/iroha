@@ -147,6 +147,11 @@ pub enum LaneIdentityMetadataError {
 /// - if the target manifest exists but is inactive, returns [`LaneIdentityMetadataError`]
 /// - if the UAID has an active manifest for the target dataspace, returns tags from manifest notes
 /// - if the UAID has a binding but no target manifest, returns `(Some(uaid), [])`
+///
+/// # Errors
+/// Returns `InactiveManifest` for an inactive target manifest, or
+/// `MissingDataspaceBinding` when the account UAID is not bound to the routed
+/// dataspace.
 pub fn extract_lane_identity_metadata(
     world: &impl WorldReadOnly,
     authority: &AccountId,
@@ -200,6 +205,10 @@ pub fn extract_lane_identity_metadata(
 /// Lane-compliance policies operate on domain selectors, while production
 /// accounts are canonical domainless subjects with one or more alias labels.
 /// This helper maps those labels back to their concrete `DomainId` values.
+///
+/// # Errors
+/// Returns a parse error if an authoritative account-alias lease is malformed
+/// or an active alias cannot resolve its domain in the dataspace catalog.
 pub fn extract_authority_domains(
     world: &impl WorldReadOnly,
     authority: &AccountId,

@@ -185,6 +185,11 @@ impl OrdinaryQueryExecutionLimits {
     /// returned by [`Self::required_execution_headroom_bytes`] and
     /// [`Self::required_cursor_retained_bytes`].
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    /// Returns a limit error for zero page size, unmetered or insufficient work
+    /// budget, geometry overflow, a request graph above the decoder bound, or
+    /// execution/cursor reservations below their required phase envelopes.
     pub fn try_new(
         policy_generation: u64,
         execution_budget: QueryExecutionBudget,
@@ -269,6 +274,11 @@ impl OrdinaryQueryExecutionLimits {
     /// decode a canonical Start archive. Stored Start execution concurrently owns its canonical
     /// archive, but that archive is already included in [`Self::required_cursor_retained_bytes`];
     /// Torii reserves both returned parts before decoding or execution begins.
+    ///
+    /// # Errors
+    /// Returns `RequestGraphExceedsDecodeLimit` if the request graph exceeds the
+    /// revalidation decoder allowance, or `GeometryOverflow` if any representation
+    /// conversion or phase-envelope arithmetic overflows.
     pub fn required_execution_headroom_bytes(
         max_page_items: u64,
         max_source_item_bytes: u64,
@@ -337,6 +347,10 @@ impl OrdinaryQueryExecutionLimits {
     }
     /// Compute the minimum retained reservation `R` for cursor values, the
     /// canonical Start archive, and deterministic container overhead.
+    ///
+    /// # Errors
+    /// Returns `GeometryOverflow` if resident-value, container, archive or total
+    /// retention arithmetic exceeds `u64`.
     pub fn required_cursor_retained_bytes(
         max_cursor_retained_items: u64,
         max_source_item_bytes: u64,

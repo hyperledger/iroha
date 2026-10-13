@@ -308,9 +308,9 @@ fn sccp_generation_and_constants_schemas_preserve_full_typed_data() {
     let json = norito::json::to_value(&constants).unwrap();
     assert_closed_fields(&schemas, "SccpFinalityConstantsV1", &json);
     for retired_tag in ["Genesis", "KeyChange", "Heartbeat", "Resync"] {
-        let retired = norito::json::json!({"kind": retired_tag, "value": null});
+        let retired = norito::json!({"kind": retired_tag, "value": null});
         assert!(norito::json::from_value::<SccpGenerationCauseV1>(retired).is_err());
-        let wrong_tag = norito::json::json!({"cause": retired_tag, "detail": null});
+        let wrong_tag = norito::json!({"cause": retired_tag, "detail": null});
         assert!(norito::json::from_value::<SccpGenerationCauseV1>(wrong_tag).is_err());
     }
     assert_eq!(
@@ -327,24 +327,28 @@ fn sccp_generation_and_constants_schemas_preserve_full_typed_data() {
             schemas["SccpFinalityConstantsV1"]["properties"][name]["const"],
             json[name]
         );
-        assert_eq!(
-            schemas["SccpFinalityConstantsV1"]["properties"][name]["type"].as_str(),
-            Some("array")
+        assert_hex(
+            &schemas["SccpFinalityConstantsV1"]["properties"][name],
+            &json[name],
+            length,
         );
-        assert_eq!(json[name].as_array().unwrap().len(), length);
-        for bound in ["minItems", "maxItems"] {
-            assert_eq!(
-                schemas["SccpFinalityConstantsV1"]["properties"][name][bound].as_u64(),
-                Some(u64::try_from(length).unwrap())
+        let encoded = json[name].as_str().unwrap();
+        for malformed in [
+            Value::String(encoded[..encoded.len() - 2].to_owned()),
+            Value::String(format!("{encoded}00")),
+            Value::String("G".repeat(length * 2)),
+            Value::Array(vec![Value::from(0_u64); length]),
+        ] {
+            let mut wrong = json.clone();
+            wrong
+                .as_object_mut()
+                .unwrap()
+                .insert(name.to_owned(), malformed);
+            assert!(
+                norito::json::from_value::<SccpFinalityConstantsV1>(wrong).is_err(),
+                "{name} requires its exact fixed-byte hex representation"
             );
         }
-        assert!(
-            json[name]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|byte| byte.as_u64().is_some_and(|byte| byte <= 255))
-        );
     }
     for retired in [
         "header_length",

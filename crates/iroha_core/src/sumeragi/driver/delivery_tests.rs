@@ -270,8 +270,7 @@ fn terminal_transport_outcomes_fail_without_fabricated_admission() {
             &Terminal(closed),
             &mut worker,
         )
-        .err()
-        .expect("terminal send error");
+        .expect_err("terminal send error");
         assert_eq!(
             error.kind(),
             if closed {

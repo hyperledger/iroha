@@ -128,7 +128,7 @@ fn native_lane_source_uses_its_committed_incarnation_without_a_physical_catalog_
         anchor_freshness: 16,
         max_merge_blocks: 8,
         stall_window: 100,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: vec![SumeragiFixedLane {
             lane,
             dataspace: DataSpaceId::UNIVERSAL,
@@ -185,7 +185,7 @@ fn native_lane_source_uses_its_committed_incarnation_without_a_physical_catalog_
     );
     let proposal = chain.proposal(None, vec![transaction]);
     let mut pending = chain
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .expect("native routed execution has its original frozen source");
     pending
         .inspect(move |execution| {
@@ -228,13 +228,13 @@ fn native_source_freezes_original_activation_closing_and_incarnation() {
         lane,
         dataspace: DataSpaceId::UNIVERSAL,
         incarnation: original.into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee: Vec::new(),
         created_at: 10,
         active_from: 12,
         closing: Some(20),
         anchor_freshness: 16,
-        merged: Default::default(),
+        merged: iroha_data_model::sumeragi_lanes::SumeragiLaneFrontier::default(),
         merged_at: 12,
         rescued: 0,
     };

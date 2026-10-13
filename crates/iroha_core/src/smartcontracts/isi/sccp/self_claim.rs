@@ -249,7 +249,7 @@ mod tests {
         let state = blank_state();
         let view = state.view();
         let reject = preverify(
-            &*view.world(),
+            view.world(),
             &view,
             1,
             &authority(1),
@@ -258,7 +258,7 @@ mod tests {
         .expect_err("not a self-claim");
         assert!(!reject.reason.is_empty());
         assert!(!eligible(
-            &*view.world(),
+            view.world(),
             &authority(1),
             sample_signed_transaction().instructions(),
             None

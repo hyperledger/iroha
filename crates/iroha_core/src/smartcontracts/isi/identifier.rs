@@ -197,9 +197,7 @@ pub mod isi {
             .map_err(Error::from)?
             .uaid()
             .ok_or_else(|| {
-                Error::InvariantViolation(
-                    format!("Account {} does not have a UAID", account).into(),
-                )
+                Error::InvariantViolation(format!("Account {account} does not have a UAID").into())
             })?;
         if receipt_payload.account_id != account {
             return Err(Error::InvariantViolation(
@@ -511,9 +509,9 @@ pub mod isi {
         else {
             return Ok(());
         };
-        if !existing_claim
+        if existing_claim
             .expires_at_ms
-            .is_some_and(|expires_at_ms| expires_at_ms <= now_ms)
+            .is_none_or(|expires_at_ms| expires_at_ms > now_ms)
         {
             return Ok(());
         }

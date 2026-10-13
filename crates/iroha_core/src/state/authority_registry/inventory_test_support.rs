@@ -18,7 +18,7 @@ fn fixture_fields() -> Vec<norito::json::Value> {
         .get("fields")
         .and_then(norito::json::Value::as_array)
         .expect("canonical State inventory fields")
-        .to_vec()
+        .clone()
 }
 
 fn text<'a>(row: &'a norito::json::Value, key: &str) -> &'a str {

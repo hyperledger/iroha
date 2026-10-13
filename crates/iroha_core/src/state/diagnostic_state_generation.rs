@@ -17,7 +17,7 @@ impl State {
     ) -> core::result::Result<T, E> {
         for _ in 0..DIAGNOSTIC_STABLE_STATE_GENERATION_ATTEMPTS {
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }

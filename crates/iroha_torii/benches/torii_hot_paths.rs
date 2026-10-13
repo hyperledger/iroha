@@ -1034,7 +1034,7 @@ fn bench_transaction_admission(c: &mut Criterion) {
                 let accepted =
                     accept_transaction_for_ingress_for_bench(Arc::clone(&tx_state), tx, &telemetry)
                         .expect("transaction admission succeeds");
-                std::hint::black_box(accepted.hash());
+                std::hint::black_box(accepted.hash_as_entrypoint());
             },
             BatchSize::SmallInput,
         );

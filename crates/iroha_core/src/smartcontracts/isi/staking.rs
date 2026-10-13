@@ -7981,6 +7981,8 @@ mod tests {
     }
     #[test]
     fn unregister_peer_rejects_active_validator_tenure() {
+        use iroha_data_model::isi::register::Unregister;
+
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
@@ -8013,7 +8015,6 @@ mod tests {
         stx.commit_topology
             .get_mut()
             .retain(|peer| peer != &peer_id);
-        use iroha_data_model::isi::register::Unregister;
         let error = Unregister::<Peer>::peer(peer_id.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect_err("active validator tenure must reject peer unregistration");
@@ -8031,6 +8032,8 @@ mod tests {
     }
     #[test]
     fn unregister_peer_preserves_stake_shares() {
+        use iroha_data_model::isi::register::Unregister;
+
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
@@ -8091,7 +8094,6 @@ mod tests {
         stx.commit_topology
             .get_mut()
             .retain(|peer| peer != &peer_id);
-        use iroha_data_model::isi::register::Unregister;
         let error = Unregister::<Peer>::peer(peer_id.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect_err("retained validator tenure must reject peer unregistration");

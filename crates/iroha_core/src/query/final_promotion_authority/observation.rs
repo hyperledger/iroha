@@ -522,8 +522,6 @@ impl PendingFinalPromotionCheckV1 {
         } = self;
         let mut bound = Some(original);
         let result = (|| -> Result<_, crate::execution_attempt::ExecutionAttemptError<Error>> {
-            prepared.round.ensure_live().map_err(Error::from)?;
-            let p = &prepared;
             enum PhaseSource<'a> {
                 Current,
                 Reserved(&'a FinalPromotionOperationRecordV1, &'a SignedTransaction),
@@ -533,6 +531,9 @@ impl PendingFinalPromotionCheckV1 {
                     complete: &'a SignedTransaction,
                 },
             }
+
+            prepared.round.ensure_live().map_err(Error::from)?;
+            let p = &prepared;
             let phase_source = match (&p.expected.subject, source) {
                 (
                     FinalPromotionCheckSubjectV1::Current(_),

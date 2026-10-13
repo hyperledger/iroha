@@ -41,7 +41,11 @@ pub fn lookup_anchor(
     // At the parent tip, A1 has appended only heights through parent_height - 1.
     let (open_chunk, expected_open_len) =
         anchor_chunk_position(parent_height).ok_or(SccpAnchorLookupError::InvalidHeight)?;
-    if open.len() != expected_open_len || open.len() >= SCCP_ANCHOR_CHUNK as usize {
+    if open.len() != expected_open_len
+        || open.len()
+            >= usize::try_from(SCCP_ANCHOR_CHUNK)
+                .map_err(|_| SccpAnchorLookupError::InvalidHeight)?
+    {
         return Err(SccpAnchorLookupError::InvalidHeight);
     }
     if height == parent_height {

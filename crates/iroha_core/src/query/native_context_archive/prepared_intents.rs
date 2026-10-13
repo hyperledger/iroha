@@ -980,6 +980,8 @@ mod tests {
     }
     #[test]
     fn borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality() {
+        use norito::NoritoSchema as _;
+
         let writes = [
             ExecKv {
                 key: amx_record_witness_key(AmxRecordKind::Prepared, [0x61; 32]).to_vec(),
@@ -1000,7 +1002,6 @@ mod tests {
                 .unwrap()
                 .unwrap(),
         ];
-        use norito::NoritoSchema as _;
         assert_ne!(RowsRef::nominal_name(), <Vec<Row>>::nominal_name());
         assert_eq!(RowsRef::frame_name(), <Vec<Row>>::frame_name());
         assert_eq!(

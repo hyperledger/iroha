@@ -49,7 +49,7 @@ fn bind(
 ) -> Result<BoundNativeCheckV1, Error> {
     let signed = sign(state, instruction.clone().into(), 2, 3_000);
     bind_fixture(
-        &state,
+        state,
         round,
         NativeCustodyCheckRefV1::FinalPromotionAccount(instruction),
         &state.view().chain_id().to_string(),

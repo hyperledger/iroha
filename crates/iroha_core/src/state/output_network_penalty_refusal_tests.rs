@@ -218,7 +218,7 @@ fn asset_balance(
     world
         .assets()
         .get(&AssetId::of(fixture.asset.clone(), owner.clone()))
-        .map_or(Quantity::zero(), |value| value.0.clone())
+        .map_or_else(Quantity::zero, |value| value.0.clone())
 }
 
 fn assert_slash(world: &impl WorldReadOnly, fixture: &PenaltyFixture, slashed: bool, height: u64) {

@@ -956,8 +956,7 @@ fn check_original_crypto_refusal(chain: &CertifiedTestChain) {
         &budget,
         control(&stop),
     )
-    .err()
-    .expect("one missing original pairing byte refuses before allocation");
+    .expect_err("one missing original pairing byte refuses before allocation");
     let SccpNativeReadError::Allocation(AllocationRefusal::Capacity {
         requested_bytes,
         reserved_bytes,

@@ -131,7 +131,7 @@ where
 fn decode_state_with_current<T>(
     bytes: &[u8],
     label: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<T, InstructionExecutionError>
 where
     for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::NoritoSerialize,
@@ -173,7 +173,7 @@ where
             corrupt_state(format!("failed to encode {label}: {error}"))
         }
     })?;
-    if let (Some(current), Some(allocation_bytes)) = (current.as_deref_mut(), allocation_bytes) {
+    if let (Some(current), Some(allocation_bytes)) = (current, allocation_bytes) {
         current
             .add_nested(allocation_bytes)
             .map_err(InstructionExecutionError::Query)?;
@@ -2671,7 +2671,7 @@ pub(crate) mod tests {
             por_recorder_authority: authority.clone(),
             dispute_recorder_authority: authority.clone(),
             token_recorder_authority: authority.clone(),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: 24 * 60 * 60 * 1_000,
         }
     }
@@ -4123,7 +4123,7 @@ iroha_data_model::sorafs::reputation::ReputationJournalPolicyOriginV1::Network(
             por_recorder_authority: account.clone(),
             dispute_recorder_authority: account.clone(),
             token_recorder_authority: account.clone(),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: 24 * 60 * 60 * 1_000,
         };
         let digest = policy.canonical_digest().expect("policy digest");
@@ -4364,7 +4364,7 @@ iroha_data_model::sorafs::reputation::ReputationJournalPolicyOriginV1::Network(
             por_recorder_authority: authority.clone(),
             dispute_recorder_authority: authority.clone(),
             token_recorder_authority: authority.clone(),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: 24 * 60 * 60 * 1_000,
         };
         seed_policy_preimage(&mut transaction, &authority, rotated_policy)

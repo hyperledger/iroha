@@ -591,7 +591,7 @@ pub(super) fn finish_after_real_detector_penalty(
             peer_id: PeerId::new(key.public_key().clone()),
             stake_account: account,
             initial_stake: plan.amount.clone(),
-            metadata: Default::default(),
+            metadata: iroha_model_base::metadata::Metadata::default(),
             monetary_plan: plan.clone(),
         };
         let authorization = PublicLaneCandidateAuthorization::new(

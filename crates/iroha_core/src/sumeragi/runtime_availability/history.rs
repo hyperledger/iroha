@@ -97,7 +97,7 @@ impl HistoryCapture {
         }
         let kura = state.kura_handle();
         let budget = state.ivm_execution_budget();
-        if !std::ptr::eq(view.ivm, &state.ivm)
+        if !std::ptr::eq(view.ivm, &raw const state.ivm)
             || !view
                 .pipeline_ivm_prepared_cache
                 .execution_budget()
@@ -188,7 +188,7 @@ impl HistoryScan {
         incarnation: [u8; 32],
     ) -> Result<Option<Self>, Attempt<io::Error>> {
         let generation = state.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(pending("native State publication is in progress").into());
         }
         let capture = {
@@ -1039,7 +1039,7 @@ mod capture_tests {
         );
         let mut view = state.view();
         view.pipeline_ivm_prepared_cache = other.view().pipeline_ivm_prepared_cache.clone();
-        assert!(std::ptr::eq(view.ivm, &state.ivm));
+        assert!(std::ptr::eq(view.ivm, &raw const state.ivm));
         assert!(
             !view
                 .pipeline_ivm_prepared_cache

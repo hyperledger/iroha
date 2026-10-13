@@ -2469,8 +2469,7 @@ impl Execute for RollbackOracleChange {
                 "future"
             };
             return Err(signature_err(format!(
-                "cannot roll back {direction} oracle change stage {:?}; active stage is {:?}",
-                target_stage, active_stage
+                "cannot roll back {direction} oracle change stage {target_stage:?}; active stage is {active_stage:?}"
             )));
         }
         if let Some(record) = proposal

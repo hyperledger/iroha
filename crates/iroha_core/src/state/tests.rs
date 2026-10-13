@@ -1423,13 +1423,13 @@ state_test! { sync trigger_batch_contract_calls_advance_nft_sequence
         transaction::{ExecutableBatchItem, executable::ContractInvocation},
     };
     use iroha_test_samples::ALICE_KEYPAIR;
-    let_row! { (program, manifest) = kotodama_lang::compiler::Compiler::new() .compile_source_with_manifest( r#"
+    let_row! { (program, manifest) = kotodama_lang::compiler::Compiler::new() .compile_source_with_manifest( r"
 seiyaku SequentialNfts { permission CanInvokeContractEntrypoint;
   kotoage fn run() authorize(CanInvokeContractEntrypoint) {
 ledger::nft::create_for_all_users();
   }
 }
-"#, ) .expect("compile sequential NFT contract") };
+", ) .expect("compile sequential NFT contract") };
     let authority = ALICE_ID.clone();
     let code_hash = ivm::contract_code_hash(&program);
     let initial_world = World::with(
@@ -1977,7 +1977,7 @@ state_test! { sync contract_lifecycle_survives_state_snapshot_and_preserves_cano
     let owner = AccountId::new(checked_keypair().public_key().clone());
     let pending_owner = AccountId::new(checked_keypair().public_key().clone());
     let address = iroha_data_model::smart_contract::ContractAddress::derive(
-        &*DEFAULT_TEST_NETWORK_ID,
+        &DEFAULT_TEST_NETWORK_ID,
         &owner,
         41,
         DataSpaceId::UNIVERSAL,
@@ -2049,7 +2049,7 @@ state_test! { sync contract_lifecycle_survives_state_snapshot_and_preserves_cano
 state_test! { sync contract_lifecycle_snapshot_rejects_missing_subject_account
     let owner = AccountId::new(checked_keypair().public_key().clone());
     let address = iroha_data_model::smart_contract::ContractAddress::derive(
-        &*DEFAULT_TEST_NETWORK_ID,
+        &DEFAULT_TEST_NETWORK_ID,
         &owner,
         42,
         DataSpaceId::UNIVERSAL,
@@ -5113,6 +5113,7 @@ fn install_existing_nexus_geometry_for_test(
             &activation_heights,
             &lineage,
             None,
+            &mut LaneLifecycleReleases::new(state),
         )
         .unwrap_or_else(|failure| {
             panic!(
@@ -5967,10 +5968,10 @@ state_test! { sync committed_replay_skips_failed_external_after_sealed_commitmen
                 ),
             ]);
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-block.set_execution_outputs(outputs, fragments, Default::default(),
+block.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }
         .expect("test block entrypoint hashes should match payload");
     let_row! { committed = crate::block::ValidBlock::new_unverified_for_tests(block) .commit_unchecked(crate::block::reserve_block_for_tests()) .unpack(|_| {}) };
@@ -7319,7 +7320,7 @@ fn finish_autoscale_fixture(
             BTreeMap::new(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("empty autoscale fixture retains explicit result metadata");
@@ -7518,9 +7519,9 @@ state_test! { sync consensus_lane_lifecycle_replay_converges_on_fresh_state
     );
     let (events_sender, _) = tokio::sync::broadcast::channel(8);
     let_row! { queue = crate::queue::Queue::from_config( iroha_config::parameters::actual::Queue::default(), events_sender, ) };
-    assert!(queue.reconfigure_nexus_with_state_if_needed(&first_nexus, &first, None,));
+    assert!(queue.reconfigure_nexus_with_state_if_needed(&first_nexus, first, None,));
     assert!(
-        !queue.reconfigure_nexus_with_state_if_needed(&first_nexus, &first, None),
+        !queue.reconfigure_nexus_with_state_if_needed(&first_nexus, first, None),
         "queue topology refresh must be idempotent after committed lifecycle publication"
     );
 }
@@ -10989,7 +10990,7 @@ state_test! { sync certified_runtime_snapshot_replay_preserves_lane_history
         kura: Arc::clone(original.kura()),
         query_handle: LiveQueryStore::start_test(),
         #[cfg(feature = "telemetry")]
-        telemetry: Default::default(),
+        telemetry: crate::telemetry::StateTelemetry::default(),
     }.into_state_from_json(snapshot), Err(deserialize::StateRestoreError::NativeExecutionReplayRequired)));
     let mut restarted = CertifiedTestChain::start(genesis_config()).expect("same original signed genesis");
     assert_eq!(restarted.state().network_id_ref(), state.network_id_ref(),
@@ -16847,10 +16848,10 @@ state_test! { sync apply_without_execution_persists_da_shard_cursor_journal_in_b
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("result-bearing DA materialization fixture");
@@ -16890,10 +16891,10 @@ state_test! { sync da_bundle_indexes_are_not_committed_when_block_height_mismatc
     let first_hashes: Vec<_> = signed_first.network_input_hashes().collect();
     { let outputs = crate::execution_output_test_support::structural_network_outputs(&signed_first, &first_hashes, first_hashes.iter().map(|_| TransactionResultInner::Ok(DataTriggerSequence::new())).collect());
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-signed_first.set_execution_outputs(outputs, fragments, Default::default(),
+signed_first.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }.expect("canonical predecessor results");
     store_block_for_state_commit(&state.kura, &signed_first);
     seed_committed_height_for_state_test(&state, 1);
@@ -16910,10 +16911,10 @@ Default::default(),
     let results = hashes.iter().map(|_| TransactionResultInner::Ok(DataTriggerSequence::new())).collect();
     { let outputs = crate::execution_output_test_support::structural_network_outputs(&signed_second, &hashes, results);
 let fragments = u64::try_from(outputs.iter().filter(|row| row.result().is_ok()).count()).unwrap();
-signed_second.set_execution_outputs(outputs, fragments, Default::default(),
+signed_second.set_execution_outputs(outputs, fragments, std::collections::BTreeMap::default(),
 Vec::new(),
-Default::default(),
-Default::default(),
+iroha_data_model::nexus::AxtPolicySnapshot::default(),
+std::collections::BTreeSet::default(),
 &crate::execution_output_test_support::structural_output_limits()) }
         .expect("attach canonical results and required AXT policy to the height-mismatch fixture");
     let mut state_block = state.block(signed_second.header());
@@ -17182,7 +17183,7 @@ state_test! { sync state_commit_persists_query_index_status_journal
     // chain alone cannot authorize another network's physical storage.
     let restarted = State::new_with_chain_and_network_id_for_testing(
         World::default(),
-        Arc::clone(&kura),
+        Arc::clone(kura),
         LiveQueryStore::start_test(),
         state.chain_id_ref().clone(),
         *state.network_id_ref(),
@@ -17439,10 +17440,10 @@ state_test! { sync apply_without_execution_retains_filtered_da_bundle_without_un
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("result-bearing DA cursor-error fixture");
@@ -23147,7 +23148,7 @@ state_test! { sync hosted_service_restore_requires_lease_and_latest_rollover_ope
             .iter_mut()
             .find(|checkpoint| checkpoint.assignment == assignment)
             .expect("newly opened historical reporter checkpoint");
-        let terminal_bytes = if index == 0 { 1 } else { 0 };
+        let terminal_bytes = u64::from(index == 0);
         let terminal_block_height = block_height
             .checked_add(1)
             .expect("fixture terminal block height");
@@ -23311,7 +23312,7 @@ state_test! { sync inrou_sticky_unavailable_placement_survives_pruned_capability
             bundle.service.service_version.clone(),
             ALICE_ID.clone(),
         );
-        placement.eligible_validator_count = if host_availability.is_available() { 1 } else { 0 };
+        placement.eligible_validator_count = u32::from(host_availability.is_available());
         placement.placements[0].host_availability = host_availability;
         placement.last_error = (!host_availability.is_available())
             .then(|| "sticky assigned host is unavailable".to_owned());
@@ -25065,8 +25066,8 @@ state_test! { sync vpn_lease_projection_rejects_a_foreign_exact_network
     let_row! { operator_key = KeyPair::try_from_seed(vec![0x92; 32], Algorithm::Ed25519) .expect("deterministic VPN operator key") };
     let local_network = *DEFAULT_TEST_NETWORK_ID;
     let_row! { foreign_network = NetworkId::from_genesis_hash( HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xFE; Hash::LENGTH])), ) };
-    let local = indexed_settled_vpn_lease(&local_network, &*ALICE_ID, 1, 1, &operator_key);
-    let foreign = indexed_settled_vpn_lease(&foreign_network, &*ALICE_ID, 1, 1, &operator_key);
+    let local = indexed_settled_vpn_lease(&local_network, &ALICE_ID, 1, 1, &operator_key);
+    let foreign = indexed_settled_vpn_lease(&foreign_network, &ALICE_ID, 1, 1, &operator_key);
     validate_vpn_lease_network(&local, &local_network).expect("local VPN lease network");
     let_row! { error = validate_vpn_lease_network(&foreign, &local_network) .expect_err("foreign VPN lease must fail exact-network restoration") };
     assert!(error.contains("different exact network"));
@@ -25076,7 +25077,7 @@ state_test! { sync emergency_fast_snapshot_index_finalization_defers_vpn_network
     let_row! { foreign_network = NetworkId::from_genesis_hash( HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xFD; Hash::LENGTH])), ) };
     let foreign = indexed_settled_vpn_lease(
         &foreign_network,
-        &*ALICE_ID,
+        &ALICE_ID,
         2,
         1,
         &operator_key,
@@ -25117,8 +25118,8 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
     state
         .world
         .domains
-        .insert(home.clone(), Domain::new(home.clone()).build(&*ALICE_ID));
-    let mut wrong_domain = Domain::new(wrong.clone()).build(&*ALICE_ID);
+        .insert(home.clone(), Domain::new(home.clone()).build(&ALICE_ID));
+    let mut wrong_domain = Domain::new(wrong.clone()).build(&ALICE_ID);
     let registration = KaigiRelayRegistration {
         relay_id: relay_id.clone(),
         hpke_public_key: vec![0xAA],
@@ -25131,7 +25132,7 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
     state.world.domains.insert(wrong.clone(), wrong_domain);
     let (account_id, account_value) = Account::new(relay_id.clone())
         .with_label(Some(alias.clone()))
-        .build(&*ALICE_ID)
+        .build(&ALICE_ID)
         .into_key_value();
     state.world.accounts.insert(account_id, account_value);
     state
@@ -25167,7 +25168,7 @@ state_test! { sync derived_state_rebuild_rejects_future_kaigi_relay_feedback
             .public_key()
             .clone(),
     );
-    let mut domain = Domain::new(home.clone()).build(&*ALICE_ID);
+    let mut domain = Domain::new(home.clone()).build(&ALICE_ID);
     domain.metadata_mut().insert(
         kaigi_relay_metadata_key(&relay_id).expect("relay metadata key"),
         Json::try_new(KaigiRelayRegistration {
@@ -26019,7 +26020,7 @@ state_test! { sync execute_called_trigger_failure_rolls_back_state
             ALICE_ID.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(vec![], None),
         );
-        builder.set_creation_time(block.as_ref().header().creation_time() - Duration::from_millis(1));
+        builder.set_creation_time(block.as_ref().header().creation_time().checked_sub(Duration::from_millis(1)).expect("fixture time has the original one-millisecond predecessor"));
         let signed = builder
             .with_instructions([ExecuteTrigger::new(trigger_id.clone())])
             .sign(ALICE_KEYPAIR.private_key());
@@ -26639,7 +26640,7 @@ state_test! { sync native_trigger_instructions_are_not_an_unmetered_execution_pa
     let mut transaction = block.transaction();
     // The low-level callback fixture retains the source invocation before its
     // body, just as the canonical external execution owner does.
-    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash()));
+    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash_as_entrypoint()));
     transaction.gas_limit_per_block = 4;
     transaction.world.add_account_permission(
         &ALICE_ID,
@@ -27244,13 +27245,13 @@ state_test! { sync identityless_raw_trigger_rejects_before_event_argument_decode
     };
     let state = blank_state();
     let trigger_id: TriggerId = "identityless_raw_callback".parse().expect("trigger id");
-    let_row! { program = kotodama_lang::compiler::Compiler::new() .compile_source( r#"
+    let_row! { program = kotodama_lang::compiler::Compiler::new() .compile_source( r"
 seiyaku IdentitylessRawCallback { permission identityless_raw_callback_run;
   kotoage fn main(Json ev) authorize(identityless_raw_callback_run) {
 let _ev = ev;
   }
 }
-"#, ) .expect("compile identity-less raw callback fixture") };
+", ) .expect("compile identity-less raw callback fixture") };
     let_row! { block1 = new_dummy_block_with_payload(|header| { header.set_height(NonZeroU64::new(1).expect("non-zero height")); }) };
     {
         let mut state_block = state.block(block1.as_ref().header());
@@ -30567,7 +30568,7 @@ fn frozen_plain_projection_rejects_malformed_corpus_and_restores_slashed_positio
     };
     closed.plain_result = PlainVotingResultV1::Decided(policy.decide([4, 2, 1]).unwrap());
     closed.status = GovernanceReferendumStatus::Closed;
-    world.governance_locks = Default::default();
+    world.governance_locks = mv::storage::Storage::default();
     world
         .governance_referenda
         .insert("slash-restore".into(), closed.clone());

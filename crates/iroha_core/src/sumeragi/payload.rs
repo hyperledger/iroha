@@ -435,7 +435,7 @@ fn build_at(
     work_tests::record_build_at();
     let height = assembly.parent.header().height().get().saturating_add(1);
     let (_, time_source) = TimeSource::new_mock(time);
-    let accepted = transactions.iter().cloned().collect::<Vec<_>>();
+    let accepted = transactions.to_vec();
     let nexus = state.nexus_snapshot();
     let view = state.view();
     let npos = view
@@ -588,16 +588,18 @@ pub(crate) fn decode_prepared(
                 PreparedSignatureBlockError::Frame(_)
                     | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(_))
-                    | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Commitments(
-                        DaCommitmentCustodyError::Signature(
-                            iroha_crypto::PreparedCryptoDecodeError::Signature(_)
-                        )
+                        DaCommitmentCustodyError::Decode(_)
+                            | DaCommitmentCustodyError::Signature(
+                                iroha_crypto::PreparedCryptoDecodeError::Signature(_)
+                            )
                     )
-                    | PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(_))
-                    | PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
-                        BlockSignatureCustodyError::Decode(_)
-                    ))
+                    | PreparedSignatureBlockError::Decode(
+                        PreparedDecodeError::Codec(_)
+                            | PreparedDecodeError::Destination(BlockSignatureCustodyError::Decode(
+                                _
+                            ))
+                    )
             );
             match crate::execution_attempt::prepared_signature_block_attempt_error(
                 error,
@@ -715,8 +717,10 @@ pub fn select(
         };
         if routing.has_lanes()
             && lane != super::lanes::routing::GLOBAL_LANE
-            && u64::try_from(transaction.as_ref().creation_time().as_millis())
-                .is_ok_and(|created| created >= rescue_before_ms)
+            && transaction
+                .entrypoint()
+                .creation_time_ms()
+                .is_some_and(|created| created >= rescue_before_ms)
         {
             continue;
         }
@@ -727,7 +731,10 @@ pub fn select(
         // CT3 is local proposal pacing, never transaction invalidity. An eligible
         // future input must arm retry even when it is the final input on an idle chain.
         if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
-            && transaction.as_ref().creation_time() > wall_time
+            && transaction
+                .entrypoint()
+                .creation_time_ms()
+                .is_some_and(|created| Duration::from_millis(created) > wall_time)
         {
             future_input = true;
             continue;
@@ -1038,7 +1045,7 @@ mod tests {
             anchor_freshness: 4,
             max_merge_blocks: 8,
             stall_window: 1000,
-            lane_params: Default::default(),
+            lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             fixed: vec![SumeragiFixedLane {
                 lane: LaneId::new(2),
                 dataspace: DataSpaceId::UNIVERSAL,

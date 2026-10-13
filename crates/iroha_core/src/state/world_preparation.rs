@@ -35,10 +35,10 @@ pub(in crate::state) struct WorldPublicationSlot<'target, Admission, Installatio
 
 impl<Admission> DetachedWorld<Admission> {
     /// Move the exact World into its caller without probing or allocating.
-    pub(in crate::state) fn publication_slot<'target, Installation>(
+    pub(in crate::state) fn publication_slot<Installation>(
         self,
-        target: &'target World,
-    ) -> WorldPublicationSlot<'target, Admission, Installation> {
+        target: &World,
+    ) -> WorldPublicationSlot<'_, Admission, Installation> {
         WorldPublicationSlot {
             target,
             phase: Some(Phase::Original(self)),

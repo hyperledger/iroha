@@ -69,8 +69,8 @@ fn remove_committed_hashes_tolerates_missing_per_user_counter() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
-    let authority = tx.as_ref().authority().clone();
+    let hash = tx.hash_as_entrypoint();
+    let authority = tx.authority().clone();
     queue.push(tx, state.view()).expect("push succeeds");
     assert_eq!(queue.queued_tx_count_for_user(&authority), 1);
     queue.txs_per_user.clear();

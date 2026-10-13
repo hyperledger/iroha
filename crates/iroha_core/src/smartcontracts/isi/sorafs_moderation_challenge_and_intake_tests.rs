@@ -1512,7 +1512,7 @@ fn moderation_durable_frames_preserve_appeal_and_sortition_bindings() {
             norito::encode_canonical(&decoded).expect("re-encode all fields"),
             *bytes
         );
-        let mut substituted = bytes.to_vec();
+        let mut substituted = bytes.clone();
         substituted[6..22]
             .copy_from_slice(&norito::schema::identity::frame_hash::<iroha_crypto::Hash>());
         assert!(matches!(
@@ -1521,7 +1521,7 @@ fn moderation_durable_frames_preserve_appeal_and_sortition_bindings() {
         ));
         assert!(decode(&substituted).is_err());
         assert!(decode(&bytes[..bytes.len() - 1]).is_err());
-        let mut trailing = bytes.to_vec();
+        let mut trailing = bytes.clone();
         trailing.push(0);
         assert!(decode(&trailing).is_err());
     }

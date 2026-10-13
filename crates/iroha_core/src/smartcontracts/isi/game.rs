@@ -3622,7 +3622,7 @@ mod tests {
             amount: Quantity::from(2_u32),
             remaining: Quantity::zero(),
         }];
-        world.assets = Default::default();
+        world.assets = mv::storage::Storage::default();
         world.game_sessions = [(closed.session_id, closed)].into_iter().collect();
         world.rebuild_game_session_indexes().unwrap();
         assert!(world.game_account_references.view().iter().next().is_none());

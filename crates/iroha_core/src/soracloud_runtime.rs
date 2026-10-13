@@ -548,6 +548,11 @@ pub fn ordered_mailbox_receipt_id(result: &SoraOrderedMailboxResultV1) -> Hash {
 /// Deployment state is the source used for prepaid storage accounting, so accepting missing,
 /// extra, or altered rows would let routing and placement observe economics that differ from the
 /// admitted manifest. This cross-record invariant deliberately has no compatibility fallback.
+///
+/// # Errors
+/// Returns an error if service identities differ, lease-volume rows are missing,
+/// extra or duplicated, their generation is not one, or their kind, storage
+/// class, mount path or byte limit differs from the admitted binding.
 pub fn validate_soracloud_deployment_lease_volume_bindings(
     deployment: &SoraServiceDeploymentStateV1,
     bundle: &SoraDeploymentBundleV1,
@@ -636,6 +641,11 @@ pub fn validate_soracloud_deployment_lease_volume_bindings(
 /// revisions are rollback targets, so this invariant applies to upgrades, rollback, and restored
 /// state alike.
 /// The first release deliberately has no compatibility fallback for older revision shapes.
+///
+/// # Errors
+/// Returns an error if the candidate changes the service, execution plane,
+/// container runtime, route, lease volumes or durable state bindings. Inrou
+/// revisions also cannot change replicas, placement targets or the guest platform.
 pub fn validate_soracloud_service_revision_identity(
     current: &SoraDeploymentBundleV1,
     candidate: &SoraDeploymentBundleV1,
@@ -703,6 +713,12 @@ pub fn validate_soracloud_service_revision_identity(
 /// Missing or retained non-current state resolves to `None`. An active rollout, malformed record,
 /// or cross-keyed authoritative state is an error so callers fail closed and reconciliation can
 /// repair the row. First-release Inrou admits exactly one active revision.
+///
+/// # Errors
+/// Returns an error for malformed or cross-keyed placement/deployment/bundle
+/// data, an active rollout, invalid lease arithmetic, or mismatched runtime,
+/// volume, replica or manifest bindings. Absent, expired or non-current state
+/// returns `Ok(None)`.
 pub fn resolve_active_inrou_placement_record(
     world: &impl WorldReadOnly,
     service_name: &str,
@@ -979,6 +995,11 @@ fn inrou_replica_assignment_has_active_capability(
 /// This is also the validator ledger-mutation authorization boundary. Returned assignments must
 /// be marked available, remain on the admitted validator/peer allowlist, and fit the host's exact
 /// aggregate physical reservation including fixed VMM overhead.
+///
+/// # Errors
+/// Returns an error if active placement resolution fails, its bundle disappears,
+/// or aggregate active reservation accounting fails. Ineligible or over-capacity
+/// assignments are filtered from the successful result.
 pub fn resolve_active_inrou_replica_assignments(
     world: &impl WorldReadOnly,
     service_name: &str,
@@ -1031,6 +1052,11 @@ pub fn resolve_active_inrou_replica_assignments(
         .collect())
 }
 /// Resolve one exact active replica-slot assignment for an active Inrou placement record.
+///
+/// # Errors
+/// Propagates placement and aggregate reservation errors from
+/// [`resolve_active_inrou_replica_assignments`]; no eligible matching slot
+/// returns `Ok(None)`.
 pub fn resolve_active_inrou_replica_assignment(
     world: &impl WorldReadOnly,
     service_name: &str,
@@ -1649,6 +1675,11 @@ pub struct SoracloudApartmentExecutionResult {
 /// Shared execution interface for the embedded Soracloud runtime.
 pub trait SoracloudRuntime: SoracloudRuntimeReadHandle {
     /// Execute a deterministic local read against the committed runtime snapshot.
+    ///
+    /// # Errors
+    /// Returns a structured runtime error for an unavailable or mismatched committed
+    /// snapshot, invalid service/handler request, unavailable artifacts, or failed
+    /// asset/query execution.
     fn execute_local_read(
         &self,
         request: SoracloudLocalReadRequest,
@@ -1658,11 +1689,20 @@ pub trait SoracloudRuntime: SoracloudRuntimeReadHandle {
     /// This is a node-local proposal step. Production consensus persists the returned effects only
     /// through an explicit `ApplySoracloudOrderedMailboxResult` instruction that revalidates the
     /// snapshot preconditions and executor identity.
+    ///
+    /// # Errors
+    /// Returns a structured runtime error if the pinned mailbox state is invalid
+    /// or required execution artifacts or resources are unavailable. Deterministic
+    /// handler failures may instead yield a successful failure-receipt result.
     fn execute_ordered_mailbox(
         &self,
         request: SoracloudOrderedMailboxExecutionRequest,
     ) -> Result<SoracloudOrderedMailboxExecutionResult, SoracloudRuntimeExecutionError>;
     /// Execute deterministic apartment work owned by the embedded runtime manager.
+    ///
+    /// # Errors
+    /// Returns a structured runtime error for a mismatched committed snapshot,
+    /// unknown apartment, unavailable process generation or expired apartment lease.
     fn execute_apartment(
         &self,
         request: SoracloudApartmentExecutionRequest,

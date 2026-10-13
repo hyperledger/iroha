@@ -127,7 +127,7 @@ impl Worker<'_> {
         // Observe its actual release before the generation probe and retain on Busy.
         let release = self.state.view_publication_release();
         let generation = self.state.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(PublicationError::Deferred(
                 PublicationDeferral::PublicationBusy(release),
             ));
@@ -511,7 +511,11 @@ mod tests {
                         let original_range = section.merges.as_ptr();
                         assert!(creation_time >= Duration::from_millis(section.time_floor_ms));
                         assert_eq!(source.block.network_entrypoint_count(), 0);
-                        clock.set(creation_time - Duration::from_millis(1));
+                        clock.set(
+                            creation_time.checked_sub(Duration::from_millis(1)).expect(
+                                "fixture time has the original one-millisecond predecessor",
+                            ),
+                        );
                         assert!(worker.build(height, 0, 1 << 20, 100).is_err());
                         assert_eq!(
                             worker
@@ -674,8 +678,6 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire() {
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -685,6 +687,9 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
+
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
@@ -878,12 +883,13 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_preserves_actual_publication_release_until_source_withdrawal() {
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let state = worker.state;
@@ -1092,8 +1098,6 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_idle_expiry_refunds_while_original_parent_stays_unavailable() {
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -1103,6 +1107,9 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
+
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
@@ -1604,12 +1611,13 @@ mod tests {
     #[test]
     fn completed_original_payload_preserves_actual_publisher_release_and_expires_while_it_is_held()
     {
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         for expire_while_held in [false, true] {
             super::super::publication_tests::with_worker(move |chain, worker, _blocks, _events| {
                 let (queue, clock, _time) = attach_queue(chain, worker);
@@ -1784,12 +1792,13 @@ mod tests {
 
     #[test]
     fn completed_original_payload_retries_the_same_backing_after_actual_header_reader_release() {
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
-        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
+
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let state = worker.state;

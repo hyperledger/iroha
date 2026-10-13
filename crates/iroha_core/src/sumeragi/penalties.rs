@@ -134,11 +134,11 @@ impl ValidatorMapDemand {
         account: &AccountId,
     ) -> Result<(), EvidencePreparationError> {
         let overflow = || EvidencePreparationError::Admission(AllocationRefusal::DemandOverflow);
-        self.rows = self.rows.checked_add(1).ok_or(overflow())?;
+        self.rows = self.rows.checked_add(1).ok_or_else(overflow)?;
         self.nested_bytes = self
             .nested_bytes
             .checked_add(peer.retained_allocation_layout().size())
-            .ok_or(overflow())?;
+            .ok_or_else(overflow)?;
         let mut failed = false;
         account
             .for_each_admission_clone_layout(|layout| {
@@ -167,7 +167,7 @@ impl ValidatorMapDemand {
         rows.size()
             .checked_add(ledger.size())
             .and_then(|bytes| bytes.checked_add(self.nested_bytes))
-            .ok_or(overflow())
+            .ok_or_else(overflow)
     }
 }
 
@@ -615,7 +615,7 @@ impl<'a> PenaltyApplier<'a> {
     ) -> Result<(Vec<Evidence>, Vec<NposPenaltyAction>, PublicLaneStakeIndex)> {
         loop {
             let generation_before = self.state.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }
@@ -641,7 +641,7 @@ impl<'a> PenaltyApplier<'a> {
                     .map(|(actions, index)| (admissions, actions, index))
             });
             let generation_after = self.state.state_view_generation();
-            if generation_before == generation_after && generation_after % 2 == 0 {
+            if generation_before == generation_after && generation_after.is_multiple_of(2) {
                 return result;
             }
             std::thread::yield_now();
@@ -2933,7 +2933,7 @@ mod tests {
                 cadence: Duration::from_millis(1),
             };
             let transactions = [accepted];
-            let original_transaction = transactions[0].hash();
+            let original_transaction = transactions[0].hash_as_entrypoint();
             let original_parent = parent.hash();
             let budget = if state_admission {
                 state.kura().block_hash_history_budget()
@@ -3005,7 +3005,7 @@ mod tests {
                 Some(&original)
             );
             assert_eq!(state.view().height(), 1);
-            assert_eq!(transactions[0].hash(), original_transaction);
+            assert_eq!(transactions[0].hash_as_entrypoint(), original_transaction);
             assert_eq!(parent.hash(), original_parent);
             drop(blocking_owner);
             assert!(registration.poll_wait(&release, &mut context).is_ready());
@@ -3020,7 +3020,7 @@ mod tests {
                 Some(&original)
             );
             assert_eq!(state.view().height(), 1);
-            assert_eq!(transactions[0].hash(), original_transaction);
+            assert_eq!(transactions[0].hash_as_entrypoint(), original_transaction);
             assert_eq!(parent.hash(), original_parent);
             drop(registration);
             if !state_admission {
@@ -3802,7 +3802,7 @@ mod tests {
                     .try_into()
                     .unwrap()
             } else {
-                Default::default()
+                iroha_data_model::sumeragi_lanes::SumeragiLaneCustodySigners::default()
             },
             evidence_horizon: params.evidence_horizon_blocks(),
             slashing_delay: params.slashing_delay_blocks(),

@@ -44,7 +44,7 @@ use prepared_journal::PreparedGeometryJournalTransition;
 pub(super) use raw_attempt::RawGeometryClaimGate;
 use raw_attempt::RawGeometryMutation;
 pub use raw_attempt::RawGeometryWait;
-pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase};
+pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase, RawGeometryReleases};
 
 #[cfg(test)]
 std::thread_local! {
@@ -463,7 +463,7 @@ fn read_configured_catalog_journal_for_preflight(
             let displaced = store_root.join(JOURNAL_IDENTITY_DISPLACED_FILE_NAME);
             fs::rename(path, &displaced).map_err(|error| Error::IO(error, path.to_path_buf()))?;
             fs::rename(&replacement, path)
-                .map_err(|error| Error::IO(error, replacement.to_path_buf()))?;
+                .map_err(|error| Error::IO(error, replacement.clone()))?;
         }
     }
     #[cfg(not(test))]
@@ -2309,13 +2309,13 @@ impl Kura {
             return Ok(());
         }
         self.ensure_nonzero_lineage_root(lineage_root)?;
-        let _prune_guard = self.prune_lock.lock();
+        let prune_guard = self.prune_lock.lock();
         self.ensure_prune_recovery_not_required()?;
-        let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        let canonical_chain_guard = self.canonical_chain_lock.lock();
         self.resolve_canonical_storage_before_mutation()?;
         let pending_canonical_bytes =
             self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?;
-        let _geometry_guard = self.lane_geometry_lock.lock();
+        let geometry_guard = self.lane_geometry_lock.lock();
         self.raw_geometry_claim.ensure_unclaimed()?;
         #[cfg(test)]
         if self
@@ -2354,9 +2354,9 @@ impl Kura {
         let lease = super::publication_lease::KuraPublicationLease::from_geometry_guards(
             self,
             self.sidecar_lock.lock(),
-            _geometry_guard,
-            _canonical_chain_guard,
-            _prune_guard,
+            geometry_guard,
+            canonical_chain_guard,
+            prune_guard,
             pending_canonical_bytes,
         );
         lease.publish_prepared_lane_geometry_catalog(

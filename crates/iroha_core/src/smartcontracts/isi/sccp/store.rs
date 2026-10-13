@@ -178,17 +178,17 @@ macro_rules! storage_map {
             }
 
             /// Iterate every entry in ascending key order.
-            pub fn iter<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            pub fn iter(
+                world: &(impl WorldReadOnly + ?Sized),
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().iter()
             }
 
             /// Iterate the entries whose keys fall in `bounds`, in ascending key order.
-            pub fn range<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
+            pub fn range(
+                world: &(impl WorldReadOnly + ?Sized),
                 bounds: impl RangeBounds<$key>,
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().range::<$key>(bounds)
             }
 

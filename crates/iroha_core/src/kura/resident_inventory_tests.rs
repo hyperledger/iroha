@@ -169,18 +169,17 @@ struct ExpandedFailureOwner {
 impl ResidentOwner for ExpandedFailureOwner {
     const FAMILY: Family = Family::ResidentCanonical;
     fn resident_associations(&self) -> Result<u64, Unavailable> {
-        if self.panic_on_count {
-            panic!("interrupt expanded count callback");
-        }
+        assert!(!self.panic_on_count, "interrupt expanded count callback");
         if self.count_failed {
             return Err(Unavailable::Arithmetic);
         }
         lengths([self.values.len()])
     }
     fn resident_complete(&self) -> bool {
-        if self.panic_on_complete {
-            panic!("interrupt expanded completeness callback");
-        }
+        assert!(
+            !self.panic_on_complete,
+            "interrupt expanded completeness callback"
+        );
         self.complete
     }
     fn failure_invalidation_mask() -> u32 {

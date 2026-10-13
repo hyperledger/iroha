@@ -113,7 +113,7 @@ fn original_bool_first_u64_and_malformed_json_decoding_semantics_are_identical()
         (Json::from(1_u64), true),
         (Json::from(u64::MAX), true),
         (Json::from("true"), false),
-        (Json::from(-1_i64 as f64), false),
+        (Json::from(-1_f64), false),
         (Json::from(Vec::<u64>::new()), false),
     ] {
         let mut set = fixture();

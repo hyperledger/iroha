@@ -12,9 +12,7 @@ use std::{
 
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::BlockHeader,
-    sumeragi_lanes::SumeragiLaneRecord,
-    transaction::{SignedTransaction, TransactionEntrypoint},
+    block::BlockHeader, sumeragi_lanes::SumeragiLaneRecord, transaction::TransactionEntrypoint,
 };
 use iroha_sumeragi::{
     api::ExecOutcome,
@@ -66,12 +64,16 @@ pub trait LaneTransactions: Send + Sync {
     /// Queued transactions routed to the lane at global height `height`, oldest first, at most
     /// `max_bytes` of encoded transactions, skipping `skip`. Future-only work returns
     /// [`LaneSelectionError::ClockAhead`] so the driver retries without unrelated traffic.
+    ///
+    /// # Errors
+    /// Returns `Deferred` when the original State or routing resource is unavailable,
+    /// or `ClockAhead` when pending work requires the proposer clock to advance.
     fn candidates(
         &self,
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, LaneSelectionError>;
+    ) -> Result<Vec<TransactionEntrypoint>, LaneSelectionError>;
 }
 
 /// The chain facts after a lane block: its anchor and the anchored transactions of the last
@@ -530,7 +532,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecov
                 batch
                     .transactions
                     .iter()
-                    .map(SignedTransaction::hash_as_entrypoint)
+                    .map(TransactionEntrypoint::hash)
                     .collect(),
             );
             self.executor.applied.block_hash = qc.block_hash;
@@ -802,7 +804,7 @@ mod tests {
         isi::{InstructionBox, Log},
         parameter::system::SumeragiParameters,
         sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember},
-        transaction::{FeePaymentIntent, TransactionBuilder},
+        transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
     };
     use iroha_model_base::{
         peer::PeerId,
@@ -853,7 +855,7 @@ mod tests {
 
     struct Accept;
     impl TransactionCheck for Accept {
-        fn check(&self, _tx: &SignedTransaction, _time: u64) -> Result<(), String> {
+        fn check(&self, _tx: &TransactionEntrypoint, _time: u64) -> Result<(), String> {
             Ok(())
         }
     }
@@ -865,7 +867,7 @@ mod tests {
             _height: u64,
             _max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError>
+        ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
         {
             Ok(self
                 .0
@@ -873,6 +875,7 @@ mod tests {
                 .iter()
                 .filter(|tx| !skip.contains(&tx.hash_as_entrypoint()))
                 .cloned()
+                .map(TransactionEntrypoint::External)
                 .collect())
         }
     }
@@ -999,7 +1002,7 @@ mod tests {
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         authored(lane, header, payload)
     }
@@ -1066,7 +1069,7 @@ mod tests {
             let batch = LaneBatch {
                 anchor_height: 5,
                 anchor_hash: anchor_hash(5),
-                transactions: vec![tx_at(25, created)],
+                transactions: vec![TransactionEntrypoint::External(tx_at(25, created))],
             };
             assert_eq!(batch.effective_time(0), Duration::from_millis(expected));
             assert_eq!(
@@ -1084,8 +1087,11 @@ mod tests {
             });
             let transaction = tx_at(24, created_ms);
             let effective = Duration::from_millis(5_000.max(created_ms + 1));
-            let (clock, time) =
-                iroha_primitives::time::TimeSource::new_mock(effective - Duration::from_millis(1));
+            let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+                effective
+                    .checked_sub(Duration::from_millis(1))
+                    .expect("fixture time has the original one-millisecond predecessor"),
+            );
             let queue = Arc::new(Queue(Mutex::new(vec![transaction.clone()])));
             let mut lane = executor_with_clock(&global, Some(queue.clone()), time);
             assert!(
@@ -1119,7 +1125,7 @@ mod tests {
                 LaneBatch::from_payload(payload.as_slice())
                     .unwrap()
                     .transactions,
-                vec![transaction]
+                vec![TransactionEntrypoint::External(transaction)]
             );
             let original = payload.as_slice().as_ptr();
             clock.rewind(Duration::from_millis(1));
@@ -1167,11 +1173,13 @@ mod tests {
                 _: u64,
                 _: usize,
                 _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-            ) -> Result<Vec<SignedTransaction>, LaneSelectionError> {
+            ) -> Result<Vec<TransactionEntrypoint>, LaneSelectionError> {
                 if self.time.now() < self.due {
                     Err(LaneSelectionError::ClockAhead)
                 } else {
-                    Ok(vec![self.transaction.clone()])
+                    Ok(vec![TransactionEntrypoint::External(
+                        self.transaction.clone(),
+                    )])
                 }
             }
         }
@@ -1185,7 +1193,7 @@ mod tests {
             transaction: tx(23),
             empty: AtomicU64::new(0),
         });
-        let original = source.transaction.hash();
+        let original = source.transaction.hash_as_entrypoint();
         let mut lane = executor_with(&global, Some(source.clone()));
         assert!(
             matches!(
@@ -1297,7 +1305,10 @@ mod tests {
 
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
         assert_eq!(batch.anchor_height, 5);
-        assert_eq!(batch.transactions, vec![first.clone()]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(first.clone())]
+        );
         let b1 = block(&lane, 1, Hash32::ZERO, payload);
         let h1 = b1.hash(&BlsCrypto::new());
         let Some(ExecOutcome::Valid(r1)) = lane.execute(&b1, &h1, false) else {
@@ -1310,7 +1321,7 @@ mod tests {
         let repeat = LaneBatch {
             anchor_height: 5,
             anchor_hash: anchor_hash(5),
-            transactions: vec![first],
+            transactions: vec![TransactionEntrypoint::External(first)],
         }
         .to_payload();
         let b2 = block(&lane, 2, h1, funded(&lane, repeat));
@@ -1323,10 +1334,11 @@ mod tests {
         assert_eq!(lane.execute(&orphan, &Hash32([8; 32]), false), None);
     }
 
-    /// The framed length queue admission and the queue-backed source measure.
+    /// The complete carrier frame the queue-backed lane source measures.
     fn framed_len(transaction: &SignedTransaction) -> usize {
         crate::tx::AcceptedTransaction::new_unchecked(std::borrow::Cow::Borrowed(transaction))
-            .encoded_len()
+            .entrypoint_bytes()
+            .len()
     }
 
     /// A transaction source that applies the byte budget the builder passes, as the
@@ -1341,7 +1353,7 @@ mod tests {
             _height: u64,
             max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError>
+        ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
         {
             self.budgets.lock().push(max_bytes);
             let mut bytes = 0usize;
@@ -1352,7 +1364,7 @@ mod tests {
                     continue;
                 }
                 bytes = next;
-                selected.push(transaction.clone());
+                selected.push(TransactionEntrypoint::External(transaction.clone()));
             }
             Ok(selected)
         }
@@ -1390,7 +1402,10 @@ mod tests {
             payload.as_slice().len()
         );
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
-        assert_eq!(batch.transactions, vec![transaction]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(transaction)]
+        );
         assert_eq!(*source.budgets.lock(), vec![length - 1, length]);
         // The same budget is what the data model grants the lane route at admission (the
         // global payload here leaves no room, so the lane budget alone decides).
@@ -1417,13 +1432,14 @@ mod tests {
             _height: u64,
             _max_bytes: usize,
             skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-        ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError>
+        ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
         {
             Ok(self
                 .0
                 .iter()
                 .filter(|transaction| !skip.contains(&transaction.hash_as_entrypoint()))
                 .cloned()
+                .map(TransactionEntrypoint::External)
                 .collect())
         }
     }
@@ -1444,7 +1460,10 @@ mod tests {
             let batch = LaneBatch {
                 anchor_height: 5,
                 anchor_hash: anchor_hash(5),
-                transactions,
+                transactions: transactions
+                    .into_iter()
+                    .map(TransactionEntrypoint::External)
+                    .collect(),
             };
             norito::codec::encode_adaptive_into(&batch, &mut io::sink()).expect("batch length")
         };
@@ -1461,14 +1480,23 @@ mod tests {
         let payload = payload.expect("a batch of exactly the limit is proposed");
 
         assert_eq!(payload.as_slice().len(), both);
-        assert_eq!(carried(&payload), vec![first.clone(), second]);
+        assert_eq!(
+            carried(&payload),
+            vec![
+                TransactionEntrypoint::External(first.clone()),
+                TransactionEntrypoint::External(second)
+            ]
+        );
         // One byte less: the last transaction is dropped, never an oversized payload.
         let payload = lane
             .build(1, 0, u32::try_from(both - 1).unwrap(), 100)
             .unwrap();
         let payload = payload.expect("the first transaction still fits");
         assert_eq!(payload.as_slice().len(), one);
-        assert_eq!(carried(&payload), vec![first]);
+        assert_eq!(
+            carried(&payload),
+            vec![TransactionEntrypoint::External(first)]
+        );
         // The batch of one transaction is itself exact at its own length and refused below it.
         let payload = lane.build(1, 0, u32::try_from(one).unwrap(), 100).unwrap();
         assert_eq!(payload.expect("exactly one batch").as_slice().len(), one);
@@ -1502,7 +1530,10 @@ mod tests {
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("retained batch");
         assert_eq!(batch.anchor_height, 5);
         assert_eq!(batch.anchor_hash, anchor_hash(5));
-        assert_eq!(batch.transactions, vec![first]);
+        assert_eq!(
+            batch.transactions,
+            vec![TransactionEntrypoint::External(first)]
+        );
         let body = block(&lane, 1, Hash32::ZERO, payload);
         assert!(matches!(
             lane.execute(&body, &body.hash(&BlsCrypto::new()), false),
@@ -1519,7 +1550,7 @@ mod tests {
         let ahead = LaneBatch {
             anchor_height: 6,
             anchor_hash: anchor_hash(6),
-            transactions: vec![tx(2)],
+            transactions: vec![TransactionEntrypoint::External(tx(2))],
         }
         .to_payload();
         let b1 = block(&lane, 1, Hash32::ZERO, funded(&lane, ahead));

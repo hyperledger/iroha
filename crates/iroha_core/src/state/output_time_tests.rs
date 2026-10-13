@@ -85,7 +85,12 @@ fn fixture(
         ALICE_ID.clone(),
         FeePaymentIntent::authority(vec![], None),
     );
-    builder.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+    builder.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(std::time::Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
+    );
     let signed = builder
         .with_instructions(network)
         .sign(ALICE_KEYPAIR.private_key());
@@ -959,7 +964,12 @@ mod retry_and_periodic {
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(std::time::Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let signed = transaction
             .with_instructions(plain_network())
             .sign(ALICE_KEYPAIR.private_key());

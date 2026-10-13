@@ -426,6 +426,11 @@ pub(super) fn boundary_fixture(
     ValidatorEpochContextV1,
     Vec<HashOf<BlockHeader>>,
 ) {
+    use crate::sumeragi::schedule::{
+        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule, ScheduledConfig,
+        ScheduledSlot,
+    };
+
     let (mut world, policy, _, _) = custody_pool(pool);
     let (beacon_world, current, hashes) = pulse_fixture();
     let view = beacon_world.view();
@@ -441,10 +446,6 @@ pub(super) fn boundary_fixture(
     for (id, value) in view.global_beacon_latest_pulse().iter() {
         world.global_beacon_latest_pulse.insert(*id, value.clone());
     }
-    use crate::sumeragi::schedule::{
-        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule, ScheduledConfig,
-        ScheduledSlot,
-    };
     let params = ChainParamsRecord::from_parameters(world.view().parameters().sumeragi());
     let graph = ConsensusSchedule::from_owned_entries(vec![
         ScheduledSlot::Ready(ScheduledConfig {
@@ -719,14 +720,15 @@ fn native_control_capture_verifies_transported_threshold_pulse_without_local_agg
 
 #[test]
 fn restore_installs_exact_current_and_undo_graph_owners_without_deep_cloning() {
+    use crate::sumeragi::schedule::{
+        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule,
+    };
+
     if crate::unit_test_support::run_in_isolated_harness(
         "sumeragi::epoch_election::tests::restore_installs_exact_current_and_undo_graph_owners_without_deep_cloning",
     ) {
         return;
     }
-    use crate::sumeragi::schedule::{
-        ChainParamsRecord, ConsensusSchedule, RetainedConsensusSchedule,
-    };
     let (_, epoch, _) = pulse_fixture();
     let params = ChainParamsRecord::from_parameters(
         &iroha_data_model::parameter::system::SumeragiParameters::default(),

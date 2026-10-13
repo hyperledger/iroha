@@ -67,7 +67,7 @@ impl crate::sumeragi::records::Faults for Flaky {
                 .is_ok()
         {
             let k = self.injected.fetch_add(1, Ordering::SeqCst);
-            return Err(std::io::Error::from_raw_os_error(if k % 2 == 0 {
+            return Err(std::io::Error::from_raw_os_error(if k.is_multiple_of(2) {
                 28
             } else {
                 5

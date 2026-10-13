@@ -187,7 +187,7 @@ fn detached_membership_releases_writer_without_copying_or_publishing() {
     stage(&storage, 1, &[key(50)]).commit().unwrap();
     let before = norito::json::to_json(&storage).unwrap();
     let prepared = stage(&storage, 2, &[key(51)]).prepare_commit().unwrap();
-    let allocation: *const TipKeys = &prepared
+    let allocation: *const TipKeys = &raw const prepared
         .as_block()
         .current_block
         .as_ref()

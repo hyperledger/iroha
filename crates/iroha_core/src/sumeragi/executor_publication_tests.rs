@@ -1690,7 +1690,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
             );
             worker.finish_execution_with_encoder(encode_result_preimage)
         });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         assert!(!worker.results.contains_key(&block_hash));
@@ -1788,7 +1788,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
                 );
                 encode_result_preimage(original, budget)
             });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         assert!(!worker.results.contains_key(&block_hash));
@@ -1887,7 +1887,7 @@ fn result_encoding_foreign_pool_requires_recovery_and_retains_original_execution
                 let foreign = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
                 encode_result_preimage(original, &foreign)
             });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_some());
         let pending = worker
             .finishing
@@ -3271,7 +3271,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
             );
             worker.finish_execution_with_encoder(encode_result_preimage)
         });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         let original = worker.finishing.as_ref().unwrap();
@@ -4190,7 +4190,7 @@ fn worker_fixture_invokes_and_consumes_one_move_only_callback_on_the_actual_chai
     with_worker(move |chain, worker, _, _| {
         assert_eq!(observed.fetch_add(1, Ordering::SeqCst), 0);
         assert_eq!(chain.validators().len(), 4);
-        assert!(std::ptr::eq(worker.state, &**chain.state()));
+        assert!(std::ptr::eq(worker.state, &raw const **chain.state()));
         assert_eq!(worker.applied.0, chain.height());
         assert_eq!(
             worker.applied.1,

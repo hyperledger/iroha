@@ -223,9 +223,7 @@ fn complete_sealed_admission_preserves_capacity_source_and_physical_refusal_cust
             refused,
             "actual original shell/scratch layout was reached: {layout:?}"
         );
-        let error = result
-            .err()
-            .expect("physical refusal cannot authenticate a session");
+        let error = result.expect_err("physical refusal cannot authenticate a session");
         assert!(matches!(
             error,
             GlobalThresholdBeaconSessionError::Shared(PrepaidSharedError::Allocator { .. })

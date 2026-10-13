@@ -346,7 +346,10 @@ fn context_and_preparation_reject_missing_failed_or_stale_owned_source() {
                     "retained transfer diagnostic construction failure".into(),
                 ))
             }
-            2 => block.fastpq_source_captures = Default::default(),
+            2 => {
+                block.fastpq_source_captures =
+                    crate::fastpq::FastpqSourceCaptureAccumulator::default()
+            }
             3 => block.fastpq_source_context = None,
             4 => block._curr_block.height = nonzero!(2_u64),
             5 => block.network_id = NetworkId::from_genesis_hash(block._curr_block.hash()),

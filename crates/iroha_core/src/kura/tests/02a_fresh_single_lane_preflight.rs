@@ -68,7 +68,7 @@ fn fresh_single_lane_constructor_provisions_a_missing_canonical_root() {
     let store_root = temp.path().join("fresh-kura");
     let config = kura_config_for_path(&store_root, BLOCKS_IN_MEMORY);
     let lane_config = RuntimeLaneConfig::default();
-    let (_kura, BlockCount(block_count)) = Kura::new_fresh_single_lane(&config, &lane_config)
+    let (fresh_kura, BlockCount(block_count)) = Kura::new_fresh_single_lane(&config, &lane_config)
         .expect("initialize canonical fresh Kura");
     assert_eq!(block_count, 0);
     assert!(store_root.is_dir());
@@ -84,7 +84,7 @@ fn fresh_single_lane_constructor_provisions_a_missing_canonical_root() {
     }
     assert!(!store_root.join("merge_ledger").exists());
     assert!(
-        _kura.lane_storage_entries.lock().is_empty(),
+        fresh_kura.lane_storage_entries.lock().is_empty(),
         "canonical startup grants no active lane authority"
     );
     assert!(!store_root.join("blocks/instances").exists());

@@ -573,9 +573,10 @@ fn real_kura_range_and_charged_append_remain_original_through_capacity_and_sync(
             let ended = catch_unwind(AssertUnwindSafe(|| {
                 let _release = release;
                 let _prepared = prepared;
-                if unwind {
-                    panic!("outer completion unwinds after retaining original cleanup");
-                }
+                assert!(
+                    !unwind,
+                    "outer completion unwinds after retaining original cleanup"
+                )
             }));
             assert_eq!(ended.is_err(), unwind);
             assert_eq!(probe.calls.load(Ordering::SeqCst), 2);

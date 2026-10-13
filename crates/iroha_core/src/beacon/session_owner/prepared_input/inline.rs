@@ -197,21 +197,49 @@ mod tests {
         for flags in [0, header_flags::COMPACT_LEN] {
             let _flags = DecodeFlagsGuard::enter(flags);
             let proof = GlobalThresholdBeaconDkgConstantProofV1 {
-                commitment: std::array::from_fn(|i| (i as u8).wrapping_add(0x31)),
-                response: std::array::from_fn(|i| (i as u8).wrapping_add(0x73)),
+                commitment: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x31)
+                }),
+                response: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x73)
+                }),
             };
             let wire = encoded(&proof);
             assert_eq!(wire, proof_fields(&proof.commitment, &proof.response));
             let share = GlobalThresholdBeaconPublicShareV1 {
                 index: 3,
-                participant_seat_binding: std::array::from_fn(|i| (i as u8).wrapping_add(0x17)),
-                public_key_share: std::array::from_fn(|i| (i as u8).wrapping_add(0x91)),
+                participant_seat_binding: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x17)
+                }),
+                public_key_share: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x91)
+                }),
             };
             let share_wire = encoded(&share);
             let mut session = crate::beacon::fixtures::adaptive_dkg_session_fixture();
-            session.session_id = std::array::from_fn(|i| (i as u8).wrapping_add(0x23));
-            session.attempt_id = std::array::from_fn(|i| (i as u8).wrapping_add(0x47));
-            session.roster_hash = std::array::from_fn(|i| (i as u8).wrapping_add(0xb3));
+            session.session_id = std::array::from_fn(|i| {
+                u8::try_from(i)
+                    .expect("fixed byte array index fits u8")
+                    .wrapping_add(0x23)
+            });
+            session.attempt_id = std::array::from_fn(|i| {
+                u8::try_from(i)
+                    .expect("fixed byte array index fits u8")
+                    .wrapping_add(0x47)
+            });
+            session.roster_hash = std::array::from_fn(|i| {
+                u8::try_from(i)
+                    .expect("fixed byte array index fits u8")
+                    .wrapping_add(0xb3)
+            });
             let session_wire = encoded(&session);
             let mut decoded = None;
             assert_eq!(
@@ -235,8 +263,16 @@ mod tests {
     fn inline_raw_fields_reject_wrong_widths_and_generic_array_substitutes() {
         for flags in [0, header_flags::COMPACT_LEN] {
             let _flags = DecodeFlagsGuard::enter(flags);
-            let commitment: [u8; 96] = std::array::from_fn(|i| (i as u8).wrapping_add(0x31));
-            let response: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_add(0x73));
+            let commitment: [u8; 96] = std::array::from_fn(|i| {
+                u8::try_from(i)
+                    .expect("fixed byte array index fits u8")
+                    .wrapping_add(0x31)
+            });
+            let response: [u8; 32] = std::array::from_fn(|i| {
+                u8::try_from(i)
+                    .expect("fixed byte array index fits u8")
+                    .wrapping_add(0x73)
+            });
             let generic_commitment = encoded(&commitment);
             let generic_response = encoded(&response);
             assert_ne!(generic_commitment, commitment);
@@ -275,8 +311,16 @@ mod tests {
         for flags in [0, header_flags::COMPACT_LEN] {
             let _flags = DecodeFlagsGuard::enter(flags);
             let coefficients: Vec<[u8; 96]> = vec![
-                std::array::from_fn(|i| (i as u8).wrapping_add(0x29)),
-                std::array::from_fn(|i| (i as u8).wrapping_add(0x83)),
+                std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x29)
+                }),
+                std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixed byte array index fits u8")
+                        .wrapping_add(0x83)
+                }),
             ];
             let wire = encoded(&coefficients);
             let budget = AllocationBudget::new(1 << 20);

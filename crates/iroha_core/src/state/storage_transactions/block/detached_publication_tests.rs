@@ -114,7 +114,7 @@ fn assert_ready(
     );
     assert_eq!(probe.busy.load(Ordering::SeqCst), 0);
 }
-fn pair<'a>(targets: &'a [Arc<TransactionsStorage>; 2], replace: bool) -> Pair<'a> {
+fn pair(targets: &[Arc<TransactionsStorage>; 2], replace: bool) -> Pair<'_> {
     Pair {
         first: stage(&targets[0], replace, 7).publication_slot(&targets[0]),
         second: stage(&targets[1], replace, 9).publication_slot(&targets[1]),
@@ -142,9 +142,7 @@ fn detached_membership_slots_retain_actual_preflight_on_refusal_and_caught_panic
                 pair.second.try_prepare(|_, target| {
                     assert!(target.write_lock.try_lock().is_some());
                     assert_eq!(second_probe.wakes.load(Ordering::SeqCst), 0);
-                    if panics {
-                        panic!("admission cut after the real advisory release");
-                    }
+                    assert!(!panics, "admission cut after the real advisory release");
                     Err::<Installation, _>("capacity")
                 })
             }));

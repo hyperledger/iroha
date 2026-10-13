@@ -965,7 +965,8 @@ fn validate_treasury_payout_contract_subject(
                     treasury_account_id: custody.treasury_account_id.to_string(),
                 }
             })?;
-    if record.contract_subject != custody.treasury_account_id
+    let treasury_subject = &custody.treasury_account_id;
+    if record.contract_subject != *treasury_subject
         || record.contract_address != custody.contract_address
         || custody.treasury_account_id != policy.treasury_account_id
         || custody.ds_asset_id != policy.ds_asset_id
@@ -1041,8 +1042,9 @@ fn validate_treasury_payout_binding_contract_subject(
             .into(),
         );
     };
+    let treasury_subject = &binding.treasury_account_id;
     if record.contract_address != binding.contract_address
-        || record.contract_subject != binding.treasury_account_id
+        || record.contract_subject != *treasury_subject
     {
         return Err(
             ValidationFeeAdmissionError::TreasuryPayoutRuntimeBindingMismatch {
@@ -1203,8 +1205,9 @@ fn runtime_origin_matches_payout_binding(
         }
     };
     Ok(record.is_some_and(|record| {
+        let treasury_subject = &binding.treasury_account_id;
         record.contract_address == binding.contract_address
-            && record.contract_subject == binding.treasury_account_id
+            && record.contract_subject == *treasury_subject
             && <[u8; 32]>::from(ivm::contract_code_hash(&record.code_bytes)) == binding.code_hash
             && record.code_bytes.as_slice() == origin.code_bytes
     }))

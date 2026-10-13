@@ -309,7 +309,7 @@ impl SnapshotStorage {
             budget: &iroha_allocation::AllocationBudget,
         ) -> Result<[u8; 32], StateRestoreError> {
             let text = blob.encoded_hex;
-            if text.len() % 2 != 0
+            if !text.len().is_multiple_of(2)
                 || text
                     .bytes()
                     .any(|b| !b.is_ascii_digit() && !(b'a'..=b'f').contains(&b))

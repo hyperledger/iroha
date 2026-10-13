@@ -24,7 +24,7 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
         *block.sccp_committee_current.get_mut() = 3;
         *block.sccp_liability_clock.get_mut() = 11;
         *block.sccp_degraded_run.get_mut() = 1;
-        *block.sccp_anchor_open.get_mut() = RetainedSccpAnchors::admit(&[anchor], &budget).unwrap();
+        *block.sccp_anchor_open.get_mut() = RetainedSccpAnchors::admit(&[anchor], budget).unwrap();
         block
             .sccp_anchor_chunks
             .try_insert_admitted(0, [3; 32])
@@ -66,7 +66,10 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
     assert!(Current(&published).anchor_chunk(&0).is_none());
     let mut replacement = world.block_and_revert();
     for apply in [true, false] {
-        let mut tx = replacement.transaction_without_telemetry(Default::default(), 0);
+        let mut tx = replacement.transaction_without_telemetry(
+            iroha_config::parameters::actual::LaneConfig::default(),
+            0,
+        );
         tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
         *tx.sccp_committee_current.get_mut() = 8;
         *tx.sccp_liability_clock.get_mut() = 99;

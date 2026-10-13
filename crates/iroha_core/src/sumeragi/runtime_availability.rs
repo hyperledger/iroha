@@ -191,6 +191,26 @@ impl NativeLaneStoreAuthorities {
         lane: LaneId,
         incarnation: [u8; 32],
     ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
+        let budget = self.state.ivm_execution_budget();
+        if cfg!(all(test, sumeragi_core_mutation = "HC283")) {
+            self.historical_record_with_scan(lane, incarnation)
+        } else {
+            budget.with_deferred_refund_notifications(|_| {
+                self.historical_record_with_scan(lane, incarnation)
+            })
+        }
+    }
+
+    // The original pool scope encloses every scan guard, including progress/refusal,
+    // cancellation, terminal rejection, stale-cut cleanup and successful transfer.
+    // Retire this frame before waking a caller that can reenter the full history reader;
+    // its large original scan temporaries must not remain on the callback's stack.
+    #[inline(never)]
+    fn historical_record_with_scan(
+        &self,
+        lane: LaneId,
+        incarnation: [u8; 32],
+    ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
         let mut pending_scan = self
             .scan
             .try_lock()
@@ -334,3 +354,6 @@ fn admit_lane_authority(
 #[cfg(test)]
 #[path = "runtime_availability/tests.rs"]
 pub(in crate::sumeragi) mod tests;
+
+#[cfg(test)]
+mod refund_tests;

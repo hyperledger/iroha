@@ -380,6 +380,11 @@ impl RoutingResolveError {
     }
 }
 /// Evaluate the routing policy and resolve it against the configured catalogs.
+///
+/// # Errors
+/// Returns the full-plan error for unresolved catalog routes, conflicting
+/// dataspace targets, malformed settlement intent, unavailable governed FX
+/// policy state, or an original local routing-read refusal.
 pub fn evaluate_policy_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -390,6 +395,12 @@ pub fn evaluate_policy_with_catalog(
         .map(|plan| plan.coordinator_route())
 }
 /// Evaluate the routing policy and resolve the full routing plan against the configured catalogs.
+///
+/// # Errors
+/// Returns an error if targets conflict, settlement or permission intent cannot
+/// be resolved, a required governed FX policy needs unavailable State, or the
+/// selected catalogs and reserved autoscale lanes reject the plan. Original
+/// local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -444,6 +455,11 @@ pub fn evaluate_policy_plan_with_catalog(
 }
 /// Evaluate the routing policy against catalogs, resolving opaque dataspace-scoped
 /// permissions from the current world snapshot when possible.
+///
+/// # Errors
+/// Returns the world-aware plan error for invalid or unresolved target, alias,
+/// FX policy, or multisig data, conflicting dataspaces, or invalid catalog and
+/// autoscale routes. Original local read refusals remain distinct.
 pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -461,6 +477,11 @@ pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
     )
 }
 /// Evaluate the routing policy against catalogs and the current world at a deterministic ledger time.
+///
+/// # Errors
+/// Returns the world-aware plan error if target, alias, FX policy, or multisig
+/// resolution fails at `ledger_time_ms`, targets conflict, or catalogs reject
+/// the selected route. Original local read refusals remain distinct.
 pub fn evaluate_policy_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -498,6 +519,11 @@ fn evaluate_policy_with_catalog_and_world_at_opt<W: WorldReadOnly>(
     .map(|plan| plan.coordinator_route())
 }
 /// Evaluate the routing policy and resolve the full routing plan against catalogs/world state.
+///
+/// # Errors
+/// Returns an error for invalid or unresolved target, alias, FX policy, or
+/// multisig data, conflicting dataspaces, or invalid catalog and autoscale routes.
+/// Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -516,6 +542,11 @@ pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
     )
 }
 /// Evaluate the routing policy and resolve the full plan at a deterministic ledger time.
+///
+/// # Errors
+/// Returns an error if target, alias, FX policy, or multisig resolution fails
+/// at `ledger_time_ms`, targets conflict, or catalogs and autoscale policy reject
+/// the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -539,6 +570,11 @@ pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
 ///
 /// Autoscale elastic default-route sharding requires a candidate block height; this heightless
 /// helper therefore fails closed to non-elastic/default routing for no-target default traffic.
+///
+/// # Errors
+/// Returns an error if target, alias, FX policy, or multisig resolution fails
+/// at `ledger_time_ms`, targets conflict, or the heightless Nexus policy and
+/// catalogs reject the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -557,6 +593,11 @@ pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
 }
 /// Evaluate the active Nexus routing policy and resolve the full plan at a deterministic ledger
 /// time and block height.
+///
+/// # Errors
+/// Returns an error if target, alias, FX policy, or multisig resolution fails,
+/// targets conflict, or catalogs and the autoscale range at `block_height` reject
+/// the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_nexus_and_world_at_block_height<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -1117,10 +1158,10 @@ impl FxCorridorRoutingOverlay {
     ) -> Result<FxCorridorPolicy, RoutingResolveError> {
         match fx_corridor_policy_with_world(world, policy_id) {
             Ok(policy) => Ok(policy),
-            Err(error @ RoutingResolveError::FxCorridorPolicyRegistryMissing)
-            | Err(error @ RoutingResolveError::FxCorridorPolicyNotFound { .. }) => {
-                self.policies.get(policy_id).cloned().ok_or(error)
-            }
+            Err(
+                error @ (RoutingResolveError::FxCorridorPolicyRegistryMissing
+                | RoutingResolveError::FxCorridorPolicyNotFound { .. }),
+            ) => self.policies.get(policy_id).cloned().ok_or(error),
             Err(error) => Err(error),
         }
     }
@@ -3431,9 +3472,7 @@ enum AccountPermissionHolderTarget<'account> {
     Skip,
     Abort,
 }
-fn account_permission_holder_routing_target<'tx>(
-    tx: &'tx dyn TransactionRoutingView,
-) -> Option<&'tx AccountId> {
+fn account_permission_holder_routing_target(tx: &dyn TransactionRoutingView) -> Option<&AccountId> {
     let Some(executable) = transaction_executable(tx) else {
         return None;
     };
@@ -8479,6 +8518,11 @@ fn resolve_policy_routing_decision(
 /// Query routing intentionally ignores transaction-instruction matchers because
 /// queries do not carry ISI batches. Rules without an instruction matcher still
 /// participate, including account-scoped rules and explicit catch-all rules.
+///
+/// # Errors
+/// Returns an error if authority-scope resolution fails or the selected lane,
+/// dataspace, or reserved autoscale target violates the policy catalogs. Original
+/// local account-resolution refusals remain distinct.
 pub fn resolve_query_routing_decision(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -8551,6 +8595,10 @@ fn resolve_query_routing_decision_with_world<W: WorldReadOnly>(
 ///
 /// This function intentionally rejects unresolved or ambiguous combinations
 /// instead of silently rewriting them to defaults.
+///
+/// # Errors
+/// Returns an error if either catalog lacks the selected identifier or the
+/// selected lane belongs to a different dataspace.
 pub fn resolve_routing_decision(
     decision: RoutingDecision,
     lane_catalog: &LaneCatalog,
@@ -8583,10 +8631,10 @@ pub fn resolve_routing_decision(
     }
     Ok(decision)
 }
-fn first_matching_rule<'a>(
-    rules: &'a [LaneRoutingRule],
+fn first_matching_rule(
+    rules: &[LaneRoutingRule],
     mut matches: impl FnMut(&LaneRoutingRule) -> Result<bool, ExecutionDeferred>,
-) -> Result<Option<&'a LaneRoutingRule>, ExecutionDeferred> {
+) -> Result<Option<&LaneRoutingRule>, ExecutionDeferred> {
     for rule in rules {
         if matches(rule)? {
             return Ok(Some(rule));
@@ -9210,11 +9258,19 @@ fn matches_label(matcher: &str, label: &str) -> bool {
 /// Strategy object that derives lane/dataspace assignments for queued transactions.
 pub trait LaneRouter: Send + Sync + 'static {
     /// Route the given transaction and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    /// Returns the strategy's typed error when the transaction cannot be assigned
+    /// a valid route, preserving unfinished local reads as `Deferred`.
     fn try_route(
         &self,
         tx: &dyn TransactionRoutingView,
     ) -> Result<RoutingDecision, RoutingResolveError>;
     /// Route with an existing state view and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    /// The default implementation propagates errors from [`Self::try_route`].
+    /// State-aware implementations also preserve original local read refusals.
     fn try_route_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9223,6 +9279,10 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route(tx)
     }
     /// Route with narrow state access and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    /// Propagates errors from the state-free probe or, when that probe requires
+    /// State, from [`Self::try_route_with_view`].
     fn try_route_with_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9235,6 +9295,10 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route_with_view(tx, &state_view)
     }
     /// Route without state snapshot when possible and return deterministic route errors.
+    ///
+    /// # Errors
+    /// The default implementation propagates errors from [`Self::try_route`];
+    /// `Ok(None)` in an override means State is required, not that routing failed.
     fn try_route_without_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9242,6 +9306,10 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route(tx).map(Some)
     }
     /// Build the full routing plan for a transaction and return deterministic errors.
+    ///
+    /// # Errors
+    /// The default implementation propagates errors from [`Self::try_route`]
+    /// before constructing its single coordinator leg.
     fn try_route_plan(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9250,6 +9318,10 @@ pub trait LaneRouter: Send + Sync + 'static {
             .map(|route| RoutingPlan::Single(RouteLeg::new(route, RouteLegRole::Coordinator)))
     }
     /// Build the full routing plan with an existing state view.
+    ///
+    /// # Errors
+    /// The default implementation propagates errors from [`Self::try_route_with_view`]
+    /// before constructing its single coordinator leg.
     fn try_route_plan_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9259,6 +9331,10 @@ pub trait LaneRouter: Send + Sync + 'static {
             .map(|route| RoutingPlan::Single(RouteLeg::new(route, RouteLegRole::Coordinator)))
     }
     /// Build the full routing plan with narrow state access when possible.
+    ///
+    /// # Errors
+    /// Propagates errors from the state-free plan probe or, when State is required,
+    /// from [`Self::try_route_plan_with_view`].
     fn try_route_plan_with_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9271,6 +9347,10 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route_plan_with_view(tx, &state_view)
     }
     /// Build the full routing plan without state when possible.
+    ///
+    /// # Errors
+    /// The default implementation propagates errors from [`Self::try_route_without_state`];
+    /// `Ok(None)` preserves that probe's need for State.
     fn try_route_plan_without_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9483,10 +9563,10 @@ impl LaneRouter for ConfigLaneRouter {
             return Ok(None);
         }
         if let Some(account_id) = account_permission_holder_routing_target(tx)
-            && !first_matching_rule(&self.policy.rules, |rule| {
+            && first_matching_rule(&self.policy.rules, |rule| {
                 query_rule_matches(rule, account_id, None)
             })?
-            .is_some()
+            .is_none()
         {
             return Ok(None);
         }
@@ -9919,7 +9999,8 @@ mod tests {
                     reimbursement_leg_ordinal: 0,
                     legs: Vec::new(),
                 },
-                authority_catalog: Default::default(),
+                authority_catalog:
+                    iroha_data_model::nexus::PrivateSettlementAuthorityCatalogV1::default(),
                 legs: Vec::new(),
             },
         ));
@@ -9967,7 +10048,8 @@ mod tests {
                     reimbursement_leg_ordinal: 0,
                     legs: Vec::new(),
                 },
-                authority_catalog: Default::default(),
+                authority_catalog:
+                    iroha_data_model::nexus::PrivateSettlementAuthorityCatalogV1::default(),
                 deltas: Vec::new(),
                 prepare_certificates: Vec::new(),
                 prepared_bundle_digest: Hash::new(
@@ -13507,7 +13589,7 @@ mod tests {
     #[test]
     fn smart_contract_deploy_rule_with_universal_target_builds_native_amx_plan() {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
-        let is_dataspace = DataSpaceId::new(6647857470246403404);
+        let is_dataspace = DataSpaceId::new(6_647_857_470_246_403_404);
         let router = ConfigLaneRouter::new(
             LaneRoutingPolicy {
                 default_lane: LaneId::SINGLE,

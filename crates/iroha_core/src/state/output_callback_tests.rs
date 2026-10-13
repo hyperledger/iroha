@@ -99,7 +99,12 @@ fn nested_callback_fixture(row_bytes: u64, depth: u8) -> NestedCallbackFixture {
         ALICE_ID.clone(),
         FeePaymentIntent::authority(vec![], None),
     );
-    transaction.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+    transaction.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(std::time::Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
+    );
     let signed = transaction
         .with_instructions([ExecuteTrigger::new(parent.clone())])
         .sign(ALICE_KEYPAIR.private_key());
@@ -587,7 +592,12 @@ fn real_dfs_predispatch_failure_poison_preserves_no_earlier_callback_effects() {
         ALICE_ID.clone(),
         FeePaymentIntent::authority(vec![], None),
     );
-    source.set_creation_time(header.creation_time() - std::time::Duration::from_millis(1));
+    source.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(std::time::Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
+    );
     let signed = source
         .with_instructions([
             InstructionBox::from(ExecuteTrigger::new(fixture.parent.clone())),

@@ -108,7 +108,7 @@ fn new_dummy_block_with_payload(f: impl FnOnce(&mut BlockHeader)) -> CommittedBl
             BTreeMap::new(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .expect("empty fixture block has complete execution metadata");
@@ -207,7 +207,7 @@ fn component_commit_topology_preserves_scheduled_network_authority_on_consensus_
         .into_validators(),
         expected,
     );
-    let component_keys = configure_commit_topology_preserving_world_peers(&state, 1);
+    let component_keys = configure_commit_topology_preserving_world_peers(state, 1);
     let view = state.view();
     assert_eq!(
         view.world.peers().iter().cloned().collect::<Vec<_>>(),

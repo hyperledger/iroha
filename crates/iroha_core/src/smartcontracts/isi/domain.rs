@@ -2420,7 +2420,7 @@ pub mod isi {
                     )
                 })?;
         }
-        if let Some(alias) = asset_definition.alias().as_ref().cloned() {
+        if let Some(alias) = asset_definition.alias().clone() {
             let bound_at_ms = state_transaction.block_unix_timestamp_ms();
             state_transaction.world.bind_asset_definition_alias(
                 &asset_definition_id,

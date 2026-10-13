@@ -56,9 +56,7 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 state.block_and_revert_with_pristine_stage(proposal.header(), |_| {
                     assert_eq!(callback.observations(), [0; 5]);
-                    if exit == 5 {
-                        panic!("original replacement pristine-stage unwind");
-                    }
+                    assert!(exit != 5, "original replacement pristine-stage unwind");
                     Err::<(), _>("original replacement pristine-stage refusal")
                 })
             }));
@@ -89,7 +87,7 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
             }
         } else {
             let mut acquired = state.acquire_canonical_runtime_block(true).unwrap();
-            let result = acquired.rewind_da_indexes_to_height(if exit == 3 { 1 } else { 0 });
+            let result = acquired.rewind_da_indexes_to_height(u64::from(exit == 3));
             if exit == 3 {
                 assert!(matches!(
                     result,

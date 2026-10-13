@@ -58,16 +58,17 @@ impl Kura {
     pub(crate) fn reconcile_resident_resource_inventory(
         &self,
     ) -> std::result::Result<(), resource_inventory::Unavailable> {
-        use resource_inventory::{Family, Unavailable, Usage};
-        let generation = self.resource_inventory.reconciliation_generation()?;
-        if self.auxiliary_history_deferred {
-            return Err(Unavailable::InvalidInventory);
-        }
         fn exact(owner: &impl ResidentOwner) -> std::result::Result<u64, Unavailable> {
             if !owner.resident_complete() {
                 return Err(Unavailable::InvalidInventory);
             }
             owner.resident_associations()
+        }
+
+        use resource_inventory::{Family, Unavailable, Usage};
+        let generation = self.resource_inventory.reconciliation_generation()?;
+        if self.auxiliary_history_deferred {
+            return Err(Unavailable::InvalidInventory);
         }
         let materialized_hashes = {
             let owner = self.block_data.lock();

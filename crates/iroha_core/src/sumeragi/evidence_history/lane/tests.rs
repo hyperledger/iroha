@@ -758,7 +758,7 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
         None,
         Vec::new(),
         Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
         |proposal| {
             let parent_service_commit_qc = proposal
                 .npos_consensus_effects()
@@ -985,6 +985,34 @@ fn original_validator_account_key() -> KeyPair {
 }
 
 fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidence {
+    fn deliver(kernel: &mut Kernel, from: &PublicKey, vote: Vote) -> Vec<Evidence> {
+        let message = WireMessage::Vote(vote);
+        let class = message.traffic_class();
+        kernel.receive(from.clone(), message, class);
+        let mut handled = 0;
+        while let Some(input) = kernel.next_input(0) {
+            handled += 1;
+            assert!(handled <= 16, "one deterministic input must drain promptly");
+            kernel.handle(0, input);
+        }
+        kernel
+            .poll(0)
+            .into_iter()
+            .filter_map(|operation| match operation {
+                Op::Report(Report::Evidence(evidence)) => Some(*evidence),
+                Op::Report(report) => panic!("unexpected detector report: {report:?}"),
+                Op::Exec(_) | Op::Persist { .. } => {
+                    panic!("the non-voting detector cannot fabricate execution or signing")
+                }
+                Op::Send { msg, .. } => {
+                    assert!(!matches!(msg, WireMessage::Vote(_)));
+                    None
+                }
+                Op::Serve(_) => None,
+            })
+            .collect()
+    }
+
     use crate::sumeragi::driver::{
         DriverConfig, Kernel, KernelStart, Op, Report,
         ingress::{Ingress, IngressLimits},
@@ -1043,34 +1071,6 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
         config: DriverConfig::default(),
     })
     .expect("production detector starts from authenticated lane genesis");
-
-    fn deliver(kernel: &mut Kernel, from: &PublicKey, vote: Vote) -> Vec<Evidence> {
-        let message = WireMessage::Vote(vote);
-        let class = message.traffic_class();
-        kernel.receive(from.clone(), message, class);
-        let mut handled = 0;
-        while let Some(input) = kernel.next_input(0) {
-            handled += 1;
-            assert!(handled <= 16, "one deterministic input must drain promptly");
-            kernel.handle(0, input);
-        }
-        kernel
-            .poll(0)
-            .into_iter()
-            .filter_map(|operation| match operation {
-                Op::Report(Report::Evidence(evidence)) => Some(*evidence),
-                Op::Report(report) => panic!("unexpected detector report: {report:?}"),
-                Op::Exec(_) | Op::Persist { .. } => {
-                    panic!("the non-voting detector cannot fabricate execution or signing")
-                }
-                Op::Send { msg, .. } => {
-                    assert!(!matches!(msg, WireMessage::Vote(_)));
-                    None
-                }
-                Op::Serve(_) => None,
-            })
-            .collect()
-    }
 
     let key = keys()[2].clone();
     let signer = KeyPairSigner::new(&key).unwrap();
@@ -1214,7 +1214,7 @@ fn fund_original_validator_in_signed_genesis(
             peer_id: peer,
             stake_account: validator,
             initial_stake: amount.clone(),
-            metadata: Default::default(),
+            metadata: iroha_model_base::metadata::Metadata::default(),
             monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                 source_asset,
                 escrow_asset,

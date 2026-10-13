@@ -374,7 +374,7 @@ fn permission_cache_rebuilds_after_restart_impl() {
             lane_manifests: live.lane_manifests.read().clone(),
             query_handle: crate::query::store::LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]
-            telemetry: Default::default(),
+            telemetry: crate::telemetry::StateTelemetry::default(),
         }
         .into_state_from_json_str_with_configured_nexus(captured.as_json(), live.nexus_snapshot());
         assert!(matches!(
@@ -393,7 +393,7 @@ fn permission_cache_rebuilds_after_restart_impl() {
             live.latest_block_hash_fast()
         );
         assert_eq!(
-            crate::snapshot::canonical_state_snapshot_hash(&restarted).unwrap(),
+            crate::snapshot::canonical_state_snapshot_hash(restarted).unwrap(),
             crate::snapshot::canonical_state_snapshot_hash(live).unwrap()
         );
         assert!(
@@ -404,6 +404,6 @@ fn permission_cache_rebuilds_after_restart_impl() {
             restarted.world_view().accounts().get(&owner).is_some(),
             "owner survives restart"
         );
-        assert_replayed_permission_cache(&restarted, &registrar, &owner, &trigger_id, expected);
+        assert_replayed_permission_cache(restarted, &registrar, &owner, &trigger_id, expected);
     }
 }

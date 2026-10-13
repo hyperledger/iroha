@@ -206,7 +206,7 @@ impl RestorationRead {
 
 pub(super) fn validate(state: &State) -> Result<(), EvidenceAdmissionError> {
     let generation = state.state_view_generation();
-    if generation % 2 != 0 {
+    if !generation.is_multiple_of(2) {
         return Err(EvidencePreparationError::OriginalHistoryPending.into());
     }
     let Some(mut cache) = state.native_evidence_admission.try_lock() else {

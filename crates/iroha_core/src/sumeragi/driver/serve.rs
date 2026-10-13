@@ -37,6 +37,9 @@ pub enum ServeRequest {
 }
 impl ServeRequest {
     /// Convert a released Core action, returning unrelated actions unchanged.
+    ///
+    /// # Errors
+    /// Returns the original action when neither block serving nor the payload worker owns it.
     pub fn from_action(action: Action) -> Result<Self, Action> {
         match action {
             Action::ServeBlocks {
@@ -350,6 +353,9 @@ impl ServeSched {
 
 /// Consecutive metadata entries, including an oversized first entry as the protocol permits.
 /// Read errors are propagated; they never produce an empty successful response.
+///
+/// # Errors
+/// Returns the original store refusal or read error when a requested entry cannot be read.
 pub fn entries(
     blocks: &(impl BlockStore + ?Sized),
     from_height: u64,
@@ -538,6 +544,10 @@ fn deliver(worker: &mut PayloadWorker, net: &dyn Net, served: &mut Served) -> io
 }
 /// Run one bounded serving turn with the same retained worker across requests.
 /// Exact encoded frames and recoverable post receipts survive every pressure retry.
+///
+/// # Errors
+/// Propagates terminal storage, payload, encoding and transport errors. Recoverable
+/// refusal returns retained retry work in the successful result.
 pub fn serve(
     request: ServeRequest,
     instance: Hash32,

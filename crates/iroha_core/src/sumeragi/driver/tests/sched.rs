@@ -35,7 +35,7 @@ fn config() -> HeightConfig {
 }
 
 fn result_of(parent_result: &Hash32, block: &AvailableBody) -> Hash32 {
-    match reference_exec(parent_result, &block.payload().as_slice()) {
+    match reference_exec(parent_result, block.payload().as_slice()) {
         ExecOutcome::Valid(r) => r,
         other => panic!("{other:?}"),
     }

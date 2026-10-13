@@ -126,7 +126,7 @@ fn archived_tail_fixture() -> (
                 stake_account: validator.clone(),
                 total_stake: total,
                 self_stake,
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 status: PublicLaneValidatorStatus::Active,
                 activation_height: 1,
                 election_exit_height: None,
@@ -142,7 +142,7 @@ fn archived_tail_fixture() -> (
                     staker,
                     bonded,
                     pending_unbonds: BTreeMap::new(),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                 },
             );
         }

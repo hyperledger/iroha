@@ -84,7 +84,7 @@ def test_exact_ordered_source_and_full_inventory_match_private_pins(producer):
     raw = owner.split("const SOURCE_SHA256: [u8; 32] = [", 1)[1].split("];", 1)[0]
     assert bytes(int(word, 16) for word in re.findall(r"0x[0-9a-f]{2}", raw)).hex() == digest
     assert tuple(re.findall(r'\(\s*"(crates/[^\"]+)",\s*include_bytes!', owner)) == producer.SOURCE_INPUTS
-    names = owner.split("pub(crate) const ENTRY_POINTS:", 1)[1].split("];", 1)[0]
+    names = owner.split("pub const ENTRY_POINTS:", 1)[1].split("];", 1)[0]
     assert tuple(re.findall(r'"([a-z0-9_]+)"', names)) == producer.ENTRY_POINTS
 
 

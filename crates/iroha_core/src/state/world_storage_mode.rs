@@ -39,11 +39,11 @@ pub(super) trait WorldStorageMode<K: Key, V: Value>:
     fn try_prepare(slot: &mut Self::Slot<'_>) -> Result<(), Refusal>;
     fn release_writers(slot: &mut Self::Slot<'_>);
     fn recover_original(slot: &mut Self::Slot<'_>) -> mv::storage::Detached<K, V, (), Self>;
-    fn into_prepared<'a>(slot: Self::Slot<'a>) -> Self::Prepared<'a>;
-    fn abort<'a>(
-        prepared: Self::Prepared<'a>,
-    ) -> (mv::storage::Detached<K, V, (), Self>, Self::Aborted<'a>);
-    fn publish<'a>(prepared: Self::Prepared<'a>) -> Self::Published<'a>;
+    fn into_prepared(slot: Self::Slot<'_>) -> Self::Prepared<'_>;
+    fn abort(
+        prepared: Self::Prepared<'_>,
+    ) -> (mv::storage::Detached<K, V, (), Self>, Self::Aborted<'_>);
+    fn publish(prepared: Self::Prepared<'_>) -> Self::Published<'_>;
 }
 
 impl<K: Key, V: Value> WorldStorageMode<K, V> for Untracked {
@@ -69,15 +69,13 @@ impl<K: Key, V: Value> WorldStorageMode<K, V> for Untracked {
     fn recover_original(slot: &mut Self::Slot<'_>) -> mv::storage::Detached<K, V, ()> {
         slot.recover_original()
     }
-    fn into_prepared<'a>(slot: Self::Slot<'a>) -> Self::Prepared<'a> {
+    fn into_prepared(slot: Self::Slot<'_>) -> Self::Prepared<'_> {
         slot.into_prepared()
     }
-    fn abort<'a>(
-        prepared: Self::Prepared<'a>,
-    ) -> (mv::storage::Detached<K, V, ()>, Self::Aborted<'a>) {
+    fn abort(prepared: Self::Prepared<'_>) -> (mv::storage::Detached<K, V, ()>, Self::Aborted<'_>) {
         prepared.abort()
     }
-    fn publish<'a>(prepared: Self::Prepared<'a>) -> Self::Published<'a> {
+    fn publish(prepared: Self::Prepared<'_>) -> Self::Published<'_> {
         prepared.publish()
     }
 }
@@ -147,20 +145,20 @@ where
         }
     }
 
-    fn into_prepared<'a>(slot: Self::Slot<'a>) -> Self::Prepared<'a> {
+    fn into_prepared(slot: Self::Slot<'_>) -> Self::Prepared<'_> {
         match slot {
             PrepaidSlot::Installed(slot) => slot.into_prepared(),
             PrepaidSlot::Refused { .. } => unreachable!("refused field cannot be prepared"),
         }
     }
 
-    fn abort<'a>(
-        prepared: Self::Prepared<'a>,
-    ) -> (mv::storage::Detached<K, V, (), Self>, Self::Aborted<'a>) {
+    fn abort(
+        prepared: Self::Prepared<'_>,
+    ) -> (mv::storage::Detached<K, V, (), Self>, Self::Aborted<'_>) {
         prepared.abort()
     }
 
-    fn publish<'a>(prepared: Self::Prepared<'a>) -> Self::Published<'a> {
+    fn publish(prepared: Self::Prepared<'_>) -> Self::Published<'_> {
         prepared.publish()
     }
 }

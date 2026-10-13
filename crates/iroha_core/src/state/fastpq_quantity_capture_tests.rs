@@ -202,7 +202,10 @@ fn source_with_fee(
 ) -> (SignedBlock, Hash) {
     let mut transaction = TransactionBuilder::new(state.network_id, ALICE_ID.clone(), fee);
     transaction.set_creation_time(
-        quantity_successor_header(state).creation_time() - Duration::from_millis(1),
+        quantity_successor_header(state)
+            .creation_time()
+            .checked_sub(Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let transaction = transaction
         .with_instructions(body)
@@ -657,7 +660,10 @@ fn distinct_signed_entries_retain_exact_independent_counters() {
             FeePaymentIntent::authority(vec![], None),
         );
         transaction.set_creation_time(
-            quantity_successor_header(&state).creation_time() - Duration::from_millis(1),
+            quantity_successor_header(&state)
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let transaction = transaction
             .with_instructions(body)
@@ -2080,9 +2086,7 @@ fn callback_error_and_unwind_discard_new_tape_while_transaction_rollback_preserv
                 let result: Result<(), Error> =
                     transaction.apply_with_quantity_candidate(Ok(prepared), |transaction| {
                         apply_owned_test_mint(transaction, alice);
-                        if unwind {
-                            panic!("interrupt after final original port");
-                        }
+                        assert!(!unwind, "interrupt after final original port");
                         Err(Error::InvariantViolation(
                             "return after final original port".into(),
                         ))
@@ -2404,7 +2408,12 @@ fn with_sealed_quantity_source_census(
             ALICE_ID.clone(),
             FeePaymentIntent::authority(vec![], None),
         );
-        transaction.set_creation_time(header.creation_time() - Duration::from_millis(1));
+        transaction.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let signed = transaction
             .with_instructions(body)
             .sign(ALICE_KEYPAIR.private_key());
@@ -2503,7 +2512,7 @@ fn original_quantity_census_retains_ordered_success_empty_and_rejected_sources_w
             );
             assert_ne!(row.effects_digest, Hash::new(&native));
             assert_eq!(row.frame_bytes, u64::try_from(native.len()).unwrap());
-            assert_eq!(row.effect_count, if index == 0 { 1 } else { 0 });
+            assert_eq!(row.effect_count, u32::from(index == 0));
         }
         assert_eq!(
             block.world.assets.get(alice).unwrap().as_ref(),
@@ -2761,7 +2770,10 @@ fn bob_account_removal_source(state: &State, repeat: bool) -> (SignedBlock, Hash
         FeePaymentIntent::authority(vec![], None),
     );
     transaction.set_creation_time(
-        quantity_successor_header(state).creation_time() - Duration::from_millis(1),
+        quantity_successor_header(state)
+            .creation_time()
+            .checked_sub(Duration::from_millis(1))
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let mut body = vec![InstructionBox::from(Unregister::account(BOB_ID.clone()))];
     if repeat {

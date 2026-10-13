@@ -204,6 +204,8 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
 
 #[test]
 fn preparation_classification_preserves_real_limit_and_does_not_invent_release_for_allocator() {
+    use iroha_sumeragi::message::ByteAdmissionError;
+
     let budget = AllocationBudget::new(1);
     let original = budget.try_reserve_bytes(2).unwrap_err();
     let error = ResultPreimageError::Allocation(ChargedBufferError::Admission(original.clone()));
@@ -233,7 +235,6 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         panic!("retain original shared control admission source");
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
-    use iroha_sumeragi::message::ByteAdmissionError;
     for error in [
         ByteAdmissionError::Buffer(ChargedBufferError::Admission(original.clone())),
         ByteAdmissionError::ControlAdmission(original.clone()),

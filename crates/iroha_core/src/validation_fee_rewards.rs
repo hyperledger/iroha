@@ -1676,9 +1676,9 @@ mod tests {
             reference_feed_config_version: 1,
             reference_provider_accounts: (10..15).map(account).collect(),
             max_sbd_per_attempt_minor: 1000,
-            max_sbd_per_day_minor: 100000,
+            max_sbd_per_day_minor: 100_000,
             min_interval_ms: 60000,
-            max_source_age_ms: 300000,
+            max_source_age_ms: 300_000,
             max_slippage_bps: 100,
             validator_lane_id: LaneId::new(0),
             min_reward_claim_xor_minor: 1,
@@ -1714,7 +1714,7 @@ mod tests {
         let b = binding();
         let now = 1_000_000;
         let records: Vec<_> = (10..13)
-            .map(|seed| observation(seed, now - 300000, now - 1, 8))
+            .map(|seed| observation(seed, now - 300_000, now - 1, 8))
             .collect();
         assert_eq!(
             reference_minimum(&b, &records, now, 9, 1000, 2).expect("quote"),

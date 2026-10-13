@@ -138,4 +138,5 @@ pub(super) fn typed_bare_payload<T: Encode + NoritoSchema, B: Write + AsRef<[u8]
 }
 
 #[cfg(test)]
+#[path = "frame/tests.rs"]
 mod tests;

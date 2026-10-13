@@ -627,10 +627,10 @@ mod tests {
             .set_execution_outputs(
                 Vec::new(),
                 1,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &crate::execution_output_test_support::structural_output_limits(),
             )
             .unwrap();
@@ -1141,10 +1141,10 @@ mod tests {
                 .set_execution_outputs(
                     Vec::new(),
                     fragments,
-                    Default::default(),
+                    std::collections::BTreeMap::default(),
                     Vec::new(),
-                    Default::default(),
-                    Default::default(),
+                    iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                    std::collections::BTreeSet::default(),
                     &crate::execution_output_test_support::structural_output_limits(),
                 )
                 .unwrap();

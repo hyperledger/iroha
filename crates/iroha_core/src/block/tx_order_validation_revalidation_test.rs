@@ -76,9 +76,9 @@ async fn tx_order_same_in_validation_and_revalidation() {
         &time_source,
     )
     .expect("Valid");
-    let fail_hash = tx0.as_ref().hash_as_entrypoint();
-    let register_hash = tx.as_ref().hash_as_entrypoint();
-    let succeed_hash = tx2.as_ref().hash_as_entrypoint();
+    let fail_hash = tx0.hash_as_entrypoint();
+    let register_hash = tx.hash_as_entrypoint();
+    let succeed_hash = tx2.hash_as_entrypoint();
     // Creating a block of two identical transactions and validating it
     let transactions = vec![tx0, tx, tx2];
     let unverified_block = BlockBuilder::new(transactions)
@@ -95,7 +95,7 @@ async fn tx_order_same_in_validation_and_revalidation() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block

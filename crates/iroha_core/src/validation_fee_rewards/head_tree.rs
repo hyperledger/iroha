@@ -203,6 +203,11 @@ pub(crate) fn receipt_head_root(
 }
 /// Build a private current-state head membership proof in at most 256 branches.
 /// The caller must match the returned root to immutable finality before responding.
+///
+/// # Errors
+/// Returns an error if the wallet path or leaf cannot be derived, retained
+/// tree data is missing or malformed, the wallet/head does not match the tree,
+/// or traversal exceeds its depth bound. Original decoder refusals are preserved.
 pub fn receipt_head_membership(
     world: &impl WorldReadOnly,
     head: &RetailFeeReceiptHeadV1,

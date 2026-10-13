@@ -552,8 +552,9 @@ pub(crate) fn acknowledge<R: GatewayRows>(
     record: Record,
     reputation_delivery: crate::smartcontracts::isi::sorafs_reputation::stream_token_delivery::DeliveryState,
 ) -> Result<TransitionDelta, TransitionError> {
-    let mut state = Prepared::new(input, rows)?;
     use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
+
+    let mut state = Prepared::new(input, rows)?;
     if reputation_delivery.source_digest == [0; 32]
         || matches!(reputation_delivery.disposition, Disposition::Pending)
         || matches!(reputation_delivery.disposition, Disposition::Excluded)

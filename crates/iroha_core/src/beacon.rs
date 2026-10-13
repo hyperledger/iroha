@@ -228,6 +228,9 @@ pub struct GlobalThresholdBeaconPulseLinkV1 {
 
 impl GlobalThresholdBeaconPulseLinkV1 {
     /// Validate a non-zero persisted ingestion cursor.
+    ///
+    /// # Errors
+    /// Rejects a zero pulse identifier or seed.
     pub fn validate(self) -> Result<(), GlobalThresholdBeaconError> {
         if is_zero(&self.pulse_id) || is_zero(&self.seed) {
             return Err(GlobalThresholdBeaconError::ZeroPulse);
@@ -236,6 +239,9 @@ impl GlobalThresholdBeaconPulseLinkV1 {
     }
 
     /// Validate the genesis-supplied origin used before the first pulse.
+    ///
+    /// # Errors
+    /// Rejects a zero identifier or seed, or a nonzero origin height or round.
     pub fn validate_origin(self) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         if self.height != 0 || self.round != 0 {
@@ -437,8 +443,10 @@ fn verify_global_threshold_beacon_dkg_encrypted_share_v1_with<
     edge: &GlobalThresholdBeaconDkgEncryptedShareV1,
     verifier: &mut V,
 ) -> Result<(), GlobalThresholdBeaconVerificationError<V::Resource>> {
+    // A dealer signs with its own recipient-key registration from the same frozen seat roster.
+    let dealer_key_seat = dealer_key.recipient_index;
     if edge.dealer_index != dealer.dealer_index
-        || edge.dealer_index != dealer_key.recipient_index
+        || edge.dealer_index != dealer_key_seat
         || edge.recipient_index != recipient_key.recipient_index
         || edge.dealer_commitment_hash
             != global_threshold_beacon_dkg_dealer_commitment_hash_v1(session, dealer)
@@ -558,6 +566,9 @@ impl GlobalThresholdBeaconDkgSnapshotV1 {
     /// Cryptographic implementations must additionally restore this snapshot
     /// with [`GlobalThresholdBeaconDkgStateV1::from_snapshot`] before resuming it;
     /// that path re-derives the generators and verifies every public proof.
+    ///
+    /// # Errors
+    /// Rejects malformed session geometry, noncanonical row ordering, or invalid public bindings.
     pub fn validate(&self) -> Result<(), GlobalThresholdBeaconError> {
         validation::DkgSnapshotRef::from(self).validate()
     }
@@ -587,6 +598,9 @@ pub struct FinalizedGlobalThresholdBeaconKeySessionRecordV1 {
 
 impl FinalizedGlobalThresholdBeaconKeySessionRecordV1 {
     /// Construct a finalized but not-yet-active key lifecycle record.
+    ///
+    /// # Errors
+    /// Preserves original allocation or cryptographic refusal when validating the full session.
     pub fn new(
         session: GlobalThresholdBeaconKeySessionV1,
         budget: &iroha_allocation::AllocationBudget,
@@ -601,6 +615,9 @@ impl FinalizedGlobalThresholdBeaconKeySessionRecordV1 {
     }
 
     /// Validate the full public key transcript and lifecycle ordering.
+    ///
+    /// # Errors
+    /// Rejects invalid public proofs or lifecycle ordering and preserves original allocation refusal.
     pub fn validate(
         &self,
         budget: &iroha_allocation::AllocationBudget,
@@ -621,6 +638,10 @@ impl FinalizedGlobalThresholdBeaconKeySessionRecordV1 {
     }
 
     /// Mark this key active at a committed height, idempotently at the same height.
+    ///
+    /// # Errors
+    /// Rejects an invalid session, a retired key, activation before finalization or a different
+    /// activation height; preserves original validation allocation refusal.
     pub fn activate(
         &mut self,
         height: u64,
@@ -643,6 +664,10 @@ impl FinalizedGlobalThresholdBeaconKeySessionRecordV1 {
     }
 
     /// Mark this active key retired at a strictly later committed height.
+    ///
+    /// # Errors
+    /// Rejects an invalid session, missing activation, nonincreasing retirement or a different
+    /// retirement height; preserves original validation allocation refusal.
     pub fn retire(
         &mut self,
         height: u64,
@@ -837,12 +862,18 @@ pub struct GlobalThresholdBeaconDkgDerivedPublicV1 {
 /// particular, ordinary Feldman shares are not a conforming implementation.
 pub trait GlobalThresholdBeaconDkgCryptoV1 {
     /// Derive independent, purpose-separated G2 generators `h` and `v`.
+    ///
+    /// # Errors
+    /// Returns the cryptographic refusal if the session or derived generator pair is invalid.
     fn derive_generators(
         &self,
         session: &GlobalThresholdBeaconDkgSessionV1,
     ) -> Result<([u8; 96], [u8; 96]), ThresholdBlsError>;
 
     /// Validate one complete dealer coefficient vector and constant-term PoK.
+    ///
+    /// # Errors
+    /// Rejects invalid session geometry, generators, coefficients, participant index or proof.
     fn verify_dealer_commitment(
         &self,
         session: &GlobalThresholdBeaconDkgSessionV1,
@@ -852,6 +883,9 @@ pub trait GlobalThresholdBeaconDkgCryptoV1 {
     ) -> Result<(), ThresholdBlsError>;
 
     /// Derive the group key, all composite public shares, and ready transcript.
+    ///
+    /// # Errors
+    /// Rejects invalid or incomplete dealer material, participant geometry or the derived transcript.
     fn finalize_qualified_dealers(
         &self,
         session: &GlobalThresholdBeaconDkgSessionV1,
@@ -1017,7 +1051,10 @@ pub struct GlobalThresholdBeaconDkgStateV1 {
 impl std::fmt::Debug for GlobalThresholdBeaconDkgStateV1 {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("GlobalThresholdBeaconDkgStateV1")
+            .field("budget", &self.budget)
             .field("session", &self.session)
+            .field("generator_h", &self.generator_h)
+            .field("generator_v", &self.generator_v)
             .field("recipient_keys", &self.recipient_keys)
             .field("dealer_commitments", &self.dealer_commitments)
             .field("encrypted_shares", &self.encrypted_shares)
@@ -1053,6 +1090,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Start one DKG reducer after validating its immutable schedule and generators.
+    ///
+    /// # Errors
+    /// Rejects invalid session geometry or generators; preserves admission, extent and allocation
+    /// refusals before installing any reducer rows.
     pub fn new(
         session: GlobalThresholdBeaconDkgSessionV1,
         crypto: &impl GlobalThresholdBeaconDkgCryptoV1,
@@ -1096,6 +1137,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     /// Restore one public snapshot, re-deriving generators and re-verifying all
     /// public dealer proofs, signed keys, envelopes, and acceptances before the
     /// reducer can consume another event.
+    ///
+    /// # Errors
+    /// Rejects malformed, unordered, foreign or cryptographically invalid snapshot content and
+    /// preserves original verification and retained-row allocation refusals.
     pub fn from_snapshot(
         snapshot: &GlobalThresholdBeaconDkgSnapshotV1,
         crypto: &impl GlobalThresholdBeaconDkgCryptoV1,
@@ -1133,6 +1178,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Return the canonical public-only persistence projection of this active reducer.
+    ///
+    /// # Errors
+    /// Rejects a finalized or aborted reducer, invalid public projection, or original allocation
+    /// refusal while retaining and validating the snapshot.
     pub fn public_snapshot(
         &self,
     ) -> Result<RetainedGlobalThresholdBeaconDkgSnapshotV1, GlobalThresholdBeaconSessionError> {
@@ -1212,6 +1261,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Admit one exact target seat's signed recipient key during commitments.
+    ///
+    /// # Errors
+    /// Rejects regressed heights, the wrong phase, malformed or conflicting keys, invalid signatures
+    /// or roster mismatches; preserves original workspace and row allocation refusals.
     pub fn record_recipient_key(
         &mut self,
         height: u64,
@@ -1273,6 +1326,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Admit one dealer broadcast during the commitment window.
+    ///
+    /// # Errors
+    /// Rejects regressed heights, the wrong phase, absent or conflicting dealer identity, invalid
+    /// commitments or proofs; preserves original workspace and row allocation refusals.
     pub fn record_dealer_commitment(
         &mut self,
         height: u64,
@@ -1315,7 +1372,7 @@ impl GlobalThresholdBeaconDkgStateV1 {
             &self.session,
             &self.generator_h,
             &self.generator_v,
-            &commitment,
+            commitment,
         )?;
         self.dealer_commitments.insert(commitment, &self.budget)?;
         self.last_updated_height = height;
@@ -1323,6 +1380,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Admit one signed private ciphertext during the delivery window.
+    ///
+    /// # Errors
+    /// Rejects regressed heights, the wrong phase, missing or mismatched endpoints, malformed
+    /// ciphertext, invalid signatures or conflicting rows; preserves original allocation refusal.
     pub fn record_encrypted_share(
         &mut self,
         height: u64,
@@ -1375,6 +1436,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Admit one signed acceptance only after private delivery has closed.
+    ///
+    /// # Errors
+    /// Rejects regressed heights, the wrong phase, missing or mismatched edges, invalid signatures
+    /// or conflicting rows; preserves original workspace and row allocation refusals.
     pub fn record_share_acceptance(
         &mut self,
         height: u64,
@@ -1432,6 +1497,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
     }
 
     /// Finalize only after every frozen dealer/recipient edge is accepted.
+    ///
+    /// # Errors
+    /// Rejects regressed heights, a terminal attempt, the wrong phase or incomplete edges, and
+    /// preserves cryptographic or original allocation refusal during final transcript construction.
     pub fn finalize(
         &mut self,
         height: u64,
@@ -1468,10 +1537,10 @@ impl GlobalThresholdBeaconDkgStateV1 {
             &self.session,
             &self.generator_h,
             &self.generator_v,
-            &recipient_keys,
-            &dealer_commitments,
-            &encrypted_shares,
-            &share_acceptances,
+            recipient_keys,
+            dealer_commitments,
+            encrypted_shares,
+            share_acceptances,
             &qualified_dealers,
             height,
         );
@@ -1479,7 +1548,7 @@ impl GlobalThresholdBeaconDkgStateV1 {
             &self.session,
             &self.generator_h,
             &self.generator_v,
-            &dealer_commitments,
+            dealer_commitments,
             &qualified_dealers,
             event_hash,
         )?;
@@ -1604,7 +1673,11 @@ fn validate_adaptive_dkg_geometry(
         || session.roster_hash != record.roster_hash
         || session.committee_size != record.committee_size
         || session.threshold != record.threshold
-        || transcript.finalized_at_height < session.acceptances_end_height
+    {
+        return Err(GlobalThresholdBeaconError::InvalidDkgSession);
+    }
+    // Finalization follows the acceptance deadline; the retained contribution is this event hash.
+    if transcript.finalized_at_height < session.acceptances_end_height
         || transcript.event_hash != record.dkg_contribution_hash
         || is_zero(&transcript.generator_h)
         || is_zero(&transcript.generator_v)
@@ -1893,7 +1966,7 @@ impl InMemoryGlobalThresholdBeaconPartialSignerV1 {
             session.record().session_id.as_slice(),
             session.record().transcript_hash.as_slice(),
         ]);
-        let partial = share.sign_payload(&session.transcript(), import_challenge.as_ref())?;
+        let partial = share.sign_payload(session.transcript(), import_challenge.as_ref())?;
         session
             .transcript()
             .verify_partial_signature(import_challenge.as_ref(), &partial)?;
@@ -1913,7 +1986,7 @@ impl InMemoryGlobalThresholdBeaconPartialSignerV1 {
         components: Zeroizing<[[u8; 32]; 3]>,
     ) -> Result<Self, GlobalThresholdBeaconError> {
         let share = AdaptiveThresholdBlsSecretShare::from_components(
-            &session.transcript(),
+            session.transcript(),
             signer_index,
             components[0],
             components[1],
@@ -1966,7 +2039,7 @@ impl GlobalThresholdBeaconPartialSignerV1 for InMemoryGlobalThresholdBeaconParti
             );
         }
         self.share
-            .sign_payload(&self.session.transcript(), payload)
+            .sign_payload(self.session.transcript(), payload)
             .map(|partial| global_threshold_beacon_partial_signature_dto_v1(&partial))
             .map_err(|error| format!("adaptive global beacon partial signing failed: {error}"))
     }
@@ -2254,6 +2327,10 @@ impl GlobalThresholdBeaconPulseAggregatorV1 {
     /// height. Its hash is supplied by the consensus finalized-chain journal and
     /// is covered by every partial signature. The mandatory native context also binds the
     /// complete epoch, consensus parent and original parent execution result.
+    ///
+    /// # Errors
+    /// Rejects an unready session, unsupported committee or threshold, invalid native context,
+    /// zero height or an inconsistent finalized parent anchor.
     pub fn new(
         session: ValidatedGlobalThresholdBeaconSessionV1,
         height: u64,
@@ -2326,6 +2403,10 @@ impl GlobalThresholdBeaconPulseAggregatorV1 {
     ///
     /// Returns `true` for a newly admitted signer and `false` when the same
     /// verified signature share is retried, including with fresh proof randomness.
+    ///
+    /// # Errors
+    /// Rejects another session, an invalid signer index or proof, and a conflicting signature share
+    /// for an already admitted seat. Failed admission does not replace that seat.
     pub fn accept_partial(
         &mut self,
         partial: GlobalThresholdBeaconPartialSignatureV1,
@@ -2360,6 +2441,10 @@ impl GlobalThresholdBeaconPulseAggregatorV1 {
     }
 
     /// Reconstruct, final-verify, and return the unique public pulse.
+    ///
+    /// # Errors
+    /// Rejects insufficient shares, invalid threshold geometry, failed reconstruction or a final
+    /// signature, seed, identifier or context mismatch.
     pub fn finalize(
         &self,
     ) -> Result<FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconError> {
@@ -2651,7 +2736,7 @@ pub fn global_threshold_beacon_governance_seed_v1(
 pub(crate) fn verified_persisted_global_threshold_beacon_governance_seed_v1(
     world: &impl crate::state::WorldReadOnly,
     network_id: &NetworkId,
-    pulse: FinalizedGlobalThresholdBeaconPulseV1,
+    pulse: &FinalizedGlobalThresholdBeaconPulseV1,
     height: u64,
 ) -> Result<[u8; 32], GlobalThresholdBeaconError> {
     if pulse.height != height {
@@ -2769,9 +2854,9 @@ pub fn verify_finalized_global_threshold_beacon_pulse_v1(
 pub(crate) fn verified_persisted_global_threshold_beacon_pulse_v1(
     world: &impl crate::state::WorldReadOnly,
     network_id: &NetworkId,
-    pulse: FinalizedGlobalThresholdBeaconPulseV1,
+    pulse: &FinalizedGlobalThresholdBeaconPulseV1,
 ) -> Result<FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconError> {
-    if world.global_beacon_pulses().get(&pulse.pulse_id) != Some(&pulse)
+    if world.global_beacon_pulses().get(&pulse.pulse_id) != Some(pulse)
         || world.global_beacon_pulse_slots().get(&(
             iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&pulse.network_id),
             pulse.height,
@@ -2797,17 +2882,17 @@ pub(crate) fn verified_persisted_global_threshold_beacon_pulse_v1(
     let session = &key_record.session;
     session.check_binding(&binding)?;
     let verified = verify_finalized_global_threshold_beacon_pulse_v1(
-        &session,
-        &pulse,
+        session,
+        pulse,
         pulse.finalized_chain_anchor,
         // The exact pulse row is already authenticated by this committed World. This helper
         // rechecks crypto only; it does not confer authority on an external native source.
         &pulse.context,
     )?;
-    if validate_persisted_global_threshold_beacon_pulse_v1(&pulse)? != verified {
+    if validate_persisted_global_threshold_beacon_pulse_v1(pulse)? != verified {
         return Err(GlobalThresholdBeaconError::InvalidPulseHistory);
     }
-    Ok(pulse)
+    Ok(*pulse)
 }
 
 /// Re-verify the newest persisted global pulse at or before a block height.
@@ -2841,7 +2926,7 @@ pub fn verified_global_threshold_beacon_pulse_at_or_before_v1(
         }
     }
     let pulse = selected.ok_or(GlobalThresholdBeaconError::InvalidPulseHistory)?;
-    verified_persisted_global_threshold_beacon_pulse_v1(world, network_id, pulse)
+    verified_persisted_global_threshold_beacon_pulse_v1(world, network_id, &pulse)
 }
 
 /// Re-verify the latest persisted global pulse and its complete public session.
@@ -2875,7 +2960,7 @@ pub(crate) fn verified_latest_global_threshold_beacon_pulse_v1(
     {
         return Err(GlobalThresholdBeaconError::InvalidPulseHistory);
     }
-    let pulse = verified_persisted_global_threshold_beacon_pulse_v1(world, network_id, pulse)?;
+    let pulse = verified_persisted_global_threshold_beacon_pulse_v1(world, network_id, &pulse)?;
     if validate_persisted_global_threshold_beacon_pulse_v1(&pulse)? != latest {
         return Err(GlobalThresholdBeaconError::InvalidPulseHistory);
     }

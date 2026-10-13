@@ -187,6 +187,8 @@ impl Targets {
         original: &Record,
         now_ms: u64,
     ) -> Result<(), Error> {
+        use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
+
         if !self
             .delivery_sources
             .insert(original.outcome.binding.gateway_sequence)
@@ -200,7 +202,6 @@ impl Targets {
                 original,
             )
             .map_err(|_| Error::Execution)?;
-        use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
         match &delivery.disposition {
             Disposition::Delivered { execution, .. } => {
                 self.charge(&source)?;

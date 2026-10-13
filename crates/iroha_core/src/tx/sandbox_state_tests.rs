@@ -86,7 +86,9 @@ pub fn assert_events(actual: &[EventBox], snapshot_path: impl AsRef<std::path::P
     };
     if let Some(text) = snapshot_text.as_deref() {
         let collapsed = collapse_to_unix_line_endings(text);
-        let collapsed = collapsed.strip_suffix('\n').unwrap_or(collapsed.as_ref());
+        let collapsed = collapsed
+            .strip_suffix('\n')
+            .unwrap_or_else(|| collapsed.as_ref());
         if collapsed == rendered {
             return;
         }
@@ -303,6 +305,11 @@ impl Sandbox {
     pub(super) fn with_genesis_fastpq_source_policy(
         source_policy: Option<iroha_data_model::parameter::FastpqSourcePolicyV1>,
     ) -> Self {
+        use crate::sumeragi::{
+            startup,
+            test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+
         let mut world = {
             let domain = Domain::new(DOMAIN.clone()).build(&GENESIS_ACCOUNT.id);
             let asset_def = {
@@ -339,10 +346,6 @@ impl Sandbox {
                 .into(),
             ]),
         );
-        use crate::sumeragi::{
-            startup,
-            test_chain::{CertifiedTestChain, TestChainConfig},
-        };
         // The prepopulated accounts, permissions and balances belong to this
         // original State. Apply its signed genesis before ordinary Network
         // execution; the real producer also supplies its resolver checkpoint.

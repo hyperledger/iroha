@@ -65,7 +65,15 @@ impl Fixture {
         world.provider_owners.insert(provider, account(4));
         world.capacity_declarations.insert(
             provider,
-            CapacityDeclarationRecord::new(provider, vec![1], 1, 1, 1, 2, Default::default()),
+            CapacityDeclarationRecord::new(
+                provider,
+                vec![1],
+                1,
+                1,
+                1,
+                2,
+                iroha_model_base::metadata::Metadata::default(),
+            ),
         );
         let mut configuration = TestChainConfig::new(world, START);
         configuration.genesis_instructions.push(
@@ -613,7 +621,9 @@ fn gateway_post_proof_clock_rejects_both_malformed_endpoints() {
 #[test]
 fn gateway_phase_start_cannot_renew_an_original_absolute_deadline() {
     let fixture = Fixture::ready();
-    let deadline = Instant::now() - Duration::from_millis(1);
+    let deadline = Instant::now()
+        .checked_sub(Duration::from_millis(1))
+        .expect("fixture clock supports the original expired deadline");
     assert!(matches!(
         begin_stream_token_gateway_check_v1(
             Arc::clone(fixture.chain.state()),

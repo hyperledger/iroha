@@ -157,7 +157,7 @@ pub mod isi {
             } else {
                 self.assign_quantity_balance_exact(resolved_id, candidate)?;
             }
-            crate::retail_fee::observe_balance(self, &resolved_id)?;
+            crate::retail_fee::observe_balance(self, resolved_id)?;
             Ok(())
         }
         /// Validate an exact-id numeric transfer and compute its complete balance transcript.
@@ -736,8 +736,7 @@ pub mod isi {
             .map_err(|err| {
                 InstructionExecutionError::InvariantViolation(
                     format!(
-                        "invalid account metadata `{}` on {}: {err}",
-                        ASSET_TRANSFER_CONTROL_METADATA_KEY, account_id
+                        "invalid account metadata `{ASSET_TRANSFER_CONTROL_METADATA_KEY}` on {account_id}: {err}"
                     )
                     .into(),
                 )
@@ -745,8 +744,7 @@ pub mod isi {
         if store.controls.is_empty() {
             return Err(InstructionExecutionError::InvariantViolation(
                 format!(
-                    "invalid account metadata `{}` on {}: persisted transfer-control stores must not be empty",
-                    ASSET_TRANSFER_CONTROL_METADATA_KEY, account_id
+                    "invalid account metadata `{ASSET_TRANSFER_CONTROL_METADATA_KEY}` on {account_id}: persisted transfer-control stores must not be empty"
                 )
                 .into(),
             )
@@ -755,8 +753,7 @@ pub mod isi {
         store.validate_canonical().map_err(|err| {
             Error::from(InstructionExecutionError::InvariantViolation(
                 format!(
-                    "invalid account metadata `{}` on {}: {err}",
-                    ASSET_TRANSFER_CONTROL_METADATA_KEY, account_id
+                    "invalid account metadata `{ASSET_TRANSFER_CONTROL_METADATA_KEY}` on {account_id}: {err}"
                 )
                 .into(),
             ))
@@ -867,8 +864,7 @@ pub mod isi {
             store.validate_canonical().map_err(|err| {
                 InstructionExecutionError::InvariantViolation(
                     format!(
-                        "refusing to persist non-canonical account metadata `{}` on {}: {err}",
-                        ASSET_TRANSFER_CONTROL_METADATA_KEY, account_id
+                        "refusing to persist non-canonical account metadata `{ASSET_TRANSFER_CONTROL_METADATA_KEY}` on {account_id}: {err}"
                     )
                     .into(),
                 )
@@ -876,7 +872,7 @@ pub mod isi {
         }
         let account = state_transaction.world.account_mut(account_id)?;
         if store.controls.is_empty() {
-            if let Some(value) = account.remove(&*ASSET_TRANSFER_CONTROL_KEY) {
+            if let Some(value) = account.remove(&ASSET_TRANSFER_CONTROL_KEY) {
                 state_transaction
                     .world
                     .emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
@@ -961,7 +957,7 @@ pub mod isi {
                     )
                     .into());
                 }
-                let account_domain = account_label.domain.as_ref().cloned().ok_or_else(|| {
+                let account_domain = account_label.domain.clone().ok_or_else(|| {
                     InstructionExecutionError::InvariantViolation(
                         format!(
                             "transfer-control target account {account_id} has no canonical on-chain domain label"
@@ -7128,7 +7124,7 @@ pub mod isi {
         }
         assert_numeric_spec_with(amount.as_numeric(), spec)?;
         if source_policy != NumericAssetTransferSourcePolicy::KagemushaReserveCustody {
-            ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
+            ensure_not_kagemusha_reserve_source(state_transaction.world(), source_id)?;
         }
         // Exact retained staking-slash and moderation-settlement capabilities
         // are finality-owned protocol custody. User transfer availability,
@@ -7179,11 +7175,11 @@ pub mod isi {
             | NumericAssetTransferSourcePolicy::RetailMonetary(_)
             | NumericAssetTransferSourcePolicy::PrivacyPoolBridge(_)
             | NumericAssetTransferSourcePolicy::GameSessionFunding => {
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::FxEscrowDeposit => {
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
-                if !is_fx_corridor_escrow_asset(state_transaction, &destination_id)? {
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
+                if !is_fx_corridor_escrow_asset(state_transaction, destination_id)? {
                     return Err(InstructionExecutionError::InvariantViolation(
                         "FX corridor escrow deposit destination is not governed protocol custody"
                             .into(),
@@ -7204,7 +7200,7 @@ pub mod isi {
             NumericAssetTransferSourcePolicy::KagemushaReserveCustody => {
                 if crate::kagemusha_wallet_v1::custody::reserve_registration(
                     state_transaction.world(),
-                    &source_id,
+                    source_id,
                 )
                 .map_err(kagemusha_custody_error)?
                 .is_none()
@@ -7213,7 +7209,7 @@ pub mod isi {
                         "KAGEMUSHA payout source is not registered custody".into(),
                     ));
                 }
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::SorafsReserveCustody => {
                 if !crate::smartcontracts::isi::sorafs_reserve::is_reserve_custody_asset(
@@ -7224,7 +7220,7 @@ pub mod isi {
                         "SoraFS reserve withdrawal source is not active protocol custody".into(),
                     ));
                 }
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::FxEscrowRelease => {
                 if !is_fx_corridor_escrow_asset(state_transaction, source_id)? {
@@ -7233,7 +7229,7 @@ pub mod isi {
                     )
                     .into());
                 }
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::FeeSponsorCustody => {
                 if source_id.account()
@@ -7248,7 +7244,7 @@ pub mod isi {
                     )
                     .into());
                 }
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::OracleReward
             | NumericAssetTransferSourcePolicy::OraclePenalty
@@ -7263,7 +7259,7 @@ pub mod isi {
             | NumericAssetTransferSourcePolicy::GovernanceRestitution
             | NumericAssetTransferSourcePolicy::GovernanceUnlock
             | NumericAssetTransferSourcePolicy::CitizenshipRelease => {
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::SccpEscrowLock => {
                 if !is_sccp_escrow_account(state_transaction, destination_id.account()) {
@@ -7271,7 +7267,7 @@ pub mod isi {
                         "SCCP escrow lock destination is not a registered route escrow".into(),
                     ));
                 }
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_native_escrow_source(state_transaction, source_id)?;
             }
             NumericAssetTransferSourcePolicy::SccpEscrowRelease => {
                 if !is_sccp_escrow_account(state_transaction, source_id.account()) {

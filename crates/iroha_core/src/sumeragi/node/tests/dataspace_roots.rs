@@ -647,7 +647,12 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
     let crate::queue::Error::TransactionDomainMismatch(mismatch) = refusal.err else {
         panic!("private queue must reject the exact foreign signed domain");
     };
-    assert_eq!(mismatch.actual, *foreign.as_ref().domain());
+    let iroha_data_model::transaction::TransactionEntrypoint::External(foreign_signed) =
+        foreign.entrypoint()
+    else {
+        panic!("the accepted signed-work fixture must retain its External carrier");
+    };
+    assert_eq!(mismatch.actual, *foreign_signed.domain());
     assert_eq!(
         mismatch.expected,
         iroha_data_model::transaction::TransactionDomain::Network(*state.network_id_ref())

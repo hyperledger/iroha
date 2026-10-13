@@ -15,6 +15,7 @@ use iroha_data_model::{
     sumeragi_lanes::{
         SumeragiFixedLane, SumeragiLaneMember, SumeragiLaneRecord, SumeragiLaneRoute,
     },
+    transaction::SignedTransaction,
 };
 use iroha_model_base::topology::DataSpaceId;
 use iroha_sumeragi::{
@@ -132,7 +133,8 @@ impl LaneTransactions for NoTransactions {
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
+    ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
+    {
         Ok(Vec::new())
     }
 }
@@ -224,6 +226,23 @@ impl Fixture {
 
     /// Store a certified lane block at `height` carrying `transactions` anchored at `anchor`.
     fn certify(&self, height: u64, anchor: u64, transactions: Vec<SignedTransaction>) -> Hash32 {
+        self.certify_entrypoints(
+            height,
+            anchor,
+            transactions
+                .into_iter()
+                .map(TransactionEntrypoint::External)
+                .collect(),
+        )
+    }
+
+    /// Certify the complete original entrypoints through the same native lane owners.
+    fn certify_entrypoints(
+        &self,
+        height: u64,
+        anchor: u64,
+        transactions: Vec<TransactionEntrypoint>,
+    ) -> Hash32 {
         let record = self.record();
         let store = self
             .stores
@@ -801,7 +820,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        control_witness: Default::default(),
+        control_witness: iroha_sumeragi::types::ControlWitness::default(),
     };
     // The negative changes only the global cadence; availability uses the original
     // chain's authenticated schedule, proposer custody and State allocation pool.
@@ -909,3 +928,6 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
     assert_eq!(error.io_kind(), std::io::ErrorKind::PermissionDenied);
     assert_eq!(error.to_string(), "exact fixture custody failure");
 }
+
+#[path = "merge_tests/sealed_entrypoints.rs"]
+mod sealed_entrypoints;

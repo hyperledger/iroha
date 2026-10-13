@@ -194,7 +194,12 @@ impl Carrier {
         if !self
             .acquisition
             .matches_owner(view.kura(), self.height, self.hash, budget)
-            || view.block_hashes().get(self.height as usize - 1) != Some(&self.hash)
+            || view.block_hashes().get(
+                usize::try_from(self.height)
+                    .map_err(|_| Error::Source)?
+                    .checked_sub(1)
+                    .ok_or(Error::Source)?,
+            ) != Some(&self.hash)
         {
             return Err(Error::Source);
         }
@@ -301,8 +306,12 @@ impl NativeFinalityCursorV1 {
             || !core::ptr::eq(original.kura.as_ref(), view.kura())
             || !original.prefix.belongs_to(budget)
             || original.native_height > target
-            || view.block_hashes().get(original.native_height as usize - 1)
-                != Some(&original.native_hash)
+            || view.block_hashes().get(
+                usize::try_from(original.native_height)
+                    .map_err(|_| Error::Source)?
+                    .checked_sub(1)
+                    .ok_or(Error::Source)?,
+            ) != Some(&original.native_hash)
         {
             return Err(Error::Source);
         }
@@ -677,10 +686,11 @@ fn buffer_error(error: iroha_allocation::ChargedBufferError) -> Error {
     }
 }
 fn proof_destination_error(error: super::ProofDestinationError) -> Error {
-    #[cfg(test)]
-    tests::observe_pending_destination(&error);
     use iroha_allocation::ChargedBufferFromChargeError;
     use iroha_crypto::PublicKeyAllocationError;
+
+    #[cfg(test)]
+    tests::observe_pending_destination(&error);
     match error {
         super::ProofDestinationError::Deadline => Error::Deadline,
         super::ProofDestinationError::Source => Error::Source,

@@ -903,9 +903,9 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
     let mut next_response_frame = None;
     let mut retry_attempts = 0;
     let mut retry_admitted = 0;
-    while !handle
+    while handle
         .status()
-        .is_some_and(|status| status.applied_height >= 1)
+        .is_none_or(|status| status.applied_height < 1)
     {
         let requests = matching_requests();
         assert!(

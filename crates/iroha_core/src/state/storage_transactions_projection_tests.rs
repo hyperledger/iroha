@@ -229,10 +229,7 @@ fn repeated_identical_publication_preserves_history_for_later_replacement() {
             &original_latest,
             &storage.latest_block.load_full().unwrap()
         ));
-        assert_eq!(
-            storage.blocks.read().get(&prior).map(|entry| *entry),
-            Some(height(1))
-        );
+        assert_eq!(storage.blocks.read().get(&prior).copied(), Some(height(1)));
         assert!(storage.blocks.read().get(&tip_only).is_none());
     }
     let mut replacement = storage.block_and_revert();

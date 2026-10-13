@@ -101,7 +101,7 @@ impl Wake for ProbeOriginalStateOnMembershipRelease {
             None => original.observed.write_busy += 1,
         }
         original.observed.generation_odd +=
-            usize::from(self.state.state_view_generation() % 2 != 0);
+            usize::from(!self.state.state_view_generation().is_multiple_of(2));
         // No assertions or cleanup notifications occur here. Abort physically
         // unlocks the probe, and every returned release stays in this owner.
     }

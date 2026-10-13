@@ -203,6 +203,11 @@ fn build_authenticated_test_contract_program_with_states(
     zk_mode: bool,
     states: Vec<ivm::EmbeddedStateDescriptor>,
 ) -> Vec<u8> {
+    use ivm::{
+        encoding::wide,
+        instruction::wide::{arithmetic, control, memory},
+    };
+
     assert!(code.len().is_multiple_of(4));
     assert!(
         code.chunks_exact(4)
@@ -267,10 +272,6 @@ fn build_authenticated_test_contract_program_with_states(
         program.extend_from_slice(&instruction.to_le_bytes());
     }
     program.extend_from_slice(code);
-    use ivm::{
-        encoding::wide,
-        instruction::wide::{arithmetic, control, memory},
-    };
     for instruction in [
         wide::encode_ri(arithmetic::ADDI, 17, 10, 0),
         wide::encode_load(memory::LOAD64, 25, 31, 0),
@@ -739,12 +740,12 @@ fn deployed_host_fixture_entrypoint_grants_keep_exact_caller_contract_and_select
         "seiyaku ScopedFixtureCaller { view fn main() authorize(anyone) -> int { return 0; } }",
         90,
     );
-    let source = r#"
+    let source = r"
 seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
   view fn inspect() authorize(Inspect) -> int { return 8; }
   view fn inspect_other() authorize(InspectOther) -> int { return 9; }
 }
-"#;
+";
     let callee = install_contract(&state, &authority, source, 91);
     let other_callee = install_contract(&state, &authority, source, 92);
     let caller_subject = caller.subject_id();
@@ -1018,7 +1019,7 @@ fn call_contract_syscall_cursor_cannot_authorize_other_or_revoked_caller() {
     let callee = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku ProtectedPages { permission ReadState; permission WriteState;
   state StateMap<int, int> Entries;
 
@@ -1037,7 +1038,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
     return page.items.len();
   }
 }
-"#,
+",
         2,
     );
     grant_named_permission_to_account(&state, &authority, authority.clone(), "WriteState");

@@ -66,7 +66,15 @@ impl Fixture {
         world.provider_owners.insert(provider, account(4));
         world.capacity_declarations.insert(
             provider,
-            CapacityDeclarationRecord::new(provider, vec![1], 1, 1, 1, 2, Default::default()),
+            CapacityDeclarationRecord::new(
+                provider,
+                vec![1],
+                1,
+                1,
+                1,
+                2,
+                iroha_model_base::metadata::Metadata::default(),
+            ),
         );
         let mut configuration = TestChainConfig::new(world, START);
         configuration.genesis_instructions.push(

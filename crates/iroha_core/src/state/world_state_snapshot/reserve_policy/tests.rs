@@ -310,7 +310,7 @@ fn reserve_projection_cannot_hide_or_replace_original_policy_or_direct_permissio
     assert!(
         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
             .unwrap_err()
-            .to_string()
+            .clone()
             .contains("absence differs")
     );
     let mut changed = ReserveStateV1::decode_frame(original).unwrap();
@@ -322,7 +322,7 @@ fn reserve_projection_cannot_hide_or_replace_original_policy_or_direct_permissio
     assert!(
         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
             .unwrap_err()
-            .to_string()
+            .clone()
             .contains("typed target")
     );
     world
@@ -338,7 +338,7 @@ fn reserve_projection_cannot_hide_or_replace_original_policy_or_direct_permissio
     assert!(
         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
             .unwrap_err()
-            .to_string()
+            .clone()
             .contains("typed target")
     );
     // The uncommitted overlay is a mutation specimen, never native authority.

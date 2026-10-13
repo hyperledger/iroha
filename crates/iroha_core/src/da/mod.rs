@@ -580,10 +580,10 @@ pub fn validate_committed_proof_policy_bundle(
     Ok(())
 }
 #[cfg(test)]
-fn active_lane_config_entry<'a>(
-    nexus: &'a Nexus,
+fn active_lane_config_entry(
+    nexus: &Nexus,
     lane_id: LaneId,
-) -> Result<&'a LaneConfigEntry, DaProofPolicyError> {
+) -> Result<&LaneConfigEntry, DaProofPolicyError> {
     active_lane_config_entry_at_height(nexus, lane_id, None)
 }
 fn active_lane_config_entry_at_height(
@@ -2526,7 +2526,7 @@ mod tests {
         ]);
         let nexus = nexus_with_catalog(catalog);
         let context = ActiveLaneProofPolicyContext::new(&nexus);
-        assert!(std::ptr::eq(context.nexus, &nexus));
+        assert!(std::ptr::eq(context.nexus, &raw const nexus));
         assert!(std::ptr::eq(
             context.entry(lane, Some(1)).unwrap(),
             nexus.lane_config.entry(lane).unwrap()

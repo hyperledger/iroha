@@ -1,18 +1,20 @@
 //! Fixed original Kura cleanup custody across enclosing State publication attempts.
 
 use super::*;
-use iroha_allocation::release::DeferredReleaseBatch;
 
 /// Original physical lease and four allocation-free source-bound release batches.
 /// This owner must outlive every enclosing physical guard and frozen State field.
 pub(crate) struct KuraPublicationSlot<'kura> {
     kura: &'kura Kura,
     lease: Option<KuraPublicationLease<'kura>>,
-    releases: [DeferredReleaseBatch; 4],
+    releases: KuraPublicationReleases,
 }
 
 impl AcquiredKuraPublicationFences<'_> {
-    fn release_into(&mut self, releases: &mut [DeferredReleaseBatch; 4]) {
+    fn release_into(&mut self, releases: &mut KuraPublicationReleases) {
+        if let Some(gate) = self.claims.take() {
+            releases.claims.append(gate.end_publication());
+        }
         for (guard, batch) in [
             &mut self.sidecar,
             &mut self.geometry,
@@ -20,7 +22,7 @@ impl AcquiredKuraPublicationFences<'_> {
             &mut self.prune,
         ]
         .into_iter()
-        .zip(releases)
+        .zip(&mut releases.fences)
         {
             if let Some(guard) = guard.take() {
                 if cfg!(all(test, sumeragi_core_mutation = "HC274")) {
@@ -41,7 +43,7 @@ impl AcquiredKuraPublicationFences<'_> {
 /// original batches, including errors and unwinds inside the common acquisition.
 struct Acquisition<'kura, 'releases> {
     fences: AcquiredKuraPublicationFences<'kura>,
-    releases: &'releases mut [DeferredReleaseBatch; 4],
+    releases: &'releases mut KuraPublicationReleases,
 }
 impl Drop for Acquisition<'_, '_> {
     fn drop(&mut self) {
@@ -55,12 +57,7 @@ impl<'kura> KuraPublicationSlot<'kura> {
         Self {
             kura,
             lease: None,
-            releases: [
-                kura.sidecar_lock.deferred_releases(),
-                kura.lane_geometry_lock.deferred_releases(),
-                kura.canonical_chain_lock.deferred_releases(),
-                kura.prune_lock.deferred_releases(),
-            ],
+            releases: KuraPublicationReleases::new(kura),
         }
     }
 
@@ -108,12 +105,7 @@ impl<'kura> KuraPublicationSlot<'kura> {
             self.lease.is_none(),
             "original Kura physical scope must end before notification"
         );
-        let fresh = [
-            self.kura.sidecar_lock.deferred_releases(),
-            self.kura.lane_geometry_lock.deferred_releases(),
-            self.kura.canonical_chain_lock.deferred_releases(),
-            self.kura.prune_lock.deferred_releases(),
-        ];
+        let fresh = KuraPublicationReleases::new(self.kura);
         drop(std::mem::replace(&mut self.releases, fresh));
     }
 
@@ -158,5 +150,41 @@ impl Kura {
             ("lane_geometry_lock", &self.lane_geometry_lock),
             ("sidecar_lock", &self.sidecar_lock),
         ]
+    }
+}
+
+impl Kura {
+    /// Acquire through the same original prefix-retirement owner as State publication.
+    pub(crate) fn try_scoped_publication_lease<'kura, 'releases>(
+        &'kura self,
+        releases: &'releases mut KuraPublicationReleases,
+    ) -> Result<ScopedKuraPublicationLease<'kura, 'releases>, KuraPublicationPreparationError> {
+        if !releases.source.matches(self) {
+            return Err(KuraPublicationPreparationError::Storage(Error::IO(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "geometry cleanup belongs to another Kura",
+                ),
+                self.store_root.clone(),
+            )));
+        }
+        let mut acquisition = Acquisition {
+            fences: AcquiredKuraPublicationFences::new(),
+            releases,
+        };
+        let pending_canonical_bytes = self.prepare_publication_fences(&mut acquisition.fences)?;
+        let fences = std::mem::replace(
+            &mut acquisition.fences,
+            AcquiredKuraPublicationFences::new(),
+        );
+        drop(acquisition);
+        Ok(ScopedKuraPublicationLease::new(
+            KuraPublicationLease {
+                kura: self,
+                pending_canonical_bytes,
+                fences,
+            },
+            releases,
+        ))
     }
 }

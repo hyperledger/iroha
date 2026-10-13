@@ -92,7 +92,7 @@ fn validate_resource_policy_versions(
     let previous_world = world.try_block_and_revert(execution_budget)?;
     // At height zero both cuts remain pre-genesis bootstrap state; no earlier
     // committed height exists. Even that retained undo must be coherent.
-    let previous_height = committed_height.checked_sub(1).unwrap_or(0);
+    let previous_height = committed_height.saturating_sub(1);
     crate::resource_coherence::validate_restored_policy(&previous_world, previous_height).map_err(
         |error| json::Error::InvalidField {
             field: "state.world.resource_policy.revert".to_owned(),
@@ -2784,9 +2784,9 @@ pub(crate) fn validate_musubi_location_reverse_indices(
             if !by_pin
                 .get(&location.pin_manifest)
                 .is_some_and(|reference| !reference.active && reference.location == *key)
-                || !by_order
+                || by_order
                     .get(&location.replication_order)
-                    .is_some_and(|reference| reference.retired_location() == Some(*key))
+                    .is_none_or(|reference| reference.retired_location() != Some(*key))
             {
                 return Err(invalid(
                     "retired archive location is missing an immutable reuse tombstone".into(),
@@ -2797,9 +2797,9 @@ pub(crate) fn validate_musubi_location_reverse_indices(
         if !by_pin
             .get(&location.pin_manifest)
             .is_some_and(|reference| reference.active && reference.location == *key)
-            || !by_order
+            || by_order
                 .get(&location.replication_order)
-                .is_some_and(|reference| reference.active_location() == Some(*key))
+                .is_none_or(|reference| reference.active_location() != Some(*key))
             || location.providers.iter().any(|provider| {
                 by_provider
                     .get(&MusubiProviderLocationKeyV1::new(*provider, *key))

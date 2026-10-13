@@ -442,11 +442,9 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     assert_eq!(within, Ok(()));
 }
 
-/// Today's default parameters at their actual maximum: the largest includable transaction
-/// is admitted and selected, and the 10 MiB cap is inclusive for transaction validation at
-/// admission and in block validation. Queue admission refuses everything above the
-/// includable bound, the cap included, because no block can carry it until the payload
-/// limit grows (contract relation `transaction_cap_fits_block_payload`).
+/// The current defaults carry the full inclusive 10 MiB transaction cap in the
+/// 16 MiB block payload. Admission, queue custody, proposal selection and follower
+/// validation preserve that boundary and refuse its first oversize byte.
 #[test]
 fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let (_, time) = TimeSource::new_mock(Duration::default());
@@ -455,9 +453,16 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let includable = parameters.max_includable_transaction_bytes(
         iroha_data_model::parameter::system::TransactionInclusionRoute::Global,
     );
-    assert_eq!(includable, 4_128_768);
     let cap = limits.max_tx_bytes().get();
     assert_eq!(cap, 10_485_760);
+    assert_eq!(includable, cap);
+    assert_eq!(parameters.sumeragi().max_block_bytes.get(), 16_777_216);
+    assert!(
+        u64::from(
+            parameters.sumeragi().max_block_bytes.get()
+                - iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES
+        ) >= cap
+    );
     // A signed transaction of exactly `target` framed bytes, measured by admission itself.
     let measure = |message_len: usize| {
         let signed = resource_contract_signed_log(&time, message_len);
@@ -496,8 +501,11 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         )
     };
     let largest = resource_contract_accept(largest, limits, &time).expect("includable");
+    // An input prepared against another, larger transaction policy still cannot
+    // evade this queue's current committed cap.
     let over_includable =
-        resource_contract_accept(over_includable, limits, &time).expect("below the cap");
+        resource_contract_accept(over_includable, resource_contract_limits(cap + 1), &time)
+            .expect("the alternate authoring policy admits its exact cap");
     follower(&at_cap).expect("block validation accepts the cap itself");
     let at_cap = resource_contract_accept(at_cap, limits, &time).expect("the cap itself");
     assert!(matches!(
@@ -528,22 +536,22 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         includable
     );
     let queue = Arc::new(Queue::test(config_factory(), &time));
-    for refused in [over_includable, at_cap] {
-        let bytes = refused.encoded_len();
-        let failure = queue
-            .push(refused, state.view())
-            .expect_err("no block can carry it");
-        assert!(
-            matches!(failure.err, Error::UnsupportedTransactionAdmission { .. }),
-            "{bytes} bytes: {:?}",
-            failure.err
-        );
-    }
+    let refused = over_includable;
+    let bytes = refused.encoded_len();
+    let failure = queue
+        .push(refused, state.view())
+        .expect_err("the committed transaction cap refuses the first oversize byte");
+    assert!(
+        matches!(failure.err, Error::UnsupportedTransactionAdmission { .. }),
+        "{bytes} bytes: {:?}",
+        failure.err
+    );
     assert_eq!(queue.active_len(), 0);
+    assert_eq!(at_cap.hash_as_entrypoint(), largest.hash_as_entrypoint());
     queue
         .push(largest.clone(), state.view())
         .expect("the largest includable transaction is admitted");
-    // The proposer's budget is the committed payload limit less the reserve.
+    // The exact transaction budget fits the committed payload after its reserve.
     let budget = usize::try_from(includable).unwrap();
     let selected = crate::sumeragi::payload::select(
         &state.view(),
@@ -559,6 +567,10 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         largest.hash_as_entrypoint()
     );
     assert_eq!(selected[0].encoded_len(), budget);
+    assert_eq!(
+        selected[0].entrypoint_bytes().as_slice(),
+        at_cap.entrypoint_bytes().as_slice()
+    );
 }
 
 /// Admission state whose includable assessment is one fixed local refusal. Every later

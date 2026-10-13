@@ -2,7 +2,7 @@
 fn proof_record_alias_values(record: &ProofRecord, field: &str) -> Vec<String> {
     match field {
         "id" => vec![record.id.to_string()],
-        "backend" | "id.backend" => vec![record.id.backend.to_string()],
+        "backend" | "id.backend" => vec![record.id.backend.clone()],
         "status" => vec![proof_status_label(record.status).to_owned()],
         _ => Vec::new(),
     }
@@ -63,7 +63,7 @@ impl ValidQuery for iroha_data_model::query::proof::prelude::FindProofRecordsByB
         filter: CompoundPredicate<iroha_data_model::proof::ProofRecord>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = iroha_data_model::proof::ProofRecord>, Error> {
-        let backend = self.backend.to_string();
+        let backend = self.backend.clone();
         let requested_backend = backend.clone();
         // Own the backend-range results because the returned iterator cannot borrow the
         // query's owned backend string after this function returns.

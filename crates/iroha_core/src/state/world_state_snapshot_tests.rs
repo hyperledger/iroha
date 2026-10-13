@@ -718,7 +718,10 @@ fn replayed_world_cut_survives_exact_startup_queue_handoff_without_another_block
         .lane_manifests_with_committed_catalog(&original, &nexus)
         .unwrap();
     assert!(!Arc::ptr_eq(&handoff, &original));
-    let queue = Queue::test(Default::default(), &TimeSource::new_system());
+    let queue = Queue::test(
+        iroha_config::parameters::actual::Queue::default(),
+        &TimeSource::new_system(),
+    );
     queue
         .install_materialized_lane_manifests_with_state(
             &handoff,

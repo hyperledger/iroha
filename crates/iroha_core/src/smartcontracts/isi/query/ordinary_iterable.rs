@@ -186,7 +186,7 @@ fn cast_owned_exact<From: 'static, To: 'static>(value: From) -> Result<To, Error
     let value = core::mem::ManuallyDrop::new(value);
     // SAFETY: equality of `'static` TypeIds proves the concrete types match;
     // `ManuallyDrop` transfers the one owned value through this read.
-    let source: *const From = &*value;
+    let source: *const From = &raw const *value;
     Ok(unsafe { source.cast::<To>().read() })
 }
 /// Serialize a predicate candidate through the checked ordinary JSON helper.
@@ -315,7 +315,7 @@ impl<T> ExactOwnedRows<T> {
             return Err(Error::CapacityLimit);
         }
         let this = core::mem::ManuallyDrop::new(self);
-        let slots = unsafe { core::ptr::read(&this.slots) };
+        let slots = unsafe { core::ptr::read(&raw const this.slots) };
         let len = slots.len();
         let raw = Box::into_raw(slots) as *mut MaybeUninit<T>;
         let raw = core::ptr::slice_from_raw_parts_mut(raw.cast::<T>(), len);

@@ -506,6 +506,8 @@ struct RecordName {
 }
 impl RecordName {
     fn new(height: u64, hash: HashOf<BlockHeader>, staged: bool) -> Self {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+
         let mut out = Self {
             bytes: [0; 90],
             len: 0,
@@ -523,7 +525,6 @@ impl RecordName {
         out.len += 20;
         out.bytes[out.len] = b'-';
         out.len += 1;
-        const HEX: &[u8; 16] = b"0123456789abcdef";
         for byte in hash.as_ref() {
             out.bytes[out.len] = HEX[usize::from(byte >> 4)];
             out.bytes[out.len + 1] = HEX[usize::from(byte & 15)];
@@ -557,6 +558,8 @@ fn open_directory(store_root: &Path, create: bool) -> io::Result<(File, File)> {
 }
 #[cfg(unix)]
 fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
+    use std::os::unix::fs::MetadataExt as _;
+
     use rustix::fs::{AtFlags, Mode, OFlags};
     if create {
         match rustix::fs::mkdirat(
@@ -576,7 +579,6 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
         Mode::empty(),
     )?);
     let entry = rustix::fs::statat(&root, "native-contexts", AtFlags::SYMLINK_NOFOLLOW)?;
-    use std::os::unix::fs::MetadataExt as _;
     let actual = directory.metadata()?;
     if !actual.is_dir()
         || entry.st_dev as u64 != actual.dev()

@@ -97,7 +97,9 @@ impl Work {
     pub(super) fn charge<'a>(&mut self, amount: usize) -> Result<(), Error<'a>> {
         if let Some(remaining) = &mut self.0 {
             let amount = u64::try_from(amount).map_err(|_| Error::work_limit())?;
-            *remaining = remaining.checked_sub(amount).ok_or(Error::work_limit())?;
+            *remaining = remaining
+                .checked_sub(amount)
+                .ok_or_else(Error::work_limit)?;
         }
         Ok(())
     }
@@ -303,7 +305,7 @@ pub(super) fn validate_sources<'a>(
             };
             let expected = address.try_subject_key_bytes(|bytes| {
                 // One fixed strict curve check in addition to the exact hash bytes.
-                work.charge(bytes.checked_add(1).ok_or(Error::work_limit())?)
+                work.charge(bytes.checked_add(1).ok_or_else(Error::work_limit)?)
             })?;
             binding.subject.prepay(work)?;
             let stored = binding
@@ -448,7 +450,7 @@ mod error_tests {
         assert_eq!(work.kind, ErrorKind::WorkLimit);
         assert_eq!(source.kind, ErrorKind::Source);
         assert_eq!(source.table, "world.contract_subject_bindings");
-        assert!(core::ptr::eq(source.address.unwrap(), &address));
+        assert!(core::ptr::eq(source.address.unwrap(), &raw const address));
         assert!(core::ptr::eq(source.account.unwrap(), account));
         assert_eq!(missing.kind, ErrorKind::MissingIndex);
         assert_eq!(foreign.kind, ErrorKind::ForeignIndex);

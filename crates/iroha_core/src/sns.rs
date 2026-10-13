@@ -1045,6 +1045,10 @@ pub(crate) fn process_alias_auto_renewals(
     Ok(())
 }
 /// Build the selector used for a full account-alias lease record.
+///
+/// # Errors
+/// Returns a parse error if the alias cannot be rendered using the supplied
+/// dataspace catalog.
 pub fn selector_for_account_alias(
     alias: &AccountAlias,
     catalog: &impl DataSpaceCatalogRead,
@@ -1056,10 +1060,18 @@ pub fn selector_for_account_alias(
     })
 }
 /// Build the selector used for a canonical domain-name lease record.
+///
+/// # Errors
+/// Returns the selector validation error if the domain text cannot form a valid
+/// normalized SNS label.
 pub fn selector_for_domain(domain: &DomainId) -> Result<NameSelectorV1, NameSelectorError> {
     NameSelectorV1::new(DOMAIN_NAME_SUFFIX_ID, domain.to_string())
 }
 /// Build the selector used for a canonical dataspace-alias lease record.
+///
+/// # Errors
+/// Returns the selector validation error if `alias` cannot form a valid
+/// normalized SNS label.
 pub fn selector_for_dataspace_alias(alias: &str) -> Result<NameSelectorV1, NameSelectorError> {
     NameSelectorV1::new(DATASPACE_ALIAS_SUFFIX_ID, alias)
 }
@@ -1225,6 +1237,11 @@ fn active_account_alias_lease_record(
     Ok((storage_key, record))
 }
 /// Ensures an active SNS name lease exists and is owned by the exact alias target account.
+///
+/// # Errors
+/// Returns an error if catalog resolution or lease decoding fails, the lease
+/// is absent or inactive at the executing block time, or its owner differs.
+/// Original decoder refusals remain distinct.
 pub fn ensure_account_alias_lease(
     state_transaction: &StateTransaction<'_, '_>,
     owner: &AccountId,
@@ -1696,6 +1713,11 @@ fn ensure_policy_payment_asset_literal(
     Ok(())
 }
 /// Ensure one namespace policy is exactly pinned to the configured, registered Nexus fee asset.
+///
+/// # Errors
+/// Returns an error if the namespace policy is absent, malformed or non-current,
+/// the configured fee asset is unresolved or unregistered, or the policy payment
+/// asset or any pricing tier differs from that configured asset.
 pub fn ensure_namespace_policy_payment_asset_matches_configured(
     world: &impl WorldReadOnly,
     namespace: SnsNamespace,
@@ -2162,6 +2184,11 @@ pub fn quote_account_alias_registration(
     )
 }
 /// Quote account-alias registration only when policy and configured fee asset agree exactly.
+///
+/// # Errors
+/// Returns an error for an unresolved or immutable alias, unavailable/inactive
+/// policy, configured-asset mismatch, reserved-label assignment failure, existing
+/// lease, or invalid pricing tier, term or price/lifecycle arithmetic.
 pub fn quote_account_alias_registration_with_configured_fee_asset(
     world: &impl WorldReadOnly,
     catalog: &impl DataSpaceCatalogRead,
@@ -2234,6 +2261,11 @@ pub fn quote_account_alias_renewal(
     quote_account_alias_renewal_inner(world, catalog, alias, term_years, now_ms, None)
 }
 /// Quote account-alias renewal only when policy and configured fee asset agree exactly.
+///
+/// # Errors
+/// Returns an error for an unresolved or immutable alias, unavailable/inactive
+/// policy, configured-asset mismatch, missing/frozen/tombstoned lease, or invalid
+/// pricing tier, term or price/lifecycle arithmetic.
 pub fn quote_account_alias_renewal_with_configured_fee_asset(
     world: &impl WorldReadOnly,
     catalog: &impl DataSpaceCatalogRead,

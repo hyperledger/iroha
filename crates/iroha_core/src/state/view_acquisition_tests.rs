@@ -144,9 +144,10 @@ fn complete_state_view_defers_world_and_configuration_callbacks_beyond_fences() 
             drop(releases.try_view_once().unwrap());
             assert!(!world_probe.called.load(Ordering::SeqCst));
             assert!(!config_probe.called.load(Ordering::SeqCst));
-            if unwind {
-                panic!("exercise reader release through the original outer fences");
-            }
+            assert!(
+                !unwind,
+                "exercise reader release through the original outer fences"
+            )
         }));
         assert_eq!(result.is_err(), unwind);
         assert!(world_probe.called.load(Ordering::SeqCst));
@@ -308,9 +309,10 @@ fn generated_world_held_release_slots_keep_exact_sources_beyond_state_fences() {
                     .all(|probe| !probe.called.load(Ordering::SeqCst))
             );
             assert_eq!(budget.reserved_bytes(), occupied);
-            if unwind {
-                panic!("retire the exact generated owners after the original fences unwind");
-            }
+            assert!(
+                !unwind,
+                "retire the exact generated owners after the original fences unwind"
+            )
         }));
         assert_eq!(result.is_err(), unwind);
         assert!(

@@ -761,7 +761,8 @@ impl MonotonicSystemClock {
         // mutable wall time again. Keep probe deadlines and Unix timestamps on
         // this same timeline; Instant alone pauses on supported Apple hosts.
         let continuous_elapsed = continuous_elapsed.filter(|elapsed| *elapsed >= self.last_elapsed);
-        let elapsed = continuous_elapsed.unwrap_or(monotonic_elapsed.max(self.last_elapsed));
+        let elapsed =
+            continuous_elapsed.unwrap_or_else(|| monotonic_elapsed.max(self.last_elapsed));
         let pair = self
             .monotonic_anchor
             .checked_add(elapsed)

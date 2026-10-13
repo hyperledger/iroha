@@ -42,14 +42,16 @@ impl State {
         request
             .validate_additions_only(replaced)
             .map_err(LaneLifecycleError::GeometryStorage)?;
+        let mut local_releases = crate::kura::KuraPublicationReleases::new(&self.kura);
         let publish_cursors = releases.is_some();
         let mut slot = self.geometry_publication.lock();
         if let Some(original) = slot.as_ref() {
+            let updated_incarnations = request.updated_incarnations;
             if original.publish_cursors != publish_cursors
                 || !lane_config_entries_match(&original.previous, request.previous)
                 || !lane_config_entries_match(&original.current, request.updated)
                 || original.previous_incarnations != *request.previous_incarnations
-                || original.current_incarnations != *request.updated_incarnations
+                || original.current_incarnations != *updated_incarnations
                 || original.previous_activation_heights != *request.previous_activation_heights
                 || original.current_activation_heights != *request.updated_activation_heights
                 || original.previous_lineage_root != request.previous_lineage_root
@@ -103,9 +105,13 @@ impl State {
             );
         }
         if original.raw.is_none() {
-            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease)?;
+            let cleanup = releases
+                .as_mut()
+                .map(|releases| &mut releases.geometry)
+                .unwrap_or(&mut local_releases);
+            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease, cleanup)?;
             let lease = original_lease
-                .or(scoped_lease.as_ref())
+                .or(scoped_lease.as_deref())
                 .expect("one original geometry lease");
             original.raw = Some(
                 lease
@@ -123,9 +129,13 @@ impl State {
             crate::kura::RawGeometryPhase::PublishingCatalog
                 | crate::kura::RawGeometryPhase::CatalogPublished
         ) {
-            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease)?;
+            let cleanup = releases
+                .as_mut()
+                .map(|releases| &mut releases.geometry)
+                .unwrap_or(&mut local_releases);
+            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease, cleanup)?;
             let lease = original_lease
-                .or(scoped_lease.as_ref())
+                .or(scoped_lease.as_deref())
                 .expect("one original geometry lease");
             raw.resume_under(lease)
                 .map_err(LaneLifecycleError::GeometryStorage)?;
@@ -169,8 +179,10 @@ impl State {
         lineage_root: Hash,
         configured_baseline: Option<Hash>,
         original_lease: Option<&crate::kura::KuraPublicationLease<'_>>,
+        mut releases: Option<&mut LaneLifecycleReleases<'_>>,
     ) -> Result<(), LaneGeometryCatalogPublicationFailure> {
-        let finish = || -> Result<(), LaneLifecycleError> {
+        let mut local_releases = crate::kura::KuraPublicationReleases::new(&self.kura);
+        let mut finish = || -> Result<(), LaneLifecycleError> {
             let mut slot = self.geometry_publication.lock();
             let original = slot.as_mut().ok_or_else(|| {
                 LaneLifecycleError::Storage(
@@ -198,9 +210,13 @@ impl State {
                         .to_owned(),
                 ));
             }
-            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease)?;
+            let cleanup = releases
+                .as_mut()
+                .map(|releases| &mut releases.geometry)
+                .unwrap_or(&mut local_releases);
+            let scoped_lease = geometry_scoped_lease(&self.kura, original_lease, cleanup)?;
             let lease = original_lease
-                .or(scoped_lease.as_ref())
+                .or(scoped_lease.as_deref())
                 .expect("one original geometry lease");
             let tiered = original.tiered.as_ref().ok_or_else(|| {
                 LaneLifecycleError::Storage(
@@ -295,10 +311,8 @@ impl State {
                 })?;
         }
         if let Some(raw) = original.raw.as_mut() {
-            let lease = self
-                .kura
-                .try_publication_lease()
-                .map_err(geometry_lease_error)?;
+            let lease = geometry_scoped_lease(&self.kura, None, &mut releases.geometry)?
+                .expect("standalone original geometry lease");
             raw.rollback_under(&lease)
                 .map_err(LaneLifecycleError::GeometryStorage)?;
         }
@@ -388,6 +402,7 @@ impl PreparedCommittedLaneGeometry<'_> {
                 request.updated_lineage_root,
                 None,
                 Some(lease),
+                None,
             )
             // The retained physical owner always chooses its publication direction.
             // Catalog failure retains that owner for recovery; it cannot roll back.
@@ -397,10 +412,11 @@ impl PreparedCommittedLaneGeometry<'_> {
 
 /// Carrier publication borrows its already acquired lease. Standalone startup
 /// retains its existing scoped lease; both use the identical guarded engine.
-fn geometry_scoped_lease<'kura>(
+fn geometry_scoped_lease<'kura, 'releases>(
     kura: &'kura Kura,
     original: Option<&crate::kura::KuraPublicationLease<'_>>,
-) -> Result<Option<crate::kura::KuraPublicationLease<'kura>>, LaneLifecycleError> {
+    releases: &'releases mut crate::kura::KuraPublicationReleases,
+) -> Result<Option<crate::kura::ScopedKuraPublicationLease<'kura, 'releases>>, LaneLifecycleError> {
     if let Some(lease) = original {
         if !lease.belongs_to(kura) {
             return Err(LaneLifecycleError::Storage(
@@ -409,7 +425,7 @@ fn geometry_scoped_lease<'kura>(
         }
         Ok(None)
     } else {
-        kura.try_publication_lease()
+        kura.try_scoped_publication_lease(releases)
             .map(Some)
             .map_err(geometry_lease_error)
     }

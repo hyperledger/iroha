@@ -206,7 +206,7 @@ impl CapturedStateSnapshot {
         let state = releases.state();
         let publication = state.view_publication_release();
         let generation = state.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(crate::state::StateViewError::Busy(publication).into());
         }
         let view = releases.try_view_once();
@@ -225,7 +225,7 @@ impl CapturedStateSnapshot {
         serialize_state_snapshot(state, &view, &mut json);
         after_serialization();
         let after = state.state_view_generation();
-        if generation != after || after % 2 != 0 {
+        if generation != after || !after.is_multiple_of(2) {
             return Err(SnapshotCaptureError::Changed(publication));
         }
         let identity = CapturedSnapshotIdentity {
@@ -1108,7 +1108,7 @@ fn stream_snapshot_file_digest(
     reader.seek(std::io::SeekFrom::Start(0))?;
     let mut digest = Sha256::new();
     let mut total = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = reader.read(&mut buffer)?;
         if read == 0 {
@@ -1257,7 +1257,7 @@ fn read_bound_snapshot_payload(
         .map_err(|error| TryReadError::IO(error, binding.path.clone()))?;
     let mut digest = Sha256::new();
     let mut remaining = capacity;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; 8 * 1024];
     while remaining != 0 {
         let requested = remaining.min(buffer.len());
         let read = reader
@@ -2042,7 +2042,7 @@ impl<'a> SnapshotJsonBudgetScanner<'a> {
                     };
                     if encoded_blob {
                         if has_escape
-                            || decoded_len % 2 != 0
+                            || !decoded_len.is_multiple_of(2)
                             || !raw.bytes().all(|byte| byte.is_ascii_hexdigit())
                             || raw.bytes().any(|byte| byte.is_ascii_uppercase())
                         {
@@ -3076,6 +3076,13 @@ pub fn try_read_snapshot(
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::needless_pass_by_value)]
+///
+/// # Errors
+/// Returns a typed error for missing or unreadable artifacts, changed file
+/// bindings, invalid canonical payload/signature/Merkle or chain identity,
+/// inconsistent State/Kura history, or failed State/ZK initialization. Positive
+/// height requires original execution replay; local allocation and execution
+/// refusals retain their original categories.
 pub fn try_read_snapshot_with_limits(
     execution_budget: &AllocationBudget,
     store_dir: impl AsRef<Path>,
@@ -5168,7 +5175,7 @@ mod tests {
         let policy = super::SnapshotResourcePolicy::default();
         for undo in [
             r#"{"accepted_ballots":[]}"#,
-            r#"{}"#,
+            r"{}",
             r#"{"extra":null}"#,
             r#"{"value":{"accepted_ballots":[]},"value":{"accepted_ballots":[]}}"#,
             r#"{"value":{"accepted_ballots":[]},"extra":null}"#,

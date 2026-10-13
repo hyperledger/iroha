@@ -29,7 +29,7 @@ fn state() -> State {
         anchor_freshness: 16,
         max_merge_blocks: 32,
         stall_window: 256,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: vec![SumeragiFixedLane {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::UNIVERSAL,
@@ -60,7 +60,7 @@ fn state() -> State {
         lane: LaneId::new(1),
         dataspace: DataSpaceId::UNIVERSAL,
         incarnation: Hash::new(b"native ordering identity").into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee,
         created_at: 1,
         active_from: 3,

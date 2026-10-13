@@ -331,11 +331,13 @@ fn admission_error(height: u64, error: CommitteeAdmissionError) -> VerificationR
         E::ForeignPool
         | E::Reservation(_)
         | E::Buffer(PrepaidBufferError::Reservation(_))
-        | E::KeyAllocation(PublicKeyAllocationError::ForeignPool)
-        | E::KeyAllocation(PublicKeyAllocationError::Allocation(
-            ChargedBufferFromChargeError::DemandOverflow
-            | ChargedBufferFromChargeError::LayoutMismatch { .. },
-        )) => invariant(),
+        | E::KeyAllocation(
+            PublicKeyAllocationError::ForeignPool
+            | PublicKeyAllocationError::Allocation(
+                ChargedBufferFromChargeError::DemandOverflow
+                | ChargedBufferFromChargeError::LayoutMismatch { .. },
+            ),
+        ) => invariant(),
         error @ (E::Envelope { .. } | E::Algorithm { .. } | E::Proof { .. }) => {
             VerificationReadError::Source(ChainReadError::Committee {
                 height,

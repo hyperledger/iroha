@@ -739,7 +739,7 @@ fn eviction_digest_is_independent_of_short_reads() {
         }
     }
     let bytes = (0_u32..200_000)
-        .map(|value| value.wrapping_mul(31) as u8)
+        .map(|value| value.wrapping_mul(31).to_le_bytes()[0])
         .collect::<Vec<_>>();
     let total = u64::try_from(bytes.len()).unwrap();
     let expected =
@@ -826,4 +826,45 @@ fn published_canonical_poison_already_closes_native_admission() {
         "no late binding can reopen the storage owner's gate"
     );
     assert!(late.enter().is_none());
+}
+
+#[test]
+fn eviction_streaming_digest_preserves_fixed_chunk_framing_and_exact_read_bounds() {
+    for length in [
+        0_usize, 1, 8191, 8192, 8193, 65_535, 65_536, 65_537, 200_003,
+    ] {
+        let source: Vec<_> = (0_u8..=u8::MAX).cycle().take(length).collect();
+        let total = u64::try_from(length).unwrap();
+        // Independent materialized framing is the durable file-digest contract.
+        let mut expected = Hash::new(EVICTION_FILE_DIGEST_DOMAIN);
+        for chunk in source.chunks(64 * 1024) {
+            let mut frame = EVICTION_FILE_DIGEST_DOMAIN.to_vec();
+            frame.extend_from_slice(expected.as_ref());
+            frame.extend_from_slice(&u64::try_from(chunk.len()).unwrap().to_le_bytes());
+            frame.extend_from_slice(chunk);
+            expected = Hash::new(frame);
+        }
+        expected = Hash::new_from_chunks(&[
+            EVICTION_FILE_DIGEST_DOMAIN,
+            expected.as_ref(),
+            &total.to_le_bytes(),
+        ]);
+        let mut with_tail = source.clone();
+        with_tail.push(255);
+        let mut reader = std::io::Cursor::new(with_tail);
+        assert_eq!(
+            BlockStore::eviction_reader_digest(&mut reader, total).unwrap(),
+            expected
+        );
+        assert_eq!(reader.position(), total);
+        if length > 0 {
+            let mut truncated = std::io::Cursor::new(&source[..length - 1]);
+            assert_eq!(
+                BlockStore::eviction_reader_digest(&mut truncated, total)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::UnexpectedEof,
+            );
+        }
+    }
 }

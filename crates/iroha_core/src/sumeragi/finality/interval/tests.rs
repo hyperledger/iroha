@@ -99,18 +99,6 @@ fn finite_interval_rejects_same_bytes_replaced_original_journal_before_publicati
 #[cfg(unix)]
 #[inline(never)]
 fn check_late_source_replacement(chain: &CertifiedTestChain) {
-    let view = chain.state().view();
-    let source = NativeFinalityProofSource::new(
-        view.chain_id(),
-        view.network_id(),
-        view.block_hashes(),
-        view.kura(),
-    );
-    let budget = view.execution_budget();
-    let owner = CanonicalHistoryReadBudget::new(budget.clone(), context());
-    let reserved = budget.reserved_bytes();
-    let path = Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
-    let saved = path.with_extension("finite-proof-original");
     struct Restore<'a> {
         path: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -123,6 +111,19 @@ fn check_late_source_replacement(chain: &CertifiedTestChain) {
             }
         }
     }
+
+    let view = chain.state().view();
+    let source = NativeFinalityProofSource::new(
+        view.chain_id(),
+        view.network_id(),
+        view.block_hashes(),
+        view.kura(),
+    );
+    let budget = view.execution_budget();
+    let owner = CanonicalHistoryReadBudget::new(budget.clone(), context());
+    let reserved = budget.reserved_bytes();
+    let path = Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+    let saved = path.with_extension("finite-proof-original");
     let restore = Restore {
         path: &path,
         saved: &saved,
@@ -140,8 +141,8 @@ fn check_late_source_replacement(chain: &CertifiedTestChain) {
     assert!(
         matches!(
             result,
-            Err(NativeFinalityProofIntervalError::Source { .. })
-                | Err(NativeFinalityProofIntervalError::Proof(ProofError::Chain(
+            Err(NativeFinalityProofIntervalError::Source { .. }
+                | NativeFinalityProofIntervalError::Proof(ProofError::Chain(
                     ChainReadError::NotInView { .. }
                 )))
         ),

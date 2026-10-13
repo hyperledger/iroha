@@ -30,20 +30,29 @@ impl LaneStoreOpen {
         reason = "return original startup ownership without allocating"
     )]
     pub fn complete(mut self) -> Result<FileLaneBlockStore, (Self, Attempt<io::Error>)> {
-        if let Err(error) = self.progress() {
-            self.refusal = match &error {
-                Attempt::Deferred(original) => Some(original.clone()),
-                Attempt::Rejected(_) => None,
+        let budget = self.store.budget.clone();
+        // Borrow the original startup owner through cleanup; the scope returns only the
+        // small attempt result before this function moves the complete owner once.
+        let outcome = FileLaneBlockStore::with_original_refunds(&budget, || {
+            if let Err(error) = self.progress() {
+                self.refusal = match &error {
+                    Attempt::Deferred(original) => Some(original.clone()),
+                    Attempt::Rejected(_) => None,
+                };
+                return Err(error);
+            }
+            self.refusal = None;
+            *self.store.state.lock() = StoreState {
+                tip: self.target,
+                read: None,
+                write: None,
             };
-            return Err((self, error));
+            Ok(())
+        });
+        match outcome {
+            Ok(()) => Ok(self.store),
+            Err(error) => Err((self, error)),
         }
-        self.refusal = None;
-        *self.store.state.lock() = StoreState {
-            tip: self.target,
-            read: None,
-            write: None,
-        };
-        Ok(self.store)
     }
     fn progress(&mut self) -> Result<(), Attempt<io::Error>> {
         self.store.revalidate_custody()?;

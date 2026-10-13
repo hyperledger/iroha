@@ -101,6 +101,10 @@ pub trait SortableQueryOutput {
     ///
     /// Metered sorting calls this before [`Self::tiebreak_key`], so an
     /// attacker-sized key is rejected before any key allocation or clone.
+    ///
+    /// # Errors
+    /// Returns `GasBudgetExceeded` if bounded encoding exceeds `limit`, or a
+    /// conversion error if the key cannot be serialized for measurement.
     fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error>;
     /// Compare two items by their deterministic tie-break order.
     fn tiebreak_cmp(&self, other: &Self) -> core::cmp::Ordering {
@@ -1355,7 +1359,8 @@ fn transaction_sorted_prefix_keep(
     if remaining_limit == Some(0) {
         return Err(Error::CursorDone);
     }
-    let take = remaining_limit.map_or(fetch_size.get(), |limit| limit.min(fetch_size.get()));
+    let take =
+        remaining_limit.map_or_else(|| fetch_size.get(), |limit| limit.min(fetch_size.get()));
     let keep = params
         .pagination
         .offset_value()
@@ -2220,7 +2225,7 @@ where
     let offset = params.pagination.offset_value();
     let limit = params.pagination.limit_value().map(|limit| limit.get());
     let fetch_size_usize = usize::try_from(fetch_size.get()).unwrap_or(usize::MAX);
-    let first_take = limit.map_or(fetch_size.get(), |limit| limit.min(fetch_size.get()));
+    let first_take = limit.map_or_else(|| fetch_size.get(), |limit| limit.min(fetch_size.get()));
     let first_take = usize::try_from(first_take).map_err(|_| Error::CapacityLimit)?;
     let budget = limits
         .ordinary_execution_limits
@@ -2263,8 +2268,8 @@ where
         });
     }
     let requested_tail = remaining_limit.unwrap_or(u64::MAX);
-    let configured_retained_items = limits.ordinary_execution_limits.map_or(
-        u64::try_from(MAX_STORED_QUERY_RETAINED_ITEMS).unwrap_or(u64::MAX),
+    let configured_retained_items = limits.ordinary_execution_limits.map_or_else(
+        || u64::try_from(MAX_STORED_QUERY_RETAINED_ITEMS).unwrap_or(u64::MAX),
         |ordinary| ordinary.max_cursor_retained_items(),
     );
     let retained_item_limit = requested_tail.min(configured_retained_items);
@@ -2689,7 +2694,7 @@ where
                 let value = iter.next().ok_or(Error::CapacityLimit)?;
                 values.push(value)?;
             }
-            let limit_allows_more = !limit.is_some_and(|limit| limit <= batch_size.get());
+            let limit_allows_more = limit.is_none_or(|limit| limit > batch_size.get());
             let has_more = if limit_allows_more {
                 iter.next().is_some()
             } else {
@@ -2852,7 +2857,7 @@ where
         stats.record_item(&value, budget)?;
         skipped = skipped.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
     }
-    while !limit.is_some_and(|limit| count >= limit) {
+    while limit.is_none_or(|limit| count < limit) {
         let Some(value) = iter.next() else {
             break;
         };
@@ -2870,10 +2875,7 @@ where
     let remaining_items = count
         .checked_sub(batch_len)
         .ok_or(Error::GasBudgetExceeded)?;
-    debug_assert_eq!(
-        stats.processed_items(),
-        skipped.checked_add(count).unwrap_or(u64::MAX)
-    );
+    debug_assert_eq!(stats.processed_items(), skipped.saturating_add(count));
     Ok((QueryOutput::new(batch, remaining_items, None), stats))
 }
 fn apply_query_postprocessing_with_budget<I>(
@@ -2957,7 +2959,7 @@ where
                 stats.record_item(&value, budget)?;
                 skipped = skipped.checked_add(1).ok_or(Error::GasBudgetExceeded)?;
             }
-            while !limit.is_some_and(|limit| count >= limit) {
+            while limit.is_none_or(|limit| count < limit) {
                 let Some(value) = iter.next() else {
                     break;
                 };

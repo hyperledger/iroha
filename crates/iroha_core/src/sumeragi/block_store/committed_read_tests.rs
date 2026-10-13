@@ -310,6 +310,20 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
 
 #[test]
 fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
+    struct OriginalSchedule {
+        instance: Hash32,
+        config: HeightConfig,
+    }
+    impl AvailabilitySchedule for OriginalSchedule {
+        fn instance(&self) -> Hash32 {
+            self.instance
+        }
+        fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
+            assert_eq!(height, 2);
+            Ok(Some(self.config.clone()))
+        }
+    }
+
     use crate::test_allocations::refuse_one_layout_during;
     use iroha_data_model::{
         block::decode_framed_signed_block, sumeragi_finality::test_fixtures::NativeFinalityFixture,
@@ -334,19 +348,6 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
                 .map(|m| (m.validator.public_key(), m.proof_of_possession.as_slice())),
         )
         .unwrap();
-    struct OriginalSchedule {
-        instance: Hash32,
-        config: HeightConfig,
-    }
-    impl AvailabilitySchedule for OriginalSchedule {
-        fn instance(&self) -> Hash32 {
-            self.instance
-        }
-        fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
-            assert_eq!(height, 2);
-            Ok(Some(self.config.clone()))
-        }
-    }
     let budget = AllocationBudget::new(1 << 25);
     let mut read = CommittedRead::new(
         Clone::clone(&source),
@@ -366,7 +367,7 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
         refused,
         "actual certificate bitmap must reach the fallible allocator"
     );
-    let error = result.err().expect("physical decoder allocation refuses");
+    let error = result.expect_err("physical decoder allocation refuses");
     assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
     assert!(matches!(error, Attempt::Deferred(_)));
     assert_eq!(read.retained_certificate_owners_for_test().unwrap(), owners);

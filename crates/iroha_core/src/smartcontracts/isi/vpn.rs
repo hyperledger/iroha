@@ -524,6 +524,9 @@ fn ensure_xor_asset(asset_definition: &AssetDefinitionId) -> Result<(), String> 
     Ok(())
 }
 /// Derive the deterministic protocol custody account for a VPN lease.
+///
+/// # Errors
+/// This derivation is infallible and currently always returns `Ok`.
 pub fn vpn_lease_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     lease_id: &[u8; 32],
@@ -1288,7 +1291,7 @@ mod tests {
             record.expires_at_ms + 1,
         )
         .expect_err("trust expiring before the lease must be rejected");
-        assert!(error.to_string().contains("complete lease"));
+        assert!(error.clone().contains("complete lease"));
     }
     #[test]
     fn canonical_quote_policy_rejects_unsigned_address_and_economic_projections() {

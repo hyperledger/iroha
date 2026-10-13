@@ -93,7 +93,7 @@ fn exact_private_settlement_authority_fixture(validator_count: u8) -> (State, Ve
         lane: LaneId::new(1),
         dataspace: DataSpaceId::new(1),
         incarnation: Hash::new(b"private settlement native incarnation").into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee: private_settlement_native_members(&keypairs),
         created_at: 1,
         active_from: 3,

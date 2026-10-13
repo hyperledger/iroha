@@ -418,7 +418,7 @@ pub(crate) fn populate_every_sccp_map(
         (network, 1, u64::from(seed)),
         SccpControlRecordV1 {
             track: 1,
-            parliament_paused: seed % 2 == 0,
+            parliament_paused: seed.is_multiple_of(2),
             fast_pause_until_ms: 0,
             height,
             commitment_index: 1,

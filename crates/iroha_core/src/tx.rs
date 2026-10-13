@@ -675,7 +675,6 @@ pub struct AcceptedTransaction<'tx> {
     entrypoint: Cow<'tx, TransactionEntrypoint>,
     validation_time: Option<Duration>,
     entrypoint_hash: OnceLock<HashOf<TransactionEntrypoint>>,
-    signed_hash: OnceLock<HashOf<SignedTransaction>>,
     encoded_len: OnceLock<usize>,
     entrypoint_bytes: OnceLock<Arc<Vec<u8>>>,
     signed_bytes: OnceLock<Option<Arc<Vec<u8>>>>,
@@ -695,7 +694,6 @@ impl Clone for AcceptedTransaction<'_> {
             },
             validation_time: self.validation_time,
             entrypoint_hash: clone_once_lock(&self.entrypoint_hash),
-            signed_hash: clone_once_lock(&self.signed_hash),
             encoded_len: clone_once_lock(&self.encoded_len),
             entrypoint_bytes: clone_once_lock(&self.entrypoint_bytes),
             signed_bytes: clone_once_lock(&self.signed_bytes),
@@ -1349,7 +1347,6 @@ impl<'tx> AcceptedTransaction<'tx> {
             entrypoint,
             validation_time: None,
             entrypoint_hash: OnceLock::new(),
-            signed_hash: OnceLock::new(),
             encoded_len: OnceLock::new(),
             entrypoint_bytes: OnceLock::new(),
             signed_bytes: OnceLock::new(),
@@ -1396,14 +1393,12 @@ impl<'tx> AcceptedTransaction<'tx> {
         let payload_hash = HashOf::new(tx.payload());
         let single_ed25519_key = Self::parsed_single_ed25519_key(&tx);
         let entrypoint = TransactionEntrypoint::External(tx);
-        let signed_hash = Self::compat_signed_hash(entrypoint_hash);
         let accepted = Self::from_entrypoint(Cow::Owned(entrypoint));
         let _ = accepted.signed_bytes.set(Some(signed_bytes));
         let _ = accepted.encoded_len.set(encoded_len);
         let _ = accepted.payload_hash.set(Some(payload_hash));
         let _ = accepted.single_ed25519_key.set(single_ed25519_key);
         let _ = accepted.entrypoint_hash.set(entrypoint_hash);
-        let _ = accepted.signed_hash.set(signed_hash);
         accepted
     }
     fn from_entrypoint_with_cached_entrypoint_bytes(
@@ -1414,18 +1409,10 @@ impl<'tx> AcceptedTransaction<'tx> {
         let accepted = Self::from_entrypoint(Cow::Owned(tx));
         let _ = accepted.entrypoint_bytes.set(entrypoint_bytes);
         let _ = accepted.entrypoint_hash.set(entrypoint_hash);
-        let _ = accepted
-            .signed_hash
-            .set(Self::compat_signed_hash(entrypoint_hash));
         accepted
     }
     fn from_external_with_hot_cache(tx: SignedTransaction) -> Self {
         Self::from_external_with_cached_bytes(tx, None)
-    }
-    fn compat_signed_hash(
-        entrypoint_hash: HashOf<TransactionEntrypoint>,
-    ) -> HashOf<SignedTransaction> {
-        HashOf::from_untyped_unchecked(iroha_crypto::Hash::from(entrypoint_hash))
     }
     fn canonical_signed_payload_with_flags(tx: &SignedTransaction) -> (Vec<u8>, u8) {
         let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
@@ -1649,7 +1636,6 @@ impl<'tx> AcceptedTransaction<'tx> {
         if let Some(entrypoint_bytes) = prepared.entrypoint_bytes {
             let _ = accepted.entrypoint_bytes.set(entrypoint_bytes);
         }
-        let _ = accepted.signed_hash.set(prepared.signed_hash);
         let _ = accepted.entrypoint_hash.set(prepared.entrypoint_hash);
         accepted
     }
@@ -2407,14 +2393,10 @@ impl<'tx> AcceptedTransaction<'tx> {
             TransactionEntrypoint::SealedCommitment(_) => None,
         }
     }
-    /// Return the canonical hash of the wrapped transaction.
-    #[must_use]
-    pub fn hash(&self) -> HashOf<SignedTransaction> {
-        *self
-            .signed_hash
-            .get_or_init(|| Self::compat_signed_hash(self.hash_as_entrypoint()))
-    }
-    /// Return the canonical entrypoint hash of the wrapped transaction.
+    /// Return the canonical hash of the complete wrapped entrypoint.
+    ///
+    /// Sealed carriers keep their outer identity. Signed work inside a reveal has a
+    /// separate execution-call identity and must not substitute for this hash.
     #[must_use]
     pub fn hash_as_entrypoint(&self) -> HashOf<TransactionEntrypoint> {
         *self
@@ -2475,7 +2457,9 @@ impl<'tx> AcceptedTransaction<'tx> {
     #[must_use]
     #[cfg(test)]
     pub(crate) fn prepared_metadata(&self) -> Option<PreparedTransactionMetadata> {
-        self.external()?;
+        let TransactionEntrypoint::External(signed) = self.entrypoint() else {
+            return None;
+        };
         let payload_hash = *self
             .payload_hash
             .get_or_init(|| self.external().map(|signed| HashOf::new(signed.payload())))
@@ -2484,8 +2468,8 @@ impl<'tx> AcceptedTransaction<'tx> {
             .single_ed25519_key
             .get_or_init(|| self.external().and_then(Self::parsed_single_ed25519_key));
         Some(PreparedTransactionMetadata {
-            signed_hash: self.hash(),
-            stateless_cache_key: StatelessValidationCacheKey::new(self.external()?),
+            signed_hash: signed.hash(),
+            stateless_cache_key: StatelessValidationCacheKey::new(signed),
             entrypoint_hash: self.hash_as_entrypoint(),
             payload_hash,
             encoded_len: self.encoded_len(),
@@ -2495,9 +2479,12 @@ impl<'tx> AcceptedTransaction<'tx> {
             metadata_depths: prepare_metadata_depths(self.metadata()?),
         })
     }
+    /// Return signed cache metadata only for an original External fixture.
     #[cfg(test)]
     pub(crate) fn stateless_cache_metadata(&self) -> Option<PreparedTransactionMetadata> {
-        let signed = self.external()?;
+        let TransactionEntrypoint::External(signed) = self.entrypoint() else {
+            return None;
+        };
         let payload_hash = *self
             .payload_hash
             .get_or_init(|| Some(HashOf::new(signed.payload())))
@@ -2506,7 +2493,7 @@ impl<'tx> AcceptedTransaction<'tx> {
             .single_ed25519_key
             .get_or_init(|| Self::parsed_single_ed25519_key(signed));
         Some(PreparedTransactionMetadata {
-            signed_hash: self.hash(),
+            signed_hash: signed.hash(),
             stateless_cache_key: StatelessValidationCacheKey::new(signed),
             entrypoint_hash: self.hash_as_entrypoint(),
             payload_hash,
@@ -2869,32 +2856,9 @@ impl AcceptedTransaction<'static> {
             if let Some(entrypoint_bytes) = prepared.entrypoint_bytes.as_ref() {
                 let _ = accepted.entrypoint_bytes.set(Arc::clone(entrypoint_bytes));
             }
-            let _ = accepted.signed_hash.set(prepared.signed_hash);
             let _ = accepted.entrypoint_hash.set(prepared.entrypoint_hash);
         }
         Ok(accepted.with_validation_time(now))
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for SignedTransaction {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        match source.entrypoint.into_owned() {
-            TransactionEntrypoint::External(entrypoint) => entrypoint,
-            TransactionEntrypoint::SealedReveal(entrypoint) => entrypoint.signed_transaction,
-            TransactionEntrypoint::SealedCommitment(_) => {
-                panic!("sealed commitment entrypoints are not signed transactions")
-            }
-        }
-    }
-}
-impl<'tx> From<AcceptedTransaction<'tx>> for (AccountId, Executable) {
-    fn from(source: AcceptedTransaction<'tx>) -> Self {
-        SignedTransaction::from(source).into()
-    }
-}
-impl AsRef<SignedTransaction> for AcceptedTransaction<'_> {
-    fn as_ref(&self) -> &SignedTransaction {
-        self.external()
-            .expect("system entrypoints do not expose SignedTransaction access")
     }
 }
 impl StateBlock<'_> {
@@ -3162,33 +3126,36 @@ impl StateBlock<'_> {
                 reject_not_permitted("genesis admission requires an external input").into(),
             );
         }
-        if let TransactionEntrypoint::SealedCommitment(commitment) = tx.entrypoint() {
-            return Self::validate_sealed_transaction_commitment(commitment, state_transaction)
-                .map_err(ExecutionAttemptError::Rejected);
-        }
-        if let TransactionEntrypoint::SealedReveal(reveal) = tx.entrypoint() {
-            return Self::validate_sealed_transaction_reveal(
-                reveal,
-                state_transaction,
-                ivm_cache,
-                routing_decision,
-                policy_route,
-            );
-        }
+        let signed = match tx.entrypoint() {
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                return Self::validate_sealed_transaction_commitment(commitment, state_transaction)
+                    .map_err(ExecutionAttemptError::Rejected);
+            }
+            TransactionEntrypoint::SealedReveal(reveal) => {
+                return Self::validate_sealed_transaction_reveal(
+                    reveal,
+                    state_transaction,
+                    ivm_cache,
+                    routing_decision,
+                    policy_route,
+                );
+            }
+            TransactionEntrypoint::External(signed) => signed,
+        };
         let admission = Self::validate_stateful_admission(
-            tx.as_ref(),
+            signed,
             state_transaction,
             routing_decision,
             policy_route,
             genesis,
         )?;
         state_transaction.genesis_execution_scope =
-            policy_route.genesis_execution_scope(tx.as_ref(), state_transaction, genesis)?;
+            policy_route.genesis_execution_scope(signed, state_transaction, genesis)?;
         let authority = admission.authority.clone();
         let allow_unregistered_authority = admission.allow_unregistered_authority;
-        match tx.as_ref().instructions() {
+        match signed.instructions() {
             Executable::ContractCall(call) => {
-                if crate::executor::transaction_gas_limit(tx.as_ref()).is_none() {
+                if crate::executor::transaction_gas_limit(signed).is_none() {
                     return Err(TransactionRejectionReason::Validation(
                         ValidationFail::NotPermitted(
                             "missing gas limit in fee payment intent".to_owned(),
@@ -3230,7 +3197,7 @@ impl StateBlock<'_> {
                 )?;
             }
             Executable::Ivm(bytes) => {
-                if crate::executor::transaction_gas_limit(tx.as_ref()).is_none() {
+                if crate::executor::transaction_gas_limit(signed).is_none() {
                     return Err(TransactionRejectionReason::Validation(
                         ValidationFail::NotPermitted(
                             "missing gas limit in fee payment intent".to_owned(),
@@ -3242,15 +3209,19 @@ impl StateBlock<'_> {
                     authority.clone(),
                     state_transaction,
                     bytes.clone(),
-                    Some(tx.as_ref().metadata()),
+                    Some(signed.metadata()),
                     None,
                     ivm_cache,
                 )?;
             }
             _ => {}
         }
-        debug!(tx=%tx.hash(), "Validating transaction");
-        Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;
+        debug!(tx=%tx.hash_as_entrypoint(), "Validating transaction");
+        Self::validate_transaction_with_runtime_executor(
+            signed.clone(),
+            state_transaction,
+            ivm_cache,
+        )?;
         let trigger_sequence = if allow_unregistered_authority {
             debug!(
                 authority = %authority,
@@ -3660,11 +3631,10 @@ impl StateBlock<'_> {
     ///
     /// Note: transaction instructions will be executed on the given `state_transaction`.
     fn validate_transaction_with_runtime_executor(
-        tx: AcceptedTransaction<'_>,
+        tx: SignedTransaction,
         state_transaction: &mut StateTransaction<'_, '_>,
         ivm_cache: &mut IvmCache,
     ) -> Result<(), ExecutionAttemptError<TransactionRejectionReason>> {
-        let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
         state_transaction
             .world
@@ -7522,7 +7492,7 @@ pub mod tests {
             .clone()
             .into_checked(&view)
             .expect("transaction should not be committed");
-        assert_eq!(checked.as_ref().hash(), accepted.as_ref().hash());
+        assert_eq!(checked.hash_as_entrypoint(), accepted.hash_as_entrypoint());
     }
     #[test]
     fn accepted_transaction_into_entrypoint_consumes_wrapped_entrypoint() {
@@ -7664,7 +7634,10 @@ pub mod tests {
             .expect("signed transaction encodes")
             .len();
         let accepted = AcceptedTransaction::new_unchecked(Cow::Owned(signed.clone()));
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.hash_as_entrypoint(), signed.hash_as_entrypoint());
         assert_eq!(
             external_entrypoint_hash_from_signed_hash(signed.hash()),
@@ -7909,7 +7882,10 @@ pub mod tests {
         let accepted = decoded
             .into_accepted(&test_network_id(), Duration::ZERO, limits, &crypto_cfg)
             .expect("decoded transaction accepts");
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.hash_as_entrypoint(), signed.hash_as_entrypoint());
         assert_eq!(accepted.encoded_len(), expected_len);
         assert_eq!(
@@ -8007,7 +7983,10 @@ pub mod tests {
                 &crypto_cfg,
             )
             .expect("prechecked decoded transaction accepts");
-        assert_eq!(accepted.hash(), signed.hash());
+        assert_eq!(
+            Hash::from(accepted.hash_as_entrypoint()),
+            Hash::from(signed.hash())
+        );
         assert_eq!(accepted.encoded_len(), expected_len);
     }
     #[test]
@@ -8101,6 +8080,155 @@ pub mod tests {
         versioned.push(0);
         assert!(DecodedVersionedSignedTransaction::decode_versioned(&versioned).is_err());
     }
+    fn accepted_hash_carriers() -> [TransactionEntrypoint; 3] {
+        let (authority, keypair) = gen_account_in("wonderland");
+        let mut builder = TransactionBuilder::new(
+            test_network_id(),
+            authority.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([Log::new(Level::INFO, "original carrier identity".into())]);
+        builder.set_creation_time(Duration::from_millis(1_000));
+        let signed = builder.sign(keypair.private_key());
+        let salt = [0x59; 32];
+        let deadline = 9;
+        let commitment_hash =
+            compute_sealed_transaction_commitment(&test_network_id(), &signed, salt, deadline);
+        let commitment = SignedSealedTransactionCommitment::sign(
+            SealedTransactionCommitmentPayload::new(
+                test_network_id(),
+                authority,
+                commitment_hash,
+                2,
+                deadline,
+                None,
+            ),
+            keypair.private_key(),
+        );
+        [
+            TransactionEntrypoint::External(signed.clone()),
+            TransactionEntrypoint::SealedCommitment(commitment),
+            TransactionEntrypoint::SealedReveal(SealedTransactionReveal::new(
+                commitment_hash,
+                signed,
+                salt,
+            )),
+        ]
+    }
+
+    #[test]
+    fn accepted_and_checked_hashes_preserve_each_original_complete_carrier() {
+        let state = State::new_for_testing(
+            World::default(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        for entrypoint in accepted_hash_carriers() {
+            let expected = entrypoint.hash();
+            let bytes = Arc::new(norito::encode_canonical(&entrypoint).unwrap());
+            let borrowed =
+                AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(&entrypoint));
+            assert!(std::ptr::eq(borrowed.entrypoint(), &raw const entrypoint));
+            assert_eq!(borrowed.hash_as_entrypoint(), expected);
+            let admitted = AcceptedTransaction::accept_entrypoint_at_time(
+                entrypoint.clone(),
+                &test_network_id(),
+                Duration::ZERO,
+                TransactionParameters::default(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                Duration::from_millis(1_000),
+            )
+            .expect("each original carrier passes its actual signature and network checks");
+            assert_eq!(admitted.hash_as_entrypoint(), expected);
+            assert_eq!(admitted.entrypoint(), &entrypoint);
+            let cached = AcceptedTransaction::from_entrypoint_with_cached_entrypoint_bytes(
+                admitted.into_entrypoint(),
+                Arc::clone(&bytes),
+                expected,
+            );
+            assert_eq!(cached.hash_as_entrypoint(), expected);
+            assert!(Arc::ptr_eq(&cached.entrypoint_bytes(), &bytes));
+            let checked = cached
+                .clone()
+                .into_checked(&state.view())
+                .expect("the blank ledger contains none of these original carriers");
+            assert_eq!(checked.hash_as_entrypoint(), expected);
+            assert!(Arc::ptr_eq(&checked.entrypoint_bytes(), &bytes));
+            assert_eq!(checked.into_accepted().into_entrypoint(), entrypoint);
+            assert_eq!(cached.entrypoint_bytes().as_slice(), bytes.as_slice());
+            if let TransactionEntrypoint::SealedReveal(reveal) = &entrypoint {
+                assert_ne!(expected, reveal.signed_transaction().hash_as_entrypoint());
+                assert_eq!(
+                    entrypoint.execution_call_hash(),
+                    reveal.signed_transaction().hash_as_entrypoint()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn accepted_signed_metadata_requires_an_original_external_carrier() {
+        for entrypoint in accepted_hash_carriers() {
+            let accepted =
+                AcceptedTransaction::new_unchecked_entrypoint(Cow::Owned(entrypoint.clone()));
+            let frame = accepted.entrypoint_bytes();
+            let identity = accepted.hash_as_entrypoint();
+            let prepared = accepted.prepared_metadata();
+            let cache = accepted.stateless_cache_metadata();
+            match &entrypoint {
+                TransactionEntrypoint::External(signed) => {
+                    let prepared = prepared.expect("the original External has signed metadata");
+                    let cache = cache.expect("the original External has signed cache metadata");
+                    for metadata in [&prepared, &cache] {
+                        assert_eq!(metadata.signed_hash, signed.hash());
+                        assert_eq!(metadata.entrypoint_hash, signed.hash_as_entrypoint());
+                        assert_eq!(
+                            metadata.stateless_cache_key,
+                            StatelessValidationCacheKey::new(signed)
+                        );
+                        assert_eq!(metadata.payload_hash, HashOf::new(signed.payload()));
+                        assert_eq!(
+                            metadata.encoded_len,
+                            norito::encode_canonical(signed).unwrap().len()
+                        );
+                    }
+                    assert!(Arc::ptr_eq(
+                        prepared.entrypoint_bytes.as_ref().unwrap(),
+                        &frame
+                    ));
+                    assert!(Arc::ptr_eq(
+                        prepared.signed_bytes.as_ref().unwrap(),
+                        &accepted.signed_bytes().unwrap()
+                    ));
+                    assert!(cache.entrypoint_bytes.is_none());
+                    assert!(cache.signed_bytes.is_none());
+                }
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::SealedReveal(_) => {
+                    assert!(
+                        prepared.is_none(),
+                        "sealed carrier metadata must not be labeled as an External signed frame"
+                    );
+                    assert!(cache.is_none());
+                    assert!(accepted.signed_bytes.get().is_none());
+                    assert!(accepted.payload_hash.get().is_none());
+                    assert!(accepted.single_ed25519_key.get().is_none());
+                    if let TransactionEntrypoint::SealedReveal(reveal) = &entrypoint {
+                        assert_eq!(accepted.external(), Some(reveal.signed_transaction()));
+                        assert_ne!(identity, reveal.signed_transaction().hash_as_entrypoint());
+                    }
+                }
+            }
+            assert_eq!(accepted.entrypoint(), &entrypoint);
+            assert_eq!(accepted.hash_as_entrypoint(), identity);
+            assert!(Arc::ptr_eq(&accepted.entrypoint_bytes(), &frame));
+            assert_eq!(
+                frame.as_slice(),
+                norito::encode_canonical(&entrypoint).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn accepted_transaction_entrypoint_encoded_lengths_match_norito_frames() {
         let (authority, keypair) = gen_account_in("wonderland");
@@ -9663,22 +9791,35 @@ pub mod tests {
                 keypair,
             }
         }
-        fn validate_program(&self, program: Vec<u8>) -> Result<(), TransactionRejectionReason> {
+        fn validate_program(self, program: Vec<u8>) -> Result<(), TransactionRejectionReason> {
             self.validate_program_with(program, None, |_| {})
         }
         fn validate_program_with(
-            &self,
+            self,
             program: Vec<u8>,
             metadata: Option<Metadata>,
             prepare_block: impl FnOnce(&mut StateBlock<'_>),
         ) -> Result<(), TransactionRejectionReason> {
-            // Use a height-two component overlay with synthetic Global scope metadata.
-            // This fixture does not apply signed genesis or establish Network finality.
-            let header = BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
-            let mut block = self.state.block(header);
+            // Admission limits belong to signed chain policy. Preserve local cache settings,
+            // but commit the requested validity limits through real genesis before execution.
+            let policy =
+                crate::pipeline_validity_policy::policy_of(self.state.installed_pipeline());
+            let chain = crate::block::tests::component_chain_with_genesis_parameters(
+                self.state,
+                vec![iroha_data_model::parameter::Parameter::Custom(
+                    policy.clone().into_custom_parameter(),
+                )],
+            );
+            let state = chain.state();
+            let header = original_component_successor_header(state);
+            let mut block = state.block(header);
+            assert_eq!(
+                crate::pipeline_validity_policy::policy_of(block.pipeline()),
+                policy
+            );
             prepare_block(&mut block);
             let builder = TransactionBuilder::new(
-                test_network_id(),
+                chain.network_id(),
                 self.authority_id.clone(),
                 fee_payment_with_gas_limit(TEST_GAS_LIMIT),
             );
@@ -10188,7 +10329,7 @@ pub mod tests {
     #[test]
     fn validate_ivm_max_cycles_exceeds_fuel_rejected() {
         let mut fixture = IvmAdmissionFixture::new();
-        // Raise pipeline upper bound above fuel limit so the fuel check triggers first.
+        // Commit an upper bound above the fuel limit so the fuel check triggers first.
         let mut pipeline = fixture.state.installed_pipeline().clone();
         let fuel_limit = fixture
             .state
@@ -10227,7 +10368,7 @@ pub mod tests {
             .smart_contract()
             .fuel()
             .get();
-        // Keep the node-local ceiling above the fuel so only the fuel comparison decides.
+        // Commit a ceiling above the fuel so only the fuel comparison decides.
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(fuel_limit + 10).expect("fuel limit plus ten is non-zero");
         fixture.state.set_pipeline(pipeline);
@@ -11837,7 +11978,7 @@ pub mod tests {
         assert_eq!(updated, 6);
     }
     #[test]
-    fn custom_parameter_cannot_disable_configured_ivm_cycle_ceiling() {
+    fn custom_parameter_cannot_disable_committed_ivm_cycle_ceiling() {
         use iroha_data_model::parameter::{
             Parameter,
             custom::{CustomParameter, CustomParameterId},
@@ -11849,8 +11990,8 @@ pub mod tests {
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(1_000).expect("test ceiling is non-zero");
         fixture.state.set_pipeline(pipeline);
-        // A consensus custom parameter with the retired name must not disable
-        // or override the node's configured production admission policy.
+        // A custom parameter with the retired name must not disable or override
+        // the actual committed pipeline policy frozen for this block.
         let id = CustomParameterId::new(Name::from_str("max_ivm_cycles_upper_bound").unwrap());
         let custom = CustomParameter::new(id, Json::new(0_u64));
         // Build program with max_cycles = 2000
@@ -11873,11 +12014,11 @@ pub mod tests {
                 assert_eq!(info.max_cycles, 2_000);
                 assert_eq!(info.upper_bound, 1_000);
             }
-            other => panic!("configured cycle ceiling must reject the program, got {other:?}"),
+            other => panic!("committed cycle ceiling must reject the program, got {other:?}"),
         }
     }
     #[test]
-    fn configured_ivm_cycle_ceiling_accepts_within_bound_despite_custom_parameter() {
+    fn committed_ivm_cycle_ceiling_accepts_within_bound_despite_custom_parameter() {
         use iroha_data_model::{
             parameter::{
                 Parameter,
@@ -11894,12 +12035,16 @@ pub mod tests {
         let mut pipeline = state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(4_000).expect("test ceiling is non-zero");
+        let policy = crate::pipeline_validity_policy::policy_of(&pipeline);
         state.set_pipeline(pipeline);
-        let chain = crate::block::tests::component_chain(state);
+        let chain = crate::block::tests::component_chain_with_genesis_parameters(
+            state,
+            vec![Parameter::Custom(policy.into_custom_parameter())],
+        );
         let state = chain.state();
         let header = original_component_successor_header(state);
         let mut block = state.block(header);
-        // The retired custom parameter cannot lower the configured ceiling.
+        // The retired custom parameter cannot lower the committed ceiling.
         let id = CustomParameterId::new(Name::from_str("max_ivm_cycles_upper_bound").unwrap());
         let custom = CustomParameter::new(id, Json::new(1_u64));
         block

@@ -326,7 +326,7 @@ impl Roots {
         .unwrap()
         .unwrap();
         assert!(
-            proof.canonical().block.commit_qc.len() > 0,
+            !proof.canonical().block.commit_qc.is_empty(),
             "original signed certificate"
         );
         proof

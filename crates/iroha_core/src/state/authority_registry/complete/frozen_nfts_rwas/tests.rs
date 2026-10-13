@@ -45,7 +45,7 @@ fn limits() -> LeafLimits {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn nft(label: &str) -> NftId {

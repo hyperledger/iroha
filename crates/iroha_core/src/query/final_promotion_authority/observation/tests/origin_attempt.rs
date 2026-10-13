@@ -160,7 +160,7 @@ fn balance(block: &StateBlock<'_>, asset: &AssetDefinitionId, authority: &Accoun
         .world
         .assets()
         .get(&AssetId::of(asset.clone(), authority.clone()))
-        .map_or(Quantity::zero(), |balance| balance.0.clone())
+        .map_or_else(Quantity::zero, |balance| balance.0.clone())
 }
 
 #[test]

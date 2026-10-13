@@ -304,8 +304,7 @@ fn canonical_but_invalid_author_signature_never_becomes_available_custody() {
     };
     let (_, error) = restoration
         .complete(&budget, &*crypto)
-        .err()
-        .expect("actual signature rejection");
+        .expect_err("actual signature rejection");
     assert!(!error.is_local_refusal());
 }
 

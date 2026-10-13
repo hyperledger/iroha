@@ -392,15 +392,6 @@ fn validate_mldsa_public_key(bytes: &[u8], label: &str) -> Result<(), Instructio
 fn policy_digest(
     policy: &ProofOutcomeSignerPolicyV1,
 ) -> Result<[u8; 32], InstructionExecutionError> {
-    let encoded_len = norito::canonical_frame_len(policy)
-        .map_err(|error| invalid_parameter(format!("failed to encode signer policy: {error}")))?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(POLICY_DIGEST_DOMAIN_V1);
-    hasher.update(
-        &u64::try_from(encoded_len)
-            .map_err(|_| invalid_parameter("signer policy length does not fit u64"))?
-            .to_le_bytes(),
-    );
     struct Blake3Writer<'a>(&'a mut blake3::Hasher);
     impl std::io::Write for Blake3Writer<'_> {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -411,6 +402,16 @@ fn policy_digest(
             Ok(())
         }
     }
+
+    let encoded_len = norito::canonical_frame_len(policy)
+        .map_err(|error| invalid_parameter(format!("failed to encode signer policy: {error}")))?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(POLICY_DIGEST_DOMAIN_V1);
+    hasher.update(
+        &u64::try_from(encoded_len)
+            .map_err(|_| invalid_parameter("signer policy length does not fit u64"))?
+            .to_le_bytes(),
+    );
     norito::core::write_canonical_to_writer(policy, &mut Blake3Writer(&mut hasher))
         .map_err(|error| invalid_parameter(format!("failed to encode signer policy: {error}")))?;
     Ok(*hasher.finalize().as_bytes())
@@ -636,7 +637,7 @@ fn validate_outcome_record(record: &ProofOutcomeRecordV1) -> Result<(), Instruct
 }
 fn validate_outcome_record_with_current(
     record: &ProofOutcomeRecordV1,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<(), InstructionExecutionError> {
     if record.version != PROOF_OUTCOME_RECORD_VERSION_V1
         || record.identity_digest == [0; 32]
@@ -699,7 +700,7 @@ fn validate_outcome_record_with_current(
                     "stored PoTR outcome key or receipt metadata is invalid",
                 ));
             }
-            let receipt: PotrReceiptV1 = match current.as_deref_mut() {
+            let receipt: PotrReceiptV1 = match current {
                 Some(current) => decode_state_for_current(
                     &projection.canonical_signed_receipt,
                     "stored canonical PoTR receipt",

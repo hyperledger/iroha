@@ -336,10 +336,6 @@ mod tests {
 
     #[test]
     fn typed_guard_notifies_after_unlock_and_preserves_value() {
-        let observer_budget = iroha_allocation::AllocationBudget::new(
-            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
-        );
-        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         struct AcquireOnWake {
             original: Arc<PublicationMutex<Vec<u8>>>,
             observed: AtomicBool,
@@ -354,6 +350,11 @@ mod tests {
                 self.observed.store(true, Ordering::SeqCst);
             }
         }
+
+        let observer_budget = iroha_allocation::AllocationBudget::new(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        );
+        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         let original = Arc::new(PublicationMutex::new(vec![1_u8]));
         let mut held = original.lock();
         held.push(2);
@@ -432,10 +433,6 @@ mod tests {
 
     #[test]
     fn deferred_notification_reenters_all_original_fences_after_outer_unlock() {
-        let observer_budget = iroha_allocation::AllocationBudget::new(
-            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
-        );
-        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         struct AcquireBoth {
             locks: [Arc<PublicationMutex>; 2],
             observed: AtomicBool,
@@ -454,6 +451,11 @@ mod tests {
                 drop((first, second));
             }
         }
+
+        let observer_budget = iroha_allocation::AllocationBudget::new(
+            iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+        );
+        let mut registration = crate::unit_test_support::release_registration(&observer_budget);
         for unwind in [false, true] {
             let locks = [
                 Arc::new(PublicationMutex::default()),
@@ -693,8 +695,7 @@ mod mutation_epoch_tests {
         let held = mutex.lock();
         let held = held
             .try_release_into(&mut foreign_batch)
-            .err()
-            .expect("foreign batch returns the original guard");
+            .expect_err("foreign batch returns the original guard");
         assert_eq!(held.mutation_epoch(), Some(1));
         assert!(mutex.try_lock().is_none());
         let mut original_batch = mutex.deferred_releases();

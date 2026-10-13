@@ -183,7 +183,7 @@ fn discriminator_and_escaped_keys_are_charged_before_branch_selection() {
         assert!(
             matches!(
                 material_kind(&raw, &pool),
-                Err(Error::Logical(_)) | Err(Error::Preparation(_))
+                Err(Error::Logical(_) | Error::Preparation(_))
             ),
             "oversized discriminator/key must refuse original resources"
         );

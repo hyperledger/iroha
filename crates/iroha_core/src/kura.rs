@@ -70,7 +70,7 @@ use parking_lot::{Condvar, Mutex};
 #[cfg(test)]
 use std::num::NonZeroU64;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Debug,
     io::{BufWriter, ErrorKind, Read, Seek, SeekFrom, Write},
     num::NonZeroUsize,
@@ -229,7 +229,8 @@ mod physical_resource_initialization_tests;
 use crate::publication_lock::{PublicationGuard, PublicationMutex};
 mod publication_lease;
 pub(crate) use publication_lease::{
-    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationSlot,
+    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationReleases,
+    KuraPublicationSlot, ScopedKuraPublicationLease,
 };
 
 /// The interface of Kura subsystem.
@@ -518,9 +519,9 @@ impl Kura {
 
     fn build_block_height_index(block_data: &BlockData) -> BlockHeightIndex {
         let Some(entries) = block_data.dense_entries() else {
-            return HashMap::new();
+            return BTreeMap::new();
         };
-        let mut index = HashMap::with_capacity(block_data.len());
+        let mut index = BTreeMap::new();
         for (offset, (hash, _)) in entries.iter().enumerate() {
             if let Some(height) = NonZeroUsize::new(offset.saturating_add(1)) {
                 index.entry(*hash).or_insert(height);
@@ -1166,9 +1167,9 @@ impl Kura {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options
-                .mode(0o600)
-                .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+            options.mode(0o600).custom_flags(i32::from_ne_bytes(
+                rustix::fs::OFlags::NOFOLLOW.bits().to_ne_bytes(),
+            ));
         }
         let file = options
             .open(&lock_path)
@@ -1720,7 +1721,7 @@ impl Kura {
             prune_recovery_required: AtomicBool::new(false),
             block_data: ResidentMutex::new(BlockData::default(), &resource_inventory),
             auxiliary_history_deferred: false,
-            block_height_index: ResidentMutex::new(HashMap::new(), &resource_inventory),
+            block_height_index: ResidentMutex::new(BTreeMap::new(), &resource_inventory),
             transaction_entrypoint_index: ResidentMutex::new(
                 TransactionEntrypointIndex::complete_empty(),
                 &resource_inventory,
@@ -3107,12 +3108,13 @@ impl Kura {
                     ));
                 }
                 let mut options = std::fs::OpenOptions::new();
-                options.read(true).custom_flags(
+                options.read(true).custom_flags(i32::from_ne_bytes(
                     (rustix::fs::OFlags::DIRECTORY
                         | rustix::fs::OFlags::NOFOLLOW
                         | rustix::fs::OFlags::CLOEXEC)
-                        .bits() as i32,
-                );
+                        .bits()
+                        .to_ne_bytes(),
+                ));
                 owned_parent = options.open(parent_path)?;
                 let parent_opened = owned_parent.metadata()?;
                 let parent_after = std::fs::symlink_metadata(parent_path)?;
@@ -3350,6 +3352,8 @@ impl Kura {
         })?;
         #[cfg(unix)]
         {
+            use std::os::unix::fs::MetadataExt as _;
+
             let file = std::fs::File::from(
                 rustix::fs::openat(
                     &immediate.file,
@@ -3370,7 +3374,6 @@ impl Kura {
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)?;
-            use std::os::unix::fs::MetadataExt as _;
             if !metadata.is_file()
                 || metadata.nlink() != 1
                 || entry.st_dev as u64 != metadata.dev()
@@ -3757,9 +3760,11 @@ impl Kura {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options.custom_flags(
-                (rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::NOFOLLOW).bits() as i32,
-            );
+            options.custom_flags(i32::from_ne_bytes(
+                (rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::NOFOLLOW)
+                    .bits()
+                    .to_ne_bytes(),
+            ));
         }
         #[cfg(windows)]
         {
@@ -6395,6 +6400,11 @@ impl Kura {
         Ok(())
     }
     /// Persist the canonical block after checking append capacity and durable ordering.
+    ///
+    /// # Errors
+    /// Returns an error if canonical storage requires recovery, the height or bytes
+    /// conflict with the durable chain, append capacity is unavailable, or canonical
+    /// encoding, storage accounting, or durable I/O fails.
     pub fn store_block(&self, block: iroha_data_model::block::SharedSignedBlock) -> Result<()> {
         self.store_block_durable(&block)
     }
@@ -6543,7 +6553,7 @@ impl Kura {
             })?;
         if readback != expected_bytes
             || !Self::sidecar_file_metadata_unchanged(&metadata.file, &opened)
-            || !Self::stable_sidecar_metadata_unchanged(&metadata, &current)
+            || !Self::stable_sidecar_metadata_unchanged(metadata, &current)
             || !Self::progress_mutation_namespace_unchanged(namespace)
         {
             return Err(Self::invalid_lane_artifact_error(
@@ -7512,21 +7522,30 @@ impl BlockStore {
         )
     }
     fn eviction_reader_digest(reader: &mut impl Read, total: u64) -> std::io::Result<Hash> {
+        // Framing stays at 64 KiB independently of the smaller I/O scratch buffer.
+        const DIGEST_CHUNK_BYTES: u64 = 64 * 1024;
         let mut digest = Hash::new(EVICTION_FILE_DIGEST_DOMAIN);
         let mut remaining = total;
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = [0_u8; 8 * 1024];
         while remaining > 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64))
-                .expect("fixed eviction digest chunk length fits usize");
-            reader.read_exact(&mut buffer[..chunk_len])?;
-            let chunk_len_bytes = (chunk_len as u64).to_le_bytes();
-            digest = Hash::new_from_chunks(&[
-                EVICTION_FILE_DIGEST_DOMAIN,
-                digest.as_ref(),
-                chunk_len_bytes.as_slice(),
-                &buffer[..chunk_len],
-            ]);
-            remaining -= chunk_len as u64;
+            let chunk_len = remaining.min(DIGEST_CHUNK_BYTES);
+            digest = Hash::new_from_writer(|writer| {
+                writer.write_all(EVICTION_FILE_DIGEST_DOMAIN)?;
+                writer.write_all(digest.as_ref())?;
+                writer.write_all(&chunk_len.to_le_bytes())?;
+                let mut chunk_remaining = chunk_len;
+                while chunk_remaining > 0 {
+                    let read_len = usize::try_from(
+                        chunk_remaining.min(u64::try_from(buffer.len()).expect("scratch fits u64")),
+                    )
+                    .expect("scratch read length fits usize");
+                    reader.read_exact(&mut buffer[..read_len])?;
+                    writer.write_all(&buffer[..read_len])?;
+                    chunk_remaining -= u64::try_from(read_len).expect("scratch fits u64");
+                }
+                Ok(())
+            })?;
+            remaining -= chunk_len;
         }
         let total_bytes = total.to_le_bytes();
         Ok(Hash::new_from_chunks(&[
@@ -8516,9 +8535,10 @@ impl BlockStore {
         lengths: &[u64],
         hashes: &[HashOf<BlockHeader>],
     ) -> Result<Option<DaBlockRewriteStageV1>> {
+        const IMAGE_ENVELOPE_BUDGET: u64 = 256;
+
         let logical_count = self.read_index_count()?;
-        let needs_stage = start_height < logical_count
-            || offsets.iter().any(|start| *start == EVICTED_BLOCK_START);
+        let needs_stage = start_height < logical_count || offsets.contains(&EVICTED_BLOCK_START);
         if !needs_stage {
             return Ok(None);
         }
@@ -8548,7 +8568,6 @@ impl BlockStore {
                 "DA block rewrite stage exceeds its hard entry-count limit",
             ));
         }
-        const IMAGE_ENVELOPE_BUDGET: u64 = 256;
         let mut staged_bytes = IMAGE_ENVELOPE_BUDGET;
         for height in replacement_start..=old_marker.count {
             let index = self.read_block_index(height.saturating_sub(1))?;

@@ -619,7 +619,7 @@ fn creation_journal_roundtrip_rejects_foreign_binding_and_missing_history_prefix
                 );
             }
             _ => forged.configured_primary_binding = None,
-        };
+        }
         assert!(PreparedGeometryJournalTransition::prepare(&kura, forged, 0).is_err());
         assert_eq!(fs::read(kura.lane_geometry_journal_path()).unwrap(), before);
     }

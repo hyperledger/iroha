@@ -427,16 +427,16 @@ fn sns_source_inspection_refuses_foreign_incomplete_and_repeated_native_owners()
         let original = source(&fixture.state, EXPIRY - WINDOW);
         let parent_height = fixture.state.committed_height();
         let mut block;
-        let _recording;
+        let recording;
         if refusal == 1 {
             block = Box::new(fixture.state.block(original.header()));
-            _recording = None;
+            recording = None;
         } else {
             let (actual, recorder, outputs, _) =
                 crate::state::run_empty_network_owner_fixture(&fixture.state, &original);
             assert!(outputs.is_empty());
             block = actual;
-            _recording = Some(recorder);
+            recording = Some(recorder);
         }
         let refused = if refusal == 0 {
             let foreign = source(&fixture.state, EXPIRY - WINDOW + 1);
@@ -474,7 +474,7 @@ fn sns_source_inspection_refuses_foreign_incomplete_and_repeated_native_owners()
             block.commit().unwrap_err(),
             crate::state::storage_transactions::TransactionsBlockError::ExecutionOutputCapacity
         ));
-        drop(_recording);
+        drop(recording);
         assert_eq!(fixture.state.committed_height(), parent_height);
         assert_eq!(
             balance(fixture.state.view().world(), &fixture, &fixture.owner),

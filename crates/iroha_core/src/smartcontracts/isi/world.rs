@@ -2967,7 +2967,7 @@ pub mod isi {
                             "abi_hash does not match canonical ABI V1 hash",
                         ));
                     }
-                    if !owner_is_authority && !(parliament_authorized && bonded) {
+                    if !(owner_is_authority || parliament_authorized && bonded) {
                         return Err(InstructionExecutionError::InvariantViolation(
                             "contract lifecycle proposal requires the account owner or a bonded citizen with Parliament authority"
                                 .into(),
@@ -2986,7 +2986,7 @@ pub mod isi {
                             "expected_code_hash does not match the active contract",
                         ));
                     }
-                    if !owner_is_authority && !(parliament_authorized && bonded) {
+                    if !(owner_is_authority || parliament_authorized && bonded) {
                         return Err(InstructionExecutionError::InvariantViolation(
                             "contract lifecycle proposal requires the account owner or a bonded citizen with Parliament authority"
                                 .into(),
@@ -6522,8 +6522,9 @@ pub mod isi {
                     "validation-fee payout lifecycle requires an active immutable contract".into(),
                 )
             })?;
+        let treasury_subject = &binding.treasury_account_id;
         if record.contract_address != binding.contract_address
-            || record.contract_subject != binding.treasury_account_id
+            || record.contract_subject != *treasury_subject
             || binding.contract_address.subject_id() != binding.treasury_account_id
             || ivm::contract_code_hash(&record.code_bytes).as_ref() != &binding.code_hash
         {
@@ -7411,9 +7412,7 @@ pub mod isi {
                 return Err(InstructionExecutionError::InvalidParameter(
                     InvalidParameterError::SmartContract(
                         format!(
-                            "stale contract alias target for `{contract_alias}`: expected {:?}, current {:?}",
-                            expected_previous_contract_address,
-                            current_previous_contract_address
+                            "stale contract alias target for `{contract_alias}`: expected {expected_previous_contract_address:?}, current {current_previous_contract_address:?}"
                         )
                         .into(),
                     ),
@@ -9705,7 +9704,7 @@ pub mod isi {
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &state_transaction.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .map_err(|_| {
@@ -9750,7 +9749,7 @@ pub mod isi {
         crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             &state_transaction.world,
             &state_transaction.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .is_ok()
@@ -15951,8 +15950,7 @@ pub mod isi {
                 })?;
             if required > vault_balance {
                 return Err(invalid_fee_sponsor_program(format!(
-                    "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {}",
-                    vault_balance
+                    "verified fee sponsor vault allocations exceed source capacity: requires {required}, available {vault_balance}"
                 )));
             }
             state_transaction
@@ -17737,8 +17735,7 @@ pub mod isi {
                             .map_err(|err| {
                                 InstructionExecutionError::InvariantViolation(
                                     format!(
-                                        "account alias `{:?}` could not resolve its qualified domain: {err}",
-                                        label
+                                        "account alias `{label:?}` could not resolve its qualified domain: {err}"
                                     )
                                     .into(),
                                 )
@@ -21201,8 +21198,8 @@ pub mod isi {
                 let permission_event = execution.world.internal_event_buf.iter().any(|event| {
                     matches!(
                         event.as_ref(),
-                        DataEvent::Account(AccountEvent::PermissionAdded(change))
-                            | DataEvent::Account(AccountEvent::PermissionRemoved(change))
+                        DataEvent::Account(AccountEvent::PermissionAdded(change) |
+AccountEvent::PermissionRemoved(change))
                             if change.account == *ALICE_ID && change.permission == permission
                     )
                 });
@@ -23533,9 +23530,7 @@ pub mod isi {
                     "unknown field",
                 ),
                 (
-                    format!(
-                        r#"{{"owner":{{"privateKeyHex":"secret"}},"amount":"1","duration_blocks":1}}"#
-                    ),
+                    r#"{"owner":{"privateKeyHex":"secret"},"amount":"1","duration_blocks":1}"#.to_string(),
                     "private signing field",
                 ),
                 (r#"{"direction":"aye"}"#.to_owned(), "exactly Aye"),
@@ -24003,9 +23998,7 @@ pub mod isi {
                     "unknown field",
                 ),
                 (
-                    format!(
-                        r#"{{"owner":{{"privateKey":"secret"}},"amount":"1","duration_blocks":1}}"#
-                    ),
+                    r#"{"owner":{"privateKey":"secret"},"amount":"1","duration_blocks":1}"#.to_string(),
                     "private signing field",
                 ),
                 (r#"{"direction":"yes"}"#.to_owned(), "exactly Aye"),
@@ -25671,7 +25664,7 @@ pub mod isi {
         fn governance_lifecycle_artifact() -> (Vec<u8>, ContractManifest) {
             let (artifact, _) = kotodama_lang::compiler::Compiler::new()
                 .compile_source_with_manifest(
-                    r#"
+                    r"
 seiyaku GovernanceLifecycle { permission CanEnactGovernance;
   kotoage fn run() authorize(CanEnactGovernance) {}
   hajimari() {}
@@ -25680,7 +25673,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
     repeats indefinitely;
   }
 }
-"#,
+",
                 )
                 .expect("compile governance lifecycle fixture");
             let verified = ivm::verify_contract_artifact(&artifact)
@@ -33968,7 +33961,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 stx.world
                     .contract_code_upload_chunks
                     .iter()
-                    .all(|(key, _)| &key.upload != &upload_key)
+                    .all(|(key, _)| key.upload != upload_key)
             );
         });
         world_test!(commit_contract_deployment_enforces_cas_derivation_and_protected_rotation {

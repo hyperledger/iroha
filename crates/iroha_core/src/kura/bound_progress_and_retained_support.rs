@@ -248,18 +248,24 @@ impl BoundProgressAppendIntentV1 {
             return Err("bound prepend old index has a partial trailing entry");
         }
         let new = Self::prepend_layout(old, height)?;
+        let old_window_len = usize::try_from(old_index_len)
+            .map_err(|_| "bound prepend old window exceeds addressable memory")?;
+        let new_window_len = usize::try_from(new.aligned_len)
+            .map_err(|_| "bound prepend new window exceeds addressable memory")?;
+        let old_entries_offset = usize::try_from(old.entries_offset)
+            .map_err(|_| "bound prepend old entries offset overflows")?;
         let mut old_index_bytes = Vec::new();
         old_index_bytes
-            .try_reserve_exact(old_index_len as usize)
+            .try_reserve_exact(old_window_len)
             .map_err(|_| "cannot allocate bounded prepend old window")?;
-        old_index_bytes.resize(old_index_len as usize, 0);
+        old_index_bytes.resize(old_window_len, 0);
         index
             .seek(SeekFrom::Start(0))
             .and_then(|_| index.read_exact(&mut old_index_bytes))
             .map_err(|_| "cannot read bound prepend old window")?;
         let mut new_index_bytes = Vec::new();
         new_index_bytes
-            .try_reserve_exact(new.aligned_len as usize)
+            .try_reserve_exact(new_window_len)
             .map_err(|_| "cannot allocate bounded prepend new window")?;
         new_index_bytes.extend_from_slice(&SidecarIndexLayout::base_header(height));
         let payload_len =
@@ -273,8 +279,10 @@ impl BoundProgressAppendIntentV1 {
         );
         let prefix_len =
             new.entries_offset + (old.base_height - height) * PIPELINE_INDEX_ENTRY_SIZE_U64;
-        new_index_bytes.resize(prefix_len as usize, 0);
-        new_index_bytes.extend_from_slice(&old_index_bytes[old.entries_offset as usize..]);
+        let prefix_len = usize::try_from(prefix_len)
+            .map_err(|_| "bound prepend prefix exceeds addressable memory")?;
+        new_index_bytes.resize(prefix_len, 0);
+        new_index_bytes.extend_from_slice(&old_index_bytes[old_entries_offset..]);
         let intent = Self {
             version: BOUND_PROGRESS_APPEND_INTENT_VERSION,
             namespace_components: namespace.stable_relative_components(data_path, index_path)?,
@@ -372,9 +380,15 @@ impl BoundProgressAppendIntentV1 {
         {
             return Err("absent bound progress pair has a non-empty preimage");
         }
-        if self.old_index_len % PIPELINE_INDEX_ENTRY_SIZE_U64 != 0
-            || self.new_index_len % PIPELINE_INDEX_ENTRY_SIZE_U64 != 0
-            || self.index_write_offset % PIPELINE_INDEX_ENTRY_SIZE_U64 != 0
+        if !self
+            .old_index_len
+            .is_multiple_of(PIPELINE_INDEX_ENTRY_SIZE_U64)
+            || !self
+                .new_index_len
+                .is_multiple_of(PIPELINE_INDEX_ENTRY_SIZE_U64)
+            || !self
+                .index_write_offset
+                .is_multiple_of(PIPELINE_INDEX_ENTRY_SIZE_U64)
         {
             return Err("bound progress append intent index lengths are misaligned");
         }
@@ -448,6 +462,8 @@ impl BoundProgressAppendIntentV1 {
                     + (old.base_height - self.height) * PIPELINE_INDEX_ENTRY_SIZE_U64,
             )
             .map_err(|_| "bound prepend index offset overflows")?;
+            let old_entries_offset = usize::try_from(old.entries_offset)
+                .map_err(|_| "bound prepend old entries offset overflows")?;
             let expected_entry = SidecarIndexEntry {
                 offset: self.old_data_len,
                 len: self
@@ -463,7 +479,7 @@ impl BoundProgressAppendIntentV1 {
                     .get(entry_end..old_start)
                     .is_none_or(|gap| gap.iter().any(|byte| *byte != 0))
                 || self.new_index_bytes.get(old_start..)
-                    != self.old_index_bytes.get(old.entries_offset as usize..)
+                    != self.old_index_bytes.get(old_entries_offset..)
             {
                 return Err("bound prepend changed its target, hole, or retained suffix");
             }

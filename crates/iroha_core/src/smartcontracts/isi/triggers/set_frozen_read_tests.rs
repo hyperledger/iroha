@@ -138,17 +138,6 @@ fn frozen_trigger_readable_equal_sources_cannot_replace_original_authority() {
 
 #[test]
 fn frozen_trigger_replacement_reads_its_original_cut_after_target_is_gone() {
-    let original = {
-        let target = seeded_set();
-        let mut block = target.block_and_revert();
-        let mut transaction = block.transaction();
-        register_call(&mut transaction, "replacement");
-        transaction.apply();
-        let original = capture(block);
-        assert_all_writers_released(&target);
-        original
-    };
-    assert_eq!(original.mode(), mv::BlockMode::Replace);
     fn assert_replacement(read: &impl SetReadOnly) {
         assert!(read.data_triggers().is_empty());
         assert!(read.pipeline_triggers().is_empty());
@@ -170,5 +159,17 @@ fn frozen_trigger_replacement_reads_its_original_cut_after_target_is_gone() {
         );
         read.validate_world_contract_rows().unwrap();
     }
+
+    let original = {
+        let target = seeded_set();
+        let mut block = target.block_and_revert();
+        let mut transaction = block.transaction();
+        register_call(&mut transaction, "replacement");
+        transaction.apply();
+        let original = capture(block);
+        assert_all_writers_released(&target);
+        original
+    };
+    assert_eq!(original.mode(), mv::BlockMode::Replace);
     assert_replacement(&original);
 }

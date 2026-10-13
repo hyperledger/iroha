@@ -35,7 +35,7 @@ fn charged_key_matches_canonical_tuple_and_clone_keeps_one_graph() {
     let same = key.clone();
     assert_eq!(same, key);
     assert_eq!(budget.reserved_bytes(), used);
-    assert!(std::ptr::eq(&*same, &*key));
+    assert!(std::ptr::eq(&raw const *same, &raw const *key));
     drop(key);
     assert_eq!(budget.reserved_bytes(), used);
     drop(same);
@@ -101,8 +101,8 @@ fn noncopy_keys_restore_exact_current_and_undo_without_graph_recopy() {
     assert_eq!(snapshot.revert_map().get(&one), Some(&Some([1; 32])));
     assert_eq!(snapshot.revert_map().get(&two), Some(&None));
     assert!(std::ptr::eq(
-        &**snapshot.current().iter().next().unwrap().0,
-        &*one
+        &raw const **snapshot.current().iter().next().unwrap().0,
+        &raw const *one
     ));
     drop(snapshot);
     drop(store);

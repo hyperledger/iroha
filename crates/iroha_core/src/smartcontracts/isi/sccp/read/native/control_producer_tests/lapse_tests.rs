@@ -137,7 +137,7 @@ fn native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation
         let view = chain.state().view();
         let retained = store::fast_pauses::get(view.world(), &ETH).unwrap();
         assert!(
-            std::ptr::eq(&**retained, &*original),
+            std::ptr::eq(&raw const **retained, &raw const *original),
             "same original funded graph before expiry"
         );
         assert!(hold::fast_taira(view.world(), ETH, Some(before)));
@@ -184,7 +184,10 @@ fn native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once()
     chain.take_events().unwrap();
     {
         let mut pending = chain
-            .begin_proposal(proposal.clone(), Default::default())
+            .begin_proposal(
+                proposal.clone(),
+                iroha_sumeragi::types::ControlWitness::default(),
+            )
             .unwrap();
         let removed = pending
             .inspect(|pending| !store::fast_pauses::contains(&pending.state.world, &ETH))
@@ -200,7 +203,7 @@ fn native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once()
         let view = chain.state().view();
         let retained = store::fast_pauses::get(view.world(), &ETH).unwrap();
         assert!(
-            std::ptr::eq(&**retained, &*original),
+            std::ptr::eq(&raw const **retained, &raw const *original),
             "discard retains original pause backing"
         );
     }
@@ -210,7 +213,9 @@ fn native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once()
     );
     assert_eq!(proposal.hash(), original_hash);
     {
-        let mut retry = chain.begin_proposal(proposal, Default::default()).unwrap();
+        let mut retry = chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+            .unwrap();
         let first = retry
             .publish(crate::sumeragi::test_chain::Signers::Quorum)
             .unwrap();
@@ -236,7 +241,7 @@ fn direct_state_block_without_original_native_scope_cannot_lapse_pause() {
     let block = chain.state().try_block(proposal.header()).unwrap();
     let retained = store::fast_pauses::get(&block.world, &ETH).unwrap();
     assert!(
-        std::ptr::eq(&**retained, &*original),
+        std::ptr::eq(&raw const **retained, &raw const *original),
         "a header alone grants no Global lifecycle authority"
     );
     drop(block);

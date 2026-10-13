@@ -414,10 +414,7 @@ fn multisig_role_for(
 ) -> RoleId {
     let suffix = account_role_suffix(account);
     let literal = if let Some(home_domain) = home_domain {
-        format!(
-            "{MULTISIG_SIGNATORY}{DELIMITER}{}{DELIMITER}{}",
-            home_domain, suffix,
-        )
+        format!("{MULTISIG_SIGNATORY}{DELIMITER}{home_domain}{DELIMITER}{suffix}",)
     } else {
         format!("{MULTISIG_SIGNATORY}{DELIMITER}{DOMAINLESS_NAMESPACE}{DELIMITER}{suffix}")
     };
@@ -2549,10 +2546,12 @@ fn ensure_signatory_account_exists(
 ) -> Result<(), ValidationFail> {
     match resolve_signatory_account(state_transaction, signatory) {
         Ok(_) => Ok(()),
-        Err(ValidationFail::InstructionFailed(InstructionExecutionError::Find(
-            FindError::Account(_),
-        )))
-        | Err(ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::Account(_)))) => {
+        Err(
+            ValidationFail::InstructionFailed(InstructionExecutionError::Find(FindError::Account(
+                _,
+            )))
+            | ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::Account(_))),
+        ) => {
             let mut metadata = Metadata::default();
             metadata.insert((*MULTISIG_CREATED_VIA_KEY).clone(), Json::new("multisig"));
             let register_account = iroha_data_model::account::NewAccount::new(signatory.clone());
@@ -2762,10 +2761,12 @@ fn has_role(
 ) -> Result<bool, ValidationFail> {
     let resolved_account = match resolve_signatory_account(state_transaction, account) {
         Ok(account) => account,
-        Err(ValidationFail::InstructionFailed(InstructionExecutionError::Find(
-            FindError::Account(_),
-        )))
-        | Err(ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::Account(_)))) => {
+        Err(
+            ValidationFail::InstructionFailed(InstructionExecutionError::Find(FindError::Account(
+                _,
+            )))
+            | ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::Account(_))),
+        ) => {
             return Ok(false);
         }
         Err(err) => return Err(err),
@@ -4443,10 +4444,9 @@ mod tests {
                     "executed proposal should be marked relayed when not pruned immediately"
                 );
             }
-            Err(ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::MetadataKey(
-                _,
-            ))))
-            | Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)) => {}
+            Err(ValidationFail::QueryFailed(
+                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
+            )) => {}
             Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
         }
     }
@@ -4642,10 +4642,9 @@ mod tests {
                     "executed proposal should be marked relayed when not pruned immediately"
                 );
             }
-            Err(ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::MetadataKey(
-                _,
-            ))))
-            | Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)) => {}
+            Err(ValidationFail::QueryFailed(
+                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
+            )) => {}
             Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
         }
     }
@@ -4988,10 +4987,9 @@ mod tests {
                     "executed proposal should be marked relayed when not pruned immediately"
                 );
             }
-            Err(ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::MetadataKey(
-                _,
-            ))))
-            | Err(ValidationFail::QueryFailed(QueryExecutionFail::NotFound)) => {}
+            Err(ValidationFail::QueryFailed(
+                QueryExecutionFail::Find(FindError::MetadataKey(_)) | QueryExecutionFail::NotFound,
+            )) => {}
             Err(err) => panic!("unexpected proposal state after approval: {err:?}"),
         }
     }
@@ -7636,7 +7634,6 @@ seiyaku TriggerDispatch { permission Admin;
               }}
             }}
             "#,
-            multisig_id = multisig_id,
         );
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(&src)
@@ -7671,7 +7668,6 @@ seiyaku TriggerDispatch { permission Admin;
             .expect("register event-argument-aware staged mint trigger");
         let args_json = format!(
             r#"{{"ev":{{"action":"create","amount":"111","asset_id":"66owaQmAQMuHxPzxUN3bqZ6FJfDa","created_at_ms":"1779225455574","expires_at_ms":"1779311855574","request_id":"mrtest","requested_by_actor_hex":"0x7b226163746f72223a226f70657261746f7231227d","to_account_id":"{multisig_id}"}}}}"#,
-            multisig_id = multisig_id,
         );
         let instructions = vec![InstructionBox::from(
             ExecuteTrigger::new(trigger_id)

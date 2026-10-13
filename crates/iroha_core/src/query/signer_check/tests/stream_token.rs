@@ -77,7 +77,7 @@ fn bind(
     instruction: &MutateSorafsStreamTokenAuthority,
 ) -> Result<BoundNativeCheckV1, Error> {
     bind_fixture(
-        &state,
+        state,
         round,
         NativeCustodyCheckRefV1::StreamToken(instruction),
         &state.view().chain_id().to_string(),

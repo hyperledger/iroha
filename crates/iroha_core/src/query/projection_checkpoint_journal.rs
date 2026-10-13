@@ -450,8 +450,7 @@ fn validate_checkpoint_resource_bounds(
         let bytes = shard.asset_definition_id.as_ref().map_or(0, String::len);
         if bytes > QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES {
             return Err(format!(
-                "asset-definition discriminator is {bytes} bytes (maximum {})",
-                QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES
+                "asset-definition discriminator is {bytes} bytes (maximum {QUERY_PROJECTION_CHECKPOINT_MAX_ASSET_DEFINITION_ID_BYTES})"
             ));
         }
         total_asset_definition_id_bytes = total_asset_definition_id_bytes
@@ -461,8 +460,7 @@ fn validate_checkpoint_resource_bounds(
             > QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES
         {
             return Err(format!(
-                "asset-definition discriminators require {total_asset_definition_id_bytes} bytes (maximum {})",
-                QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES
+                "asset-definition discriminators require {total_asset_definition_id_bytes} bytes (maximum {QUERY_PROJECTION_CHECKPOINT_MAX_TOTAL_ASSET_DEFINITION_ID_BYTES})"
             ));
         }
     }

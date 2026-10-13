@@ -78,7 +78,9 @@ fn foreign_execution_certificate_cannot_prepare_original_worker() {
     let state = Arc::clone(source.state());
     let kura = Arc::clone(source.kura());
     let proposal = source.proposal(Some(2000), Vec::new());
-    let mut pending = source.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = source
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let original_result = pending.result();
     assert!(
         pending
@@ -104,12 +106,14 @@ fn publication_requires_the_original_nonempty_captured_witness() {
     let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1000)).unwrap();
     let kura = Arc::clone(chain.kura());
     let proposal = chain.proposal(Some(2000), Vec::new());
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     pending
         .inspect(|mut original| {
             assert!(!original.witness.writes.is_empty());
             original.witness.offer_reconstructed_tamper(|offered| {
-                *offered = Default::default();
+                *offered = iroha_data_model::block::consensus::ExecWitness::default();
             });
         })
         .unwrap();

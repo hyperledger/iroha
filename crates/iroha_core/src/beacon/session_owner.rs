@@ -186,10 +186,7 @@ impl<'a, 'r> Construction<'a, 'r> {
         Ok(())
     }
     fn buffer<T>(&mut self, count: usize) -> Result<ChargedBuffer<T>, SessionGraphError> {
-        Ok(ChargedBuffer::from_reservation(
-            count,
-            &mut self.reservation,
-        )?)
+        Ok(ChargedBuffer::from_reservation(count, self.reservation)?)
     }
     #[allow(unsafe_code)]
     fn vector<T>(&mut self, values: ChargedBuffer<T>) -> Result<Vec<T>, SessionGraphError> {

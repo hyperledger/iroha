@@ -403,7 +403,7 @@ impl<'state> StateBlock<'state> {
         });
         let _state_commit_lock = commit_fence.lock();
         let current_generation = state_ref.state_view_generation();
-        if current_generation % 2 != 0
+        if !current_generation.is_multiple_of(2)
             || predecessor_generation.is_some_and(|expected| expected != current_generation)
         {
             return Err(TransactionsBlockError::SnapshotObservationChanged);
@@ -479,8 +479,8 @@ impl<'state> StateBlock<'state> {
             let effects = world_commit::PreparedWorldCommit::prepare_overlay_mutations(
                 world,
                 block_height,
-                &nexus,
-                &lane_incarnation_activation_heights,
+                nexus,
+                lane_incarnation_activation_heights,
                 pending_da_pin_intents.as_ref(),
                 pending_autoscale_lifecycle.as_ref(),
             )
@@ -635,7 +635,7 @@ impl<'state> StateBlock<'state> {
             if let Some(pending) = pending_da_commitments.take() {
                 match carrier_da_effects::PreparedDaCommitmentEffects::try_prepare(
                     pending,
-                    &nexus,
+                    nexus,
                     canonical_runtime.get(),
                     &state_ref.ivm_execution_budget(),
                 ) {
@@ -647,7 +647,7 @@ impl<'state> StateBlock<'state> {
                 }
             }
             *lifecycle_effects = pending_autoscale_lifecycle.as_ref().map(|pending| {
-                carrier_lifecycle_effects::PreparedLaneLifecycleEffects::prepare(pending, &nexus)
+                carrier_lifecycle_effects::PreparedLaneLifecycleEffects::prepare(pending, nexus)
             });
             *effects_captured = true;
         }

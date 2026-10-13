@@ -491,7 +491,7 @@ impl SnapshotSccpState {
                 ) && evidence
                     .current()
                     .get(id)
-                    .is_none_or(|current| &**current != &**old)
+                    .is_none_or(|current| **current != **old)
                 {
                     return Err(invalid(
                         "consensus_evidence",

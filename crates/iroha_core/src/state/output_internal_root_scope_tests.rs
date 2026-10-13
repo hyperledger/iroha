@@ -73,7 +73,7 @@ fn internal_capture_binds_both_namespaces_to_the_complete_committed_root() {
         assert_eq!(artifact.code_hash, hash);
         let generic = crate::smartcontracts::ivm::validate_generic_execution_context(
             &tx.world,
-            &Default::default(),
+            &iroha_model_base::metadata::Metadata::default(),
             artifact,
         );
         assert_eq!(generic.is_ok(), scope == SumeragiRootScope::Global);

@@ -53,20 +53,23 @@ pub fn begin_block(state_block: &mut StateBlock<'_>) -> Result<(), StateStorageA
         state_block
             .native_execution_tip()
             .filter(|parent| parent.height().checked_add(1) == Some(header.height().get()))
-            .map_or(old.min(time), |parent| {
-                if cfg!(all(test, sumeragi_core_mutation = "HC229")) {
-                    old.saturating_add(time.saturating_sub(parent.creation_time_ms()))
+            .map_or_else(
+                || old.min(time),
+                |parent| {
+                    if cfg!(all(test, sumeragi_core_mutation = "HC229")) {
+                        old.saturating_add(time.saturating_sub(parent.creation_time_ms()))
+                            .min(time)
+                    } else {
+                        next_liability_clock_v1(
+                            old,
+                            parent.creation_time_ms(),
+                            time,
+                            parameters.committee_heartbeat_ms,
+                        )
                         .min(time)
-                } else {
-                    next_liability_clock_v1(
-                        old,
-                        parent.creation_time_ms(),
-                        time,
-                        parameters.committee_heartbeat_ms,
-                    )
-                    .min(time)
-                }
-            })
+                    }
+                },
+            )
     };
     let mut stx = state_block.try_transaction()?;
     store::liability_clock::set(&mut stx, next);
@@ -1208,7 +1211,7 @@ mod tests {
         let view = chain.state().view();
         let retained = store::fast_pauses::get(view.world(), &network).unwrap();
         assert!(
-            std::ptr::eq(&**retained, &*original),
+            std::ptr::eq(&raw const **retained, &raw const *original),
             "authenticated Dataspace scope cannot authorize Global lapse"
         );
     }

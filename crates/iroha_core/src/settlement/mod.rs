@@ -132,6 +132,10 @@ impl SettlementEngine {
         &self.buffer_policy
     }
     /// Evaluate the remaining buffer against the configured guard rails.
+    ///
+    /// # Errors
+    /// Returns a buffer-policy error if configured thresholds are invalid or exact
+    /// threshold arithmetic fails. Zero capacity instead returns `Ok(Halt)`.
     pub fn evaluate_buffer(
         &self,
         remaining: &XorQuantity,

@@ -121,9 +121,9 @@ pub(crate) fn treasury_payout_binding(
         reference_feed_config_version: 1,
         reference_provider_accounts: (10..15).map(account).collect(),
         max_sbd_per_attempt_minor: 1000,
-        max_sbd_per_day_minor: 100000,
+        max_sbd_per_day_minor: 100_000,
         min_interval_ms: 60000,
-        max_source_age_ms: 300000,
+        max_source_age_ms: 300_000,
         max_slippage_bps: 100,
         validator_lane_id: iroha_model_base::topology::LaneId::new(0),
         min_reward_claim_xor_minor: 1,
@@ -680,8 +680,10 @@ fn assert_treasury_payout_plan_mismatch(
     assert!(matches!(
         validate_treasury_payout_effect_plan(groups, ordered, binding, &terms),
         Ok(false)
-            | Err(ValidationFeeAdmissionError::TreasuryPayoutEffectPlanMismatch { .. })
-            | Err(ValidationFeeAdmissionError::TreasuryPayoutArithmeticFailure)
+            | Err(
+                ValidationFeeAdmissionError::TreasuryPayoutEffectPlanMismatch { .. }
+                    | ValidationFeeAdmissionError::TreasuryPayoutArithmeticFailure
+            )
     ));
 }
 

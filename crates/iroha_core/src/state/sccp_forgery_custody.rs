@@ -208,7 +208,7 @@ impl OffenceKey {
         budget: &AllocationBudget,
     ) -> Result<Self, ForgeryStorageError> {
         use norito::codec::DecodeAll as _;
-        if source.len() % 2 != 0 {
+        if !source.len().is_multiple_of(2) {
             return Err(ForgeryStorageError::Invalid);
         }
         let mut bytes = ChargedBuffer::new(source.len() / 2, budget)

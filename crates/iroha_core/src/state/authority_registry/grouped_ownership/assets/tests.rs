@@ -393,7 +393,7 @@ fn all_eight_original_native_owners_remain_part_of_the_final_identity_check() {
             6 => world.asset_definition_holders.block().commit(),
             7 => world.asset_definition_nonzero_holders.block().commit(),
             _ => unreachable!(),
-        };
+        }
         assert!(!checked.matches_current().unwrap());
     }
 }
@@ -410,7 +410,7 @@ fn actual_state_capture_retains_original_pool_refusal_and_checked_retry() {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     };
     let pool = state.ivm_execution_budget();
     pool.set_limit_bytes(0);

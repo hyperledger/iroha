@@ -951,7 +951,12 @@ impl CertifiedTestChain {
         transactions: Vec<SignedTransaction>,
         signers: Signers,
     ) -> Vec<bool> {
-        self.commit_with_control(time_ms, transactions, signers, Default::default())
+        self.commit_with_control(
+            time_ms,
+            transactions,
+            signers,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute and certify a block with its separately authenticated control witness.
@@ -1103,12 +1108,16 @@ impl CertifiedTestChain {
             .ready(self.height() + 1)
             .expect("authenticated successor schedule");
         let cadence = Duration::from_millis(schedule.params.block_time_ms);
+        let merges =
+            crate::sumeragi::lanes::merge::propose(&view, &*self.lane_blocks, self.height() + 1)
+                .expect("original lane store is available while building fixture proposal");
         let validation_time = crate::block::creation_time_after_inputs(
             parent
                 .header()
                 .creation_time()
                 .checked_add(cadence)
-                .expect("fixture time fits"),
+                .expect("fixture time fits")
+                .max(Duration::from_millis(merges.time_floor_ms)),
             &entrypoints,
         )
         .expect("fixture input time fits");
@@ -1126,7 +1135,8 @@ impl CertifiedTestChain {
                 .expect("original entrypoint admission")
             })
             .collect::<Vec<_>>();
-        payload::assemble(
+        drop(view);
+        payload::assemble_with_merges(
             &self.state,
             Assembly {
                 parent: &parent,
@@ -1134,6 +1144,7 @@ impl CertifiedTestChain {
                 cadence,
             },
             &accepted,
+            &merges,
         )
         .expect("original entrypoint assembly")
     }
@@ -1147,7 +1158,11 @@ impl CertifiedTestChain {
         entrypoints: Vec<iroha_data_model::transaction::TransactionEntrypoint>,
     ) -> CommittedBlock {
         let proposal = self.proposal_entrypoints(entrypoints);
-        self.commit_proposal(proposal, Signers::Quorum, Default::default())
+        self.commit_proposal(
+            proposal,
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute, certify, publish and apply one original resultless proposal through the same
@@ -2263,7 +2278,9 @@ mod tests {
         );
         let original = chain.committed(9);
         let proposal = chain.proposal(None, Vec::new());
-        let error = match chain.begin_proposal(proposal, Default::default()) {
+        let error = match chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        {
             Ok(_) => panic!("absent currency cannot authorize the native boundary"),
             Err(error) => error,
         };
@@ -2334,7 +2351,7 @@ mod tests {
                 peer_id: peer.clone(),
                 stake_account: validator.clone(),
                 initial_stake: amount.clone(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                     source_asset.clone(),
                     escrow_asset.clone(),
@@ -2784,10 +2801,11 @@ mod tests {
                 Some(20_000),
                 Vec::new(),
                 Signers::Quorum,
-                Default::default(),
+                iroha_sumeragi::types::ControlWitness::default(),
                 |proposal| {
                     let mut context = proposal.execution_context().cloned().unwrap_or_default();
-                    context.lane_merge = Some(Default::default());
+                    context.lane_merge =
+                        Some(iroha_data_model::sumeragi_lanes::SumeragiLaneMergeSection::default());
                     proposal.set_execution_context(Some(context));
                 },
             );

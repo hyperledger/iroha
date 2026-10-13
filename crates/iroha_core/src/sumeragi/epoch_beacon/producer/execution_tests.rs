@@ -784,6 +784,8 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
 /// election can consume; storing it does not move the election.
 #[test]
 fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots() {
+    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
+
     fn mandatory_at_nine(fixture: Fixture) -> (Fixture, Pulse) {
         let (mut fixture, witness) = complete(fixture);
         let pulse = control::decode(&witness).unwrap().unwrap();
@@ -863,7 +865,6 @@ fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots(
     assert_sortition_awaits(&present.chain, attempt_id, 9);
     assert_eq!(slot_index(&present.chain), index);
     // The governance-local wait is now served by exactly that consensus-native pulse.
-    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     let view = present.chain.state().view();
     let network_id = present.chain.network_id();
     assert_eq!(

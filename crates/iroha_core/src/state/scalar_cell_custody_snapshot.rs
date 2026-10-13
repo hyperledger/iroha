@@ -125,7 +125,7 @@ mod tests {
             r#"{"revert":{"value":６},"blocks":9}"#,
             r#"{"re\u0076ert":{"value":6},"blocks":9}"#,
             r#"{"revert":nullx,"blocks":9}"#,
-            r#"[6,9]"#,
+            r"[6,9]",
             "null",
             "{}",
         ] {

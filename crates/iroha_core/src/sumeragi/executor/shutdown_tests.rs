@@ -225,9 +225,7 @@ fn worker_panic_does_not_panic_the_owner_destructor() {
             let executor = StateExecutor::spawn(worker.context.clone()).unwrap();
             let dropped = catch_unwind(AssertUnwindSafe(move || {
                 let _owner = executor;
-                if unwinding {
-                    panic!("original caller unwind");
-                }
+                assert!(!unwinding, "original caller unwind")
             }));
             if unwinding {
                 assert_eq!(

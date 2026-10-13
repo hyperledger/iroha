@@ -1857,6 +1857,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Accumulator("confidential_note_tree"),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/telemetry/classified_status.rs",
+        uses: &[("MerkleTree", 1)],
+        owner: UseOwner::Other(
+            Use::Test,
+            "Inline telemetry corruption fixture substitutes an empty output Merkle tree to prove counter classification rejects a stale block-result commitment; it defines no State root",
+        ),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
         uses: &[("smt::", 2)],
         owner: UseOwner::Roots(&["retail_fee_receipt_head_root"]),
@@ -5294,7 +5302,7 @@ const CARRIERS: &[Carrier] = &[
             ),
             (
                 "LaneBatch.transactions",
-                "the signed transactions of the lane block, in lane order: block content that admission checks and the global merge executes",
+                "the complete transaction entrypoints of the lane block, in lane order: original signed external, commitment or reveal content that admission checks and the global merge executes",
             ),
             (
                 "LaneResult.anchor_height",
@@ -5308,8 +5316,8 @@ const CARRIERS: &[Carrier] = &[
         exhaustive: &["LaneBatch", "LaneResult"],
         opaque: &[
             (
-                "SignedTransaction",
-                "a network input as its author signed it, as the transaction entrypoints of the block_payload_and_result carrier. A State value that a transaction names is an expected-value precondition (other_domains and state_hash_functions, use precondition)",
+                "TransactionEntrypoint",
+                "a complete network entrypoint, including its original signed input and any commitment/reveal envelope, as in the block_payload_and_result carrier. A State value that a transaction names is an expected-value precondition (other_domains and state_hash_functions, use precondition)",
             ),
             ("ChainParamsRecord", "chain parameters: numbers"),
         ],
@@ -10546,7 +10554,7 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
             ),
             (
                 "transactions".to_owned(),
-                "Vec<SignedTransaction>".to_owned()
+                "Vec<TransactionEntrypoint>".to_owned()
             ),
         ]
     );
@@ -11294,4 +11302,31 @@ fn inventory_text_helpers_escape_and_cite_exactly() {
     put_lines(&mut text, "  ", &["1".to_owned(), "2".to_owned()]);
     put(&mut text, "]");
     assert_eq!(text, "[\n  1,\n  2\n]\n");
+}
+
+#[test]
+fn telemetry_counter_corruption_fixture_has_exact_test_construction_custody() {
+    let path = "crates/iroha_core/src/telemetry/classified_status.rs";
+    let listed = CONSTRUCTION_USES
+        .iter()
+        .find(|listed| listed.path == path)
+        .expect("the telemetry counter corruption fixture must be classified");
+    assert_eq!(listed.uses, &[("MerkleTree", 1)]);
+    assert!(matches!(listed.owner, UseOwner::Other(Use::Test, _)));
+    let text = source(path);
+    assert!(
+        scan_sources([(path, text.as_str())])
+            .unlisted_uses
+            .is_empty()
+    );
+    let changed =
+        format!("{text}\nfn extra_counter_tree() -> MerkleTree<[u8; 32]> {{ todo!() }}\n");
+    let changed = scan_sources([(path, changed.as_str())]);
+    assert_eq!(changed.unlisted_uses.len(), 1);
+    assert!(
+        changed
+            .unlisted_uses
+            .iter()
+            .all(|report| report.starts_with(path))
+    );
 }

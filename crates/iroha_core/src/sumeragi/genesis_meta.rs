@@ -130,7 +130,7 @@ pub(crate) mod tests {
                         validator: validator.clone(),
                         staker: validator,
                         bonded: Quantity::from(*stake),
-                        pending_unbonds: Default::default(),
+                        pending_unbonds: std::collections::BTreeMap::default(),
                         metadata: Metadata::default(),
                     },
                 );

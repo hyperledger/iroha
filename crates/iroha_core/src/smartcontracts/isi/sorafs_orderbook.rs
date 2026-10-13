@@ -1996,8 +1996,7 @@ impl Execute for SubmitSorafsOrderbookOrder {
         let mut status = active_status(state_transaction, now)?;
         if active_order_count(&status)? >= u64::from(ORDERBOOK_MAX_OPEN_ORDERS_V1) {
             return Err(invalid_parameter(format!(
-                "authoritative orderbook reached its {} active-order ceiling",
-                ORDERBOOK_MAX_OPEN_ORDERS_V1
+                "authoritative orderbook reached its {ORDERBOOK_MAX_OPEN_ORDERS_V1} active-order ceiling"
             )));
         }
         let admission_sequence = status.next_admission_sequence;

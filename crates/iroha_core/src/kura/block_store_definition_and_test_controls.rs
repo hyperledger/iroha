@@ -36,6 +36,11 @@ impl Kura {
         self.invalidate_pending_budget_cache();
     }
     /// Run storage-budget accounting without storing a block.
+    ///
+    /// # Errors
+    /// Returns an error if storage recovery is required, canonical storage cannot
+    /// be resolved, byte accounting fails or overflows, or the append exceeds the
+    /// configured disk budget.
     pub fn check_storage_budget_for_bench(&self, block: &SignedBlock) -> Result<()> {
         let _prune_guard = self.prune_lock.lock();
         self.ensure_prune_recovery_not_required()?;

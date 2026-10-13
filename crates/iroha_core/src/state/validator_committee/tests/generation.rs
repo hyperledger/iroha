@@ -7,7 +7,7 @@ fn session_for_generation(
     generation: u64,
 ) -> (RetainedFinalizedGlobalThresholdBeaconSessionV1, Vec<PeerId>) {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let peers = authority.validators.iter().cloned().collect::<Vec<_>>();
+    let peers = authority.validators.clone();
     let session_id = *Hash::new_from_chunks(&[
         b"committee-generation-binding-test",
         &generation.to_le_bytes(),

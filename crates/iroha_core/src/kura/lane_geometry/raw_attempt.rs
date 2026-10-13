@@ -7,18 +7,22 @@
 use super::*;
 use crate::kura::{KuraInstanceIdentity, KuraPublicationLease};
 use parking_lot::Mutex;
-use std::sync::Weak;
+use std::sync::{
+    Weak,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::watch;
 
 /// Release of one exact operation claim; retry must acquire and authenticate again.
 #[derive(Clone, Debug)]
 pub struct RawGeometryWait {
+    signal: Arc<ClaimSignal>,
     released: watch::Receiver<bool>,
 }
 
 impl std::fmt::Display for RawGeometryWait {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(if *self.released.borrow() {
+        formatter.write_str(if self.signal.ready.load(Ordering::Acquire) {
             "released; retry acquisition"
         } else {
             "release pending"
@@ -28,8 +32,10 @@ impl std::fmt::Display for RawGeometryWait {
 
 impl RawGeometryWait {
     /// Wait only after releasing every Kura and State physical fence.
+    /// A ready result only permits reacquisition and full reauthentication; it
+    /// grants no physical ownership, source identity, or publication authority.
     pub async fn wait_for_release(&mut self) {
-        while !*self.released.borrow_and_update() {
+        while !self.signal.ready.load(Ordering::Acquire) {
             if self.released.changed().await.is_err() {
                 return;
             }
@@ -37,15 +43,68 @@ impl RawGeometryWait {
     }
 }
 
-#[derive(Debug)]
 struct ClaimSignal {
     released: watch::Sender<bool>,
+    ready: AtomicBool,
+    // The already allocated original claim is its own deferred-notice link.
+    next: Mutex<Option<Arc<ClaimSignal>>>,
+}
+
+impl std::fmt::Debug for ClaimSignal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never recursively format a retained chain of original senders.
+        formatter
+            .debug_struct("ClaimSignal")
+            .field("ready", &self.ready.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
+}
+
+/// Original watch senders, detached before physical unlock and delivered afterwards.
+/// Intrusive links reuse the existing claim allocations; no queue allocation occurs.
+#[derive(Debug, Default)]
+pub(crate) struct RawGeometryReleases {
+    head: Option<Arc<ClaimSignal>>,
+}
+
+impl RawGeometryReleases {
+    fn push(&mut self, signal: Arc<ClaimSignal>) {
+        *signal.next.lock() = self.head.take();
+        self.head = Some(signal);
+    }
+
+    fn pop(&mut self) -> Option<Arc<ClaimSignal>> {
+        let signal = self.head.take()?;
+        self.head = signal.next.lock().take();
+        Some(signal)
+    }
+
+    /// Transfer only these original senders without delivering a wake.
+    pub(crate) fn append(&mut self, mut other: Self) {
+        while let Some(signal) = other.pop() {
+            self.push(signal);
+        }
+    }
+}
+
+impl Drop for RawGeometryReleases {
+    fn drop(&mut self) {
+        // Detach each original link before arbitrary reentrant callbacks. Both
+        // send_replace and Sender::drop run outside the gate and physical locks.
+        while let Some(signal) = self.pop() {
+            signal.released.send_replace(true);
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct ClaimState {
     active: Weak<ClaimSignal>,
     abandoned: bool,
+    // Exactly one acquired physical lease owns this list. Detached cleanup
+    // holders are inert; their lifetime never defers another physical owner.
+    publication: bool,
+    releases: RawGeometryReleases,
 }
 
 /// Kura-instance-local exclusion for journal mutation and instance collection.
@@ -59,7 +118,11 @@ impl RawGeometryClaimGate {
         let mut state = self.state.lock();
         Self::available(&state)?;
         let (released, _) = watch::channel(false);
-        let signal = Arc::new(ClaimSignal { released });
+        let signal = Arc::new(ClaimSignal {
+            released,
+            ready: AtomicBool::new(false),
+            next: Mutex::new(None),
+        });
         state.active = Arc::downgrade(&signal);
         Ok(RawGeometryClaim {
             state: Arc::clone(&self.state),
@@ -77,6 +140,7 @@ impl RawGeometryClaimGate {
             return Err(Error::LaneGeometryAttemptBusy {
                 wait: RawGeometryWait {
                     released: active.released.subscribe(),
+                    signal: active,
                 },
             });
         }
@@ -85,6 +149,20 @@ impl RawGeometryClaimGate {
 
     pub(in crate::kura) fn ensure_unclaimed(&self) -> Result<()> {
         Self::available(&self.state.lock())
+    }
+
+    pub(in crate::kura) fn begin_publication(&self) {
+        // Only a fully acquired original lease calls this; its physical fences
+        // exclude another publication. Inert cleanup holders never enter here.
+        let mut state = self.state.lock();
+        debug_assert!(!state.publication);
+        state.publication = true;
+    }
+
+    pub(in crate::kura) fn end_publication(&self) -> RawGeometryReleases {
+        let mut state = self.state.lock();
+        state.publication = false;
+        std::mem::take(&mut state.releases)
     }
 }
 
@@ -104,24 +182,36 @@ impl RawGeometryClaim {
             && !self.complete
     }
 
+    fn release(&self, abandoned: bool) {
+        let mut immediate = RawGeometryReleases::default();
+        {
+            let mut state = self.state.lock();
+            if state.active.ptr_eq(&Arc::downgrade(&self.signal)) {
+                state.active = Weak::new();
+                state.abandoned |= abandoned;
+            }
+            if !self.signal.ready.swap(true, Ordering::AcqRel) {
+                if state.publication && !cfg!(all(test, sumeragi_core_mutation = "HC284")) {
+                    state.releases.push(Arc::clone(&self.signal));
+                } else {
+                    immediate.push(Arc::clone(&self.signal));
+                }
+            }
+        }
+        drop(immediate);
+    }
+
     fn finish(&mut self) {
         self.complete = true;
-        self.state.lock().active = Weak::new();
-        self.signal.released.send_replace(true);
+        self.release(false);
     }
 }
 
 impl Drop for RawGeometryClaim {
     fn drop(&mut self) {
-        let mut state = self.state.lock();
-        if state.active.ptr_eq(&Arc::downgrade(&self.signal)) {
-            state.active = Weak::new();
-            // A dropped partial temporary or reference mutation needs startup
-            // recovery. Never let another live owner silently reconstruct it.
-            state.abandoned |= self.effects_started && !self.complete;
-        }
-        drop(state);
-        self.signal.released.send_replace(true);
+        // A dropped partial temporary or reference mutation needs startup
+        // recovery. Never let another live owner silently reconstruct it.
+        self.release(self.effects_started && !self.complete);
     }
 }
 
@@ -337,6 +427,13 @@ impl KuraPublicationLease<'_> {
         kura.ensure_nonzero_lineage_root(request.updated_lineage_root)?;
         request.validate_additions_only(replaced)?;
         let claim = kura.raw_geometry_claim.claim()?;
+        #[cfg(test)]
+        AFTER_ORIGINAL_CAPTURE.with(|hook| {
+            let original = hook.borrow_mut().take();
+            if let Some(original) = original {
+                original(&kura.raw_geometry_claim);
+            }
+        });
         let previous_bindings = kura.geometry_bindings(
             request.previous,
             request.previous_incarnations,
@@ -985,5 +1082,212 @@ impl Kura {
         }
         drop(store);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+type OriginalCaptureObserver = Box<dyn FnOnce(&RawGeometryClaimGate)>;
+#[cfg(test)]
+std::thread_local! {
+    static AFTER_ORIGINAL_CAPTURE: std::cell::RefCell<Option<OriginalCaptureObserver>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(super) fn observe_original_capture_for_test(
+    hook: impl FnOnce(&RawGeometryClaimGate) + 'static,
+) {
+    AFTER_ORIGINAL_CAPTURE.with(|pending| *pending.borrow_mut() = Some(Box::new(hook)));
+}
+
+#[cfg(test)]
+mod claim_queue_tests {
+    use super::*;
+    use std::{
+        future::Future,
+        sync::atomic::AtomicUsize,
+        task::{Context, Wake, Waker},
+    };
+
+    struct Probe {
+        kura: Arc<Kura>,
+        calls: AtomicUsize,
+        gate_locked: AtomicBool,
+        reenter: bool,
+    }
+    impl Wake for Probe {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            let gate_free = self.kura.raw_geometry_claim.state.try_lock().is_some();
+            self.gate_locked.fetch_or(!gate_free, Ordering::SeqCst);
+            if gate_free && self.reenter {
+                let lease = self
+                    .kura
+                    .try_publication_lease()
+                    .expect("reenter physical owner");
+                let mut original = self
+                    .kura
+                    .raw_geometry_claim
+                    .claim()
+                    .expect("reenter original gate");
+                original.finish();
+                drop(original);
+                drop(lease);
+            }
+            self.calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn original_claim_cleanup_reentry_does_not_hold_gate_or_duplicate_notices() {
+        let kura = Kura::blank_kura_for_testing();
+        let probe = Arc::new(Probe {
+            kura: Arc::clone(&kura),
+            calls: AtomicUsize::new(0),
+            gate_locked: AtomicBool::new(false),
+            reenter: true,
+        });
+        let waker = Waker::from(Arc::clone(&probe));
+        let lease = kura.try_publication_lease().unwrap();
+        let mut original = kura.raw_geometry_claim.claim().unwrap();
+        let mut wait = match kura.raw_geometry_claim.claim() {
+            Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+            _ => panic!("original claim busy"),
+        };
+        let mut immediate_retry = wait.clone();
+        assert!(Arc::ptr_eq(&original.signal, &wait.signal));
+        let original_source = Arc::downgrade(&original.signal);
+        let mut future = Box::pin(wait.wait_for_release());
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
+        original.finish();
+        assert_eq!(immediate_retry.to_string(), "released; retry acquisition");
+        let mut immediate_future = Box::pin(immediate_retry.wait_for_release());
+        assert!(
+            immediate_future
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_ready()
+        );
+        assert!(
+            matches!(
+                kura.try_publication_lease(),
+                Err(crate::kura::KuraPublicationPreparationError::Busy { .. })
+            ),
+            "a ready claim wait grants no physical publication authority"
+        );
+        // A spurious repoll cannot lose the notification registered before finish.
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
+        drop(immediate_future);
+        drop(immediate_retry);
+        drop(original);
+        let cleanup = lease.release_deferred();
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            original_source.strong_count(),
+            2,
+            "wait and exact cleanup retain the original sender"
+        );
+        drop(cleanup);
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            original_source.strong_count(),
+            1,
+            "cleanup retired its exact sender once"
+        );
+        assert!(!probe.gate_locked.load(Ordering::SeqCst));
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_ready()
+        );
+    }
+
+    #[test]
+    fn original_claim_old_cleanup_and_concurrent_new_owner_keep_separate_notices() {
+        let kura = Kura::blank_kura_for_testing();
+        let first = Arc::new(Probe {
+            kura: Arc::clone(&kura),
+            calls: AtomicUsize::new(0),
+            gate_locked: AtomicBool::new(false),
+            reenter: false,
+        });
+        let first_waker = Waker::from(Arc::clone(&first));
+        let lease = kura.try_publication_lease().unwrap();
+        let mut original = kura.raw_geometry_claim.claim().unwrap();
+        let mut wait = match kura.raw_geometry_claim.claim() {
+            Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+            _ => panic!("original claim busy"),
+        };
+        let mut future = Box::pin(wait.wait_for_release());
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(&first_waker))
+                .is_pending()
+        );
+        original.finish();
+        drop(original);
+        let first_cleanup = lease.release_deferred();
+        // The next real owner already holds all physical fences while the old
+        // source's detached callbacks execute concurrently on another thread.
+        let lease = kura.try_publication_lease().unwrap();
+        let mut next = kura.raw_geometry_claim.claim().unwrap();
+        let second = Arc::new(Probe {
+            kura: Arc::clone(&kura),
+            calls: AtomicUsize::new(0),
+            gate_locked: AtomicBool::new(false),
+            reenter: false,
+        });
+        let second_waker = Waker::from(Arc::clone(&second));
+        let mut next_wait = match kura.raw_geometry_claim.claim() {
+            Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+            _ => panic!("next original claim busy"),
+        };
+        let mut next_future = Box::pin(next_wait.wait_for_release());
+        assert!(
+            next_future
+                .as_mut()
+                .poll(&mut Context::from_waker(&second_waker))
+                .is_pending()
+        );
+        std::thread::spawn(move || drop(first_cleanup))
+            .join()
+            .unwrap();
+        assert_eq!(first.calls.load(Ordering::SeqCst), 1);
+        assert!(!first.gate_locked.load(Ordering::SeqCst));
+        assert_eq!(second.calls.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            kura.raw_geometry_claim.ensure_unclaimed(),
+            Err(Error::LaneGeometryAttemptBusy { .. })
+        ));
+        next.finish();
+        drop(next);
+        assert_eq!(second.calls.load(Ordering::SeqCst), 0);
+        drop(lease);
+        assert_eq!(second.calls.load(Ordering::SeqCst), 1);
+        assert!(!second.gate_locked.load(Ordering::SeqCst));
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(&first_waker))
+                .is_ready()
+        );
+        assert!(
+            next_future
+                .as_mut()
+                .poll(&mut Context::from_waker(&second_waker))
+                .is_ready()
+        );
     }
 }

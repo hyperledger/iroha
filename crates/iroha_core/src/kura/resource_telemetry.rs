@@ -179,7 +179,7 @@ impl ResourceCollector {
                     format!("{PREFIX}{name}"),
                     (*help).to_owned(),
                     label.iter().map(|label| (*label).to_owned()).collect(),
-                    Default::default(),
+                    std::collections::HashMap::default(),
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;

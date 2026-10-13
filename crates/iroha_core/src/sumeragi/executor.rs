@@ -1563,7 +1563,8 @@ impl<'s> Worker<'s> {
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
-                parent_service: Default::default(),
+                parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                ),
             });
         }
         let attempt = self
@@ -1706,7 +1707,10 @@ impl<'s> Worker<'s> {
                 return Err(PublicationError::Retryable(error.to_string()));
             }
             Err(lanes::merge::MergeError::StateView(error)) => return Err(error.into()),
-            Err(lanes::merge::MergeError::RoutingDeferred(reason)) => {
+            Err(
+                lanes::merge::MergeError::RoutingDeferred(reason)
+                | lanes::merge::MergeError::ResourceDeferred(reason),
+            ) => {
                 self.routing_refusal = Some(reason.clone());
                 return Err(PublicationError::Deferred(reason.into()));
             }
@@ -3163,9 +3167,12 @@ impl<'s> Worker<'s> {
             return Ok(None);
         }
         if height > 2 {
-            let (_, preparation) = self
-                .assembly_parent_service
-                .get_or_insert_with(|| (parent_scope, Default::default()));
+            let (_, preparation) = self.assembly_parent_service.get_or_insert_with(|| {
+                (
+                    parent_scope,
+                    crate::sumeragi::certified_chain::ParentServicePreparation::default(),
+                )
+            });
             preparation
                 .retain_assembly_parent(parent.clone())
                 .map_err(|error| {
@@ -3571,8 +3578,7 @@ mod tests {
             let budget = worker.state.ivm_execution_budget();
             let empty = iroha_allocation::ChargedBuffer::new(0, &budget).unwrap();
             let (empty_owner, error) = PayloadBytes::from_charged(empty, &budget)
-                .err()
-                .expect("empty payload never obtains available custody");
+                .expect_err("empty payload never obtains available custody");
             assert!(matches!(error, ByteAdmissionError::Length { length: 0 }));
             assert_eq!(worker.state.view().height(), state_height);
             assert!(worker.live.is_none());

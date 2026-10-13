@@ -7,8 +7,8 @@ fn policy(tables: LeafLimits) -> TableCaptureLimits {
         tables,
         membership: MembershipWorkLimits {
             max_row_visits: 64,
-            max_streamed_bytes: 131072,
-            max_ordered_bytes: 131072,
+            max_streamed_bytes: 131_072,
+            max_ordered_bytes: 131_072,
         },
     }
 }

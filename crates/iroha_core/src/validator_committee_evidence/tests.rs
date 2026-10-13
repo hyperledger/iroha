@@ -73,10 +73,10 @@ fn outputs(block: &mut SignedBlock) {
         .set_execution_outputs(
             values,
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
         .unwrap();

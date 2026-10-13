@@ -79,9 +79,9 @@ pub(crate) fn instructions_allow_multisig_envelope_authority(
         && instructions.iter().all(|instruction| {
             matches!(
                 MultisigInstructionBox::try_from(instruction),
-                Ok(MultisigInstructionBox::Propose(_))
-                    | Ok(MultisigInstructionBox::Approve(_))
-                    | Ok(MultisigInstructionBox::Cancel(_))
+                Ok(MultisigInstructionBox::Propose(_)
+                    | MultisigInstructionBox::Approve(_)
+                    | MultisigInstructionBox::Cancel(_))
             )
         })
 }

@@ -53,7 +53,9 @@ fn original_source() -> (CertifiedTestChain, FinalizedFastpqSource, usize, Vec<u
         })
         .collect();
     let proposal = chain.proposal(None, transactions);
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
 
     // Only observation escapes before publication; the protected wire never clones
     // into a job and both unpublished and prepared states refuse the real handoff.
@@ -316,7 +318,9 @@ fn protected_d7_and_ordinary_writes_remain_bound_after_native_result() {
 fn genuinely_finalized_empty_effect_source_has_an_authenticated_zero_statement_census() {
     let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
     let proposal = chain.proposal(None, Vec::new());
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     pending.publish(Signers::Quorum).unwrap();
     let joined = pending.take_finalized_fastpq_source().unwrap();
     assert_eq!(

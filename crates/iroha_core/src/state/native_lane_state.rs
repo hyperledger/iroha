@@ -60,8 +60,7 @@ impl StateBlock<'_> {
             .writes
             .iter()
             .filter(|entry| entry.key == SUMERAGI_LANE_STATE_WITNESS_KEY);
-        if !entries.next().is_some_and(|entry| entry.value == expected) || entries.next().is_some()
-        {
+        if entries.next().is_none_or(|entry| entry.value != expected) || entries.next().is_some() {
             return Err("execution witness does not contain the exact global lane state".into());
         }
         Ok(())
@@ -190,7 +189,7 @@ mod tests {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::new(0),
             incarnation: [1; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee,
             created_at: 1,
             active_from: 3,

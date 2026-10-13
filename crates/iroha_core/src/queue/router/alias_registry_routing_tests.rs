@@ -582,7 +582,12 @@ fn apply(fixture: &Fixture, instructions: Vec<InstructionBox>) -> Result<(), Str
     );
     overlay.current_entrypoint_index = Some(0);
     overlay.current_network_entrypoint_hash = Some(transaction.hash_as_entrypoint());
-    overlay.current_tx_hash = Some(transaction.as_ref().hash());
+    overlay.current_tx_hash = Some(
+        transaction
+            .external()
+            .expect("alias fixture authors an external input")
+            .hash(),
+    );
     overlay.current_lane_id = Some(leg.route.lane_id);
     overlay.current_dataspace_id = Some(leg.route.dataspace_id);
     overlay.world.current_dataspace_id = Some(leg.route.dataspace_id);

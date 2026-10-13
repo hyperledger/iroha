@@ -297,7 +297,7 @@ fn register_genesis_members(
                 peer_id: PeerId::new(key.public_key().clone()),
                 stake_account: validator,
                 initial_stake: amount.clone(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                     source,
                     target,
@@ -398,7 +398,7 @@ fn signed_future_candidate_borrows_original_generation_and_refunds_pairing() {
     let view = chain.state().view();
     let checked = verify_committed(&view, &evidence, 3_000, &budget, control(&stop)).unwrap();
     assert_eq!(checked.rule(), SccpForgeryRuleV1::E2);
-    assert!(std::ptr::eq(checked.evidence(), &evidence));
+    assert!(std::ptr::eq(checked.evidence(), &raw const evidence));
     let retained = store::committee_generations::get(view.world(), &1).unwrap();
     assert!(std::ptr::eq(checked.generation(), retained));
     assert_eq!(
@@ -439,7 +439,7 @@ fn signed_future_candidate_borrows_original_generation_and_refunds_pairing() {
     assert_eq!(signers.len(), 3);
     for (index, key, member) in signers {
         let index = usize::try_from(index).unwrap();
-        assert!(std::ptr::eq(key, &retained.keys[index]));
+        assert!(std::ptr::eq(key, &raw const retained.keys[index]));
         assert_eq!(member, retained.members[index].as_ref());
         if let Some(member) = member {
             assert!(std::ptr::eq(

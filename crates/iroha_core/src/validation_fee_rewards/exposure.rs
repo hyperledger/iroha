@@ -686,7 +686,7 @@ mod tests {
                     staker: oversized,
                     bonded: Quantity::one(),
                     pending_unbonds: BTreeMap::new(),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                 },
             );
             assert!(ensure_existing_reward_identities(&stx.world).is_err());
@@ -850,7 +850,7 @@ mod tests {
             staker,
             bonded: Quantity::from(amount),
             pending_unbonds: BTreeMap::new(),
-            metadata: Default::default(),
+            metadata: iroha_model_base::metadata::Metadata::default(),
         };
         let mut validator = make_share(ALICE_ID.clone(), 20u32);
         let request_id = Hash::new("historical-unbond");
@@ -920,7 +920,7 @@ mod tests {
                     stake_account: ALICE_ID.clone(),
                     total_stake: Quantity::from(50u32),
                     self_stake: Quantity::from(20u32),
-                    metadata: Default::default(),
+                    metadata: iroha_model_base::metadata::Metadata::default(),
                     status: PublicLaneValidatorStatus::Active,
                     activation_height: 1,
                     election_exit_height: None,

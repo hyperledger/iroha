@@ -99,10 +99,10 @@ pub struct NativeAmxRelayDiscoveryReadV1<'v, V: StateReadOnly> {
 ///
 /// # Errors
 /// The height is outside authenticated non-genesis history or its original archive refuses.
-pub fn amx_relays<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_relays<V: StateReadOnly>(
+    view: &V,
     height: u64,
-) -> Result<NativeAmxRelayDiscoveryReadV1<'v, V>, NativeAmxRelayDiscoveryErrorV1> {
+) -> Result<NativeAmxRelayDiscoveryReadV1<'_, V>, NativeAmxRelayDiscoveryErrorV1> {
     use NativeAmxPreparedRelayErrorV1 as Error;
     let index = height
         .checked_sub(1)

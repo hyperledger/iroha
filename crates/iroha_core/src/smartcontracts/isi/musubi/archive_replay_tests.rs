@@ -403,6 +403,11 @@ fn publication_resolution_binds_rows_and_selection_state_to_snapshot() {
     assert!(error.to_string().contains("yank state is newer"));
 }
 fn initial_executor_archive_registration_fixture() -> (State, AccountId, RegisterMusubiArchiveV1) {
+    use crate::sumeragi::{
+        startup,
+        test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
     let mut archive = retention_archive(0x34);
     let publisher = archive.registered_by.clone();
     let broker = archive
@@ -434,10 +439,6 @@ fn initial_executor_archive_registration_fixture() -> (State, AccountId, Registe
         archive.staging_receipt.payload.binding.seed_provider,
         broker,
     );
-    use crate::sumeragi::{
-        startup,
-        test_chain::{CertifiedTestChain, TestChainConfig},
-    };
     let config = TestChainConfig::new(world, 0);
     let genesis_account = AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;
@@ -1526,10 +1527,10 @@ fn archive_replay_genesis_at(creation_time_ms: u64) -> iroha_data_model::block::
         genesis.set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &crate::execution_output_test_support::structural_output_limits(),
         )
     }

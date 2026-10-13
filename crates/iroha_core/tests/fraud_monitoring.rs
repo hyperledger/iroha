@@ -204,7 +204,11 @@ fn block_pipeline_rejects_missing_assessment() {
     state.set_fraud_monitoring(cfg);
     let tx = make_transaction(&chain_id, &authority, &key_pair, Metadata::default());
     let genesis_block = SignedBlock::genesis(
-        vec![tx.as_ref().clone()],
+        vec![
+            tx.external()
+                .expect("genesis fixture authors an external input")
+                .clone(),
+        ],
         key_pair.private_key(),
         None,
         None,

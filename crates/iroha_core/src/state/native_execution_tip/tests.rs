@@ -366,8 +366,7 @@ fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
         chain.kura(),
         &pool,
     )
-    .err()
-    .expect("the actual original native source must refuse its full pool");
+    .expect_err("the actual original native source must refuse its full pool");
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain the original source's typed local refusal: {original:?}");
     };
@@ -540,8 +539,7 @@ fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
             .walk(2, 3)
             .next()
             .unwrap()
-            .err()
-            .expect("next actual prefix decode must refuse")
+            .expect_err("next actual prefix decode must refuse")
     });
     let ExecutionAttemptError::Deferred(original) = original else {
         panic!("fixture must obtain a typed original prefix refusal: {original:?}");

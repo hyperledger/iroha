@@ -218,6 +218,11 @@ pub(crate) fn validate_program_policy(policy: &RamLfeProgramPolicy) -> Result<()
 /// This mirrors the attestation checks used during identifier-claim admission,
 /// but without any identifier-specific ledger binding checks. Proof mode is
 /// unavailable until a complete program-execution relation is implemented.
+///
+/// # Errors
+/// Returns an error for mismatched or unsupported program/backend/proof policy,
+/// invalid execution or expiry times, a lease longer than 120000ms, inconsistent
+/// input/output/metadata commitments, or a missing or invalid resolver signature.
 pub fn validate_execution_receipt_at(
     receipt: &RamLfeExecutionReceipt,
     program_policy: &RamLfeProgramPolicy,
@@ -567,7 +572,7 @@ mod tests {
         )
         .expect("control is a valid native public-input binding proof");
         let verifier = RamLfeProofVerifierMetadata {
-            proof_backend: proof.backend.to_string(),
+            proof_backend: proof.backend.clone(),
             circuit_id: format!("{}:public-binding-demo", crate::zk::ZK_BACKEND_STARK_FRI_V1),
             public_inputs_schema_hash: Hash::new(&fixture.public_inputs),
             verifying_key_bytes: key.bytes,

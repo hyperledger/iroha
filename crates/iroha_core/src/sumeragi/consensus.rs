@@ -31,6 +31,9 @@ use iroha_data_model::prelude::*;
 /// projection for the first release.
 /// Native signed configuration reporting is derived by
 /// [`crate::sumeragi::node::consensus_configuration_fingerprint`].
+///
+/// # Errors
+/// Returns an error when the signed genesis parameters violate the consensus invariants.
 pub fn compute_consensus_parameters_fingerprint(
     params: &ConsensusGenesisParams,
 ) -> Result<[u8; 32], String> {

@@ -44,10 +44,10 @@ fn install(block: &mut SignedBlock, outputs: Vec<ExecutionOutputV1>) {
         .set_execution_outputs(
             outputs,
             3,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             vec![],
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &fixture_limits(),
         )
         .expect("bounded structural output fixture");

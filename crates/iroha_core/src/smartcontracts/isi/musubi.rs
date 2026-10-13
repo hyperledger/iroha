@@ -630,11 +630,11 @@ impl Execute for PublishMusubiReleaseV1 {
                 if let Some(existing) = state_transaction.world.musubi_releases.get(&release_id) {
                     if existing.release_digest != release_digest
                         || existing.manifest != self.publication.manifest
-                        || !state_transaction
+                        || state_transaction
                             .world
                             .musubi_packages
                             .get(&release_id.package)
-                            .is_some_and(|package| package.claimed_namespace == self.namespace)
+                            .is_none_or(|package| package.claimed_namespace != self.namespace)
                     {
                         return Err(invariant(format!(
                             "Musubi release '{release_id}' is permanently bound to different commitments"
@@ -864,8 +864,7 @@ impl Execute for PublishMusubiReleaseV1 {
                     })
                 });
                 let metadata_event = first_metadata
-                    .as_ref()
-                    .cloned()
+                    .clone()
                     .map(MusubiEvent::PackageMetadataChanged);
                 *state_transaction
                     .world
@@ -1291,8 +1290,7 @@ impl Execute for AcceptMusubiPackageMaintainerV1 {
                 let next = advance.revision;
                 let invitation = advance
                     .terminal_invitation
-                    .as_ref()
-                    .cloned()
+                    .clone()
                     .ok_or_else(|| invariant("Musubi accepted invitation was not terminalized"))?;
                 let member = MusubiPackageMemberV1 {
                     package: self.package.clone(),
@@ -1382,8 +1380,7 @@ impl Execute for RevokeMusubiPackageMaintainerInvitationV1 {
                 let next = advance.revision;
                 let invitation = advance
                     .terminal_invitation
-                    .as_ref()
-                    .cloned()
+                    .clone()
                     .ok_or_else(|| invariant("Musubi revoked invitation was not terminalized"))?;
                 let event = MusubiEvent::MaintainerInvitationRevoked(
                     MusubiMaintainerInvitationLifecycleEventV1 {

@@ -781,7 +781,7 @@ where
 fn decode_state_with_current<T>(
     bytes: &[u8],
     label: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<T, InstructionExecutionError>
 where
     for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::NoritoSerialize,
@@ -818,7 +818,7 @@ where
             corrupt_state(format!("failed to decode {label}: {error}"))
         }
     })?;
-    if let (Some(current), Some(allocation_bytes)) = (current.as_deref_mut(), allocation_bytes) {
+    if let (Some(current), Some(allocation_bytes)) = (current, allocation_bytes) {
         current
             .add_nested(allocation_bytes)
             .map_err(InstructionExecutionError::Query)?;
@@ -844,7 +844,7 @@ where
 fn decode_payload_with_current<T>(
     bytes: &[u8],
     label: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<T, InstructionExecutionError>
 where
     for<'de> T: norito::core::NoritoDeserialize<'de> + norito::core::NoritoSerialize,
@@ -883,7 +883,7 @@ where
             invalid_parameter(format!("invalid canonical {label} payload: {error}"))
         }
     })?;
-    if let (Some(current), Some(allocation_bytes)) = (current.as_deref_mut(), allocation_bytes) {
+    if let (Some(current), Some(allocation_bytes)) = (current, allocation_bytes) {
         current
             .add_nested(allocation_bytes)
             .map_err(InstructionExecutionError::Query)?;
@@ -940,7 +940,7 @@ fn read_persisted_event_for_current(
 fn read_persisted_event_with_current(
     world: &impl WorldReadOnly,
     sequence: u64,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<ModerationPersistedEventV1>, InstructionExecutionError> {
     if sequence == 0 {
         return Err(corrupt_state(
@@ -952,7 +952,7 @@ fn read_persisted_event_with_current(
         return Ok(None);
     };
     let record: ModerationPersistedEventV1 =
-        decode_state_with_current(bytes, "moderation committed event", current.as_deref_mut())?;
+        decode_state_with_current(bytes, "moderation committed event", current)?;
     validate_persisted_event(&record, sequence)?;
     Ok(Some(record))
 }
@@ -1491,13 +1491,13 @@ fn read_policy_for_current(
 }
 fn read_policy_with_current(
     world: &impl WorldReadOnly,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<ModerationLedgerPolicyRecord>, InstructionExecutionError> {
     let Some(bytes) = world.smart_contract_state().get(policy_key()) else {
         return Ok(None);
     };
     let record: ModerationLedgerPolicyRecord =
-        decode_state_with_current(bytes, "moderation policy", current.as_deref_mut())?;
+        decode_state_with_current(bytes, "moderation policy", current)?;
     record
         .policy
         .validate()
@@ -1878,13 +1878,13 @@ fn read_status_for_current(
 }
 fn read_status_with_current(
     world: &impl WorldReadOnly,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<ModerationLedgerStatusV1>, InstructionExecutionError> {
     let Some(bytes) = world.smart_contract_state().get(status_key()) else {
         return Ok(None);
     };
     let status: ModerationLedgerStatusV1 =
-        decode_state_with_current(bytes, "moderation status", current.as_deref_mut())?;
+        decode_state_with_current(bytes, "moderation status", current)?;
     if status.updated_at_unix_ms == 0
         || status.finalized_cases != status.outcomes
         || status.panel_selections > status.appeal_intakes
@@ -1957,7 +1957,7 @@ fn read_appeal_with_current(
     world: &impl WorldReadOnly,
     case_id: &str,
     round_id: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<ModerationAppealRecordV1>, InstructionExecutionError> {
     let Some(bytes) = world
         .smart_contract_state()
@@ -1966,7 +1966,7 @@ fn read_appeal_with_current(
         return Ok(None);
     };
     let record: ModerationAppealRecordV1 =
-        decode_state_with_current(bytes, "moderation appeal", current.as_deref_mut())?;
+        decode_state_with_current(bytes, "moderation appeal", current)?;
     record
         .intake
         .validate()
@@ -2826,7 +2826,7 @@ fn read_outcome_with_current(
     world: &impl WorldReadOnly,
     case_id: &str,
     round_id: &str,
-    mut current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
+    current: Option<&mut crate::smartcontracts::isi::query::SingularQueryCurrentAllocation>,
 ) -> Result<Option<ModerationOutcomeRecordV1>, InstructionExecutionError> {
     let Some(bytes) = world
         .smart_contract_state()
@@ -2835,7 +2835,7 @@ fn read_outcome_with_current(
         return Ok(None);
     };
     let record: ModerationOutcomeRecordV1 =
-        decode_state_with_current(bytes, "moderation outcome", current.as_deref_mut())?;
+        decode_state_with_current(bytes, "moderation outcome", current)?;
     let kind_consistent = match record.kind {
         ModerationOutcomeKindV1::Decided(choice) => {
             record.votes_total >= u32::from(record.quorum)
@@ -4450,8 +4450,7 @@ impl Execute for SubmitSorafsModerationReveal {
             .map_err(|error| invalid_parameter(format!("invalid moderation reveal: {error}")))?;
         if reveal.nonce.len() > MODERATION_LEDGER_MAX_NONCE_BYTES_V1 {
             return Err(invalid_parameter(format!(
-                "moderation reveal nonce exceeds {} bytes",
-                MODERATION_LEDGER_MAX_NONCE_BYTES_V1
+                "moderation reveal nonce exceeds {MODERATION_LEDGER_MAX_NONCE_BYTES_V1} bytes"
             )));
         }
         if reveal.juror_id != authority.to_string() {

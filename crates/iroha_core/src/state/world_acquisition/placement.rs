@@ -182,9 +182,10 @@ std::thread_local! {
 }
 #[cfg(test)]
 fn after_field_placement(initialized: usize) {
-    if FAIL_AFTER_FIELD.with(|value| value.get()) == Some(initialized) {
-        panic!("injected original field placement failure");
-    }
+    assert!(
+        FAIL_AFTER_FIELD.with(|value| value.get()) != Some(initialized),
+        "injected original field placement failure"
+    );
 }
 #[cfg(test)]
 pub(in crate::state) fn with_placement_failure<R>(field: usize, action: impl FnOnce() -> R) -> R {

@@ -30,9 +30,10 @@ impl Wake for Probe {
             Ordering::SeqCst,
         );
         self.calls.fetch_add(1, Ordering::SeqCst);
-        if self.panic_after_probe.swap(false, Ordering::SeqCst) {
-            panic!("injected membership wake panic after physical probes");
-        }
+        assert!(
+            !self.panic_after_probe.swap(false, Ordering::SeqCst),
+            "injected membership wake panic after physical probes"
+        )
     }
 }
 

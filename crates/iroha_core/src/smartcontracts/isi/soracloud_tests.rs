@@ -2874,9 +2874,6 @@ fn mutate_full_bootstrap_execution_native_stark_envelope(
     mutate_fhe_native_stark_envelope(&mut proof.proof, mutate);
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 fn sample_full_bootstrap_bfv_native_air_merkle_path(index: u32) -> crate::zk_stark::MerklePath {
     let depth = usize::from(iroha_crypto::fhe_bfv::BFV_FULL_BOOTSTRAP_NATIVE_STARK_FRI_N_LOG2_V1);
     let mut dirs = vec![0_u8; (depth + 7) / 8];
@@ -5354,7 +5351,8 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
     .expect_err("BFV AIR boundary must reject empty commitment root lists");
     assert_invalid_parameter_contains(err, "commitment root count mismatch");
     let mut zero_commitment_root = native.clone();
-    zero_commitment_root.proof.commits.roots[0] = Default::default();
+    zero_commitment_root.proof.commits.roots[0] =
+        iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -5467,7 +5465,7 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
         .air
         .as_mut()
         .expect("sample carries BFV AIR")
-        .trace_root = Default::default();
+        .trace_root = iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -5482,7 +5480,7 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
         .air
         .as_mut()
         .expect("sample carries BFV AIR")
-        .composition_root = Default::default();
+        .composition_root = iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -10463,8 +10461,6 @@ fn soracloud_fhe_full_bootstrap_execution_hash_only_entrypoint_stays_fail_closed
     assert_invalid_parameter_contains(err, FHE_FULL_BOOTSTRAP_DEDICATED_PROVER_UNAVAILABLE);
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_emits_valid_native_air_proof() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -11817,9 +11813,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_unbound_verifier_key() 
     assert_invalid_parameter_contains(err, "verifier key must match prover input material");
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_prefix_trace_against_artifacts() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -11997,7 +11990,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_proof_key_artifac
     assert_invalid_parameter_contains(err, "artifact bundle digest mismatch");
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_air_binding() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -12070,10 +12062,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_air_binding() {
     .expect_err("stale AIR evaluation material digest must fail before proof generation");
     assert_invalid_parameter_contains(err, "arithmetic AIR evaluation material digest mismatch");
 }
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_proof_helper_emits_native_air_proofs() {

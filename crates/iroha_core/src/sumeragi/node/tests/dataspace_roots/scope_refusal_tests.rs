@@ -295,22 +295,23 @@ fn signed_private_contract_lookup_does_not_turn_scope_refusal_into_vm_permission
 
 #[test]
 fn signed_private_registry_lookup_does_not_publish_refusal_as_absence() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_data_model::{
         isi::smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
         smart_contract::ContractArtifactId,
     };
+
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let parent = chain(4, 200);
     let parent = NetworkId::from_genesis_hash(parent.genesis.hash());
     let dataspace = DataSpaceId::new((1_u64 << 40) + 93);
     let (bytes, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku OriginalRegistry { permission CanReadRegistry;
   hajimari() {}
   kotoage fn main() authorize(CanReadRegistry) {}
 }
-"#,
+",
         )
         .unwrap();
     let artifact = ContractArtifactId::new(dataspace, manifest.code_hash.unwrap());

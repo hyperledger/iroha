@@ -443,7 +443,9 @@ fn original_floor_and_global_network_chain_are_independently_required() {
         begin_musubi_pin_outbox_check_v1(
             Arc::clone(f.chain.state()),
             f.expected(),
-            Instant::now() - Duration::from_secs(1)
+            Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .expect("fixture clock supports the original expired deadline")
         )
         .err(),
         Some(crate::execution_attempt::ExecutionAttemptError::Rejected(

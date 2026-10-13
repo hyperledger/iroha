@@ -90,18 +90,19 @@ unsafe impl GlobalAlloc for CountingAllocator {
 /// # Panics
 /// Rejects nested observation before changing the active counter or tracking guard.
 pub(crate) fn allocations_during(f: impl FnOnce()) -> usize {
-    assert!(
-        !TRACK_ALLOCATIONS.with(Cell::get),
-        "nested allocation census would invalidate the outer observation"
-    );
-    ALLOCATION_COUNT.with(|count| count.set(0));
-    TRACK_ALLOCATIONS.with(|tracking| tracking.set(true));
     struct StopTracking;
     impl Drop for StopTracking {
         fn drop(&mut self) {
             TRACK_ALLOCATIONS.with(|tracking| tracking.set(false));
         }
     }
+
+    assert!(
+        !TRACK_ALLOCATIONS.with(Cell::get),
+        "nested allocation census would invalidate the outer observation"
+    );
+    ALLOCATION_COUNT.with(|count| count.set(0));
+    TRACK_ALLOCATIONS.with(|tracking| tracking.set(true));
     let stop = StopTracking;
     f();
     drop(stop);
@@ -114,13 +115,6 @@ pub(crate) fn allocations_during(f: impl FnOnce()) -> usize {
 /// # Panics
 /// Rejects nested refusal before changing the outer observation.
 pub(crate) fn refuse_one_layout_during<T>(layout: Layout, f: impl FnOnce() -> T) -> (T, bool) {
-    assert!(
-        !REFUSAL_ACTIVE.with(Cell::get),
-        "nested allocation refusal would replace its original owner"
-    );
-    REFUSAL_ACTIVE.with(|active| active.set(true));
-    REFUSE_LAYOUT.with(|expected| expected.set(Some(layout)));
-    REFUSAL_OBSERVED.with(|observed| observed.set(false));
     struct RestoreAllocator;
     impl Drop for RestoreAllocator {
         fn drop(&mut self) {
@@ -128,6 +122,14 @@ pub(crate) fn refuse_one_layout_during<T>(layout: Layout, f: impl FnOnce() -> T)
             REFUSAL_ACTIVE.with(|active| active.set(false));
         }
     }
+
+    assert!(
+        !REFUSAL_ACTIVE.with(Cell::get),
+        "nested allocation refusal would replace its original owner"
+    );
+    REFUSAL_ACTIVE.with(|active| active.set(true));
+    REFUSE_LAYOUT.with(|expected| expected.set(Some(layout)));
+    REFUSAL_OBSERVED.with(|observed| observed.set(false));
     let guard = RestoreAllocator;
     let result = f();
     let refused = REFUSAL_OBSERVED.with(Cell::get);

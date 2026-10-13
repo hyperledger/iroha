@@ -542,7 +542,8 @@ mod tests {
                 reimbursement_leg_ordinal: 0,
                 legs: Vec::new(),
             },
-            authority_catalog: Default::default(),
+            authority_catalog:
+                iroha_data_model::nexus::PrivateSettlementAuthorityCatalogV1::default(),
             legs: Vec::new(),
         };
         let first = private_settlement_commit_bundle_digest_v1(&bundle)

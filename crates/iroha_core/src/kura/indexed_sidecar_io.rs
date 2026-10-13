@@ -1104,7 +1104,8 @@ impl Kura {
                     .payload_len()
                     .expect("validated progress intent has a payload length"),
             };
-            if *entry != expected_entry || snapshot.indexed_end != intent.new_data_len {
+            let expected_indexed_end = intent.new_data_len;
+            if *entry != expected_entry || snapshot.indexed_end != expected_indexed_end {
                 warn!(
                     height = intent.height,
                     ?index_path,
@@ -3362,7 +3363,8 @@ impl Kura {
                 .payload_len()
                 .expect("validated progress intent has a payload length"),
         };
-        if *entry != expected_entry || snapshot.indexed_end != intent.new_data_len {
+        let expected_indexed_end = intent.new_data_len;
+        if *entry != expected_entry || snapshot.indexed_end != expected_indexed_end {
             warn!(
                 height = intent.height,
                 ?index_path,

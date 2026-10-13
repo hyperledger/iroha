@@ -23,7 +23,7 @@ fn initialize_physical(inventory: &Inventory, counts: IndexResourceCounts) {
         .unwrap();
 }
 
-fn mutation<'a>(inventory: &'a Inventory, paths: Vec<PathBuf>) -> PhysicalResourceMutation<'a> {
+fn mutation(inventory: &Inventory, paths: Vec<PathBuf>) -> PhysicalResourceMutation<'_> {
     let token = inventory.begin(physical_resource_mask()).unwrap();
     PhysicalResourceMutation {
         mutation: token,
@@ -262,10 +262,10 @@ fn physical_observation_rejects_symlinks_hardlinks_and_linked_absence() {
     assert!(physical_resource_tree_usage(&linked, limits()).is_err());
 }
 
-fn target_mutation<'a>(
-    inventory: &'a Inventory,
+fn target_mutation(
+    inventory: &Inventory,
     target: PhysicalResourceTarget,
-) -> std::result::Result<PhysicalResourceMutation<'a>, Unavailable> {
+) -> std::result::Result<PhysicalResourceMutation<'_>, Unavailable> {
     PhysicalResourceMutation {
         mutation: inventory.begin(physical_resource_mask()).unwrap(),
         before: [ResourceUsage::default(); resource_inventory::FAMILY_COUNT],

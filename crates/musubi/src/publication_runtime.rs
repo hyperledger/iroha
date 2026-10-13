@@ -2635,7 +2635,7 @@ private_key = "{}"
         let instruction = location_add_instruction(
             &fixture.response,
             fixture.page.archive.location_revision,
-            fixture_attestation_set_digest(&fixture),
+            fixture_attestation_set_digest(fixture),
         )
         .expect("compact location instruction");
         let publisher_key =

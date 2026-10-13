@@ -213,7 +213,7 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
     chain.commit_proposal(
         block2,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let _ = chain.take_events().unwrap();
 
@@ -237,7 +237,7 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
     chain.commit_proposal(
         block3,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let _ = chain.take_events().unwrap();
 
@@ -330,7 +330,7 @@ fn scheduled_time_trigger_retry_succeeds_once_and_consumes_repeats_on_success() 
     chain.commit_proposal(
         block2,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events2 = chain.take_events().unwrap();
     let completions2: Vec<_> = events2
@@ -387,7 +387,7 @@ fn scheduled_time_trigger_retry_succeeds_once_and_consumes_repeats_on_success() 
     chain.commit_proposal(
         block4,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events4 = chain.take_events().unwrap();
     let completions4: Vec<_> = events4
@@ -480,7 +480,7 @@ fn scheduled_time_trigger_retry_budget_exhaustion_unregisters_trigger() {
     chain.commit_proposal(
         block2,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events2 = chain.take_events().unwrap();
     let completions2: Vec<_> = events2
@@ -520,7 +520,7 @@ fn scheduled_time_trigger_retry_budget_exhaustion_unregisters_trigger() {
     chain.commit_proposal(
         block3,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events3 = chain.take_events().unwrap();
     let completions3: Vec<_> = events3
@@ -613,7 +613,7 @@ fn periodic_time_trigger_drops_missed_ticks_while_retry_pending() {
     chain.commit_proposal(
         block2,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events2 = chain.take_events().unwrap();
     let completions2: Vec<_> = events2
@@ -697,7 +697,7 @@ fn periodic_time_trigger_drops_missed_ticks_while_retry_pending() {
     chain.commit_proposal(
         block4,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events4 = chain.take_events().unwrap();
     let completions4: Vec<_> = events4
@@ -732,7 +732,7 @@ fn periodic_time_trigger_drops_missed_ticks_while_retry_pending() {
     chain.commit_proposal(
         block5,
         crate::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        iroha_sumeragi::types::ControlWitness::default(),
     );
     let events5 = chain.take_events().unwrap();
     let completions5: Vec<_> = events5
@@ -1161,13 +1161,13 @@ fn execute_called_trigger_fails_closed_on_missing_bytecode_with_warm_prepared_ar
     let trigger_id: TriggerId = "missing_bytecode_by_call".parse().unwrap();
     let program = kotodama_lang::compiler::Compiler::new()
         .compile_source(
-            r#"
+            r"
 seiyaku MissingBytecodeTrigger { permission missing_bytecode_probe;
   kotoage fn main(int marker) authorize(missing_bytecode_probe) {
 let _marker = marker;
   }
 }
-"#,
+",
         )
         .expect("compile missing-bytecode trigger probe");
     let code_hash = ivm::contract_code_hash(&program);

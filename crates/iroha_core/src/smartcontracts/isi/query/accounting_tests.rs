@@ -126,7 +126,7 @@ fn ephemeral_postprocessing_preserves_preflight_work_and_budget() {
                     "rank".parse().unwrap(),
                 )
             } else {
-                Default::default()
+                iroha_data_model::query::parameters::Sorting::default()
             },
         };
         let limits = QueryLimits::new(2).with_count_mode(QueryCountMode::Bounded);

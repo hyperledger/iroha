@@ -694,7 +694,7 @@ pub fn verify_threshold_key_lifecycle_certificate_v1(
             .is_some_and(|session_id| session_id == [0; 32])
         || certificate.transcript_hash == [0; 32]
         || certificate.public_state.len() > THRESHOLD_KEY_LIFECYCLE_PUBLIC_STATE_MAX_BYTES_V1
-        || installing != !certificate.public_state.is_empty()
+        || installing == certificate.public_state.is_empty()
     {
         return Err(ThresholdKeyLifecycleCertificateErrorV1::InvalidShape);
     }
@@ -707,7 +707,7 @@ pub fn verify_threshold_key_lifecycle_certificate_v1(
     }
     let committee_size = u16::try_from(ordered_roster.len())
         .map_err(|_| ThresholdKeyLifecycleCertificateErrorV1::InvalidShape)?;
-    if ordered_roster.is_empty() || (ordered_roster.len() - 1) % 3 != 0 {
+    if ordered_roster.is_empty() || !(ordered_roster.len() - 1).is_multiple_of(3) {
         return Err(ThresholdKeyLifecycleCertificateErrorV1::InvalidShape);
     }
     let faults = (ordered_roster.len() - 1) / 3;
@@ -915,7 +915,9 @@ mod threshold_key_lifecycle_certificate_tests {
             .map(|member| member.validator.clone())
             .collect::<Vec<_>>();
         assert!(entries.iter().all(|entry| entry == &roster));
-        let params = ChainParamsRecord::from_parameters(&Default::default());
+        let params = ChainParamsRecord::from_parameters(
+            &iroha_data_model::parameter::system::SumeragiParameters::default(),
+        );
         let graph = ConsensusSchedule::from_owned_entries(
             (first_height..first_height + 3)
                 .map(|height| {
@@ -3515,6 +3517,9 @@ pub struct SmartContractCodeUploadProgress {
 pub struct MusubiResolverIndexRevisionV1(u64);
 impl MusubiResolverIndexRevisionV1 {
     /// Construct a non-zero resolver-index revision.
+    ///
+    /// # Errors
+    /// Returns an error when `revision` is zero.
     pub fn new(revision: u64) -> Result<Self, ParseError> {
         if revision == 0 {
             return Err(ParseError::new(
@@ -5679,24 +5684,30 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: CellField<'world, Option<[u8; 32]>>,
     /// Immutable committee trust and liability records (§4.2).
+    #[norito(skip)]
     pub(crate) sccp_committee_generations:
         StorageField<'world, u64, RetainedSccpGeneration, CommitteeStorageMode>,
     /// Current committee generation; zero before initialization.
+    #[norito(skip)]
     pub(crate) sccp_committee_current: CellField<'world, u64, iroha_allocation::AllocationCharge>,
     /// Derived ordered index of ended generations awaiting destination clearance.
     #[norito(skip)]
     pub(crate) sccp_destination_pending_generations: StorageField<'world, u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
+    #[norito(skip)]
     pub(crate) sccp_liability_clock: CellField<'world, u64, iroha_allocation::AllocationCharge>,
     /// Consecutive heights missing authenticated SCCP inputs (§4.6).
+    #[norito(skip)]
     pub(crate) sccp_degraded_run: CellField<'world, u32, iroha_allocation::AllocationCharge>,
     /// Consensus anchors in the not-yet-complete chunk (§4.2 A1).
+    #[norito(skip)]
     pub(crate) sccp_anchor_open: CellField<
         'world,
         crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors,
         iroha_allocation::AllocationCharge,
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
+    #[norito(skip)]
     pub(crate) sccp_anchor_chunks: StorageField<'world, u64, [u8; 32], AnchorStorageMode>,
     /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
     #[norito(skip)]
@@ -7558,7 +7569,7 @@ impl Drop for GovernanceProposalsMutForTesting<'_, '_, '_> {
     }
 }
 #[allow(single_use_lifetimes)]
-impl<'block, 'world> WorldTransaction<'block, 'world> {
+impl<'block> WorldTransaction<'block, '_> {
     fn observe_axt_authorization_identities(&mut self) {
         let current = axt_authorization_identities(self);
         let dataspaces: BTreeSet<_> = self
@@ -10105,6 +10116,10 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical root for an ordered commitment prefix.
+    ///
+    /// # Errors
+    /// Returns an error when the prefix exceeds the fixed tree capacity or contains
+    /// zero or non-canonical commitment leaves.
     pub fn compute_root(self, commitments: &[[u8; 32]]) -> Result<[u8; 32], String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10113,6 +10128,10 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical root after every non-empty commitment prefix.
+    ///
+    /// # Errors
+    /// Returns an error when the prefix exceeds the fixed tree capacity or contains
+    /// zero or non-canonical commitment leaves.
     pub fn compute_prefix_roots(self, commitments: &[[u8; 32]]) -> Result<Vec<[u8; 32]>, String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10121,6 +10140,10 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical authentication path for one leaf.
+    ///
+    /// # Errors
+    /// Returns an error when `leaf_index` or the commitment count exceeds the fixed
+    /// tree bounds, or a commitment leaf is zero or non-canonical.
     pub fn compute_path(
         self,
         commitments: &[[u8; 32]],
@@ -11057,11 +11080,12 @@ impl GovernanceLockRecord {
         if original < policy.minimum_bond {
             return Err("original public conviction bond is below its frozen minimum".into());
         }
+        let minimum_conviction_blocks = policy.conviction_step_blocks;
         if !self.custody.escrowed
             || self.custody.asset_definition_id != policy.asset_definition_id
             || self.custody.bond_escrow_account != policy.bond_escrow_account
             || self.custody.slash_receiver_account != policy.slash_receiver_account
-            || self.duration_blocks < policy.conviction_step_blocks
+            || self.duration_blocks < minimum_conviction_blocks
             || self.expiry_height < self.duration_blocks
             || (!self.amount.is_zero()
                 && (self.owner == policy.bond_escrow_account
@@ -11433,7 +11457,7 @@ pub(crate) struct StatelessValidationCache {
     cap: usize,
     next_order: u64,
     context: Option<StatelessValidationContext>,
-    entries: std::collections::HashMap<
+    entries: std::collections::BTreeMap<
         crate::tx::StatelessValidationCacheKey,
         StatelessValidationCacheEntry,
     >,
@@ -11445,7 +11469,7 @@ impl StatelessValidationCache {
             cap,
             next_order: 0,
             context: None,
-            entries: std::collections::HashMap::new(),
+            entries: std::collections::BTreeMap::new(),
             lru: std::collections::BTreeSet::new(),
         }
     }
@@ -11965,7 +11989,7 @@ use state_view_publication::{StateViewGenerationWriteGuard, StateViewPublication
 #[inline]
 /// Whether both reads describe the same completed State publication.
 pub(crate) fn is_stable_state_view_generation(before: u64, after: u64) -> bool {
-    before == after && after % 2 == 0
+    before == after && after.is_multiple_of(2)
 }
 #[derive(Debug, Default)]
 struct ViewLockContentionLog {
@@ -13311,13 +13335,12 @@ impl<'state> StateBlock<'state> {
         let Some(pending) = policy.pending_tightening else {
             return;
         };
-        if pending.effective_at_height < incoming_height {
-            panic!(
-                "privacy consensus policy missed effective height {} before incoming block \
-                 height {incoming_height}",
-                pending.effective_at_height
-            );
-        }
+        assert!(
+            pending.effective_at_height >= incoming_height,
+            "privacy consensus policy missed effective height {} before incoming block \
+             height {incoming_height}",
+            pending.effective_at_height
+        );
         if pending.effective_at_height > incoming_height {
             return;
         }
@@ -19927,6 +19950,11 @@ impl World {
         Ok(())
     }
     /// Acquire every original World field or return a local storage refusal.
+    ///
+    /// # Errors
+    /// Returns the original admission refusal if a World writer is busy or poisoned,
+    /// control layout planning fails, or the original pool or allocator cannot fund
+    /// the complete field acquisition.
     pub fn try_block(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -19934,6 +19962,11 @@ impl World {
         build_world_block!(self, mv::BlockMode::Ordinary, execution_budget)
     }
     /// Acquire the exact replacement overlay under the original finite pool.
+    ///
+    /// # Errors
+    /// Returns the original admission refusal if a replacement writer is busy or
+    /// poisoned, control layout planning fails, or the original pool or allocator
+    /// cannot fund the complete replacement acquisition.
     pub fn try_block_and_revert(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -19946,13 +19979,13 @@ impl World {
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn block(&self) -> WorldBlock<'_> {
         let budget = self.sccp_committee_generations.allocation_budget();
-        self.try_block(&budget).expect("fixture World admission")
+        self.try_block(budget).expect("fixture World admission")
     }
     /// Acquire a fixture replacement World using a finite test-only control pool.
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn block_and_revert(&self) -> WorldBlock<'_> {
         let budget = self.sccp_committee_generations.allocation_budget();
-        self.try_block_and_revert(&budget)
+        self.try_block_and_revert(budget)
             .expect("fixture World replacement admission")
     }
     /// Create a point-in-time view of this world.
@@ -21361,6 +21394,10 @@ pub trait WorldReadOnly {
     /// fallback materialization scope. Additional dataspaces come from UAID bindings and bound
     /// aliases. Domains remain optional within each dataspace, so a dataspace entry may contain an
     /// empty domain set.
+    ///
+    /// # Errors
+    /// The default implementation returns no errors; an absent account yields
+    /// `Ok(None)`.
     fn account_scope_entry(
         &self,
         account_id: &AccountId,
@@ -21372,6 +21409,10 @@ pub trait WorldReadOnly {
     }
     /// Collect the account's dataspace -> domain hierarchy from the maintained account-scope
     /// directory.
+    ///
+    /// # Errors
+    /// Returns an error if account-scope lookup fails or the dataspace catalog
+    /// cannot qualify a stored alias-domain scope as a `DomainId`.
     fn account_scope_hierarchy(
         &self,
         account_id: &AccountId,
@@ -21382,6 +21423,10 @@ pub trait WorldReadOnly {
         }
     }
     /// Collect the dataspaces linked to the account.
+    ///
+    /// # Errors
+    /// Returns an error if the account hierarchy cannot resolve a stored dataspace
+    /// and alias-domain scope against the current catalog.
     fn account_dataspaces(
         &self,
         account_id: &AccountId,
@@ -21392,6 +21437,10 @@ pub trait WorldReadOnly {
             .collect())
     }
     /// Collect the qualified domains linked to the account across every dataspace.
+    ///
+    /// # Errors
+    /// Returns an error if the account hierarchy cannot resolve a stored dataspace
+    /// and alias-domain scope against the current catalog.
     fn account_domains(&self, account_id: &AccountId) -> Result<BTreeSet<DomainId>, ParseError> {
         Ok(self
             .account_scope_hierarchy(account_id)?
@@ -21505,6 +21554,10 @@ pub trait WorldReadOnly {
     /// Read an exact direct dataspace home from its canonical direct-home row.
     ///
     /// Absence remains absence. An orphan, foreign-incarnation or contradictory row fails.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid or orphan direct-home row, a mismatched
+    /// live incarnation, or a row contradicting the definition's domain ownership.
     fn asset_definition_dataspace(
         &self,
         id: &AssetDefinitionId,
@@ -21516,6 +21569,10 @@ pub trait WorldReadOnly {
         )
     }
     /// Resolve domain, global or direct dataspace ownership without consulting aliases.
+    ///
+    /// # Errors
+    /// Returns an error if the direct-home row is invalid or contradicts the live
+    /// definition, incarnation, or declared ownership scope.
     fn asset_definition_home(
         &self,
         id: &AssetDefinitionId,
@@ -22149,6 +22206,11 @@ mod bootle_lantern_policy_world_read_tests {
 impl<'world> WorldBlock<'world> {
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Install one fully verified global-beacon fixture for dependent-crate tests.
+    ///
+    /// # Errors
+    /// Returns an error if the session or pulse fails validation, their binding or
+    /// finalized anchor disagrees, the session is inactive or retired, or any global
+    /// beacon fixture state is already present.
     pub fn install_global_beacon_fixture_for_testing(
         &mut self,
         key_record: crate::beacon::RetainedFinalizedGlobalThresholdBeaconSessionV1,
@@ -22239,6 +22301,10 @@ impl<'world> WorldBlock<'world> {
         &mut self.verifying_keys_by_circuit
     }
     /// Create struct to apply transaction's changes
+    ///
+    /// # Errors
+    /// Returns the original storage admission refusal if the SCCP offence, committee
+    /// generation, or anchor checkpoint cannot be acquired.
     pub fn try_transaction(
         &mut self,
         #[cfg(feature = "telemetry")] telemetry: Option<&'world StateTelemetry>,
@@ -25553,7 +25619,7 @@ impl State {
         &self,
     ) -> Result<Option<iroha_config::parameters::actual::Nexus>, LaneLifecycleError> {
         let generation_before = self.state_view_generation();
-        if generation_before % 2 != 0 {
+        if !generation_before.is_multiple_of(2) {
             return Ok(None);
         }
         let runtime = self.canonical_runtime.view();
@@ -26456,6 +26522,10 @@ impl State {
         Ok(())
     }
     /// Access the in-memory DA commitment index.
+    ///
+    /// # Errors
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_commitments(
         &self,
     ) -> Result<
@@ -26466,6 +26536,10 @@ impl State {
         Ok(self.da_commitments.read())
     }
     /// Access the in-memory confidential-compute receipt index.
+    ///
+    /// # Errors
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_confidential_compute(
         &self,
     ) -> Result<
@@ -26476,6 +26550,10 @@ impl State {
         Ok(self.da_confidential_compute.read())
     }
     /// Access the in-memory DA receipt cursor index.
+    ///
+    /// # Errors
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_receipt_cursors(
         &self,
     ) -> Result<
@@ -26494,6 +26572,10 @@ impl State {
         self.canonical_lane_reset_heights_snapshot()
     }
     /// Access the in-memory shard cursor index derived from DA commitments.
+    ///
+    /// # Errors
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_shard_cursor_index(
         &self,
     ) -> Result<
@@ -26504,6 +26586,10 @@ impl State {
         Ok(self.da_shard_cursors.read())
     }
     /// Access the in-memory DA pin intent index.
+    ///
+    /// # Errors
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_pin_intents(
         &self,
     ) -> Result<
@@ -26515,6 +26601,10 @@ impl State {
     }
     /// Lookup a DA commitment by manifest hash.
     #[must_use]
+    ///
+    /// # Errors
+    /// Returns an index hydration error if the committed DA history cannot be
+    /// read, authenticated, or replayed, including original local resource refusals.
     pub fn find_da_commitment_by_manifest(
         &self,
         digest: &iroha_data_model::sorafs::pin_registry::ManifestDigest,
@@ -26528,6 +26618,10 @@ impl State {
     #[cfg(test)]
     /// Lookup a DA commitment by `(lane_id, epoch, sequence)`.
     #[must_use]
+    ///
+    /// # Errors
+    /// Returns an index hydration error if the committed DA history cannot be
+    /// read, authenticated, or replayed, including original local resource refusals.
     pub fn find_da_commitment_by_lane_epoch_sequence(
         &self,
         lane_id: u32,
@@ -26569,8 +26663,7 @@ impl State {
         let mut counter = existing_counter.or(requested_counter);
         let previous_was_active = previous_policy.as_ref().is_some_and(axt_policy_is_active);
         let next_is_active = axt_policy_is_active(&policy);
-        let revokes_authority = previous_was_active
-            || (existing_counter.is_some() && !previous_was_active && next_is_active);
+        let revokes_authority = previous_was_active || existing_counter.is_some() && next_is_active;
         let raises_generation_floor = counter
             .as_ref()
             .is_some_and(|counter| policy.active_handle_era > counter.authorization_generation());
@@ -28442,13 +28535,15 @@ impl State {
         loop {
             let release = match self.try_block(curr_block.clone()) {
                 Ok(block) => return block,
-                Err(StateBlockStartError::Storage(StateStorageAdmissionError::World(
-                    mv::storage::AdmittedStorageError::Busy { release, .. },
-                )))
-                | Err(StateBlockStartError::History(BlockHashAdmissionError::Busy(release)))
-                | Err(StateBlockStartError::Membership(
-                    storage_transactions::MembershipAdmissionError::Busy(release),
-                )) => release,
+                Err(
+                    StateBlockStartError::Storage(StateStorageAdmissionError::World(
+                        mv::storage::AdmittedStorageError::Busy { release, .. },
+                    ))
+                    | StateBlockStartError::History(BlockHashAdmissionError::Busy(release))
+                    | StateBlockStartError::Membership(
+                        storage_transactions::MembershipAdmissionError::Busy(release),
+                    ),
+                ) => release,
                 Err(error) => panic!("cannot create infallible State block: {error:?}"),
             };
             // try_block has retired every failed aggregate sibling. Admit both
@@ -29559,7 +29654,7 @@ impl State {
             prev_commit_topology_wait,
         ) = loop {
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 self.note_view_generation_contention(caller);
                 std::thread::yield_now();
                 continue;
@@ -29749,6 +29844,10 @@ impl State {
     /// This avoids acquiring a full [`StateView`] when callers only need to
     /// verify that the state height is backed by durable block storage.
     #[track_caller]
+    ///
+    /// # Errors
+    /// Returns an error if canonical storage is poisoned, its commit marker or
+    /// index cannot be read exactly, or the durable count does not fit `usize`.
     pub fn exact_durable_block_count(&self) -> crate::kura::Result<usize> {
         self.kura.exact_durable_blocks_count()
     }
@@ -29756,6 +29855,11 @@ impl State {
     ///
     /// This avoids acquiring a full [`StateView`] when only block retrieval is needed.
     #[track_caller]
+    ///
+    /// # Errors
+    /// Returns an original local resource refusal if Kura cannot complete the read,
+    /// or a canonical history error if the read fails or the returned body
+    /// contradicts the committed hash or height.
     pub fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -29788,6 +29892,11 @@ impl State {
     ///
     /// This avoids acquiring a full [`StateView`] when only hash-based block retrieval is needed.
     #[track_caller]
+    ///
+    /// # Errors
+    /// Returns an original local resource refusal or canonical history error when
+    /// the resolved block cannot be read or authenticated against the committed
+    /// hash and height.
     pub fn block_by_hash(
         &self,
         hash: HashOf<BlockHeader>,
@@ -29954,7 +30063,7 @@ impl State {
         // publication interval binds this immutable history cut before any source I/O.
         let (hashes, tip) = loop {
             let before = self.state_view_generation();
-            if before % 2 != 0 {
+            if !before.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }
@@ -30183,7 +30292,7 @@ impl State {
         {
             let release = self.state_write_lock.observe_release();
             let generation = self.state_view_generation();
-            if generation % 2 != 0 {
+            if !generation.is_multiple_of(2) {
                 return Err(StateViewError::Busy(release));
             }
             let hashes = self.block_hashes.try_view_retaining(releases)?;
@@ -30649,7 +30758,7 @@ impl State {
             // State writer. Observe before sampling so even an early unlock is retained.
             let generation_release = self.state_write_lock.observe_release();
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 return Err(StateViewError::Busy(generation_release));
             }
             let block_hashes_start = Instant::now();
@@ -31104,6 +31213,11 @@ impl State {
     /// The returned height and committee come from one immutable state view so
     /// status and proxy callers cannot decorate a committee with data read
     /// across a concurrent commit boundary.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown or inactive route, inconsistent authority
+    /// or committee geometry, unavailable selection entropy, an undersized pool,
+    /// or failed canonical peer encoding.
     pub fn resolve_lane_committee(
         &self,
         route: LaneAuthorityRoute,
@@ -31114,6 +31228,11 @@ impl State {
     }
     /// Resolve the exact `3f+1` authority for a lane/dataspace route at an
     /// explicit consensus height.
+    ///
+    /// # Errors
+    /// Returns an error for a route inactive at `authority_height`, an unknown
+    /// dataspace, inconsistent authority or committee geometry, unavailable selection
+    /// entropy, an undersized pool, or failed canonical peer encoding.
     pub fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -31607,7 +31726,7 @@ impl State {
         ) else {
             return Vec::new();
         };
-        let Ok(mut committee) = Self::lane_relay_committee_from_pool(&pool, committee_size, seed)
+        let Ok(mut committee) = Self::lane_relay_committee_from_pool(pool, committee_size, seed)
         else {
             return Vec::new();
         };
@@ -31843,6 +31962,11 @@ impl State {
     /// effective runtime catalog in State. It verifies the journal's original H0
     /// reference against the configured baseline; the snapshot's current and
     /// predecessor instances are authenticated separately during geometry recovery.
+    ///
+    /// # Errors
+    /// Returns an error if storage cannot bind the network, State lacks a restored
+    /// Nexus snapshot, configured geometry is invalid, or the required durable
+    /// catalog baseline or original primary reference is absent or inconsistent.
     pub fn prepare_restored_configured_primary_geometry_anchor(
         &self,
         configured_lane_catalog: &LaneCatalog,
@@ -32423,6 +32547,7 @@ impl State {
                 &updated_lane_incarnation_activation_heights,
                 &updated_lane_incarnation_lineage,
                 configured_baseline,
+                &mut releases,
             ) {
                 let LaneGeometryCatalogPublicationFailure {
                     error,
@@ -32894,6 +33019,7 @@ impl State {
                 &lifecycle_update.updated_lane_incarnation_activation_heights,
                 &lifecycle_update.updated_lane_incarnation_lineage,
                 None,
+                &mut releases,
             ) {
                 let LaneGeometryCatalogPublicationFailure {
                     error,
@@ -33106,6 +33232,7 @@ impl State {
         activation_heights: &BTreeMap<LaneId, u64>,
         lineage: &BTreeMap<LaneId, LaneIncarnationLineage>,
         configured_baseline: Option<Hash>,
+        releases: &mut LaneLifecycleReleases<'_>,
     ) -> Result<(), LaneGeometryCatalogPublicationFailure> {
         self.finish_lane_geometry_publication(
             lane_config,
@@ -33114,6 +33241,7 @@ impl State {
             lane_incarnation_lineage_root(&self.network_id, lineage),
             configured_baseline,
             None,
+            Some(releases),
         )
     }
     fn rollback_lane_geometry_updates(
@@ -33672,7 +33800,7 @@ impl State {
     pub fn set_gov(&mut self, gov: iroha_config::parameters::actual::Governance) {
         self.validate_restored_governance(&gov)
             .unwrap_or_else(|error| panic!("refusing governance configuration: {error}"));
-        let bootstrap = self.block_hashes.view().len() == 0;
+        let bootstrap = self.block_hashes.view().is_empty();
         for (provider, owner) in gov.sorafs_provider_owners.iter().filter(|_| bootstrap) {
             let existing = self.world.provider_owners.view().get(provider).cloned();
             match existing {
@@ -34140,10 +34268,10 @@ fn ensure_autoscale_managed_lane_shape(
             reason: "autoscale-managed lanes must be public",
         });
     }
-    if !lane
+    if lane
         .metadata
         .get(AUTOSCALE_META_MANAGED)
-        .is_some_and(|value| value == "true")
+        .is_none_or(|value| value != "true")
     {
         return Err(LaneLifecycleError::InvalidAutoscaleManagedLane {
             lane: lane.id,
@@ -35194,6 +35322,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// The route is checked as a pair. Missing, inactive, rebound, malformed,
     /// and undersized authority all return typed errors rather than an empty
     /// roster that a caller could accidentally reinterpret.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown or inactive route, inconsistent authority
+    /// or committee geometry, unavailable selection entropy, an undersized pool,
+    /// or failed canonical peer encoding.
     fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -35210,6 +35343,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     }
     /// Load a canonical block body with a typed availability or corruption
     /// failure instead of collapsing either condition into absence.
+    ///
+    /// # Errors
+    /// Returns an error for a height outside the captured history, an unavailable
+    /// body, or a body whose hash or height contradicts the committed journal.
+    /// Original local resource refusals remain distinct from these history errors.
     fn canonical_block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35222,6 +35360,10 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// Load a block body only when it authenticates against this immutable
     /// view's committed WSV hash at the same height.
     #[inline]
+    ///
+    /// # Errors
+    /// Returns an error if a committed body is unavailable or contradicts this
+    /// view's hash or height, or its original read is locally resource-refused.
     fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35245,6 +35387,10 @@ pub trait StateReadOnly: WorldStateSnapshot {
     ///
     /// If you only need hash of the latest block prefer using [`Self::prev_block_hash`].
     #[inline]
+    ///
+    /// # Errors
+    /// Returns the original local resource refusal or canonical history error if
+    /// the preceding committed body cannot be read and authenticated.
     fn prev_block(
         &self,
     ) -> core::result::Result<
@@ -35260,6 +35406,10 @@ pub trait StateReadOnly: WorldStateSnapshot {
     ///
     /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
     #[inline]
+    ///
+    /// # Errors
+    /// Returns the original local resource refusal or canonical history error if
+    /// the latest committed body cannot be read and authenticated.
     fn latest_block(
         &self,
     ) -> core::result::Result<
@@ -35281,6 +35431,10 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
     #[inline]
+    ///
+    /// # Errors
+    /// Returns the original local resource refusal or canonical history error if
+    /// the committed genesis body cannot be read and authenticated.
     fn genesis_timestamp(
         &self,
     ) -> Result<Option<Duration>, ExecutionAttemptError<CanonicalHistoryError>> {
@@ -37431,6 +37585,10 @@ impl<'state> StateBlock<'state> {
     /// Completed-rejection assertion surface for deterministic component tests.
     /// A genuine local retry cannot be represented by this helper's String.
     #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+    ///
+    /// # Errors
+    /// Returns the completed witness rejection if source ownership, captured
+    /// content, output binding, or recorder finalization fails validation.
     pub fn capture_exec_witness(&mut self) -> Result<(), String> {
         self.capture_exec_witness_attempt().map_err(|error| match error {
             WitnessCaptureError::Rejected(error) => error,
@@ -37558,6 +37716,10 @@ impl<'state> StateBlock<'state> {
         Ok(())
     }
     /// Create struct to store changes during transaction or trigger execution
+    ///
+    /// # Errors
+    /// Returns a previously latched local storage refusal or the original admission
+    /// error if the World transaction checkpoints cannot be acquired.
     pub fn try_transaction(
         &mut self,
     ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
@@ -37959,6 +38121,11 @@ impl<'state> StateBlock<'state> {
     /// an isolated committed-world mutation without pretending that a block was
     /// finalized.
     #[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
+    ///
+    /// # Errors
+    /// Returns an error for a latched storage refusal, staged block-level effects,
+    /// failed AXT incarnation or counter finalization, or failed World accumulator
+    /// preparation.
     pub fn commit_world_overlay_for_testing(self) -> Result<(), TransactionsBlockError> {
         self.require_storage_admission()
             .map_err(TransactionsBlockError::LocalStateStorage)?;
@@ -38007,6 +38174,11 @@ impl<'state> StateBlock<'state> {
     /// then uses the production commit path. It intentionally does not synthesize
     /// the signed-block side effects performed by [`Self::apply_without_execution`].
     #[cfg(any(test, feature = "iroha-core-tests"))]
+    ///
+    /// # Errors
+    /// Returns an error if block membership is already staged, fixture incarnation
+    /// or membership preparation fails, the resolver checkpoint cannot be staged,
+    /// or the production commit rejects the prepared block.
     pub fn commit_empty_block_for_testing(mut self) -> Result<(), TransactionsBlockError> {
         if self.transactions.has_staged_block() || self.block_hashes.has_pending() {
             return Err(TransactionsBlockError::MergeAdmission);
@@ -39937,9 +40109,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(other, record.clone());
         let error = decode_substituted_high_waters(mismatch)
-            .err()
-            .expect("high-water signer substitution must fail");
-        assert!(error.to_string().contains("musubi_pin_outbox_high_waters"));
+            .expect_err("high-water signer substitution must fail");
+        assert!(error.clone().contains("musubi_pin_outbox_high_waters"));
 
         let mut wrong_network = World::default();
         let mut substituted = record.clone();
@@ -39951,9 +40122,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(owner.clone(), substituted);
         let error = decode_substituted_high_waters(wrong_network)
-            .err()
-            .expect("high-water network substitution must fail");
-        assert!(error.to_string().contains("network or signer"));
+            .expect_err("high-water network substitution must fail");
+        assert!(error.clone().contains("network or signer"));
 
         let mut zero_digest = World::default();
         let mut invalid = record;
@@ -39962,9 +40132,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(owner, invalid);
         let error = decode_substituted_high_waters(zero_digest)
-            .err()
-            .expect("high-water zero inventory digest must fail");
-        assert!(error.to_string().contains("musubi_pin_outbox_high_waters"));
+            .expect_err("high-water zero inventory digest must fail");
+        assert!(error.clone().contains("musubi_pin_outbox_high_waters"));
     }
     #[test]
     fn isolated_zk_prevalidation_install_affects_only_its_own_state() {
@@ -40904,6 +41073,10 @@ impl StateTransaction<'_, '_> {
     }
     /// Load a committed block by height from Kura for the current transaction context.
     #[must_use]
+    ///
+    /// # Errors
+    /// Returns an original local resource refusal or canonical history error if
+    /// Kura cannot read the block or its body contradicts the committed hash or height.
     pub fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -41440,6 +41613,10 @@ impl StateTransaction<'_, '_> {
     }
     #[cfg(test)]
     /// Record a transfer delta so the FASTPQ prover can consume a structured transcript.
+    ///
+    /// # Errors
+    /// Returns an error if the transaction has no call identity, original transcript
+    /// source capture fails, or pending transcript storage or source quota is refused.
     pub fn record_transfer_transcript(
         &mut self,
         authority: &AccountId,
@@ -41449,6 +41626,11 @@ impl StateTransaction<'_, '_> {
     }
     #[cfg(test)]
     /// Record a multi-delta transfer transcript so the FASTPQ prover can consume batch witnesses.
+    ///
+    /// # Errors
+    /// For a nonempty batch, returns an error if the transaction has no call identity,
+    /// original source capture fails, or pending transcript storage or source quota
+    /// is refused, including while flushing pending retail-fee transcripts.
     pub fn record_transfer_transcripts(
         &mut self,
         authority: &AccountId,
@@ -41491,6 +41673,9 @@ impl StateTransaction<'_, '_> {
     /// Generate the next canonical RWA identifier for this transaction scope.
     ///
     /// The id is derived from the current transaction entrypoint hash.
+    ///
+    /// # Errors
+    /// Returns an invariant error if the transaction has no `call_hash`.
     pub fn next_generated_rwa_id(
         &mut self,
         domain: &DomainId,

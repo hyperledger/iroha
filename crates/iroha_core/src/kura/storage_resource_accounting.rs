@@ -38,12 +38,13 @@ fn storage_resource_file_bytes_with_admission_hooks(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(
+        options.custom_flags(i32::from_ne_bytes(
             (rustix::fs::OFlags::NOFOLLOW
                 | rustix::fs::OFlags::NONBLOCK
                 | rustix::fs::OFlags::CLOEXEC)
-                .bits() as i32,
-        );
+                .bits()
+                .to_ne_bytes(),
+        ));
     }
     #[cfg(windows)]
     {

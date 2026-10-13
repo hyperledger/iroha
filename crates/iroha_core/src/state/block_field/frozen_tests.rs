@@ -381,7 +381,7 @@ fn world_read_trait_borrows_frozen_original_cell_fields_without_execution_deref(
     // The read trait borrows the canonical input inside the same frozen owner.
     assert!(std::ptr::eq(
         original.parameters(),
-        &**original.parameters.get()
+        &raw const **original.parameters.get()
     ));
     freeze_cells!(
         consensus_schedule,

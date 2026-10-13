@@ -2046,7 +2046,7 @@ pub mod query {
                 let alias = crate::sns::active_account_alias_literal(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|err| {
@@ -2055,7 +2055,7 @@ pub mod query {
                 if crate::sns::resolve_active_account_alias(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|error| Error::Conversion(error.to_string()))?
@@ -2076,7 +2076,7 @@ pub mod query {
                 let selector = crate::sns::active_account_alias_selector(
                     state_ro.world(),
                     &state_ro.nexus().dataspace_catalog,
-                    &label,
+                    label,
                     now_ms,
                 )
                 .map_err(|err| {
@@ -2103,7 +2103,7 @@ pub mod query {
                     alias,
                     dataspace,
                     domain: label.domain.as_ref().map(ToString::to_string),
-                    is_primary: account.as_ref().label() == Some(&label),
+                    is_primary: account.as_ref().label() == Some(label),
                     status,
                     lease_expiry_ms,
                     grace_until_ms,

@@ -58,7 +58,7 @@ impl State {
         &self,
     ) -> Result<Option<VerifiedSumeragiLaneState<'_>>, Attempt<String>> {
         let generation = self.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Ok(None);
         }
         let (height, carrier, network, expected) = {

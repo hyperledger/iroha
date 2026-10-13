@@ -24,9 +24,10 @@ impl BlockStore {
     }
     fn maybe_fail_prune_after_stage(fail_stage: usize, stage: usize) {
         #[cfg(test)]
-        if fail_stage == stage {
-            panic!("injected block-store prune crash after stage {stage}");
-        }
+        assert!(
+            fail_stage != stage,
+            "injected block-store prune crash after stage {stage}"
+        );
         #[cfg(not(test))]
         let _ = (fail_stage, stage);
     }

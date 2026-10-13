@@ -4297,7 +4297,7 @@ mod tests {
             );
         };
         assert_eq!(
-            message.to_string(),
+            message.clone(),
             format!(
                 "alias.quote.cap_exceeded: exact charge {} exceeds authorized cap 0",
                 second_quote.charge_amount

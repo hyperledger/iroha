@@ -307,10 +307,10 @@ impl PrivateSettlementSidecarLifecycleV1 {
         self == next
             || matches!(
                 (self, next),
-                (Self::Collecting, Self::Aborted | Self::Expired)
-                    | (Self::Audited, Self::Aborted | Self::Expired)
-                    | (Self::Prepared, Self::Aborted | Self::Expired)
-                    | (Self::CommitCertified, Self::Aborted | Self::Expired)
+                (
+                    Self::Collecting | Self::Audited | Self::Prepared | Self::CommitCertified,
+                    Self::Aborted | Self::Expired
+                )
             )
     }
 }
@@ -1631,15 +1631,10 @@ impl PrivateSettlementFileSidecarStoreV1 {
         let manifest = manifest.ok_or(PrivateSettlementSidecarStoreErrorV1::Unavailable)?;
         let complete = lifecycles.len() == manifest.legs.len();
         let lifecycle = if authoritative_height > manifest.expiry_height
-            || lifecycles
-                .iter()
-                .any(|state| *state == PrivateSettlementSidecarLifecycleV1::Expired)
+            || lifecycles.contains(&PrivateSettlementSidecarLifecycleV1::Expired)
         {
             PrivateSettlementSidecarLifecycleV1::Expired
-        } else if lifecycles
-            .iter()
-            .any(|state| *state == PrivateSettlementSidecarLifecycleV1::Aborted)
-        {
+        } else if lifecycles.contains(&PrivateSettlementSidecarLifecycleV1::Aborted) {
             PrivateSettlementSidecarLifecycleV1::Aborted
         } else if complete
             && lifecycles
@@ -3655,8 +3650,9 @@ fn load_file_store_v1(
 }
 
 fn sidecar_file_name_v1(digest: Hash) -> String {
-    let mut name = String::with_capacity(64 + SIDECAR_RECORD_EXTENSION_V1.len());
     const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut name = String::with_capacity(64 + SIDECAR_RECORD_EXTENSION_V1.len());
     for byte in digest.as_ref() {
         name.push(char::from(HEX[usize::from(*byte >> 4)]));
         name.push(char::from(HEX[usize::from(*byte & 0x0f)]));
@@ -4329,13 +4325,13 @@ pub(crate) mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().join("restricted-sidecars");
         let store =
-            PrivateSettlementFileSidecarStoreV1::open(&root, Default::default()).expect("store");
+            PrivateSettlementFileSidecarStoreV1::open(&root, crate::private_settlement::sidecar_store::PrivateSettlementSidecarStoreConfigV1::default()).expect("store");
         store
             .store(fixture.sidecar.clone())
             .expect("store actual leg one");
         drop(store);
         let store =
-            PrivateSettlementFileSidecarStoreV1::open(&root, Default::default()).expect("reopen");
+            PrivateSettlementFileSidecarStoreV1::open(&root, crate::private_settlement::sidecar_store::PrivateSettlementSidecarStoreConfigV1::default()).expect("reopen");
         let status = store
             .public_bundle_status(fixture.sidecar.manifest.bundle_id, 12)
             .expect("sparse local subset");
@@ -4354,7 +4350,7 @@ pub(crate) mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let store = PrivateSettlementFileSidecarStoreV1::open(
             temp.path().join("restricted-sidecars"),
-            Default::default(),
+            crate::private_settlement::sidecar_store::PrivateSettlementSidecarStoreConfigV1::default(),
         )
         .expect("store");
         store

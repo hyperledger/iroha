@@ -232,7 +232,7 @@ fn checked_capture_uses_original_state_budget_and_retained_rows() {
         max_rows: 16,
         max_payload_bytes: 16384,
         max_ordered_table_bytes: 32768,
-        max_streamed_value_bytes: 131072,
+        max_streamed_value_bytes: 131_072,
     };
     let pool = state.ivm_execution_budget();
     pool.set_limit_bytes(0);

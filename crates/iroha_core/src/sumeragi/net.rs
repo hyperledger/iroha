@@ -26,7 +26,7 @@
 //!   the P2P retention at once so credits never stall.
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -376,7 +376,7 @@ pub struct P2pNet<T> {
     /// The envelope of the frame sent last (one per frame, shared by its recipients).
     envelope: Mutex<Option<(Arc<[u8]>, Arc<SumeragiFrame>)>>,
     /// Recipient keys already converted to `PeerId`s.
-    peers: Mutex<HashMap<PublicKey, PeerId>>,
+    peers: Mutex<BTreeMap<PublicKey, PeerId>>,
     counters: Arc<Counters>,
 }
 
@@ -394,7 +394,7 @@ impl<T> P2pNet<T> {
         Self {
             transport: Arc::new(transport),
             envelope: Mutex::new(None),
-            peers: Mutex::new(HashMap::new()),
+            peers: Mutex::new(BTreeMap::new()),
             counters: Arc::default(),
         }
     }
@@ -513,7 +513,7 @@ pub struct IngressStats {
 
 /// Routes inbound Sumeragi frames to the driver of their instance (O9).
 pub struct SumeragiIngress {
-    routes: RwLock<HashMap<Hash32, Arc<dyn FrameSink>>>,
+    routes: RwLock<BTreeMap<Hash32, Arc<dyn FrameSink>>>,
     caps: FrameCaps,
     delivered: AtomicU64,
     dropped: AtomicU64,
@@ -532,7 +532,7 @@ impl SumeragiIngress {
     /// An ingress with no instance, dropping frames above `caps`.
     pub fn new(caps: FrameCaps) -> Self {
         Self {
-            routes: RwLock::new(HashMap::new()),
+            routes: RwLock::new(BTreeMap::new()),
             caps,
             delivered: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
@@ -541,12 +541,20 @@ impl SumeragiIngress {
 
     /// Route the frames of `instance` to `sink` (its driver).
     pub fn register(&self, instance: Hash32, sink: Arc<dyn FrameSink>) {
-        self.routes.write().insert(instance, sink);
+        // Retiring a driver can refund its original allocation pool and wake callers.
+        // Keep that destruction outside the routing writer.
+        let replaced = { self.routes.write().insert(instance, sink) };
+        drop(replaced);
     }
 
     /// Stop routing `instance`; returns whether it was routed.
     pub fn unregister(&self, instance: &Hash32) -> bool {
-        self.routes.write().remove(instance).is_some()
+        if cfg!(all(test, sumeragi_core_mutation = "HC279")) {
+            return self.routes.write().remove(instance).is_some();
+        }
+        // The removed driver owns release callbacks; they may reenter routing.
+        let removed = { self.routes.write().remove(instance) };
+        removed.is_some()
     }
 
     /// The ingress counters.
@@ -599,7 +607,9 @@ impl SumeragiIngress {
         let routed = if frame.bytes.len() > self.caps.of(frame.class) {
             Routed::Oversize
         } else {
-            match self.routes.read().get(&frame.instance).cloned() {
+            // A sink may unregister itself or release original pool custody.
+            let sink = { self.routes.read().get(&frame.instance).cloned() };
+            match sink {
                 None => Routed::UnknownInstance,
                 Some(sink) if sink.deliver(from, &frame.bytes) => Routed::Delivered,
                 Some(_) => Routed::Refused,
@@ -804,7 +814,7 @@ mod tests {
                 payload_len: rng.random_range(1..300),
                 proposer: 0,
                 skipped_leaders: Vec::new(),
-                control_witness: Default::default(),
+                control_witness: iroha_sumeragi::types::ControlWitness::default(),
             },
             availability: AvailabilityFrame::from_untrusted(vec![rng.random(); 100]).unwrap(),
         }
@@ -1528,6 +1538,229 @@ mod tests {
             self.frames.lock().push((from.clone(), frame.to_vec()));
             !self.refuse
         }
+    }
+
+    /// Original finite-pool credits owned by a routed sink, with observable reentry.
+    struct RetainedIngressSink {
+        ingress: std::sync::Weak<SumeragiIngress>,
+        instance: Hash32,
+        backing: iroha_allocation::ChargedBuffer<u8>,
+        delivered: Arc<Sink>,
+        routes_free: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl FrameSink for RetainedIngressSink {
+        fn deliver(&self, from: &PublicKey, frame: &[u8]) -> bool {
+            assert_eq!(self.backing.capacity(), 64);
+            assert!(self.delivered.deliver(from, frame));
+            let ingress = self.ingress.upgrade().unwrap();
+            let guard = ingress.routes.try_write();
+            let free = guard.is_some();
+            drop(guard);
+            self.routes_free.store(free, Ordering::SeqCst);
+            // The old read-guard lifetime must fail an assertion, never hang.
+            if free {
+                assert!(ingress.unregister(&self.instance));
+            }
+            free
+        }
+    }
+
+    /// Observe the real backing-allocation refund and safely reenter the same router.
+    struct IngressRefundProbe {
+        ingress: std::sync::Weak<SumeragiIngress>,
+        budget: iroha_allocation::AllocationBudget,
+        calls: std::sync::atomic::AtomicUsize,
+        routes_free: std::sync::atomic::AtomicBool,
+        reentered: std::sync::atomic::AtomicBool,
+        remaining_bytes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl std::task::Wake for IngressRefundProbe {
+        fn wake(self: Arc<Self>) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.remaining_bytes
+                .store(self.budget.reserved_bytes(), Ordering::SeqCst);
+            let ingress = self.ingress.upgrade().unwrap();
+            let guard = ingress.routes.try_write();
+            let free = guard.is_some();
+            drop(guard);
+            self.routes_free.store(free, Ordering::SeqCst);
+            if free {
+                let nested = Hash32([99; 32]);
+                ingress.register(nested, Arc::new(Sink::default()));
+                self.reentered
+                    .store(ingress.unregister(&nested), Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// Keep the original refusal registration alive until its actual sink refunds.
+    struct RetainedIngressFixture {
+        budget: iroha_allocation::AllocationBudget,
+        registration: iroha_allocation::release::ReleaseRegistration,
+        release: iroha_allocation::release::ReleaseWait,
+        probe: Arc<IngressRefundProbe>,
+        delivered: Arc<Sink>,
+        routes_free: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl RetainedIngressFixture {
+        fn register(ingress: &Arc<SumeragiIngress>, instance: Hash32) -> Self {
+            use iroha_allocation::{
+                AllocationBudget, AllocationRefusal, ChargedBuffer, release::ReleaseRegistration,
+            };
+            use std::task::{Context, Poll, Waker};
+
+            let budget =
+                AllocationBudget::new(64 + ReleaseRegistration::allocation_layout().size());
+            let backing = ChargedBuffer::new(64, &budget).unwrap();
+            let mut registration = ReleaseRegistration::from_reservation(
+                &mut budget
+                    .try_reserve(ReleaseRegistration::allocation_layout())
+                    .unwrap(),
+            )
+            .unwrap();
+            let AllocationRefusal::Capacity { release, .. } =
+                budget.try_reserve_bytes(1).unwrap_err()
+            else {
+                panic!("the original sink and registration exhaust this exact pool");
+            };
+            let probe = Arc::new(IngressRefundProbe {
+                ingress: Arc::downgrade(ingress),
+                budget: budget.clone(),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                routes_free: std::sync::atomic::AtomicBool::new(false),
+                reentered: std::sync::atomic::AtomicBool::new(false),
+                remaining_bytes: std::sync::atomic::AtomicUsize::new(usize::MAX),
+            });
+            assert_eq!(
+                registration.poll_wait(
+                    &release,
+                    &mut Context::from_waker(&Waker::from(probe.clone()))
+                ),
+                Poll::Pending
+            );
+            let delivered = Arc::new(Sink::default());
+            let routes_free = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            ingress.register(
+                instance,
+                Arc::new(RetainedIngressSink {
+                    ingress: Arc::downgrade(ingress),
+                    instance,
+                    backing,
+                    delivered: delivered.clone(),
+                    routes_free: routes_free.clone(),
+                }),
+            );
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+            assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+            Self {
+                budget,
+                registration,
+                release,
+                probe,
+                delivered,
+                routes_free,
+            }
+        }
+
+        fn assert_refunded(mut self) {
+            use iroha_allocation::release::ReleaseRegistration;
+            use std::task::{Context, Poll, Waker};
+
+            let registration_bytes = ReleaseRegistration::allocation_layout().size();
+            assert_eq!(self.probe.calls.load(Ordering::SeqCst), 1);
+            assert!(
+                self.probe.routes_free.load(Ordering::SeqCst),
+                "original ingress refund must run after the route lock releases"
+            );
+            assert!(self.probe.reentered.load(Ordering::SeqCst));
+            assert_eq!(
+                self.probe.remaining_bytes.load(Ordering::SeqCst),
+                registration_bytes
+            );
+            assert_eq!(self.budget.reserved_bytes(), registration_bytes);
+            assert_eq!(
+                self.registration.poll_wait(
+                    &self.release,
+                    &mut Context::from_waker(&Waker::from(self.probe.clone()))
+                ),
+                Poll::Ready(())
+            );
+            drop(self.registration);
+            assert_eq!(self.budget.reserved_bytes(), 0);
+            assert_eq!(self.probe.calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn ingress_register_replacement_refunds_outside_original_route_lock() {
+        let ingress = Arc::new(SumeragiIngress::new(FrameCaps::TRANSPORT));
+        let instance = Hash32([31; 32]);
+        let original = RetainedIngressFixture::register(&ingress, instance);
+        let replacement: Arc<dyn FrameSink> = Arc::new(Sink::default());
+        ingress.register(instance, replacement.clone());
+        assert!(Arc::ptr_eq(
+            ingress.routes.read().get(&instance).unwrap(),
+            &replacement
+        ));
+        assert!(original.delivered.frames.lock().is_empty());
+        original.assert_refunded();
+        assert!(ingress.unregister(&instance));
+        assert!(!ingress.unregister(&instance));
+    }
+
+    #[test]
+    fn ingress_unregister_refunds_outside_original_route_lock() {
+        let ingress = Arc::new(SumeragiIngress::new(FrameCaps::TRANSPORT));
+        let instance = Hash32([32; 32]);
+        let original = RetainedIngressFixture::register(&ingress, instance);
+        assert!(ingress.unregister(&instance));
+        assert!(!ingress.unregister(&instance));
+        assert!(ingress.routes.read().is_empty());
+        assert!(original.delivered.frames.lock().is_empty());
+        original.assert_refunded();
+    }
+
+    #[test]
+    fn ingress_deliver_reentry_retires_original_sink_after_route_lock_release() {
+        let ingress = Arc::new(SumeragiIngress::new(FrameCaps::TRANSPORT));
+        let instance = Hash32([33; 32]);
+        let original = RetainedIngressFixture::register(&ingress, instance);
+        let sender = core_key(bls(34).public_key()).unwrap();
+        let bytes = WireMessage::PayloadRequest(PayloadRequest {
+            instance,
+            height: 3,
+            block_hash: Hash32::ZERO,
+        })
+        .encode()
+        .unwrap();
+        let frame = Frame {
+            instance,
+            class: TrafficClass::Control,
+            bytes: bytes.clone().into(),
+        };
+        let routed = ingress.deliver(&sender, &frame);
+        assert!(
+            original.routes_free.load(Ordering::SeqCst),
+            "original ingress delivery callback must run after the route lock releases"
+        );
+        assert_eq!(routed, Routed::Delivered);
+        assert_eq!(
+            *original.delivered.frames.lock(),
+            vec![(sender.clone(), bytes)]
+        );
+        assert!(ingress.routes.read().is_empty());
+        original.assert_refunded();
+        assert_eq!(ingress.deliver(&sender, &frame), Routed::UnknownInstance);
+        assert_eq!(
+            ingress.stats(),
+            IngressStats {
+                delivered: 1,
+                dropped: 1
+            }
+        );
     }
 
     fn peer_message(kp: &KeyPair, payload: NetworkMessage) -> PeerMessage<NetworkMessage> {

@@ -751,10 +751,10 @@ mod tests;
 impl Execute for SettleAmxV1 {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_settle_original(&self, _authority, state)
+        execute_settle_original(&self, authority, state)
     }
 }
 

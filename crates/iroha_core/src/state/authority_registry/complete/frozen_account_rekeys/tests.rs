@@ -44,8 +44,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 16,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn freeze(block: &mut StateBlock<'_>) {
@@ -510,7 +510,7 @@ fn every_foreign_released_partial_and_mixed_field_refuses_without_refresh() {
                 2 => replace!(account_aliases),
                 3 => replace!(account_rekey_records_by_account),
                 _ => unreachable!(),
-            };
+            }
             freeze(&mut block);
             assert!(capture(&block, limits(), 0).unwrap().is_none());
         }
@@ -528,7 +528,7 @@ fn every_foreign_released_partial_and_mixed_field_refuses_without_refresh() {
                 .account_rekey_records_by_account
                 .release_writers(),
             _ => unreachable!(),
-        };
+        }
         assert!(capture(&block, limits(), 0).unwrap().is_none());
     }
     let state = state(fixture::fixture());
@@ -727,7 +727,7 @@ fn later_equal_or_changed_native_publications_keep_all_originals_without_refresh
                     BTreeSet::from([fixture::alias("wallet")])
                 ),
                 _ => unreachable!(),
-            };
+            }
             assert_eq!(original.rows.publication_identity(), identity);
             equal(
                 &capture(&block, limits(), exact(&original))

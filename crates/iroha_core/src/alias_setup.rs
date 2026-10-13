@@ -137,6 +137,10 @@ fn sns_error(error: crate::sns::SnsError) -> AliasSetupError {
     AliasSetupError::new(code, text)
 }
 /// Build the canonical SNS selector for a resolved target without consulting a static catalog.
+///
+/// # Errors
+/// Returns `alias.name.invalid` when the resolved dataspace or domain name
+/// cannot form a selector, or account-alias text is not canonical.
 pub fn selector_for_resolved_alias_target(
     target: &AliasTargetV1,
 ) -> Result<NameSelectorV1, AliasSetupError> {

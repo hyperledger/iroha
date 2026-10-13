@@ -457,7 +457,7 @@ fn every_alias_foreign_target_mode_partial_and_released_source_refuses() {
             1 => block.world.account_aliases.release_writers(),
             2 => block.world.account_aliases_by_account.release_writers(),
             _ => unreachable!(),
-        };
+        }
         assert!(capture(&block, limits(), 0).unwrap().is_none());
     }
 }

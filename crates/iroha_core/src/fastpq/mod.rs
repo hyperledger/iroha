@@ -699,9 +699,10 @@ fn finalize_transfer_transcript_digest_with_scratch(
             let existing = transcript
                 .poseidon_preimage_digest
                 .expect("digest presence checked above");
+            let canonical =
+                poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, scratch);
             debug_assert_eq!(
-                existing,
-                poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, scratch),
+                existing, canonical,
                 "precomputed FASTPQ transfer transcript digest must match canonical digest",
             );
         }
@@ -730,9 +731,10 @@ fn debug_assert_precomputed_transfer_transcript_digests(transcripts: &[TransferT
         let [delta] = transcript.deltas.as_slice() else {
             continue;
         };
+        let canonical =
+            poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, &mut scratch);
         debug_assert_eq!(
-            existing,
-            poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, &mut scratch),
+            existing, canonical,
             "precomputed FASTPQ transfer transcript digest must match canonical digest",
         );
     }
@@ -2615,8 +2617,8 @@ mod tests {
         delta.from_balance_after = "157.501".parse().expect("non-negative FASTPQ quantity");
         delta.to_balance_before = "43.001".parse().expect("non-negative FASTPQ quantity");
         delta.to_balance_after = "43.501".parse().expect("non-negative FASTPQ quantity");
-        delta.from_smt_witness = Default::default();
-        delta.to_smt_witness = Default::default();
+        delta.from_smt_witness = iroha_data_model::fastpq::TransferSmtWitness::default();
+        delta.to_smt_witness = iroha_data_model::fastpq::TransferSmtWitness::default();
         second.poseidon_preimage_digest = None;
 
         let batch = batch_from_transcripts(

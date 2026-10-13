@@ -218,7 +218,7 @@ pub(crate) fn capture(
         .check_binding(&binding)
         .map_err(|error| error.to_string())?;
     let link = verify_finalized_global_threshold_beacon_pulse_v1(
-        &session,
+        session,
         &pulse,
         anchor,
         expected_context

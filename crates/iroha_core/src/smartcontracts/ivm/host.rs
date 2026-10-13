@@ -1358,6 +1358,11 @@ pub trait QueryStateRefOps {
     ) -> Result<ContractInstance, ivm::VMError>;
     /// Resolve an authenticated contract identity, runtime subject, and artifact length without
     /// copying its manifest or bytecode.
+    ///
+    /// # Errors
+    /// Returns a VM error if committed scope authorization or contract identity
+    /// lookup fails. Missing identity, subject or deployed artifact instead
+    /// returns `Ok(None)`.
     fn bound_contract_dispatch_identity_by_address(
         &self,
         contract_address: &ContractAddress,
@@ -1370,6 +1375,10 @@ pub trait QueryStateRefOps {
         ivm::VMError,
     >;
     /// Prepare a content-addressed cache miss while borrowing deployed bytecode in place.
+    ///
+    /// # Errors
+    /// Returns a VM error if the deployed artifact is absent or cannot be read,
+    /// authenticated or prepared within the cache owner's resources.
     fn prepare_contract_cache_miss(
         &self,
         cache: &PreparedContractCache,
@@ -4477,6 +4486,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// epoch boundary are projected, after full public-session/signature and
     /// canonical block-anchor verification. Missing or conflicting evidence
     /// leaves that epoch absent so the syscall fails closed with `found=false`.
+    ///
+    /// # Errors
+    /// Returns the original execution-attempt error if committed NPoS parameters
+    /// cannot be read or validated. Invalid or conflicting beacon evidence is
+    /// instead omitted from the successful epoch projection.
     pub fn set_vrf_epoch_seeds_from_state(
         &mut self,
         state: &impl StateReadOnly,
@@ -4518,7 +4532,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             let Ok(pulse) = crate::beacon::verified_persisted_global_threshold_beacon_pulse_v1(
                 state.world(),
                 state.network_id(),
-                *candidate,
+                candidate,
             ) else {
                 continue;
             };
@@ -5063,10 +5077,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         let items = u64::try_from(items).unwrap_or(u64::MAX);
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
-        let attempted_items = self
-            .instruction_queue_count
-            .checked_add(items)
-            .unwrap_or(u64::MAX);
+        let attempted_items = self.instruction_queue_count.saturating_add(items);
         if attempted_items > limits.max_items {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::ItemCount {
                 attempted: attempted_items,
@@ -5074,10 +5085,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             });
             return false;
         }
-        let attempted_bytes = self
-            .instruction_queue_encoded_bytes
-            .checked_add(bytes)
-            .unwrap_or(u64::MAX);
+        let attempted_bytes = self.instruction_queue_encoded_bytes.saturating_add(bytes);
         if attempted_bytes > limits.max_bytes {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::EncodedBytes {
                 attempted: attempted_bytes,
@@ -5978,11 +5986,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// # Errors
     /// Returns an error if the pointer type does not match, the type is not allowed
     /// by the current syscall policy, or the Norito payload cannot be decoded.
-    fn decode_pointer_tlv<'a>(
-        vm: &'a IVM,
+    fn decode_pointer_tlv(
+        vm: &IVM,
         ptr: u64,
         expected: PointerType,
-    ) -> Result<pointer_abi::Tlv<'a>, ivm::VMError> {
+    ) -> Result<pointer_abi::Tlv<'_>, ivm::VMError> {
         let tlv = vm.validate_tlv(ptr)?;
         if tlv.type_id != expected {
             return Err(ivm::VMError::NoritoInvalid);
@@ -8884,6 +8892,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         Ok(gas)
     }
     fn handle_axt_stage_anchored_spend(&mut self, vm: &IVM) -> Result<u64, ivm::VMError> {
+        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
+
         self.clear_axt_reject();
         let Some(state_view) = self.axt_state.as_ref() else {
             self.record_axt_reject(
@@ -8897,7 +8907,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let tlv = Self::expect_tlv(vm, vm.register(10), PointerType::AxtAnchoredSpendV1)?;
         // The canonical proof is capped at 2 MiB; this larger envelope ceiling
         // leaves room for signed source metadata while bounding decode work.
-        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
         if tlv.payload.len() > MAX_SPEND_FRAME_BYTES_V1 {
             return Err(ivm::VMError::NoritoInvalid);
         }
@@ -10364,10 +10373,9 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                                 crate::gas::meter_instruction(&instruction, &self.confidential_gas);
                             ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
                             if pending_hash.is_some() {
-                                debug_assert_eq!(
-                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front(),
-                                    pending_hash
-                                );
+                                let consumed =
+                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front();
+                                debug_assert_eq!(consumed, pending_hash);
                             }
                             let queued_gas = self.queue_instruction(instruction);
                             debug_assert_eq!(queued_gas, gas);
@@ -11297,7 +11305,7 @@ mod pointer_abi_tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 7;
@@ -11307,7 +11315,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
     return 8;
   }
 }
-"#,
+",
             43,
         );
         grant_named_permission_to_account(
@@ -11406,7 +11414,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ReadOnlyBinding { permission CanInspectContract;
   state int missing;
 
@@ -11418,7 +11426,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
     return 8;
   }
 }
-"#,
+",
             46,
         );
         grant_named_permission_to_account(
@@ -11837,7 +11845,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let legitimate_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 1;
@@ -11847,19 +11855,19 @@ seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspect
     return 2;
   }
 }
-"#,
+",
             44,
         );
         let privileged_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku PrivilegedBinding { permission CanAdministerContract;
   kotoage fn administer() authorize(CanAdministerContract) -> int {
     return 3;
   }
 }
-"#,
+",
             45,
         );
         grant_named_permission_to_account(
@@ -14657,10 +14665,11 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
     }
     #[test]
     fn unknown_syscall_is_rejected_by_policy() {
+        const UNKNOWN_SYSCALL: u32 = u32::MAX;
+
         let mut vm = ivm::IVM::new(10_000);
         let mut host = CoreHost::new(fixture_account("alice"));
         // Pick a syscall number outside allowed/known ranges.
-        const UNKNOWN_SYSCALL: u32 = u32::MAX;
         let res = host.syscall(UNKNOWN_SYSCALL, &mut vm);
         assert!(matches!(
             res,
@@ -14903,22 +14912,22 @@ mod tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku RuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
   view fn inspect() authorize(anyone) -> int { return 1; }
 }
-"#,
+",
             0,
         );
         let stale_contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StaleRuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -15905,7 +15914,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let pool_contract = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku TypedPoolViews { permission AssetOps;
   state AssetDefinitionId QuoteAsset;
   state AccountId PoolAccount;
@@ -15928,17 +15937,17 @@ seiyaku TypedPoolViews { permission AssetOps;
     return PoolAccount;
   }
 }
-"#,
+",
             0,
         );
         let outer_caller = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku OuterCaller {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(state, authority, authority.clone());
@@ -17225,6 +17234,65 @@ seiyaku OuterCaller {
         assert!(host.queued.is_empty());
     }
     #[test]
+    fn execute_instruction_ballot_consumes_each_pending_envelope_once() {
+        let first = [0x41; 32];
+        let second = [0x42; 32];
+        let explicit = [0x43; 32];
+        for (provided, expected_hashes) in [
+            (None, [Some(first), Some(second), None]),
+            (Some(explicit), [Some(explicit); 3]),
+        ] {
+            let mut host = CoreHost::new((*ALICE_ID).clone());
+            bind_test_contract_runtime(&mut host, 306);
+            host.__test_seed_ballot_latch(first);
+            host.__test_seed_ballot_latch(second);
+            let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+            let mut proof = ProofAttachment::new_ref(
+                backend.clone(),
+                ProofBox::new(backend.clone(), vec![0xa5]),
+                VerifyingKeyId::new(backend.as_str(), "ordered-ballot-envelope"),
+            );
+            proof.envelope_hash = provided;
+            let ballot = DMZk::SubmitBallot {
+                election_id: "election".to_owned(),
+                ciphertext: vec![0x11; 32],
+                ballot_proof: proof,
+                nullifier: [0x22; 32],
+            };
+            let payload = norito::to_bytes(&InstructionBox::from(ballot.clone()))
+                .expect("encode ballot instruction");
+            let mut vm = IVM::new(50_000_000);
+            let instruction_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
+            for (index, expected_hash) in expected_hashes.into_iter().enumerate() {
+                vm.set_register(10, instruction_ptr);
+                vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
+                host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)
+                    .expect("affordable ballot instruction");
+                let mut expected = ballot.clone();
+                expected.ballot_proof.envelope_hash = expected_hash;
+                let expected = InstructionBox::from(expected);
+                assert_eq!(host.queued.len(), index + 1);
+                assert_eq!(host.queued[index].instruction(), Some(&expected));
+                let pending = if provided.is_some() {
+                    vec![first, second]
+                } else if index == 0 {
+                    vec![second]
+                } else {
+                    Vec::new()
+                };
+                assert_eq!(
+                    host.zk_last_env_hash_ballot
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    pending,
+                    "only an inherited envelope consumes one original pending hash"
+                );
+                assert_eq!(host.zk_verified_ballot.len(), 2);
+            }
+        }
+    }
+    #[test]
     fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {
         // The schedule is the host's own value (the block's frozen ZK settings),
         // so this test cannot disturb any other host in the process.
@@ -17284,7 +17352,7 @@ seiyaku OuterCaller {
     #[test]
     fn by_call_bytes_param_can_coexist_with_canonical_asset_operation() {
         let authority = (*ALICE_ID).clone();
-        let source = r#"
+        let source = r"
 seiyaku BurnWithMemo { permission AssetTransferRole;
   kotoage fn burn_with_memo(
     AccountId sender,
@@ -17295,7 +17363,7 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     ledger::asset::burn(account: sender, asset_definition: settlement_asset, amount: amount);
   }
 }
-"#;
+";
         let compiler = kotodama_lang::compiler::Compiler::new_with_options(
             kotodama_lang::compiler::CompilerOptions {
                 force_zk: true,
@@ -17364,13 +17432,13 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     }
     #[test]
     fn kotodama_source_rejects_opaque_instruction_submission() {
-        let source = r#"
+        let source = r"
 seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
   kotoage fn submit(bytes record_instruction) authorize(AssetTransferRole) {
     execute_instruction(record_instruction);
   }
 }
-"#;
+";
         // This is intentionally the non-deployable local harness profile: the
         // retired opaque-instruction escape must remain outside the public language surface.
         let error = kotodama_lang::compiler::Compiler::new_with_options(
@@ -17381,7 +17449,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         )
         .compile_source_with_manifest(source)
         .expect_err("opaque instruction submission must remain source-inaccessible");
-        let rendered = error.to_string();
+        let rendered = error.clone();
         assert!(
             rendered.contains("error[K2002]")
                 && rendered.contains("unknown function or builtin `execute_instruction`"),
@@ -19210,23 +19278,23 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, durable_state_overlay) = call_contract_syscall(
@@ -19708,21 +19776,21 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let prepared_cache = PreparedContractCache::with_capacity(2);
@@ -19788,11 +19856,11 @@ seiyaku Callee {
         let contract = install_contract(
             &populated_state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             7,
         );
         let stale_record = {
@@ -19826,21 +19894,21 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let payload = Json::new(());
@@ -19875,17 +19943,17 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Caller {
       kotoage fn main() authorize(anyone) -> int { return 0; }
     }
-    "#,
+    ",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Callee { permission AssetOps;
       state int counter;
 
@@ -19896,7 +19964,7 @@ seiyaku Callee {
         return counter;
       }
     }
-    "#,
+    ",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20044,23 +20112,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   view fn value() authorize(AssetOps) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         grant_named_permission_to_account(
@@ -20103,23 +20171,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Lifecycle {
   state int initialized;
   hajimari() { initialized = 1; }
   kaizen() {}
 }
-"#,
+",
             1,
         );
         for selector in ["hajimari", "kaizen"] {
@@ -20146,17 +20214,17 @@ seiyaku Lifecycle {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract_with_pending_lifecycle(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku AwaitingHajimari {
   hajimari() {}
 
@@ -20164,7 +20232,7 @@ seiyaku AwaitingHajimari {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, _, durable_state_overlay) = call_contract_syscall(
@@ -20189,21 +20257,21 @@ seiyaku AwaitingHajimari {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku HeldCallee {
   view fn value(int input) authorize(anyone) -> int { return input; }
 }
-"#,
+",
             1,
         );
         // `contract_test_state` has already applied its original signed genesis.
@@ -20300,23 +20368,23 @@ seiyaku HeldCallee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn who_called() authorize(anyone) -> AccountId {
     return context::authority();
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, _) = call_contract_syscall(
@@ -20424,17 +20492,17 @@ seiyaku Callee {
         let caller = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ViewCaller { permission NestedView;
   kotoage fn main() authorize(NestedView) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku EffectfulView { permission NestedView;
   state int Counter;
 
@@ -20451,7 +20519,7 @@ seiyaku EffectfulView { permission NestedView;
     return Counter;
   }
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -20553,7 +20621,7 @@ seiyaku EffectfulView { permission NestedView;
     fn contract_view_of_persisted_account_state_returns_account_tlv() {
         let authority: AccountId = fixture_account("alice");
         let state = contract_test_state(&authority);
-        let source = r#"
+        let source = r"
 seiyaku StoredAccountView { permission AssetOps;
   state AccountId Stored;
 
@@ -20569,7 +20637,7 @@ seiyaku StoredAccountView { permission AssetOps;
     return Stored;
   }
 }
-"#;
+";
         let contract = install_contract(&state, &authority, source, 0);
         grant_asset_ops_to_account(&state, &authority, authority.clone());
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
@@ -20634,17 +20702,17 @@ seiyaku StoredAccountView { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   state int backlog;
   state int safe_mode;
@@ -20659,7 +20727,7 @@ seiyaku Callee { permission AssetOps;
     safe_mode = safe_mode_value;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20715,7 +20783,7 @@ seiyaku Callee { permission AssetOps;
             "seiyaku Caller { kotoage fn main() authorize(anyone) -> int { return 0; } }",
             0,
         );
-        let source = r#"
+        let source = r"
 seiyaku Callee { permission AssetOps;
   error enum ReceiptError { Refused = 7 }
   struct Receipt {
@@ -20738,7 +20806,7 @@ seiyaku Callee { permission AssetOps;
     return reload();
   }
 }
-"#;
+";
         let callee_contract = install_contract(&state, &authority, source, 1);
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let expected = norito::json!({
@@ -20793,17 +20861,17 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   error enum CalleeError {
     ForcedFailure = 1,
@@ -20821,7 +20889,7 @@ seiyaku Callee { permission AssetOps;
     return 0;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20846,11 +20914,11 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract_with_interface(
@@ -21259,11 +21327,11 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn open_position() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
         let callee_contract = install_contract(
@@ -22450,11 +22518,11 @@ seiyaku Callee { permission AssetOps;
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku DurableOwner {
   view fn inspect() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             411,
         );
         let identity = crate::smartcontracts::code::fetch_bound_contract_identity(
@@ -23633,7 +23701,7 @@ seiyaku DurableOwner {
         )
         .expect("store authenticated ledger-time fixture block");
         state.append_committed_block_header_for_tests(authenticated_block.header());
-        let source = r#"
+        let source = r"
             seiyaku ValidationFeeConversionReader {
                 state StateMap<int, quantity> ValidationFeeConversion;
                 view fn main() authorize(anyone) -> quantity {
@@ -23641,7 +23709,7 @@ seiyaku DurableOwner {
                     return ValidationFeeConversion.get(0).unwrap_or(zero);
                 }
             }
-        "#;
+        ";
         let (code, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile validation-fee credit reader");
@@ -25766,14 +25834,14 @@ seiyaku DurableOwner {
         };
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku PreparedBoundaryArguments {
   view fn invoke(bytes small, bytes payload) authorize(anyone) -> bytes {
     let _small = small;
     return payload;
   }
 }
-"#,
+",
             )
             .expect("compile bytes-parameter contract");
         let metadata = ivm::ProgramMetadata::parse(&program).expect("parse contract metadata");

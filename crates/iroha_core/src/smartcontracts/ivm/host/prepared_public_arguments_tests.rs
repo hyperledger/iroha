@@ -9,12 +9,12 @@ fn prepared_public_arguments_decode_once_ignore_guest_descriptors_and_require_pr
     );
     let (program, _) = compiler
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku PreparedArguments { permission Invoke;
   kotoage fn invoke(int count, Name label) authorize(Invoke) {
   }
 }
-"#,
+",
         )
         .expect("compile parameterized contract");
     let metadata = ivm::ProgramMetadata::parse(&program).expect("parse contract metadata");
@@ -81,14 +81,14 @@ seiyaku PreparedArguments { permission Invoke;
 fn prepared_root_arguments_and_trigger_event_json_remain_distinct() {
     let (program, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku PreparedArgumentEventProbe {
   error enum ProbeError { WrongCount = 1 }
   kotoage fn invoke(int count) authorize(anyone) {
     require(count == 7, ProbeError::WrongCount);
   }
 }
-"#,
+",
         )
         .expect("compile parameter-consuming root probe");
     let metadata = ivm::ProgramMetadata::parse(&program).expect("parse root probe");

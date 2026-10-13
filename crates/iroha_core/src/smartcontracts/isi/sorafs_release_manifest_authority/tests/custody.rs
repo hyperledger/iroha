@@ -89,10 +89,10 @@ fn transact(state: &mut State, now: u64, call: impl FnOnce(&mut StateTransaction
         .set_execution_outputs(
             Vec::new(),
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &iroha_data_model::parameter::ExecutionOutputPolicyV1::bootstrap().limits(),
         )
         .expect("complete fixture block outputs");

@@ -2198,10 +2198,10 @@ pub(crate) mod tests {
             .set_execution_outputs(
                 outputs,
                 fragments,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &crate::execution_output_test_support::structural_output_limits(),
             )
             .unwrap();
@@ -2334,9 +2334,24 @@ pub(crate) mod tests {
         }
         let mut config = TestChainConfig::new(world, 1000);
         if let Some(units) = query_stored_min_gas_units {
-            config.pipeline.query_stored_min_gas_units = units;
+            let policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1 {
+                query_stored_min_gas_units: units,
+                ..crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default()
+            };
+            config
+                .genesis_parameters
+                .push(iroha_data_model::parameter::Parameter::Custom(
+                    policy.into_custom_parameter(),
+                ));
         }
         let mut chain = CertifiedTestChain::start(config).unwrap();
+        if let Some(units) = query_stored_min_gas_units {
+            assert_eq!(
+                chain.state().view().pipeline().query_stored_min_gas_units,
+                units,
+                "the signed genesis owns the exact stored-query gas policy",
+            );
+        }
         for epoch in 1..=carriers {
             let transactions = (0..2)
                 .map(|index| {
@@ -2386,7 +2401,7 @@ pub(crate) mod tests {
     pub(crate) fn canonical_query_fixture() -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(None)
     }
-    /// The same original history with a finite query configuration fixed before execution.
+    /// The same original history with a finite query policy committed in signed genesis.
     pub(crate) fn canonical_query_fixture_with_query_gas(units: u64) -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(Some(units))
     }
@@ -2878,8 +2893,7 @@ pub(crate) mod tests {
             CompoundPredicate::PASS,
             &state_view,
         )
-        .err()
-        .expect("unindexed history must reject the same hash-only carrier");
+        .expect_err("unindexed history must reject the same hash-only carrier");
         let paginated_error = visit_committed_transactions(
             &state_view,
             &CompoundPredicate::PASS,
@@ -3021,8 +3035,7 @@ pub(crate) mod tests {
             }),
             &fixture.state.view(),
         )
-        .err()
-        .expect("original QC must reject self-consistent changed output");
+        .expect_err("original QC must reject self-consistent changed output");
         assert_eq!(
             error, expected_error,
             "query must reject the exact original execution commitment mismatch"

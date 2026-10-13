@@ -268,9 +268,7 @@ fn quantity_to_nano_saturating(value: &Quantity) -> u128 {
         let Some(mantissa) = value.try_mantissa_u128() else {
             return u128::MAX;
         };
-        mantissa
-            .checked_mul(10_u128.pow(XOR_QUANTITY_SCALE.saturating_sub(value.scale())))
-            .unwrap_or(u128::MAX)
+        mantissa.saturating_mul(10_u128.pow(XOR_QUANTITY_SCALE.saturating_sub(value.scale())))
     }
     if value.scale() <= XOR_QUANTITY_SCALE {
         return scaled_mantissa(value.as_numeric());
@@ -5368,6 +5366,11 @@ impl Telemetry {
     }
     /// Refresh lazy metrics, reporting failure when callers cannot publish stale state.
     #[cfg(feature = "telemetry")]
+    ///
+    /// # Errors
+    /// Returns an error if the bounded actor mailbox rejects synchronization, the
+    /// actor closes, the synchronization deadline expires, or the actor reports
+    /// a failure while refreshing metrics.
     pub async fn metrics_fresh_checked(&self) -> Result<&Metrics, String> {
         if let Err(err) = self.synchronize_metrics().await {
             self.sync_requested.store(false, Ordering::Release);
@@ -5381,6 +5384,11 @@ impl Telemetry {
     /// The bounded actor owns physical catch-up after a waiter expires; no late
     /// response is accepted and no request keeps State or transaction guards.
     #[cfg(feature = "telemetry")]
+    ///
+    /// # Errors
+    /// Returns a status error for disabled telemetry, mailbox/actor/deadline failure,
+    /// busy or changed State custody, unavailable or inconsistent history, original
+    /// resource refusal, or invalid classified counters.
     pub async fn status_snapshot(
         &self,
         build: &iroha_torii_shared::status::BuildStatus,
@@ -9310,7 +9318,12 @@ mod tests {
                     None,
                     transactions
                         .into_iter()
-                        .map(iroha_data_model::transaction::SignedTransaction::from)
+                        .map(|transaction| match transaction.into_entrypoint() {
+                            iroha_data_model::transaction::TransactionEntrypoint::External(
+                                signed,
+                            ) => signed,
+                            _ => panic!("telemetry fixture authors an external transaction"),
+                        })
                         .collect(),
                 )
         }
@@ -9705,10 +9718,13 @@ mod tests {
                         );
                     }
                 }
-                let mut chain = sut.native_chain.lock().expect("native chain mutex");
+                // Keep the genuine chain owner across the async observations without
+                // carrying its fixture-slot mutex into the runtime.
+                let mut chain = {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    original.take().expect("native fixture")
+                };
                 let mut pending = chain
-                    .as_mut()
-                    .unwrap()
                     .begin_proposal(candidate, iroha_sumeragi::types::ControlWitness::default())
                     .expect("original unpublished execution");
                 assert!(pending.inspect_prepared(|_| ()).is_err());
@@ -9765,7 +9781,14 @@ mod tests {
                     .publish(crate::sumeragi::test_chain::Signers::Quorum)
                     .expect("publish original execution with its native certificate");
                 drop(pending);
-                drop(chain);
+                {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    assert!(
+                        original.is_none(),
+                        "the original fixture chain has one owner"
+                    );
+                    *original = Some(chain);
+                }
                 sut.force_sync().await;
                 assert_eq!(metrics.block_height.get(), old_height + 1);
                 assert_eq!(metrics.block_height_non_empty.get(), old_non_empty + 1);

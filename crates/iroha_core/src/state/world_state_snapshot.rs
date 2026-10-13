@@ -542,6 +542,11 @@ impl State {
     /// Borrow two distinct immutable execution record originals at one certified cut.
     /// Missing, oversized, post-result or changed originals refuse publication.
     /// The original native cut owner retains network, root, generation and capacity checks.
+    ///
+    /// # Errors
+    /// Returns an error for identical keys, missing or oversized records, records
+    /// that do not match the certified cut, an absent or changed original cut,
+    /// State or allocation refusal, snapshot bounds, or a consumer error.
     pub fn with_native_execution_records_snapshot_v1<T>(
         &self,
         tip: &CommittedBlock,
@@ -686,7 +691,7 @@ impl State {
     ) -> Result<T, WorldStateSnapshotError> {
         let publication_release = self.view_publication_release();
         let generation = self.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(StateViewError::Busy(publication_release).into());
         }
         if tip.commitment().schedule.current.network_id != *self.network_id_ref() {

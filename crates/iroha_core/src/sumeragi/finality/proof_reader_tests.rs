@@ -351,16 +351,6 @@ fn scoped_producer_refuses_missing_replaced_and_linked_journals_and_retries_orig
 #[cfg(unix)]
 #[inline(never)]
 fn check_journal_replacement(chain: &CertifiedTestChain) {
-    use std::os::unix::fs::MetadataExt as _;
-    let view = chain.state().view();
-    let original = build_proof(&view, 3).unwrap();
-    let source =
-        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
-    let saved = source.with_extension("proof-reader-original");
-    let bytes = std::fs::read(&source).unwrap();
-    let original_identity = std::fs::metadata(&source).unwrap().ino();
-    let budget = view.execution_budget();
-    let reserved = budget.reserved_bytes();
     struct RestoreJournal<'a> {
         source: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -373,6 +363,17 @@ fn check_journal_replacement(chain: &CertifiedTestChain) {
             std::fs::rename(self.saved, self.source).unwrap();
         }
     }
+
+    use std::os::unix::fs::MetadataExt as _;
+    let view = chain.state().view();
+    let original = build_proof(&view, 3).unwrap();
+    let source =
+        crate::kura::Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+    let saved = source.with_extension("proof-reader-original");
+    let bytes = std::fs::read(&source).unwrap();
+    let original_identity = std::fs::metadata(&source).unwrap().ino();
+    let budget = view.execution_budget();
+    let reserved = budget.reserved_bytes();
     with_proof_reader(&view, |reader| {
         for kind in ["missing", "same-bytes-replacement", "symlink"] {
             reader.proof(2).unwrap();

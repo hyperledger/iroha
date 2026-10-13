@@ -625,7 +625,7 @@ fn native_control_capacity_preserves_original_wait_retry_and_unwind_custody() {
             &partial_budget,
             super::tests::control(&stop)
         ),
-        Err(SccpNativeReadError::Source(_)) | Err(SccpNativeReadError::Allocation(_))
+        Err(SccpNativeReadError::Source(_) | SccpNativeReadError::Allocation(_))
     ));
     assert_eq!(partial_budget.reserved_bytes(), 0);
     assert_eq!(native.certified_result().header().as_bytes(), &original);

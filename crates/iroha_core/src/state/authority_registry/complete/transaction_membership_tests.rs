@@ -38,8 +38,8 @@ fn limits() -> MembershipCaptureLimits {
         },
         max_row_visits: 64,
         max_total_rows: 32,
-        max_total_streamed_bytes: 131072,
-        max_total_ordered_bytes: 131072,
+        max_total_streamed_bytes: 131_072,
+        max_total_ordered_bytes: 131_072,
     }
 }
 fn seeded() -> TransactionsStorage {
@@ -253,9 +253,7 @@ fn inner_refunds_notify_only_after_original_writer_unlock_on_success_error_and_u
                     };
                     assert!(registration.poll_wait(&release, &mut context).is_pending());
                     waiting = Some(release);
-                    if mode == 2 {
-                        panic!("unwind after funded row")
-                    }
+                    assert!(mode != 2, "unwind after funded row")
                 }
                 assert_eq!(wakes.wakes.load(Ordering::SeqCst), 0);
             })
@@ -885,9 +883,7 @@ fn original_publisher_refund_batch_keeps_success_error_and_unwind_wakes_after_wr
                     let captured = captured.unwrap().unwrap();
                     assert!(captured.matches_original_writer(&block.transactions));
                     assert!(pool.reserved_bytes() > baseline);
-                    if mode == 2 {
-                        panic!("unwind after actual original pair capture")
-                    }
+                    assert!(mode != 2, "unwind after actual original pair capture");
                     drop(captured);
                 }
             });

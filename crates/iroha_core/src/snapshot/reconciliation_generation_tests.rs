@@ -180,7 +180,7 @@ async fn ordinary_signed_snapshot_rejects_kura_tail_loss_without_mutation() {
         .expect("original history read completes")
         .expect("original genesis is retained");
     let key_pair = checked_random_snapshot_keypair();
-    try_write_snapshot(&state, &snapshot_store_dir, &key_pair, TEST_CHUNK_SIZE)
+    try_write_snapshot(state, &snapshot_store_dir, &key_pair, TEST_CHUNK_SIZE)
         .expect("snapshot write");
     let pointer_before =
         std::fs::read(snapshot_store_dir.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap();
@@ -735,7 +735,7 @@ async fn snapshot_restore_reads_the_committed_zk_policy_under_divergent_node_set
         assert_eq!(policy_of(&snapshot_state.view().zk), policy);
         assert_eq!(policy_of(&snapshot_state.zk_snapshot()), policy);
         // The node contributed its local resources and nothing else.
-        assert!(node_validity_overrides(&snapshot_state.installed_zk()).is_empty());
+        assert!(node_validity_overrides(snapshot_state.installed_zk()).is_empty());
         assert_eq!(
             snapshot_state.installed_zk().trace.worker_threads,
             node.trace.worker_threads

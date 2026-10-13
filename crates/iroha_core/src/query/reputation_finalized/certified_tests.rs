@@ -31,7 +31,7 @@ fn certified_reputation_chain() -> CertifiedTestChain {
         por_recorder_authority: authority.clone(),
         dispute_recorder_authority: authority.clone(),
         token_recorder_authority: authority.clone(),
-        stream_token_delivery: Default::default(),
+        stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
         max_source_age_ms: REPUTATION_JOURNAL_MAX_SOURCE_AGE_MS_V1,
     };
     config.genesis_instructions.extend([

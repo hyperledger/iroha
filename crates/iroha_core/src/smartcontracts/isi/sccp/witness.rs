@@ -61,7 +61,6 @@ pub(crate) fn require_exact_delta(
         return Err(norito::Error::NonCanonicalEncoding);
     }
     if let Some(write) = found {
-        let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
         struct Exact<'a>(&'a [u8]);
         impl std::io::Write for Exact<'_> {
             fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -75,6 +74,8 @@ pub(crate) fn require_exact_delta(
                 Ok(())
             }
         }
+
+        let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
         let mut exact = Exact(&write.value);
         norito::core::write_canonical_to_writer(&expected, &mut exact)?;
         if !exact.0.is_empty() {

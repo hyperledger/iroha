@@ -445,7 +445,7 @@ fn nonempty_lane_graph_is_borrowed_from_the_original_charged_frame() {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::new(1),
             incarnation: [1; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee,
             created_at: 1,
             active_from: 3,

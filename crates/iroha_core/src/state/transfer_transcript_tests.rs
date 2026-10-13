@@ -471,7 +471,7 @@ fn check_detached_asset_transfer_matches_sequential_transcript_and_events() {
         anchor_freshness: 16,
         max_merge_blocks: 8,
         stall_window: 100,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: [second_lane, rejected_lane]
             .into_iter()
             .map(|lane| SumeragiFixedLane {
@@ -879,11 +879,8 @@ fn check_detached_asset_transfer_matches_sequential_transcript_and_events() {
         balance(&state_existing_tx, &bob_asset_id),
         Quantity::from(3_u32)
     );
-    assert_eq!(
-        balance(&state_batch, &alice_asset_id),
-        Quantity::from(5_u32)
-    );
-    assert_eq!(balance(&state_batch, &bob_asset_id), Quantity::from(5_u32));
+    assert_eq!(balance(state_batch, &alice_asset_id), Quantity::from(5_u32));
+    assert_eq!(balance(state_batch, &bob_asset_id), Quantity::from(5_u32));
     assert_eq!(
         balance(&state_seq, &alice_asset_id),
         balance(&state_det, &alice_asset_id)

@@ -320,7 +320,7 @@ impl RetainedSccpGeneration {
         budget: &AllocationBudget,
         validate: bool,
     ) -> Result<Self, GenerationRecordError> {
-        if source.len() % 2 != 0 {
+        if !source.len().is_multiple_of(2) {
             return Err(GenerationRecordError::Invalid("snapshot record"));
         }
         let byte_count = source.len() / 2;

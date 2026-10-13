@@ -45,13 +45,16 @@ fn partition_respects_frame_cap() {
             },
         ],
     );
-    let partitioned_hashes: Vec<_> = partitioned
+    let partitioned_inputs: Vec<_> = partitioned
         .message
         .txs
         .iter()
-        .map(|tx| tx.as_signed().hash())
+        .map(|tx| tx.clone().into_entrypoint_with_payload().unwrap().0)
         .collect();
-    assert_eq!(partitioned_hashes, vec![small_signed.hash()]);
+    assert_eq!(
+        partitioned_inputs,
+        vec![TransactionEntrypoint::External(small_signed.clone())]
+    );
     assert_eq!(
         partitioned.encoded_len,
         norito::codec::Encode::encode(&partitioned.message).len()
@@ -140,7 +143,14 @@ fn gossip_roundtrip_preserves_cached_payload() {
         Decode::decode(&mut encoded.as_slice()).expect("decode gossip");
     assert_eq!(decoded.txs.len(), 1);
     assert_eq!(decoded.routes.len(), 1);
-    assert_eq!(decoded.txs[0].as_signed().hash(), signed.hash());
+    assert_eq!(
+        decoded.txs[0]
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0,
+        TransactionEntrypoint::External(signed.clone())
+    );
     assert_eq!(decoded.txs[0].encoded.as_slice(), payload.as_slice());
     assert_eq!(decoded.routes[0].lane_id, LaneId::SINGLE);
     assert_eq!(decoded.routes[0].dataspace_id, DataSpaceId::UNIVERSAL);
@@ -172,11 +182,23 @@ fn gossip_roundtrip_preserves_sealed_commitment_entrypoint() {
         Decode::decode(&mut encoded.as_slice()).expect("decode gossip");
     assert_eq!(decoded.txs.len(), 1);
     assert!(matches!(
-        decoded.txs[0].as_entrypoint(),
+        decoded.txs[0]
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0,
         TransactionEntrypoint::SealedCommitment(_)
     ));
     assert_eq!(decoded.txs[0].hash(), expected_hash);
-    assert_eq!(decoded.txs[0].as_entrypoint().hash(), expected_hash);
+    assert_eq!(
+        decoded.txs[0]
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0
+            .hash(),
+        expected_hash
+    );
     assert_eq!(decoded.txs[0].encoded.as_slice(), payload.as_slice());
 }
 #[test]
@@ -198,7 +220,11 @@ fn partition_gossip_batch_keeps_sealed_commitments() {
     assert_eq!(partitioned.message.txs.len(), 1);
     assert!(partitioned.requeue.is_empty());
     assert!(matches!(
-        partitioned.message.txs[0].as_entrypoint(),
+        partitioned.message.txs[0]
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0,
         TransactionEntrypoint::SealedCommitment(_)
     ));
 }
@@ -366,7 +392,14 @@ fn gossip_roundtrip_preserves_large_ram_lfe_policy_transaction() {
     let gossip_tx_encoded = gossip_tx.encode();
     let gossip_tx_decoded: GossipTransaction =
         Decode::decode(&mut gossip_tx_encoded.as_slice()).expect("decode gossip transaction");
-    assert_eq!(gossip_tx_decoded.as_signed().hash(), signed.hash());
+    assert_eq!(
+        gossip_tx_decoded
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0,
+        TransactionEntrypoint::External(signed.clone())
+    );
     let message = TransactionGossip {
         txs: vec![gossip_tx],
         routes: vec![GossipRoute {
@@ -380,7 +413,14 @@ fn gossip_roundtrip_preserves_large_ram_lfe_policy_transaction() {
     let decoded: TransactionGossip =
         Decode::decode(&mut encoded.as_slice()).expect("decode gossip");
     assert_eq!(decoded.txs.len(), 1);
-    assert_eq!(decoded.txs[0].as_signed().hash(), signed.hash());
+    assert_eq!(
+        decoded.txs[0]
+            .clone()
+            .into_entrypoint_with_payload()
+            .unwrap()
+            .0,
+        TransactionEntrypoint::External(signed.clone())
+    );
 }
 #[test]
 fn gossip_network_message_roundtrip_preserves_cached_payload() {
@@ -406,7 +446,14 @@ fn gossip_network_message_roundtrip_preserves_cached_payload() {
         NetworkMessage::TransactionGossiper(message) => {
             assert_eq!(message.txs.len(), 1);
             assert_eq!(message.routes.len(), 1);
-            assert_eq!(message.txs[0].as_signed().hash(), signed.hash());
+            assert_eq!(
+                message.txs[0]
+                    .clone()
+                    .into_entrypoint_with_payload()
+                    .unwrap()
+                    .0,
+                TransactionEntrypoint::External(signed.clone())
+            );
             assert_eq!(message.txs[0].encoded.as_slice(), payload.as_slice());
             assert_eq!(message.routes[0].lane_id, LaneId::SINGLE);
             assert_eq!(message.routes[0].dataspace_id, DataSpaceId::UNIVERSAL);
@@ -477,13 +524,16 @@ fn partition_respects_max_count() {
             },
         ],
     );
-    let hashes: Vec<_> = partitioned
+    let inputs: Vec<_> = partitioned
         .message
         .txs
         .iter()
-        .map(|tx| tx.as_signed().hash())
+        .map(|tx| tx.clone().into_entrypoint_with_payload().unwrap().0)
         .collect();
-    assert_eq!(hashes, vec![tx_a_signed.hash()]);
+    assert_eq!(
+        inputs,
+        vec![TransactionEntrypoint::External(tx_a_signed.clone())]
+    );
     assert_eq!(partitioned.requeue, vec![tx_b_signed.hash_as_entrypoint()]);
 }
 #[test]

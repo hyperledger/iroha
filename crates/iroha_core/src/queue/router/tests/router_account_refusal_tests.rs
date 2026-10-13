@@ -359,7 +359,7 @@ fn fallible_rule_selection_keeps_first_match_and_skips_inapplicable_query_rules(
     })
     .unwrap()
     .unwrap();
-    assert!(std::ptr::eq(selected, &rules[0]));
+    assert!(std::ptr::eq(selected, &raw const rules[0]));
     let mut instruction_only = rules[1].clone();
     instruction_only.matcher.instruction = Some("transfer".into());
     assert_eq!(

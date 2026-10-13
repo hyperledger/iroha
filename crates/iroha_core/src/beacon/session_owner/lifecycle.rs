@@ -27,6 +27,10 @@ pub struct RetainedFinalizedGlobalThresholdBeaconSessionV1 {
 impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Authenticate and admit a canonical signed or restored lifecycle record.
     /// Every fallible graph/control operation completes before callers install the row.
+    ///
+    /// # Errors
+    /// Rejects invalid session proofs or lifecycle ordering; preserves original graph and control
+    /// admission and allocation refusals.
     pub fn admit(
         source: &FinalizedGlobalThresholdBeaconKeySessionRecordV1,
         budget: &AllocationBudget,
@@ -48,6 +52,9 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         Ok(record)
     }
     /// Recheck only mutable lifecycle ordering; immutable transcript authenticity is sealed.
+    ///
+    /// # Errors
+    /// Rejects activation before finalization, retirement without activation or nonincreasing retirement.
     pub fn validate(&self) -> Result<(), GlobalThresholdBeaconError> {
         validate_lifecycle(
             self.session.adaptive_dkg.finalized_at_height,
@@ -56,6 +63,10 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         )
     }
     /// Activate at the exact committed height without cloning or revalidating public proofs.
+    ///
+    /// # Errors
+    /// Rejects invalid lifecycle ordering, a retired session, activation before finalization or
+    /// a different previously committed activation height.
     pub fn activate(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         if self.retired_at_height.is_some()
@@ -75,6 +86,10 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         }
     }
     /// Retire at a strictly later committed height while retaining the identical graph owner.
+    ///
+    /// # Errors
+    /// Rejects invalid lifecycle ordering, missing activation, nonincreasing retirement or
+    /// a different previously committed retirement height.
     pub fn retire(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         let activated = self

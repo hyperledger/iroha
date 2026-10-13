@@ -282,7 +282,7 @@ fn outcome(fixture: &Fixture, activate: bool) -> ValidatorEpochAuthorizationV1 {
         } else {
             ValidatorEpochDecisionV1::RetainAndCancel
         },
-        authority_generation: if activate { 1 } else { 0 },
+        authority_generation: u64::from(activate),
         authority_id: if activate {
             fixture
                 .transition
@@ -405,12 +405,7 @@ fn committee_bls_consent_and_beacon_readiness_reject_network_generation_replay()
 #[test]
 fn committee_pending_transcript_cannot_activate_or_escape_its_attempt_cutoff() {
     let fixture = fixture(7);
-    let peers = fixture
-        .incumbent
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let peers = fixture.incumbent.validators.clone();
     let view = fixture.world.view();
     let record = view
         .global_beacon_key_sessions()
@@ -474,12 +469,7 @@ fn committee_pending_transcript_cannot_activate_or_escape_its_attempt_cutoff() {
 #[test]
 fn committee_bootstrap_beacon_requires_the_exact_genesis_authority() {
     let fixture = fixture(4);
-    let peers = fixture
-        .incumbent
-        .validators
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let peers = fixture.incumbent.validators.clone();
     let BeaconEpochBindingV1::Installed(binding) = fixture.authorization.beacon else {
         panic!("installed fixture")
     };

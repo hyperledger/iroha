@@ -11,7 +11,9 @@ fn pending_execution_retains_one_source_and_publishes_once() {
     let kura = Arc::clone(chain.kura());
     let proposal = chain.proposal(Some(2000), Vec::new());
     let source_hash = proposal.hash();
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let result = pending.result();
     let inspect = |original: super::super::super::executor::PendingExecutionView<'_, '_>| {
         original
@@ -73,7 +75,9 @@ fn original_wire_witness_and_world_tampering_fail_before_durable_staging() {
         let budget = state.ivm_execution_budget();
         let parent = chain.committed(1).block().encode_wire().unwrap();
         let proposal = chain.proposal(Some(2000), Vec::new());
-        let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+        let mut pending = chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+            .unwrap();
         let original_result = pending.result();
         pending
             .inspect(move |mut original| {
@@ -86,14 +90,15 @@ fn original_wire_witness_and_world_tampering_fail_before_durable_staging() {
                     .unwrap();
                 match mutation {
                     0 => {
-                        let hash = original.block.as_ref().hash();
-                        let wire = original.block.as_ref().encode_wire().unwrap();
-                        let key = KeyPair::from_seed(vec![0x91; 32], Algorithm::Ed25519);
                         use iroha_data_model::block::{BlockSignatures, PreparedBlockSignatures};
                         use norito::{
                             SerializePayload,
                             core::{DecodeFlagsGuard, Encoder, SequenceSpan},
                         };
+
+                        let hash = original.block.as_ref().hash();
+                        let wire = original.block.as_ref().encode_wire().unwrap();
+                        let key = KeyPair::from_seed(vec![0x91; 32], Algorithm::Ed25519);
 
                         assert!(original.block.as_ref().signatures_admitted_to(&budget));
                         let signature = iroha_data_model::block::BlockSignature::new(
@@ -278,7 +283,9 @@ fn pending_execution_rejects_inexact_quorum_without_publication() {
         let mut chain = chain();
         let kura = Arc::clone(chain.kura());
         let proposal = chain.proposal(Some(2000), Vec::new());
-        let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+        let mut pending = chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+            .unwrap();
         assert!(pending.prepare(signers).is_err());
         assert!(
             pending
@@ -295,12 +302,18 @@ fn discarded_unprepared_execution_leaves_original_state_unchanged() {
     let mut chain = chain();
     let state = Arc::clone(chain.state());
     let proposal = chain.proposal(Some(2000), Vec::new());
-    let pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     drop(pending);
     let next = chain.proposal(Some(2000), Vec::new());
     assert_eq!(state.view().height(), 1);
     assert_eq!(state.kura().blocks_count(), 1);
-    chain.commit_proposal(next, Signers::Quorum, Default::default());
+    chain.commit_proposal(
+        next,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     assert_eq!(state.view().height(), 2);
 }
 

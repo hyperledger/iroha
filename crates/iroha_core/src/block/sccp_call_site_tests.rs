@@ -296,7 +296,11 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
     let expected_next = expected(GENESIS_HEIGHT + 1);
     let proposal = chain.proposal(None, vec![transaction]);
     let worker_inputs = observed::for_header(&proposal.header());
-    chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    chain.commit_proposal(
+        proposal,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     assert_eq!(
         worker_inputs.take(),
         vec![(GENESIS_HEIGHT + 1, Some(expected_next))],

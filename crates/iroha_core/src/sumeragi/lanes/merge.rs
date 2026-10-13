@@ -17,6 +17,8 @@ use crate::execution_attempt::ExecutionAttemptError as Attempt;
 
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
 
+use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
+use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     block::{ExternalExecutionContext, SignedBlock},
     sumeragi_lanes::{SumeragiLaneMerge, SumeragiLanePolicy, SumeragiLaneState},
@@ -132,6 +134,9 @@ pub enum MergeError {
     /// Original routing State could not be read locally; the certified input remains retryable.
     #[error("lane routing deferred: {0}")]
     RoutingDeferred(#[from] crate::execution_attempt::ExecutionDeferred),
+    /// Original merge scratch refused its finite operation budget; retain the exact proposal.
+    #[error("lane merge resource deferred: {0}")]
+    ResourceDeferred(crate::execution_attempt::ExecutionDeferred),
     /// Local storage failed; this does not prove that a peer's global block is invalid.
     #[error("lane storage failed: {0}")]
     Storage(#[source] Attempt<std::io::Error>),
@@ -268,17 +273,20 @@ pub fn expand<'state>(
     source: &dyn LaneBlockSource,
     wait: Duration,
 ) -> Result<Expansion<'state>, MergeError> {
-    let publication = state.view_publication_release();
-    let generation = state.state_view_generation();
-    let view = state.try_view_once()?;
-    let expanded = expand_from_view(state, generation, &view, proposal, source, wait);
-    drop(view);
-    if !is_stable_state_view_generation(generation, state.state_view_generation()) {
-        return Err(MergeError::StateView(crate::state::StateViewError::Busy(
-            publication,
-        )));
-    }
-    expanded
+    let budget = state.ivm_execution_budget();
+    budget.with_deferred_refund_notifications(|_| {
+        let publication = state.view_publication_release();
+        let generation = state.state_view_generation();
+        let view = state.try_view_once()?;
+        let expanded = expand_from_view(state, generation, &view, proposal, source, wait);
+        drop(view);
+        if !is_stable_state_view_generation(generation, state.state_view_generation()) {
+            return Err(MergeError::StateView(crate::state::StateViewError::Busy(
+                publication,
+            )));
+        }
+        expanded
+    })
 }
 
 fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
@@ -304,16 +312,12 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
         .insert(GLOBAL_LANE, u64::try_from(own.len()).unwrap_or(u64::MAX));
     if routing.has_lanes() {
         for entrypoint in own {
-            if let TransactionEntrypoint::External(tx) = entrypoint {
-                let accepted = AcceptedTransaction::new_unchecked(Cow::Borrowed(tx));
-                let lane = inputs.route(&accepted, height)?.ok_or_else(|| {
-                    MergeError::Invalid(
-                        "concrete dataspace has no active native execution lane".into(),
-                    )
-                })?;
-                if lane != GLOBAL_LANE {
-                    *step.rescued.entry(lane).or_default() += 1;
-                }
+            let accepted = AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(entrypoint));
+            let lane = inputs.route(&accepted, height)?.ok_or_else(|| {
+                MergeError::Invalid("concrete dataspace has no active native execution lane".into())
+            })?;
+            if lane != GLOBAL_LANE {
+                *step.rescued.entry(lane).or_default() += 1;
             }
         }
     }
@@ -338,7 +342,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     let Some(policy) = policy else {
         return Err(MergeError::Invalid("the chain has no lane policy".into()));
     };
-    let blocks = load(&section.merges, lanes, &policy, height, source, wait)?;
+    let blocks = load(&section.merges, lanes, policy, height, source, wait)?;
     step.merges.clone_from(&section.merges);
     // Candidates: the transactions of fresh merged blocks, in execution order.
     let candidates = blocks
@@ -363,10 +367,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
             section.time_floor_ms
         )));
     }
-    let mut seen = own
-        .iter()
-        .map(TransactionEntrypoint::hash)
-        .collect::<std::collections::BTreeSet<_>>();
+    let mut identities = MergeIdentityIndex::new(own, &candidates, &state.ivm_execution_budget())?;
     let admission = Admissibility::of(view);
     let mut expansion = Expansion {
         state,
@@ -376,14 +377,20 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
         contexts: Vec::new(),
         step,
     };
-    for (lane, tx) in candidates {
-        let accepted = AcceptedTransaction::new_unchecked(Cow::Owned(tx));
-        let hash = accepted.hash_as_entrypoint();
+    for (index, (lane, tx)) in candidates.into_iter().enumerate() {
+        let accepted = AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(&tx));
+        let cached = identities.candidates.as_slice()[index];
+        let hash = cached.carrier;
         if inputs.route(&accepted, height)? != Some(lane)
             || view.has_entrypoint(hash)
-            || !seen.insert(hash)
-            || !admission.admits(accepted.as_ref(), proposal)
+            || cached
+                .replay_alias
+                .is_some_and(|alias| view.has_entrypoint(alias))
+            || !admission.admits(&tx, proposal)
         {
+            continue;
+        }
+        if !identities.admit(cached.work) {
             continue;
         }
         // `load` verified the range against this exact committed incarnation; routing
@@ -400,12 +407,131 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
             record.lane,
             record.dataspace,
         ));
-        expansion
-            .entrypoints
-            .push(TransactionEntrypoint::External(accepted.as_ref().clone()));
+        let original = tx;
+        let original = if cfg!(all(test, sumeragi_core_mutation = "HC276")) {
+            match original {
+                TransactionEntrypoint::SealedReveal(reveal) => {
+                    TransactionEntrypoint::External(reveal.signed_transaction)
+                }
+                original => original,
+            }
+        } else {
+            original
+        };
+        expansion.entrypoints.push(original);
         *expansion.step.executed.entry(lane).or_default() += 1;
     }
     Ok(expansion)
+}
+
+/// The work identity checked by global static validation. This is distinct from
+/// the original carrier hash retained in LaneResult and Expansion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum MergeWorkIdentity {
+    Signed(HashOf<SignedTransaction>),
+    Commitment(Hash),
+}
+impl MergeWorkIdentity {
+    fn of(entrypoint: &TransactionEntrypoint) -> Self {
+        match entrypoint {
+            TransactionEntrypoint::External(signed) => Self::Signed(signed.hash()),
+            TransactionEntrypoint::SealedReveal(reveal) => {
+                Self::Signed(reveal.signed_transaction().hash())
+            }
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                Self::Commitment(*commitment.commitment())
+            }
+        }
+    }
+}
+
+/// Hash each canonical identity once before admission. The replay alias exists
+/// only for reveals and is the same signed external identity used by State admission.
+#[derive(Clone, Copy)]
+struct MergeCandidateIdentity {
+    carrier: HashOf<TransactionEntrypoint>,
+    work: MergeWorkIdentity,
+    replay_alias: Option<HashOf<TransactionEntrypoint>>,
+}
+
+/// Fixed original-budget scratch: linear source hashing, in-place O(N log N)
+/// key ordering and logarithmic lookups. No key or backing grows during admission.
+struct MergeIdentityIndex {
+    rows: ChargedBuffer<(MergeWorkIdentity, bool)>,
+    candidates: ChargedBuffer<MergeCandidateIdentity>,
+}
+impl MergeIdentityIndex {
+    fn new(
+        own: &[TransactionEntrypoint],
+        candidates: &[(LaneId, TransactionEntrypoint)],
+        budget: &AllocationBudget,
+    ) -> Result<Self, MergeError> {
+        let count = own.len().checked_add(candidates.len()).ok_or_else(|| {
+            MergeError::ResourceDeferred(iroha_allocation::AllocationRefusal::DemandOverflow.into())
+        })?;
+        let mut rows = ChargedBuffer::new(count, budget).map_err(merge_buffer_refusal)?;
+        let mut cached =
+            ChargedBuffer::new(candidates.len(), budget).map_err(merge_buffer_refusal)?;
+        for entrypoint in own {
+            rows.push_reserved((MergeWorkIdentity::of(entrypoint), true));
+        }
+        for (_, entrypoint) in candidates {
+            let identity = MergeWorkIdentity::of(entrypoint);
+            let replay_alias = match entrypoint {
+                TransactionEntrypoint::SealedReveal(reveal) => {
+                    Some(reveal.signed_transaction().hash_as_entrypoint())
+                }
+                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedCommitment(_) => {
+                    None
+                }
+            };
+            cached.push_reserved(MergeCandidateIdentity {
+                carrier: entrypoint.hash(),
+                work: identity,
+                replay_alias,
+            });
+            rows.push_reserved((identity, false));
+        }
+        rows.as_mut_slice().sort_unstable_by_key(|row| row.0);
+        let mut unique = 0;
+        for index in 0..rows.as_slice().len() {
+            let row = rows.as_slice()[index];
+            if unique > 0 && rows.as_slice()[unique - 1].0 == row.0 {
+                rows.as_mut_slice()[unique - 1].1 |= row.1;
+            } else {
+                rows.as_mut_slice()[unique] = row;
+                unique += 1;
+            }
+        }
+        rows.truncate(unique);
+        Ok(Self {
+            rows,
+            candidates: cached,
+        })
+    }
+
+    fn admit(&mut self, identity: MergeWorkIdentity) -> bool {
+        let index = self
+            .rows
+            .as_slice()
+            .binary_search_by_key(&identity, |row| row.0)
+            .expect("every candidate identity was retained before admission");
+        let seen = &mut self.rows.as_mut_slice()[index].1;
+        if *seen {
+            return false;
+        }
+        *seen = true;
+        true
+    }
+}
+
+fn merge_buffer_refusal(error: ChargedBufferError) -> MergeError {
+    MergeError::ResourceDeferred(match error {
+        ChargedBufferError::Admission(original) => original.into(),
+        ChargedBufferError::Allocator { .. } => {
+            ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+        }
+    })
 }
 
 /// The merges a leader proposes at global height `height` over the committed state `view`
@@ -495,14 +621,11 @@ pub fn propose<V: StateReadOnly>(
 }
 
 /// One millisecond after the latest creation time among `transactions` (`0` for none).
-fn time_floor(transactions: &[SignedTransaction]) -> u64 {
+fn time_floor(transactions: &[TransactionEntrypoint]) -> u64 {
     transactions
         .iter()
-        .map(|tx| {
-            u64::try_from(tx.creation_time().as_millis())
-                .unwrap_or(u64::MAX)
-                .saturating_add(1)
-        })
+        .filter_map(TransactionEntrypoint::creation_time_ms)
+        .map(|created| created.saturating_add(1))
         .max()
         .unwrap_or(0)
 }
@@ -598,10 +721,11 @@ impl Admissibility {
         }
     }
 
-    fn admits(&self, tx: &SignedTransaction, block: &SignedBlock) -> bool {
+    fn admits(&self, tx: &TransactionEntrypoint, block: &SignedBlock) -> bool {
         let now = block.header().creation_time();
-        tx.creation_time() < now
-            && AcceptedTransaction::validate_with_now(
+        tx.creation_time_ms()
+            .is_none_or(|created| Duration::from_millis(created) < now)
+            && AcceptedTransaction::accept_borrowed_entrypoint_at_time(
                 tx,
                 &self.network,
                 self.max_clock_drift,
@@ -610,6 +734,12 @@ impl Admissibility {
                 now,
             )
             .is_ok()
+            && match tx {
+                TransactionEntrypoint::SealedCommitment(commitment) => {
+                    commitment.payload().reveal_after_height > block.header().height().get()
+                }
+                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedReveal(_) => true,
+            }
     }
 }
 

@@ -29,8 +29,7 @@ fn moderation_payload_decoder_rejects_alternate_norito_layout() {
     decode_from_bytes_with_limits::<SoraFsModerationBallotCommitV1>(&alternate, PAYLOAD_LIMITS)
         .expect("ordinary bounded Norito accepts the advertised alternate layout");
     let error = decode_payload::<SoraFsModerationBallotCommitV1>(&alternate, "moderation commit")
-        .err()
-        .expect("alternate-layout moderation payload must fail");
+        .expect_err("alternate-layout moderation payload must fail");
     assert_eq!(
         parameter_error_message(&error),
         "moderation commit payload is not exact canonical Norito"

@@ -562,9 +562,7 @@ fn validate_retained_feed<T>(
     let mut previous = prefix.pruned_through.map(position_identity);
     for event in retained_suffix {
         let event = identity(event);
-        let expected_sequence = previous.map_or(1, |previous| {
-            previous.sequence.checked_add(1).unwrap_or(u64::MAX)
-        });
+        let expected_sequence = previous.map_or(1, |previous| previous.sequence.saturating_add(1));
         let canonical_index = match previous {
             None => event.event_index == 0,
             Some(previous) if event.block_height == previous.block_height => {
@@ -3697,7 +3695,7 @@ impl ReputationFinalizedArchive {
             .next_back()
             .map(|(_, entry)| entry)
         {
-            return self.reconstruct_state(&index, entry).map(Some);
+            return self.reconstruct_state(index, entry).map(Some);
         }
         if let Some(checkpoint) = index.checkpoints.get(network_id) {
             let checkpoint = &checkpoint.persisted.checkpoint;
@@ -3835,12 +3833,12 @@ impl ReputationFinalizedArchive {
     ) -> Result<Option<PreparedReputationMaterial>, ReputationFinalizedArchiveError> {
         next_state.validate()?;
         validate_authority_policy_history(
-            &authority_policy_history,
+            authority_policy_history,
             &next_state.authority_policy,
             next_state.finalized_at_unix_ms,
         )?;
         self.verify_storage_boundaries()?;
-        require_contiguous_capture_key_in_index(&index, &next_state.key)?;
+        require_contiguous_capture_key_in_index(index, &next_state.key)?;
         let subject = (next_state.key.network_id.clone(), next_state.key.height);
         if let Some(existing) = index.by_height.get(&subject).cloned() {
             if existing.manifest.key.block_hash != next_state.key.block_hash {
@@ -3849,9 +3847,9 @@ impl ReputationFinalizedArchive {
                     height: next_state.key.height,
                 });
             }
-            if self.reconstruct_state(&index, &existing)? == *next_state
+            if self.reconstruct_state(index, &existing)? == *next_state
                 && resolve_authority_policy_history(
-                    &index,
+                    index,
                     &next_state.authority_policy,
                     next_state.finalized_at_unix_ms,
                 )? == authority_policy_history
@@ -3875,13 +3873,12 @@ impl ReputationFinalizedArchive {
             }
             validate_reconstruction_state_transition(
                 previous,
-                &next_state,
-                &authority_policy_history,
+                next_state,
+                authority_policy_history,
             )?;
         }
-        validate_reconstruction_state_against_index(&next_state, &index)?;
-        let delta =
-            build_anchor_delta_from_reconstruction_state(predecessor.as_ref(), &next_state)?;
+        validate_reconstruction_state_against_index(next_state, index)?;
+        let delta = build_anchor_delta_from_reconstruction_state(predecessor.as_ref(), next_state)?;
         self.prepare_new_state_material(
             index,
             predecessor.as_ref(),
@@ -3923,12 +3920,12 @@ impl ReputationFinalizedArchive {
         delta: ReputationFinalizedAnchorDeltaV1,
     ) -> Result<PreparedReputationMaterial, ReputationFinalizedArchiveError> {
         validate_authority_policy_history(
-            &authority_policy_history,
+            authority_policy_history,
             &next_state.authority_policy,
             next_state.finalized_at_unix_ms,
         )?;
         let authority_policy_history_digest =
-            authority_policy_history_digest(&authority_policy_history)?;
+            authority_policy_history_digest(authority_policy_history)?;
         let persisted_policies = authority_policy_history
             .iter()
             .cloned()
@@ -3995,7 +3992,7 @@ impl ReputationFinalizedArchive {
         let mut policy_total_bytes = index.total_bytes;
         for persisted_policy in persisted_policies {
             if let Some((_, existing)) =
-                policy_record_by_policy_digest(&index, persisted_policy.record.policy_digest)?
+                policy_record_by_policy_digest(index, persisted_policy.record.policy_digest)?
                 && existing != &persisted_policy.record
             {
                 return Err(ReputationFinalizedArchiveError::PolicyConflict {
@@ -4043,7 +4040,7 @@ impl ReputationFinalizedArchive {
             });
         }
         ensure_insert_capacity(
-            &index,
+            index,
             self.bounds,
             anchor_bytes_len,
             added_policy_count,
@@ -4251,7 +4248,7 @@ impl ReputationFinalizedArchive {
             });
         }
         let network_id = &fence.compact_through.network_id;
-        if active_checkpoint_digest(&index, network_id) != fence.expected_checkpoint_digest {
+        if active_checkpoint_digest(index, network_id) != fence.expected_checkpoint_digest {
             return Err(ReputationFinalizedArchiveError::InvalidRetentionFence {
                 reason: "retention fence does not bind the active checkpoint head",
             });
@@ -4278,7 +4275,7 @@ impl ReputationFinalizedArchive {
                 reason: "retention fence exact key or anchor digest was substituted",
             });
         }
-        let state = self.reconstruct_state(&index, &target)?;
+        let state = self.reconstruct_state(index, &target)?;
         let anchors = index
             .by_height
             .range((
@@ -4347,10 +4344,7 @@ impl ReputationFinalizedArchive {
                 (
                     material.original_activation_floor.clone(),
                     Some(checkpoint.persisted.checkpoint_digest),
-                    material
-                        .checkpoint_generation
-                        .checked_add(1)
-                        .unwrap_or(u64::MAX),
+                    material.checkpoint_generation.saturating_add(1),
                     material.cumulative_pruned_anchor_count,
                     material.cumulative_pruned_anchor_bytes,
                     material.cumulative_anchor_prefix_digest,
@@ -4382,7 +4376,7 @@ impl ReputationFinalizedArchive {
             })?;
         let authority_policy_history_digest =
             authority_policy_history_digest(&resolve_authority_policy_history(
-                &index,
+                index,
                 &state.authority_policy,
                 state.finalized_at_unix_ms,
             )?)?;
@@ -4901,6 +4895,12 @@ impl ReputationFinalizedArchive {
     }
     #[cfg(test)]
     /// Page retained reputation-journal events at one exact archived anchor.
+    ///
+    /// # Errors
+    /// Returns an archive error if bound storage or the exact anchor cannot be
+    /// authenticated/reconstructed, the limit is invalid, or a cursor conflicts
+    /// with retained history. A cursor before the pruned feed prefix instead
+    /// returns a successful `HistoryPruned` page.
     pub fn page_journal_events(
         &self,
         key: &ReputationFinalizedArchiveKeyV1,
@@ -6783,10 +6783,7 @@ fn prepare_checkpoint_publication(
             maximum_entries: bounds.max_entries.get(),
             proposed_policy_entries: index.policy_count,
             maximum_policy_entries: bounds.max_entries.get(),
-            proposed_bytes: index
-                .total_bytes
-                .checked_add(checkpoint_bytes_len)
-                .unwrap_or(u64::MAX),
+            proposed_bytes: index.total_bytes.saturating_add(checkpoint_bytes_len),
             maximum_bytes: bounds.max_total_bytes,
         });
     }
@@ -6835,11 +6832,8 @@ fn ensure_insert_capacity(
     added_policy_count: usize,
     added_policy_bytes: u64,
 ) -> Result<(), ReputationFinalizedArchiveError> {
-    let proposed_entries = index.anchor_count.checked_add(1).unwrap_or(usize::MAX);
-    let proposed_policy_entries = index
-        .policy_count
-        .checked_add(added_policy_count)
-        .unwrap_or(usize::MAX);
+    let proposed_entries = index.anchor_count.saturating_add(1);
+    let proposed_policy_entries = index.policy_count.saturating_add(added_policy_count);
     let proposed_bytes = index
         .total_bytes
         .checked_add(anchor_bytes)
@@ -6977,11 +6971,11 @@ fn authority_policy_history_digest(
     }
     Ok(*hasher.finalize().as_bytes())
 }
-fn policy_record_by_policy_digest<'a>(
-    index: &'a ArchiveIndex,
+fn policy_record_by_policy_digest(
+    index: &ArchiveIndex,
     policy_digest: [u8; 32],
 ) -> Result<
-    Option<([u8; 32], &'a ReputationJournalAuthorityPolicyRecordV1)>,
+    Option<([u8; 32], &ReputationJournalAuthorityPolicyRecordV1)>,
     ReputationFinalizedArchiveError,
 > {
     let mut matches = index
@@ -9451,7 +9445,7 @@ mod tests {
             por_recorder_authority: account(1),
             dispute_recorder_authority: account(2),
             token_recorder_authority: account(3),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: REPUTATION_JOURNAL_MAX_SOURCE_AGE_MS_V1,
         };
         ReputationFinalizedProjectionV1 {

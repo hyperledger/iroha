@@ -363,7 +363,7 @@ fn derive_lifecycle_lane_incarnations(
         let incarnation = if changed_lanes.contains(&lane.id) {
             let prior = previous_lineage.get(&lane.id).copied();
             let prior_present = [u8::from(prior.is_some())];
-            let prior = prior.unwrap_or(LaneIncarnationLineage {
+            let prior = prior.unwrap_or_else(|| LaneIncarnationLineage {
                 generation: 0,
                 incarnation: Hash::prehashed([0; Hash::LENGTH]),
                 activation_height: 0,

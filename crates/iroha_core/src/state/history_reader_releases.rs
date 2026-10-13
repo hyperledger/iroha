@@ -29,6 +29,7 @@ pub(crate) struct StateViewReleases<'state> {
 /// This is only cleanup custody; it grants no read or publication authority.
 #[must_use = "retain original read notices through every enclosing physical owner"]
 pub(crate) struct StateViewRetirement {
+    _geometry: crate::kura::KuraPublicationReleases,
     _indexes: [DeferredReleaseBatch; 12],
     _hashes: Option<DeferredReleaseBatch>,
     _membership: DeferredReleaseBatch,
@@ -67,6 +68,7 @@ impl<'state> StateViewReleases<'state> {
     /// End read authority while retaining all original notices through later mutation.
     pub(crate) fn into_retirement(self) -> StateViewRetirement {
         let LaneLifecycleReleases {
+            geometry,
             hashes,
             membership,
             world,
@@ -84,6 +86,7 @@ impl<'state> StateViewReleases<'state> {
             hydrated,
         } = self.lifecycle;
         StateViewRetirement {
+            _geometry: geometry,
             _indexes: [
                 prepared_cache.into_releases(),
                 crypto.into_releases(),

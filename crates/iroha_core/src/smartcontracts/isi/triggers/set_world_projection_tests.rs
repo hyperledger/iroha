@@ -330,16 +330,17 @@ fn semantic_trigger_reader_rejects_changed_action_and_omitted_row() {
 
 #[test]
 fn borrowed_contract_commits_only_bytecode_and_rejects_stale_derived_hash() {
+    #[derive(Encode)]
+    struct OriginalContractOnly {
+        original_contract: IvmBytecode,
+    }
+
     let blob = halt_blob();
     let entry = IvmBytecodeEntry {
         code_hash: ivm::contract_code_hash(blob.as_ref()),
         original_contract: blob,
         count: NonZeroU64::MIN,
     };
-    #[derive(Encode)]
-    struct OriginalContractOnly {
-        original_contract: IvmBytecode,
-    }
     assert_eq!(
         BorrowedWorldContract::from(&entry).encode(),
         OriginalContractOnly {

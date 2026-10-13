@@ -1146,6 +1146,68 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("same direct payment identity charges one execution fee across distinct carriers",
           "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
 
+    m("HC277", "Queue SCCP classification: acquire committed history for ordinary nonexempt work",
+      ["queue::tests::ordinary_sccp_admission_needs_no_history_but_exempt_shapes_bind_original_time"],
+      causes=(ExpectedFailure("ordinary fee-paying work has no SCCP committed-history dependency",
+          "crates/iroha_core/src/queue/current_admission_tests.rs"),)),
+
+    m("HC280", "Lane registry retirement and recovery: notify the original pool under its registry lock",
+      ['sumeragi::lanes::registry::tests::original_runtime_opening_explicit_retirement_refunds_after_registry_unlock',
+       'sumeragi::lanes::registry::tests::original_runtime_opening_applied_retirement_refunds_after_registry_unlock',
+       'sumeragi::lanes::registry::tests::original_runtime_opening_recovery_refunds_after_registry_unlock',
+       'sumeragi::lanes::registry::tests::original_runtime_retirement_refunds_after_registry_and_runner_unlock'],
+      causes=tuple(ExpectedFailure(cause, "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs")
+          for cause in [
+              *(["original lane store refund must run after the registry lock releases"] * 3),
+              "original lane retirement refund must wait for both registry and runner unlock",
+          ])),
+
+    m("HC284", "Geometry claim release: wake original watch callbacks under physical publication owners",
+      ['kura::lane_geometry::tests::original_watch_release_tests::original_geometry_captured_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_applied_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_catalog_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_pure_drop_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_partial_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_unwind_watch_follows_physical_cleanup', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_direct_state_completion', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_owners', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_unwind', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_unwind_watch_follows_physical_cleanup'],
+      causes=tuple(ExpectedFailure('original geometry watch must wait for all physical owners', path)
+          for path in ['crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs'])),
+
+    m("HC283", "Native lane history: refund original authenticated scan owners under the scan mutex",
+      ['sumeragi::runtime_availability::refund_tests::original_history_scan_progress_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_finish_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancellation_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_stale_cut_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_terminal_cleanup_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancelled_error_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_invalid_prefix_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_refused_retry_refunds_after_scan_unlock'],
+      causes=tuple(ExpectedFailure("original history refund must wait for scan unlock",
+          "crates/iroha_core/src/sumeragi/runtime_availability/refund_tests.rs")
+          for _ in range(8))),
+
+    m("HC282", "Lane store completion: release original charged owners under state or enclosing batch guards",
+      ['sumeragi::lanes::store::refund_tests::original_lane_body_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_batch_refund_waits_for_both_original_guards',
+       'sumeragi::lanes::store::refund_tests::original_lane_entry_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_authenticated_height_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_append_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_repeated_append_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_rejected_append_refund_waits_for_state_unlock',
+       'sumeragi::lanes::store::refund_tests::original_lane_opening_refund_follows_complete_recovery_cleanup'],
+      causes=tuple(ExpectedFailure(cause, "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs")
+          for cause in [
+              *(["original lane operation refund must wait for both state and batch unlock"] * 7),
+              "original lane opening refund must wait for completed recovery cleanup",
+          ])),
+
+    m("HC281", "Lane reconciliation: retain the running topology lock through original store retirement",
+      ["sumeragi::lanes::registry::tests::original_runtime_retirement_refunds_after_registry_and_runner_unlock"],
+      causes=(ExpectedFailure("original lane retirement refund must wait for both registry and runner unlock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC279", "Ingress route retirement: refund the original sink under the route writer",
+      ["sumeragi::net::tests::ingress_unregister_refunds_outside_original_route_lock"],
+      causes=(ExpectedFailure("original ingress refund must run after the route lock releases",
+          "crates/iroha_core/src/sumeragi/net.rs"),)),
+
+    m("HC278", "Native Queue sampling: acquire SCCP history before an eligible candidate needs it",
+      ["queue::tests::native_sampling_only_requires_original_time_for_live_sccp_candidates"],
+      causes=(ExpectedFailure("ordinary native sampling has no SCCP committed-history dependency",
+          "crates/iroha_core/src/queue/pressure_resync_tests.rs"),)),
+
+    m("HC276", "Native lane merge: replace an authenticated sealed reveal with its inner external transaction",
+      ["sumeragi::lanes::merge::tests::sealed_entrypoints::certified_merge_retains_sealed_carrier_and_enforces_original_salt_before_execution"],
+      causes=(ExpectedFailure("certified lane merge retains the complete original entrypoint",
+          "crates/iroha_core/src/sumeragi/lanes/merge_tests/sealed_entrypoints.rs"),)),
+
     m("HC275", "Native append: discard the original physical State authority read release",
       ["state::tests::publication_effect_manifest_tests::original_append_driver_retains_manifest_release_without_timer_or_foreign_wake"],
       causes=(ExpectedFailure("the original append scheduler must retain its physical State release",

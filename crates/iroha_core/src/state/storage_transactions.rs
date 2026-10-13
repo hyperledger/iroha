@@ -310,7 +310,7 @@ fn admit_tip(
         transactions: TipKeys(keys),
         height,
         #[cfg(test)]
-        retirement_observer: Default::default(),
+        retirement_observer: std::sync::OnceLock::default(),
     }))
 }
 
@@ -395,7 +395,7 @@ fn admit_tip_from_sources<I: ExactSizeIterator<Item = Key>>(
         transactions: TipKeys(keys),
         height,
         #[cfg(test)]
-        retirement_observer: Default::default(),
+        retirement_observer: std::sync::OnceLock::default(),
     }))
 }
 impl TransactionsStorage {
@@ -700,7 +700,7 @@ where
     } else {
         history
             .get(key)
-            .map(|height| *height)
+            .copied()
             .filter(|height| *height < latest.height)
     }
 }
@@ -1359,12 +1359,12 @@ mod block {
         /// account for history-map insertion and reader retention before the
         /// writer is acquired. A refusal returns the original journal intact.
         /// This component does not establish aggregate State/finality authority.
-        pub(crate) fn try_prepare_publication<'storage, Installation, E>(
+        pub(crate) fn try_prepare_publication<Installation, E>(
             self,
-            storage: &'storage TransactionsStorage,
+            storage: &TransactionsStorage,
             admit: impl FnOnce(&Self, &TransactionsStorage) -> Result<Installation, E>,
         ) -> Result<
-            PreparedDetachedTransactionsBlock<'storage, Installation>,
+            PreparedDetachedTransactionsBlock<'_, Installation>,
             (
                 Self,
                 mv::PublicationPreparationError<E>,
@@ -1540,8 +1540,8 @@ impl TransactionsBlock<'_> {
 
     /// Check the exact original membership owner without reading its history.
     pub(in crate::state) fn belongs_to(&self, storage: &TransactionsStorage) -> bool {
-        std::ptr::eq(self.latest_block_ref, &storage.latest_block)
-            && std::ptr::eq(self.blocks_ref, &storage.blocks)
+        std::ptr::eq(self.latest_block_ref, &raw const storage.latest_block)
+            && std::ptr::eq(self.blocks_ref, &raw const storage.blocks)
     }
 
     /// Bind this owner's exact predecessor and immutable pending membership row.
@@ -1679,7 +1679,7 @@ mod membership_projection {
         fn history_before(&self, key: &Key, ceiling: Value) -> Option<Value> {
             self.history
                 .get(key)
-                .map(|entry| *entry)
+                .copied()
                 .filter(|height| *height < ceiling)
         }
 

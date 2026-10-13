@@ -384,6 +384,8 @@ fn parent_service_preparation_refuses_foreign_original_owner_without_replacing_r
 
 #[test]
 fn parent_service_errors_keep_original_waiter_and_permanent_source_classification() {
+    use super::super::certified_chain::{ChainReadError, ParentServiceError};
+
     use crate::execution_attempt::ExecutionAttemptError;
     use iroha_data_model::query::error::{CanonicalHistoryError, QueryExecutionFail};
     use ivm::error::ExecutionDeferral;
@@ -451,7 +453,6 @@ fn parent_service_errors_keep_original_waiter_and_permanent_source_classificatio
         )),
         PublicationError::Retryable(_)
     ));
-    use super::super::certified_chain::{ChainReadError, ParentServiceError};
     for (original, unavailable) in [
         (ChainReadError::NotCommitted { height: 2 }, true),
         (ChainReadError::NotInView { height: 2 }, true),

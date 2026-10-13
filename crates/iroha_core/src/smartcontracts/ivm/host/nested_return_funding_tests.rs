@@ -6,18 +6,18 @@ fn nested_return_funding_fixture() -> (State, AccountId, ContractAddress, Contra
     let caller = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Caller {
   error enum CalleeError { ForcedFailure = 1 }
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
     let callee = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Callee { permission AssetOps;
   error enum CalleeError { ForcedFailure = 1 }
   state int counter;
@@ -32,7 +32,7 @@ seiyaku Callee { permission AssetOps;
     return 0;
   }
 }
-"#,
+",
         1,
     );
     grant_asset_ops_to_account(&state, &authority, caller.subject_id());

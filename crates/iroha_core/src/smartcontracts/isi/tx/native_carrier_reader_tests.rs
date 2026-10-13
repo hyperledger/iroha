@@ -513,7 +513,7 @@ fn authenticated_carrier_network_visitor_preserves_borrowed_rows_and_refuses_for
             let index = u32::try_from(visits).unwrap();
             assert!(std::ptr::eq(
                 result,
-                &carrier.block().network_output_at(index).unwrap().1.result
+                &raw const carrier.block().network_output_at(index).unwrap().1.result
             ));
             visits += 1;
         })

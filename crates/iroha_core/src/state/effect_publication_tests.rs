@@ -130,8 +130,7 @@ fn refusal<G>(
         let mut pending = state
             .latest_block_header
             .try_write_or_wait()
-            .err()
-            .expect("actual first original writer retained")
+            .expect_err("actual first original writer retained")
             .wait_for_release(prefix_registration);
         assert!(Pin::new(&mut pending).poll(&mut context).is_pending());
         Some(pending)
@@ -222,16 +221,13 @@ fn complete_scope(unwind: bool) {
     let mut pending = state
         .latest_block_header
         .try_write_or_wait()
-        .err()
-        .expect("original index writer")
+        .expect_err("original index writer")
         .wait_for_release(&mut registration);
     assert!(Pin::new(&mut pending).poll(&mut context).is_pending());
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let scope = cleanup.physical_scope();
         assert!(scope.complete);
-        if unwind {
-            panic!("actual enclosing preparation unwind");
-        }
+        assert!(!unwind, "actual enclosing preparation unwind");
         drop(scope);
     }));
     assert_eq!(result.is_err(), unwind);

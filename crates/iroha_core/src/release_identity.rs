@@ -306,6 +306,11 @@ fn is_exact_commit(source: &str) -> bool {
 
 /// Verify canonical signed genesis bytes against the explicitly selected genesis key.
 /// Returns the actual block hash and its validated signed consensus metadata.
+///
+/// # Errors
+/// Returns an error if genesis decoding or canonical re-encoding fails, the
+/// block is not canonical genesis, the selected key or genesis validation fails,
+/// or signed consensus metadata is invalid.
 pub fn genesis_identity(
     bytes: &[u8],
     public_key: &PublicKey,

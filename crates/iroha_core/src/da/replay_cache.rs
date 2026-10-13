@@ -412,6 +412,11 @@ impl ReplayCache {
     /// Prime the replay cache with a known highest sequence for a `(lane, epoch)` window.
     /// This is useful when restoring state from persisted cursors after a restart. Priming
     /// invalidates any in-memory entries and reservations already present for that window.
+    ///
+    /// # Errors
+    /// Returns `LaneEpochCapacityExceeded` if this is a new lane/epoch window and
+    /// the configured window capacity is already occupied. Existing windows can
+    /// always be primed without lowering their committed sequence.
     pub fn prime_lane_epoch(
         &self,
         lane_epoch: LaneEpoch,

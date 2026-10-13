@@ -101,9 +101,11 @@ fn retained_pin<'a>(
     }
     let pinned = store::committee_generations::get(world, &pin.generation)
         .ok_or_else(|| refuse("pinned generation is not retained"))?;
+    // The deployment pin's `until_ms` binds the retained generation's deadline.
+    let pinned_deadline_ms = pinned.deadline_ms;
     if pin.committee_root != pinned.committee_root
         || pin.start_height != pinned.start_height
-        || pin.until_ms != pinned.deadline_ms
+        || pin.until_ms != pinned_deadline_ms
     {
         return Err(refuse(
             "native committee pin differs from its retained generation",

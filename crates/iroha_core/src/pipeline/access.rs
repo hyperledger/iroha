@@ -3431,7 +3431,7 @@ mod tests {
     }
     #[test]
     fn compiler_static_state_map_keys_are_bytecode_verified_and_exact() {
-        let source = r#"
+        let source = r"
 seiyaku StaticAccessCounter { permission CanWrite;
   state StateMap<int, int> Counters;
 
@@ -3439,7 +3439,7 @@ seiyaku StaticAccessCounter { permission CanWrite;
   kotoage fn write_two() authorize(CanWrite) { Counters[2] = 20; }
   kotoage fn write_one_again() authorize(CanWrite) { Counters[1] = 30; }
 }
-"#;
+";
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile static-access contract");
@@ -3500,13 +3500,13 @@ seiyaku StaticAccessCounter { permission CanWrite;
     #[test]
     fn repeated_prepared_manifest_access_does_not_reprepare_the_artifact() {
         use crate::smartcontracts::ivm::cache::IvmCache;
-        let source = r#"
+        let source = r"
 seiyaku WarmAccessCounter { permission CanWrite;
   state StateMap<int, int> Counters;
 
   kotoage fn write_one() authorize(CanWrite) { Counters[1] = 10; }
 }
-"#;
+";
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile warm-access contract");
@@ -3555,7 +3555,7 @@ seiyaku WarmAccessCounter { permission CanWrite;
     }
     #[test]
     fn helper_hidden_static_state_access_retains_state_wildcard_fence() {
-        let source = r#"
+        let source = r"
 seiyaku HelperStaticAccess { permission CanWrite;
   state StateMap<int, int> Counters;
 
@@ -3565,7 +3565,7 @@ seiyaku HelperStaticAccess { permission CanWrite;
   // Two live callers retain the actual private helper edge under single-use inlining.
   kotoage fn second_helper_write() authorize(CanWrite) { hidden_write(); }
 }
-"#;
+";
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile helper-static contract");
@@ -3672,7 +3672,7 @@ seiyaku HelperStaticAccess { permission CanWrite;
     }
     #[test]
     fn compiler_dynamic_state_writes_and_helper_writes_fall_back_to_global() {
-        let source = r#"
+        let source = r"
 seiyaku DynamicAccessCounter { permission CanEnactGovernance;
   state StateMap<int, int> Counters;
 
@@ -3690,7 +3690,7 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     bump_hidden(key: key, delta: delta);
   }
 }
-"#;
+";
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile dynamic-access contract");
@@ -4743,13 +4743,14 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_uses_manifest_hints_when_present() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             asset::{AssetDefinitionId, AssetId},
             smart_contract::manifest::{AccessSetHints, MANIFEST_METADATA_KEY},
         };
         use iroha_primitives::json::Json;
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         // World/state setup with one account to own the manifest
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
@@ -4822,12 +4823,13 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_uses_manifest_hints_from_metadata_when_missing_in_wsv() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             asset::{AssetDefinitionId, AssetId},
             smart_contract::manifest::{AccessSetHints, MANIFEST_METADATA_KEY},
         };
         use iroha_primitives::json::Json;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         access_set_cache_clear();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
@@ -4947,9 +4949,10 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
 
     #[test]
     fn access_set_cache_invalidates_on_manifest_update() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::AccessSetHints;
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         access_set_cache_clear();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
@@ -5060,9 +5063,10 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_falls_back_when_manifest_hints_invalid() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::AccessSetHints;
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
             Domain::new(DomainId::try_new("wonderland", "universal").unwrap()).build(&alice);
@@ -5131,11 +5135,12 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_rejects_unproven_exact_state_entrypoint_hints() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::{
             AccessSetHints, ContractManifest, EntryPointKind, EntrypointDescriptor,
         };
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
             Domain::new(DomainId::try_new("wonderland", "universal").unwrap()).build(&alice);
@@ -5253,11 +5258,12 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_skips_entrypoint_hints_for_unsafe_syscalls() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::{
             ContractManifest, EntryPointKind, EntrypointDescriptor,
         };
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
             Domain::new(DomainId::try_new("wonderland", "universal").unwrap()).build(&alice);
@@ -5347,12 +5353,13 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn ivm_access_rejects_unproven_exact_ledger_entrypoint_hints() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             asset::id::{AssetDefinitionId, AssetId},
             smart_contract::manifest::{ContractManifest, EntryPointKind, EntrypointDescriptor},
         };
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (alice, kp) = iroha_test_samples::gen_account_in("wonderland");
         let domain: Domain =
             Domain::new(DomainId::try_new("wonderland", "universal").unwrap()).build(&alice);
@@ -5678,9 +5685,10 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn execute_trigger_uses_retained_entrypoint_hints_without_repreparing() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::AccessSetHints;
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         access_set_cache_clear();
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query = crate::query::store::LiveQueryStore::start_test();
@@ -5820,9 +5828,10 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     }
     #[test]
     fn execute_trigger_without_selector_does_not_use_entrypoint_hints() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::AccessSetHints;
         use nonzero_ext::nonzero;
+
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         access_set_cache_clear();
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query = crate::query::store::LiveQueryStore::start_test();

@@ -117,7 +117,7 @@ fn signed_candidate(
         validator.clone(),
         Quantity::from(stake),
         Metadata::default(),
-        fixture_registration_plan(&stx, lane_id, &validator, Quantity::from(stake)),
+        fixture_registration_plan(stx, lane_id, validator, Quantity::from(stake)),
     );
     let registered = stx
         .world

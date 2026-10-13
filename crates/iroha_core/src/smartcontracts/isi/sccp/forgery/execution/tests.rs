@@ -284,9 +284,7 @@ fn permanent_storage_refusal_is_sticky_and_does_not_publish_record_or_events() {
     let pool = stx.world.sccp_forgery_offences.allocation_budget().clone();
     let limit = pool.limit_bytes();
     pool.set_limit_bytes(pool.reserved_bytes());
-    let error = publish(prepared, &mut stx)
-        .err()
-        .expect("map write needs admitted original backing");
+    let error = publish(prepared, &mut stx).expect_err("map write needs admitted original backing");
     pool.set_limit_bytes(limit);
     assert!(matches!(
         error,

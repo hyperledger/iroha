@@ -66,10 +66,7 @@ fn readers_exclude_writer_and_each_real_release_requires_reacquisition() {
     let first = original.read();
     let second = original.try_read().expect("concurrent original reader");
     assert_eq!(*first, *second);
-    let wait = original
-        .try_write_or_wait()
-        .err()
-        .expect("both readers held");
+    let wait = original.try_write_or_wait().expect_err("both readers held");
     let pending = wait.clone();
     let mut context = Context::from_waker(Waker::noop());
     assert!(registration.poll_wait(&pending, &mut context).is_pending());
@@ -88,8 +85,7 @@ fn readers_exclude_writer_and_each_real_release_requires_reacquisition() {
     );
     let retry = original
         .try_write_or_wait()
-        .err()
-        .expect("second reader still held");
+        .expect_err("second reader still held");
     assert_ne!(wait, retry);
     drop(second);
     let retry = retry;
@@ -127,8 +123,7 @@ fn writer_excludes_both_access_modes_and_release_before_poll_is_observed() {
     assert!(original.try_write().is_none());
     let wait = original
         .try_write_or_wait()
-        .err()
-        .expect("original writer held");
+        .expect_err("original writer held");
     assert!(format!("{original:?}").contains("PublicationRwLock"));
     drop(held);
     let pending = wait;
@@ -154,8 +149,7 @@ fn reader_and_writer_wakes_probe_the_original_unlocked_backend() {
         let write = writer.then(|| original.write());
         let wait = original
             .try_write_or_wait()
-            .err()
-            .expect("original physical owner");
+            .expect_err("original physical owner");
         let waker = Waker::from(Arc::clone(&probe));
         let mut context = Context::from_waker(&waker);
         let pending = wait;
@@ -184,8 +178,7 @@ fn deferred_read_and_write_notifications_wait_for_enclosing_sibling_release() {
         let write = writer.then(|| original.write());
         let wait = original
             .try_write_or_wait()
-            .err()
-            .expect("original physical owner");
+            .expect_err("original physical owner");
         let waker = Waker::from(Arc::clone(&probe));
         let mut context = Context::from_waker(&waker);
         let pending = wait;
@@ -220,12 +213,10 @@ fn foreign_batches_return_the_original_reader_or_writer_without_unlocking() {
     let held = original.read();
     let wait = original
         .try_write_or_wait()
-        .err()
-        .expect("original reader held");
+        .expect_err("original reader held");
     let held = held
         .try_release_into(&mut foreign_batch)
-        .err()
-        .expect("foreign batch rejected");
+        .expect_err("foreign batch rejected");
     assert!(original.try_write().is_none());
     assert_eq!(*held, 7);
     let pending = wait;
@@ -243,12 +234,10 @@ fn foreign_batches_return_the_original_reader_or_writer_without_unlocking() {
     *held = 11;
     let wait = original
         .try_write_or_wait()
-        .err()
-        .expect("original writer held");
+        .expect_err("original writer held");
     let held = held
         .try_release_into(&mut foreign_batch)
-        .err()
-        .expect("foreign batch rejected");
+        .expect_err("foreign batch rejected");
     assert!(original.try_read().is_none());
     assert_eq!(*held, 11);
     let pending = wait;
@@ -272,10 +261,7 @@ fn original_batch_retains_multiple_actual_read_and_write_releases() {
     let mut batch = original.deferred_releases();
     let first = original.read();
     let second = original.read();
-    let wait = original
-        .try_write_or_wait()
-        .err()
-        .expect("both readers held");
+    let wait = original.try_write_or_wait().expect_err("both readers held");
     let waker = Waker::from(Arc::clone(&probe));
     let mut context = Context::from_waker(&waker);
     let pending = wait;
@@ -317,8 +303,7 @@ fn reader_and_writer_unwind_unlock_before_callback_without_poison() {
             }
             let wait = original
                 .try_write_or_wait()
-                .err()
-                .expect("original physical owner");
+                .expect_err("original physical owner");
             observation = Some(wait.clone());
             pending = Some(wait);
             assert!(
@@ -341,22 +326,22 @@ fn reader_and_writer_unwind_unlock_before_callback_without_poison() {
 
 #[test]
 fn wake_panic_cannot_poison_the_already_unlocked_writer() {
-    let observer_budget = iroha_allocation::AllocationBudget::new(
-        iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
-    );
-    let mut registration = crate::unit_test_support::release_registration(&observer_budget);
     struct PanicWake;
     impl Wake for PanicWake {
         fn wake(self: Arc<Self>) {
             panic!("injected wake callback failure");
         }
     }
+
+    let observer_budget = iroha_allocation::AllocationBudget::new(
+        iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
+    );
+    let mut registration = crate::unit_test_support::release_registration(&observer_budget);
     let original = PublicationRwLock::new(7_u32);
     let held = original.write();
     let wait = original
         .try_write_or_wait()
-        .err()
-        .expect("original writer held");
+        .expect_err("original writer held");
     let waker = Waker::from(Arc::new(PanicWake));
     let mut context = Context::from_waker(&waker);
     let pending = wait.clone();

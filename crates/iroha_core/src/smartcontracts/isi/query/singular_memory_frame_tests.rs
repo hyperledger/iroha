@@ -92,7 +92,7 @@ fn borrowed_option_and_iterator_require_only_payload_codecs() {
 #[test]
 fn borrowed_roundtrip_enforces_output_and_allocation_limits() {
     let previous = ncore::get_decode_flags();
-    let _flags = DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let flags = DecodeFlagsGuard::enter(ncore::default_encode_flags());
     let output = "bounded output".to_owned();
     let source = PayloadOnly(output.clone());
     let bytes = ncore::to_bytes_bounded(&output, 1_024).unwrap();
@@ -115,7 +115,7 @@ fn borrowed_roundtrip_enforces_output_and_allocation_limits() {
         bounded_roundtrip::<_, String>(&source, accepted).unwrap(),
         output
     );
-    drop(_flags);
+    drop(flags);
     assert_eq!(ncore::get_decode_flags(), previous);
 }
 

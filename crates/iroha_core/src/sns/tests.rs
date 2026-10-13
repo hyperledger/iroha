@@ -1295,7 +1295,7 @@ fn state_initialization_rejects_non_current_account_alias_policy_without_mutatio
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
         #[cfg(feature = "telemetry")]
-        Default::default(),
+        crate::telemetry::StateTelemetry::default(),
     )
     .err()
     .expect("non-current SNS policy must reject State initialization");

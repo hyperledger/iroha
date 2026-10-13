@@ -30,8 +30,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 8,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn path(value: &str) -> StatePath {

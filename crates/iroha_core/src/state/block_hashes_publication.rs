@@ -45,16 +45,16 @@ fn refusal<E>(
 impl DetachedBlockHashes {
     /// Standalone fixture adapter to the same caller-owned preparation kernel.
     /// Aggregate production callers retain the slot before invoking admission.
-    pub(crate) fn try_prepare_publication<'target, Installation, E>(
+    pub(crate) fn try_prepare_publication<Installation, E>(
         self,
-        target: &'target BlockHashes,
+        target: &BlockHashes,
         admit: impl FnOnce(&Self, &BlockHashes) -> Result<Installation, E>,
     ) -> Result<
-        PreparedBlockHashes<'target, Installation>,
+        PreparedBlockHashes<'_, Installation>,
         (
             Self,
             mv::PublicationPreparationError<E>,
-            RetainedHashSlot<'target, Installation>,
+            RetainedHashSlot<'_, Installation>,
         ),
     > {
         let mut slot = RetainedHashSlot::new(self, target);

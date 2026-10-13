@@ -20,7 +20,7 @@ use iroha_data_model::{
     isi::Log,
     parameter::system::SumeragiParameters,
     sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember},
-    transaction::{FeePaymentIntent, TransactionBuilder},
+    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
 };
 use iroha_model_base::{
     peer::PeerId,
@@ -56,7 +56,7 @@ impl AnchorSource for Anchor {
 }
 struct IntrinsicComponentCheck;
 impl TransactionCheck for IntrinsicComponentCheck {
-    fn check(&self, _: &SignedTransaction, _: u64) -> Result<(), String> {
+    fn check(&self, _: &TransactionEntrypoint, _: u64) -> Result<(), String> {
         Ok(())
     }
 }
@@ -67,7 +67,8 @@ impl LaneTransactions for NoRows {
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
+    ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
+    {
         Ok(Vec::new())
     }
 }
@@ -164,7 +165,7 @@ impl Fixture {
             LaneBatch {
                 anchor_height: 7,
                 anchor_hash: anchor.0,
-                transactions: vec![transaction.clone()],
+                transactions: vec![TransactionEntrypoint::External(transaction.clone())],
             }
             .to_payload()
         } else {
@@ -201,7 +202,7 @@ impl Fixture {
             payload_len: u32::try_from(payload.as_slice().len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            control_witness: Default::default(),
+            control_witness: iroha_sumeragi::types::ControlWitness::default(),
         };
         let authored = PayloadAuthoring::new(header, payload)
             .complete(instance, &config, &budget, &*crypto, &signers[0])
@@ -278,9 +279,10 @@ impl Fixture {
 }
 fn allocation_scope<T>(run: impl FnOnce() -> T) -> T {
     // Match the actual standard-library reservation made by Norito's vector decoder.
-    let mut destination = Vec::<SignedTransaction>::new();
+    let mut destination = Vec::<TransactionEntrypoint>::new();
     destination.try_reserve(1).unwrap();
-    let layout = std::alloc::Layout::array::<SignedTransaction>(destination.capacity()).unwrap();
+    let layout =
+        std::alloc::Layout::array::<TransactionEntrypoint>(destination.capacity()).unwrap();
     drop(destination);
     let (result, refused) = crate::test_allocations::refuse_one_layout_during(layout, run);
     assert!(
@@ -457,9 +459,14 @@ fn signed_lane_clock_retains_original_admission_until_exact_boundary_and_certifi
     for created_ms in [4_000, 6_000] {
         let fixture = Fixture::with_creation(true, created_ms);
         let effective = Duration::from_millis(5_000.max(created_ms + 1));
-        let boundary = effective - fixture.record.params.max_clock_drift();
-        let (clock, time) =
-            iroha_primitives::time::TimeSource::new_mock(boundary - Duration::from_millis(1));
+        let boundary = effective
+            .checked_sub(fixture.record.params.max_clock_drift())
+            .expect("fixture effective time exceeds the signed drift allowance");
+        let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+            boundary
+                .checked_sub(Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
+        );
         let mut lane = fixture
             .recovery_with_clock(time.clone())
             .complete()

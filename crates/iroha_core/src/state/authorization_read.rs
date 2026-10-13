@@ -182,7 +182,7 @@ impl State {
         context.with(|| {
             let generation_release = self.state_write_lock.observe_release();
             let generation = self.state_view_generation();
-            if generation % 2 != 0 {
+            if !generation.is_multiple_of(2) {
                 return Err(StateViewError::Busy(generation_release));
             }
             // Release notices outlive every physical source guard, including on refusal/unwind.

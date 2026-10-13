@@ -833,7 +833,10 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         .try_block(&budget)
         .expect("original World admission");
     for apply in [false, true] {
-        let mut tx = block.transaction_without_telemetry(Default::default(), 0);
+        let mut tx = block.transaction_without_telemetry(
+            iroha_config::parameters::actual::LaneConfig::default(),
+            0,
+        );
         let parameters = tx.sccp_parameters.get_mut().as_mut().unwrap();
         parameters.enabled = false;
         parameters.max_exempt_transactions_per_block = 0;
@@ -881,7 +884,8 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         .try_block_and_revert(&budget)
         .expect("original replacement admission");
     check(&BlockParent(&replacement));
-    let mut tx = replacement.transaction_without_telemetry(Default::default(), 0);
+    let mut tx = replacement
+        .transaction_without_telemetry(iroha_config::parameters::actual::LaneConfig::default(), 0);
     tx.sccp_parameters.get_mut().as_mut().unwrap().enabled = false;
     check(&TransactionParent(&tx));
     drop(tx);

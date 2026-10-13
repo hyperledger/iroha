@@ -1,6 +1,7 @@
 //! Actual model/BLS controls for retained registry ownership and fallible merge reads.
 
 use super::*;
+use iroha_data_model::transaction::TransactionEntrypoint;
 
 #[test]
 fn original_native_lane_authority_refusal_reaches_merge_and_original_pool_retry() {
@@ -178,14 +179,30 @@ impl Fixture {
         valid_batch: bool,
         transactions: Vec<iroha_data_model::transaction::SignedTransaction>,
     ) -> Self {
+        Self::with_transactions_for_state(valid_batch, transactions, None)
+    }
+    fn with_transactions_for_state(
+        valid_batch: bool,
+        transactions: Vec<iroha_data_model::transaction::SignedTransaction>,
+        state: Option<&crate::state::State>,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let (body, mut qc, old_source, budget, crypto) = fixture(1025);
+        let (body, mut qc, old_source, fixture_budget, crypto) = fixture(1025);
+        let budget = state.map_or(fixture_budget, crate::state::State::ivm_execution_budget);
         let crypto: SharedCrypto = Arc::new(crypto);
-        let network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
-            b"registry network",
-        )));
-        let instance =
-            incarnation_instance(&*crypto, &network, "registry-chain", LANE, &INCARNATION);
+        let network = state.map_or_else(
+            || {
+                NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+                    b"registry network",
+                )))
+            },
+            |state| *state.network_id_ref(),
+        );
+        let chain_id = state.map_or_else(
+            || "registry-chain".to_owned(),
+            |state| state.chain_id_ref().to_string(),
+        );
+        let instance = incarnation_instance(&*crypto, &network, &chain_id, LANE, &INCARNATION);
         let mut signers: Vec<_> = (1..=4)
             .map(|seed| {
                 KeyPairSigner::new(&KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
@@ -199,7 +216,10 @@ impl Fixture {
             let bytes = LaneBatch {
                 anchor_height: 7,
                 anchor_hash: network.into_genesis_hash(),
-                transactions,
+                transactions: transactions
+                    .into_iter()
+                    .map(TransactionEntrypoint::External)
+                    .collect(),
             }
             .to_payload();
             let mut charged = ChargedBuffer::new(bytes.len(), &budget).unwrap();
@@ -249,7 +269,7 @@ impl Fixture {
         let stores = LaneStores::new(
             dir.path().to_path_buf(),
             network,
-            "registry-chain".into(),
+            chain_id,
             crypto,
             budget,
             authorities.clone(),
@@ -294,7 +314,7 @@ impl Fixture {
                 lane: LANE,
                 dataspace: DataSpaceId::new(0),
                 incarnation: INCARNATION,
-                params: Default::default(),
+                params: iroha_data_model::parameter::system::SumeragiParameters::default(),
                 committee,
                 created_at: 1,
                 active_from: 3,
@@ -347,12 +367,10 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
     assert_eq!(other_store.height(), 0);
     let frame = fs::read(f.path()).unwrap();
     // Norito uses Vec::try_reserve, whose physical minimum can exceed one element.
-    let mut destination = Vec::<iroha_data_model::transaction::SignedTransaction>::new();
+    let mut destination = Vec::<TransactionEntrypoint>::new();
     destination.try_reserve(1).unwrap();
-    let layout = std::alloc::Layout::array::<iroha_data_model::transaction::SignedTransaction>(
-        destination.capacity(),
-    )
-    .unwrap();
+    let layout =
+        std::alloc::Layout::array::<TransactionEntrypoint>(destination.capacity()).unwrap();
     drop(destination);
     let (outcome, refused) = crate::test_allocations::refuse_one_layout_during(layout, || {
         f.stores.block(LANE, &INCARNATION, 1)
@@ -448,7 +466,10 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
     let completed = f.stores.block(LANE, &INCARNATION, 1).unwrap().unwrap();
     assert_eq!(completed.block_hash, f.qc.block_hash);
     assert_eq!(completed.result, f.qc.result);
-    assert_eq!(completed.batch.unwrap().transactions, vec![transaction]);
+    assert_eq!(
+        completed.batch.unwrap().transactions,
+        vec![TransactionEntrypoint::External(transaction)]
+    );
     assert!(store.batch_read.lock().is_none());
     assert!(f.stores.block(LANE, &INCARNATION, 2).unwrap().is_none());
     drop(store);
@@ -545,7 +566,7 @@ fn registry_retains_opening_lock_and_exact_charges_across_refusal() {
     let f = Fixture::new(true);
     f.publish();
     f.stores.release(LANE, &INCARNATION);
-    let raw = fs::metadata(f.path()).unwrap().len() as usize;
+    let raw = usize::try_from(fs::metadata(f.path()).unwrap().len()).unwrap();
     let baseline = f.stores.budget.reserved_bytes();
     f.stores.budget.set_limit_bytes(baseline + raw);
     assert_eq!(
@@ -1122,8 +1143,7 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
         .stores
         .budget
         .try_reserve_bytes(*requested_bytes)
-        .err()
-        .expect("original occupied pool must refuse the same actual demand");
+        .expect_err("original occupied pool must refuse the same actual demand");
     assert_eq!(original.allocation_refusal(), Some(&original_pool_probe));
     assert!(store.batch_read.lock().is_none());
     for _ in 0..2 {
@@ -1192,4 +1212,311 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
     assert_eq!(f.stores.budget.limit_bytes(), ceiling);
     assert_eq!(fs::read(f.path()).unwrap(), frame);
     assert_eq!(f.stores.tip(LANE, &INCARNATION).unwrap(), Some(1));
+}
+
+/// A real original-pool notification probes the registry without blocking on the defect.
+struct RegistryRefundProbe {
+    fixture: std::sync::Weak<Fixture>,
+    calls: AtomicUsize,
+    registry_free: AtomicBool,
+    reentered: AtomicBool,
+    remaining_bytes: AtomicUsize,
+}
+
+impl std::task::Wake for RegistryRefundProbe {
+    fn wake(self: Arc<Self>) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let fixture = self.fixture.upgrade().unwrap();
+        self.remaining_bytes
+            .store(fixture.stores.budget.reserved_bytes(), Ordering::SeqCst);
+        let guard = fixture.stores.stores.try_lock();
+        let free = guard.is_some();
+        drop(guard);
+        self.registry_free.store(free, Ordering::SeqCst);
+        if free {
+            fixture.stores.release(LANE, &INCARNATION);
+            self.reentered.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum OriginalOpeningCompletion {
+    ExplicitRetirement,
+    AppliedRetirement,
+    Recovery,
+}
+
+fn original_opening_refund_control(completion: OriginalOpeningCompletion) {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use std::task::{Context, Poll, Waker};
+
+    let fixture = Arc::new(Fixture::new(true));
+    fixture.publish();
+    let original = fs::read(fixture.path()).unwrap();
+    fixture.stores.release(LANE, &INCARNATION);
+    let budget = &fixture.stores.budget;
+    let initial = budget.reserved_bytes();
+    let original_limit = budget.limit_bytes();
+    let mut registration = ReleaseRegistration::from_reservation(
+        &mut budget
+            .try_reserve(ReleaseRegistration::allocation_layout())
+            .unwrap(),
+    )
+    .unwrap();
+    let retained = budget.reserved_bytes();
+    budget.set_limit_bytes(retained + original.len());
+    assert_eq!(
+        fixture
+            .stores
+            .runtime_store(LANE, &INCARNATION)
+            .unwrap_err()
+            .io_kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(budget.reserved_bytes(), retained + original.len());
+    assert!(matches!(
+        fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
+        Some(StoreSlot::Opening(_, false))
+    ));
+    // Restore the unchanged fixture's original ceiling before registering a fresh refusal.
+    // Its real opening still owns the original buffer; no release notification is inherited.
+    if matches!(completion, OriginalOpeningCompletion::Recovery) {
+        budget.set_limit_bytes(original_limit);
+    }
+    let AllocationRefusal::Capacity { release, .. } =
+        budget.try_reserve_bytes(budget.limit_bytes()).unwrap_err()
+    else {
+        panic!("the original registry pool supplies a real capacity refusal");
+    };
+    let probe = Arc::new(RegistryRefundProbe {
+        fixture: Arc::downgrade(&fixture),
+        calls: AtomicUsize::new(0),
+        registry_free: AtomicBool::new(false),
+        reentered: AtomicBool::new(false),
+        remaining_bytes: AtomicUsize::new(usize::MAX),
+    });
+    let waker = Waker::from(probe.clone());
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Pending
+    );
+    let recovered = match completion {
+        OriginalOpeningCompletion::ExplicitRetirement => {
+            fixture.stores.release(LANE, &INCARNATION);
+            None
+        }
+        OriginalOpeningCompletion::AppliedRetirement => {
+            fixture
+                .stores
+                .release_retired(&SumeragiLaneState::default());
+            None
+        }
+        OriginalOpeningCompletion::Recovery => {
+            Some(fixture.stores.runtime_store(LANE, &INCARNATION).unwrap())
+        }
+    };
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        probe.registry_free.load(Ordering::SeqCst),
+        "original lane store refund must run after the registry lock releases"
+    );
+    assert!(probe.reentered.load(Ordering::SeqCst));
+    assert_eq!(probe.remaining_bytes.load(Ordering::SeqCst), retained);
+    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Ready(())
+    );
+    if let Some(store) = recovered {
+        assert_eq!(store.height(), 1);
+        assert!(Arc::ptr_eq(
+            &store,
+            &fixture.stores.runtime_store(LANE, &INCARNATION).unwrap()
+        ));
+        drop(store);
+        fixture.stores.release(LANE, &INCARNATION);
+    }
+    assert!(fixture.stores.stores.lock().is_empty());
+    assert_eq!(fs::read(fixture.path()).unwrap(), original);
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), initial);
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn original_runtime_opening_explicit_retirement_refunds_after_registry_unlock() {
+    original_opening_refund_control(OriginalOpeningCompletion::ExplicitRetirement);
+}
+
+#[test]
+fn original_runtime_opening_applied_retirement_refunds_after_registry_unlock() {
+    original_opening_refund_control(OriginalOpeningCompletion::AppliedRetirement);
+}
+
+#[test]
+fn original_runtime_opening_recovery_refunds_after_registry_unlock() {
+    original_opening_refund_control(OriginalOpeningCompletion::Recovery);
+}
+
+struct RunnerRetirementRefundProbe {
+    stores: std::sync::Weak<LaneStores>,
+    runner: std::sync::Weak<super::super::runner::RetirementControl>,
+    calls: AtomicUsize,
+    registry_free: AtomicBool,
+    running_free: AtomicBool,
+    reentered: AtomicBool,
+}
+
+impl std::task::Wake for RunnerRetirementRefundProbe {
+    fn wake(self: Arc<Self>) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let stores = self.stores.upgrade().unwrap();
+        let runner = self.runner.upgrade().unwrap();
+        let registry = stores.stores.try_lock();
+        let registry_free = registry.is_some();
+        drop(registry);
+        let running_free = runner.running_lock_available();
+        self.registry_free.store(registry_free, Ordering::SeqCst);
+        self.running_free.store(running_free, Ordering::SeqCst);
+        if registry_free && running_free {
+            assert_eq!(runner.running_count(), 0);
+            stores.release(LANE, &INCARNATION);
+            self.reentered.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+struct RetirementNoFrames;
+impl crate::sumeragi::driver::traits::Net for RetirementNoFrames {
+    fn send(
+        &self,
+        _: &iroha_sumeragi::types::PublicKey,
+        _: &crate::sumeragi::driver::traits::Frame,
+    ) -> crate::sumeragi::driver::traits::SendOutcome {
+        panic!("retired empty topology cannot send a consensus frame")
+    }
+}
+
+#[test]
+fn original_runtime_retirement_refunds_after_registry_and_runner_unlock() {
+    use crate::{
+        state::{World, WorldReadOnly},
+        sumeragi::{
+            crypto::BlsCrypto,
+            driver::DriverConfig,
+            lanes::{
+                global::AppliedWatch,
+                runner::{LaneRunnerInputs, RetirementControl},
+            },
+            records::FileRecordStore,
+            test_chain::{CertifiedTestChain, TestChainConfig},
+        },
+    };
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use std::task::{Context, Poll, Waker};
+
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
+    let state = chain.state().clone();
+    assert!(state.view().world().sumeragi_lanes().lanes.is_empty());
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(&state));
+    fixture.publish();
+    fixture.stores.release(LANE, &INCARNATION);
+    let path = fixture.path();
+    let original = fs::read(&path).unwrap();
+    let budget = state.ivm_execution_budget();
+    assert!(budget.same_pool(&fixture.stores.budget));
+    let Fixture {
+        dir,
+        stores,
+        body,
+        qc,
+        source,
+        authorities,
+    } = fixture;
+    let stores = Arc::new(stores);
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::ZERO);
+    let runner = Arc::new(RetirementControl::new(LaneRunnerInputs {
+        state: state.clone(),
+        queue: Arc::new(crate::queue::Queue::test(
+            iroha_config::parameters::actual::Queue::default(),
+            &time,
+        )),
+        watch: Arc::new(AppliedWatch::new(
+            chain.height(),
+            state.view().latest_block_hash(),
+        )),
+        stores: stores.clone(),
+        crypto: Arc::new(BlsCrypto::new()),
+        net: Arc::new(RetirementNoFrames),
+        ingress: None,
+        records: Arc::new(
+            FileRecordStore::open(
+                dir.path().join("records"),
+                dir.path().join("keys/installation.log"),
+            )
+            .unwrap(),
+        ),
+        global_instance: chain.instance(),
+        bodies_dir: dir.path().join("bodies"),
+        key_pair: KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal),
+        local: iroha_config::parameters::actual::SumeragiLocalOverrides::default(),
+        driver: DriverConfig::default(),
+        network: chain.network_id(),
+        chain_id: state.chain_id_ref().to_string(),
+    }));
+    let original_limit = budget.limit_bytes();
+    let initial = budget.reserved_bytes();
+    let mut registration = ReleaseRegistration::from_reservation(
+        &mut budget
+            .try_reserve(ReleaseRegistration::allocation_layout())
+            .unwrap(),
+    )
+    .unwrap();
+    let retained = budget.reserved_bytes();
+    budget.set_limit_bytes(retained + original.len());
+    assert_eq!(
+        stores
+            .runtime_store(LANE, &INCARNATION)
+            .unwrap_err()
+            .io_kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(budget.reserved_bytes(), retained + original.len());
+    let AllocationRefusal::Capacity { release, .. } = budget.try_reserve_bytes(1).unwrap_err()
+    else {
+        panic!("the original lane recovery exhausts its actual State pool");
+    };
+    let probe = Arc::new(RunnerRetirementRefundProbe {
+        stores: Arc::downgrade(&stores),
+        runner: Arc::downgrade(&runner),
+        calls: AtomicUsize::new(0),
+        registry_free: AtomicBool::new(false),
+        running_free: AtomicBool::new(false),
+        reentered: AtomicBool::new(false),
+    });
+    let waker = Waker::from(probe.clone());
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Pending
+    );
+    runner.reconcile();
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        probe.registry_free.load(Ordering::SeqCst) && probe.running_free.load(Ordering::SeqCst),
+        "original lane retirement refund must wait for both registry and runner unlock"
+    );
+    assert!(probe.reentered.load(Ordering::SeqCst));
+    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Ready(())
+    );
+    assert!(stores.stores.lock().is_empty());
+    assert_eq!(runner.running_count(), 0);
+    assert_eq!(fs::read(&path).unwrap(), original);
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), initial);
+    budget.set_limit_bytes(original_limit);
+    drop((runner, stores, body, qc, source, authorities, dir));
 }

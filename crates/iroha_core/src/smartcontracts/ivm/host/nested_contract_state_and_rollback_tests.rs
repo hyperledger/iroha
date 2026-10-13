@@ -5,17 +5,17 @@ fn nested_state_reads_log_the_callee_scope_not_only_the_root_scope() {
     let caller_contract = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Caller {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
     let callee_contract = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Callee {
   state StateMap<int, int> Values;
 
@@ -23,7 +23,7 @@ seiyaku Callee {
     return Values.get(1).unwrap_or(0);
   }
 }
-"#,
+",
         1,
     );
     let (result, log) = call_contract_syscall_access_log(
@@ -181,7 +181,7 @@ fn nested_result_error_returns_payload_and_rolls_back_successful_descendants() {
     let descendant = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Descendant { permission AssetOps;
   state StateMap<int, quantity> Values;
   kotoage fn quote(quantity amount_in, quantity min_out) authorize(AssetOps) -> quantity {
@@ -189,7 +189,7 @@ seiyaku Descendant { permission AssetOps;
     return amount_in;
   }
 }
-"#,
+",
         1,
     );
     let source = format!(
@@ -277,12 +277,12 @@ fn nested_calls_reject_direct_and_indirect_reentry_including_views() {
     let root = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Root {
   kotoage fn main() authorize(anyone) {}
   view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in }
 }
-"#,
+",
         0,
     );
     let source = format!(
@@ -376,7 +376,7 @@ fn recoverable_nested_rollback_keeps_reads_and_parent_writes() {
 
 #[test]
 fn root_and_local_result_errors_discard_effects_but_preserve_values_and_reads() {
-    let source = r#"
+    let source = r"
 seiyaku RootResult { permission AssetOps;
   state StateMap<int, int> Values;
   kotoage fn fail() authorize(AssetOps) -> Result<int, int> {
@@ -389,7 +389,7 @@ seiyaku RootResult { permission AssetOps;
     return Result::ok(9);
   }
 }
-"#;
+";
     let code = kotodama_lang::compiler::Compiler::new()
         .compile_source(source)
         .unwrap();
@@ -470,7 +470,7 @@ fn nested_numeric_fault_keeps_callee_artifact_and_rolls_back_its_state() {
     let child = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku FaultChild {
   state StateMap<int, int> Values;
   kotoage fn divide(int divisor) authorize(anyone) -> int {
@@ -478,7 +478,7 @@ seiyaku FaultChild {
     return 8 / divisor;
   }
 }
-"#,
+",
         1,
     );
     let (hash, ordinal) = {

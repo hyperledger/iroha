@@ -4131,10 +4131,7 @@ fn policy_history_from_checkpoint(
                 || previous_policy_id.is_some_and(|previous| previous >= policy.policy_id)
                 || policy.policy_digests.is_empty()
                 || !strictly_ordered(&policy.policy_digests)
-                || policy
-                    .policy_digests
-                    .iter()
-                    .any(|digest| *digest == [0; 32])
+                || policy.policy_digests.contains(&[0; 32])
                 || seen_policy_digests
                     .insert(
                         policy.policy_id,
@@ -5923,9 +5920,7 @@ fn ensure_insert_capacity(
     bounds: ProviderIngestFinalizedArchiveBoundsV1,
     record_bytes: usize,
 ) -> Result<(), ProviderIngestFinalizedArchiveErrorV1> {
-    let observed_entries = retained_archive_entries(index)
-        .checked_add(1)
-        .unwrap_or(usize::MAX);
+    let observed_entries = retained_archive_entries(index).saturating_add(1);
     if observed_entries > bounds.max_archive_entries() {
         return Err(
             ProviderIngestFinalizedArchiveErrorV1::ArchiveCapacityExceeded {
@@ -5935,10 +5930,7 @@ fn ensure_insert_capacity(
         );
     }
     let record_bytes = u64::try_from(record_bytes).unwrap_or(u64::MAX);
-    let observed_bytes = index
-        .total_bytes
-        .checked_add(record_bytes)
-        .unwrap_or(u64::MAX);
+    let observed_bytes = index.total_bytes.saturating_add(record_bytes);
     if observed_bytes > bounds.max_total_bytes() {
         return Err(
             ProviderIngestFinalizedArchiveErrorV1::ArchiveBytesExceeded {
@@ -8256,9 +8248,7 @@ mod tests {
                             &fence,
                             || {},
                             |position| {
-                                if position == 0 {
-                                    panic!("simulated crash during prefix cleanup");
-                                }
+                                assert!(position != 0, "simulated crash during prefix cleanup");
                             },
                         )
                         .expect("crash hook must interrupt compaction");
@@ -8646,9 +8636,11 @@ mod tests {
         }
         assert!(matches!(
             archive.insert(assignment_rollback),
-            Err(ProviderIngestFinalizedArchiveErrorV1::OrderSubstitution { .. })
-                | Err(ProviderIngestFinalizedArchiveErrorV1::AssignmentRollback { .. })
-                | Err(ProviderIngestFinalizedArchiveErrorV1::InvalidProjection { .. })
+            Err(
+                ProviderIngestFinalizedArchiveErrorV1::OrderSubstitution { .. }
+                    | ProviderIngestFinalizedArchiveErrorV1::AssignmentRollback { .. }
+                    | ProviderIngestFinalizedArchiveErrorV1::InvalidProjection { .. }
+            )
         ));
         let mut valid_rotation = advance_projection(&first, 8);
         valid_rotation.providers[0].expected_authority =

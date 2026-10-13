@@ -75,9 +75,7 @@ fn complete_view_retains_both_native_reader_notices_beyond_state_fences() {
                 drop(view);
                 assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
             }
-            if unwind {
-                panic!("original outer fence unwind");
-            }
+            assert!(!unwind, "original outer fence unwind")
         }));
         assert_eq!(result.is_err(), unwind);
         assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
@@ -108,9 +106,7 @@ fn executing_state_retains_captured_reader_notices_until_joint_writer_retirement
             let _hash = block._read_releases.lane_execution_state_hash().unwrap();
             assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
             assert!(!state.transactions.reader_test_writer_available());
-            if unwind {
-                panic!("original executing-State unwind");
-            }
+            assert!(!unwind, "original executing-State unwind");
             drop(block);
         }));
         assert_eq!(result.is_err(), unwind);

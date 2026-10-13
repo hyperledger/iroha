@@ -1160,7 +1160,7 @@ mod tests {
             })
             .to_vec();
         super::set_lane_governance_snapshot(entries);
-        super::prune_lane_scoped_snapshots(&Default::default());
+        super::prune_lane_scoped_snapshots(&std::collections::BTreeSet::default());
         let before = super::snapshot();
         assert_eq!(before.lane_governance.len(), 2);
         assert_eq!(before.lane_governance_sealed_total, 1);

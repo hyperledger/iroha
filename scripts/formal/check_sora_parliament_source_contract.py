@@ -2556,7 +2556,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
                 .check_binding(&binding)
                 .map_err(|error| error.to_string())?;
             let link = verify_finalized_global_threshold_beacon_pulse_v1(
-                &session,
+                session,
                 &pulse,
                 anchor,
                 expected_context
@@ -3053,7 +3053,7 @@ def require_parliament_pulse_isolation_evidence(
             "assert!(!new.is_active_at(slot_height)&&new.is_active_at(EXECUTION_HEIGHT));}"
             "assert_eq!(verified(&state_transaction),expected,);"
             "assert_eq!(crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1("
-            "&state_transaction.world,&network_id,pulse,slot_height,),Ok(seed));",
+            "&state_transaction.world,&network_id,&pulse,slot_height,),Ok(seed));",
             "==BodyElectionAttemptStatusV1::AwaitingPulse};",
             "leterror=consume(state_transaction,pulse_height,pulse_id).expect_err();",
             "assert!(rendered.contains(expected),",
@@ -3634,7 +3634,7 @@ def require_encrypted_beacon_dkg_source(model: str, core: str) -> None:
         "|| self.share_acceptances.len() != all_edges",
         "self.aborted = true;",
         "return Err(GlobalThresholdBeaconError::IncompleteDkgEdges.into());",
-        "&encrypted_shares,\n            &share_acceptances,",
+        "encrypted_shares,\n            share_acceptances,",
     ))
     # Follow the sole retained constructor rather than requiring an uncharged
     # inline DTO. Publication must keep the original snapshot, budget and cause.
@@ -3923,7 +3923,7 @@ def require_signed_deferred_authority_and_native_fees(
     execute = item(transaction, "pub(crate) fn execute_accepted_transaction_in_overlay(", tx_path)
     sequence = (
         "Self::validate_stateful_admission(",
-        "Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;",
+        "Self::validate_transaction_with_runtime_executor(signed.clone(), state_transaction, ivm_cache,)?;",
         "state_transaction.execute_data_triggers_dfs(&authority)",
         "crate::retail_fee::finalize(state_transaction)?;",
         "state_transaction.world.tx_sequences.insert(authority.clone(), seq);",

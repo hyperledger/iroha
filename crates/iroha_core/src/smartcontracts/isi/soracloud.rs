@@ -2164,7 +2164,7 @@ fn validate_soracloud_fhe_full_bootstrap_bfv_native_air_merkle_path(
             "{opening_label} {path_label} Merkle path direction byte count mismatch"
         )));
     }
-    if expected_depth % 8 != 0 {
+    if !expected_depth.is_multiple_of(8) {
         let allowed_mask = (1_u8 << (expected_depth % 8)) - 1;
         if path.dirs.last().copied().unwrap_or_default() & !allowed_mask != 0 {
             return Err(invalid_parameter(format!(
@@ -4965,8 +4965,7 @@ fn load_admitted_bundle(
         .cloned()
         .ok_or_else(|| {
             invalid_parameter(format!(
-                "service `{}` revision `{service_version}` has not been admitted",
-                service_name
+                "service `{service_name}` revision `{service_version}` has not been admitted"
             ))
         })
 }
@@ -5267,8 +5266,7 @@ pub(crate) fn write_soracloud_service_lease_usage(
             let delta = replica_accounted_egress_bytes - checkpoint.accounted_egress_bytes;
             let elapsed_blocks = block_height.saturating_sub(checkpoint.last_updated_height);
             let maximum_delta = elapsed_blocks
-                .checked_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1)
-                .unwrap_or(u64::MAX);
+                .saturating_mul(SORA_SERVICE_LEASE_MAX_EGRESS_BYTES_PER_REPORTER_BLOCK_V1);
             if delta > maximum_delta {
                 return Err(invalid_parameter(format!(
                     "reporter `{reporter}` egress delta {delta} exceeds the {maximum_delta}-byte bound for {elapsed_blocks} elapsed consensus blocks"
@@ -7297,8 +7295,7 @@ fn reconcile_inrou_service_placements(
         let last_error =
             (available_placement_count < usize::from(desired_replica_count)).then(|| {
                 format!(
-                    "{} of {} replica hosts are available using {} eligible validators",
-                    available_placement_count, desired_replica_count, eligible_validator_count
+                    "{available_placement_count} of {desired_replica_count} replica hosts are available using {eligible_validator_count} eligible validators"
                 )
             });
         let record = SoraInrouServicePlacementRecordV1 {

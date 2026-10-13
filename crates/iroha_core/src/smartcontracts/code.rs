@@ -1661,13 +1661,13 @@ mod tests {
                 authority.clone(),
             );
         let (v1_code, v1_manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleOne { permission CanRunLifecycleOne;
   hajimari() {}
   kaizen() {}
   kotoage fn run() authorize(CanRunLifecycleOne) {}
 }
-"#,
+",
         );
         let v1_hash = register_code_bytes(
             &authority,
@@ -1769,13 +1769,13 @@ seiyaku LifecycleOne { permission CanRunLifecycleOne;
             "idempotent activation must not recreate a consumed hajimari"
         );
         let (v2_code, v2_manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleTwo { permission CanRunLifecycleTwo;
   hajimari() {}
   kaizen() {}
   kotoage fn run() authorize(CanRunLifecycleTwo) {}
 }
-"#,
+",
         );
         let v2_hash = register_code_bytes(
             &authority,
@@ -2162,12 +2162,12 @@ seiyaku LifecycleTwo { permission CanRunLifecycleTwo;
         )
         .expect("contract address");
         let (code, manifest) = lifecycle_contract(
-            r#"
+            r"
 seiyaku LifecycleAba { permission CanRunLifecycleAba;
   hajimari() {}
   kotoage fn run() authorize(CanRunLifecycleAba) {}
 }
-"#,
+",
         );
         let mut first_block = state.block(default_header(1));
         let mut first_transaction = first_block.transaction();
