@@ -242,6 +242,20 @@ fn malformed_parent_identity_and_excess_recipient_count_are_rejected() {
         MAX_REWARD_RECIPIENTS + 1,
         "oversized current prefixes stop at the first impossible recipient"
     );
+
+    // The same bound applies to removed parent rows discovered through undo;
+    // malformed block churn cannot force capture to collect an unbounded key set.
+    let mut block = storage.block();
+    for index in 0..=MAX_REWARD_RECIPIENTS {
+        block.remove((lane, validator.clone(), account(index as u32 + 100)));
+    }
+    visits = 0;
+    assert!(capture_stakes(&block, &selected, |_| visits += 1).is_err());
+    assert_eq!(
+        visits,
+        MAX_REWARD_RECIPIENTS + 1,
+        "oversized undo prefixes stop at the first impossible recipient"
+    );
 }
 
 thread_local! {

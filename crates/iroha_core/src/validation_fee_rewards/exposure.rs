@@ -81,33 +81,39 @@ fn capture_stakes(
     let mut exposure = HistoricalStake::new();
     for (lane, accounts) in validators {
         for validator in accounts {
-            let mut keys = BTreeSet::new();
+            let mut current_keys = BTreeSet::new();
             for (key, _) in
                 shares.range::<dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
             {
                 visit(CaptureVisit::Current);
                 // Valid state admits at most MAX_REWARD_RECIPIENTS positions per
-                // validator. Refuse malformed or transiently oversized blocks as
-                // soon as the bound is crossed instead of materializing an
-                // unbounded current-prefix set before checking the parent.
-                if keys.insert(key.clone()) && keys.len() > MAX_REWARD_RECIPIENTS {
+                // validator. Refuse malformed or transiently oversized current
+                // state as soon as the bound is crossed.
+                if current_keys.insert(key.clone()) && current_keys.len() > MAX_REWARD_RECIPIENTS {
                     return Err(fail("historical reward stake recipient capacity exceeded"));
                 }
             }
-            // A removed parent position exists only in undo. Conversely, an undo
-            // None was created after the earning boundary and cannot contribute.
+            // A replacement block can remove up to the full parent cohort while
+            // adding a full current cohort. Keep those bounded sets separately:
+            // bounding their union would reject valid 256-for-256 rotations.
+            let mut parent_only_keys = BTreeSet::new();
             for (key, before) in shares
                 .revert_map()
                 .range::<_, dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
             {
                 visit(CaptureVisit::Undo);
-                if before.is_some() && keys.insert(key) && keys.len() > MAX_REWARD_RECIPIENTS {
+                if before.is_some()
+                    && !current_keys.contains(key)
+                    && parent_only_keys.insert(key.clone())
+                    && parent_only_keys.len() > MAX_REWARD_RECIPIENTS
+                {
                     return Err(fail("historical reward stake recipient capacity exceeded"));
                 }
             }
+            let keys = current_keys.into_iter().chain(parent_only_keys);
             let mut parent_count = 0_usize;
             for key in keys {
-                let Some(share) = shares.get_before_block(key) else {
+                let Some(share) = shares.get_before_block(&key) else {
                     continue;
                 };
                 visit(CaptureVisit::Parent);
