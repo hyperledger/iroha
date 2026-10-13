@@ -20,7 +20,7 @@ use iroha_data_model::{
     isi::Log,
     parameter::system::SumeragiParameters,
     sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember},
-    transaction::{FeePaymentIntent, TransactionBuilder},
+    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder},
 };
 use iroha_model_base::{
     peer::PeerId,
@@ -56,7 +56,7 @@ impl AnchorSource for Anchor {
 }
 struct IntrinsicComponentCheck;
 impl TransactionCheck for IntrinsicComponentCheck {
-    fn check(&self, _: &SignedTransaction, _: u64) -> Result<(), String> {
+    fn check(&self, _: &TransactionEntrypoint, _: u64) -> Result<(), String> {
         Ok(())
     }
 }
@@ -71,7 +71,7 @@ impl LaneTransactions for NoRows {
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
         _: &iroha_allocation::AllocationBudget,
     ) -> Result<
-        (Vec<SignedTransaction>, Self::Lease),
+        (Vec<TransactionEntrypoint>, Self::Lease),
         crate::sumeragi::lanes::executor::LaneSelectionError,
     > {
         Ok((Vec::new(), ()))
@@ -179,7 +179,7 @@ impl Fixture {
             LaneBatch {
                 anchor_height: 7,
                 anchor_hash: anchor.0,
-                transactions: vec![transaction.clone()],
+                transactions: vec![TransactionEntrypoint::External(transaction.clone())],
             }
             .to_payload()
         } else {
@@ -293,9 +293,10 @@ impl Fixture {
 }
 fn allocation_scope<T>(run: impl FnOnce() -> T) -> T {
     // Match the actual standard-library reservation made by Norito's vector decoder.
-    let mut destination = Vec::<SignedTransaction>::new();
+    let mut destination = Vec::<TransactionEntrypoint>::new();
     destination.try_reserve(1).unwrap();
-    let layout = std::alloc::Layout::array::<SignedTransaction>(destination.capacity()).unwrap();
+    let layout =
+        std::alloc::Layout::array::<TransactionEntrypoint>(destination.capacity()).unwrap();
     drop(destination);
     let (result, refused) = crate::test_allocations::refuse_one_layout_during(layout, run);
     assert!(
@@ -475,9 +476,11 @@ fn signed_lane_clock_retains_original_admission_until_exact_boundary_and_certifi
         let effective = Duration::from_millis(5_000.max(created_ms + 1));
         let boundary = effective
             .checked_sub(fixture.record.params.max_clock_drift())
-            .unwrap();
+            .expect("fixture effective time exceeds the signed drift allowance");
         let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
-            boundary.checked_sub(Duration::from_millis(1)).unwrap(),
+            boundary
+                .checked_sub(Duration::from_millis(1))
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let mut lane = fixture
             .recovery_with_clock(time.clone())

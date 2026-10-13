@@ -1238,7 +1238,14 @@ mod tests {
         match decoded {
             NetworkMessage::TransactionGossiper(gossip) => {
                 assert_eq!(gossip.txs.len(), 1);
-                assert_eq!(gossip.txs[0].as_signed().hash(), signed.hash());
+                assert_eq!(
+                    gossip.txs[0]
+                        .clone()
+                        .into_entrypoint_with_payload()
+                        .unwrap()
+                        .0,
+                    TransactionEntrypoint::External(signed.clone())
+                );
                 let (_, wire) = gossip.txs[0]
                     .clone()
                     .into_entrypoint_with_payload()
@@ -1301,7 +1308,14 @@ mod tests {
             match decoded {
                 NetworkMessage::TransactionGossiper(gossip) => {
                     assert_eq!(gossip.txs.len(), 1);
-                    assert_eq!(gossip.txs[0].as_signed().hash(), signed.hash());
+                    assert_eq!(
+                        gossip.txs[0]
+                            .clone()
+                            .into_entrypoint_with_payload()
+                            .unwrap()
+                            .0,
+                        TransactionEntrypoint::External(signed.clone())
+                    );
                     let (_, wire) = gossip.txs[0]
                         .clone()
                         .into_entrypoint_with_payload()

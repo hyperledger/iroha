@@ -546,10 +546,9 @@ impl State {
     /// The original native cut owner retains network, root, generation and capacity checks.
     ///
     /// # Errors
-    ///
-    /// Returns an error for equal keys, missing or oversized records, a changed
-    /// or uncertified snapshot, failed canonical hashing, exhausted resources,
-    /// or an error from `consume`.
+    /// Returns an error for identical keys, missing or oversized records, records
+    /// that do not match the certified cut, an absent or changed original cut,
+    /// State or allocation refusal, snapshot bounds, or a consumer error.
     pub fn with_native_execution_records_snapshot_v1<T>(
         &self,
         tip: &CommittedBlock,

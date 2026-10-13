@@ -669,6 +669,12 @@ fn verified_fee_sponsor_registration_fixture(
     State,
     iroha_data_model::isi::nexus::RegisterVerifiedFeeSponsorVaultAllocation,
 ) {
+    use fastpq_prover::gadgets::public_transfer_statement::{
+        PublicTransferLimits, TransferSmtBuildLimits, materialize_quantity_public_transfers,
+        public_claims_from_transcripts,
+    };
+    static PROOFS: VerifiedFeeSponsorProofFixtures = VerifiedFeeSponsorProofFixtures::new();
+
     use iroha_data_model::nexus::{
         AxtEffectBinding, AxtFastpqBinding, AxtPolicyEntry, FeeSponsorProgram, FeeSponsorProgramId,
         FeeSponsorProgramLifecycle, FeeSponsorProgramRevisionKey, FeeSponsorVault,
@@ -677,11 +683,6 @@ fn verified_fee_sponsor_registration_fixture(
         fee_sponsor_vault_source_state_root,
     };
 
-    use fastpq_prover::gadgets::public_transfer_statement::{
-        PublicTransferLimits, TransferSmtBuildLimits, materialize_quantity_public_transfers,
-        public_claims_from_transcripts,
-    };
-    static PROOFS: VerifiedFeeSponsorProofFixtures = VerifiedFeeSponsorProofFixtures::new();
     let source_dataspace_id = DataSpaceId::new(7);
     let asset_definition_id: AssetDefinitionId = "66owaQmAQMuHxPzxUN3bqZ6FJfDa"
         .parse()
@@ -3048,6 +3049,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
     let mut fixture = None;
     chain.setup_world_at(60_000, |transaction| {
         const CEILING: usize = 1 << 20;
+
         crate::validation_fee::tests::register_bound_payout_time_trigger(
             transaction,
             &binding,

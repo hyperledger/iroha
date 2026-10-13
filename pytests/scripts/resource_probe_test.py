@@ -228,6 +228,81 @@ def test_http_protocol_errors_are_closed_and_never_redirect(raw, code):
     assert 'secret' not in str(error.value)
 
 
+def test_aggregate_header_refusal_stops_at_original_framing_capacity():
+    raw = response(headers=b''.join(
+        f'X{i}: '.encode() + b'a' * 8100 + b'\r\n' for i in range(5)))
+
+    class Stream:
+        def __init__(self): self.offset = 0
+        def settimeout(self, _): pass
+        def recv(self, count):
+            data = raw[self.offset:self.offset + count]
+            self.offset += len(data)
+            return data
+
+    stream = Stream()
+    with pytest.raises(probe.ProbeError, match='http_headers_exceeded'):
+        probe._response(probe._Reader(stream, probe._Deadline(1)), '/status', 32)
+    assert stream.offset == probe.MAX_HEADER_BYTES
+    assert stream.offset < raw.index(b'\r\n\r\n') + 4
+
+
+@pytest.mark.parametrize('extra', [0, 1])
+def test_aggregate_header_exact_boundary_keeps_body_admission(extra):
+    headers = b''.join(f'X{i}: '.encode() + b'a' * 8100 + b'\r\n' for i in range(4))
+    empty = response(headers=headers + b'X4: \r\n')
+    padding = probe.MAX_HEADER_BYTES - (empty.index(b'\r\n\r\n') + 4)
+    raw = response(headers=headers + b'X4: ' + b'a' * (padding + extra) + b'\r\n')
+    assert raw.index(b'\r\n\r\n') + 4 == probe.MAX_HEADER_BYTES + extra
+
+    class Stream:
+        def __init__(self): self.offset = 0
+        def settimeout(self, _): pass
+        def recv(self, count):
+            data = raw[self.offset:self.offset + count]
+            self.offset += len(data)
+            return data
+
+    stream = Stream()
+    reader = probe._Reader(stream, probe._Deadline(1))
+    if extra:
+        with pytest.raises(probe.ProbeError, match='http_headers_exceeded'):
+            probe._response(reader, '/status', 32)
+        assert stream.offset <= probe.MAX_HEADER_BYTES
+    else:
+        body, content_type = probe._response(reader, '/status', 32)
+        assert body == b'{"queue_size":7}'
+        assert content_type == 'application/json'
+        assert stream.offset == len(raw)
+
+
+@pytest.mark.parametrize('length', [0, 1, probe.MAX_LINE_BYTES])
+def test_fragmented_line_search_is_linear_without_plaintext_read_ahead(length):
+    raw = b'a' * length + b'\r\n' + b'unadmitted-body'
+
+    class Stream:
+        def __init__(self): self.offset = 0
+        def settimeout(self, _): pass
+        def recv(self, count):
+            data = raw[self.offset:self.offset + count]
+            self.offset += len(data)
+            return data
+
+    class ScanCounter(bytearray):
+        searched = 0
+        def find(self, value, start=0):
+            self.searched += len(self) - start
+            return super().find(value, start)
+
+    stream = Stream()
+    reader = probe._Reader(stream, probe._Deadline(1))
+    reader.buffer = ScanCounter()
+    assert reader.line() == b'a' * length
+    assert stream.offset == length + 2
+    assert reader.buffer == b''
+    assert reader.buffer.searched <= 3 * (length + 2)
+
+
 @pytest.mark.parametrize('phase', ['headers', 'body'])
 def test_slow_drip_uses_one_absolute_deadline(phase):
     raw = response(b'{"queue_size":7}')

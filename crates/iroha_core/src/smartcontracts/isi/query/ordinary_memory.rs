@@ -187,10 +187,9 @@ impl OrdinaryQueryExecutionLimits {
     #[allow(clippy::too_many_arguments)]
     ///
     /// # Errors
-    ///
-    /// Returns an error for zero page capacity, unmetered or insufficient work
-    /// budgets, request graphs larger than the decode ceiling, insufficient
-    /// execution/cursor reservations, or overflowing envelope arithmetic.
+    /// Returns a limit error for zero page size, unmetered or insufficient work
+    /// budget, geometry overflow, a request graph above the decoder bound, or
+    /// execution/cursor reservations below their required phase envelopes.
     pub fn try_new(
         policy_generation: u64,
         execution_budget: QueryExecutionBudget,
@@ -277,9 +276,9 @@ impl OrdinaryQueryExecutionLimits {
     /// Torii reserves both returned parts before decoding or execution begins.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the request graph exceeds the replay decode ceiling
-    /// or any envelope calculation overflows.
+    /// Returns `RequestGraphExceedsDecodeLimit` if the request graph exceeds the
+    /// revalidation decoder allowance, or `GeometryOverflow` if any representation
+    /// conversion or phase-envelope arithmetic overflows.
     pub fn required_execution_headroom_bytes(
         max_page_items: u64,
         max_source_item_bytes: u64,
@@ -350,8 +349,8 @@ impl OrdinaryQueryExecutionLimits {
     /// canonical Start archive, and deterministic container overhead.
     ///
     /// # Errors
-    ///
-    /// Returns an error if computing the retained envelope overflows `u64`.
+    /// Returns `GeometryOverflow` if resident-value, container, archive or total
+    /// retention arithmetic exceeds `u64`.
     pub fn required_cursor_retained_bytes(
         max_cursor_retained_items: u64,
         max_source_item_bytes: u64,

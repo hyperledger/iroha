@@ -7,6 +7,7 @@ use norito::codec::{DecodeAll, Encode};
 #[test]
 fn retained_generation_view_preserves_exact_graph_lifecycle_and_wire_identity() {
     use iroha_data_model::account::{AccountId, MultisigMember, MultisigPolicy};
+
     let mut source = sample_generation(2);
     // Preserve a nested universal-account graph at saturation, not merely flat keys.
     let members = [0x61, 0x62].map(|seed| {

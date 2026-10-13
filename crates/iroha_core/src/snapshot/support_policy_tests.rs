@@ -627,11 +627,13 @@ async fn snapshot_fixture_key_generation_preserves_algorithm() {
 }
 fn state_factory_with_kura_and_chain(kura: Arc<Kura>, chain_id: ChainId) -> State {
     let query_handle = LiveQueryStore::start_test();
+    let world = crate::queue::tests::world_with_test_domains();
+    // Retain the same original pool as every admitted World field. A fresh
+    // budget here would make subsequent State block acquisition foreign.
+    let budget = world.sccp_committee_generations.allocation_budget().clone();
     let mut state = State::try_new_with_chain(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
-        crate::queue::tests::world_with_test_domains(),
+        budget,
+        world,
         Arc::clone(&kura),
         query_handle,
         chain_id,

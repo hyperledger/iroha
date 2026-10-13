@@ -801,7 +801,7 @@ pub fn select(
         .filter_map(|transaction| {
             let payload = keepalive::payload(transaction.entrypoint())?;
             (keepalive::valid_shape(payload)
-                && transaction.as_ref().creation_time()
+                && Duration::from_millis(payload.creation_time_ms)
                     <= wall_time
                         .saturating_add(view.world().parameters().sumeragi().max_clock_drift())
                 && payload
@@ -821,8 +821,10 @@ pub fn select(
         };
         if routing.has_lanes()
             && lane != super::lanes::routing::GLOBAL_LANE
-            && u64::try_from(transaction.as_ref().creation_time().as_millis())
-                .is_ok_and(|created| created >= rescue_before_ms)
+            && transaction
+                .entrypoint()
+                .creation_time_ms()
+                .is_some_and(|created| created >= rescue_before_ms)
         {
             continue;
         }
@@ -833,7 +835,10 @@ pub fn select(
         // CT3 is local proposal pacing, never transaction invalidity. An eligible
         // future input must arm retry even when it is the final input on an idle chain.
         if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
-            && transaction.as_ref().creation_time() > wall_time
+            && transaction
+                .entrypoint()
+                .creation_time_ms()
+                .is_some_and(|created| Duration::from_millis(created) > wall_time)
         {
             future_input = true;
             continue;

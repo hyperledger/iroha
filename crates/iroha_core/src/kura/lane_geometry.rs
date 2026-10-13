@@ -37,7 +37,7 @@ use prepared_journal::PreparedGeometryJournalTransition;
 pub(super) use raw_attempt::RawGeometryClaimGate;
 use raw_attempt::RawGeometryMutation;
 pub use raw_attempt::RawGeometryWait;
-pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase};
+pub(crate) use raw_attempt::{RawGeometryAttempt, RawGeometryPhase, RawGeometryReleases};
 
 #[cfg(test)]
 std::thread_local! {

@@ -103,7 +103,7 @@ fn nested_callback_fixture(row_bytes: u64, depth: u8) -> NestedCallbackFixture {
         header
             .creation_time()
             .checked_sub(std::time::Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let signed = transaction
         .with_instructions([ExecuteTrigger::new(parent.clone())])
@@ -596,7 +596,7 @@ fn real_dfs_predispatch_failure_poison_preserves_no_earlier_callback_effects() {
         header
             .creation_time()
             .checked_sub(std::time::Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let signed = source
         .with_instructions([

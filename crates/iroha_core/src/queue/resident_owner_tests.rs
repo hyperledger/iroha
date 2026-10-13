@@ -290,9 +290,8 @@ fn every_queue_retirement_defers_original_refund_until_its_mutation_fence_releas
         register_accepted_tx_authority_for_queue_test(&mut state, &original);
         let hash = original.hash_as_entrypoint();
         queue.push(original, state.view()).unwrap();
-        // Acquire the revalidation fixture's State source before arming a pool-wide
-        // release callback: a new EBR read may reclaim unrelated retired State rows.
-        // The observed boundary below is Queue retirement, not that fixture read.
+        // State-view acquisition can reclaim unrelated original-pool EBR cells.
+        // Complete that input acquisition before observing Queue retirement.
         let view = state.view();
         let budget = state.ivm_execution_budget();
         let mut registration = crate::unit_test_support::release_registration(&budget);

@@ -523,6 +523,9 @@ fn ensure_xor_asset(asset_definition: &AssetDefinitionId) -> Result<(), String> 
     Ok(())
 }
 /// Derive the deterministic protocol custody account for a VPN lease.
+///
+/// # Errors
+/// This derivation is infallible and currently always returns `Ok`.
 pub fn vpn_lease_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     lease_id: &[u8; 32],

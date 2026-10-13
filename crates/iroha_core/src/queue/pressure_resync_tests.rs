@@ -195,7 +195,7 @@ async fn queue_pressure_counters_track_committed_removal_before_hash_drain() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Arc::new(Queue::test(config_factory(), &time_source));
     let first = accepted_tx_by_someone(&time_source);
-    let first_hash = first.as_ref().hash_as_entrypoint();
+    let first_hash = first.hash_as_entrypoint();
     queue
         .push(first, state.view())
         .expect("first push succeeds");
@@ -228,7 +228,7 @@ async fn queue_pressure_counters_restore_age_after_enqueue_compaction_retry() {
         &time_source,
     ));
     let first = accepted_tx_by_someone(&time_source);
-    let first_hash = first.as_ref().hash_as_entrypoint();
+    let first_hash = first.hash_as_entrypoint();
     queue
         .push(first, state.view())
         .expect("first push succeeds");
@@ -237,7 +237,7 @@ async fn queue_pressure_counters_restore_age_after_enqueue_compaction_retry() {
     assert_eq!(queue.queued_len(), 0);
     queue.assert_pressure_counters_consistent_for_tests();
     let second = accepted_tx_by_someone(&time_source);
-    let second_hash = second.as_ref().hash_as_entrypoint();
+    let second_hash = second.hash_as_entrypoint();
     queue
         .push(second, state.view())
         .expect("second push compacts stale hash and succeeds");
@@ -337,7 +337,7 @@ async fn push_tx_already_in_blockchain() {
         .expect("block height should fit into usize");
     state_block
         .transactions
-        .insert_block_with_single_tx(tx.as_ref().hash_as_entrypoint(), block_height);
+        .insert_block_with_single_tx(tx.hash_as_entrypoint(), block_height);
     state_block.block_hashes.push(unverified_block.hash());
     state_block.commit().unwrap();
     let queue = Queue::test(config_factory(), &time_source);
@@ -399,7 +399,7 @@ async fn push_expired_tx_already_in_blockchain() {
         .expect("block height should fit into usize");
     state_block
         .transactions
-        .insert_block_with_single_tx(tx.as_ref().hash_as_entrypoint(), block_height);
+        .insert_block_with_single_tx(tx.hash_as_entrypoint(), block_height);
     state_block.block_hashes.push(unverified_block.hash());
     state_block.commit().unwrap();
     let queue = Queue::test(config_factory(), &time_source);
@@ -421,7 +421,7 @@ async fn native_sampling_omits_committed_input_until_exact_cleanup() {
     let state = State::new(world_with_test_domains(), kura, query_handle);
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let tx = accepted_tx_by_someone(&time_source);
-    let tx_hash = tx.as_ref().hash_as_entrypoint();
+    let tx_hash = tx.hash_as_entrypoint();
     let queue = Queue::test(config_factory(), &time_source);
     let queue = Arc::new(queue);
     queue.push(tx, state.view()).unwrap();
@@ -500,4 +500,93 @@ async fn get_available_txs_with_timeout() {
             .len(),
         0
     );
+}
+
+#[test]
+fn native_sampling_only_requires_original_time_for_live_sccp_candidates() {
+    use crate::smartcontracts::isi::sccp::{
+        admission,
+        hold::{self, SccpCommittedTimeError},
+    };
+    use iroha_data_model::{
+        isi::sccp::SubmitSccpForgeryEvidenceV1, sccp::params::SccpParametersV1,
+    };
+
+    for shaped in [false, true] {
+        let (mut state, time) = current_admission_queue_fixture();
+        let instructions = if shaped {
+            vec![
+                SubmitSccpForgeryEvidenceV1 {
+                    qc: [1; 116],
+                    header: [2; 221],
+                    aggregate_signature: [3; 96],
+                    anchor: None,
+                }
+                .into(),
+            ]
+        } else {
+            vec![Log::new(Level::INFO, "ordinary native sampling".into()).into()]
+        };
+        let tx = accepted_tx_with(
+            AccountId::new(ALICE_KEYPAIR.public_key().clone()),
+            &ALICE_KEYPAIR,
+            &time,
+            instructions,
+            Metadata::default(),
+        );
+        assert_eq!(
+            admission::exempt_shape(tx.external().unwrap().payload()).is_some(),
+            shaped
+        );
+        register_accepted_tx_authority_for_queue_test(&mut state, &tx);
+        let hash = tx.hash_as_entrypoint();
+        let original = tx.entrypoint_bytes();
+        let queue = Arc::new(Queue::test(config_factory(), &time));
+        queue.push(tx, state.view()).unwrap();
+        let retained = queue.txs.get(&hash).unwrap().value().clone();
+        let bytes = queue.retained_bytes();
+        // The partial positive-height fixture is never authority for an exemption.
+        seed_committed_height_for_queue_test(&state, 1);
+        for sccp_exists in [false, true] {
+            {
+                let mut world = state.world.block();
+                *world.sccp_parameters.get_mut() =
+                    sccp_exists.then(SccpParametersV1::taira_default);
+                world.commit();
+            }
+            let view = state.view();
+            assert_eq!(
+                hold::committed_time_ms(&view),
+                Err(SccpCommittedTimeError::Missing)
+            );
+            let sampled = queue.bounded_pending_snapshot(&view, nonzero!(1_usize));
+            if shaped && sccp_exists {
+                assert!(
+                    sampled.is_none(),
+                    "a live SCCP candidate requires its original committed time"
+                );
+            } else {
+                assert!(
+                    sampled.is_some(),
+                    "ordinary native sampling has no SCCP committed-history dependency"
+                );
+                let sampled = sampled.unwrap();
+                assert_eq!(sampled.len(), 1);
+                assert_eq!(sampled[0].hash_as_entrypoint(), hash);
+                assert!(Arc::ptr_eq(&sampled[0].entrypoint_bytes(), &original));
+                assert_eq!(
+                    sampled[0].entrypoint_bytes().as_slice(),
+                    original.as_slice()
+                );
+            }
+            assert!(!queue.admission_faulted());
+            assert_eq!((queue.active_len(), queue.queued_len()), (1, 1));
+            assert_eq!(queue.retained_bytes(), bytes);
+            assert!(QueuedTransaction::ptr_eq(
+                queue.txs.get(&hash).unwrap().value(),
+                &retained
+            ));
+            assert!(Arc::ptr_eq(&retained.entrypoint_bytes(), &original));
+        }
+    }
 }

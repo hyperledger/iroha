@@ -9,7 +9,7 @@ use iroha_data_model::{
     block::BlockHeader as GlobalHeader,
     isi::Log,
     sumeragi_lanes::SumeragiLaneMember,
-    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionEntrypoint},
+    transaction::{FeePaymentIntent, TransactionBuilder, TransactionEntrypoint},
 };
 use iroha_model_base::{
     peer::PeerId,
@@ -69,7 +69,7 @@ impl LaneTransactions for NoTransactions {
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
         _: &iroha_allocation::AllocationBudget,
     ) -> Result<
-        (Vec<SignedTransaction>, Self::Lease),
+        (Vec<TransactionEntrypoint>, Self::Lease),
         crate::sumeragi::lanes::executor::LaneSelectionError,
     > {
         Ok((Vec::new(), ()))
@@ -177,7 +177,7 @@ impl Fixture {
         let batch = LaneBatch {
             anchor_height: 3,
             anchor_hash: anchors.hash,
-            transactions: vec![tx.sign(user.private_key())],
+            transactions: vec![TransactionEntrypoint::External(tx.sign(user.private_key()))],
         };
         let config = lane_height_config(&record).unwrap();
         let crypto = Arc::new(BlsCrypto::new());

@@ -21,7 +21,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use eyre::{Result, WrapErr as _, ensure, eyre};
+use eyre::{Result, WrapErr as _, bail, ensure, eyre};
 use futures_util::future::try_join_all;
 
 use integration_tests::sandbox;
@@ -1700,7 +1700,9 @@ fn inspect_certified_bpng_lane_evidence(
                 && section.merged_count == 1,
             "global native merge does not bind its exact certified frame"
         );
-        let signed = &batch.transactions[0];
+        let TransactionEntrypoint::External(signed) = &batch.transactions[0] else {
+            bail!("native lane fixture must preserve its original external carrier");
+        };
         let (_, execution_record) =
             bpng_transaction_ownership(retained, signed, incarnation, expected_validators)?;
         ensure!(

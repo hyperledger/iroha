@@ -205,10 +205,9 @@ pub(crate) fn receipt_head_root(
 /// The caller must match the returned root to immutable finality before responding.
 ///
 /// # Errors
-///
-/// Returns a rejection if the wallet head is absent or changed, or the
-/// protected tree has missing or inconsistent nodes. Canonical decoding
-/// failures preserve their rejection or resource-deferral classification.
+/// Returns an error if the wallet path or leaf cannot be derived, retained
+/// tree data is missing or malformed, the wallet/head does not match the tree,
+/// or traversal exceeds its depth bound. Original decoder refusals are preserved.
 pub fn receipt_head_membership(
     world: &impl WorldReadOnly,
     head: &RetailFeeReceiptHeadV1,

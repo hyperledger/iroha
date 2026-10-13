@@ -103,9 +103,8 @@ pub trait SortableQueryOutput {
     /// attacker-sized key is rejected before any key allocation or clone.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the encoded key exceeds `limit` or bounded canonical
-    /// sizing fails.
+    /// Returns `GasBudgetExceeded` if bounded encoding exceeds `limit`, or a
+    /// conversion error if the key cannot be serialized for measurement.
     fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error>;
     /// Compare two items by their deterministic tie-break order.
     fn tiebreak_cmp(&self, other: &Self) -> core::cmp::Ordering {

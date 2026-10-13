@@ -57,12 +57,14 @@ struct AcquiredKuraPublicationFences<'kura> {
     geometry: Option<PublicationGuard<'kura>>,
     canonical: Option<PublicationGuard<'kura>>,
     prune: Option<PublicationGuard<'kura>>,
+    claims: Option<&'kura super::lane_geometry::RawGeometryClaimGate>,
 }
 
 /// Original notifications after every physical Kura owner has unlocked.
 #[must_use = "retain Kura cleanup through every enclosing physical owner"]
 pub(crate) struct KuraPublicationCleanup {
-    _fences: [Option<iroha_allocation::release::DeferredRelease>; 4],
+    fences: [Option<iroha_allocation::release::DeferredRelease>; 4],
+    claims: super::lane_geometry::RawGeometryReleases,
 }
 
 impl AcquiredKuraPublicationFences<'_> {
@@ -72,12 +74,19 @@ impl AcquiredKuraPublicationFences<'_> {
             geometry: None,
             canonical: None,
             prune: None,
+            claims: None,
         }
     }
 
     fn take_cleanup(&mut self) -> KuraPublicationCleanup {
+        let claims = self
+            .claims
+            .take()
+            .map(|gate| gate.end_publication())
+            .unwrap_or_default();
         KuraPublicationCleanup {
-            _fences: [
+            claims,
+            fences: [
                 self.sidecar.take().map(PublicationGuard::release_deferred),
                 self.geometry.take().map(PublicationGuard::release_deferred),
                 self.canonical
@@ -154,6 +163,8 @@ impl Kura {
             .map_err(KuraPublicationPreparationError::Storage)?;
         self.ensure_canonical_storage_not_poisoned()
             .map_err(KuraPublicationPreparationError::Storage)?;
+        self.raw_geometry_claim.begin_publication();
+        fences.claims = Some(&self.raw_geometry_claim);
         Ok(pending_canonical_bytes)
     }
 }
@@ -173,6 +184,7 @@ impl<'kura> KuraPublicationLease<'kura> {
         prune: PublicationGuard<'kura>,
         pending_canonical_bytes: u64,
     ) -> Self {
+        kura.raw_geometry_claim.begin_publication();
         Self {
             kura,
             pending_canonical_bytes,
@@ -181,6 +193,7 @@ impl<'kura> KuraPublicationLease<'kura> {
                 geometry: Some(geometry),
                 canonical: Some(canonical),
                 prune: Some(prune),
+                claims: Some(&kura.raw_geometry_claim),
             },
         }
     }
@@ -231,3 +244,66 @@ mod tests;
 
 mod retained;
 pub(crate) use retained::KuraPublicationSlot;
+
+/// Original source-bound notices that can outlive their Kura borrow.
+/// Empty custody never defers an unrelated lease or another publication attempt.
+pub(crate) struct KuraPublicationReleases {
+    source: super::KuraInstanceIdentity,
+    fences: [iroha_allocation::release::DeferredReleaseBatch; 4],
+    claims: super::lane_geometry::RawGeometryReleases,
+}
+impl KuraPublicationReleases {
+    pub(crate) fn new(kura: &Kura) -> Self {
+        Self {
+            source: kura.instance_identity(),
+            fences: [
+                kura.sidecar_lock.deferred_releases(),
+                kura.lane_geometry_lock.deferred_releases(),
+                kura.canonical_chain_lock.deferred_releases(),
+                kura.prune_lock.deferred_releases(),
+            ],
+            claims: Default::default(),
+        }
+    }
+    fn retain(&mut self, mut cleanup: KuraPublicationCleanup) {
+        for (notice, batch) in cleanup.fences.iter_mut().zip(&mut self.fences) {
+            if let Some(notice) = notice.take() {
+                assert!(
+                    notice.try_merge_into(batch).is_ok(),
+                    "original Kura cleanup source"
+                );
+            }
+        }
+        self.claims.append(std::mem::take(&mut cleanup.claims));
+    }
+}
+
+/// A standalone geometry lease transfers every notice to its original caller.
+pub(crate) struct ScopedKuraPublicationLease<'kura, 'releases> {
+    lease: Option<KuraPublicationLease<'kura>>,
+    releases: &'releases mut KuraPublicationReleases,
+}
+impl<'kura, 'releases> ScopedKuraPublicationLease<'kura, 'releases> {
+    pub(crate) fn new(
+        lease: KuraPublicationLease<'kura>,
+        releases: &'releases mut KuraPublicationReleases,
+    ) -> Self {
+        Self {
+            lease: Some(lease),
+            releases,
+        }
+    }
+}
+impl<'kura> std::ops::Deref for ScopedKuraPublicationLease<'kura, '_> {
+    type Target = KuraPublicationLease<'kura>;
+    fn deref(&self) -> &Self::Target {
+        self.lease.as_ref().expect("original scoped Kura lease")
+    }
+}
+impl Drop for ScopedKuraPublicationLease<'_, '_> {
+    fn drop(&mut self) {
+        if let Some(lease) = self.lease.take() {
+            self.releases.retain(lease.release_deferred());
+        }
+    }
+}

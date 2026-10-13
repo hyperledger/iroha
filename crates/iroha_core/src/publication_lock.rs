@@ -364,6 +364,7 @@ mod tests {
                 self.observed.store(true, Ordering::SeqCst);
             }
         }
+
         let observer_budget = iroha_allocation::AllocationBudget::new(
             iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
         );
@@ -463,6 +464,7 @@ mod tests {
                 drop((first, second));
             }
         }
+
         let observer_budget = iroha_allocation::AllocationBudget::new(
             iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
         );

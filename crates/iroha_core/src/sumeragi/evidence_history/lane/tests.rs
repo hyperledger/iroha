@@ -985,19 +985,6 @@ fn original_validator_account_key() -> KeyPair {
 }
 
 fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidence {
-    use crate::sumeragi::driver::{
-        DriverConfig, Kernel, KernelStart, Op, Report,
-        ingress::{Ingress, IngressLimits},
-    };
-    use iroha_sumeragi::{
-        api::{Init, LocalParams},
-        message::WireMessage,
-        types::{ConfigSlot, PublicKey},
-    };
-
-    // This deterministic host starts a non-voting observer from the actual lane
-    // creation record. Only the scripted remote peer equivocates; production
-    // node configuration and signing paths have no fault controls.
     fn deliver(kernel: &mut Kernel, from: &PublicKey, vote: Vote) -> Vec<Evidence> {
         let message = WireMessage::Vote(vote);
         let class = message.traffic_class();
@@ -1025,6 +1012,20 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
             })
             .collect()
     }
+
+    use crate::sumeragi::driver::{
+        DriverConfig, Kernel, KernelStart, Op, Report,
+        ingress::{Ingress, IngressLimits},
+    };
+    use iroha_sumeragi::{
+        api::{Init, LocalParams},
+        message::WireMessage,
+        types::{ConfigSlot, PublicKey},
+    };
+
+    // This deterministic host starts a non-voting observer from the actual lane
+    // creation record. Only the scripted remote peer equivocates; production
+    // node configuration and signing paths have no fault controls.
     let crypto = BlsCrypto::new();
     context
         .authority

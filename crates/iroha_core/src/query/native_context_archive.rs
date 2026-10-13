@@ -507,6 +507,7 @@ struct RecordName {
 impl RecordName {
     fn new(height: u64, hash: HashOf<BlockHeader>, staged: bool) -> Self {
         const HEX: &[u8; 16] = b"0123456789abcdef";
+
         let mut out = Self {
             bytes: [0; 90],
             len: 0,

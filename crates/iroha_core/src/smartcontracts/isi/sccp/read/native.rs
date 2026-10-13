@@ -688,19 +688,14 @@ pub fn message_proof(
     }
     let payload = SccpTransferPayloadRefV1::decode(&record.payload)
         .map_err(|_| SccpNativeReadError::Invalid("stored transfer payload"))?;
+    // The retained record names the payload's route revision `revision`.
+    let recorded_route_revision = record.revision;
     if !payload.is_outbound()
         || payload.target() != Some(record.network)
-        || (
-            payload.route_revision,
-            payload.nonce,
-            payload.deadline_ms,
-            payload.amount,
-        ) != (
-            record.revision,
-            record.nonce,
-            record.deadline_ms,
-            record.amount,
-        )
+        || payload.route_revision != recorded_route_revision
+        || payload.nonce != record.nonce
+        || payload.deadline_ms != record.deadline_ms
+        || payload.amount != record.amount
     {
         return Err(SccpNativeReadError::Invalid("record payload coordinates"));
     }

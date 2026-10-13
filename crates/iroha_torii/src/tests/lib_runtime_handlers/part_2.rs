@@ -957,7 +957,7 @@ async fn handler_post_transaction_does_not_age_shed_retained_native_candidate() 
         2,
         "both original native inputs remain pending"
     );
-    assert_eq!(candidates[0].hash(), tx1.hash());
+    assert_eq!(candidates[0].hash_as_entrypoint(), tx1.hash_as_entrypoint());
 }
 #[test]
 fn signed_query_scope_classifies_trigger_inventory_queries_as_local_replicated() {

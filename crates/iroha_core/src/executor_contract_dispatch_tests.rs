@@ -472,6 +472,7 @@ fn loaded_executor_runtime_tracks_governed_heap_limit() {
     const GAS_LIMIT: u64 = 10_000;
     const SMALL_HEAP_LIMIT: u64 = 64;
     const LARGE_HEAP_LIMIT: u64 = 128;
+
     if executor_cache_test_in_child("loaded_executor_runtime_tracks_governed_heap_limit") {
         return;
     }
@@ -526,6 +527,7 @@ fn loaded_executor_reuses_and_resets_runtime_after_error_return() {
             .expect("dirty input memory");
         Err(allocation)
     }
+
     if executor_cache_test_in_child("loaded_executor_reuses_and_resets_runtime_after_error_return")
     {
         return;
@@ -2100,6 +2102,7 @@ fn executor_cache_test_in_child(name: &str) -> bool {
 #[test]
 fn loaded_executor_materializes_only_governed_runtime() {
     const GAS_LIMIT: u64 = 10_000;
+
     if executor_cache_test_in_child("loaded_executor_materializes_only_governed_runtime") {
         return;
     }
@@ -2145,6 +2148,7 @@ fn loaded_executor_materializes_only_governed_runtime() {
 #[test]
 fn executor_idle_retention_reclamation_preserves_lru_identity_and_original_owners() {
     const GAS: u64 = 10_000;
+
     if executor_cache_test_in_child(
         "executor_idle_retention_reclamation_preserves_lru_identity_and_original_owners",
     ) {
@@ -2249,6 +2253,7 @@ fn executor_idle_retention_reclamation_preserves_lru_identity_and_original_owner
 #[test]
 fn executor_idle_retention_reclamation_rejects_replaced_or_filled_returning_slot() {
     const GAS: u64 = 10_000;
+
     if executor_cache_test_in_child(
         "executor_idle_retention_reclamation_rejects_replaced_or_filled_returning_slot",
     ) {

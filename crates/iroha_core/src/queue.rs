@@ -1186,15 +1186,24 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
         transaction: &SignedTransaction,
     ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
-        crate::smartcontracts::isi::sccp::fast_pause::admit(
-            self.view.world(),
-            *self.view.network_id(),
-            transaction.payload(),
+        // Public pause endorsements need the original committed time even though
+        // they are not fee-exempt. Ordinary inputs acquire no SCCP history.
+        let pause_needs_time = matches!(transaction.instructions(), Executable::Instructions(instructions)
+            if instructions.iter().any(|instruction| instruction.as_any().is::<iroha_data_model::isi::sccp::EndorseSccpFastPauseV1>()));
+        let pause_time = if pause_needs_time {
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
                 |error| Error::AdmissionInvariant {
                     reason: error.to_string(),
                 },
-            )?,
+            )?
+        } else {
+            None
+        };
+        crate::smartcontracts::isi::sccp::fast_pause::admit(
+            self.view.world(),
+            *self.view.network_id(),
+            transaction.payload(),
+            pause_time,
         )
         .map_err(|error| Error::NexusFeeAdmissionRejected {
             code: FeeRejectionCode::OperationNotAllowed,
@@ -1212,6 +1221,17 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
         })?;
         if keepalive.is_some() {
             return Ok(keepalive);
+        }
+        // Match the canonical classifier: ordinary work has no SCCP exemption and
+        // therefore needs no SCCP history acquisition. Eligible shapes still bind
+        // the exact original committed time before any exemption is granted.
+        if !cfg!(all(test, sumeragi_core_mutation = "HC345"))
+            && (crate::smartcontracts::isi::sccp::store::parameters::get(self.view.world())
+                .is_none()
+                || crate::smartcontracts::isi::sccp::admission::exempt_shape(transaction.payload())
+                    .is_none())
+        {
+            return Ok(None);
         }
         if matches!(
             fees::exempt_class(
@@ -1259,6 +1279,22 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
         tx: &AcceptedTransaction<'static>,
         route_dataspace_id: Option<DataSpaceId>,
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
+        // Only SCCP exemption candidates consume original committed time. Every
+        // ordinary signed input still reaches the exact Nexus fee quote below.
+        let needs_sccp_time = tx.external().is_some_and(|transaction| {
+            crate::smartcontracts::isi::sccp::store::parameters::get(self.view.world()).is_some()
+                && crate::smartcontracts::isi::sccp::admission::exempt_shape(transaction.payload())
+                    .is_some()
+        });
+        let sccp_committed_time_ms = if needs_sccp_time {
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                },
+            )?
+        } else {
+            None
+        };
         queue.recheck_external_nexus_fee_admission(
             tx,
             self.view.world(),
@@ -1267,11 +1303,7 @@ impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
             &self.view.zk.gas,
             self.next_block_height,
             route_dataspace_id,
-            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
-                |error| Error::AdmissionInvariant {
-                    reason: error.to_string(),
-                },
-            )?,
+            sccp_committed_time_ms,
         )
     }
     fn extract_lane_identity_metadata(
@@ -1490,9 +1522,9 @@ impl Queue {
     /// Admit an ordered batch, reporting the first failure after publishing its accepted prefix.
     ///
     /// # Errors
-    ///
-    /// Returns the first transaction whose routing-plan validation or queue
-    /// admission fails, after retaining the previously accepted prefix.
+    /// Returns the first transaction whose supplied route is stale or invalid, or
+    /// whose identity, inclusion, governance, privacy, fee, or queue-capacity checks
+    /// fail. Local resource refusals remain typed; the accepted prefix stays queued.
     pub fn push_batch_with_lane_with_state_and_routing_plans(
         &self,
         txs: Vec<(AcceptedTransaction<'static>, RoutingPlan)>,
@@ -1639,8 +1671,8 @@ impl Queue {
     /// Quarantine an empty queue while startup authenticates its State.
     ///
     /// # Errors
-    ///
-    /// Returns an I/O error if the queue already contains pending transactions.
+    /// Returns an I/O error when locally pending transactions make the queue
+    /// nonempty; quarantine is not entered.
     pub fn enter_emergency_fast_startup(&self) -> std::io::Result<()> {
         let _guard = self.push_remove_lock.lock();
         if self.active_len() != 0 {
@@ -2002,8 +2034,7 @@ impl Queue {
         rules: &GovernanceRules,
         tx: &CheckedTransaction<'_>,
     ) -> Result<(), Error> {
-        if let Some(signed) = tx.as_ref().external()
-            && let Executable::Instructions(instructions) = signed.instructions()
+        if let Some(Executable::Instructions(instructions)) = tx.as_accepted().executable()
             && instructions_allow_multisig_envelope_authority(instructions)
         {
             return Ok(());
@@ -2049,22 +2080,18 @@ impl Queue {
                     .downcast_ref::<CancelRuntimeUpgrade>()
                     .is_some()
         };
-        let Some(signed) = tx.as_ref().external() else {
-            // A sealed commitment contains no executable; its reveal is inspected as
-            // the same signed body as an ordinary external transaction.
-            return false;
-        };
-        match signed.instructions() {
-            Executable::Instructions(instructions) => instructions.iter().any(contains),
-            Executable::Batch(items) => items.iter().any(|item| match item {
+        match tx.as_accepted().executable() {
+            Some(Executable::Instructions(instructions)) => instructions.iter().any(contains),
+            Some(Executable::Batch(items)) => items.iter().any(|item| match item {
                 ExecutableBatchItem::Instruction(instruction) => contains(instruction),
                 ExecutableBatchItem::ContractCall(_) => false,
             }),
-            Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_) => false,
+            Some(Executable::ContractCall(_) | Executable::Ivm(_) | Executable::IvmProved(_))
+            | None => false,
         }
     }
     fn tx_touches_manifest_protected_namespace_surface(tx: &CheckedTransaction<'_>) -> bool {
-        let Some(signed) = tx.as_ref().external() else {
+        let Some(signed) = tx.as_accepted().external() else {
             return false;
         };
         let metadata = signed.metadata();
@@ -2233,8 +2260,7 @@ impl Queue {
         if rules.protected_namespaces.is_empty() {
             return Ok(false);
         }
-        let Some(signed) = tx.as_ref().external() else {
-            // Commitment admission cannot inspect a body that has not been revealed.
+        let Some(signed) = tx.as_accepted().external() else {
             return Ok(false);
         };
         let metadata = signed.metadata();
@@ -2446,9 +2472,6 @@ impl Queue {
         rules: &GovernanceRules,
         tx: &CheckedTransaction<'_>,
     ) -> Result<bool, Error> {
-        let Some(signed) = tx.as_ref().external() else {
-            return Ok(false);
-        };
         if !Self::tx_contains_runtime_upgrade_instruction(tx) {
             return Ok(false);
         }
@@ -2469,8 +2492,8 @@ impl Queue {
                         .to_string(),
                 ));
             };
-            let metadata = signed.metadata();
-            let Some(raw_value) = metadata.get(key) else {
+            let metadata = tx.as_accepted().metadata();
+            let Some(raw_value) = metadata.and_then(|metadata| metadata.get(key)) else {
                 return Err(Self::enforcement_error(
                     alias,
                     format!("runtime upgrade hook requires metadata `{}`", key.as_ref()),
@@ -3153,8 +3176,6 @@ impl Queue {
         state_view: &StateView<'_>,
         max_scan: NonZeroUsize,
     ) -> Option<Vec<AcceptedTransaction<'static>>> {
-        let sccp_committed_time_ms =
-            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_view).ok()?;
         let _ = self.cull_expired_entries_if_due();
         if self.admission_faulted() {
             return None;
@@ -3187,39 +3208,66 @@ impl Queue {
         let start = cursor.next_index;
         let mut seen = BTreeSet::new();
         let mut sccp_budget = SccpExemptBlockBudgetV1::new(state_view.world());
-        let pending = age_ring
-            .iter()
-            .skip(start)
-            .take(remaining)
-            .filter_map(|(hash, enqueued_at)| {
-                if !seen.insert(*hash)
-                    || self
-                        .queued_tx_enqueued_at_ms
-                        .get(hash)
-                        .is_none_or(|row| *row != *enqueued_at)
-                {
-                    return None;
-                }
-                let tx = self.txs.get(hash)?;
-                if tx.is_in_blockchain(state_view) || self.is_expired(tx.as_accepted()) {
-                    return None;
-                }
-                let class = crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
+        let sccp_exists =
+            crate::smartcontracts::isi::sccp::store::parameters::get(state_view.world()).is_some();
+        let mut sccp_committed_time_ms = None;
+        let mut pending = Vec::new();
+        for (hash, enqueued_at) in age_ring.iter().skip(start).take(remaining) {
+            if !seen.insert(*hash)
+                || self
+                    .queued_tx_enqueued_at_ms
+                    .get(hash)
+                    .is_none_or(|row| *row != *enqueued_at)
+            {
+                continue;
+            }
+            let Some(tx) = self.txs.get(hash) else {
+                continue;
+            };
+            if tx.is_in_blockchain(state_view) || self.is_expired(tx.as_accepted()) {
+                continue;
+            }
+            // Ordinary work and sealed commitments cannot claim this exemption.
+            // Acquire its exact original time only when a live candidate can;
+            // failure retains the whole original window for the same-source retry.
+            let needs_sccp_time = sccp_exists
+                && Self::sccp_signed_transaction(tx.as_accepted().entrypoint()).is_some_and(
+                    |signed| {
+                        crate::smartcontracts::isi::sccp::admission::exempt_shape(signed.payload())
+                            .is_some()
+                    },
+                );
+            let class = if cfg!(all(test, sumeragi_core_mutation = "HC346")) || needs_sccp_time {
+                let committed_time_ms = match sccp_committed_time_ms {
+                    Some(original) => original,
+                    None => {
+                        let original =
+                            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state_view)
+                                .ok()?;
+                        sccp_committed_time_ms = Some(original);
+                        original
+                    }
+                };
+                crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
                     state_view.world(),
                     tx.as_accepted().entrypoint(),
-                    sccp_committed_time_ms,
-                );
-                // A forgery claim can become genuine/duplicate while remaining in Queue.
-                // Preserve all such candidates in this bounded window: only the global
-                // selector, after original-parent verification, may spend its quota.
-                // They are universal/global inputs, never native-lane work.
-                (matches!(
-                    class,
-                    Some(SccpExemptClassV1::ForgeryEvidence | SccpExemptClassV1::Keepalive)
-                ) || sccp_budget.admit(class))
-                .then(|| tx.value().clone())
-            })
-            .collect::<Vec<_>>();
+                    committed_time_ms,
+                )
+            } else {
+                None
+            };
+            // A forgery claim can become genuine/duplicate while remaining in Queue.
+            // Preserve all such candidates in this bounded window: only the global
+            // selector, after original-parent verification, may spend its quota.
+            // They are universal/global inputs, never native-lane work.
+            if matches!(
+                class,
+                Some(SccpExemptClassV1::ForgeryEvidence | SccpExemptClassV1::Keepalive)
+            ) || sccp_budget.admit(class)
+            {
+                pending.push(tx.value().clone());
+            }
+        }
         cursor.next_index = start.saturating_add(remaining).min(age_ring.len());
         let more = cursor.next_index < age_ring.len();
         drop(cursor);
@@ -3491,9 +3539,9 @@ impl Queue {
     /// before deciding whether the request can be executed locally.
     ///
     /// # Errors
-    ///
-    /// Propagates routing-policy, stale-plan, unavailable-route, and original
-    /// resource-deferral errors from [`Self::route_plan_with_state`].
+    /// Returns the full-plan error if retained queue identity is stale, no current
+    /// route can execute the input, policy resolution fails, or an original routing
+    /// read is locally resource-refused.
     pub fn route_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3508,10 +3556,9 @@ impl Queue {
     /// participant legs alongside the coordinator route.
     ///
     /// # Errors
-    ///
-    /// Returns an error if retained transaction identity or routing plans are
-    /// stale, current policy cannot resolve an executable route, or an original
-    /// state resource defers resolution.
+    /// Returns an error if retained queue identity or its plan is stale, admission
+    /// is faulted, current lane activity or catalog bindings reject the plan, or
+    /// policy resolution fails. Original local routing refusals remain distinct.
     pub fn route_plan_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3574,9 +3621,9 @@ impl Queue {
     /// Native AMX participant legs are retained alongside the coordinator route.
     ///
     /// # Errors
-    ///
-    /// Returns an error if policy or authoritative targets cannot resolve a
-    /// valid admitted route, including original state-resource deferrals.
+    /// Returns an error if policy resolution fails or the selected lanes are absent,
+    /// inactive, or bound to another dataspace at the current height. Original local
+    /// routing read refusals remain distinct from rejected routes.
     pub fn route_payload_plan_with_state(
         &self,
         payload: &TransactionPayload,
@@ -3947,18 +3994,18 @@ impl Queue {
             {
                 let authority_rules = manifest_authority_rules.as_ref().unwrap_or(policy_rules);
                 let alias = status.alias.clone();
-                let allows_multisig_envelope_authority = checked
-                    .as_accepted()
-                    .external()
-                    .is_some_and(|signed| match signed.instructions() {
-                        Executable::Instructions(instructions) => {
-                            instructions_allow_multisig_envelope_authority(instructions)
-                        }
+                let allows_multisig_envelope_authority = match checked.as_accepted().executable() {
+                    Some(Executable::Instructions(instructions)) => {
+                        instructions_allow_multisig_envelope_authority(instructions)
+                    }
+                    Some(
                         Executable::ContractCall(_)
                         | Executable::IvmProved(_)
                         | Executable::Ivm(_)
-                        | Executable::Batch(_) => false,
-                    });
+                        | Executable::Batch(_),
+                    )
+                    | None => false,
+                };
                 let governance_sensitive =
                     Self::tx_requires_manifest_validator_gating(policy_rules, &checked);
                 if governance_sensitive {
@@ -4392,10 +4439,7 @@ impl Queue {
                 self.tx_gas_cost.insert(hash, proposal_gas_cost);
                 self.track_expiry_hash(hash);
                 if let Some(authority) = authority {
-                    self.txs_per_user
-                        .entry(authority)
-                        .and_modify(|count| *count = count.saturating_add(1))
-                        .or_insert(1);
+                    self.apply_per_user_tx_count_increments(BTreeMap::from([(authority, 1)]));
                 }
                 #[cfg(feature = "telemetry")]
                 self.record_teu_enqueue_locked(
@@ -5017,6 +5061,17 @@ impl Queue {
         self.txs_per_user
             .get(account_id)
             .map_or(0, |count| *count.value())
+    }
+    fn apply_per_user_tx_count_increments(&self, increments: BTreeMap<AccountId, usize>) {
+        for (account_id, delta) in increments {
+            if delta == 0 {
+                continue;
+            }
+            self.txs_per_user
+                .entry(account_id)
+                .and_modify(|count| *count = count.saturating_add(delta))
+                .or_insert(delta);
+        }
     }
     #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
     fn publish_backpressure_state(&self, queued: usize, telemetry: Option<&StateTelemetry>) {
@@ -6189,7 +6244,7 @@ pub mod tests {
             ))],
             Metadata::default(),
         );
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         queue.push(tx, state.view()).expect("push");
         let lane_b = LaneConfig {
             id: LaneId::new(1),
@@ -6234,7 +6289,7 @@ pub mod tests {
             ))],
             Metadata::default(),
         );
-        let successor_hash = successor.as_ref().hash_as_entrypoint();
+        let successor_hash = successor.hash_as_entrypoint();
         queue
             .push(successor, state.view())
             .expect("push after reconfiguration");
@@ -6466,7 +6521,7 @@ pub mod tests {
             ))],
             Metadata::default(),
         );
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         queue.push(tx, state.view()).expect("push");
         assert_eq!(
             queue
@@ -6558,7 +6613,7 @@ pub mod tests {
             ))],
             Metadata::default(),
         );
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         let original_input = tx.entrypoint_bytes().to_vec();
         queue.push(tx, state.view()).expect("push");
         assert_eq!(
@@ -6678,7 +6733,7 @@ pub mod tests {
                 u64::from_le_bytes(bytes) % 2 == 1
             })
             .expect("fixture should find a transaction hashing to the elastic shard");
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         let original_input = tx.entrypoint_bytes().to_vec();
         let routed_input = tx.clone();
         queue.push(tx, state.view()).expect("push pending tx");
@@ -6832,13 +6887,13 @@ pub mod tests {
                 )
             })
             .find(|tx| {
-                let hash = tx.as_ref().hash_as_entrypoint();
+                let hash = tx.hash_as_entrypoint();
                 let mut bytes = [0_u8; core::mem::size_of::<u64>()];
                 bytes.copy_from_slice(&hash.as_ref()[..core::mem::size_of::<u64>()]);
                 u64::from_le_bytes(bytes) % 2 == 1
             })
             .expect("fixture should find a transaction hashing to the future elastic shard");
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         queue.push(tx, state.view()).expect("push pending tx");
         assert_eq!(
             queue
@@ -6989,7 +7044,7 @@ pub mod tests {
                     .is_ok_and(|routing| routing.lane_id == LaneId::new(1))
             })
             .expect("fixture finds input hashing to the requested physical scale-in lane");
-        let tx_hash = tx.as_ref().hash_as_entrypoint();
+        let tx_hash = tx.hash_as_entrypoint();
         queue
             .push(tx.clone(), state.view())
             .expect("push pending tx");
@@ -7860,7 +7915,7 @@ pub mod tests {
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let queue = Queue::test(config_factory(), &time_source);
         let tx = accepted_tx_by_someone(&time_source);
-        let hash = tx.as_ref().hash_as_entrypoint();
+        let hash = tx.hash_as_entrypoint();
         queue
             .push(tx, state.view())
             .expect("enqueue transaction before Nexus reconfiguration");
@@ -8890,7 +8945,7 @@ pub mod tests {
         state: &mut State,
         transaction: &AcceptedTransaction<'_>,
     ) {
-        register_test_authority(state, transaction.as_ref().authority());
+        register_test_authority(state, transaction.authority());
     }
     fn accepted_unique_entrypoint_tx_by_someone(
         time_source: &TimeSource,
@@ -8945,7 +9000,7 @@ pub mod tests {
             assert!(
                 view.world()
                     .accounts()
-                    .get(transaction.as_ref().authority())
+                    .get(transaction.authority())
                     .is_some()
             );
             assert!(hashes.insert(transaction.hash_as_entrypoint()));
@@ -9132,7 +9187,7 @@ pub mod tests {
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let first = accepted_tx_by_someone(&time_source);
-        let first_hash = first.as_ref().hash_as_entrypoint();
+        let first_hash = first.hash_as_entrypoint();
         let first_cost = Queue::retained_byte_cost(Queue::compute_tx_encoded_len(&first));
         let mut cfg = config_factory();
         cfg.capacity = nonzero!(16_usize);
@@ -9618,10 +9673,10 @@ pub mod tests {
             crate::tx::exact_signed_transaction_hash(committed.entrypoint()),
             None
         );
-        assert_eq!(
-            revealed.clone().into_entrypoint(),
-            revealed.entrypoint().clone()
-        );
+        let TransactionEntrypoint::SealedReveal(original_reveal) = revealed.entrypoint() else {
+            panic!("the accepted original remains a sealed reveal");
+        };
+        assert_eq!(original_reveal.signed_transaction, signed);
         assert_eq!(revealed.creation_time(), external.creation_time());
         assert_eq!(revealed.time_to_live(), external.time_to_live());
         assert_eq!(committed.creation_time(), Duration::ZERO);
@@ -9818,7 +9873,7 @@ pub mod tests {
             .collect::<Vec<_>>();
         let hashes = transactions
             .iter()
-            .map(|tx| tx.as_ref().hash_as_entrypoint())
+            .map(|tx| tx.hash_as_entrypoint())
             .collect::<Vec<_>>();
         for tx in transactions {
             queue.push(tx, state.view()).expect("push transaction");

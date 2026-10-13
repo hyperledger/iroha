@@ -29,6 +29,7 @@ pub(super) fn signed_fee_registry_root_fixture_with_config(
         smart_contract::ContractArtifactId,
     };
     use iroha_model_base::topology::DataSpaceId;
+
     let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());

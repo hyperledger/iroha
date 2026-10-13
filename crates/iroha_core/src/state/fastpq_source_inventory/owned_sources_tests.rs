@@ -432,7 +432,7 @@ fn fixture_with_effects_in_root(
             header
                 .creation_time()
                 .checked_sub(std::time::Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let mut tx = tx.with_instructions(body);
         if let Some(dataspace) = private_dataspace {

@@ -6,14 +6,14 @@ fn gossip_batch_returns_routing_metadata() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue
         .push(tx, state.view())
         .expect("enqueue accepted transaction");
     let batch = queue.gossip_batch(1, &state.view());
     assert_eq!(batch.len(), 1);
     let entry = &batch[0];
-    assert_eq!(entry.tx.as_ref().hash_as_entrypoint(), hash);
+    assert_eq!(entry.tx.hash_as_entrypoint(), hash);
     let expected_payload =
         ncore::to_bytes(entry.tx.entrypoint()).expect("encode transaction entrypoint");
     assert_eq!(entry.payload.as_slice(), expected_payload.as_slice());
@@ -49,7 +49,7 @@ fn ordinary_gossip_and_selection_follow_committed_routing_across_policy_change()
         ))],
         Metadata::default(),
     );
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     let original_input = tx.entrypoint_bytes().to_vec();
     queue.push(tx.clone(), state.view()).expect("push tx");
     assert!(queue.contains_entrypoint_hash(hash));

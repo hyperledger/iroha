@@ -84,8 +84,7 @@ struct DecisionDelivery<'v, V: StateReadOnly> {
 /// No later block or current unpruned transaction entry is required.
 ///
 /// # Errors
-/// Invalid height order, a non-Global authenticated root, or original-pool allocation
-/// refusal. No source acquisition occurs before the retained job is admitted.
+/// Invalid height order or a source State whose authenticated root is not Global.
 pub fn decision_amx_relay<V: StateReadOnly>(
     view: &V,
     begin_height: u64,

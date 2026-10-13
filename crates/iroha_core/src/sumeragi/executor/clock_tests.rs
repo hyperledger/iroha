@@ -31,7 +31,11 @@ pub(crate) fn assert_clock_ahead_defers_original(
             let boundary = time
                 .checked_sub(drift)
                 .expect("fixture exceeds the drift allowance");
-            clock.set(boundary.checked_sub(Duration::from_millis(1)).unwrap());
+            clock.set(
+                boundary
+                    .checked_sub(Duration::from_millis(1))
+                    .expect("fixture time has the original one-millisecond predecessor"),
+            );
             let height = worker.state.view().height();
             for _ in 0..2 {
                 assert!(

@@ -220,11 +220,9 @@ pub(crate) fn validate_program_policy(policy: &RamLfeProgramPolicy) -> Result<()
 /// unavailable until a complete program-execution relation is implemented.
 ///
 /// # Errors
-///
-/// Returns an error for an unsupported verification mode or backend, a
-/// policy or commitment mismatch, an invalid execution/expiry interval,
-/// invalid opaque-input/output bindings, or an invalid resolver signature.
-/// Canonical encoding failures are also returned.
+/// Returns an error for mismatched or unsupported program/backend/proof policy,
+/// invalid execution or expiry times, a lease longer than 120000ms, inconsistent
+/// input/output/metadata commitments, or a missing or invalid resolver signature.
 pub fn validate_execution_receipt_at(
     receipt: &RamLfeExecutionReceipt,
     program_policy: &RamLfeProgramPolicy,

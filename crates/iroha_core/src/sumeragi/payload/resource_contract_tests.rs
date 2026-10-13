@@ -27,7 +27,7 @@ use iroha_data_model::{
     sumeragi_lanes::{
         SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy, SumeragiLaneRoute,
     },
-    transaction::SignedTransaction,
+    transaction::{SignedTransaction, TransactionEntrypoint},
 };
 use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
 use std::sync::Arc;
@@ -137,6 +137,31 @@ fn sized(
     let probe = framed_len(&sign(target - slack));
     let transaction = sign(target - slack + (target - probe));
     assert_eq!(framed_len(&transaction), target);
+    transaction
+}
+
+/// A carrier sized independently of the inner signed admission limit.
+fn sized_lane_carrier(
+    chain: &CertifiedTestChain,
+    clock: &KeyPair,
+    target: u32,
+    created_ms: u64,
+) -> SignedTransaction {
+    let probe = sized(chain, clock, target, created_ms);
+    let carrier_len = norito::encode_canonical(&TransactionEntrypoint::External(probe.clone()))
+        .unwrap()
+        .len();
+    let overhead = carrier_len.checked_sub(framed_len(&probe)).unwrap();
+    let signed_target = target
+        .checked_sub(u32::try_from(overhead).unwrap())
+        .unwrap();
+    let transaction = sized(chain, clock, signed_target, created_ms);
+    assert_eq!(
+        norito::encode_canonical(&TransactionEntrypoint::External(transaction.clone()))
+            .unwrap()
+            .len(),
+        usize::try_from(target).unwrap()
+    );
     transaction
 }
 
@@ -472,10 +497,7 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
         .unwrap()
         .0;
     assert_eq!(selected.len(), 1);
-    assert_eq!(
-        selected[0].hash_as_entrypoint(),
-        future.hash_as_entrypoint()
-    );
+    assert_eq!(selected[0].hash(), future.hash_as_entrypoint());
     assert_eq!(queue.queued_len(), 1);
     clock.rewind(Duration::from_millis(1));
     assert!(matches!(
@@ -546,8 +568,13 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     };
     // All these lane inputs fit the committed cap; the first exceeds only a residual budget.
     let above_residual = accept(sized(&chain, &user, RESIDUAL_GLOBAL_BUDGET + 1, 3_000));
-    let at_lane = accept(sized(&chain, &user, LANE_FIXTURE_LANE, 3_000));
-    let over_lane = accept(sized(&chain, &user, LANE_FIXTURE_LANE + 1, 3_000));
+    let at_lane = accept(sized_lane_carrier(&chain, &user, LANE_FIXTURE_LANE, 3_000));
+    let over_lane = accept(sized_lane_carrier(
+        &chain,
+        &user,
+        LANE_FIXTURE_LANE + 1,
+        3_000,
+    ));
     // The committed transaction cap is inclusive on both routes, with exact +1 refusal.
     let at_global = accept(sized(&chain, &clock, LANE_FIXTURE_GLOBAL, 3_000));
     let at_cap_lane = accept(sized(&chain, &user, LANE_FIXTURE_GLOBAL, 3_000));
@@ -606,10 +633,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
         .unwrap()
         .0;
     assert_eq!(selected.len(), 1);
-    assert_eq!(
-        selected[0].hash_as_entrypoint(),
-        at_lane.hash_as_entrypoint()
-    );
+    assert_eq!(selected[0].hash(), at_lane.hash_as_entrypoint());
     assert!(
         source
             .candidates(

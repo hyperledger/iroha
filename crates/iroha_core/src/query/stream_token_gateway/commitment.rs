@@ -12,6 +12,7 @@ pub(crate) fn instruction_digest(
     authority: &AccountId,
 ) -> Result<[u8; 32], TransitionError> {
     const DOMAIN: &[u8] = b"iroha.sorafs.stream-token.gateway-instruction.v1\0";
+
     let request_len =
         norito::canonical_frame_len(instruction).map_err(|_| TransitionError::Invalid)?;
     let authority_len =

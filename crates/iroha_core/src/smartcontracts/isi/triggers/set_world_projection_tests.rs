@@ -334,6 +334,7 @@ fn borrowed_contract_commits_only_bytecode_and_rejects_stale_derived_hash() {
     struct OriginalContractOnly {
         original_contract: IvmBytecode,
     }
+
     let blob = halt_blob();
     let entry = IvmBytecodeEntry {
         code_hash: ivm::contract_code_hash(blob.as_ref()),

@@ -595,7 +595,11 @@ mod tests {
                         let original_range = section.merges.as_ptr();
                         assert!(creation_time >= Duration::from_millis(section.time_floor_ms));
                         assert_eq!(source.block.network_entrypoint_count(), 0);
-                        clock.set(creation_time.checked_sub(Duration::from_millis(1)).unwrap());
+                        clock.set(
+                            creation_time.checked_sub(Duration::from_millis(1)).expect(
+                                "fixture time has the original one-millisecond predecessor",
+                            ),
+                        );
                         assert!(worker.build(height, 0, 1 << 20, 100).is_err());
                         assert_eq!(
                             worker

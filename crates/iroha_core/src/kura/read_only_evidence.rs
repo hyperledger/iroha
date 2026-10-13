@@ -505,7 +505,8 @@ impl CanonicalKuraEvidenceReader {
             .map_err(|_| CanonicalKuraEvidenceError::Invalid("index offset conversion"))?;
         let bytes = self
             .index_bytes
-            .get(offset..offset + core::mem::size_of::<[u64; 2]>())
+            .get(offset..)
+            .and_then(|suffix| suffix.get(..BlockIndex::SIZE_USIZE))
             .ok_or(CanonicalKuraEvidenceError::Invalid("index slice boundary"))?;
         evidence_require(bytes.len() == 16, "block index layout")?;
         Ok(BlockIndex {
@@ -531,7 +532,8 @@ impl CanonicalKuraEvidenceReader {
             .map_err(|_| CanonicalKuraEvidenceError::Invalid("hash offset conversion"))?;
         let bytes = self
             .hash_bytes
-            .get(offset..offset + Hash::LENGTH)
+            .get(offset..)
+            .and_then(|suffix| suffix.get(..Hash::LENGTH))
             .ok_or(CanonicalKuraEvidenceError::Invalid("hash slice boundary"))?;
         let bytes: [u8; Hash::LENGTH] = bytes
             .try_into()

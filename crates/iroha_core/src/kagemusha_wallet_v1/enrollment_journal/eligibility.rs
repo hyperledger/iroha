@@ -165,6 +165,7 @@ fn require_bound(
     request: &KagemushaEligibilityRequestV1,
 ) -> Result<()> {
     use EnrollmentJournalPhaseV1 as Phase;
+
     request.validate(policy).map_err(|_| Invalid)?;
     let selection = attempt.selection();
     if dispatch.stable_selection().map_err(|_| Invalid)? != selection.stable_selection

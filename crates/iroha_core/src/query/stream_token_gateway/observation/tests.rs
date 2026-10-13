@@ -627,7 +627,7 @@ fn gateway_phase_start_cannot_renew_an_original_absolute_deadline() {
     let fixture = Fixture::ready();
     let deadline = Instant::now()
         .checked_sub(Duration::from_millis(1))
-        .unwrap();
+        .expect("fixture clock supports the original expired deadline");
     assert!(matches!(
         begin_stream_token_gateway_check_v1(
             Arc::clone(fixture.chain.state()),

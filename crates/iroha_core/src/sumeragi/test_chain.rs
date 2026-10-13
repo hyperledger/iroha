@@ -1322,12 +1322,16 @@ impl CertifiedTestChain {
             .ready(self.height() + 1)
             .expect("authenticated successor schedule");
         let cadence = Duration::from_millis(schedule.params.block_time_ms);
+        let merges =
+            crate::sumeragi::lanes::merge::propose(&view, &*self.lane_blocks, self.height() + 1)
+                .expect("original lane store is available while building fixture proposal");
         let validation_time = crate::block::creation_time_after_inputs(
             parent
                 .header()
                 .creation_time()
                 .checked_add(cadence)
-                .expect("fixture time fits"),
+                .expect("fixture time fits")
+                .max(Duration::from_millis(merges.time_floor_ms)),
             &entrypoints,
         )
         .expect("fixture input time fits");
@@ -1345,7 +1349,8 @@ impl CertifiedTestChain {
                 .expect("original entrypoint admission")
             })
             .collect::<Vec<_>>();
-        payload::assemble(
+        drop(view);
+        payload::assemble_with_merges(
             &self.state,
             Assembly {
                 parent: &parent,
@@ -1354,6 +1359,7 @@ impl CertifiedTestChain {
                 proposed_time: std::time::Duration::ZERO,
             },
             &accepted,
+            &merges,
         )
         .expect("original entrypoint assembly")
     }

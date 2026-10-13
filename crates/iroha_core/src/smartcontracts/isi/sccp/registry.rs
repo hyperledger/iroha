@@ -192,6 +192,7 @@ mod tests {
     #[test]
     fn transitions_follow_the_table_and_keep_one_live_revision() {
         use SccpRouteActivationV1 as A;
+
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();

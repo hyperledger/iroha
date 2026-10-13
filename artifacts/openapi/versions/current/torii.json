@@ -5894,7 +5894,7 @@
         "type": "object"
       },
       "CollectionFilter": {
-        "description": "Filter in the text form (`owned_by = \"sorau…\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
+        "description": "Filter in the text form (`owned_by = \"sorau\u2026\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
         "oneOf": [
           {
             "maxLength": 32768,
@@ -39928,10 +39928,11 @@
       },
       "SccpFinalityConstantsV1": {
         "additionalProperties": false,
-        "description": "Compiled native finality constants as fixed-byte hex strings. Compare the exact values with the independently selected release; an offered constants object is not authentication.",
+        "description": "Compiled native finality constants as fixed-length hexadecimal strings. Compare the exact values with the independently selected release; an offered constants object is not authentication.",
         "properties": {
           "dst_sig": {
             "const": "424C535F5349475F424C53313233383147325F584D443A5348412D3235365F535357555F524F5F504F505F",
+            "description": "Exactly 43 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 86,
             "minLength": 86,
             "pattern": "^[0-9A-Fa-f]{86}$",
@@ -39939,6 +39940,7 @@
           },
           "result_body_tag": {
             "const": "69726F68612F73756D65726167692F726573756C742D626F64792F7631",
+            "description": "Exactly 29 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 58,
             "minLength": 58,
             "pattern": "^[0-9A-Fa-f]{58}$",
@@ -39946,6 +39948,7 @@
           },
           "result_tag": {
             "const": "69726F68612F73756D65726167692F726573756C742F7631",
+            "description": "Exactly 24 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 48,
             "minLength": 48,
             "pattern": "^[0-9A-Fa-f]{48}$",
@@ -39953,6 +39956,7 @@
           },
           "x_layout_id": {
             "const": "534343502F46494E414C4954592F5631",
+            "description": "Exactly 16 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 32,
             "minLength": 32,
             "pattern": "^[0-9A-Fa-f]{32}$",
@@ -54230,7 +54234,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -54305,7 +54309,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -58144,7 +58148,7 @@
         "description": "List accounts with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60681,7 +60685,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60870,7 +60874,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -61111,7 +61115,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -61300,7 +61304,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -63379,7 +63383,7 @@
         "description": "List asset definitions with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -63779,7 +63783,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -65772,7 +65776,7 @@
         "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -67487,7 +67491,7 @@
         "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -69412,7 +69416,7 @@
         "description": "List domains with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -76565,7 +76569,7 @@
     },
     "/v1/gov/parliament/attempts/{governance_attempt_id}/plan": {
       "get": {
-        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` §4.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
+        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` \u00a74.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
         "operationId": "governanceParliamentAttemptPlanV1",
         "parameters": [
           {
@@ -87918,7 +87922,7 @@
         "description": "List NFTs with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -91752,7 +91756,7 @@
         "description": "List repo agreements with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -92974,7 +92978,7 @@
         "description": "List RWA lots with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120572,7 +120576,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120752,7 +120756,7 @@
         "description": "Subscriptions with flat state fields and optional invoice and plan. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120999,7 +121003,7 @@
         "description": "Subscription plans. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -128502,7 +128506,7 @@
       "name": "Applications"
     },
     {
-      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` §6). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
+      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` \u00a76). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
       "name": "SCCP"
     }
   ]

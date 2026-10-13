@@ -73,7 +73,11 @@ impl Fixture {
             ],
             [],
         );
-        let asset = authorization::test_asset(7);
+        // Global fee admission binds the canonical XOR identity of this signed root.
+        let asset = iroha_data_model::asset::AssetDefinitionId::parse_address_literal(
+            &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
+        )
+        .expect("canonical global XOR fee asset");
         let mut configuration = TestChainConfig::new(world, now().saturating_sub(10_000));
         let mut nexus = Nexus::default();
         nexus.fees.base_fee = Quantity::from(1u32);
@@ -179,10 +183,11 @@ impl Fixture {
             .all_transactions(&self.chain.state().view())
             .collect::<Vec<_>>();
         assert_eq!(queued.len(), 1, "one ordinary queued original");
-        let signed = queued[0]
-            .external()
-            .expect("ordinary queued transaction")
-            .clone();
+        let iroha_data_model::transaction::TransactionEntrypoint::External(signed) =
+            queued.into_iter().next().unwrap().into_entrypoint()
+        else {
+            panic!("the original pin queue fixture authors an external input");
+        };
         let wire = signed.encode_wire_v1().unwrap();
         assert_eq!(self.chain.commit(vec![signed]), [true]);
         assert_eq!(

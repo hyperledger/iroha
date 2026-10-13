@@ -551,7 +551,9 @@ fn store_lane_block(
     let lane_payload = LaneBatch {
         anchor_height,
         anchor_hash: anchor,
-        transactions: vec![transaction],
+        transactions: vec![
+            iroha_data_model::transaction::TransactionEntrypoint::External(transaction),
+        ],
     }
     .to_payload();
     let config = lane_height_config(record).expect("native lane configuration");

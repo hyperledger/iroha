@@ -960,3 +960,51 @@ async fn snapshot_read_buffer_concurrent_strict_and_gc_retry_after_actual_reader
         );
     });
 }
+
+#[test]
+fn snapshot_streaming_boundaries_preserve_digest_original_charge_and_rewind() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join(SNAPSHOT_FILE_NAME);
+    for length in [
+        0_usize, 1, 8191, 8192, 8193, 65_535, 65_536, 65_537, 200_003,
+    ] {
+        let source: Vec<_> = (0_u8..=u8::MAX).cycle().take(length).collect();
+        std::fs::write(&path, &source).unwrap();
+        let total = u64::try_from(length).unwrap();
+        let expected: [u8; 32] = Sha256::digest(&source).into();
+        let binding = bind_snapshot_file_handle(&path, total).unwrap().unwrap();
+        assert_eq!(
+            stream_snapshot_file_digest(&binding.handle, total, total).unwrap(),
+            expected
+        );
+        let budget = AllocationBudget::new(length);
+        let (bytes, digest) = read_bound_snapshot_payload(&binding, &budget).unwrap();
+        assert_eq!(bytes.as_slice(), source);
+        assert_eq!(digest, expected);
+        assert_eq!(budget.reserved_bytes(), length);
+        assert_eq!(binding.handle.as_ref().stream_position().unwrap(), 0);
+        drop(bytes);
+        assert_eq!(budget.reserved_bytes(), 0);
+        if length > 0 {
+            assert_eq!(
+                stream_snapshot_file_digest(&binding.handle, total, total - 1)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::InvalidData,
+            );
+            assert_eq!(binding.handle.as_ref().stream_position().unwrap(), 0);
+            assert_eq!(
+                stream_snapshot_file_digest(&binding.handle, total - 1, total)
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::InvalidData,
+            );
+        }
+        assert_eq!(
+            stream_snapshot_file_digest(&binding.handle, total + 1, total + 1)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData,
+        );
+    }
+}

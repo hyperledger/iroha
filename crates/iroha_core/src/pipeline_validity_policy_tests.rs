@@ -780,8 +780,9 @@ fn amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above() {
 
     let default_node = Pipeline::default();
     for node in [None, Some(divergent_node_pipeline(&default_node))] {
-        // The limits the host of a block enforces come from the committed policy.
         type Edit = fn(&mut PipelineValidityPolicyV1);
+
+        // The limits the host of a block enforces come from the committed policy.
         let limits_of = |policy: &PipelineValidityPolicyV1| {
             let mut state = state_with(Some(policy));
             if let Some(node) = node.clone() {

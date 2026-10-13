@@ -152,9 +152,7 @@ impl ValidatedGlobalThresholdBeaconSessionV1 {
     /// Recheck the sealed typed protocol's cryptographic release gate.
     ///
     /// # Errors
-    ///
-    /// Returns the cryptographic release-gate error if the sealed adaptive
-    /// protocol is not ready for use.
+    /// Returns the underlying threshold-BLS refusal when the sealed protocol is not ready.
     pub fn ensure_adaptive_protocol_ready(&self) -> Result<(), ThresholdBlsError> {
         self.transcript().ensure_adaptive_protocol_ready()
     }
@@ -170,9 +168,7 @@ impl ValidatedGlobalThresholdBeaconSessionV1 {
     /// Check current external identity against this immutable authenticated graph.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the expected network, session, roster, or transcript
-    /// identity differs from this authenticated graph.
+    /// Rejects a different network, session, ordered roster or transcript identity.
     pub fn check_binding(
         &self,
         expected: &GlobalThresholdBeaconSessionBindingV1,

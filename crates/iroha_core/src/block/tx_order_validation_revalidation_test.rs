@@ -76,9 +76,9 @@ async fn tx_order_same_in_validation_and_revalidation() {
         &time_source,
     )
     .expect("Valid");
-    let fail_hash = tx0.as_ref().hash_as_entrypoint();
-    let register_hash = tx.as_ref().hash_as_entrypoint();
-    let succeed_hash = tx2.as_ref().hash_as_entrypoint();
+    let fail_hash = tx0.hash_as_entrypoint();
+    let register_hash = tx.hash_as_entrypoint();
+    let succeed_hash = tx2.hash_as_entrypoint();
     // Creating a block of two identical transactions and validating it
     let transactions = vec![tx0, tx, tx2];
     let unverified_block = BlockBuilder::new(transactions)

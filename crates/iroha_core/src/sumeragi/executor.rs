@@ -1764,7 +1764,10 @@ impl<'s> Worker<'s> {
                 return Err(PublicationError::Retryable(error.to_string()));
             }
             Err(lanes::merge::MergeError::StateView(error)) => return Err(error.into()),
-            Err(lanes::merge::MergeError::RoutingDeferred(reason)) => {
+            Err(
+                lanes::merge::MergeError::RoutingDeferred(reason)
+                | lanes::merge::MergeError::ResourceDeferred(reason),
+            ) => {
                 return Err(PublicationError::Deferred(reason.into()));
             }
             Err(lanes::merge::MergeError::Pending(reason)) => {

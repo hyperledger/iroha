@@ -484,11 +484,9 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     );
 }
 
-/// Today's default parameters at their actual maximum: the largest includable transaction
-/// is admitted and selected. The current 16 MiB block payload carries the full 10 MiB
-/// transaction cap, including its non-transaction reserve. Admission, queue and follower
-/// refuse the first byte over that cap; residual proposer budgets keep their exact boundary.
-/// An explicitly smaller route independently refuses the same cap-sized input.
+/// The current defaults carry the full inclusive 10 MiB transaction cap in the
+/// 16 MiB block payload. Admission, queue custody, proposal selection and follower
+/// validation preserve that boundary and refuse its first oversize byte.
 #[test]
 fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let (_, time) = TimeSource::new_mock(Duration::default());
@@ -633,6 +631,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         largest.hash_as_entrypoint()
     );
     assert_eq!(selected[0].encoded_len(), budget);
+    assert_eq!(selected[0].entrypoint_bytes().as_slice(), largest.entrypoint_bytes().as_slice());
     assert!(
         crate::sumeragi::payload::select(
             &state.view(),

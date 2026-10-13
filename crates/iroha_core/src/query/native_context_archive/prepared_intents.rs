@@ -988,6 +988,7 @@ mod tests {
     #[test]
     fn borrowed_prepared_rows_use_canonical_sequence_and_refuse_changed_cardinality() {
         use norito::NoritoSchema as _;
+
         let writes = [
             ExecKv {
                 key: amx_record_witness_key(AmxRecordKind::Prepared, [0x61; 32]).to_vec(),

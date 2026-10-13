@@ -93,7 +93,7 @@ fn fixture(
         header
             .creation_time()
             .checked_sub(std::time::Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let signed = builder
         .with_instructions(network)
@@ -972,7 +972,7 @@ mod retry_and_periodic {
             header
                 .creation_time()
                 .checked_sub(std::time::Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let signed = transaction
             .with_instructions(plain_network())

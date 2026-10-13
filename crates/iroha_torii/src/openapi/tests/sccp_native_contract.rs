@@ -396,6 +396,23 @@ fn sccp_generation_and_constants_schemas_preserve_full_typed_data() {
             &json[name],
             length,
         );
+        let encoded = json[name].as_str().unwrap();
+        for malformed in [
+            Value::String(encoded[..encoded.len() - 2].to_owned()),
+            Value::String(format!("{encoded}00")),
+            Value::String("G".repeat(length * 2)),
+            Value::Array(vec![Value::from(0_u64); length]),
+        ] {
+            let mut wrong = json.clone();
+            wrong
+                .as_object_mut()
+                .unwrap()
+                .insert(name.to_owned(), malformed);
+            assert!(
+                norito::json::from_value::<SccpFinalityConstantsV1>(wrong).is_err(),
+                "{name} requires its exact fixed-byte hex representation"
+            );
+        }
     }
     for retired in [
         "header_length",

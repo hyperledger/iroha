@@ -338,3 +338,76 @@ fn lane_original_queue_lease_preserves_same_output_across_clock_rewind_and_retir
         replacement.as_slice().as_ptr()
     );
 }
+
+#[test]
+fn lane_original_queue_lease_preserves_sealed_carriers_and_retires_readmission() {
+    use iroha_data_model::transaction::signed::{
+        SealedTransactionCommitmentPayload, SealedTransactionReveal,
+        SignedSealedTransactionCommitment, compute_sealed_transaction_commitment,
+    };
+
+    for reveal in [false, true] {
+        let mut fixture = Fixture::new();
+        let key = KeyPair::from_seed(vec![0x71; 32], Algorithm::Ed25519);
+        let signed = fixture.accepted.external().unwrap().clone();
+        let salt = [0x72; 32];
+        let network = fixture.chain.network_id();
+        let digest = compute_sealed_transaction_commitment(&network, &signed, salt, 9);
+        let carrier = if reveal {
+            TransactionEntrypoint::SealedReveal(SealedTransactionReveal::new(digest, signed, salt))
+        } else {
+            TransactionEntrypoint::SealedCommitment(SignedSealedTransactionCommitment::sign(
+                SealedTransactionCommitmentPayload::new(
+                    network,
+                    signed.authority().clone(),
+                    digest,
+                    2,
+                    9,
+                    None,
+                ),
+                key.private_key(),
+            ))
+        };
+        let accepted = AcceptedTransaction::accept_entrypoint_at_time(
+            carrier.clone(),
+            &network,
+            Duration::from_secs(1),
+            fixture
+                .chain
+                .state()
+                .view()
+                .world()
+                .parameters()
+                .transaction(),
+            &iroha_config::parameters::actual::Crypto::default(),
+            Duration::from_millis(4_999),
+        )
+        .unwrap();
+        fixture.queue.clear_all();
+        fixture
+            .queue
+            .push(accepted.clone(), fixture.chain.state().view())
+            .unwrap();
+        fixture.wait_for_clock();
+        fixture.lane_clock.set(Duration::from_millis(5_000));
+        let original = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+        let batch = LaneBatch::from_payload(original.as_slice()).unwrap();
+        assert_eq!(batch.transactions, vec![carrier]);
+
+        fixture.queue.clear_all();
+        fixture
+            .queue
+            .push(accepted, fixture.chain.state().view())
+            .unwrap();
+        assert!(
+            matches!(fixture.lane.finish_payload(), Err(PublicationError::Retryable(reason)) if reason == "lane Queue admission retired"),
+            "same sealed carrier readmission must not revive its original Queue lease"
+        );
+        let replacement = fixture.lane.build(1, 0, 1 << 20, 1_000).unwrap().unwrap();
+        assert_eq!(replacement.as_slice(), original.as_slice());
+        assert_ne!(
+            replacement.as_slice().as_ptr(),
+            original.as_slice().as_ptr()
+        );
+    }
+}

@@ -1662,9 +1662,9 @@ pub trait SetReadOnly {
     /// Verify every contract's lookup identity and its derived live action count.
     ///
     /// # Errors
-    ///
-    /// Returns an error if contract lookup identities or live action reference
-    /// counts disagree with the current trigger rows.
+    /// Returns an error for inconsistent contract hashes or reference counts,
+    /// count overflow, missing originals, duplicate/missing/mistyped action indexes,
+    /// or active-index rows that disagree with eligible actions.
     fn validate_world_contract_rows(&self) -> core::result::Result<(), String> {
         contract_relation::validate_current(self)
     }
@@ -1784,9 +1784,9 @@ pub trait SetReadOnly {
     /// active singular-query corridor has admitted it.
     ///
     /// # Errors
-    ///
-    /// Returns a query execution error if owning the stored trigger exceeds the
-    /// active singular-query limits or its canonical materialization fails.
+    /// Returns a query error if the original trigger cannot be encoded, admitted
+    /// within the active singular-query limits, or decoded into its bounded result.
+    /// An absent trigger remains `Ok(None)`.
     fn trigger_by_id_bounded(
         &self,
         id: &TriggerId,

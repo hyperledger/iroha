@@ -2946,7 +2946,7 @@ mod tests {
                 proposed_time: std::time::Duration::ZERO,
             };
             let transactions = [accepted];
-            let original_transaction = transactions[0].hash();
+            let original_transaction = transactions[0].hash_as_entrypoint();
             let original_parent = parent.hash();
             let budget = if state_admission {
                 state.kura().block_hash_history_budget()
@@ -3018,7 +3018,7 @@ mod tests {
                 Some(&original)
             );
             assert_eq!(state.view().height(), 1);
-            assert_eq!(transactions[0].hash(), original_transaction);
+            assert_eq!(transactions[0].hash_as_entrypoint(), original_transaction);
             assert_eq!(parent.hash(), original_parent);
             drop(blocking_owner);
             assert!(registration.poll_wait(&release, &mut context).is_ready());
@@ -3033,7 +3033,7 @@ mod tests {
                 Some(&original)
             );
             assert_eq!(state.view().height(), 1);
-            assert_eq!(transactions[0].hash(), original_transaction);
+            assert_eq!(transactions[0].hash_as_entrypoint(), original_transaction);
             assert_eq!(parent.hash(), original_parent);
             drop(registration);
             if !state_admission {

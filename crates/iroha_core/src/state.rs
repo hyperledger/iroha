@@ -3600,8 +3600,7 @@ impl MusubiResolverIndexRevisionV1 {
     /// Construct a non-zero resolver-index revision.
     ///
     /// # Errors
-    ///
-    /// Returns a parse error if `revision` is zero.
+    /// Returns an error when `revision` is zero.
     pub fn new(revision: u64) -> Result<Self, ParseError> {
         if revision == 0 {
             return Err(ParseError::new(
@@ -5779,24 +5778,30 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: CellField<'world, Option<[u8; 32]>>,
     /// Immutable committee trust and liability records (§4.2).
+    #[norito(skip)]
     pub(crate) sccp_committee_generations:
         StorageField<'world, u64, RetainedSccpGeneration, CommitteeStorageMode>,
     /// Current committee generation; zero before initialization.
+    #[norito(skip)]
     pub(crate) sccp_committee_current: CellField<'world, u64, iroha_allocation::AllocationCharge>,
     /// Derived ordered index of ended generations awaiting destination clearance.
     #[norito(skip)]
     pub(crate) sccp_destination_pending_generations: StorageField<'world, u64, ()>,
     /// Bounded liability clock of the executing block (§4.8 S0).
+    #[norito(skip)]
     pub(crate) sccp_liability_clock: CellField<'world, u64, iroha_allocation::AllocationCharge>,
     /// Consecutive heights missing authenticated SCCP inputs (§4.6).
+    #[norito(skip)]
     pub(crate) sccp_degraded_run: CellField<'world, u32, iroha_allocation::AllocationCharge>,
     /// Consensus anchors in the not-yet-complete chunk (§4.2 A1).
+    #[norito(skip)]
     pub(crate) sccp_anchor_open: CellField<
         'world,
         crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors,
         iroha_allocation::AllocationCharge,
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
+    #[norito(skip)]
     pub(crate) sccp_anchor_chunks: StorageField<'world, u64, [u8; 32], AnchorStorageMode>,
     /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
     #[norito(skip)]
@@ -10298,9 +10303,8 @@ impl ConfidentialTreeProfile {
     /// Compute the canonical root for an ordered commitment prefix.
     ///
     /// # Errors
-    ///
-    /// Returns an error if commitments exceed the fixed tree capacity, contain
-    /// noncanonical leaves, or cannot produce a consistent frontier.
+    /// Returns an error when the prefix exceeds the fixed tree capacity or contains
+    /// zero or non-canonical commitment leaves.
     pub fn compute_root(self, commitments: &[[u8; 32]]) -> Result<[u8; 32], String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10311,9 +10315,8 @@ impl ConfidentialTreeProfile {
     /// Compute the canonical root after every non-empty commitment prefix.
     ///
     /// # Errors
-    ///
-    /// Returns an error if commitments exceed the fixed tree capacity, contain
-    /// noncanonical leaves, or cannot produce a consistent frontier.
+    /// Returns an error when the prefix exceeds the fixed tree capacity or contains
+    /// zero or non-canonical commitment leaves.
     pub fn compute_prefix_roots(self, commitments: &[[u8; 32]]) -> Result<Vec<[u8; 32]>, String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10324,9 +10327,8 @@ impl ConfidentialTreeProfile {
     /// Compute the canonical authentication path for one leaf.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the leaf index or commitment count exceeds tree
-    /// capacity, or any traversed commitment is noncanonical.
+    /// Returns an error when `leaf_index` or the commitment count exceeds the fixed
+    /// tree bounds, or a commitment leaf is zero or non-canonical.
     pub fn compute_path(
         self,
         commitments: &[[u8; 32]],
@@ -20133,9 +20135,9 @@ impl World {
     /// Acquire every original World field or return a local storage refusal.
     ///
     /// # Errors
-    ///
-    /// Returns the original storage admission error if acquiring or allocating
-    /// any World field under `execution_budget` fails.
+    /// Returns the original admission refusal if a World writer is busy or poisoned,
+    /// control layout planning fails, or the original pool or allocator cannot fund
+    /// the complete field acquisition.
     pub fn try_block(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -20145,9 +20147,9 @@ impl World {
     /// Acquire the exact replacement overlay under the original finite pool.
     ///
     /// # Errors
-    ///
-    /// Returns the original storage admission error if acquiring or allocating
-    /// any replacement World field under `execution_budget` fails.
+    /// Returns the original admission refusal if a replacement writer is busy or
+    /// poisoned, control layout planning fails, or the original pool or allocator
+    /// cannot fund the complete replacement acquisition.
     pub fn try_block_and_revert(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -21593,9 +21595,8 @@ pub trait WorldReadOnly {
     /// directory.
     ///
     /// # Errors
-    ///
-    /// Returns a parse error if the account scope cannot be represented as
-    /// qualified domains using the current dataspace catalog.
+    /// Returns an error if account-scope lookup fails or the dataspace catalog
+    /// cannot qualify a stored alias-domain scope as a `DomainId`.
     fn account_scope_hierarchy(
         &self,
         account_id: &AccountId,
@@ -21608,9 +21609,8 @@ pub trait WorldReadOnly {
     /// Collect the dataspaces linked to the account.
     ///
     /// # Errors
-    ///
-    /// Propagates account-scope catalog/domain resolution errors from
-    /// [`Self::account_scope_hierarchy`].
+    /// Returns an error if the account hierarchy cannot resolve a stored dataspace
+    /// and alias-domain scope against the current catalog.
     fn account_dataspaces(
         &self,
         account_id: &AccountId,
@@ -21623,9 +21623,8 @@ pub trait WorldReadOnly {
     /// Collect the qualified domains linked to the account across every dataspace.
     ///
     /// # Errors
-    ///
-    /// Propagates account-scope catalog/domain resolution errors from
-    /// [`Self::account_scope_hierarchy`].
+    /// Returns an error if the account hierarchy cannot resolve a stored dataspace
+    /// and alias-domain scope against the current catalog.
     fn account_domains(&self, account_id: &AccountId) -> Result<BTreeSet<DomainId>, ParseError> {
         Ok(self
             .account_scope_hierarchy(account_id)?
@@ -21741,9 +21740,8 @@ pub trait WorldReadOnly {
     /// Absence remains absence. An orphan, foreign-incarnation or contradictory row fails.
     ///
     /// # Errors
-    ///
-    /// Returns a parse error for an orphan, foreign-incarnation, or
-    /// contradictory direct-home row.
+    /// Returns an error for an invalid or orphan direct-home row, a mismatched
+    /// live incarnation, or a row contradicting the definition's domain ownership.
     fn asset_definition_dataspace(
         &self,
         id: &AssetDefinitionId,
@@ -21757,9 +21755,8 @@ pub trait WorldReadOnly {
     /// Resolve domain, global or direct dataspace ownership without consulting aliases.
     ///
     /// # Errors
-    ///
-    /// Returns a parse error for an invalid direct-home row or a definition
-    /// whose ownership fields do not form a valid home.
+    /// Returns an error if the direct-home row is invalid or contradicts the live
+    /// definition, incarnation, or declared ownership scope.
     fn asset_definition_home(
         &self,
         id: &AssetDefinitionId,
@@ -22395,10 +22392,9 @@ impl<'world> WorldBlock<'world> {
     /// Install one fully verified global-beacon fixture for dependent-crate tests.
     ///
     /// # Errors
-    ///
-    /// Returns an error for invalid lifecycle or session bindings, existing
-    /// beacon state, an inactive key, or invalid pulse context, anchor, signature,
-    /// or persisted history.
+    /// Returns an error if the session or pulse fails validation, their binding or
+    /// finalized anchor disagrees, the session is inactive or retired, or any global
+    /// beacon fixture state is already present.
     pub fn install_global_beacon_fixture_for_testing(
         &mut self,
         key_record: crate::beacon::RetainedFinalizedGlobalThresholdBeaconSessionV1,
@@ -22491,9 +22487,8 @@ impl<'world> WorldBlock<'world> {
     /// Create struct to apply transaction's changes
     ///
     /// # Errors
-    ///
-    /// Returns the original storage admission error if any child transaction
-    /// field or control allocation cannot be admitted.
+    /// Returns the original storage admission refusal if the SCCP offence, committee
+    /// generation, or anchor checkpoint cannot be acquired.
     pub fn try_transaction(
         &mut self,
         #[cfg(feature = "telemetry")] telemetry: Option<&'world StateTelemetry>,
@@ -26722,10 +26717,8 @@ impl State {
     /// Access the in-memory DA commitment index.
     ///
     /// # Errors
-    ///
-    /// Returns an error if committed DA history is missing, inconsistent, or
-    /// cannot be replayed into indexes. Original acquisition resource refusals
-    /// remain deferrals.
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_commitments(
         &self,
     ) -> Result<
@@ -26738,10 +26731,8 @@ impl State {
     /// Access the in-memory confidential-compute receipt index.
     ///
     /// # Errors
-    ///
-    /// Returns an error if committed DA history is missing, inconsistent, or
-    /// cannot be replayed into indexes. Original acquisition resource refusals
-    /// remain deferrals.
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_confidential_compute(
         &self,
     ) -> Result<
@@ -26754,10 +26745,8 @@ impl State {
     /// Access the in-memory DA receipt cursor index.
     ///
     /// # Errors
-    ///
-    /// Returns an error if committed DA history is missing, inconsistent, or
-    /// cannot be replayed into indexes. Original acquisition resource refusals
-    /// remain deferrals.
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_receipt_cursors(
         &self,
     ) -> Result<
@@ -26770,10 +26759,8 @@ impl State {
     /// Access the in-memory shard cursor index derived from DA commitments.
     ///
     /// # Errors
-    ///
-    /// Returns an error if committed DA history is missing, inconsistent, or
-    /// cannot be replayed into indexes. Original acquisition resource refusals
-    /// remain deferrals.
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_shard_cursor_index(
         &self,
     ) -> Result<
@@ -26786,10 +26773,8 @@ impl State {
     /// Access the in-memory DA pin intent index.
     ///
     /// # Errors
-    ///
-    /// Returns an error if committed DA history is missing, inconsistent, or
-    /// cannot be replayed into indexes. Original acquisition resource refusals
-    /// remain deferrals.
+    /// Returns a local resource refusal or a canonical history, cursor, or
+    /// confidential-compute validation error while rebuilding the DA indexes.
     pub fn da_pin_intents(
         &self,
     ) -> Result<
@@ -30074,9 +30059,8 @@ impl State {
     #[track_caller]
     ///
     /// # Errors
-    ///
-    /// Propagates Kura errors while checking the exact durable block index,
-    /// including storage corruption or required recovery.
+    /// Returns an error if canonical storage is poisoned, its commit marker or
+    /// index cannot be read exactly, or the durable count does not fit `usize`.
     pub fn exact_durable_block_count(&self) -> crate::kura::Result<usize> {
         self.kura.exact_durable_blocks_count()
     }
@@ -30086,10 +30070,9 @@ impl State {
     #[track_caller]
     ///
     /// # Errors
-    ///
-    /// Returns a canonical-history rejection if the committed body is missing,
-    /// corrupt, or disagrees with the state hash. Original resource refusals
-    /// remain deferrals.
+    /// Returns an original local resource refusal if Kura cannot complete the read,
+    /// or a canonical history error if the read fails or the returned body
+    /// contradicts the committed hash or height.
     pub fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -30124,9 +30107,9 @@ impl State {
     #[track_caller]
     ///
     /// # Errors
-    ///
-    /// Propagates canonical-history rejections and original resource deferrals
-    /// from loading the resolved committed height.
+    /// Returns an original local resource refusal or canonical history error when
+    /// the resolved block cannot be read or authenticated against the committed
+    /// hash and height.
     pub fn block_by_hash(
         &self,
         hash: HashOf<BlockHeader>,
@@ -31454,10 +31437,9 @@ impl State {
     /// across a concurrent commit boundary.
     ///
     /// # Errors
-    ///
-    /// Returns an error for unknown or inactive routes, invalid committee
-    /// geometry or authority sources, unavailable selection entropy, an undersized
-    /// pool, invalid autoscale pins, or failed canonical peer encoding.
+    /// Returns an error for an unknown or inactive route, inconsistent authority
+    /// or committee geometry, unavailable selection entropy, an undersized pool,
+    /// or failed canonical peer encoding.
     pub fn resolve_lane_committee(
         &self,
         route: LaneAuthorityRoute,
@@ -31470,10 +31452,9 @@ impl State {
     /// explicit consensus height.
     ///
     /// # Errors
-    ///
-    /// Returns an error for unknown or inactive routes, invalid committee
-    /// geometry or authority sources, unavailable selection entropy, an undersized
-    /// pool, invalid autoscale pins, or failed canonical peer encoding.
+    /// Returns an error for a route inactive at `authority_height`, an unknown
+    /// dataspace, inconsistent authority or committee geometry, unavailable selection
+    /// entropy, an undersized pool, or failed canonical peer encoding.
     pub fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -32208,10 +32189,9 @@ impl State {
     /// predecessor instances are authenticated separately during geometry recovery.
     ///
     /// # Errors
-    ///
-    /// Returns an error if storage cannot bind the network, no decoded runtime
-    /// snapshot exists, the configured catalog differs from its authenticated
-    /// baseline, or the primary geometry reference is invalid or unavailable.
+    /// Returns an error if storage cannot bind the network, State lacks a restored
+    /// Nexus snapshot, configured geometry is invalid, or the required durable
+    /// catalog baseline or original primary reference is absent or inconsistent.
     pub fn prepare_restored_configured_primary_geometry_anchor(
         &self,
         configured_lane_catalog: &LaneCatalog,
@@ -32792,6 +32772,7 @@ impl State {
                 &updated_lane_incarnation_activation_heights,
                 &updated_lane_incarnation_lineage,
                 configured_baseline,
+                &mut releases,
             ) {
                 let LaneGeometryCatalogPublicationFailure {
                     error,
@@ -33263,6 +33244,7 @@ impl State {
                 &lifecycle_update.updated_lane_incarnation_activation_heights,
                 &lifecycle_update.updated_lane_incarnation_lineage,
                 None,
+                &mut releases,
             ) {
                 let LaneGeometryCatalogPublicationFailure {
                     error,
@@ -33475,6 +33457,7 @@ impl State {
         activation_heights: &BTreeMap<LaneId, u64>,
         lineage: &BTreeMap<LaneId, LaneIncarnationLineage>,
         configured_baseline: Option<Hash>,
+        releases: &mut LaneLifecycleReleases<'_>,
     ) -> Result<(), LaneGeometryCatalogPublicationFailure> {
         self.finish_lane_geometry_publication(
             lane_config,
@@ -33483,6 +33466,7 @@ impl State {
             lane_incarnation_lineage_root(&self.network_id, lineage),
             configured_baseline,
             None,
+            Some(releases),
         )
     }
     fn rollback_lane_geometry_updates(
@@ -35586,10 +35570,9 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// roster that a caller could accidentally reinterpret.
     ///
     /// # Errors
-    ///
-    /// Returns an error for unknown or inactive routes, malformed or rebound
-    /// authority, invalid committee geometry or pins, unavailable selection
-    /// entropy, an undersized pool, or failed peer encoding.
+    /// Returns an error for an unknown or inactive route, inconsistent authority
+    /// or committee geometry, unavailable selection entropy, an undersized pool,
+    /// or failed canonical peer encoding.
     fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -35608,9 +35591,9 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// failure instead of collapsing either condition into absence.
     ///
     /// # Errors
-    ///
-    /// Returns a rejection for absent or inconsistent canonical history, or the
-    /// original deferral when block acquisition cannot obtain local resources.
+    /// Returns an error for a height outside the captured history, an unavailable
+    /// body, or a body whose hash or height contradicts the committed journal.
+    /// Original local resource refusals remain distinct from these history errors.
     fn canonical_block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35625,9 +35608,8 @@ pub trait StateReadOnly: WorldStateSnapshot {
     #[inline]
     ///
     /// # Errors
-    ///
-    /// Propagates canonical-history rejections and original resource deferrals
-    /// from [`Self::canonical_block_by_height`].
+    /// Returns an error if a committed body is unavailable or contradicts this
+    /// view's hash or height, or its original read is locally resource-refused.
     fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35653,9 +35635,8 @@ pub trait StateReadOnly: WorldStateSnapshot {
     #[inline]
     ///
     /// # Errors
-    ///
-    /// Propagates canonical-history rejections and original resource deferrals
-    /// from loading the corresponding committed block.
+    /// Returns the original local resource refusal or canonical history error if
+    /// the preceding committed body cannot be read and authenticated.
     fn prev_block(
         &self,
     ) -> core::result::Result<
@@ -35673,9 +35654,8 @@ pub trait StateReadOnly: WorldStateSnapshot {
     #[inline]
     ///
     /// # Errors
-    ///
-    /// Propagates canonical-history rejections and original resource deferrals
-    /// from loading the corresponding committed block.
+    /// Returns the original local resource refusal or canonical history error if
+    /// the latest committed body cannot be read and authenticated.
     fn latest_block(
         &self,
     ) -> core::result::Result<
@@ -35699,9 +35679,8 @@ pub trait StateReadOnly: WorldStateSnapshot {
     #[inline]
     ///
     /// # Errors
-    ///
-    /// Propagates canonical-history rejections and original resource deferrals
-    /// from loading the corresponding committed block.
+    /// Returns the original local resource refusal or canonical history error if
+    /// the committed genesis body cannot be read and authenticated.
     fn genesis_timestamp(
         &self,
     ) -> Result<Option<Duration>, ExecutionAttemptError<CanonicalHistoryError>> {
@@ -37898,9 +37877,8 @@ impl<'state> StateBlock<'state> {
     #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     ///
     /// # Errors
-    ///
-    /// Returns the completed rejection when the execution witness source, seal,
-    /// or retained content is invalid.
+    /// Returns the completed witness rejection if source ownership, captured
+    /// content, output binding, or recorder finalization fails validation.
     pub fn capture_exec_witness(&mut self) -> Result<(), String> {
         self.capture_exec_witness_attempt().map_err(|error| match error {
             WitnessCaptureError::Rejected(error) => error,
@@ -38031,9 +38009,8 @@ impl<'state> StateBlock<'state> {
     /// Create struct to store changes during transaction or trigger execution
     ///
     /// # Errors
-    ///
-    /// Returns the original storage admission error if any child transaction
-    /// field or control allocation cannot be admitted.
+    /// Returns a previously latched local storage refusal or the original admission
+    /// error if the World transaction checkpoints cannot be acquired.
     pub fn try_transaction(
         &mut self,
     ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
@@ -38439,10 +38416,9 @@ impl<'state> StateBlock<'state> {
     #[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
     ///
     /// # Errors
-    ///
-    /// Returns an error for failed storage admission, staged block/runtime
-    /// effects, invalid AXT asset or policy transitions, or failure to prepare
-    /// the World commitment.
+    /// Returns an error for a latched storage refusal, staged block-level effects,
+    /// failed AXT incarnation or counter finalization, or failed World accumulator
+    /// preparation.
     pub fn commit_world_overlay_for_testing(self) -> Result<(), TransactionsBlockError> {
         self.require_storage_admission()
             .map_err(TransactionsBlockError::LocalStateStorage)?;
@@ -38493,10 +38469,9 @@ impl<'state> StateBlock<'state> {
     #[cfg(any(test, feature = "iroha-core-tests"))]
     ///
     /// # Errors
-    ///
-    /// Returns an error for existing staged membership, invalid AXT incarnations,
-    /// failed empty-membership or resolver-checkpoint staging, or a failure in
-    /// the production commit path.
+    /// Returns an error if block membership is already staged, fixture incarnation
+    /// or membership preparation fails, the resolver checkpoint cannot be staged,
+    /// or the production commit rejects the prepared block.
     pub fn commit_empty_block_for_testing(mut self) -> Result<(), TransactionsBlockError> {
         if self.transactions.has_staged_block() || self.block_hashes.has_pending() {
             return Err(TransactionsBlockError::MergeAdmission);
@@ -42021,8 +41996,7 @@ impl StateTransaction<'_, '_> {
     /// The id is derived from the current transaction entrypoint hash.
     ///
     /// # Errors
-    ///
-    /// Returns an invariant violation if the transaction has no call hash.
+    /// Returns an invariant error if the transaction has no `call_hash`.
     pub fn next_generated_rwa_id(
         &mut self,
         domain: &DomainId,

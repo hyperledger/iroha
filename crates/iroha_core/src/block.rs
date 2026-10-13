@@ -574,6 +574,7 @@ pub(crate) fn parse_account_literal_with_world(
     now_ms: u64,
 ) -> Result<Option<AccountId>, crate::sns::SnsError> {
     use iroha_data_model::account::address::{AccountAddress, AccountAddressError};
+
     let literal = input.trim();
     if literal.is_empty() {
         return Ok(None);
@@ -640,6 +641,7 @@ pub(crate) fn resolve_network_xor_asset_definition(
     now_ms: u64,
 ) -> Result<Option<AssetDefinitionId>, crate::execution_attempt::ExecutionDeferred> {
     use iroha_data_model::parameter::system::SumeragiNposParameters;
+
     if input.trim() != input
         || (input != "xor#universal" && AssetDefinitionId::parse_address_literal(input).is_err())
     {
@@ -1924,7 +1926,9 @@ impl From<crate::sumeragi::lanes::merge::MergeError> for BlockValidationError {
                 observed_generation,
             },
             MergeError::StateView(error) => Self::StateView(error),
-            MergeError::RoutingDeferred(reason) => Self::ExecutionDeferred(reason),
+            MergeError::RoutingDeferred(reason) | MergeError::ResourceDeferred(reason) => {
+                Self::ExecutionDeferred(reason)
+            }
             MergeError::Storage(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 local,
             )) => Self::ExecutionDeferred(local),
@@ -2003,6 +2007,7 @@ fn epoch_schedule_capacity_preserves_original_local_release() {
 #[test]
 fn epoch_schedule_allocator_refusal_and_invalid_context_stay_distinct() {
     use crate::sumeragi::schedule::ScheduleError;
+
     let source = crate::sumeragi::certified_chain::ChainReadError::NotInView { height: 2 };
     let local = BlockValidationError::from(
         crate::sumeragi::schedule::ScheduleError::CommittedSource(source.into()),
@@ -3401,6 +3406,7 @@ pub(crate) mod valid {
                 facts: ivm::axt::AxtProofUseFacts,
             }
             type VerifiedProofBuckets = BTreeMap<(Option<u64>, Hash), Vec<usize>>;
+
             if let Some(envelope) = envelopes
                 .iter()
                 .find(|envelope| !envelope.spends.is_empty())
@@ -11323,6 +11329,7 @@ seiyaku DynamicTarget { permission CanWriteCounters;
         use iroha_data_model::sumeragi_lanes::{
             SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy, SumeragiLaneRoute,
         };
+
         let (authority, keypair) = gen_account_in("wonderland");
         let (destination, _destination_keypair) = gen_account_in("wonderland");
         let sealed_dataspace = DataSpaceId::new(7);
@@ -12000,8 +12007,8 @@ seiyaku DynamicTarget { permission CanWriteCounters;
             &time_source,
         )
         .expect("Valid");
-        let fail_hash = tx_fail.as_ref().hash_as_entrypoint();
-        let accept_hash = tx_accept.as_ref().hash_as_entrypoint();
+        let fail_hash = tx_fail.hash_as_entrypoint();
+        let accept_hash = tx_accept.hash_as_entrypoint();
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
         let unverified_block = BlockBuilder::new(transactions)

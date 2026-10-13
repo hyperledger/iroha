@@ -1118,6 +1118,7 @@ fn a_retained_worker_refusal_is_answered_without_live_dependencies_and_after_reo
 #[test]
 fn a_cached_worker_refusal_is_answered_only_when_it_matches_its_retained_original() {
     use crate::kagemusha_wallet_v1::enrollment_journal::WorkerRefusalTamperForTests as Tamper;
+
     let (_temp, mut owner, dispatch) = fixture();
     let mut stale = authenticate(&mut owner, &dispatch);
     owner.pre_key_permit(&mut stale).unwrap();

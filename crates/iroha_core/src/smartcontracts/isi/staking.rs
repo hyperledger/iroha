@@ -7982,6 +7982,7 @@ mod tests {
     #[test]
     fn unregister_peer_rejects_active_validator_tenure() {
         use iroha_data_model::isi::register::Unregister;
+
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());
@@ -8032,6 +8033,7 @@ mod tests {
     #[test]
     fn unregister_peer_preserves_stake_shares() {
         use iroha_data_model::isi::register::Unregister;
+
         let state = setup_state();
         let block = new_block();
         let mut state_block = state.block(block.as_ref().header());

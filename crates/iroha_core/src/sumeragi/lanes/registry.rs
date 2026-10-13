@@ -152,40 +152,53 @@ impl LaneStores {
         self.store_with_runtime_owner(lane, incarnation, true)
     }
 
+    // All registry-owned buffers use this original pool. Keep every physical map/store
+    // guard inside the scope so retirement and recovery callbacks may safely reenter.
+    fn with_original_refunds<R>(&self, operation: impl FnOnce() -> R) -> R {
+        if cfg!(all(test, sumeragi_core_mutation = "HC348")) {
+            operation()
+        } else {
+            self.budget
+                .with_deferred_refund_notifications(|_| operation())
+        }
+    }
+
     fn store_with_runtime_owner(
         &self,
         lane: LaneId,
         incarnation: &[u8; 32],
         runtime_owner: bool,
     ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
-        let key = (lane, *incarnation);
-        let mut stores = self.stores.lock();
-        if let Some(StoreSlot::Ready(store)) = stores.get(&key) {
-            return Ok(Arc::clone(store));
-        }
-        if stores.contains_key(&key) {
-            return Self::resume_store_opening(&mut stores, key, runtime_owner);
-        }
-        // The absent-key removal originally had no owner to move. Keep the map locked
-        // while acquiring the same authority, before entering either large opening stage.
-        let instance = self.instance(lane, incarnation);
-        let authority = self
-            .authorities
-            .authority(lane, incarnation, instance)?
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "historical lane authority is unresolved",
+        self.with_original_refunds(|| {
+            let key = (lane, *incarnation);
+            let mut stores = self.stores.lock();
+            if let Some(StoreSlot::Ready(store)) = stores.get(&key) {
+                return Ok(Arc::clone(store));
+            }
+            if stores.contains_key(&key) {
+                return Self::resume_store_opening(&mut stores, key, runtime_owner);
+            }
+            // The absent-key removal originally had no owner to move. Keep the map locked
+            // while acquiring the same authority, before entering either large opening stage.
+            let instance = self.instance(lane, incarnation);
+            let authority = self
+                .authorities
+                .authority(lane, incarnation, instance)?
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "historical lane authority is unresolved",
+                    )
+                })?;
+            if authority.schedule.instance() != instance {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "historical lane schedule belongs to another incarnation",
                 )
-            })?;
-        if authority.schedule.instance() != instance {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "historical lane schedule belongs to another incarnation",
-            )
-            .into());
-        }
-        self.open_store_with_authority(&mut stores, key, instance, authority, runtime_owner)
+                .into());
+            }
+            self.open_store_with_authority(&mut stores, key, instance, authority, runtime_owner)
+        })
     }
 
     // Only this post-authority stage constructs the large opening owner. The original
@@ -251,21 +264,23 @@ impl LaneStores {
     /// ready read, publication and batch owners retain their exact allocations and native lock.
     /// Certified frames remain on disk for independently authenticated replay.
     pub fn release(&self, lane: LaneId, incarnation: &[u8; 32]) {
-        let mut stores = self.stores.lock();
-        if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
-            // The registry lock excludes another registry acquisition. Returned reader Arcs
-            // pin the owner before either store mutex is acquired; pending work also pins it.
-            if Arc::strong_count(store) > 1 || store.retains_pending_work() {
+        self.with_original_refunds(|| {
+            let mut stores = self.stores.lock();
+            if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
+                // The registry lock excludes another registry acquisition. Returned reader Arcs
+                // pin the owner before either store mutex is acquired; pending work also pins it.
+                if Arc::strong_count(store) > 1 || store.retains_pending_work() {
+                    return;
+                }
+            }
+            if matches!(
+                stores.get(&(lane, *incarnation)),
+                Some(StoreSlot::Opening(_, true))
+            ) {
                 return;
             }
-        }
-        if matches!(
-            stores.get(&(lane, *incarnation)),
-            Some(StoreSlot::Opening(_, true))
-        ) {
-            return;
-        }
-        stores.remove(&(lane, *incarnation));
+            stores.remove(&(lane, *incarnation));
+        })
     }
 
     /// Release every runtime owner absent from the applied lane set, including openings
@@ -276,22 +291,24 @@ impl LaneStores {
     /// same opening. Completed ready owners release their lock once readers and original
     /// read, batch or publication work are gone; certified disk frames remain available.
     pub(super) fn release_retired(&self, lanes: &SumeragiLaneState) {
-        self.stores.lock().retain(|(lane, incarnation), slot| {
-            if lanes
-                .lane(*lane)
-                .is_some_and(|record| record.incarnation == *incarnation)
-            {
-                return true;
-            }
-            match slot {
-                StoreSlot::Opening(_, historical) => *historical,
-                StoreSlot::Ready(store) => {
-                    Arc::strong_count(store) > 1
-                        || store.retains_pending_work()
-                        || cfg!(all(test, sumeragi_core_mutation = "HC122"))
+        self.with_original_refunds(|| {
+            self.stores.lock().retain(|(lane, incarnation), slot| {
+                if lanes
+                    .lane(*lane)
+                    .is_some_and(|record| record.incarnation == *incarnation)
+                {
+                    return true;
                 }
-            }
-        });
+                match slot {
+                    StoreSlot::Opening(_, historical) => *historical,
+                    StoreSlot::Ready(store) => {
+                        Arc::strong_count(store) > 1
+                            || store.retains_pending_work()
+                            || cfg!(all(test, sumeragi_core_mutation = "HC122"))
+                    }
+                }
+            });
+        })
     }
 }
 

@@ -97,9 +97,10 @@ impl StateParameters {
     /// Errors preserve the original decoder refusal and leave both values unchanged.
     ///
     /// # Errors
-    ///
-    /// Returns the decoding or validation error for a malformed custom gas or
-    /// pipeline policy parameter. The original parameters and policies remain unchanged.
+    /// Returns a Norito decode or validation error for malformed custom gas or
+    /// pipeline policy, including noncanonical or duplicate asset addresses,
+    /// invalid receiver identities, rates or execution limits. Both stored values
+    /// remain unchanged, and original decoder refusals are preserved.
     pub fn set_parameter(
         &mut self,
         parameter: iroha_data_model::parameter::Parameter,
@@ -160,9 +161,9 @@ impl StateParameters {
     /// Replace the canonical input only after its entire projection validates.
     ///
     /// # Errors
-    ///
-    /// Returns the decoding or validation error for malformed gas or pipeline
-    /// policies in the replacement parameters, leaving this value unchanged.
+    /// Returns the original Norito decode or validation error if any supplied gas
+    /// or pipeline policy cannot form a valid projection. The existing owner
+    /// remains unchanged.
     pub fn replace(&mut self, parameters: Parameters) -> Result<(), norito::Error> {
         *self = Self::try_from(parameters)?;
         Ok(())

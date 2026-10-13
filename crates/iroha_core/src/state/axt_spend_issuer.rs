@@ -99,8 +99,9 @@ impl StateTransaction<'_, '_> {
             .get(&dataspace)
             .filter(|policy| policy.manifest_root != [0; 32])
             .ok_or(AxtCurrentIssuerErrorV1::MissingPolicy)?;
-        if (&handle.manifest_view_root, handle.target_lane)
-            != (&policy.manifest_root, policy.target_lane)
+        let expected_manifest_root = policy.manifest_root;
+        if handle.manifest_view_root != expected_manifest_root
+            || handle.target_lane != policy.target_lane
             || super::consensus_lane_dataspace_at_height(
                 policy.target_lane,
                 self.nexus(),

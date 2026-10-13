@@ -9726,7 +9726,7 @@ fn push_accepted_transaction_for_ingress_with_routing(
     };
     if pressure.saturated_by_age {
         iroha_logger::debug!(
-            tx_hash = %accepted_tx.hash(),
+            tx_hash = %accepted_tx.hash_as_entrypoint(),
             queued = pressure.queued_tx_count,
             tracked = pressure.tracked_tx_count,
             capacity = pressure.capacity.get(),
@@ -9743,12 +9743,12 @@ fn push_accepted_transaction_for_ingress_with_routing(
         .map_err(|queue::Failure { tx, err }| {
             if matches!(err, queue::Error::Full) {
                 iroha_logger::debug!(
-                    tx_hash = %tx.as_ref().hash(),
+                    tx_hash = %tx.as_ref().hash_as_entrypoint(),
                     "queue rejected transaction due to backpressure"
                 );
             } else {
                 iroha_logger::warn!(
-                    tx_hash=%tx.as_ref().hash(), ?err,
+                    tx_hash=%tx.as_ref().hash_as_entrypoint(), ?err,
                     "Failed to push into queue"
                 );
             }
@@ -9792,7 +9792,7 @@ fn handle_transaction_inner_sync(
     reject_ingress_if_queue_capacity_saturated(queue.as_ref(), state.as_ref(), 1)?;
     let accepted_tx = accept_transaction_for_ingress(state.clone(), tx, _telemetry)?;
     iroha_logger::debug!(
-        tx = %accepted_tx.hash(),
+        tx = %accepted_tx.hash_as_entrypoint(),
         "transaction accepted by Torii; enqueuing"
     );
     #[cfg(feature = "telemetry")]
@@ -30371,8 +30371,11 @@ mod sorafs_pin_tests {
         let state_view = state.view();
         let queued = queue.all_transactions(&state_view).collect::<Vec<_>>();
         assert_eq!(queued.len(), 1, "one original signed registration must remain pending");
-        assert_eq!(queued[0].as_ref(), &expected_transaction);
-        let register = validate_sorafs_pin_register_transaction(state.network_id_ref(), queued[0].as_ref())
+        let TransactionEntrypoint::External(queued_signed) = queued[0].entrypoint() else {
+            panic!("queued registration fixture retains its original external carrier");
+        };
+        assert_eq!(queued_signed, &expected_transaction);
+        let register = validate_sorafs_pin_register_transaction(state.network_id_ref(), queued_signed)
             .expect("queued signature and registration remain valid");
         let alias = register.alias.as_ref().expect("queued registration retains alias");
         assert_eq!(alias.namespace, "sora");
@@ -30830,9 +30833,9 @@ mod sorafs_capacity_tests {
             )
             .expect("healthy pending inputs");
         assert!(
-            guards
-                .iter()
-                .any(|accepted| accepted.as_ref().hash() == expected_hash),
+            guards.iter().any(|accepted| accepted
+                .external()
+                .is_some_and(|signed| signed.hash() == expected_hash)),
             "the exact caller-signed transaction must be queued"
         );
     }
@@ -49448,11 +49451,11 @@ fn faucet_pow_recent_claims(
             .all_transactions(&state_view)
             .filter(|tx| {
                 tx.authority() == &faucet.authority
-                    && faucet_executable_is_claim(
-                        tx.as_ref().instructions(),
+                    && tx.external().is_some_and(|signed| faucet_executable_is_claim(
+                        signed.instructions(),
                         &source_asset_id,
                         &faucet_amount,
-                    )
+                    ))
             })
             .count()
     };

@@ -55,9 +55,11 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         view: &'v V,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
     ) -> Result<Self, ExecutionAttemptError<QueryExecutionFail>> {
-        let genesis = view
-            .canonical_history()
-            .block_with_admission(NonZeroUsize::MIN, before_read)?;
+        let genesis = view.canonical_history().block_with_admission(
+            NonZeroUsize::new(usize::try_from(GENESIS_HEIGHT).expect("genesis height fits usize"))
+                .expect("genesis height is nonzero"),
+            before_read,
+        )?;
         Self::from_genesis(ChainSource::State(view), genesis).map_err(|error| {
             error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
         })

@@ -15,6 +15,7 @@ use iroha_data_model::{
     sumeragi_lanes::{
         SumeragiFixedLane, SumeragiLaneMember, SumeragiLaneRecord, SumeragiLaneRoute,
     },
+    transaction::SignedTransaction,
 };
 use iroha_model_base::topology::DataSpaceId;
 use iroha_sumeragi::{
@@ -136,7 +137,7 @@ impl LaneTransactions for NoTransactions {
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
         _: &iroha_allocation::AllocationBudget,
     ) -> Result<
-        (Vec<SignedTransaction>, Self::Lease),
+        (Vec<TransactionEntrypoint>, Self::Lease),
         crate::sumeragi::lanes::executor::LaneSelectionError,
     > {
         Ok((Vec::new(), ()))
@@ -239,6 +240,23 @@ impl Fixture {
 
     /// Store a certified lane block at `height` carrying `transactions` anchored at `anchor`.
     fn certify(&self, height: u64, anchor: u64, transactions: Vec<SignedTransaction>) -> Hash32 {
+        self.certify_entrypoints(
+            height,
+            anchor,
+            transactions
+                .into_iter()
+                .map(TransactionEntrypoint::External)
+                .collect(),
+        )
+    }
+
+    /// Certify the complete original entrypoints through the same native lane owners.
+    fn certify_entrypoints(
+        &self,
+        height: u64,
+        anchor: u64,
+        transactions: Vec<TransactionEntrypoint>,
+    ) -> Hash32 {
         let record = self.record();
         let store = self
             .stores
@@ -926,3 +944,6 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
     assert_eq!(error.io_kind(), std::io::ErrorKind::PermissionDenied);
     assert_eq!(error.to_string(), "exact fixture custody failure");
 }
+
+#[path = "merge_tests/sealed_entrypoints.rs"]
+mod sealed_entrypoints;

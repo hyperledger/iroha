@@ -11,11 +11,7 @@ use std::{
 };
 
 use iroha_crypto::HashOf;
-use iroha_data_model::{
-    NetworkId,
-    block::BlockHeader,
-    transaction::{SignedTransaction, TransactionEntrypoint},
-};
+use iroha_data_model::{NetworkId, block::BlockHeader, transaction::TransactionEntrypoint};
 use iroha_model_base::topology::LaneId;
 use parking_lot::{Condvar, Mutex};
 
@@ -183,11 +179,29 @@ impl StatelessChecks {
 }
 
 impl TransactionCheck for StatelessChecks {
-    fn check(&self, tx: &SignedTransaction, _anchor_time_ms: u64) -> Result<(), String> {
-        if tx.network_id() != Some(&self.network) {
-            return Err("the transaction belongs to another network".into());
+    fn check(&self, tx: &TransactionEntrypoint, _anchor_time_ms: u64) -> Result<(), String> {
+        match tx {
+            TransactionEntrypoint::External(signed)
+            | TransactionEntrypoint::SealedReveal(
+                iroha_data_model::transaction::signed::SealedTransactionReveal {
+                    signed_transaction: signed,
+                    ..
+                },
+            ) => {
+                if signed.network_id() != Some(&self.network) {
+                    return Err("the transaction belongs to another network".into());
+                }
+                signed.verify_signature().map_err(|error| error.to_string())
+            }
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                if commitment.payload().network_id != self.network {
+                    return Err("the transaction belongs to another network".into());
+                }
+                commitment
+                    .verify_signature()
+                    .map_err(|error| error.to_string())
+            }
         }
-        tx.verify_signature().map_err(|error| error.to_string())
     }
 }
 
@@ -236,7 +250,7 @@ impl LaneTransactions for QueueLaneTransactions {
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
         budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<(Vec<SignedTransaction>, Self::Lease), LaneSelectionError> {
+    ) -> Result<(Vec<TransactionEntrypoint>, Self::Lease), LaneSelectionError> {
         let generation = self.state.state_view_generation();
         let view = self
             .state
@@ -263,7 +277,10 @@ impl LaneTransactions for QueueLaneTransactions {
                 continue;
             }
             if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
-                && transaction.as_ref().creation_time() > wall_time
+                && transaction
+                    .entrypoint()
+                    .creation_time_ms()
+                    .is_some_and(|created| Duration::from_millis(created) > wall_time)
             {
                 future = true;
                 continue;
@@ -271,7 +288,11 @@ impl LaneTransactions for QueueLaneTransactions {
             if inputs.route(&transaction, height)? != Some(self.lane) {
                 continue;
             }
-            let next = bytes.saturating_add(transaction.encoded_len());
+            // The lane carries the complete original enum, including a reveal
+            // commitment and salt. Admission's inner-variant length is a different bound.
+            let Some(next) = bytes.checked_add(transaction.entrypoint_bytes().len()) else {
+                continue;
+            };
             if next > max_bytes {
                 continue;
             }
@@ -302,7 +323,7 @@ impl LaneTransactions for QueueLaneTransactions {
         Ok((
             selected
                 .iter()
-                .map(|transaction| AsRef::<SignedTransaction>::as_ref(transaction).clone())
+                .map(|transaction| transaction.entrypoint().clone())
                 .collect(),
             Some(QueueLaneLease(lease)),
         ))

@@ -297,6 +297,16 @@ struct Actor {
     soranet_handshake_update: watch::Sender<ActualSoranetHandshake>,
     soranet_handshake_applier: Option<mpsc::Sender<SoranetHandshakeApplyRequest>>,
 }
+/// Private staged settings; no part is published before runtime acceptance.
+struct PreparedConfigUpdate {
+    logger: LoggerConfig,
+    network: iroha_config::parameters::actual::Network,
+    transport: iroha_config::parameters::actual::ToriiTransport,
+    compute: iroha_config::parameters::actual::Compute,
+    notify_network_acl: bool,
+    notify_soranet_handshake: bool,
+}
+
 impl Actor {
     async fn run(&mut self) {
         while let Some(msg) = self.handle.recv().await {
@@ -339,7 +349,10 @@ impl Actor {
         }
     }
     #[allow(clippy::too_many_lines)]
-    async fn apply_config_update(&mut self, dto: ConfigurationUpdate) -> Result<(), Error> {
+    fn prepare_config_update(
+        &self,
+        dto: ConfigurationUpdate,
+    ) -> Result<PreparedConfigUpdate, Error> {
         let ConfigurationUpdate {
             logger,
             network_acl,
@@ -348,10 +361,16 @@ impl Actor {
             transport,
             compute_pricing,
         } = dto;
-        // Stage updates on a clone to keep the config update atomic.
-        let mut next = self.state.clone();
-        let mut notify_network_acl = false;
-        let mut notify_soranet_handshake = false;
+        // Stage only the runtime-mutable fields. The complete node configuration
+        // must not occupy the update future while the runtime acknowledgement waits.
+        let mut next = PreparedConfigUpdate {
+            logger: self.state.logger.clone(),
+            network: self.state.network.clone(),
+            transport: self.state.torii.transport.clone(),
+            compute: self.state.compute.clone(),
+            notify_network_acl: false,
+            notify_soranet_handshake: false,
+        };
         let Logger { level, filter } = logger;
         next.logger.level = level;
         next.logger.filter = filter
@@ -381,7 +400,7 @@ impl Actor {
             if let Some(cidrs) = deny_cidrs {
                 next.network.deny_cidrs = cidrs;
             }
-            notify_network_acl = true;
+            next.notify_network_acl = true;
         }
         if let Some(network) = network {
             if let Some(value) = network.require_sm_handshake_match {
@@ -417,10 +436,10 @@ impl Actor {
                 handshake_update,
             )
             .map_err(Error::Validation)?;
-            notify_soranet_handshake = true;
+            next.notify_soranet_handshake = true;
         }
         if let Some(transport_update) = transport {
-            Self::apply_transport_update(&mut next.torii.transport, transport_update)
+            Self::apply_transport_update(&mut next.transport, transport_update)
                 .map_err(Error::Validation)?;
         }
         if let Some(pricing_update) = compute_pricing {
@@ -440,20 +459,29 @@ impl Actor {
             }
             next.compute = compute;
         }
-        if notify_soranet_handshake {
+        Ok(next)
+    }
+    async fn apply_config_update(&mut self, dto: ConfigurationUpdate) -> Result<(), Error> {
+        let next = self.prepare_config_update(dto)?;
+        if next.notify_soranet_handshake {
             Self::apply_soranet_handshake_runtime(
                 self.soranet_handshake_applier.clone(),
                 next.network.soranet_handshake.clone(),
             )
             .await?;
         }
-        self.state = next;
+        // The actor processes one message at a time. Publish every staged field
+        // together after validation and acknowledgement, with no intervening await.
+        self.state.logger = next.logger;
+        self.state.network = next.network;
+        self.state.torii.transport = next.transport;
+        self.state.compute = next.compute;
         let _ = self.logger_update.send_replace(self.state.logger.clone());
-        if notify_network_acl {
+        if next.notify_network_acl {
             let snapshot = Self::snapshot_network_acl(&self.state);
             let _ = self.network_acl_update.send_replace(snapshot);
         }
-        if notify_soranet_handshake {
+        if next.notify_soranet_handshake {
             let _ = self
                 .soranet_handshake_update
                 .send_replace(self.state.network.soranet_handshake.clone());
@@ -2401,6 +2429,40 @@ mod tests {
         assert!(dto.network.require_sm_handshake_match);
         assert!(dto.network.require_sm_openssl_preview_match);
     }
+    #[test]
+    fn configuration_update_future_keeps_only_bounded_runtime_staging() {
+        let config = test_config();
+        let (logger_update, _) = watch::channel(config.logger.clone());
+        let (network_acl_update, _) = watch::channel(Actor::snapshot_network_acl(&config));
+        let (soranet_handshake_update, _) =
+            watch::channel(config.network.soranet_handshake.clone());
+        let (_, handle) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let mut actor = Actor {
+            handle,
+            state: config,
+            logger_update,
+            network_acl_update,
+            soranet_handshake_update,
+            soranet_handshake_applier: None,
+        };
+        let future = actor.apply_config_update(ConfigurationUpdate {
+            logger: LoggerDTO {
+                level: Level::INFO,
+                filter: None,
+            },
+            network_acl: None,
+            network: None,
+            soranet_handshake: None,
+            transport: None,
+            compute_pricing: None,
+        });
+        assert!(
+            std::mem::size_of_val(&future) <= 16 * 1024,
+            "configuration update retains {} bytes across suspension",
+            std::mem::size_of_val(&future),
+        );
+    }
+
     #[tokio::test]
     async fn invalid_logger_filter_does_not_publish_or_change_configuration() {
         let (kiso, _child) = KisoHandle::start(test_config());

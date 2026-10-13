@@ -531,6 +531,7 @@ impl PendingFinalPromotionCheckV1 {
                     complete: &'a SignedTransaction,
                 },
             }
+
             prepared.round.ensure_live().map_err(Error::from)?;
             let p = &prepared;
             let phase_source = match (&p.expected.subject, source) {

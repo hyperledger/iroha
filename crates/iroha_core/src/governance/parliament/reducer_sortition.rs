@@ -806,6 +806,7 @@ impl ParliamentAttemptStateV1 {
             alternates: Vec<ParliamentSeatAssignmentV1>,
             assignment_root: [u8; 32],
         }
+
         self.ensure_active(governance_attempt_id)?;
         if pulse_id.as_bytes().iter().all(|byte| *byte == 0) {
             return Err(ParliamentReducerErrorV1::DuplicateOrZeroIdentifier(

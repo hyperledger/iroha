@@ -515,7 +515,9 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
     let payload = LaneBatch {
         anchor_height: 4,
         anchor_hash: anchor,
-        transactions: vec![private_tx.clone()],
+        transactions: vec![
+            iroha_data_model::transaction::TransactionEntrypoint::External(private_tx.clone()),
+        ],
     }
     .to_payload();
     let height_config = lane_height_config(&record).expect("native lane configuration");

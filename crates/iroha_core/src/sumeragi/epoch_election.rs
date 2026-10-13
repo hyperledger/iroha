@@ -485,14 +485,15 @@ pub(super) fn authenticated_boundary_entropy(
     let (key, pulse) = at_height
         .next()
         .ok_or("mandatory fresh preboundary pulse is absent")?;
+    let incumbent_epoch = current.authorization.epoch;
     if at_height.next().is_some()
         || key != &pulse.pulse_id
         || world
             .global_beacon_pulses()
             .iter()
             .any(|(_, other)| other.height > pulse_height)
-        || (&pulse.network_id, pulse.context.epoch)
-            != (&current.network_id, current.authorization.epoch)
+        || pulse.network_id != current.network_id
+        || pulse.context.epoch != incumbent_epoch
         || pulse.context.epoch_context_id != current.context_id()?
         || pulse.finalized_chain_anchor != anchor
         || world.active_global_beacon_key_session() != Some(pulse.session_id)

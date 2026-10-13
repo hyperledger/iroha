@@ -127,7 +127,7 @@ impl State {
         pending_public_lane_slash_observability = Some(Vec::new());
         #[cfg(feature = "zk-preverify")]
         {
-            zk_dedup = Some(crate::zk::DedupCache::default());
+            zk_dedup = Some(iroha_core_zk::DedupCache::default());
         }
         // Every take below is checked while the joint owner is still armed.
         // The finishing closure borrows each Option, including metadata and the

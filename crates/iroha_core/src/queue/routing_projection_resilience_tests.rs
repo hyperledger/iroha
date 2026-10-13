@@ -67,7 +67,7 @@ async fn push_records_teu_using_router_assignment() {
         &time_source,
     )
     .expect("Failed to accept transaction.");
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue
         .push(tx, state.view())
         .expect("Failed to push tx into queue");
@@ -90,7 +90,7 @@ async fn push_records_teu_from_ivm_metadata() {
     register_test_authority(&state, &account_id);
     let max_cycles = 42_000_u64;
     let tx = accepted_ivm_tx_by(account_id, &key_pair, &time_source, max_cycles);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue
         .push(tx, state.view())
         .expect("Failed to enqueue IVM transaction");
@@ -136,8 +136,11 @@ fn expired_event_uses_the_authoritative_full_plan() {
         vec![Log::new(Level::INFO, "expire original routed input".into()).into()],
         Metadata::default(),
     );
-    let signed_hash = tx.as_ref().hash();
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let signed_hash = tx
+        .external()
+        .expect("fixture authors an external input")
+        .hash();
+    let hash = tx.hash_as_entrypoint();
     let original = tx.clone();
     queue.push(tx, state.view()).expect("push tx");
     assert_eq!(

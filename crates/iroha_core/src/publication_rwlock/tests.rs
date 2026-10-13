@@ -332,6 +332,7 @@ fn wake_panic_cannot_poison_the_already_unlocked_writer() {
             panic!("injected wake callback failure");
         }
     }
+
     let observer_budget = iroha_allocation::AllocationBudget::new(
         iroha_allocation::release::ReleaseRegistration::allocation_layout().size(),
     );

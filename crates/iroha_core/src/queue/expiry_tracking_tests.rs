@@ -65,7 +65,7 @@ fn remove_committed_hashes_clears_expiry_tracking() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push succeeds");
     assert!(
         queue.expiry_ring_members.contains_key(&hash),
@@ -295,7 +295,7 @@ fn sampling_culls_expired_input_while_fifo_has_live_work() {
     assert_eq!(old_sample.len(), 1);
     time_handle.advance(Duration::from_millis(4));
     let live_tx = accepted_tx_by_someone(&time_source);
-    let live_hash = live_tx.as_ref().hash_as_entrypoint();
+    let live_hash = live_tx.hash_as_entrypoint();
     queue
         .push(live_tx, state.view())
         .expect("live transaction push succeeds");
@@ -305,7 +305,7 @@ fn sampling_culls_expired_input_while_fifo_has_live_work() {
         .bounded_pending_snapshot(&state.view(), nonzero!(1_usize))
         .unwrap();
     assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].as_ref().hash_as_entrypoint(), live_hash);
+    assert_eq!(selected[0].hash_as_entrypoint(), live_hash);
     assert_eq!(
         queue.active_len(),
         1,

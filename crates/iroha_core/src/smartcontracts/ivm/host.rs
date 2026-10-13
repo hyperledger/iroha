@@ -1362,9 +1362,9 @@ pub trait QueryStateRefOps {
     /// copying its manifest or bytecode.
     ///
     /// # Errors
-    ///
-    /// Returns a VM error if the deployed binding, manifest, runtime subject,
-    /// or code identity cannot be authenticated.
+    /// Returns a VM error if committed scope authorization or contract identity
+    /// lookup fails. Missing identity, subject or deployed artifact instead
+    /// returns `Ok(None)`.
     fn bound_contract_dispatch_identity_by_address(
         &self,
         contract_address: &ContractAddress,
@@ -1379,9 +1379,8 @@ pub trait QueryStateRefOps {
     /// Prepare a content-addressed cache miss while borrowing deployed bytecode in place.
     ///
     /// # Errors
-    ///
-    /// Returns a VM error if the artifact is absent, deployed-code validation
-    /// fails, or preparing the contract exceeds resources or rejects its bytecode.
+    /// Returns a VM error if the deployed artifact is absent or cannot be read,
+    /// authenticated or prepared within the cache owner's resources.
     fn prepare_contract_cache_miss(
         &self,
         cache: &PreparedContractCache,
@@ -4496,9 +4495,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// leaves that epoch absent so the syscall fails closed with `found=false`.
     ///
     /// # Errors
-    ///
-    /// Returns the rejection or resource deferral from reading the committed
-    /// NPoS parameters. Unverifiable pulse evidence leaves its epoch absent.
+    /// Returns the original execution-attempt error if committed NPoS parameters
+    /// cannot be read or validated. Invalid or conflicting beacon evidence is
+    /// instead omitted from the successful epoch projection.
     pub fn set_vrf_epoch_seeds_from_state(
         &mut self,
         state: &impl StateReadOnly,
@@ -8956,6 +8955,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     }
     fn handle_axt_stage_anchored_spend(&mut self, vm: &IVM) -> Result<u64, ivm::VMError> {
         const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
+
         self.clear_axt_reject();
         let Some(state_view) = self.axt_state.as_ref() else {
             self.record_axt_reject(
@@ -14904,6 +14904,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
     #[test]
     fn unknown_syscall_is_rejected_by_policy() {
         const UNKNOWN_SYSCALL: u32 = u32::MAX;
+
         let mut vm = ivm::IVM::new(10_000);
         let mut host = CoreHost::new(fixture_account("alice"));
         // Pick a syscall number outside allowed/known ranges.
@@ -17514,41 +17515,63 @@ seiyaku OuterCaller {
         assert!(host.queued.is_empty());
     }
     #[test]
-    fn queued_ballot_consumes_exactly_one_pending_envelope_hash() {
-        let backend: iroha_schema::Ident = "pipa-r/pasta".into();
-        let mut proof = ProofAttachment::new_ref(
-            backend.clone(),
-            ProofBox::new(backend.clone(), vec![0xa5]),
-            VerifyingKeyId::new(backend.as_str(), "queued-ballot"),
-        );
-        let instruction = InstructionBox::from(DMZk::SubmitBallot {
-            election_id: "election".to_owned(),
-            ciphertext: vec![0x11; 32],
-            ballot_proof: proof.clone(),
-            nullifier: [0x22; 32],
-        });
-        let payload = norito::to_bytes(&instruction).expect("encode proof instruction");
-        let mut vm = IVM::new(1_000_000);
-        let ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
-        vm.set_register(10, ptr);
-        vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
-        let mut host = local_contract_host((*ALICE_ID).clone());
-        let pending_hash = [0x42; 32];
-        let following_hash = [0x43; 32];
-        Arc::make_mut(&mut host.zk_last_env_hash_ballot).extend([pending_hash, following_hash]);
-        host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)
-            .expect("queue ballot");
-        assert_eq!(host.zk_last_env_hash_ballot.len(), 1);
-        assert_eq!(host.zk_last_env_hash_ballot.front(), Some(&following_hash));
-        proof.envelope_hash = Some(pending_hash);
-        let expected = InstructionBox::from(DMZk::SubmitBallot {
-            election_id: "election".to_owned(),
-            ciphertext: vec![0x11; 32],
-            ballot_proof: proof,
-            nullifier: [0x22; 32],
-        });
-        assert_eq!(host.queued.len(), 1);
-        assert_eq!(host.queued[0].instruction(), Some(&expected));
+    fn execute_instruction_ballot_consumes_each_pending_envelope_once() {
+        let first = [0x41; 32];
+        let second = [0x42; 32];
+        let explicit = [0x43; 32];
+        for (provided, expected_hashes) in [
+            (None, [Some(first), Some(second), None]),
+            (Some(explicit), [Some(explicit); 3]),
+        ] {
+            let mut host = CoreHost::new((*ALICE_ID).clone());
+            bind_test_contract_runtime(&mut host, 306);
+            host.__test_seed_ballot_latch(first);
+            host.__test_seed_ballot_latch(second);
+            let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+            let mut proof = ProofAttachment::new_ref(
+                backend.clone(),
+                ProofBox::new(backend.clone(), vec![0xa5]),
+                VerifyingKeyId::new(backend.as_str(), "ordered-ballot-envelope"),
+            );
+            proof.envelope_hash = provided;
+            let ballot = DMZk::SubmitBallot {
+                election_id: "election".to_owned(),
+                ciphertext: vec![0x11; 32],
+                ballot_proof: proof,
+                nullifier: [0x22; 32],
+            };
+            let payload = norito::to_bytes(&InstructionBox::from(ballot.clone()))
+                .expect("encode ballot instruction");
+            let mut vm = IVM::new(50_000_000);
+            let instruction_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
+            for (index, expected_hash) in expected_hashes.into_iter().enumerate() {
+                vm.set_register(10, instruction_ptr);
+                vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
+                host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)
+                    .expect("affordable ballot instruction");
+                let mut expected = ballot.clone();
+                expected.ballot_proof.envelope_hash = expected_hash;
+                let expected = InstructionBox::from(expected);
+                assert_eq!(host.queued.len(), index + 1);
+                assert_eq!(host.queued[index].instruction(), Some(&expected));
+                let pending = if provided.is_some() {
+                    vec![first, second]
+                } else if index == 0 {
+                    vec![second]
+                } else {
+                    Vec::new()
+                };
+                assert_eq!(
+                    host.zk_last_env_hash_ballot
+                        .iter()
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    pending,
+                    "only an inherited envelope consumes one original pending hash"
+                );
+                assert_eq!(host.zk_verified_ballot.len(), 2);
+            }
+        }
     }
     #[test]
     fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {

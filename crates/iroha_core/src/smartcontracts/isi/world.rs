@@ -6607,8 +6607,9 @@ pub mod isi {
                     "validation-fee payout lifecycle requires an active immutable contract".into(),
                 )
             })?;
-        if (&record.contract_address, &record.contract_subject)
-            != (&binding.contract_address, &binding.treasury_account_id)
+        let treasury_subject = &binding.treasury_account_id;
+        if record.contract_address != binding.contract_address
+            || record.contract_subject != *treasury_subject
             || binding.contract_address.subject_id() != binding.treasury_account_id
             || ivm::contract_code_hash(&record.code_bytes).as_ref() != &binding.code_hash
         {
