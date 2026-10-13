@@ -466,6 +466,6 @@ fn multisig_occurrence_refuses_nested_cancellation_before_any_original_mutation(
         );
         assert!(proposal_state(tx, account, &target_id).is_ok());
         assert!(proposal_state(tx, account, &cancel_id).is_ok());
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
     });
 }

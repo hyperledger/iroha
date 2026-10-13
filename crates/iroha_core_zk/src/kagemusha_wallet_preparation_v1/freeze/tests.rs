@@ -101,9 +101,9 @@ fn prepared_native_insertions_retain_exact_low_and_intermediate_empty_openings()
 }
 
 #[test]
-fn zero_send_fee_noop_preserves_exact_canonical_capsule_opening_bytes() {
+fn zero_send_fee_noop_preserves_exact_canonical_body_bytes() {
     // Codec projection only; the vector's fixture proof never reaches admission.
-    // Preserve every capsule field while comparing the exact map_openings generated
+    // Preserve every body field while comparing the exact map_openings generated
     // by a pending-only Send before and after adding the transient fold witness.
     let mut pending_tree = KagemushaWalletIndexedTreeV1::new();
     let pending = pending_tree
@@ -113,9 +113,10 @@ fn zero_send_fee_noop_preserves_exact_canonical_capsule_opening_bytes() {
         pending.low_opening.leaf_transcript(&pending.low),
         pending.slot_opening.empty_transcript(),
     ];
-    let mut original = capsule();
-    original.map_openings = pending_originals.clone();
-    let original_bytes = norito::encode_canonical(&original).unwrap();
+    let original = capsule();
+    let mut original_body = original.body().clone();
+    original_body.map_openings = pending_originals.clone();
+    let original_bytes = norito::encode_canonical(&original_body).unwrap();
     for populated in [false, true] {
         let mut fee_tree = KagemushaWalletIndexedTreeV1::new();
         if populated {
@@ -136,7 +137,7 @@ fn zero_send_fee_noop_preserves_exact_canonical_capsule_opening_bytes() {
             monetary::send_fee_map(&root, fee, SendFeeMapV1::Preserve { leaf, opening }).unwrap();
         let insertions = monetary::send_insertions(&pending, fee.fee, transient).unwrap();
         assert_eq!(insertions.len(), 1);
-        let mut regenerated = original.clone();
+        let mut regenerated = original_body.clone();
         regenerated.map_openings = map_openings(&insertions);
         assert_eq!(regenerated.map_openings, pending_originals);
         assert_eq!(
@@ -144,8 +145,8 @@ fn zero_send_fee_noop_preserves_exact_canonical_capsule_opening_bytes() {
             original_bytes
         );
         // Pin the actual defect: adding a no-op as a second canonical insertion
-        // changes complete capsule bytes even though the fee root did not change.
-        let mut wrong = original.clone();
+        // changes complete body bytes even though the fee root did not change.
+        let mut wrong = original_body.clone();
         wrong.map_openings = map_openings(&[insertions[0], transient]);
         assert_ne!(norito::encode_canonical(&wrong).unwrap(), original_bytes);
         assert_eq!(fee_tree.root(), root);
